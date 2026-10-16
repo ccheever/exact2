@@ -39,20 +39,24 @@ impl Lowerer<'_> {
             && attrs
                 .iter()
                 .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+        if !virtualized {
+            if let Some(edge) = attrs
+                .iter()
+                .find(|a| matches!(a.name.as_str(), "reachstart" | "reachend"))
+            {
+                return err(
+                    "lower-collection-edge",
+                    super::vocab::collection_edge_refusal(&edge.name),
+                    edge.span,
+                );
+            }
+        }
         if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
             if !virtualized {
-                return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `each`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);
+                return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `for`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);
             }
         }
         self.check_group(virtualized, attrs, children, scope)?;
-        // @ref LLP 1010 §6.9 — `scroll-padding` is read by a virtualized
-        // list's `scrollIntoView` alone; a native host aligns nothing else by
-        // it, where the browser would.
-        if let Some(a) = attrs.iter().find(|a| a.name.starts_with("scroll-padding")) {
-            if !virtualized {
-                return err("lower-scroll-padding", format!("`{}` insets where a virtualized list's `scrollIntoView` aligns a row; native hosts read it nowhere else, so on {} the web alone would follow it: put it on a `list virtualized=true`, or leave it out", a.name, if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), a.span);
-            }
-        }
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -89,13 +93,13 @@ impl Lowerer<'_> {
         let [Node::Each { body, .. }] = children else {
             return err(
                 "lower-collection-template",
-                "a virtualized list initially supports exactly one direct each",
+                "a virtualized list initially supports exactly one direct `for`",
                 span,
             );
         };
         self.check_nested(body, false)?;
         let [Node::Element { tag, attrs, .. }] = body.as_slice() else {
-            return err("lower-collection-template", "each in a virtualized list needs exactly one element flow root (wrap conditional or multiple roots in column)", span);
+            return err("lower-collection-template", "a `for` in a virtualized list needs exactly one element flow root (wrap conditional or multiple roots in column)", span);
         };
         if tag == "dialog" {
             return err(
@@ -149,7 +153,7 @@ impl Lowerer<'_> {
         let mut inner = scope.clone();
         inner.push_each(var, index.as_deref(), item);
         match contract_types::infer(key, &inner, shapes) {
-            Ok(t) if t != Ty::String && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `each` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
+            Ok(t) if t != Ty::String && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
             _ => Ok(()),
         }
     }
@@ -277,8 +281,8 @@ impl Lowerer<'_> {
     /// Main-axis padding on a virtualized list (@ref LLP 1010 §6.9): CSS's
     /// room before the first row and after the last, inside the scroll
     /// content. It takes what padding takes elsewhere (a number,
-    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: the
-    /// runner reads the list's resolved padding from layout at every report.
+    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: each
+    /// host reports the padding it laid out with the list's offset.
     /// A percentage is refused: Apple's hosts place rows from the authored
     /// padding, which has no containing block to resolve one against.
     /// `scroll-padding` along the axis takes the same forms: the inset a

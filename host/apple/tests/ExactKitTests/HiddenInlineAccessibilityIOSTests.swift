@@ -101,4 +101,38 @@ final class HiddenInlineAccessibilityIOSTests: XCTestCase {
         XCTAssertTrue(labels.contains("Shown"))
         XCTAssertFalse(labels.contains { $0.contains("Secret") })
     }
+
+    func testInlineLinkARIAUnavailabilityAndAncestorState() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["accessibilityRole": "group", "accessibilityDisabled": "true"]],
+            ["op": "create", "id": 2, "kind": "text", "style": ["font_size": 18]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0],
+        ]))
+        func paragraph(_ disabled: String?) {
+            let state = disabled.map { ",\"accessibilityDisabled\":\"\($0)\"" } ?? ""
+            p.apply(wire(#"{"ops":[{"op":"paragraph","id":2,"runs":[{"id":3,"parent":2,"paint":true,"props":{"text":"Updates","href":"/updates""# + state + #"},"style":{"font_size":18}}]}]}"#))
+        }
+        func unavailable() throws -> Bool {
+            let node = try XCTUnwrap(p.views[2])
+            let link = try XCTUnwrap((node.textAccessibilityChildren() ?? []).first { ($0 as? AgentOwned)?.agentViewId == 3 })
+            #if os(macOS)
+            return (link as? NSAccessibilityElement)?.accessibilityAttributeValue(.enabled) as? Bool == false
+            #else
+            return (link as? UIAccessibilityElement)?.accessibilityTraits.contains(.notEnabled) == true
+            #endif
+        }
+        paragraph(nil)
+        XCTAssertTrue(try unavailable(), "a disabled ancestor reaches the inline link")
+        paragraph("false")
+        XCTAssertFalse(try unavailable(), "the run's explicit false overrides its ancestor")
+        paragraph("true")
+        XCTAssertTrue(try unavailable(), "the run's own state reaches its exposed element")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(try unavailable(), "the run's own true survives clearing the ancestor")
+        paragraph(nil)
+        XCTAssertFalse(try unavailable(), "clearing the run and ancestor restores the link")
+    }
 }

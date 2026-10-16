@@ -22,7 +22,10 @@
 //! store)` returns the answer's value — or a `Promise` of it, when it awaited
 //! `fetch` — and throws for an error (an object with `kind` of
 //! `UnknownSource`, `BadArguments`, or `Unavailable` and a `message`; any
-//! other throw is `Unavailable`). `fetch(url, init)` is the web's, over the
+//! other throw is `Unavailable`). In a running session, an answer's own
+//! error becomes `Failed(Error, …)`: its resource fails or send ends unsent,
+//! while the asking commit stands (LLP 1027.000 D3). Bake and replacement
+//! validation still refuse it. `fetch(url, init)` is the web's, over the
 //! host's ticket path: the module describes, the host runs under the grants,
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
 //! `text()`, `json()`, `arrayBuffer()`. Liveness is the module's, as a
@@ -54,7 +57,10 @@ mod door;
 mod engine;
 mod native;
 mod paired;
+#[cfg(all(test, exact_js_engine))]
+mod phase_cost_tests;
 mod pure;
+mod socket;
 mod source;
 mod storage;
 mod turns;
@@ -159,6 +165,12 @@ const WAITING: u64 = u64::MAX - 1;
 struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
+    /// The socket operations the answer being made handed over (op 14),
+    /// by the prelude's ticket for each socket's stream (LLP 1016.000 D7).
+    socket_ops: Vec<(u64, exact_runner::SocketOp)>,
+    /// Each open socket's buffered bytes at the start of this turn, by the
+    /// prelude's ticket for its stream (op 15).
+    socket_buffered: Vec<(u64, u64)>,
     native: Option<Box<dyn NativeModule>>,
     /// The native module takes long calls off this thread (`native.later`).
     later: bool,
@@ -184,6 +196,8 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
+    /// A replacement candidate must answer successfully before it can be installed.
+    validating: bool,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
     /// Delivering between answers (a background round, a let-go call's
@@ -228,6 +242,7 @@ pub struct Module {
     max_heap: u32,
     /// How long a storage step is waited for (tests shorten it).
     storage_wait: std::time::Duration,
+    document_owner: u64,
     logs: Vec<String>,
     overruns: u32,
     /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
@@ -294,6 +309,7 @@ impl Module {
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
             storage_wait: storage::WAIT,
+            document_owner: 0,
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
@@ -354,6 +370,7 @@ impl Module {
         let plan = template.plan.as_ref().map(Plan::encode);
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
+        let document_owner = template.document_owner;
         let agent_seed = template.agent_seed;
         let watch = template.watch.clone();
         let native_slot = template.native_slot.clone();
@@ -371,6 +388,7 @@ impl Module {
             }
             module.set_budget_ms(budget_ms);
             module.set_max_heap(max_heap);
+            module.set_document_owner(document_owner);
             if let Some(paths) = directories {
                 module.configure_storage(paths.data, paths.cache, paths.temporary)?;
             }
@@ -471,7 +489,11 @@ impl Module {
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.
-        self.storage = Some(storage::Session::open(&io, self.storage_wait)?);
+        self.storage = Some(storage::Session::open(
+            &io,
+            self.storage_wait,
+            self.document_owner,
+        )?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;
@@ -761,6 +783,8 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
+        let refuses = self.host.baking || self.host.validating;
+        let session = store.is_some() && !refuses;
         // No answer waits for another to begin (LLP 1097 D4.5): answers
         // interleave at their awaits, as two async calls do on the web, and
         // storage keeps the order it was issued in (the prelude's queue).
@@ -784,12 +808,22 @@ impl Module {
         let args_text = Json::Array(json_args).to_string();
         // A new answer's JavaScript may settle what another answer awaits.
         self.progress += 1;
-        self.host.store = store.map(|s| s as *mut Store);
+        let mut store = store;
+        self.host.store = store.as_mut().map(|s| &mut **s as *mut Store);
+        self.host.socket_ops.clear();
+        if let Some(store) = store.as_deref() {
+            self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        }
+        // A mutation's synchronous source may send on a socket (D7).
+        let mutation = match target {
+            Some(Target::Mutation(_)) if session => "mutation",
+            _ => "",
+        };
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
-                .call("__exact_call", [source, &args_text, ""])
+                .call("__exact_call", [source, &args_text, mutation])
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             let mut reply = Module::decode_reply(sig, engine, source, &text)?;
             if reply.fields.get("tag").and_then(Json::as_u64) == Some(3) {
@@ -815,6 +849,17 @@ impl Module {
         if result.is_err() || took_ms > self.budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
+        // Socket operations ride only an answer given now (D7).
+        let socket_ops = std::mem::take(&mut self.host.socket_ops);
+        let result = match (result, store) {
+            (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
+                match self.stage_sockets(store, socket_ops) {
+                    Ok(()) => Ok(Step::Done(Ok(v))),
+                    Err(why) => Ok(Step::Done(Err(DataError::Failed(FailureCode::Error, why)))),
+                }
+            }
+            (result, _) => result,
+        };
         if result.is_err() && self.watch.take() {
             // After the store is cleared, so a let-go step is not this
             // answer's write (LLP 1097; a934686a0).
@@ -833,7 +878,15 @@ impl Module {
         }
         let answer = match result {
             Err(e) => Err(e),
-            Ok(Step::Done(r)) => r.map(Answer::Now),
+            // The web learns a rejection after the input commits. Native
+            // answers fail the same target (LLP 1027.000 D3).
+            Ok(Step::Done(r)) => r.map(Answer::Now).map_err(|e| match e {
+                DataError::Unavailable(m) | DataError::BadArguments(m) if session => {
+                    DataError::Failed(FailureCode::Error, m)
+                }
+                DataError::Failed(_, m) if refuses => DataError::Unavailable(m),
+                e => e,
+            }),
             Ok(Step::Pending { call, ticket }) => {
                 let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)
@@ -1135,6 +1188,7 @@ impl Module {
         let ended = !matches!(outcome, Outcome::Message(_));
         self.progress += 1;
         let outcome_text = outcome_to_json(&outcome).to_string();
+        self.host.socket_buffered = socket::snapshot(&self.streams, store);
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {

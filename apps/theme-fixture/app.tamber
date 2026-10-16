@@ -1,0 +1,26 @@
+// The theme fixture's design (LLP 1121 stage 2): an app axis beside the
+// scheme, the tokens a page reads (its ground, a card, text, a hairline, a
+// gradient, a shadow, an SVG's paint) and a role override, to be driven with
+// `prefer mode dark-style=dim` and seen on every host.
+tamber fixture
+
+axes
+  dark-style = black | dim  under scheme=dark
+
+theme
+  surface.page = light-dark(#ffffff, #000000)
+    when dark-style=dim: light-dark(#ffffff, #15202b)
+  surface.card = light-dark(#f1f3f5, #16181c)
+    when dark-style=dim: light-dark(#f1f3f5, #1e2732)
+  text.primary = light-dark(#0f1419, #e7e9ea)
+    when dark-style=dim: light-dark(#0f1419, #f7f9f9)
+  text.secondary = light-dark(#536471, #71767b)
+    when dark-style=dim: light-dark(#536471, #8b98a5)
+  border.hairline = light-dark(#cfd9de, #2f3336)
+    when dark-style=dim: light-dark(#cfd9de, #38444d)
+  accent.fill = #1d9bf0
+  accent.soft = light-dark(#8ecdf8, #1a5c8a)
+    when dark-style=dim: light-dark(#8ecdf8, #2b7bb5)
+  // A role's value: the platform's, which follows Increased Contrast.
+  text.label = -exact-label
+  AccentColor = #1d9bf0

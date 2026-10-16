@@ -35,7 +35,7 @@ shape Preview
   slug: string
   title: string
   description: string
-  tags: list<string>
+  tags: string[]
   date: string
   favorited: bool
   favoritesCount: number
@@ -45,15 +45,15 @@ shape Page
 shape Feed
   ready: bool
   message: string
-  articles: list<Preview>
-  pages: list<Page>
+  articles: Preview[]
+  pages: Page[]
 shape Article
   found: bool
   slug: string
   title: string
   description: string
   body: string
-  tags: list<string>
+  tags: string[]
   date: string
   favorited: bool
   favoritesCount: number
@@ -66,15 +66,15 @@ shape Comment
   mine: bool
 shape Auth
   ok: bool
-  errors: list<string>
+  errors: string[]
 shape Change
   kind: string
   ok: bool
   slug: string
-  errors: list<string>
+  errors: string[]
 shape Tags
   session: number
-  items: list<string>
+  items: string[]
 // What the reader pressed, by article and by author (app.ts `favs`,
 // `follows`): every view of one reads its state through these, so a press
 // shows at once and asks only this (LLP 1058 P5).
@@ -135,19 +135,19 @@ component RealWorld
   mutation tagEdit as shape Tags
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
   resource me = currentUser() as shape User else empty(avatar="/assets/default-avatar.svg")
-  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape list<string>
+  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape string[]
   resource feed = articles(listKind, current.params.tag, listName, page, me.username) as shape Feed
   resource post = article(slug, me.username) as shape Article else empty(author=empty(found=true, image="/assets/default-avatar.svg"))
-  resource thread = comments(slug, me.username) as shape list<Comment>
+  resource thread = comments(slug, me.username) as shape Comment[]
   resource person = profile(listName, me.username) as shape Profile else empty(image="/assets/default-avatar.svg")
-  resource favs = favorites() as shape list<Fav>
-  resource follows = followings() as shape list<Follow>
+  resource favs = favorites() as shape Fav[]
+  resource follows = followings() as shape Follow[]
 
   action go(url: string)
     page = 1
     tagInput = ""
     commentDraft = ""
-    if includes(url, "/editor")
+    if url.includes("/editor")
       editorSession = editorSession + 1
     nav = push(nav, url)
   action back
@@ -175,7 +175,7 @@ component RealWorld
       send followed = follow(name, on)
     else
       nav = push(nav, "/register")
-  action publish(target: string, title: string, description: string, body: string, tagList: list<string>)
+  action publish(target: string, title: string, description: string, body: string, tagList: string[])
     send change = publish(target, title, description, body, tagList)
   action deleteArticle(target: string)
     send change = deleteArticle(target)
@@ -220,16 +220,17 @@ component RealWorld
   // feed, never Your Feed again. A tick looks, since `me` answering runs
   // nothing.
   action settle
+    let nextNav = loginNext and current.name == "home" and not me.signedIn ? push(nav, "/login") : nav
     if loginNext
       loginNext = false
       if current.name == "home" and not me.signedIn
-        nav = push(nav, "/login")
+        nav = nextNav
     if following and not pending(me) and not me.signedIn
-      if depth(nav) > 1
-        nav = replace(nav, "/login")
+      if depth(nextNav) > 1
+        nav = replace(nextNav, "/login")
       else
         loginNext = true
-        nav = replace(nav, "/")
+        nav = replace(nextNav, "/")
   task settling mount
     every(100, settle)
 
@@ -238,7 +239,8 @@ component RealWorld
       navigationBack="back"
       navigate=followLink
       width="100%"
-      min-height="100%"
+      height="100%"
+      position="relative"
       display="flex"
       flex-direction="column"
       font-family="sans-serif"
@@ -247,12 +249,13 @@ component RealWorld
       color="#373a3c"
       background-color="#ffffff"
       head title="Conduit" description="A place to share your knowledge."
-      Header(me=me, current=current, go=go)
       // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
       // keeps one <Home> mounted: going to a tag changes the feed and the
       // tabs, not the page.
-      when current.name == "home" or current.name == "tag"
-        column navigationKey=`${current.id}` flex=1 testId=`page-${current.name}`
+      if current.name == "home" or current.name == "tag"
+        column navigationKey=`${current.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${current.name}`
+          // @ref LLP 1123 D2 — native routes own their content.
+          Header(me=me, current=current, go=go)
           head title="Home — Conduit"
           HomePage(
             me=me,
@@ -268,24 +271,26 @@ component RealWorld
             favs=favs,
             favorite=favorite
           )
+          Footer(go=go)
       // Every entry of the stack stays mounted, as a native stack keeps the
       // screens under its top: the navigation root shows the one whose key
       // is `current.id` and hides the rest and makes them inert. So each
       // entry's page, and the drafts its components hold (a child's state
       // lives as long as its instance, LLP 1017 P4c), survives Back.
-      each e in stack(nav) key = e.id
-        when e.name != "home" and e.name != "tag"
-          column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
-            when e.name == "login"
+      for e in stack(nav) key = e.id
+        if e.name != "home" and e.name != "tag"
+          column navigationKey=`${e.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${e.name}`
+            Header(me=me, current=e, go=go)
+            if e.name == "login"
               head title="Sign in — Conduit"
               AuthPage(signup=false, auth=auth, go=go, login=login, register=register)
-            when e.name == "register"
+            if e.name == "register"
               head title="Sign up — Conduit"
               AuthPage(signup=true, auth=auth, go=go, login=login, register=register)
-            when e.name == "settings"
+            if e.name == "settings"
               head title="Settings — Conduit"
               SettingsPage(me=me, auth=auth, save=saveSettings, logout=logout)
-            when e.name == "editor" or e.name == "edit"
+            if e.name == "editor" or e.name == "edit"
               head title="Editor — Conduit"
               EditorPage(
                 post=post,
@@ -298,7 +303,7 @@ component RealWorld
                 removeTag=removeTag,
                 publish=publish
               )
-            when e.name == "article"
+            if e.name == "article"
               head title=`${post.title} — Conduit`
               ArticlePage(
                 me=me,
@@ -316,7 +321,7 @@ component RealWorld
                 postComment=postComment,
                 uncomment=uncomment
               )
-            when e.name == "profile" or e.name == "favorites"
+            if e.name == "profile" or e.name == "favorites"
               head title=`${e.params.username} — Conduit`
               ProfilePage(
                 me=me,
@@ -332,11 +337,11 @@ component RealWorld
                 favorite=favorite,
                 follow=follow
               )
-            when e.name == "notfound"
+            if e.name == "notfound"
               head title="Not found — Conduit" status=404
               column class=Container padding-top=24
                 text "This page doesn't exist." font-size=24
-      Footer(go=go)
+            Footer(go=go)
 
 component Header
   props
@@ -360,7 +365,7 @@ component Header
             color=(current.name == "home" ? "#000000cc": "#0000004d")
             testId="nav-home"
             text "Home"
-          when me.signedIn
+          if me.signedIn
             link href="/editor" press=go("/editor")
               class=NavLink
               color=(current.name == "editor" ? "#000000cc": "#0000004d")
@@ -430,9 +435,9 @@ component Heart
     slug: string
     favorited: bool
     count: number
-    favs: list<Fav>
+    favs: Fav[]
     favorite: action
-  derive fav = first(filter(favs, f => f.slug == slug))
+  derive fav = first(favs.filter(f => f.slug == slug))
   derive on = match fav { case some(f) => f.favorited, case none => favorited }
   derive n = match fav { case some(f) => f.favoritesCount, case none => count }
   view
@@ -452,11 +457,11 @@ component Previews
     page: number
     go: action
     showPage: action
-    favs: list<Fav>
+    favs: Fav[]
     favorite: action
   view
     column
-      when loading and not feed.ready
+      if loading and not feed.ready
         text "Loading articles..." padding-top=24
           padding-bottom=24
           border-top-style="solid"
@@ -464,14 +469,14 @@ component Previews
           border-color="#eeeeee"
           testId="feed-loading"
       else
-        when feed.message != ""
+        if feed.message != ""
           text feed.message padding-top=24
             padding-bottom=24
             border-top-style="solid"
             border-top-width=1
             border-color="#eeeeee"
             testId="feed-empty"
-      each a in feed.articles key = a.slug
+      for a in feed.articles key = a.slug
         article padding-top=24
           padding-bottom=24
           border-top-style="solid"
@@ -482,7 +487,7 @@ component Previews
             Meta(author=a.author, date=a.date, go=go)
             // Signed out, the ♥ goes to sign up: a link, so it works
             // before the runtime loads.
-            when me.signedIn
+            if me.signedIn
               Heart(slug=a.slug, favorited=a.favorited, count=a.favoritesCount, favs=favs, favorite=favorite)
             else
               link href="/register" press=go("/register")
@@ -505,16 +510,16 @@ component Previews
               color="#bbbbbb"
               text "Read more..."
             row flex-wrap="wrap" justify-content="flex-end" max-width="50%"
-              each t in a.tags key = t
+              for t in a.tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
                   font-weight=300
                   background-color="#ffffff"
                   text t
-      when length(feed.pages) > 0
+      if feed.pages.length > 0
         row flex-wrap="wrap" margin-top=16 margin-bottom=16 testId="pagination"
-          each p in feed.pages key = p.n
+          for p in feed.pages key = p.n
             button press=showPage(p.n)
               padding-top=8
               padding-bottom=8
@@ -534,14 +539,14 @@ component HomePage
     me: User
     feed: Feed
     loading: bool
-    tags: list<string>
+    tags: string[]
     tagsLoading: bool
     following: bool
     tag: string
     page: number
     go: action
     showPage: action
-    favs: list<Fav>
+    favs: Fav[]
     favorite: action
   view
     column
@@ -558,7 +563,7 @@ component HomePage
           // The tabs are links, as React's are: Your Feed and Global Feed
           // push their URL; a tag's own tab is where you are.
           row class=Tabs
-            when me.signedIn
+            if me.signedIn
               link href="/?feed=following" press=go("/?feed=following")
                 padding-top=8
                 padding-bottom=8
@@ -583,7 +588,7 @@ component HomePage
               background-color="#ffffff"
               testId="tab-global"
               text "Global Feed"
-            when tag != ""
+            if tag != ""
               link href=`/tag/${encodeURIComponent(tag)}`
                 padding-top=8
                 padding-bottom=8
@@ -613,10 +618,10 @@ component HomePage
             border-color="#eeeeee"
             testId="sidebar"
             text "Popular Tags" margin-bottom=3
-            when tagsLoading and length(tags) == 0
+            if tagsLoading and tags.length == 0
               text "Loading tags..." color="#999999"
             row flex-wrap="wrap"
-              each t in tags key = t
+              for t in tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#222222"
@@ -626,10 +631,10 @@ component HomePage
 
 component Errors
   props
-    errors: list<string>
+    errors: string[]
   view
     column class=Error testId="errors"
-      each m in errors key = m
+      for m in errors key = m
         text `• ${m}`
 
 component AuthPage
@@ -663,12 +668,12 @@ component AuthPage
           text(signup ? "Have an account?": "Need an account?")
         match auth
           case some(a)
-            when not a.ok
+            if not a.ok
               Errors(errors=a.errors)
           case none
             box
         column
-          when signup
+          if signup
             input value=username
               input=setUsername
               placeholder="Username"
@@ -688,7 +693,7 @@ component AuthPage
             aria-label="Password"
             class=FieldLg
             testId="password"
-          when signup
+          if signup
             button press=register(username, email, password) class=BtnLg testId="submit"
               text "Sign up"
           else
@@ -739,7 +744,7 @@ component SettingsPage
           text-align="center"
         match auth
           case some(a)
-            when not a.ok
+            if not a.ok
               Errors(errors=a.errors)
           case none
             box
@@ -798,7 +803,7 @@ component EditorPage
     post: Article
     editing: bool
     change: option<Change>
-    tags: list<string>
+    tags: string[]
     tagInput: string
     setTagInput: action
     tagKey: action
@@ -828,7 +833,7 @@ component EditorPage
       column width="100%" max-width=950
         match change
           case some(c)
-            when not c.ok and c.kind == "publish"
+            if not c.ok and c.kind == "publish"
               Errors(errors=c.errors)
           case none
             box
@@ -860,7 +865,7 @@ component EditorPage
           margin-bottom=4
           testId="tags"
         row flex-wrap="wrap" margin-bottom=16
-          each t in tags key = t
+          for t in tags key = t
             row class=Tag
               align-items="center"
               gap=4
@@ -883,21 +888,21 @@ component ArticleActions
     me: User
     post: Article
     go: action
-    favs: list<Fav>
-    follows: list<Follow>
+    favs: Fav[]
+    follows: Follow[]
     favorite: action
     follow: action
     remove: action
     light: bool
-  derive fav = first(filter(favs, f => f.slug == post.slug))
+  derive fav = first(favs.filter(f => f.slug == post.slug))
   derive favorited = match fav { case some(f) => f.favorited, case none => post.favorited }
   derive count = match fav { case some(f) => f.favoritesCount, case none => post.favoritesCount }
-  derive pressed = first(filter(follows, f => f.username == post.author.username))
+  derive pressed = first(follows.filter(f => f.username == post.author.username))
   derive following = match pressed { case some(f) => f.following, case none => post.author.following }
   view
     row align-items="center" flex-wrap="wrap" gap=8
       Meta(author=post.author, date=post.date, go=go)
-      when me.signedIn and me.username == post.author.username
+      if me.signedIn and me.username == post.author.username
         button press=go(`/editor/${encodeURIComponent(post.slug)}`)
           class=BtnSm
           border-color="#cccccc"
@@ -915,7 +920,7 @@ component ArticleActions
       else
         // Signed out, both go to sign up: links, so they work before the
         // runtime loads.
-        when me.signedIn
+        if me.signedIn
           button press=follow(post.author.username, not following)
             class=BtnSm
             border-color="#cccccc"
@@ -951,10 +956,10 @@ component ArticlePage
     me: User
     post: Article
     loading: bool
-    thread: list<Comment>
+    thread: Comment[]
     go: action
-    favs: list<Fav>
-    follows: list<Follow>
+    favs: Fav[]
+    follows: Follow[]
     favorite: action
     follow: action
     remove: action
@@ -964,7 +969,7 @@ component ArticlePage
     uncomment: action
   view
     column
-      when not post.found
+      if not post.found
         column class=Container padding-top=24
           text(loading ? "Loading article...": "This article doesn't exist.") testId="article-loading"
       else
@@ -995,7 +1000,7 @@ component ArticlePage
               line-height="28.8px"
               testId="article-body"
             row flex-wrap="wrap" margin-top=16
-              each t in post.tags key = t
+              for t in post.tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
@@ -1020,7 +1025,7 @@ component ArticlePage
                 light=false
               )
             column width="100%" max-width=620 margin-left="auto" margin-right="auto"
-              when me.signedIn
+              if me.signedIn
                 column border-style="solid"
                   border-width=1
                   border-color="#eeeeee"
@@ -1068,7 +1073,7 @@ component ArticlePage
                   link href="/register" press=go("/register") color="#33aa44"
                     text "sign up"
                   text "to add comments on this article."
-              each c in thread key = c.id
+              for c in thread key = c.id
                 column border-style="solid"
                   border-width=1
                   border-color="#eeeeee"
@@ -1097,7 +1102,7 @@ component ArticlePage
                       color="#33aa44"
                       text c.author.username
                     text c.date color="#bbbbbb"
-                    when c.mine
+                    if c.mine
                       button press=uncomment(post.slug, c.id)
                         margin-left="auto"
                         color="#333333"
@@ -1116,11 +1121,11 @@ component ProfilePage
     page: number
     go: action
     showPage: action
-    favs: list<Fav>
-    follows: list<Follow>
+    favs: Fav[]
+    follows: Follow[]
     favorite: action
     follow: action
-  derive pressed = first(filter(follows, f => f.username == person.username))
+  derive pressed = first(follows.filter(f => f.username == person.username))
   derive following = match pressed { case some(f) => f.following, case none => person.following }
   view
     column
@@ -1148,8 +1153,8 @@ component ProfilePage
             max-width=450
             text-align="center"
             margin-bottom=8
-          when person.found
-            when me.signedIn and me.username == person.username
+          if person.found
+            if me.signedIn and me.username == person.username
               button press=go("/settings")
                 class=BtnSm
                 align-self="flex-end"
@@ -1159,7 +1164,7 @@ component ProfilePage
                 testId="edit-settings"
                 text "⚙ Edit Profile Settings"
             else
-              when me.signedIn
+              if me.signedIn
                 button press=follow(person.username, not following)
                   class=BtnSm
                   align-self="flex-end"

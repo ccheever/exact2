@@ -119,6 +119,9 @@ fn logical(name: &str) -> Option<String> {
 
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
+        None if crate::fields::placeholder_hint(&a.name).is_some() => {
+            crate::fields::placeholder_hint(&a.name).unwrap_or_default()
+        }
         Some(new @ ("press" | "change" | "input")) => format!(
             "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name
@@ -139,6 +142,14 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
             a.name,
             logical(&a.name).unwrap_or_default()
         ),
+        None if tag == "dialog" && a.name == "open" => {
+            ": in HTML, `open` alone shows a dialog non-modally, which Exact does not support. For a \
+             modal, give the dialog an `id` and call `showModal(\"id\")` in an action, or put \
+             `commandfor=\"id\" command=\"show-modal\"` on a button; close it with `close(\"id\")` \
+             or `commandfor=\"id\" command=\"close\"`. A dialog that state holds open is not \
+             available yet"
+                .into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }
@@ -178,6 +189,14 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
 /// tag or a bad colour is reported in the same run as a type error.
 pub fn lint(file: &File) -> Vec<LowerError> {
+    // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
+    // row's value is one, so each stands for any.
+    let theme = crate::theme::theme_decl(file);
+    crate::theme::bind_axes(file);
+    let entries = theme.iter().flat_map(|t| &t.entries);
+    let _theme = exact_kernel::style::theme::declarations(
+        entries.map(|e| (e.name.as_str(), "transparent", false)),
+    );
     fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
         for n in nodes {
             match n {
@@ -211,7 +230,14 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
-                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
+                                    values::check_style_value(
+                                        a,
+                                        rows,
+                                        &Ty::Unknown,
+                                        &[],
+                                        &Default::default(),
+                                        &Default::default(),
+                                    )
                                 }
                                 // The shorthand's parts, as lowering checks them: `flex="none"`
                                 // was refused here as a grow number beside another error
@@ -228,6 +254,8 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                                 &[row],
                                                 &Ty::Unknown,
                                                 &[],
+                                                &Default::default(),
+                                                &Default::default(),
                                             )
                                         })
                                 }
@@ -236,7 +264,12 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 }
                                 Some(_) => Ok(()),
                             };
-                            errors.extend(checked.err());
+                            // An expression over a token is folded by the
+                            // build (a synthetic token, LLP 1121 D3), not here.
+                            let folded = matches!(&a.value, contract_syntax::Expr::Str(t, _)
+                                if t.contains('(') && t.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+                                    .any(exact_kernel::style::theme::names));
+                            errors.extend(checked.err().filter(|_| !folded));
                         }
                     }
                     walk(children, errors);

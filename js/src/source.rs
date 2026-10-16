@@ -3,6 +3,10 @@
 use super::*;
 
 impl DataSource for Module {
+    fn set_document_owner(&mut self, owner: u64) {
+        self.document_owner = owner;
+    }
+
     fn take_logs(&mut self) -> Vec<String> {
         self.journal_lines()
     }
@@ -124,6 +128,7 @@ impl DataSource for Module {
         // its disposable engine can only record ordinary host requests.
         self.unload();
         self.directories = None;
+        self.host.validating = true;
         self.activate()
     }
 
@@ -132,6 +137,7 @@ impl DataSource for Module {
             .map(|pair| {
                 let mut module = pair.module;
                 module.directories = self.directories.clone();
+                module.document_owner = self.document_owner;
                 module.native_factory = self.native_factory;
                 module
             })
@@ -308,7 +314,7 @@ impl DataSource for Module {
         // A resource whose answer the bake's storage refusal ended (an
         // uncaught `code: 'bake'`) is the device's to answer: that is
         // `DeferredAtBake` (aab190948), and the runner shows its placeholder.
-        // An error the source raises itself stays fatal, even after a
+        // At bake, an error the source raises itself stays fatal, even after a
         // refusal it caught (kanban2 #5).
         let answer = self.begin(Some(store), Some(target), source, args);
         self.refresh_background();

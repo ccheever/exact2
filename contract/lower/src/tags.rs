@@ -1,7 +1,7 @@
 //! The tag and attribute table: Contract's view vocabulary onto the kernel's.
 //!
 //! @ref LLP 1004 D2 (kernel ordinals from `exact-kernel`, never redeclared)
-//! @ref `rules/RULES.md` §Scope (the web is the standard: every row here is a
+//! @ref LLP 1115 §2 (names stay CSS: every row here is a
 //! CSS property or an HTML attribute by its CSS/HTML name)
 //! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
 //! `testId` and explicitly declared host-policy props aside)
@@ -13,7 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -82,7 +82,8 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
-        // @ref LLP 1021 D1 — HTML's separator, its UA sheet's rows; void.
+        // @ref LLP 1021 D1 — HTML's separator, one hairline (LLP 1115.000
+        // D10.3); void.
         "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),
@@ -434,11 +435,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "rows" => AttrTarget::Prop(p("rows")),
         "maxlength" => AttrTarget::Prop(p("maxlength")),
         "cancel" => AttrTarget::Handler("cancel"),
+        "close" => AttrTarget::Handler("close"),
+        "toggle" => AttrTarget::Handler("toggle"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),
+        "focusin" => AttrTarget::Handler("focusin"),
+        "focusout" => AttrTarget::Handler("focusout"),
         "key" => AttrTarget::Handler("key"),
+        "keycapture" => AttrTarget::Handler("keycapture"),
         // DOM's `keyup`: a key's release, bubbling as `key` does (#140).
         "keyup" => AttrTarget::Handler("keyup"),
         "submit" => AttrTarget::Handler("submit"),
@@ -458,12 +464,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),
+        "beforeinput" => AttrTarget::Handler("beforeinput"),
         "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
+        "intersect" => AttrTarget::Handler("intersect"),
+        "intersect-margin" => AttrTarget::Prop(p("intersectMargin")),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "refresh" => AttrTarget::Handler("refresh"),
         "scroll" => AttrTarget::Handler("scroll"),
+        "scrollend" => AttrTarget::Handler("scrollend"),
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
@@ -529,9 +539,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
+        // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
+        // `none` for a full-bleed screen.
+        "navigationBar" => AttrTarget::Prop(p("navigationBar")),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
+        // @ref LLP 1116.004 D1.2 — a wide window's split: "none", or the list column's width.
+        "navigationSplit" => AttrTarget::Prop(p("navigationSplit")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
         "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
@@ -553,6 +568,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
+        "-exact-menu" => AttrTarget::Prop(p("menuPlacement")),
+        "-exact-menu-remove" => AttrTarget::Prop(p("menuRemove")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
@@ -641,6 +658,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
+        "aria-disabled" => AttrTarget::Prop(p("accessibilityDisabled")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
@@ -966,7 +984,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
             "a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"
         }
         "details" | "summary" => {
-            "there is no `details`: keep `open` in state, show the body `when open`, and toggle it from a `button`"
+            "there is no `details`: keep `open` in state, show the body `if open`, and toggle it from a `button`"
         }
         "hstack" | "vstack" | "stack" | "flex" => "a horizontal stack is `row`, a vertical one `column`",
         "container" | "card" => "a box is `view` (or `column`, `row`), styled by a `style` declared in this file",
@@ -1260,25 +1278,84 @@ pub(crate) fn multicol_on_flex(
 }
 
 impl crate::Lowerer<'_> {
-    /// @ref LLP 1115 §3 — a run with an `href` in its paragraph is a link:
-    /// unsaid, its colour is the platform's link role (the tint on iOS,
-    /// `linkColor` on macOS, the browser's own on the web), as the UA's
-    /// `a:link` is. Pushed before the author's rows, so a `color` on the run
-    /// or its class wins; a block-level `link` keeps inheriting.
-    pub(crate) fn link_run_color(
+    /// @ref LLP 1115 §3, LLP 1115.000 D3.5 — a link's unsaid colour is the
+    /// platform's link role (the tint on iOS, `linkColor` on macOS, the
+    /// accent on the web), as the UA's `a:link` is: a run with an `href` in
+    /// its paragraph, and a block `link` of text (a `tel:` or `mailto:`
+    /// value, a "Learn more"), which a hand-built screen draws in the tint.
+    /// A `link` holding a row or a column, or given a `role`, is its
+    /// author's row or button and keeps inheriting. Pushed before the
+    /// author's rows, so a `color` on the link, the run or a class wins. A
+    /// terminal entry's block link is left as it is: what a terminal shows
+    /// for a link is the terminal's to decide (`QUEUE.md`).
+    ///
+    /// An `href` that turns out empty is no link (`Props::link` is how a
+    /// host reads the value), so the row follows the value: a computed
+    /// `href` chooses between the role and `inherit` as it changes, and a
+    /// written `href=""` gets no row. A package that writes `href=r.href`
+    /// on every run of a paragraph, empty for plain prose, then colours
+    /// only its links.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn link_color(
         &mut self,
         tag: &str,
         parent_tag: Option<&str>,
         attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
+        scope: &crate::Scope,
+        locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) {
-        if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::TextColor as u16,
-                expr: self.fixed(true, "LinkText"),
-            });
+        use contract_syntax::{BinOp, Expr, Node, TemplatePart};
+        // Texts and images alone, an `if` or a `for` of them included.
+        fn words(node: &Node) -> bool {
+            match node {
+                Node::Element { tag, .. } => tag == "text" || tag == "image",
+                Node::When {
+                    then, otherwise, ..
+                } => then.iter().chain(otherwise).all(words),
+                Node::Each { body, .. } => body.iter().all(words),
+                Node::Match { some, none, .. } => some.1.iter().chain(none).all(words),
+                Node::Use { .. } | Node::Children { .. } => false,
+            }
         }
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let href = attrs.iter().rev().find(|a| a.name == "href");
+        let run = tag == "text" && parent_tag == Some("text") && href.is_some();
+        let block = tag == "link"
+            && self.profile != crate::Profile::Terminal
+            && !has("role")
+            && !children.is_empty()
+            && children.iter().all(words);
+        if !(run || block) {
+            return;
+        }
+        let link = match href.map(|a| &a.value) {
+            Some(Expr::Str(to, _)) if to.is_empty() => return,
+            // A written target, a template with words of its own, or a
+            // block `link` that is its `press`: a link whatever happens.
+            None | Some(Expr::Str(..)) => self.fixed(true, "LinkText"),
+            Some(Expr::Template(parts, _))
+                if parts
+                    .iter()
+                    .any(|p| matches!(p, TemplatePart::Text(t) if !t.is_empty())) =>
+            {
+                self.fixed(true, "LinkText")
+            }
+            Some(to) => {
+                let span = to.span();
+                let word = |w: &str| Box::new(Expr::Str(w.into(), span));
+                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), word(""), span);
+                let chosen =
+                    Expr::Ternary(Box::new(empty), word("inherit"), word("LinkText"), span);
+                // A value the attribute's own lowering refuses is said there.
+                let Ok(code) = self.expr_code(&chosen, scope, locals) else {
+                    return;
+                };
+                code
+            }
+        };
+        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
     }
 
     /// @ref LLP 1115 D3 — a heading is the platform's text style for its
@@ -1341,11 +1418,8 @@ impl crate::Lowerer<'_> {
             // ARIA's default level, said: a host that reads the level (iOS's
             // header-shaped route takes only a heading with one) sees 2.
             let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Prop,
-                id: p("accessibilityHeadingLevel") as u16,
-                expr,
-            });
+            let level = p("accessibilityHeadingLevel");
+            bindings.push(crate::prop_row(level, expr, crate::IMPLIED));
         }
         let span = level.map_or_else(Default::default, |l| l.span());
         let two = Expr::Number(2.0, span);
@@ -1360,11 +1434,7 @@ impl crate::Lowerer<'_> {
             leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
         for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
             let expr = self.expr_code(&value, scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: row as u16,
-                expr,
-            });
+            bindings.push(crate::style_row(row, expr, crate::IMPLIED));
         }
         Ok(())
     }

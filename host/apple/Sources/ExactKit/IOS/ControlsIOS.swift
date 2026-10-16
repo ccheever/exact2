@@ -6,16 +6,18 @@
 // tvOS, where it stands in for a switch too, it is Safari's rounded square.
 // Contract owns the value: the control flips at once, reports, and shows the
 // committed `checked` after the action (D4). `appearance: none` draws
-// nothing native.
+// nothing native. VoiceOver reads it as UIKit reads a toggle (LLP 1115.000
+// D13.3).
 #if os(iOS) || os(tvOS)
 import UIKit
 
 /// The checklist mark: an SF Symbol circle at the body text's size, filled
 /// and checked when on (tvOS: a 16×16 rounded square). A radio is drawn on
-/// it (`ExactRadio`, RadioIOS.swift). VoiceOver reads either as Safari reads
-/// a checkbox, a button with a checked state.
+/// it, with its own symbols (`ExactRadio`, RadioIOS.swift). VoiceOver reads
+/// a checkbox as it reads UIKit's own toggles (`updateAccessibility`).
 class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
+    var ariaUnavailable = false { didSet { if ariaUnavailable != oldValue { updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
     override var isEnabled: Bool { didSet { setNeedsDisplay(); updateAccessibility() } }
     override init(frame: CGRect) {
@@ -43,15 +45,34 @@ class ExactCheckbox: UIControl {
         let s = mark(on: false, tint: .label)?.size ?? CGSize(width: 22, height: 22)
         return CGSize(width: ceil(s.width), height: ceil(s.height))
     }
+    /// A finger's target is 44 points each way at least (Apple's minimum),
+    /// whatever the mark's size: the touch reaches past the mark's box,
+    /// which stays the mark's for layout (LLP 1115.000 D13.2). Where two
+    /// marks' margins meet (radios side by side), the nearer mark has it.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if bounds.contains(point) { return true }
+        guard bounds.insetBy(dx: min(0, (bounds.width - 44) / 2), dy: min(0, (bounds.height - 44) / 2)).contains(point) else { return false }
+        let mine = hypot(point.x - bounds.midX, point.y - bounds.midY)
+        let marks = superview?.superview?.subviews.flatMap { $0.subviews.compactMap { $0 as? ExactCheckbox } } ?? []
+        return !marks.contains { other in
+            guard other !== self, !other.isHidden else { return false }
+            let there = convert(point, to: other)
+            return hypot(there.x - other.bounds.midX, there.y - other.bounds.midY) < mine
+        }
+    }
     #endif
     @objc func activated() {
         isOn.toggle()
         sendActions(for: .valueChanged)
     }
-    /// VoiceOver reads it as Safari's: a button with a checked state.
+    /// A toggle, as UIKit has one (LLP 1115.000 D13.3): the `toggleButton`
+    /// trait and UIKit's own value, "1" on and "0" off, which is what a
+    /// `UISwitch` reports and what VoiceOver speaks in the reader's language.
+    /// It had been Safari's English words, "checked" and "unchecked", read
+    /// out as written in every language.
     func updateAccessibility() {
-        accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
-        accessibilityValue = isOn ? "checked" : "unchecked"
+        accessibilityTraits = isEnabled && !ariaUnavailable ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
+        accessibilityValue = isOn ? "1" : "0"
     }
     override func draw(_ rect: CGRect) {
         let side = min(bounds.width, bounds.height)
@@ -105,6 +126,8 @@ final class ControlHost: NSObject {
     /// A range's bound value last written into it: written again only when
     /// it changes (LLP 1069.001 D4, amended 2026-10-04).
     var appliedRange: [UInt32: String] = [:]
+    /// A range's steps as its ticks were last made for (min, max, step).
+    var appliedTicks: [UInt32: String] = [:]
     /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
     var radioGroup: ((UInt32) -> RadioGroup)?
     /// A select's choice the bound value has not caught up with yet.
@@ -136,6 +159,7 @@ final class ControlHost: NSObject {
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
         menus.removeValue(forKey: node.id)
         appliedRange.removeValue(forKey: node.id)
+        appliedTicks.removeValue(forKey: node.id)
         let made: UIControl
         switch kind {
         #if os(tvOS)
@@ -163,6 +187,9 @@ final class ControlHost: NSObject {
         return made
     }
 
+    /// Asks for the face of `id` again at the next sync.
+    func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
+
     /// `contents`: a control's viewless contents may have changed (a batch
     /// with `controls`, or a sync outside any batch); `touched`, the nodes
     /// the batch changed.
@@ -180,6 +207,7 @@ final class ControlHost: NSObject {
             menus.removeValue(forKey: id)
             lastRange.removeValue(forKey: id)
             appliedRange.removeValue(forKey: id)
+            appliedTicks.removeValue(forKey: id)
             picked.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
@@ -218,6 +246,9 @@ final class ControlHost: NSObject {
                 configureValue(control, owner, accent: accent)
             }
             #endif
+            if let c = control as? ExactCheckbox {
+                c.ariaUnavailable = owner.ariaUnavailable
+            }
             if !(control is NativeButtonIOS) {
                 assign(control, \.isEnabled, !owner.disabled)
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
@@ -336,6 +367,7 @@ final class ControlHost: NSObject {
         menus.removeAll()
         lastRange.removeAll()
         appliedRange.removeAll()
+        appliedTicks.removeAll()
         picked.removeAll()
         faces.removeAll()
     }

@@ -15,10 +15,11 @@ import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { webRequestURL } from '../../scripts/origin.mjs';
-import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
+import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
+import { compilerWarnings, INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
+import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -56,12 +57,12 @@ function build(app, dist) {
       // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
       const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
       if (types) console.log(types);
-      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}` }); }
+      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       replaceBuild(stage, dist);
-      done({ error: null, logic, packages });
+      done({ error: null, logic, packages, warnings: compilerWarnings(log) });
     });
   });
 }
@@ -73,8 +74,17 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // A first build that fails (a refusal or a compile error) serves its
   // errors in the page and builds again at the next edit.
   let built = await build(app, dist), error = built.error, logicRevision = built.logic ?? '';
+  // The compiler's warnings (LLP 1116.004 D7) when they change, not again at each save that leaves them.
+  let warned = '';
+  const warn = (warnings) => {
+    if (!warnings || warnings.join('\n') === warned) return;
+    if (warnings.length) console.log(warnings.join('\n'));
+    else console.log('the compiler warns of nothing now');
+    warned = warnings.join('\n');
+  };
   if (error) console.log(`JS target: ${app.name} does not build; its errors show in the page\n${error}`);
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
+  warn(built.warnings);
   console.log('plan ready');
   const clients = new Set();
   const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
@@ -90,6 +100,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       logicRevision = built.logic;
       pending.set(++seq, at);
       console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
+      warn(built.warnings);
       push({ reload: seq, revision: logicRevision });
     }
     if (again) { again = false; rebuild(); }
@@ -118,7 +129,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   };
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];
-  for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
+  for (const f of ['navigation.js', 'index.html', 'neutral.css', 'look.mjs']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
   // Each Contract package the app uses, wherever it is installed or linked.
   const packages = new Set();
   const contractSources = new Set();
@@ -161,11 +172,14 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   // the local iOS build (D6b): this server's, since only it sees the real
   // peer (a forwarded request's is loopback).
   const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
+  // The design server's wire (LLP 1121 D13), when the app has a design.
+  const tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir }) : null;
   const server = createServer(async (req, res) => {
     const access = gate.check(req);
     if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     const url = webRequestURL(req.url);
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    if (tamber && await tamber.handle(req, res, url, access)) return;
     if (await installer.handle(req, res, url, access)) return;
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -210,9 +224,9 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     // to it (below), started at the first such request.
     if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
       || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
-    const found = buildTreeFile(dist, url.pathname);
+    const found = buildTreeFile(dist, url.pathname, req.headers.accept);
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
-    if (!found && error && !url.pathname.slice(1).includes('.')) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
+    if (!found && error && (url.pathname === '/' || appDocumentPath(url.pathname, acceptsHTML(req.headers.accept)))) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     let body = installer.page(found.route, readFileSync(found.path), access);
     if (found.route.endsWith('.html')) {
@@ -260,6 +274,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   }, (e) => { res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
   const stop = async () => {
     for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
+    // The design server lets go of its lock before this exits.
+    await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
     const install = installer.child;
     if (install && install.exitCode === null && install.signalCode === null) { const exit = new Promise((ok) => install.once('exit', ok)); install.kill('SIGTERM'); await exit; }

@@ -13,7 +13,7 @@
 //! is flagged, and resolves only when no active screen carries it.
 
 use crate::{DataSource, Runner};
-use exact_kernel::{NodeType, PropId, PropList, PropValue, ViewId};
+use exact_kernel::{Kernel, NodeType, PropId, PropList, PropValue, ViewId};
 
 /// The active head's fields; `None` where no active head sets one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -79,25 +79,68 @@ impl<D: DataSource> Runner<D> {
     /// that is not the selected one (LLP 1075.003 §3.7; shop F16), which
     /// every host hides and makes inert, so nothing there is pressed or read.
     pub fn inactive(&self, id: ViewId) -> bool {
-        let kernel = self.kernel();
-        let node = |id: ViewId| {
-            kernel
-                .node(id)
-                .map(|n| (n.node_type, n.props, n.children()))
-        };
-        let mut path = vec![id];
-        let mut parent = kernel.node(id).and_then(|node| node.parent);
-        while let Some(at) = parent.and_then(|id| kernel.node(id)) {
-            if let Some(n) = node(at.id) {
-                if unselected(&node, &n).iter().any(|off| path.contains(off)) {
+        inactive(self.kernel(), id)
+    }
+}
+
+pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
+    let node = |id: ViewId| {
+        kernel
+            .node(id)
+            .map(|n| (n.node_type, n.props, n.children()))
+    };
+    let mut path = vec![id];
+    let mut parent = kernel.node(id).and_then(|node| node.parent);
+    while let Some(at) = parent.and_then(|id| kernel.node(id)) {
+        if let Some(n) = node(at.id) {
+            let off = unselected(&node, &n);
+            if let Some(route) = off.iter().find(|off| path.contains(off)) {
+                if !beside_a_pane(kernel, &n, *route) {
                     return true;
                 }
             }
-            path.push(at.id);
-            parent = at.parent;
         }
-        false
+        path.push(at.id);
+        parent = at.parent;
     }
+    false
+}
+
+/// Whether `route`, one the navigation root `root` has not selected, is
+/// shown all the same: it is the first of its stack, laid out in the page,
+/// and the route the root selected is in that stack and laid out in a pane
+/// a host reported (a containing block that is the size on both axes, LLP
+/// 1115.002 D8.2). A host that shows a stack's top in a pane of its own
+/// shows the stack's list beside it, live (LLP 1115.002 D4); under a sheet,
+/// whose block is a maximum, the list is covered as before. A host that
+/// gives the list a block of its own too lays each route out in its own
+/// container (LLP 1123 D2): the route over it covers it.
+fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
+    use exact_kernel::BlockAxis;
+    let Some(key) = root.1.str(PropId::NavigationKey) else {
+        return false;
+    };
+    let key_of = |id: ViewId| {
+        kernel
+            .node(id)
+            .and_then(|n| n.props.str(PropId::NavigationKey))
+    };
+    let stack: Vec<ViewId> = kernel
+        .node(route)
+        .and_then(|n| n.parent)
+        .and_then(|p| kernel.node(p))
+        .map(|p| p.children())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|id| key_of(*id).is_some())
+        .collect();
+    stack.first() == Some(&route)
+        && kernel.host_block(route).is_none()
+        && stack
+            .iter()
+            .find(|id| key_of(**id) == Some(key))
+            .and_then(|selected| kernel.host_block(*selected))
+            .is_some_and(|b| matches!((b.width, b.height), (BlockAxis::Is(_), BlockAxis::Is(_))))
 }
 
 /// The active head of the tree under `roots`, as `node` reads it: the walk
@@ -110,8 +153,12 @@ pub(crate) fn head_of<'a>(
     let mut best: [Option<(usize, &str)>; 5] = [None; 5];
     let mut status: Option<(usize, u16)> = None;
     let mut edited: Option<(usize, bool)> = None;
+    let mut off = Vec::new();
     let mut stack: Vec<(ViewId, usize)> = roots.into_iter().rev().map(|root| (root, 0)).collect();
     while let Some((id, depth)) = stack.pop() {
+        if off.contains(&id) {
+            continue;
+        }
         let Some(at) = node(id) else {
             continue;
         };
@@ -136,11 +183,9 @@ pub(crate) fn head_of<'a>(
             }
             continue;
         }
-        let selected = selected_route(&node, &at);
+        off.extend(unselected(&node, &at));
         for child in at.2.iter().rev() {
-            if !covered(&node, selected, *child) {
-                stack.push((*child, depth + 1));
-            }
+            stack.push((*child, depth + 1));
         }
     }
     let [title, description, image, canonical, robots] =
@@ -154,36 +199,6 @@ pub(crate) fn head_of<'a>(
         status: status.map(|(_, code)| code),
         edited: edited.is_some_and(|(_, on)| on),
     }
-}
-
-/// A navigation root's selected route, when its key names one of its
-/// routes; `None` for any other node — a key that names none leaves every
-/// route as it is.
-fn selected_route<'a>(
-    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
-    at: &HeadNode<'a>,
-) -> Option<&'a str> {
-    let props: &'a PropList = at.1;
-    let key = props
-        .str(PropId::NavigationBack)
-        .and(props.str(PropId::NavigationKey))?;
-    at.2.iter()
-        .any(|c| node(*c).is_some_and(|(_, c, _)| c.str(PropId::NavigationKey) == Some(key)))
-        .then_some(key)
-}
-
-/// Whether `child`, under a root that selected `selected`, is a route that
-/// root has not selected.
-fn covered<'a>(
-    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
-    selected: Option<&str>,
-    child: ViewId,
-) -> bool {
-    selected.is_some_and(|key| {
-        node(child)
-            .and_then(|(_, c, _)| c.str(PropId::NavigationKey))
-            .is_some_and(|route| route != key)
-    })
 }
 
 /// What a navigation root leaves unselected, as every host's projection

@@ -5,15 +5,15 @@
 //! ([`NodeKey`]), and destroyed slots go on a free list. Nothing here hashes on
 //! the read path except the wire-id lookup a producer's op needs once.
 //!
-//! The arena is the authored truth. Frames and Taffy handles are derived
-//! columns: rehydration is columns-plus-rebuild, never serialized engine state.
+//! Rehydration rebuilds frames and Taffy handles from authored columns.
 
-use crate::id::IdMap;
+use crate::id::{BoxInset, IdMap};
 use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
 use std::rc::Rc;
 pub(crate) mod button;
 pub(crate) mod control_text;
+pub(crate) mod defaults;
 
 use taffy::NodeId;
 
@@ -59,6 +59,13 @@ pub struct NodeArena {
     pub(crate) frag: crate::fragment::FragState,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
     pub(crate) relative_slots: SlotSet,
+    /// System symbols whose role or font changed: their natural size is
+    /// measured again before the next layout (`Kernel::measure_symbols`).
+    pub(crate) symbols_owed: SlotSet,
+    /// Symbols whose natural size the kernel measured itself, for their
+    /// current role and font, under the measurer's revision the kernel last
+    /// measured at (`Kernel::measures_symbol`).
+    pub(crate) measured_symbols: SlotSet,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
     /// The timeline-bearing nodes and what each follower's name resolves
@@ -67,16 +74,26 @@ pub struct NodeArena {
     /// A root font size the host set since the last commit, which that
     /// commit applies (LLP 1069.000 D3).
     pub(crate) root_font_size_next: Option<f32>,
+    /// The display's scale, device pixels a px, which a hairline resolves
+    /// against (LLP 1115.000 D10.3): 1 until the host says (`None`), and
+    /// its next commit applies what it says.
+    pub(crate) display_scale: Option<f32>,
+    pub(crate) display_scale_next: Option<f32>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
+    /// Padding and border published by the document or content-region layout.
+    insets: Vec<Option<BoxInset>>,
     /// Host intrinsic size: a replaced element's natural size or a projected
-    /// tablist's native control size; `None` before measurement or after removal.
+    /// tablist's or radio group's native control size; `None` before
+    /// measurement or after removal.
     intrinsic: Vec<Option<(f32, f32)>>,
     /// What a host container covers of a box (LLP 1075.003 §3.5): a few
     /// route nodes at most, so a list by slot rather than a column (and not a
     /// map, whose code every web core would carry).
     covers: Vec<(u32, crate::kernel::HostCover)>,
+    /// The containing blocks hosts gave subtrees (LLP 1115.002 D8.2).
+    pub(crate) blocks: crate::kernel::Blocks,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
     free: Vec<u32>,
@@ -124,12 +141,18 @@ impl Clone for NodeArena {
             exclusion_slots: self.exclusion_slots.clone(),
             frag: self.frag.clone(),
             relative_slots: self.relative_slots.clone(),
+            symbols_owed: self.symbols_owed.clone(),
+            measured_symbols: self.measured_symbols.clone(),
             sticky_slots: self.sticky_slots.clone(),
             timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
+            display_scale: self.display_scale,
+            display_scale_next: self.display_scale_next,
             contents: self.contents.clone(),
+            insets: self.insets.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),
+            blocks: self.blocks.clone(),
             taffy: self.taffy.clone(),
             is_root: self.is_root.clone(),
             free: self.free.clone(),
@@ -180,7 +203,6 @@ impl NodeArena {
         self.env = env;
         self.refresh_control_styles();
     }
-
     /// Forget every allocation while retaining each slot's generation.
     ///
     /// Resetting the kernel must not make a pre-reset [`NodeKey`] valid for a
@@ -195,6 +217,8 @@ impl NodeArena {
         self.exclusion_slots.clear();
         self.frag = Default::default();
         self.relative_slots.clear();
+        self.symbols_owed.clear();
+        self.measured_symbols.clear();
         self.sticky_slots.clear();
         self.timelines = Default::default();
         for slot in 0..self.live.len() {
@@ -208,27 +232,26 @@ impl NodeArena {
             self.type_counts.clear();
             self.frames[slot] = Frame::default();
             self.contents[slot] = (0.0, 0.0);
+            self.insets[slot] = None;
             self.intrinsic[slot] = None;
             self.taffy[slot] = None;
             self.is_root[slot] = false;
         }
         self.covers.clear();
+        self.blocks = Default::default();
         self.free = (0..self.live.len() as u32).rev().collect();
         self.roots.clear();
         self.by_local.clear();
         self.live_count = 0;
     }
-
     /// Slots the columns hold (live plus free).
     pub fn slot_count(&self) -> usize {
         self.live.len()
     }
-
     /// Slots ever allocated: identities never repeat below this.
     pub(crate) fn slot_space(&self) -> usize {
         self.generations.len()
     }
-
     /// Return what the columns hold beyond the live nodes, once they hold
     /// more than twice as many slots: trailing free slots go (their
     /// generations stay, so a stale key never names a later node), and each
@@ -263,6 +286,7 @@ impl NodeArena {
             geometry_passes,
             frames,
             contents,
+            insets,
             intrinsic,
             taffy,
             is_root,
@@ -271,12 +295,10 @@ impl NodeArena {
         self.flow.shrink_to_fit();
         self.by_local.shrink_to_fit();
     }
-
     /// Whether `slot` holds a live node.
     pub fn is_live(&self, slot: u32) -> bool {
         (slot as usize) < self.live.len() && self.live[slot as usize]
     }
-
     /// The generation-checked key for a live slot.
     pub fn key(&self, slot: u32) -> NodeKey {
         NodeKey {
@@ -284,7 +306,6 @@ impl NodeArena {
             generation: self.generations[slot as usize],
         }
     }
-
     /// The slot a key names, if that allocation is still live.
     pub fn resolve(&self, key: NodeKey) -> Option<u32> {
         if self.is_live(key.index) && self.generations[key.index as usize] == key.generation {
@@ -293,34 +314,28 @@ impl NodeArena {
             None
         }
     }
-
     /// The slot holding wire id `id`.
     pub fn slot_of(&self, id: ViewId) -> Option<u32> {
         self.by_local.get(&id).copied()
     }
-
     /// The key for wire id `id`.
     pub fn key_of(&self, id: ViewId) -> Option<NodeKey> {
         self.slot_of(id).map(|s| self.key(s))
     }
-
     /// Wire id of a slot.
     pub fn local_id(&self, slot: u32) -> ViewId {
         self.local_ids[slot as usize]
     }
-
     /// Node type of a slot.
     pub fn node_type(&self, slot: u32) -> NodeType {
         self.node_types[slot as usize]
     }
-
     /// Whether a slot is a `<button>` element on the web: a Pressable,
     /// whatever its ARIA role, unless an `href` makes it an `<a>`.
     pub(crate) fn is_button(&self, slot: u32) -> bool {
         self.node_type(slot) == NodeType::Pressable
             && self.props(slot).str(crate::PropId::Href).is_none()
     }
-
     /// Parent slot.
     pub fn parent(&self, slot: u32) -> Option<u32> {
         self.parents[slot as usize]
@@ -505,115 +520,6 @@ impl NodeArena {
                 .is_some_and(|p| self.node_types[p as usize] == NodeType::Text)
     }
 
-    /// The slot whose own row supplies `id` for `slot`: the slot itself when
-    /// it sets the row; for a row the schema marks inherited, the nearest
-    /// logical ancestor that does; `None` when the initial value applies
-    /// (CSS inheritance, LLP 1035.000 D1).
-    pub fn inherited_source(&self, slot: u32, id: StyleId) -> Option<u32> {
-        let mut cur = Some(slot);
-        while let Some(s) = cur {
-            if self.styles[s as usize].mask.has(id) {
-                return Some(s);
-            }
-            if self
-                .control_text_start(s)
-                .is_some_and(|start| start.mask.has(id))
-            {
-                return None;
-            }
-            if !id.inherited() {
-                return None;
-            }
-            cur = self.parents[s as usize];
-        }
-        None
-    }
-
-    /// The node's rows with the inherited rows in `rows` resolved through the
-    /// logical ancestors: an own row stays; a missing inherited row takes the
-    /// nearest ancestor's and is marked set; a row no ancestor sets keeps the
-    /// initial value, unmarked. Rows outside `rows`, and rows the schema does
-    /// not mark inherited, are the node's own. One walk, however many rows.
-    pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
-        let mut out = StyleProps::clone(&self.styles[slot as usize]);
-        self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
-        out
-    }
-
-    /// The style that supplies row `id` of [`NodeArena::computed_style`]:
-    /// one row read without copying a whole style.
-    pub fn computed_source(&self, slot: u32, id: StyleId) -> &StyleProps {
-        let mut cur = Some(slot);
-        while let Some(s) = cur {
-            let own = &self.styles[s as usize];
-            if own.mask.has(id) || !id.inherited() {
-                return own;
-            }
-            if let Some(start) = self
-                .control_text_start(s)
-                .filter(|start| start.mask.has(id))
-            {
-                return start;
-            }
-            cur = self.parents[s as usize];
-        }
-        if self.document_style.mask.has(id) {
-            return &self.document_style;
-        }
-        &self.styles[slot as usize]
-    }
-
-    /// [`crate::text::TextStyle::from_style`] of the computed style, read
-    /// where its rows are set, without copying a style.
-    pub fn text_style(&self, slot: u32) -> crate::text::TextStyle {
-        crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
-            self.copy_inherited(slot, rows, take)
-        })
-    }
-
-    /// Values used only to compare inherited rows across a topology change.
-    /// No unrelated style payloads are copied into these transient snapshots.
-    pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
-        let mut out = InheritedStyle::new(&self.styles[slot as usize]);
-        self.copy_inherited(slot, StyleMask::INHERITED, |from, mask| {
-            out.copy_rows(from, mask)
-        });
-        out
-    }
-
-    fn copy_inherited(
-        &self,
-        slot: u32,
-        rows: StyleMask,
-        mut copy: impl FnMut(&StyleProps, StyleMask),
-    ) {
-        let mut pending = rows
-            .intersect(StyleMask::INHERITED)
-            .minus(self.styles[slot as usize].mask);
-        let mut cur = Some(slot);
-        while !pending.is_empty() {
-            let Some(p) = cur else { break };
-            let ancestor: &StyleProps = &self.styles[p as usize];
-            let found = pending.intersect(ancestor.mask);
-            if !found.is_empty() {
-                copy(ancestor, found);
-                pending = pending.minus(found);
-            }
-            if let Some(start) = self.control_text_start(p) {
-                let stopped = pending.intersect(start.mask);
-                if !stopped.is_empty() {
-                    copy(start, stopped);
-                    pending = pending.minus(stopped);
-                }
-            }
-            cur = self.parents[p as usize];
-        }
-        let found = pending.intersect(self.document_style.mask);
-        if !found.is_empty() {
-            copy(&self.document_style, found);
-        }
-    }
-
     /// What the leaf's string is (LLP 1045 D3): its `markup` prop.
     pub fn markup(&self, slot: u32) -> crate::text::Markup {
         crate::text::Markup::from_prop(self.props[slot as usize].str(PropId::Markup))
@@ -671,7 +577,15 @@ impl NodeArena {
     /// [`Self::text_runs`] at `scale` of their size (a fit's measurement).
     pub(crate) fn text_runs_at<'a>(&'a self, slot: u32, scale: f32, out: &mut Vec<TextRun<'a>>) {
         let start = out.len();
-        self.text_runs_after(slot, out, &mut crate::text::case::WordBoundary::default());
+        let rows = crate::text::RunRows::from_rows(&self.styles[slot as usize], |rows, take| {
+            self.copy_inherited(slot, rows, take)
+        });
+        self.text_runs_after(
+            slot,
+            rows,
+            out,
+            &mut crate::text::case::WordBoundary::default(),
+        );
         if scale != 1.0 {
             for run in &mut out[start..] {
                 run.style = run.style.scaled(scale);
@@ -682,13 +596,14 @@ impl NodeArena {
     fn text_runs_after<'a>(
         &'a self,
         slot: u32,
+        rows: crate::text::RunRows,
         out: &mut Vec<TextRun<'a>>,
         boundary: &mut crate::text::case::WordBoundary,
     ) {
         let s = slot as usize;
-        let style = self.text_style(slot);
         match self.node_types[s] {
             NodeType::TextInput => {
+                let style = rows.style();
                 // An input has a line box even when empty (the web's
                 // `<input>`): its value, else its placeholder, else one space.
                 let props = &self.props[s];
@@ -731,18 +646,26 @@ impl NodeArena {
                     let shown = if self.markup(slot) == crate::text::Markup::Markdown {
                         text.into()
                     } else {
-                        let hyphens = self.computed_source(slot, StyleId::Hyphens).hyphens;
-                        let transform = self
-                            .computed_source(slot, StyleId::TextTransform)
-                            .text_transform;
-                        hyphens.shown(crate::text::case::shown(transform, text, *boundary))
+                        rows.hyphens.shown(crate::text::case::shown(
+                            rows.transform,
+                            text,
+                            *boundary,
+                        ))
                     };
                     boundary.push(text);
-                    out.push(TextRun { text: shown, style });
+                    out.push(TextRun {
+                        text: shown,
+                        style: rows.style(),
+                    });
                 } else {
                     for child in &self.children[s] {
                         if self.node_types[*child as usize] == NodeType::Text {
-                            self.text_runs_after(*child, out, boundary);
+                            self.text_runs_after(
+                                *child,
+                                rows.child(&self.styles[*child as usize]),
+                                out,
+                                boundary,
+                            );
                         }
                     }
                 }
@@ -819,6 +742,7 @@ impl NodeArena {
                 self.geometry_passes.push((0, 0));
                 self.frames.push(Frame::default());
                 self.contents.push((0.0, 0.0));
+                self.insets.push(None);
                 self.intrinsic.push(None);
                 self.taffy.push(None);
                 self.is_root.push(false);
@@ -842,6 +766,7 @@ impl NodeArena {
         self.layout_dirty.insert(slot);
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.insets[s] = None;
         self.intrinsic[s] = None;
         self.taffy[s] = None;
         self.is_root[s] = false;
@@ -856,6 +781,8 @@ impl NodeArena {
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
+        self.symbols_owed.remove(slot);
+        self.measured_symbols.remove(slot);
         self.button_bases.remove(&slot);
         self.fit_scales.remove(&slot);
         self.sticky_slots.remove(slot);
@@ -875,8 +802,10 @@ impl NodeArena {
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.insets[s] = None;
         self.intrinsic[s] = None;
         self.covers.retain(|(s, _)| *s != slot);
+        self.blocks.set(slot, None);
         self.taffy[s] = None;
         if self.is_root[s] {
             self.roots.retain(|r| *r != slot);
@@ -957,22 +886,37 @@ impl NodeArena {
 
     /// Replace the slot's style, sharing an equal one's allocation.
     pub(crate) fn set_style(&mut self, slot: u32, style: StyleProps) {
+        let style = self.shared.intern(style);
+        self.set_shared_style(slot, style);
+    }
+
+    /// Patch a slot without copying a style another node already holds.
+    pub(crate) fn patch_style(&mut self, slot: u32, patch: &StyleProps) {
+        let style = self.shared.patch(&self.styles[slot as usize], patch);
+        self.set_shared_style(slot, style);
+    }
+
+    /// Clear rows without copying a style another node already holds.
+    pub(crate) fn clear_style(&mut self, slot: u32, mask: crate::StyleMask, written: bool) {
+        let style = self
+            .shared
+            .clear(&self.styles[slot as usize], mask, written);
+        self.set_shared_style(slot, style);
+    }
+
+    fn set_shared_style(&mut self, slot: u32, style: Rc<StyleProps>) {
         if style.relative.is_empty() {
             self.relative_slots.remove(slot);
         } else {
             self.relative_slots.insert(slot);
-        }
-        if style.position_type == crate::PositionType::Sticky {
-            self.sticky_slots.insert(slot);
-        } else {
-            self.sticky_slots.remove(slot);
         }
         if crate::fragment::is_multicol(&style) {
             self.frag.containers.insert(slot);
         } else {
             self.frag.containers.remove(slot);
         }
-        self.styles[slot as usize] = self.shared.intern(style);
+        self.styles[slot as usize] = style;
+        self.refresh_sticky(slot);
     }
 
     /// Distinct styles the arena holds for its nodes, beyond the initial one.
@@ -1021,6 +965,14 @@ impl NodeArena {
             .is_some_and(|n| *n > 0)
     }
 
+    /// Paint and prop export flags do not invalidate layout publication.
+    /// Their callers mark any changed geometry or measure owner separately.
+    pub(crate) fn mark_export_dirty(&mut self, slot: u32, flag: NodeFlags) {
+        debug_assert!(flag == NodeFlags::PAINT_DIRTY || flag == NodeFlags::PROPS_DIRTY);
+        self.flags[slot as usize] = self.flags(slot);
+        self.flags[slot as usize].insert(flag);
+    }
+
     pub(crate) fn flags_mut(&mut self, slot: u32) -> &mut NodeFlags {
         self.layout_dirty.insert(slot);
         self.flags[slot as usize] = self.flags(slot);
@@ -1058,6 +1010,14 @@ impl NodeArena {
 
     pub(crate) fn set_content(&mut self, slot: u32, content: (f32, f32)) {
         self.contents[slot as usize] = content;
+    }
+
+    pub(crate) fn set_inset(&mut self, slot: u32, inset: Option<BoxInset>) {
+        self.insets[slot as usize] = inset;
+    }
+
+    pub(crate) fn inset(&self, slot: u32) -> Option<BoxInset> {
+        self.insets[slot as usize]
     }
 
     pub(crate) fn set_frame(&mut self, slot: u32, frame: Frame) {
@@ -1144,7 +1104,9 @@ mod tests {
     fn compact_inheritance_matches_full_styles_through_overrides_and_detach() {
         use crate::style::StyleValue;
         let number = StyleValue::Number;
-        let text = |s: &str| StyleValue::Text(s.into());
+        fn text(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let samples = [
             (StyleId::Direction, text("rtl")),
             (StyleId::CaretColor, text("light-dark(#ffffff, #112233)")),
@@ -1162,6 +1124,8 @@ mod tests {
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::DynamicRangeLimit, text("constrained")),
             (StyleId::ColorScheme, text("dark")),
+            // LLP 1121 D5: the app tuple, plus one.
+            (StyleId::Mode, number(2.0)),
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
@@ -1199,6 +1163,7 @@ mod tests {
             (StyleId::MarkerEnd, text("url(#a)")),
             (StyleId::ColorInterpolationFilters, text("sRGB")),
             (StyleId::TextBoxEdge, text("cap-alphabetic")),
+            (StyleId::TextWrapStyle, text("balance")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

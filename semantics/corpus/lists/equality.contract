@@ -5,13 +5,13 @@ shape Item
   n: number
 
 component App
-  resource items = items() as shape list<Item>
-  derive keepAll = filter(items, x => true) == items
-  derive dropAll = filter(items, x => false) == []
-  derive mapped = map(items, x => x.n) == map(items, x => x.n)
-  derive shifted = map(items, x => x.n + 1) == map(items, x => x.n)
-  derive emptyEq = isEmpty(items) == (items == [])
-  derive idsNe = map(items, x => x.id) != map(items, x => `${x.id}!`)
+  resource items = items() as shape Item[]
+  derive keepAll = items.filter(x => true) == items
+  derive dropAll = items.filter(x => false) == []
+  derive mapped = items.map(x => x.n) == items.map(x => x.n)
+  derive shifted = items.map(x => x.n + 1) == items.map(x => x.n)
+  derive emptyEq = items.isEmpty() == (items == [])
+  derive idsNe = items.map(x => x.id) != items.map(x => `${x.id}!`)
   view
     text `${keepAll}` testId="k"
 

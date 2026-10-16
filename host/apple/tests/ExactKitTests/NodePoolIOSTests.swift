@@ -48,6 +48,27 @@ final class NodePoolIOSTests: XCTestCase {
         return p
     }
 
+    func testQueuedPopoverEventsDoNotFollowARecycledRow() throws {
+        for newEvent in [false, true] {
+            let p = fixture(), row = try XCTUnwrap(p.views[10])
+            row.props["popover"] = "auto"; row.handlers.insert("toggle")
+            var events: [String] = []
+            p.onClipboard = { id, _, payload in events.append("\(id):\(payload)") }
+            p.popoverEvents.changed(row, open: false)
+            let token = row.incarnation
+            p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+                + [["op": "children", "id": 1, "ids": [20]]]))
+            XCTAssertTrue(p.views[20] === row)
+            XCTAssertNotEqual(row.incarnation, token)
+            row.props["popover"] = "auto"; row.handlers.insert("toggle")
+            if newEvent { p.popoverEvents.changed(row, open: true) }
+            let drained = expectation(description: "queued toggle tasks drained")
+            DispatchQueue.main.async { drained.fulfill() }
+            wait(for: [drained], timeout: 20)
+            XCTAssertEqual(events, newEvent ? ["20:closed,open"] : [])
+        }
+    }
+
     func testARetiredRowsViewsComeBackUnderTheNextRowsIds() throws {
         let p = fixture()
         let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11]), button = try XCTUnwrap(p.views[12])
@@ -71,6 +92,43 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(glyph.symbolView === symbolView, "the same symbol keeps its glyph view")
         XCTAssertFalse(p.pool.isParked(row))
         XCTAssertEqual(p.pool.count, 0)
+    }
+
+    func testARetiredForwardingRowCancelsItsAncestorInsteadOfBeingReused() throws {
+        final class Contact: UITouch {
+            let target: UIView, point: CGPoint
+            init(_ target: UIView, point: CGPoint) { self.target = target; self.point = point; super.init() }
+            override var view: UIView? { target }
+            override func location(in view: UIView?) -> CGPoint { view.map { $0.convert(point, from: nil) } ?? point }
+        }
+        for releaseTouch in [false, true] {
+            let p = fixture(), row = try XCTUnwrap(p.views[10]), list = try XCTUnwrap(p.views[1])
+            list.handlers = ["press"]
+            let point = row.convert(CGPoint(x: 150, y: 22), to: nil)
+            XCTAssertTrue(window.hitTest(window.convert(point, from: nil), with: nil) === row)
+            var pressed: [UInt32] = []; p.onPress = { pressed.append($0) }
+            weak var weakTouch: Contact?
+            var retainedTouch: Contact?
+            autoreleasepool {
+                let touch = Contact(row, point: point)
+                weakTouch = touch
+                if !releaseTouch { retainedTouch = touch }
+                row.touchesBegan([touch], with: nil)
+            }
+            XCTAssertEqual(weakTouch == nil, releaseTouch, "the released case has no UITouch and no terminal callback")
+            XCTAssertFalse(row.pressed, "only the ancestor owns the press")
+            XCTAssertTrue(list.pressed)
+            p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+                + [["op": "children", "id": 1, "ids": [20]]]))
+            XCTAssertFalse(p.views[20] === row, "the unfinished forwarder is not recycled into the next row")
+            XCTAssertFalse(list.pressed, "retiring the hit cancels its ancestor even after the weak touch is gone")
+            XCTAssertNil(row.presenter)
+            if let touch = retainedTouch {
+                row.touchesEnded([touch], with: nil)
+                row.touchesCancelled([touch], with: nil)
+            }
+            XCTAssertEqual(pressed, [])
+        }
     }
 
     func testAPropTheNewRowLacksIsGoneAndAnotherSymbolIsSet() throws {
@@ -345,7 +403,7 @@ final class NodePoolIOSTests: XCTestCase {
         let p = listFixture(heavyRowOps(10, kind: "canvas2d", y: 0), root: 10)
         let draw = { (id: Int, lifetime: Int) -> [String: Any] in
             ["op": "canvas2d", "id": id, "lifetime": lifetime, "generation": 0, "seq": 0, "fresh": true,
-             "w": 300, "h": 200, "scale": 2.0, "stretch": false, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [String]()]
+             "w": 300, "h": 200, "scale": 2.0, "stretch": false, "lists": [String]()]
         }
         p.apply(wireBatch([draw(12, 1)]))
         p.canvas2d.waitForReplays()  // replay runs off the main thread (LLP 1056 §8.3)
@@ -527,9 +585,11 @@ final class NodePoolIOSTests: XCTestCase {
         let first = FakeModule.made[0]
         XCTAssertTrue(first.view.superview === a)
         a.style = ["padding_left": 4, "padding_right": 4, "padding_top": 4, "padding_bottom": 4, "border_width": 2]
+        a.applyContentBox(padding: [4, 4, 4, 4], border: [2, 2, 2, 2])
         natives.laidOut(a)
         XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 188, height: 88), "module content excludes padding and border")
         a.frame.size = CGSize(width: 160, height: 80)
+        a.applyContentBox(padding: [4, 4, 4, 4], border: [2, 2, 2, 2])
         natives.laidOut(a)
         XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 148, height: 68), "the content frame follows CSS resizing")
         first.send(9, "120,40"); first.send(9, "120,80")

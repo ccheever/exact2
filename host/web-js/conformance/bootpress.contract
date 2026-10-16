@@ -11,7 +11,7 @@ routes nav
 component BootPress
   state presses = 0
   state words = ""
-  resource tags = popularTags(true) as shape list<string>
+  resource tags = popularTags(true) as shape string[]
   action bump
     presses = presses + 1
   action setWords(value: string)
@@ -22,7 +22,7 @@ component BootPress
         text "Press"
       input value=words change=setWords testId="boot-words" aria-label="Words"
       text `${presses} ${words}` testId="boot-state"
-      when length(tags) == 0
+      if tags.length == 0
         text "Loading tags" testId="boot-loading"
-      each t in tags key = t
+      for t in tags key = t
         text t

@@ -24,9 +24,9 @@ component Tip
       row justify-content="space-between"
         text "Tip rate"
         text formatNumber(tipPercent / 100, "percent") testId="rate"
-      row role="tablist" aria-label="Tip"
-        each p in [15, 18, 20] key=p
-          button role="tab" aria-selected=(tipPercent == p) press=setTip(p) testId=`tip-${p}` flex=1
+      row role="radiogroup" aria-label="Tip"
+        for p in [15, 18, 20] key=p
+          button role="radio" aria-checked=(tipPercent == p) press=setTip(p) testId=`tip-${p}` flex=1
             text `${p}%`
 ```
 

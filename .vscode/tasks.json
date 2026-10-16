@@ -41,7 +41,7 @@
     {
       "label": "check: test",
       "type": "shell",
-      "command": "cargo test --lib --bins --tests --no-fail-fast",
+      "command": "cargo test --tests --no-fail-fast",
       "group": { "kind": "test", "isDefault": true },
       "problemMatcher": "$rustc"
     },
@@ -71,10 +71,17 @@
       "problemMatcher": "$exact-contract"
     },
     {
-      "label": "check: all five",
-      "detail": "The five checks in order; caps reads what git has staged.",
+      "label": "check: workspace",
+      "detail": "Every crate compiles, those outside default-members too. Needs the pinned Bun first on PATH.",
+      "type": "shell",
+      "command": "cargo check --workspace --all-targets --keep-going",
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "check: all six",
+      "detail": "The six checks in order; caps reads what git has staged.",
       "dependsOrder": "sequence",
-      "dependsOn": ["check: build", "check: test", "check: clippy", "check: fmt", "check: caps", "check: boot"],
+      "dependsOn": ["check: build", "check: test", "check: clippy", "check: fmt", "check: caps", "check: boot", "check: workspace"],
       "problemMatcher": []
     },
     {

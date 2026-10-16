@@ -226,14 +226,7 @@ fn decorated(s: &StyleProps) -> bool {
         Some(ColorValue::LightDark(a, b)) => a.a() > 0 || b.a() > 0,
         _ => true,
     };
-    let borders = [
-        (s.border_width_top, s.border_style_top),
-        (s.border_width_right, s.border_style_right),
-        (s.border_width_bottom, s.border_style_bottom),
-        (s.border_width_left, s.border_style_left),
-    ]
-    .iter()
-    .any(|(w, style)| *w > 0.0 && *style == crate::BorderStyle::Solid);
+    let borders = s.border_widths().into_iter().any(|w| w > 0.0);
     let radius = [
         s.border_radius_top_left,
         s.border_radius_top_right,
@@ -252,9 +245,13 @@ fn decorated(s: &StyleProps) -> bool {
 }
 
 pub(crate) fn kind(arena: &NodeArena, slot: u32) -> Kind {
-    let s = arena.style(slot);
+    let effective = arena.effective_style(slot);
+    let s = &*effective;
     let sized = |d: Dimension| !matches!(d, Dimension::Auto);
-    let floor = |d: Dimension| !matches!(d, Dimension::Auto | Dimension::Points(0.0));
+    // A negative calculated minimum lays out as zero.
+    let floor = |d: Dimension| {
+        !matches!(d, Dimension::Auto) && !matches!(d, Dimension::Points(v) if v <= 0.0)
+    };
     let sized = sized(s.height) || floor(s.min_height) || sized(s.max_height);
     match arena.node_type(slot) {
         NodeType::Text if sized => Kind::Monolithic(Some(FragmentRefusal::Height)),
@@ -415,6 +412,10 @@ fn laid_out_under(arena: &NodeArena, root: u32, slot: u32) -> Option<bool> {
         shown &= arena.style(s).display != Display::None && arena.taffy(s).is_some();
         if s == root {
             return Some(shown);
+        }
+        // A host's containing block is another layout's (LLP 1115.002 D8.2).
+        if arena.blocks.holds(s) {
+            return None;
         }
         at = arena.parent(s);
     }

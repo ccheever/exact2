@@ -50,8 +50,9 @@ final class ConfirmationAlertIOSTests: XCTestCase {
     }
     /// An alertdialog popover `confirm` (2) opened by 1, with the given
     /// text rows (10…), actions (3…, the first destructive) and, if asked,
-    /// a hide-only Cancel (9).
-    private func confirmation(label: String?, texts: [String], actions: [String], cancel: Bool) -> (Presenter, UIViewController, Bool) {
+    /// a hide-only Cancel (9). `bareLead`: the first action is a button
+    /// its author drew (`appearance="none"`), with that style.
+    private func confirmation(label: String?, texts: [String], actions: [String], cancel: Bool, bareLead: [String: Any]? = nil) -> (Presenter, UIViewController, Bool) {
         var titles: [UInt32: String] = [9: "Cancel"]
         for (i, title) in actions.enumerated() { titles[UInt32(3 + i)] = title }
         let (p, controller, scene) = presenting(titles)
@@ -70,6 +71,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         }
         for i in actions.indices {
             ops += native(3 + i, closes.merging(i == 0 ? ["destructive": "true"] : [:]) { $1 }, y: Double(40 * i))
+            if i == 0, let bareLead { ops[ops.count - 2] = ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "props": closes, "style": bareLead] }
             children.append(3 + i)
         }
         if cancel { ops += native(9, closes, press: false, y: 160); children.append(9) }
@@ -106,6 +108,139 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         unsafeBitCast(block, to: Handler.self)(action)
     }
 
+    func testHideThenShowDuringDismissalKeepsCommandOrderAndCoalescesToggle() throws {
+        let (p, controller, scene) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        pop.handlers.insert("toggle")
+        var events: [String] = []
+        p.onClipboard = { _, _, payload in events.append(payload) }
+        p.menus.action("showPopover", ["confirm"])
+        spin(20) { events.count == 1 && (!scene || !p.menus.inTransition) }
+        let first = try XCTUnwrap(controller.presentedViewController)
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertFalse(p.menus.isOpen(pop), "logical visibility closes immediately")
+        p.menus.action("showPopover", ["confirm"])
+        XCTAssertTrue(p.menus.isOpen(pop), "show follows hide before animation completes")
+        let turn = expectation(description: "the command batch's toggle task")
+        DispatchQueue.main.async { turn.fulfill() }
+        wait(for: [turn], timeout: 20)
+        XCTAssertEqual(events, ["closed,open", "open,open"])
+        if scene {
+            spin(20) { !p.menus.inTransition && controller.presentedViewController !== first }
+            XCTAssertNotNil(controller.presentedViewController)
+            XCTAssertTrue(p.menus.isOpen(pop))
+        }
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertFalse(p.menus.isOpen(pop), "a later hide cancels a queued reopen too")
+    }
+
+    /// A menu row that opens a confirmation opens it once the menu has gone,
+    /// and only for the row and the target the menu showed, while the row is
+    /// enabled.
+    func testAMenuRowOpensItsConfirmationOnlyWhileItAndItsTargetSurvive() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([["op": "create", "id": 30, "kind": "view", "props": ["id": "menu", "popover": "auto"], "handlers": [], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 30, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0]]
+            + native(31, ["popovertarget": "confirm", "popovertargetaction": "show"], press: false)
+            + [["op": "children", "id": 30, "ids": [31]], ["op": "roots", "ids": [1, 2, 30]]]))
+        func row() throws -> UIAction { try XCTUnwrap(p.menus.items(of: try XCTUnwrap(p.views[30])).first as? UIAction) }
+        func choose(_ action: UIAction) { action.performWithSender(nil, target: nil); spin(0.3) { false } }
+
+        let recycledRow = try row()
+        try XCTUnwrap(p.views[31]).incarnation = NodePool.issue()
+        choose(recycledRow)
+        XCTAssertFalse(p.menus.isOpen(pop), "the row it showed was recycled")
+
+        let action = try row()
+        action.performWithSender(nil, target: nil)
+        pop.incarnation = NodePool.issue()
+        spin(0.3) { false }
+        XCTAssertFalse(p.menus.isOpen(pop), "its target was recycled before it opened")
+
+        let disabledRow = try row()
+        try XCTUnwrap(p.views[31]).props["disabled"] = "true"
+        choose(disabledRow)
+        XCTAssertFalse(p.menus.isOpen(pop), "the row became disabled")
+        try XCTUnwrap(p.views[31]).props["disabled"] = nil
+
+        choose(try row())
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
+    /// Native invokers queue and cancel a reopen while the alert is still
+    /// leaving, as the imperative commands above do.
+    func testANativeShowDuringDismissalReopensAndAHideCancelsIt() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch(native(20, ["popovertarget": "confirm", "popovertargetaction": "show"], press: false)
+            + native(21, ["popovertarget": "confirm", "popovertargetaction": "hide"], press: false)
+            + [["op": "roots", "ids": [1, 2, 20, 21]]]))
+        let show = try XCTUnwrap(p.views[20]), hide = try XCTUnwrap(p.views[21])
+        p.menus.invoke(show)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.menus.invoke(hide)
+        XCTAssertFalse(p.menus.isOpen(pop))
+        p.menus.invoke(show)
+        XCTAssertTrue(p.menus.isOpen(pop), "a show while the alert leaves queues its reopen")
+        p.menus.invoke(hide)
+        XCTAssertFalse(p.menus.isOpen(pop), "a hide cancels the queued reopen")
+    }
+
+    /// `close(id)` cancels a reopen queued while the alert leaves, as a
+    /// native hide does.
+    func testCloseCancelsAShowModalQueuedDuringDismissal() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        p.dialogCommand("showModal", "confirm")
+        p.dialogCommand("close", "confirm")
+        XCTAssertFalse(p.menus.isOpen(pop))
+        p.dialogCommand("showModal", "confirm")
+        XCTAssertTrue(p.menus.isOpen(pop), "queued behind the leaving alert")
+        p.dialogCommand("close", "confirm")
+        XCTAssertFalse(p.menus.isOpen(pop), "and cancelled")
+    }
+
+    /// HTML's dialog commands act only on a modal dialog and its popover
+    /// commands only on a popover, however each was opened.
+    func testCommandsActOnlyOnAConfirmationOpenedInTheirMode() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        pop.props["semanticTag"] = "dialog"
+        p.apply(wireBatch(native(20, ["commandfor": "confirm", "command": "close"], press: false)
+            + native(21, ["commandfor": "confirm", "command": "hide-popover"], press: false)
+            + [["op": "roots", "ids": [1, 2, 20, 21]]]))
+        let close = try XCTUnwrap(p.views[20]), hide = try XCTUnwrap(p.views[21])
+        p.menus.action("showPopover", ["confirm"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.menus.invoke(close)
+        XCTAssertTrue(p.menus.isOpen(pop), "a dialog close leaves a popover with no invoker open")
+        p.menus.invoke(hide)
+        XCTAssertFalse(p.menus.isOpen(pop))
+
+        // Opened modally, here as the reopen queued while that alert leaves,
+        // its rows closing it as a modal dialog's do
+        p.dialogCommand("showModal", "confirm")
+        XCTAssertFalse(p.menus.isOpen(pop), "refused: hide-popover rows do not close a modal dialog")
+        for id: UInt32 in [3, 9] {
+            let row = try XCTUnwrap(p.views[id])
+            row.props["popovertarget"] = nil; row.props["popovertargetaction"] = nil
+            row.props["commandfor"] = "confirm"; row.props["command"] = "close"
+        }
+        p.dialogCommand("showModal", "confirm")
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.menus.invoke(hide)
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertTrue(p.menus.isOpen(pop), "popover commands leave a modal dialog open")
+        p.menus.invoke(close)
+        XCTAssertFalse(p.menus.isOpen(pop))
+    }
+
     /// "Remove book?" — the shape of React Native's `Alert.alert`: a
     /// centred alert, titled by the label, its text the message, the
     /// destructive action and the Cancel both drawn.
@@ -113,6 +248,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         let (p, controller, scene) = confirmation(label: "Remove book?", texts: ["\u{201C}Piranesi\u{201D} will be removed."], actions: ["Remove"], cancel: true)
         defer { dismiss(p, controller) }
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "its invoker opens it")
+        XCTAssertEqual(p.openTopLayerFrames.map(\.0), [2], "the structural read sees the native confirmation as open")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.preferredStyle, .alert)
         XCTAssertEqual(alert.title, "Remove book?")
@@ -120,12 +256,32 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.map(\.title), ["Remove", "Cancel"])
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
         XCTAssertEqual(p.menus.observation()?["presentation"] as? String, "alert")
-        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
         let box = alert.view.convert(alert.view.bounds, to: nil)
         print("alert: \(box) in \(window!.bounds)")
         XCTAssertEqual(box.midX, window!.bounds.midX, accuracy: 2, "centred")
         XCTAssertEqual(box.midY, window!.bounds.midY, accuracy: 40, "centred")
+    }
+
+    /// LLP 1115.000 D2: an alert has one tint, the colour its first action's
+    /// author wrote on it, a platform colour as much as a literal. A colour
+    /// the action only inherits leaves UIKit's (LLP 1115 D4).
+    func testAnAlertsTintIsTheColourItsFirstActionsAuthorWrote() throws {
+        let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        func tint(_ lead: [String: Any]) throws -> [CGFloat] {
+            let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true, bareLead: lead)
+            defer { dismiss(p, controller) }
+            XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+            let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+            var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            XCTAssertTrue(try XCTUnwrap(alert.view.tintColor).getRed(&r, green: &g, blue: &b, alpha: &a))
+            return [r, g, b]
+        }
+        let written = try tint(["text_color": red, "written": ["text_color"]])
+        XCTAssertTrue(written[0] > 0.9 && written[1] < 0.4 && written[2] < 0.4, "the platform's red its author wrote: \(written)")
+        let inherited = try tint(["text_color": red])
+        XCTAssertFalse(inherited[0] > 0.9 && inherited[2] < 0.4, "the same red, only inherited, leaves UIKit's tint: \(inherited)")
     }
 
     /// Without a label, the first line titles the alert and the rest is
@@ -167,7 +323,8 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .default, .default, .cancel])
         let compact = controller.traitCollection.horizontalSizeClass != .regular
         XCTAssertEqual(p.menus.observation()?["presentation"] as? String, compact ? "sheet" : "popover")
-        try XCTSkipUnless(scene && compact, "an unanchored sheet on a compact screen in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        try XCTSkipUnless(compact, "an unanchored sheet is on a compact screen")
         XCTAssertNil(alert.popoverPresentationController?.sourceView, "not anchored at its invoker")
         settle { !p.menus.inTransition }
         XCTAssertTrue(alert.actions.last.map { $0.style == .cancel } == true)
@@ -190,7 +347,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[2])))
         p.dialogCommand("showModal", "confirm")
         XCTAssertTrue(controller.presentedViewController === alert, "showModal on an open one does nothing")
-        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
         try choose(alert.actions[0])
         settle { p.menus.observation() == nil }
@@ -256,7 +413,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
         XCTAssertTrue(try counts(session).hasPrefix("count 1"), "nothing cleared before the choice")
         XCTAssertTrue(p.menus.observation()?["source"] is NSNull, "raised by an action, not an invoker")
-        try XCTSkipUnless(Self.scene, "a presentation completes only in a scene's window")
+        guard Self.scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
         // The agent's activation of the alert's action, by its node.
         XCTAssertEqual(p.menus.activate(try node(session, "clear-confirm-clear")), true)

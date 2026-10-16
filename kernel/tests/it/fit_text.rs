@@ -196,6 +196,7 @@ fn a_new_scale_in_a_box_that_held_is_published() {
         &[Op::ClearStyle {
             id: 2,
             mask: fit_row,
+            written: false,
         }],
     )
     .unwrap();
@@ -204,4 +205,221 @@ fn a_new_scale_in_a_box_that_held_is_published() {
     assert_eq!(node.fit_scale(), 1.0);
     assert_eq!(node.text_runs()[0].style.font_size, 40.0);
     assert!(receipt.updated.contains(&node.key));
+}
+
+/// The stopwatch's shape (round 13): a page whose column holds a fitted
+/// readout above a list, whose rows are flex rows of a flexing label and two
+/// times. A row added as the readout changes took the readout's runs for its
+/// label's: the label was measured at the readout's size, so a lap row was 92
+/// points tall with its text at the top (the runs the leaf pass shares between
+/// consecutive offers of one leaf were left holding the fitted text's, which
+/// it measures through the same buffer).
+fn stopwatch() -> Kernel {
+    let mut k = Kernel::new(Box::new(MonospaceMeasurer::default()));
+    let view = |id| Op::CreateView {
+        id,
+        node_type: NodeType::View,
+    };
+    let text = |id, s: &str| {
+        [
+            Op::CreateView {
+                id,
+                node_type: NodeType::Text,
+            },
+            Op::SetProp {
+                id,
+                prop: PropId::Text,
+                value: PropValue::Str(s.into()),
+            },
+        ]
+    };
+    let mut ops = vec![
+        view(1),
+        view(2),
+        view(3),
+        view(4),
+        view(6),
+        Op::CreateView {
+            id: LIST,
+            node_type: NodeType::List,
+        },
+        view(8),
+    ];
+    ops.extend(text(5, "00:00.00"));
+    ops.extend(text(7, "Stopwatch"));
+    ops.extend([
+        Op::SetStyle {
+            id: 1,
+            patch: rows(&[
+                (StyleId::Width, "402"),
+                (StyleId::Height, "800"),
+                (StyleId::FontSize, "17"),
+            ]),
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: rows(&[
+                (StyleId::PositionType, "absolute"),
+                (StyleId::Top, "0"),
+                (StyleId::Right, "0"),
+                (StyleId::Bottom, "0"),
+                (StyleId::Left, "0"),
+                (StyleId::Display, "flex"),
+                (StyleId::FlexDirection, "column"),
+            ]),
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: rows(&[
+                (StyleId::Display, "flex"),
+                (StyleId::AlignItems, "center"),
+                (StyleId::PaddingTop, "8"),
+                (StyleId::PaddingBottom, "8"),
+            ]),
+        },
+        Op::SetStyle {
+            id: 4,
+            patch: rows(&[
+                (StyleId::Display, "flex"),
+                (StyleId::FlexDirection, "column"),
+                (StyleId::AlignItems, "center"),
+                (StyleId::RowGap, "12"),
+                (StyleId::PaddingTop, "16"),
+                (StyleId::PaddingRight, "16"),
+                (StyleId::PaddingBottom, "16"),
+                (StyleId::PaddingLeft, "16"),
+            ]),
+        },
+        Op::SetStyle {
+            id: 5,
+            patch: rows(&[
+                (StyleId::FontSize, "76.5"),
+                (StyleId::WhiteSpace, "nowrap"),
+                (StyleId::Fit, "shrink"),
+            ]),
+        },
+        Op::SetStyle {
+            id: 6,
+            patch: rows(&[
+                (StyleId::Display, "flex"),
+                (StyleId::JustifyContent, "space-between"),
+                (StyleId::Width, "100%"),
+            ]),
+        },
+        Op::SetStyle {
+            id: LIST,
+            patch: rows(&[
+                (StyleId::FlexGrow, "1"),
+                (StyleId::FlexBasis, "0%"),
+                (StyleId::MinHeight, "0"),
+            ]),
+        },
+        Op::SetChildren {
+            id: 3,
+            children: vec![7],
+        },
+        Op::SetChildren {
+            id: 4,
+            children: vec![5, 6],
+        },
+        Op::SetChildren {
+            id: LIST,
+            children: vec![8],
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, LIST],
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    k.apply(0, 1, &ops).unwrap();
+    k
+}
+
+/// The list's list; its section.
+const LIST: u32 = 9;
+const SECTION: u32 = 8;
+
+/// A lap row (view `at`, its label `at + 1`, its times after) at the head of
+/// the section, `laps` the rows already in it, and the readout's text.
+fn lap(k: &mut Kernel, batch: u64, at: u32, laps: &[u32], readout: &str) {
+    let mut ops = vec![
+        Op::CreateView {
+            id: at,
+            node_type: NodeType::View,
+        },
+        Op::SetProp {
+            id: 5,
+            prop: PropId::Text,
+            value: PropValue::Str(readout.into()),
+        },
+        Op::SetStyle {
+            id: at,
+            patch: rows(&[
+                (StyleId::Display, "flex"),
+                (StyleId::AlignItems, "center"),
+                (StyleId::MinHeight, "52"),
+                (StyleId::ColumnGap, "8"),
+                (StyleId::PaddingRight, "16"),
+                (StyleId::MarginLeft, "16"),
+            ]),
+        },
+    ];
+    for (i, text) in ["Lap 1", "00:01.00", "00:01.00"].into_iter().enumerate() {
+        let id = at + 1 + i as u32;
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::Text,
+        });
+        ops.push(Op::SetProp {
+            id,
+            prop: PropId::Text,
+            value: PropValue::Str(text.into()),
+        });
+        if i == 0 {
+            ops.push(Op::SetStyle {
+                id,
+                patch: rows(&[(StyleId::FlexGrow, "1"), (StyleId::FlexBasis, "0%")]),
+            });
+        }
+    }
+    ops.push(Op::SetChildren {
+        id: at,
+        children: vec![at + 1, at + 2, at + 3],
+    });
+    let mut children = vec![at];
+    children.extend(laps);
+    ops.push(Op::SetChildren {
+        id: SECTION,
+        children,
+    });
+    k.apply(1, batch, &ops).unwrap();
+}
+
+#[test]
+fn a_row_added_as_the_readout_changes_keeps_its_own_label() {
+    let mut k = stopwatch();
+    let mut laps: Vec<u32> = Vec::new();
+    for (i, readout) in ["00:01.00", "00:02.00", "00:03.00", "00:04.00"]
+        .into_iter()
+        .enumerate()
+    {
+        let at = 20 + 10 * i as u32;
+        lap(&mut k, i as u64 + 2, at, &laps, readout);
+        laps.insert(0, at);
+        k.compute_layout(1, Offer::definite(402.0, 874.0)).unwrap();
+        for &row in &laps {
+            let label = k.node(row + 1).unwrap().frame;
+            assert!(
+                label.height < 30.0,
+                "lap row {row}, label {label:?}: a line of 17 points, not the readout's"
+            );
+            let frame = k.node(row).unwrap().frame;
+            assert_eq!(frame.height, 52.0, "lap row {row}: {frame:?}");
+        }
+    }
 }

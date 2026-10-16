@@ -83,6 +83,9 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         std::env::set_var("EXACT_GPU_RENDER", "1");
     }
     let started = Instant::now();
+    // Windows has no toolkit under this painter, so it shows the web's
+    // neutral look (LLP 1115.000 D17), in a window as in a headless run.
+    app::show_neutral_look();
     let mut config = Config::from_env(plan, compat);
     // The presenter makes the hatches' value after its first frame is shown.
     config.hatches = hatches;
@@ -331,6 +334,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
                 p.surface_lifecycle(self.minimized || self.occluded, !self.focused);
+                // The window's clock owns time (the timers RFC, D1)
+                p.set_live_clock(Some(exact_linux::presenter::wall_since(self.started)));
                 if let Some(warning) = warning {
                     eprintln!("exact-windows: {warning}");
                 }
@@ -385,9 +390,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             }
             return;
         }
-        let now = self.now();
         let Some(p) = &mut self.presenter else { return };
-        p.advance(now);
+        p.advance(self.started.elapsed().as_secs_f64() * 1000.);
+        // The input's time: where the advance left the clock, a live runner's
+        // sample past the time it was asked for
+        let now = p.host().now();
         let (x, y) = self.pointer;
         match event {
             WindowEvent::Focused(focused) => {

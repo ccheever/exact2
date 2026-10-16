@@ -19,7 +19,9 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     for slot in arena.layout_dirty.iter() {
         let mut at = slot;
         let mut path = Vec::new();
-        while at != root {
+        // A subtree a host gave a containing block is another layout's: the
+        // pass that starts at it publishes it (LLP 1115.002 D8.2).
+        while at != root && !arena.blocks.holds(at) {
             let Some(parent) = arena.parent(at) else {
                 break;
             };
@@ -27,7 +29,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             at = parent;
         }
         if at != root {
-            if !arena.is_root(at) {
+            if !arena.is_root(at) && !arena.blocks.holds(at) {
                 detached.push(slot);
             }
             continue;
@@ -49,6 +51,8 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     // Keep their existing full publication/resolution semantics.
     let full = !arena.exclusion_slots.is_empty() || !arena.flow.is_empty();
     arena.begin_layout_publication(root);
+    // A block's root: hidden with what holds it, whole when it took its block.
+    let (hidden, whole) = crate::kernel::publication_start(arena, root);
     let mut changed = Vec::new();
     let mut updated = Vec::new();
     let mut exclusions = Vec::new();
@@ -57,8 +61,16 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     // relative to the container's own (`base`), or a straddling box's union.
     // `t` is the translation its subtree inherits; (ox, oy) stay flow-thread
     // origins, so a child is placed from its parent's unfragmented box.
-    let mut stack = if full || has_sources {
-        vec![(root, 0.0, 0.0, false, full, false, Shift::default())]
+    let mut stack = if full || has_sources || whole {
+        vec![(
+            root,
+            0.0,
+            0.0,
+            hidden,
+            full || whole,
+            false,
+            Shift::default(),
+        )]
     } else {
         Vec::new()
     };
@@ -66,6 +78,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         #[cfg(test)]
         {
             tree.publication_visits += 1;
+            tree.work.0 += 1;
         }
         let own_hidden = arena.style(slot).display == crate::Display::None;
         let hidden = hidden || own_hidden;
@@ -94,6 +107,13 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             },
             None => shift,
         };
+        // Publish the padding and border with the frame for readers that
+        // must not reach into a tree a content region's nodes are not in
+        let inset = arena
+            .taffy(slot)
+            .map(|node| crate::id::BoxInset::of(arena, slot, tree.layout(node)));
+        let inset_changed = arena.inset(slot) != inset;
+        arena.set_inset(slot, inset);
         let frame = if hidden {
             arena.set_content(slot, (0.0, 0.0));
             arena.field_content.remove(&slot);
@@ -173,12 +193,16 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             && (moved
                 || parent_moved
                 || old_content != arena.content(slot)
-                || old_field_content != arena.field_content_rect(slot))
+                || old_field_content != arena.field_content_rect(slot)
+                || inset_changed)
         {
             updated.push(arena.key(slot));
         }
         if descend_all {
             for &child in arena.children(slot).iter().rev() {
+                if arena.blocks.holds(child) {
+                    continue; // its own layout's, in its own space
+                }
                 let full = full || arena.flags(child).has(NodeFlags::ATTACHED);
                 stack.push((child, fx, fy, hidden, full, origin_moved, shift));
             }
@@ -219,4 +243,180 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
 struct Shift {
     t: (f32, f32),
     base: (f32, f32),
+}
+
+/// Lay out `root_slot` and publish frames and resolved flow. The receipt uses
+/// epoch zero; the kernel facade supplies its transaction epoch. Inline
+/// runs have no geometry of their own: their frames are zero and they never
+/// appear in the changed list, but their dirty bits are consumed like any
+/// other node's.
+pub fn compute(
+    arena: &mut NodeArena,
+    tree: &mut LayoutTree,
+    measurer: &mut dyn TextMeasurer,
+    root_slot: u32,
+    offer: Offer,
+) -> Result<LayoutReceipt, LayoutError> {
+    let root = arena
+        .taffy(root_slot)
+        .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
+    tree.compute(root, offer, arena, measurer)?;
+    let (flow_passes, flow_comparisons) =
+        tree.settle_flow(root, root_slot, offer, arena, measurer)?;
+    crate::fragment::settle(arena, tree, measurer, root_slot, offer)?;
+    for (&node, record) in &tree.button_records {
+        if let Some(&slot) = tree.slots.get(&node) {
+            arena.button_bases.insert(slot, record.parent_width);
+        }
+    }
+    let refitted = fit::settle(arena, tree);
+    let mut receipt = publish(arena, tree, root_slot);
+    for key in refitted {
+        if !receipt.updated.contains(&key) {
+            receipt.updated.push(key);
+        }
+    }
+    receipt.flow_passes = flow_passes;
+    receipt.flow_comparisons = flow_comparisons;
+    Ok(receipt)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Kernel, MonospaceMeasurer, NodeFlags, NodeType, Offer, Op, PropId, StyleId, StyleProps,
+        StyleValue, TextMeasureRequest, TextMeasurer, TextMetrics,
+    };
+    use std::{cell::Cell, rc::Rc};
+    struct Count(Rc<Cell<usize>>);
+    impl TextMeasurer for Count {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            self.0.set(self.0.get() + 1);
+            MonospaceMeasurer::default().measure(request)
+        }
+    }
+    fn style(id: u32, row: StyleId, value: &str) -> Op {
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(row, &StyleValue::Text(value.into()))
+            .unwrap();
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    }
+    fn prop(id: u32, prop: PropId, value: &str) -> Op {
+        Op::SetProp {
+            id,
+            prop,
+            value: value.into(),
+        }
+    }
+    fn equal_fresh(k: &Kernel, offer: Offer) {
+        let mut fresh = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+        fresh.compute_layout(1, offer).unwrap();
+        let arena = k.node(1).unwrap().arena;
+        for slot in arena.iter_live() {
+            let node = k.node(arena.local_id(slot)).unwrap();
+            let other = fresh.node(node.id).unwrap();
+            assert!(node.frame.bits_eq(other.frame), "frame {}", node.id);
+            assert_eq!(node.content, other.content, "overflow {}", node.id);
+            assert_eq!(
+                node.arena.flags(node.slot).has(NodeFlags::HIDDEN),
+                other.arena.flags(other.slot).has(NodeFlags::HIDDEN),
+                "hidden {}",
+                node.id
+            );
+        }
+    }
+    #[test]
+    fn paint_and_prop_edits_skip_publication_but_geometry_edits_still_publish() {
+        let calls = Rc::new(Cell::new(0));
+        let mut k = Kernel::new(Box::new(Count(calls.clone())));
+        let offer = Offer::definite(400.0, 300.0);
+        let mut ops = Vec::new();
+        for id in [1, 2, 3].into_iter().chain(10..210) {
+            ops.push(Op::CreateView {
+                id,
+                node_type: if id == 1 {
+                    NodeType::View
+                } else {
+                    NodeType::Text
+                },
+            });
+            if id >= 10 {
+                ops.push(prop(id, PropId::Text, "word "));
+            }
+        }
+        ops.extend([
+            Op::SetChildren {
+                id: 2,
+                children: (10..110).collect(),
+            },
+            Op::SetChildren {
+                id: 3,
+                children: (110..210).collect(),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        calls.set(0);
+        let receipt = k
+            .apply(
+                0,
+                1,
+                &[
+                    style(1, StyleId::TextColor, "#ff0000"),
+                    style(11, StyleId::BackgroundColor, "#001122"),
+                    prop(12, PropId::Href, "https://example.invalid"),
+                    prop(13, PropId::TestId, "painted-run"),
+                ],
+            )
+            .unwrap();
+        assert_eq!(receipt.touched.len(), 203);
+        let layout = k.compute_layout(1, offer).unwrap();
+        assert_eq!(k.tree().publication_visits, 0);
+        assert_eq!(calls.get(), 0);
+        assert!(layout.changed.is_empty() && layout.updated.is_empty());
+        let run = k.node(12).unwrap();
+        assert!(run.arena.flags(run.slot).has(NodeFlags::PROPS_DIRTY));
+        assert!(run.arena.flags(run.slot).has(NodeFlags::PAINT_DIRTY));
+        assert_eq!(run.props.str(PropId::Href), Some("https://example.invalid"));
+        equal_fresh(&k, offer);
+        for ops in [
+            vec![
+                prop(10, PropId::Text, "changed text with a different width"),
+                style(11, StyleId::Display, "none"),
+            ],
+            vec![
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2, 3, 10],
+                },
+                style(10, StyleId::BackgroundColor, "#112233"),
+            ],
+            vec![style(1, StyleId::Display, "none")],
+            vec![
+                style(1, StyleId::TextColor, "#0000ff"),
+                Op::ClearProp {
+                    id: 12,
+                    prop: PropId::Href,
+                },
+            ],
+            vec![
+                style(1, StyleId::Display, "block"),
+                style(11, StyleId::Display, "block"),
+            ],
+        ] {
+            k.apply(0, 1, &ops).unwrap();
+            k.compute_layout(1, offer).unwrap();
+            equal_fresh(&k, offer);
+        }
+        assert!(calls.get() > 0);
+    }
 }

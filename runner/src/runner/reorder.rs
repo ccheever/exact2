@@ -198,6 +198,14 @@ impl<D: DataSource> Runner<D> {
         token: ReorderToken,
         geometry: ReorderGeometry,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.arrived(|r| r.drop_reorder_now(token, geometry))
+    }
+
+    fn drop_reorder_now(
+        &mut self,
+        token: ReorderToken,
+        geometry: ReorderGeometry,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if self.is_grouped(token) {
             return self.drop_group(token, geometry);
         }
@@ -339,6 +347,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            u.fonts = Some(self.fonts.clone());
             u.reuse = self.reuse;
             tree.edit_reorder(id, &mut u, edit)
                 .map(|r| (r, u.ops, u.notes, u.renewed, u.shown))

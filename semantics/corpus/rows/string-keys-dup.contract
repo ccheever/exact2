@@ -5,13 +5,13 @@ shape Item
 
 component App
   state page = 0
-  resource items = items(page) as shape list<Item>
+  resource items = items(page) as shape Item[]
   action next
     page = page + 1
   view
     column
       button "next" press=next testId="next"
-      each it, i in items key=(length(it.id) > 1 ? "long" : "short")
+      for it, i in items key=(it.id.length > 1 ? "long" : "short")
         Row(index=i)
 
 component Row

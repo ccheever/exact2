@@ -47,13 +47,30 @@ impl Session {
         else {
             return Err("an auth session needs url, callback and a non-empty state".into());
         };
+        if bent_http(&url) {
+            return Err("the authorization URL is not a plain http: or https: URL".into());
+        }
+        if bent_http(&callback) {
+            return Err("the callback is not a scheme:/path or https://host/path".into());
+        }
         let parts = Url::parse(&url).ok_or("the authorization URL is not absolute")?;
         if !matches!(parts.scheme.as_str(), "https" | "http") || parts.authority.is_none() {
             return Err("the authorization URL is not http: or https:".into());
         }
-        Url::parse(&callback)
+        if parts.authority.is_some_and(|a| a.contains('@')) {
+            return Err("the authorization URL carries userinfo".into());
+        }
+        let callback_parts = Url::parse(&callback)
             .filter(|c| c.fragment.is_none() && c.query.is_none())
             .ok_or("the callback is not a scheme:/path or https://host/path")?;
+        if matches!(callback_parts.scheme.as_str(), "http" | "https")
+            && callback_parts.authority.is_none()
+        {
+            return Err("the callback is not a scheme:/path or https://host/path".into());
+        }
+        if callback_parts.authority.is_some_and(|a| a.contains('@')) {
+            return Err("the callback carries userinfo".into());
+        }
         Ok(Session {
             url,
             callback,
@@ -82,7 +99,7 @@ impl Session {
         let parts = Url::parse(&self.url);
         let (origin, path, query) = parts.as_ref().map_or((String::new(), "", ""), |p| {
             (
-                format!("{}://{}", p.scheme, p.authority.unwrap_or("")),
+                p.origin().unwrap_or_default(),
                 p.path,
                 p.query.unwrap_or(""),
             )
@@ -108,7 +125,14 @@ impl Session {
         s.push(']');
         s.push_str(&shown);
         s.push_str(",\"callback\":");
-        quote(&self.callback, &mut s);
+        if Url::parse(&self.callback).is_some_and(|p| {
+            p.authority.is_some_and(|a| a.contains('@'))
+                || (matches!(p.scheme.as_str(), "http" | "https") && p.authority.is_none())
+        }) {
+            quote("<redacted callback>", &mut s);
+        } else {
+            quote(&self.callback, &mut s);
+        }
         s.push_str(",\"state\":");
         quote(&self.state, &mut s);
         s.push_str(&format!(",\"ephemeral\":{}}}", self.ephemeral));
@@ -174,7 +198,7 @@ impl<'a> Url<'a> {
         Some(format!(
             "{}://{}",
             self.scheme,
-            self.authority?.to_ascii_lowercase()
+            self.authority?.rsplit('@').next()?.to_ascii_lowercase()
         ))
     }
 }
@@ -233,7 +257,13 @@ fn origin_admits(grant: &str, url: &Url<'_>) -> bool {
         return false;
     };
     if let Some((scheme, domain)) = grant.split_once("://*.") {
-        let host = url.authority.unwrap_or("").to_ascii_lowercase();
+        let host = url
+            .authority
+            .unwrap_or("")
+            .rsplit('@')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
         let domain = domain.to_ascii_lowercase();
         return scheme.eq_ignore_ascii_case(&url.scheme)
             && domain.split('.').count() >= 2
@@ -290,6 +320,15 @@ pub fn carrier_callback(grants: &str, web_origin: Option<&str>) -> Option<String
         .cloned()
 }
 
+/// A browser's URL parser reads a backslash in an http(s) URL as a slash and
+/// drops tabs and newlines, so such a URL can carry userinfo this parser does
+/// not see as authority: it is refused before anything echoes it.
+fn bent_http(raw: &str) -> bool {
+    let lower = raw.trim_start().to_ascii_lowercase();
+    (lower.starts_with("http:") || lower.starts_with("https:"))
+        && raw.contains(['\\', '\t', '\n', '\r'])
+}
+
 /// D2's checks: the authorization URL is on a granted `auth.session`
 /// origin, and the callback is a granted `auth.callback` — or, on a
 /// loopback development page, that page's own callback. `Err` is the 403
@@ -301,7 +340,19 @@ pub fn check_grants(
     web_origin: Option<&str>,
 ) -> Result<(), String> {
     let lines = effective(admitted, scope)?;
+    if bent_http(&session.url) || bent_http(&session.callback) {
+        return Err("the authorization URL or callback is not a plain http(s) URL".into());
+    }
     let url = Url::parse(&session.url).ok_or("the authorization URL is not absolute")?;
+    if url.authority.is_some_and(|a| a.contains('@')) {
+        return Err("the authorization URL carries userinfo".into());
+    }
+    if Url::parse(&session.callback).is_some_and(|u| {
+        u.authority.is_some_and(|a| a.contains('@'))
+            || (matches!(u.scheme.as_str(), "http" | "https") && u.authority.is_none())
+    }) {
+        return Err("the callback has userinfo or malformed HTTP(S) authority".into());
+    }
     let origin = url.origin().unwrap_or_default();
     if !lines.iter().any(|l| {
         l.strip_prefix("auth.session ")
@@ -690,5 +741,85 @@ mod tests {
         assert!(
             Session::from_json(r#"{"url":"https://x/","callback":"a.b:c","state":"s"}"#).is_err()
         );
+    }
+
+    #[test]
+    fn authorization_userinfo_is_refused_without_disclosure() {
+        let body = r#"{"url":"https://user:review-secret@login.example.com/authorize?code=hidden","callback":"a.b:/cb","state":"s"}"#;
+        let error = Session::from_json(body).unwrap_err();
+        assert!(error.contains("userinfo"), "{error}");
+        assert!(!error.contains("review-secret"), "{error}");
+        let body = r#"{"url":"https://login.example.com/authorize","callback":"https://user:review-secret@app.example/cb","state":"s"}"#;
+        let error = Session::from_json(body).unwrap_err();
+        assert!(error.contains("userinfo"), "{error}");
+        assert!(!error.contains("review-secret"), "{error}");
+        let mut direct = session("a.b:/cb");
+        direct.url = "https://user:review-secret@login.example.com/authorize".into();
+        let summary = direct.summary();
+        assert!(summary.contains("https://login.example.com"), "{summary}");
+        assert!(!summary.contains("review-secret"), "{summary}");
+        let error =
+            check_grants(&direct, "auth.session https://*.example.com", None, None).unwrap_err();
+        assert!(
+            error.contains("userinfo") && !error.contains("review-secret"),
+            "{error}"
+        );
+        direct.url = "https://login.example.com/authorize".into();
+        direct.callback = "https://user:review-secret@app.example/cb".into();
+        assert!(!direct.summary().contains("review-secret"));
+        let error = check_grants(
+            &direct,
+            "auth.session https://login.example.com",
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("userinfo") && !error.contains("review-secret"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn backslashed_https_urls_never_reach_a_grant_refusal() {
+        for callback in [
+            r"https:\/user:review-secret@app.example/cb",
+            r"https://\/user:review-secret@app.example/cb",
+            "https://app.example/c\tb@user:review-secret",
+        ] {
+            let body = format!(
+                r#"{{"url":"https://login.example.com/authorize","callback":{callback:?},"state":"s"}}"#
+            );
+            let error = Session::from_json(&body).unwrap_err();
+            assert!(!error.contains("review-secret"), "{error}");
+            let mut direct = session(callback);
+            direct.url = "https://login.example.com/authorize".into();
+            let error = check_grants(
+                &direct,
+                "auth.session https://login.example.com",
+                None,
+                None,
+            )
+            .unwrap_err();
+            assert!(!error.contains("review-secret"), "{error}");
+        }
+    }
+
+    #[test]
+    fn single_slash_https_callback_never_reaches_a_grant_refusal() {
+        let body = r#"{"url":"https://login.example.com/authorize","callback":"https:/user:review-secret@app.example/cb","state":"s"}"#;
+        let error = Session::from_json(body).unwrap_err();
+        assert!(!error.contains("review-secret"), "{error}");
+        let mut direct = session("https:/user:review-secret@app.example/cb");
+        direct.url = "https://login.example.com/authorize".into();
+        assert!(!direct.summary().contains("review-secret"));
+        let error = check_grants(
+            &direct,
+            "auth.session https://login.example.com",
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(!error.contains("review-secret"), "{error}");
     }
 }

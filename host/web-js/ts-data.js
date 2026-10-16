@@ -8,7 +8,7 @@
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { answering, files as bodyFiles } from './ts-fetch.js';
+import { answering, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
@@ -277,7 +277,7 @@ function storageOf(grants) {
 }
 // A stream (LLP 1016.000; ts-fetch.js), opened by ts-stream.js, loaded on
 // first use so a module that never streams carries none of it.
-const opener = (stream, conv) => (deliver, controller) => import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller));
+const opener = (stream, conv, name) => (deliver, controller) => { controller.streamName = name; return import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller)); };
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   bodyFiles.appId = source.appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
@@ -312,31 +312,45 @@ export function install(data, mixed = false, modules = null) {
       if (k && types) try { source.kept(r.source, k[0].map((a, i) => named(a, types[0][i])), named(k[1], types[1])); } catch {}
     }
   };
-  const ts = (name, args, store, target) => {
+  const ts = (name, args, store, target, mutation = false) => {
     if (!seeded) seed();
     const types = sourceTypes[name], [params, result] = types ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null };
+    const call = answering.call = { stream: null, mutation };
     let r;
     try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
-    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read }; }
+    // Socket operations go out only with a value given now: not with a
+    // promise, a stream answer or any other fetch (LLP 1016.000 D7).
+    if (call.socketConflict || call.effects?.length && call.fetched) {
+      call.socketConflict = true; Promise.resolve(r).catch(() => {}); call.settled = true;
+      throw new Error(SOCKET_AND_FETCH);
+    }
+    if (call.effects?.length && r && typeof r.then === 'function') {
+      // A fetch its continuation makes is the module's, not the mutation's:
+      // the page has no turn to tie it to (LLP 1016.000 D7).
+      Promise.resolve(r).catch(() => {}); call.settled = true;
+      throw new Error('a socket mutation must answer synchronously');
+    }
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
       const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
     }
     call.settled = true;
-    return { v: conv(shaped(r), result, target_), store: seen.read };
+    return { v: conv(shaped(r), result, target_), store: seen.read, effects: call.effects?.map(effect => () => {
+      try { effect(); } catch (e) { journal.push(`t=${clock.now} send ${target_} failed: ${e?.message ?? e}; socket frames were refused`); }
+    }) };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js
   // then asks it first and this module for what it calls unknown.
-  data.answer = mixed ? (name, args, store, target) => { try { return ts(name, args, store, target); } catch { return null; } } : ts;
+  data.answer = mixed ? (name, args, store, target, mutation) => { try { return ts(name, args, store, target, mutation); } catch { return null; } } : ts;
   // An overlay (`overlay.js`): what a resource shows while writes affect it, in overlay mode; `undefined` without one.
   overlaying.say = line => journal.push(`t=${clock.now} ${line}`);
   data.overlay = source.overlay && ((name, args, answer, writes) => {

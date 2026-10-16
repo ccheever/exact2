@@ -30,7 +30,7 @@ component App
   state draft = ""
   state revision = 0
   state suffix = "a"
-  resource rows = rows(revision) as shape list<Row>
+  resource rows = rows(revision) as shape Row[]
   action edit(value)
     draft = value
   action revise
@@ -40,7 +40,7 @@ component App
   view
     column
       input value=draft change=edit testId="input"
-      each r in rows key=r.id
+      for r in rows key=r.id
         text `${r.label} ${suffix}` testId=`row-${r.id}`
 "#;
 fn boot(source: &str) -> Runner<Rows> {
@@ -60,7 +60,7 @@ fn text(r: &Runner<Rows>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap()
@@ -117,7 +117,7 @@ component Counter
 fn clock_and_inactive_branch_dependencies_are_not_lost() {
     let source=APP.replace("  action rename", "  task producer mount\n    every(10, revise)\n  action rename")
         .replace("        text `${r.label} ${suffix}` testId=`row-${r.id}`",
-        "        when revision == 0\n          text `${performanceNow()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
+        "        if revision == 0\n          text `${performanceNow()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
     let mut r = boot(&source);
     assert_eq!(text(&r, "row-0"), "0");
     r.advance(10.0).unwrap();
@@ -201,7 +201,7 @@ fn pending_mutation_flags_invalidate_rows_without_changing_their_data() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()
@@ -255,7 +255,7 @@ fn signed_zero_changes_are_observable_inside_an_unchanged_row_key() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()
@@ -280,7 +280,7 @@ fn perf_counts_each_sites_work_across_its_instances_lifetimes() {
     }
     const PERF: &str = r##"
 component App
-  resource ids = three() as shape list<number>
+  resource ids = three() as shape number[]
   state hot = -1
   state tick = 0
   state tint = "#000000"
@@ -292,9 +292,9 @@ component App
     tint = "#ff0000"
   view
     column testId="list" color=tint
-      each r in ids key=r
+      for r in ids key=r
         row testId=`row-${r}`
-          when hot == r
+          if hot == r
             text `hot ${r}` testId=`hot-${r}`
           else
             text `cold ${r}` testId=`cold-${r}`

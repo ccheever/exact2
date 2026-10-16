@@ -138,7 +138,7 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
     return out;
   };
   const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts;
-  data.answer = ts ? (source, args, store, target) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target); throw e; } } : rust;
+  data.answer = ts ? (source, args, store, target, mutation) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target, mutation); throw e; } } : rust;
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
   // An overlay (`overlay_request`): what a resource shows while writes affect it; none from the Rust module asks
   // the TypeScript one's, beside it.

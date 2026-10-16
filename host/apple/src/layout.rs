@@ -2,7 +2,28 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
-    pub(super) fn withhold_layout(&mut self) {
+    /// Writes `batch` for the presenter; every batch with ops is written
+    /// here. From a failed layout until one settles, whatever turn made the
+    /// batch, its layout geometry is taken out, including what an earlier
+    /// pass staged in it, and the settled layout sends it again. The failed
+    /// layout's own batch also loses its motion samples; later batches keep
+    /// theirs, as nothing would send them again.
+    pub(super) fn write(&mut self, mut batch: Batch, error: Option<&str>) -> String {
+        if batch.layout_provisional {
+            self.withhold_layout();
+        }
+        if self.layout_withheld {
+            batch.withhold(!batch.layout_provisional);
+        }
+        batch.finish(
+            self.runner.timer_due_ms(),
+            !self.engine.quiescent(),
+            self.runner.now_ms(),
+            error,
+        )
+    }
+
+    fn withhold_layout(&mut self) {
         // These geometry rows will be withheld. Force a settled retry to
         // publish them even if the kernel's last guessed boxes compare equal.
         self.layout_withheld = true;
@@ -45,6 +66,13 @@ impl<D: DataSource> Host<D> {
     /// Lay every root out under the viewport and emit the parent-relative
     /// frames and scroll content sizes that changed.
     pub(super) fn layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        if let Some((callback, ctx, installed)) = self.font_hook.as_mut() {
+            if self.runner.runtime_font_count() != *installed {
+                let runtime = self.runner.runtime_font_stacks();
+                crate::measure::install_fonts(self.runner.plan(), &runtime, *callback, *ctx);
+                *installed = runtime.len();
+            }
+        }
         #[cfg(test)]
         {
             self.layout_calls += 1;
@@ -208,7 +236,13 @@ impl<D: DataSource> Host<D> {
             if native_protected {
                 continue;
             }
-            let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
+            // A subtree a native container gave a containing block is laid
+            // out in that block's space, not its parent's (LLP 1115.002
+            // D8.2): its root's frame as published, sent again when it
+            // takes or loses the block, with the block's used size.
+            let block = kernel.host_block_size(id);
+            let parent = node.parent.filter(|_| block.is_none());
+            let parent = parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
             // A sheet sized to its route's content reads that extent too
             // (LLP 1075.003 §9.11). A route that scrolls itself keeps its
@@ -262,17 +296,26 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
-            let field_content = node.field_content_rect();
-            if (self.layout_withheld && node.node_type == NodeType::TextInput)
+            let field_content = published_content_box(&node, kernel);
+            let field_cell = node.is_cell_field();
+            if self.layout_withheld
                 || m.field_content != field_content
+                || m.field_cell != field_cell
             {
                 m.field_content = field_content;
-                batch.field_content(id, field_content);
+                m.field_cell = field_cell;
+                batch.field_content(id, field_content, field_cell);
             }
-            if m.frame != Some(rel) {
+            if m.frame != Some(rel) || m.block.is_some() != block.is_some() {
                 moved.insert(id);
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
+            }
+            if m.block != block {
+                m.block = block;
+                if let Some((w, h)) = block {
+                    batch.block(id, w, h);
+                }
             }
             if let Some(c) = content {
                 if self.layout_withheld || m.content != Some(c) {
@@ -289,6 +332,11 @@ impl<D: DataSource> Host<D> {
         self.snap_layout(batch);
         self.emit_sticky(batch);
         self.emit_fragments(batch);
+        // A withheld batch held the scenes it placed: sent again
+        if self.layout_withheld {
+            self.svg.resend();
+            self.svg.emit(self.runner.kernel(), &self.engine, batch);
+        }
         self.layout_withheld = false;
         self.emit_ranks(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
@@ -356,7 +404,7 @@ impl<D: DataSource> Host<D> {
                 Some(exact_kernel::HostCover::Edges([_, _, bottom, _])) => bottom,
                 _ => 0.0,
             };
-            let (pl, pt, pr, pb) = kernel.resolved_padding(key).unwrap_or_default();
+            let (pl, pt, pr, pb) = kernel.layout_padding(key).unwrap_or_default();
             let (bl, bt, br, bb) = kernel.resolved_border(key).unwrap_or_default();
             let sig = [node.frame.width, pl, pt, pr, pb, bl, bt, br, bb, cover];
             if !self.layout_withheld && !refit.contains(&id) && last == Some(sig) {
@@ -378,6 +426,51 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+/// Publish native editor geometry, or the CSS content box of a box with
+/// padding or a border and the padding layout resolved: what the presenter
+/// places content and insets by, so a sheet or a failed layout holds it with
+/// the frame (a style row is never held). A box with neither is its own
+/// content box and sends none, unless it is a native button whose author
+/// wrote a padding: which sides the author wrote is geometry too, held with
+/// the values, as a written `0` and an unsaid side inset its title apart.
+pub(super) fn published_content_box(
+    node: &NodeRef<'_>,
+    kernel: &Kernel,
+) -> Option<crate::batch::ContentBox> {
+    if let Some(rect) = node.field_content_rect() {
+        return Some(crate::batch::ContentBox {
+            rect,
+            padding: None,
+        });
+    }
+    let (x, y, width, height) = exact_kernel::svg::scene::content_box(kernel, node);
+    let f = node.frame;
+    let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let button = exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::Button);
+    let side = |id: exact_kernel::StyleId, value: f32| {
+        (!button || node.style.mask.has(id)).then_some(value)
+    };
+    let padding = [
+        side(exact_kernel::StyleId::PaddingTop, top),
+        side(exact_kernel::StyleId::PaddingRight, right),
+        side(exact_kernel::StyleId::PaddingBottom, bottom),
+        side(exact_kernel::StyleId::PaddingLeft, left),
+    ];
+    let written = button && padding.iter().any(Option::is_some);
+    (written || x != 0.0 || y != 0.0 || width != f.width || height != f.height).then_some(
+        crate::batch::ContentBox {
+            rect: Frame {
+                x,
+                y,
+                width,
+                height,
+            },
+            padding: Some(padding),
+        },
+    )
+}
+
 /// Natural scrollable overflow, including padding and descendants. The
 /// presenter applies the CSS client-size minimum against its actual viewport;
 /// flooring here loses the extent a native container needs under its own insets.
@@ -386,7 +479,7 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     // `content_size` (its flex containers do); CSS's `scrollHeight` does.
     // Floor with the direct children's extent plus the end padding, as the
     // last layout resolved it (a percentage is of the containing block).
-    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let (_, _, pad_right, pad_bottom) = kernel.layout_padding(node.key).unwrap_or_default();
     // A scroller UIKit insets: its end padding holds those insets, which
     // UIKit adds back (LLP 1116.000 D1.2), as `node.content` leaves them out.
     let pad_bottom = match kernel.arena().cover(node.key.index) {
@@ -395,7 +488,9 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     };
     let (mut w, mut h) = node.content;
     for child in node.children() {
-        if let Some(c) = kernel.node(child) {
+        // A child in a containing block of its own is in another space.
+        let own = |c: &NodeRef<'_>| kernel.host_block(c.id).is_some();
+        if let Some(c) = kernel.node(child).filter(|c| !own(c)) {
             w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
             h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
         }
@@ -659,6 +754,96 @@ mod tests {
                 .get("spellcheck")
                 .map(String::as_str),
             Some("true")
+        );
+    }
+
+    /// LLP 1116: a padding that resolves only at layout reaches the
+    /// presenter as the kernel's content box, which a host reading the
+    /// authored rows could not compute: on a bare field, which places its
+    /// editor there, and on a box, whose paragraph or image goes there. A
+    /// resize that moves no frame still republishes it. A padding in points
+    /// is published too, the one source a sheet or a failed layout holds; a
+    /// box with no padding or border is its own content box and sends none.
+    #[test]
+    fn padding_resolved_at_layout_publishes_the_content_box() {
+        use exact_kernel::{StyleId, StyleProps, StyleValue};
+        let plan = contract::compile(
+            r#"component App
+  view
+    box testId="holder"
+      box testId="sized" box-sizing="border-box" width=100 height=50 padding-left="10%"
+      input testId="bare" appearance="none" value="abc" padding-top="min(10%, 20px)" border-width=2 border-style="solid"
+      box testId="pct" padding-top="10%"
+        text "inside"
+      box testId="points" padding=5
+"#,
+        )
+        .unwrap()
+        .encode();
+        let (mut host, boot) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.,
+            700.,
+        )
+        .unwrap();
+        let rects = |batch: &str| -> std::collections::HashMap<u64, serde_json::Value> {
+            let json: serde_json::Value = serde_json::from_str(batch).unwrap();
+            json["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|op| op["op"] == "fieldContent")
+                .map(|op| (op["id"].as_u64().unwrap(), op["rect"].clone()))
+                .collect()
+        };
+        let [bare, pct, sized, points, holder] =
+            ["bare", "pct", "sized", "points", "holder"].map(|name| u64::from(id(&host, name)));
+        let first = rects(&boot);
+        assert_eq!(first[&bare][1], 22.0, "border 2 + min(40, 20): {boot}");
+        assert_eq!(first[&pct][1], 40.0, "10% of 400: {boot}");
+        assert_eq!(first[&sized][0], 40.0, "10% of 400: {boot}");
+        assert_eq!(first[&points][0], 5.0, "{boot}");
+        assert!(!first.contains_key(&holder), "no padding, no box: {boot}");
+
+        let sized_frame = host.mirror[&(sized as ViewId)].frame;
+        let resized = host.resize(300., 700.);
+        let second = rects(&resized);
+        assert_eq!(host.mirror[&(sized as ViewId)].frame, sized_frame);
+        assert_eq!(
+            second[&sized][0], 30.0,
+            "unmoved, still republished: {resized}"
+        );
+        assert_eq!(second[&pct][1], 30.0, "{resized}");
+        assert_eq!(
+            host.mirror[&(bare as ViewId)]
+                .field_content
+                .map(|c| c.rect.y),
+            Some(22.0),
+            "min(30, 20) is still 20"
+        );
+
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(StyleId::PaddingTop, &StyleValue::Number(30.))
+            .unwrap();
+        let receipt = host
+            .runner
+            .kernel_mut()
+            .apply(
+                0,
+                99,
+                &[Op::SetStyle {
+                    id: pct as ViewId,
+                    patch: Box::new(patch),
+                }],
+            )
+            .unwrap();
+        let cleared = host.commit(&[Timed { at_ms: 0., receipt }], None);
+        assert!(
+            !rects(&cleared).contains_key(&pct),
+            "30 points is the box 10% of 300 made: {cleared}"
         );
     }
 }

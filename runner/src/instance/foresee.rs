@@ -3,14 +3,14 @@
 //! A host warms its caches (shaped text, mostly) for a screen a press is
 //! about to open: the press's action is evaluated, its writes are laid over
 //! the slots, and [`Tree::foresee`] walks the tree as an update would, but
-//! reads only. Where a `when`/`match` would show another arm, that arm is
+//! reads only. Where an `if`/`match` would show another arm, that arm is
 //! realized into the update's ops with ids of its own ([`Ids::after`]) and
 //! dropped; nothing is destroyed, no instance is kept, and the tree, its
 //! `seen` inputs and the runner's ids are as they were. The ops are for a
 //! scratch kernel, never the runner's.
 //!
 //! It is a guess, and may be short: derives are not settled over the
-//! writes, an `each` is walked as last keyed, a virtualized list is not
+//! writes, a `for` is walked as last keyed, a virtualized list is not
 //! entered. A miss costs what no warm costs.
 
 use super::region::init_owned;
@@ -88,7 +88,7 @@ fn region(
         Active::Rows { rows } => {
             let body = &sites.deps.bodies[index];
             for row in rows {
-                let saved = u.enter(0, Some(&row.slots));
+                let saved = u.enter(0, row.slots.as_ref());
                 let walked = if u.stale(body) {
                     walk(
                         u,
@@ -107,7 +107,7 @@ fn region(
         }
         Active::Arm { arm, frame, roots } => {
             let (want, mut new_frame) = if !u.stale(&sites.deps.subjects[index]) {
-                (*arm, frame.clone())
+                (*arm, frame.scope())
             } else {
                 match (&row.kind, u.eval(row.subject, frames)?) {
                     (RegionKind::When, Value::Bool(true)) => (Some(0), Frame::default()),
@@ -131,7 +131,7 @@ fn region(
             if *arm == want {
                 // The arm stays: what is inside it may still switch.
                 let dirty = crate::compare::changed_fields(&frame.bound, &new_frame.bound);
-                let mut inner = frame.clone();
+                let mut inner = frame.scope();
                 if dirty != 0 {
                     inner.bound = new_frame.bound;
                 }

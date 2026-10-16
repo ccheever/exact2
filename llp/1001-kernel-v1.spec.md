@@ -20,6 +20,18 @@ disagree, the code and its tests are the authority and this document is stale.
 Under `rules/RULES.md` this spec is legitimate because the implementer and date
 are on it and the code exists. It is not a promise about anything not yet built.
 
+Intersection visibility host deviation (2026-10-12, LLP 1005 "Intersection
+visibility"): both web targets use the browser; AppKit, UIKit and Linux now
+share the runner's post-layout/post-scroll sampler. Sticky targets and their
+descendants use the kernel's sticky constraint at the reported scroll offset;
+rotated-root ratios have Chrome/runner coverage. Native inline runs,
+presentation-time motion, nested/transformed sticky constraints and SVG clip
+references remain unqualified. `position: fixed` is not a schema value. Percentage root margins follow measured Chrome
+behavior: height for top/bottom, width for left/right, diverging from the
+[W3C draft's width rule](https://w3c.github.io/IntersectionObserver/#dom-intersectionobserver-rootmargin).
+Windows and Android inherit the Linux path without carrier qualification;
+terminal does not sample. The issue stays open. The margin is an observer option, not a CSS layout row.
+
 ## 1. One declaration authority (WS-B)
 
 `kernel/tables/schema.json` is the only place node types, props, style rows, enum
@@ -36,6 +48,81 @@ refused at decode (`DecodeError::SchemaDigestMismatch`).
 The generator fails closed: a row it cannot validate is a build error. A second
 copy of any table anywhere is a defect — the TypeScript encoder, when it exists,
 reads the same file.
+
+Non-inherited effect rows marked `cold` in the schema share their initial
+values until written (`kernel/build/cold.rs`). A cloned style copies the
+shared pointer; a later write owns its copy. Layout and inherited rows stay
+inline. This reduces temporary style-patch memory in terminal animations;
+row values, masks, patch/clear behavior and encoded bytes are unchanged.
+The schema metadata changes its digest, so producers and hosts re-bake together.
+
+> **Amended by LLP 1115 (2026-10-09).** `rules/RULES.md` §Scope now reads "write the
+> web, ship the platform". **Layout defaults and names are still CSS's**, as every
+> example in the paragraph below is. A **presentation default** (a colour, a text
+> size, a control's look, what a press shows) is the platform's: the table names a
+> role or an `auto` that each host resolves (LLP 1095; LLP 1115 §3). The presentation
+> deviations from CSS that LLP 1115 made, declared here once:
+>
+> - the root font size is the host's body size (17 iOS at the default Dynamic Type
+>   size, 13 macOS, the reader's setting on the web), set through
+>   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
+> - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
+>   against that root, and a `role="heading"` is lowered to one by its level;
+> - `hr` is one solid edge in the separator role, not Chrome's two shades, and it is
+>   one hairline with no margin of its own (LLP 1115.000 D10.3): lowering writes it a
+>   top edge `-exact-hairline` thick and no margin, where Chrome's UA sheet gives it
+>   `margin: 0.5em auto` and a 1px inset border on four sides (2px tall, and 0 wide in
+>   a flex column, where the `auto` side margins stop the stretch); the web's sheet
+>   resets both;
+> - `-exact-hairline` is a length CSS does not have: one device pixel, 1 px over the
+>   display's scale, on every length row but `font-size` and `line-height`. The scale
+>   is a layout input the host sets, as it sets the root font size
+>   (`Kernel::set_display_scale`): UIKit's `displayScale`, AppKit's
+>   `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a point a Linux,
+>   Android or Windows shell draws at; 1 until a host says, which is what a terminal,
+>   whose border is a cell, keeps. The row holds the resolved pixels, re-resolved at
+>   the end of the commit after the scale changes (`kernel/src/style/relative.rs`), so
+>   layout and paint agree on one device pixel where an authored `0.5` is one only at
+>   2x. The web's JS target, which keeps no kernel, writes `var(--exact-hairline)`,
+>   which the sheet holds at 1px over the resolution a media query reports (1, 1.5, 2,
+>   2.5, 3 and 4 dppx; between two a border still snaps down to one device pixel).
+>   The schema's `lengths` names it, so `SCHEMA_DIGEST` covers it;
+> - an `href` run is `LinkText` and is not underlined, and so is a block `link` of
+>   text (LLP 1115.000 D3.5);
+> - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled
+>   is its text's colour and follows the scheme; a gradient stop's, a flood's and a
+>   light's initial colours stay SVG's (LLP 1115.000 D3.8);
+> - a checkbox, a radio and a range carry no margin (Chrome's UA sheet gives them `3px 3px
+>   3px 4px`, `3px 3px 0 5px` and `2px`): lowering writes none and the web's sheet zeroes
+>   them, as the common resets do (LLP 1115.000 D10.1);
+> - a range and a determinate `progress` are `width: 100%` by a row lowering implies, so
+>   each is as wide as what holds it where HTML's are 129 px and `10em`. Those are their
+>   intrinsic sizes still: what `width: auto` or an unresolvable percentage falls back to.
+>   The progress is a block of intrinsic size `10em` by `1em` that may shrink below it in
+>   a flex row; the web's sheet makes a `<progress>` one (`contain-intrinsic-size`,
+>   `min-width: 0`). A percentage-wide range shrinks below its 129 there too, which is
+>   CSS's own rule for a form control (Sizing 3 §5.2.2) and no deviation (LLP 1115.000
+>   D10.2);
+> - an unset root background is the platform's, never a fixed white;
+> - a pushed route has the platform's Back whether or not one is authored;
+> - a custom pressable that declares no press feedback dims while held on iOS.
+>
+> And one layout deviation, recorded here because it holds on every host and not only
+> the terminal it was made for (LLP 1101 D3): `ch` and `lh` are a fixed 8 × 16 cell
+> (`kernel/src/style/cells.rs`), where CSS's `ch` is the `0` advance of the element's
+> font and `lh` its line height.
+>
+> A structural-read deviation (Charlie, 2026-10-11; LLP 1094 D10): when an
+> id-less child is hit outside its named ancestor's own box, Exact's
+> `elementsFromPoint` includes that ancestor at the child's place, once. Chrome's
+> raw `elementsFromPoint` filtered to ids omits it, while
+> `elementFromPoint()?.closest("[id]")` names it. This keeps the ruled first-entry
+> equality for the T3 Inspect overlay on every host.
+>
+> Where a later paragraph of this spec still states a presentation default as Chrome's
+> (`hr`'s shading, a bare `button` as `appearance: none`, `-exact-tint-color`
+> "initially opaque black", `-exact-press-scale`, `keyboardDismissMode`, which hosts
+> present dialogs), LLP 1115.000 Appendix B says what holds now.
 
 **Defaults live in the table, once, and they are CSS's.** The style table's
 `default` column is both the storage initializer and the semantic default; there is
@@ -77,6 +164,10 @@ intrinsic seam. Its height supplies `min-height: auto` in native layout, so
 siblings reserve the control's space; explicit CSS `min-height` still wins.
 This is a declared native presentation deviation: the browser keeps authored
 HTML/ARIA/CSS. No aspect ratio is inferred, and ending projection clears the size.
+Its width is the narrowest the control can be and supplies `min-width: auto`
+in place of the hidden tabs' own minimum (LLP 1116.004 D2): UIKit's segmented
+control and tab bar report none (1 point), AppKit's segmented control its
+natural width; an explicit CSS `min-width` still wins.
 
 `justify-content`, `align-content`, `align-items` and `justify-items` accept
 and default to `normal` (2026-09-23). It lowers to Taffy's unset alignment,
@@ -97,10 +188,12 @@ one length or percentage; paired horizontal/vertical radii and the slash-separat
 `border-radius` shorthand are not implemented. Percentage ellipses do not require
 that separate value-pair syntax.
 
-**Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
-(bits 91–94) accept `none | hidden | solid | inset`, initially `none`. Contract's
+**Border semantics (Codex, 2026-09-11; amended by Charlie, 2026-10-08):** four `border_style_*` rows
+(bits 91–94) accept `none | hidden | solid | inset | dotted | dashed`, initially `none`. Contract's
 single-value `border-style` sets all four; `border-<side>-style` sets one.
-Other line styles are refused until a consumer needs their painting. `inset`
+`dotted` and `dashed` retain their widths in layout, like `solid`; their paint
+follows Chrome for each side's width, mixed styles and rounded corners. Other
+line styles remain refused. `inset`
 came with HTML's `hr` (LLP 1021 D1, 2026-10-04): the browser draws it, and
 `border_colors()` gives the native hosts Chrome's two shades, measured from its
 pixels and Blink's `CalculateInsetOutsetColor` — the top and left
@@ -126,6 +219,9 @@ it against the node's computed text colour, retaining light/dark pairs; CSS
 receives the authored values. Explicit transparent colour still occupies space.
 These are [CSS Backgrounds §3.2–3.3](https://www.w3.org/TR/css-backgrounds-3/#border-style)'s rules.
 
+> **Amended by LLP 1115 (2026-10-09).** A bare `hr` is one solid edge in the separator role.
+> Chrome's two shades now serve only an authored `border-style: inset`.
+
 The prior native host painted every declared width: a 100×60 content box
 with padding 10 and border width 8 was 136×96 versus CSS's default 120×80,
 with child inset 18 versus 10 (`/tmp/messages-border-geometry/`). The corrected
@@ -134,8 +230,25 @@ and follows inherited colour through appearance and explicit colour changes.
 Existing app borders now declare solid, including Messages and Fieldnotes.
 The Messages iOS comparison is pixel-identical and the browser badge gains its
 declared one-point border (`/tmp/messages-border-semantics/`). Fractional device
-pixel snapping, patterned borders and compound shorthand values remain unverified
+pixel snapping and compound shorthand values remain unverified
 or unsupported; these checks do not establish all CSS border painting.
+
+**Declared raster deviation (2026-10-11, issue 20261009-dotted-dashed-border-style):**
+the kernel and Contract admit `dotted` and `dashed`; both web targets emit
+CSS for Chrome, while AppKit, UIKit and Linux stroke dots and dashes along
+each side or a rounded centreline. All keep the authored width in layout.
+Against Chrome's 1× `border-patterns.contract` screenshot, AppKit and Linux's
+12 cases (1/2/4px, mixed styles and widths, rounded corners and single
+underlines) stay within 5/255 mean absolute channel difference and 5% of
+pixels differing by more than 48 in a 100×70 box. UIKit uses the same
+`BorderPaint` as AppKit. All four UIKit parity tests, including the 1 px
+edge-phase guards, passed on iOS 27.0 on 2026-10-13. An iPhone 17 app drive's
+3× screenshot, reduced to 1×, also passes this band for all twelve cases:
+maximum mean 3.983/255 and maximum fraction beyond 48 of 4.443%. A fresh
+Chrome 155.0.8059.40 capture matches the checked-in reference exactly.
+Rasterization of thin dots and curved joins accounts for the
+remaining visible pixel variance; the band does not claim identical pixels
+at other device scales.
 
 **Motion rows (2026-08-28, LLP 1002/1003).** The animatable rows carry CSS's
 individual transform property names — `translate` (vec2, with its percentages
@@ -176,6 +289,9 @@ Empty/unavailable names and symbols on hosts without their renderer paint
 nothing, with a one-computed-font-size square as fallback intrinsic size.
 This font-sized image source is a declared extension to the web's schemes;
 CSS dimensions, constraints and aspect ratio still determine its box.
+
+> **Amended by LLP 1095 D8.** `-exact-tint-color` is initially `AccentColor`, the platform's
+> tint, not opaque black.
 
 `overflow-wrap` (bit 90; implementer Codex, 2026-09-11) is inherited text
 layout intent with CSS's `normal | break-word | anywhere` vocabulary and
@@ -232,6 +348,33 @@ accessibility exclusion. The browser uses HTML inertness; iOS enforces the
 subtree boundary and its modal-confirmation exception (LLP 1035.001 D3).
 AppKit/Linux subtree enforcement remains open; the declaration alone is not
 cross-host support.
+
+**ARIA disabled (Charlie ruling, 2026-10-11; implementation: ariadisabled lane).**
+Contract carries `aria-disabled` as a boolean state on controls and elements
+with a role. It reports an unavailable control to accessibility, including
+AppKit's `AXEnabled=false` and UIKit's `.notEnabled` trait, but does not change
+focus, Tab order, rendering, or event dispatch. Press still runs; the author
+guards an unavailable action. The web writes `aria-disabled="true"` or
+`"false"` and lets the browser supply its accessibility semantics. HTML
+`disabled` retains its separate focus and input behavior. Linux retains
+focus and press behavior; its agent has no native accessibility tree to serve.
+The state is inherited by accessible descendants, including native controls
+and inline links, and refreshes when the ancestor changes. A descendant's
+`aria-disabled=false` overrides an unavailable ancestor. Lifted UIKit routes
+inherit through their authored tab panel, and ancestor changes refresh them.
+When an Apple host projects a node into a native segment, UIKit bar item,
+pressable title or grouped-list switch, the exposed replacement carries this
+accessibility state while its input remains enabled. AppKit menu items do too. UIKit menu rows
+and alert actions are a deviation: their public disabled states also suppress
+selection, and the action model objects do not expose accessibility traits
+on the presented row or button. They read as enabled while `aria-disabled`
+still leaves their input enabled.
+The standard macOS toolbar item is a current deviation: AppKit exposes its
+private item viewer rather than the public `NSToolbarItem`, so its projected
+button does not yet carry ARIA disabled (issue `20261011-aria-disabled-is-lost-in-macos`).
+That issue also tracks UIKit popovers lifted out of an unavailable ancestor:
+their accessibility inheritance still follows the presented parent.
+
 `retainFocus` (prop 55, boolean, absent/false by default) lets a button
 retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges
@@ -255,9 +398,13 @@ Reversal follows the offset; release/cancellation restores the authored values
 through their transitions. Its subtree does not take pointer hits, including at
 zero opacity. It has no CSS equivalent and creates no host artwork
 or runner gesture state. Other hosts ignore it.
-`keyboardDismissMode` (`none`, `on-drag`, `interactive`; absent means `none`)
-opts an iOS scroll container into UIKit's keyboard dismissal behavior. Other
-hosts retain their platform behavior. Linux does not yet implement either policy.
+`keyboardDismissMode` (`none`, `on-drag`, `interactive`) says how a drag on an
+iOS scroll container puts the keyboard away, as UIKit's property of that name
+does. Absent, it is the platform's (LLP 1115.000 D9.1): on iOS a container that
+scrolls vertically is `interactive`, so the keyboard follows a drag that reaches
+it, and one that scrolls only sideways is `none`. A written value wins, `none`
+included. The prop has no default row, so a host tells "unsaid" by its absence.
+Other hosts retain their platform behavior. Linux does not yet implement either policy.
 
 `scrollbar-width` (bit 88; Messages, 2026-09-09) follows
 [CSS Scrollbars](https://www.w3.org/TR/css-scrollbars-1/#scrollbar-width):
@@ -313,11 +460,33 @@ the web emits `data-destructive` and retains authored CSS. AppKit and Linux do
 not yet map the role to native presentation. A red colour or action label never
 implies the flag.
 
+`menuRemove` (263, string) carries root `-exact-menu-remove`: a literal list of
+the standard AppKit item ids in LLP 1021 §5.3. AppKit suppresses those items
+and their menu equivalents; all other hosts ignore this non-CSS presentation
+hint. It changes no layout or window capability.
+
+`menuPlacement` (261, string) is `-exact-menu` on a button (LLP 1021 §5.3,
+Charlie, 2026-10-12): a literal `app`, `file`, `edit`, `view`, `go`, `window`
+or `help`. AppKit adds the button to that menu even without a shortcut.
+Declared deviation: HTML has no application menu; web, UIKit, Linux,
+Windows, Android and terminal hosts retain the ordinary button and ignore
+this hint. Dispatch and layout are unchanged.
+
 `commandfor` (69) and `command` (70) are HTML string attributes. A `dialog`
 semantic tag defaults to absolute positioning; `show-modal` and `close` name
 browser-owned presentation commands, not runner state. UIKit supports the narrow
 confirmation grammar and `closedby="any"`; AppKit/Linux do not present dialogs
 (LLP 1021 D2). No arbitrary dialog or additional command capability is implied.
+
+> **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
+> and `closedby="any"` is implied, not required; macOS and the web show the `dialog`. The
+> Linux host still presents none.
+>
+> **And by LLP 1115.000 D13.4 (2026-10-11).** An alert has no outside: what is implied for a
+> `dialog` of the alert's shape is `closedby="closerequest"`, and `any` only for a chooser's.
+> The shape rule is the kernel's (`kernel/src/confirmation.rs`), read by lowering and by
+> every host. On the Mac the alert shape is `NSAlert` (LLP 1115.000 D7.6), and on Android a
+> `Dialog` window (LLP 1115.001 D10).
 
 `emojiPicker` (prop 63, boolean, absent/false by default) is an explicit
 selection-input policy on `input`, not an HTML `inputmode` value. A single emoji
@@ -400,6 +569,7 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   are at most four. Apple draws a conic gradient, and more than one layer,
   through the box's `draw(_:)` (Core Animation's conic gradient bends CSS's
   angles in a box that is not square), and a conic `mask-image` as pixels.
+- **Repeating linear gradients and px stops** ([LLP 1066, 2026-10-12](1066-gradients.rfc.md)): native hosts resolve stop positions against the painted box. A zero period paints the last stop, as Chrome 155 does. Positive periods below 0.01 CSS px or more than 8,192 periods across that box become their average colour; Chrome uses its own device-dependent resolution cutoff. Negative radial lengths, non-px lengths, and `background-attachment: local` remain refused. Apple draws repeating backgrounds and rasterizes repeating masks to avoid quantized hard stops in a single ramp; UIKit’s drawn-gradient `background-attachment: fixed` limitation (LLP 1066 D7) applies. AppKit’s captured hatch is pixel-exact after splitting the hard stops; UIKit qualification is pending and the issue remains open.
 - **Gradient paint under borders** ([LLP 1066 D5](1066-gradients.rfc.md)):
   native hosts extend end colours outside the padding box instead of repeating
   the gradient image as CSS's initial `background-repeat` does. Their gradient
@@ -476,6 +646,9 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   macOS's `NSSegmentedControl`) reports its own the same way and fills the
   content box (LLP 1059 D2a). The former overflow deviation
   is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+
+> **Amended by LLP 1115 (2026-10-10).** A custom pressable that declares no press feedback
+> dims while held on iOS. The row's default is still no scale.
 
 **When a list row's animations start (2026-10-06, [LLP 1055](1055-svg-shapes-and-css-animations.rfc.md)
 D13; Charlie's ruling, not reviewed).** `-exact-animation-trigger` (bit 193; spelled `-exact-` by LLP 1081 D1, since only CSS's name is shared) is
@@ -768,10 +941,11 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) ± <n>px)`,
   or `calc(<n>px + env(…))`, since addition commutes (2026-10-03: the Signal
   Clone's `calc(300px + env(…))` was refused while the other order compiled;
-  `<n>px - env(…)` negates the inset, which no dimension holds, and is still
-  refused), parsed once in `style.rs` (`Dimension::parse_env`; text on a dimension row is
+  `<n>px - env(…)`, which negates the inset, and any other sum are LLP 1078
+  D3's linear `calc()`), parsed once in `style.rs` (`Dimension::parse_env`; text on a dimension row is
   that or a rejection; wire kinds 3–6, one per edge, the `f32` the added points;
-  no fallback argument, since the host always defines the four). The kernel
+  a fallback argument is CSS Environment Variables 1's, substituted where its
+  variable is undefined, which the host never leaves the four). The kernel
   holds one `Env` — the four insets in points, the host's, set with the viewport
   (`Kernel::set_env`; a `reset` keeps it, a rehydration carries it) — and
   resolves every `env()` length against it where the engine style is derived
@@ -780,69 +954,71 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
   `tests/env.rs`.
-- **Comparisons** (2026-10-07; approved by Charlie 2026-10-06, via the lead:
-  "standard CSS"). A dimension row takes CSS's `min()`, `max()` and `clamp()`
-  (CSS Values 4 §10.2) over the lengths the kernel resolves before layout: px
-  and the other absolute units, `env(safe-area-inset-<edge>)`, the viewport
-  lengths, and sums of them, written in an argument directly or in `calc()`,
-  nested in each other and in `calc()` as CSS allows. The Bluesky clone asked
-  for its bottom bar's padding and its compose button's offset: Bluesky's
-  `clamp(insets.bottom, 15, 60)` is a value bounded to 15–60, which CSS
-  spells `clamp(15px, env(safe-area-inset-bottom), 60px)` (CSS's order is
-  `clamp(MIN, VAL, MAX)`, `max(MIN, min(VAL, MAX))`, so MIN wins over MAX),
-  and the button sits at `calc(clamp(15px, env(safe-area-inset-bottom),
-  60px) + 15px + 44px)`. Parsed once, in `style/compare.rs`, before the other
-  length grammars (a text naming no comparison falls through to them
-  unchanged). The row holds `Dimension::Compare(Comparison)`, a handle to an
-  interned tree — a term (points, an inset or a viewport length, plus points)
-  or a comparison of trees plus points — with equal trees sharing a handle,
-  so an unchanged style still compares equal by value, as `calc()` pairs are
-  interned for Taffy. A handle keeps `Dimension` `Copy`, which every reader
-  in the kernel and the four hosts takes by value: a boxed tree would change
-  all of them, and lists of the existing linear forms cannot hold a
-  comparison nested in a `calc()` with points added, or a viewport length
-  plus px. `Dimension::resolve` turns a comparison into points against the
-  `Env` exactly where an `env()` length becomes points (`taffy_style`), and
-  `uses_env` counts it, so `set_env` and a viewport change re-derive and
-  dirty its node; every host that reads a resolved length (Apple's style
-  JSON, the Linux painter, both hosts' content sizes) sees points (their
-  matches name the variant only as resolved away). On a row CSS gives no
-  negative length (a size, its minimum and maximum, a padding, a flex
-  basis, a border radius, an SVG `r`/`rx`/`ry`, a column width), the tree is
-  held as `max(0px, …)` unless it has a floor at 0 or more (an inset is 0 or
-  more, `clamp(lo, …)` is `lo` or more), and folded points at 0 or more, as
-  CSS clamps a math function to the property's range (a tree with no room
-  left for the wrap under the limits below is refused); margins and insets
-  keep negative lengths (Astra's review, 2026-10-07: a folded `-8px` width
-  was written as a `width:-8px` the browser drops). A replaced header padded
-  by a comparison that reads the top inset hands that inset to the bar, as
-  one padded by `env(safe-area-inset-top)` does (`kernel/cover.rs`). The
-  readers that never resolved `env()` or viewport lengths (SVG geometry, the
-  Apple canvas clip, `svg::scene::content_box`) take an unresolved comparison
-  as 0, as they take those (QUEUE.md). The web writes CSS's own functions for the browser to resolve
-  (`host/web/src/css.rs`, the wasm page and the JS target's static rows; a
-  JS target binding writes its text as authored), and the agent prints the
-  same text. Wire kind 24: a zero `f32`, then the tree (a tag: 0 points, 1 an
-  inset and its edge, 2 a viewport length and its unit and number, 3–5
-  `min`/`max`/`clamp` with a count and the arguments; then each node's
-  points), a nonzero leading `f32` refused, decoded to what the parser accepts or refused as
-  `DecodeError::InvalidComparison` (the 64-term limit counted across the
-  whole tree as it is read, so a wide tree is refused before it is built). Refused by name at the bake
-  (`StyleValueError::BadComparison`, `lower-attr-value`): a percentage (it
-  has no basis where the insets resolve; resolving one would put the tree in
-  Taffy's `calc()` resolver, left until an app asks), `rem`/`em`, a unitless
-  number, zero too (inside a math function a `0` is a number, not a length,
-  CSS Values 4 §10.9), `env(viewport-segment-*)`, a sum with two terms that read
-  the environment or one subtracted (it negates the variable, which no
-  length holds, as `<n>px - env(…)` already is), `*` and `/`, a sum outside
-  `calc()`, a `clamp()` of other than three, an empty `min()`/`max()`, and
-  more than 8 levels or 64 terms. A text that reads nothing folds to points
-  at the parse. The interned table grows with each distinct tree, as the
-  `calc()` pairs do: a bound text that changes every frame grows it.
-  `tests/compare.rs`, `wire/codec.rs`
-  (`comparisons_round_trip_and_a_malformed_tree_is_refused`),
+- **Comparisons** (2026-10-07; approved by Charlie 2026-10-06).
+  Dimension rows accept `calc()`, `min()`, `max()` and `clamp()` over absolute
+  lengths, `ch`/`lh`, percentages, viewport units, safe-area insets and viewport
+  segments. Functions can nest; multiplication and division take a numeric
+  factor or divisor. For example,
+  `bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
+  CSS orders the bounds as `clamp(MIN, VAL, MAX)`; MIN wins when it exceeds MAX.
+
+  `style/calc/` parses, simplifies and serializes calculation trees according to
+  CSS Values 4 §10.10–§10.13. An undefined `env()` substitutes its fallback
+  tokens before parsing the property's value. Without a fallback, an undefined
+  segment anywhere in the expression makes the property take its initial value.
+  Property restrictions still apply: `column-width`, for example, rejects
+  percentages inside math functions too.
+
+  Arithmetic uses `f64`, preserving infinities and NaN inside the tree. The
+  final result follows §10.9.2's exceptional-value rules and narrows to `f32`.
+  Numeric precision is
+  [implementation-defined](https://www.w3.org/TR/css-values-4/#numeric-types).
+  For example, `calc(1e9 * min(1%, 1px) + 10px - 1e9 * min(1%, 1px))`
+  resolves to 10px at a 200px basis here; Chromium can lose the 10px during
+  intermediate rounding.
+
+  Expressions exactly representable by `Points`, `Percent`, `Calc`, `Env`,
+  `Segment` or `Viewport` keep that compact form. Others use an interned
+  `Dimension::Compare(Comparison)` handle. Equal trees share a handle, keeping
+  `Dimension` copyable and style equality stable. Trees without percentages
+  resolve against `Env` before layout. Trees with percentages resolve against
+  their layout basis through `style/handles.rs`; `LayoutEnv` supplies the
+  current environment. Environment changes dirty dependent nodes and invalidate
+  layout memos even when handles are unchanged. The global interners retain each
+  distinct expression, so a bound expression that changes every frame grows them.
+
+  Hosts that resolve lengths outside layout use `Dimension::at_basis`.
+  Layout publishes resolved padding and borders with document and content-region
+  frames. Apple publishes a content box when padding is not plain points;
+  presenters use it for content placement and pointer coordinates. Native editor
+  geometry remains platform-specific (LLP 1104 D5). Apple's calculation wire is
+  `{"calc": n, "env": [...]}`: each Swift style owns its environment snapshot
+  and calls `exact_calc_resolve` with the current basis. Native SVG geometry
+  is outside this work; math support remains incomplete for nested viewports,
+  `<use>` placement and sizing, and other scene geometry.
+
+  Nonnegative properties clamp math results to zero: sizes, min/max sizes,
+  padding, flex basis, border radius and column width. Constant results clamp
+  when parsed; unresolved results clamp at use (CSS Values 4 §9.1). Margins and
+  insets retain negative values. A replaced header whose padding reads the top
+  safe-area inset delegates that inset to the bar (`kernel/cover.rs`).
+
+  The web and agent serialize trees using §10.13 (`host/web/src/css.rs`);
+  JS target bindings preserve authored text. Wire kind 24 contains a zero `f32`
+  followed by the tree (`style/calc/wire.rs`). Decoding rejects a nonzero prefix,
+  a tree whose serialized text does not parse back identically, or a tree that
+  has a compact representation (`DecodeError::InvalidComparison`).
+
+  Unsupported values are rejected at compile time with `BadComparison` and
+  `lower-attr-value`: `em`/`rem`, unitless lengths (including zero), `var()` and
+  other functions, length-by-length multiplication or division, sums outside a
+  math function, malformed argument lists, and more than 32 values or 32 nesting
+  levels. `clamp()` requires three arguments; `none` is allowed only for bounds.
+  `min()` and `max()` require at least one argument.
+
+  Coverage: `tests/compare.rs`, `wire/codec.rs`,
   `contract/cli/tests/it/insets.rs`, `host/web/tests/it/host/css_tests.rs`,
-  and the conformance plan `host/web-js/conformance/comparisons.contract`.
+  and `host/web-js/conformance/comparisons.contract`.
 
 ## 3. One write path (WS-D, WS-F, 0507 §4)
 
@@ -857,13 +1033,38 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**), `ClearStyle` (a mask), `SetChildren`, `AttachRoot`. There is no
+patch**: the mask of own values, the mask of authored declarations, then each
+present value; LLP 1115.000 D2). The patch affects the union of both masks. A
+written row without an own value is an explicit CSS clear: it removes the stored
+value and retains authored intent while resolving to inherited or initial value.
+`ClearStyle` takes a mask and a `written` boolean: true retains that intent;
+false removes both the own value and its authored declaration. `SetChildren`
+and `AttachRoot` complete the op list. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays
 as tall as its content: the page a viewport scrolls (added 2026-08-29 when the
 Apple host's first bare-root fixture laid out 89 pt wide; a root's engine
 style is re-derived on `AttachRoot`).
+
+**A containing block from the host** (LLP 1115.002 D8.2, 2026-10-12). A host
+that shows a subtree in a view of its own (a split's pane, a sheet) gives its
+root a containing block, `Kernel::set_host_block(view, Some(HostBlock { width,
+height }))`, each axis `Is` the size, `AtMost` a maximum, or `Fit` a limit for
+automatic sizing that an authored size or minimum may exceed. `Fit` keeps that
+length as the percentage basis and reports the resulting extent without clamping;
+it is the modal route's policy (LLP 1115.002 D7.4). While it has one
+the node is out of its parent's layout and is laid out by the same
+`compute_layout` call as a root is, in that block: the engine's root for its
+subtree, so a block that changes lays out that subtree alone. Its frames are
+in the block's space; `Kernel::host_block_size` is the block's used size
+(under a maximum, the root's shrink-to-fit size); the environment, and so
+every viewport unit, stays the window's, as do the root font size and the
+display's scale. The receipt names the page's nodes,
+then each block's. The semantics, in CSS's terms, are that document's; the
+fixtures are Chrome's (`tests/it/browser_host_block.rs`). A host that gives
+no block lays out exactly as before. Refused: a block for a root, for an
+inline run, and beside a registered content region.
 
 `SetChildren` rejects: duplicate children, self-child, a root as a child, a cycle
 (child is an ancestor of the parent), children on a leaf type, a non-`Text`
@@ -922,6 +1123,11 @@ in a vector. Adjacent duplicates collapse before sorting; publication removes
 remaining duplicates, destroyed generations and newly created nodes, in slot
 order. The retained vector releases excess scratch capacity. The same-batch
 reuse case is held by `tests/apply.rs::touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations`.
+The history stores adjacent, consecutive keys with the same generation as ranges
+when that takes less space; short or sparse lists stay raw. It preserves every
+key's order and generation and every receipt field. `Kernel::receipts()` decodes
+owned receipts on demand; live commits still return ordinary receipts directly.
+The ring's 64-batch retention and reset behavior are unchanged (`kernel/history.rs`).
 `compute_layout(root, offer)` runs Taffy over that root, publishes absolute frames,
 and returns a `LayoutReceipt` naming exactly the nodes whose frame bits changed —
 the changed-geometry receipt.
@@ -961,6 +1167,28 @@ production path): `LayoutTree` records it, `compute_layout` reports
 `LayoutError::Engine`, rebuilds the engine tree from the columns, and retries once.
 
 ## 6. Text (WS-E, WS-I)
+
+**Balanced wrapping (Charlie, 2026-10-12).** CSS `text-wrap-style: balance`,
+also written `text-wrap: balance`, is an inherited paragraph row; `auto`
+restores greedy wrapping. A host first finds the greedy line count at the
+available width, then chooses the smallest width that keeps that count using
+the same break opportunities. It balances at most six lines, leaving longer
+paragraphs greedy, as Chromium does, and a `line-clamp` keeps greedy lines.
+Only the lines before the first forced break balance; the rest break
+greedily at the box's width, as Chrome's do. Balancing moves the breaks,
+never the box: the paragraph measures as its greedy lines do, and
+`text-align` (justification too) places each line in the box's width. The
+web emits the CSS property directly, including bound values, and lets the browser
+break its lines. `pretty` and `stable` are refused with the supported values
+(`auto | balance`), rather than promising algorithms the native breakers lack. AppKit and
+UIKit (`TextBreaks.swift`, `LineBreakPlan.balance`, over the paragraph's own
+breaker, in the region worker too) and Linux (`shaping.rs`, over Parley's)
+search the width to 1/64 px with `exact_textflow::balanced_width` (Apple's
+`TextEngine.balancedLimit` is its Swift twin). Checked against Chrome's line
+widths for the issue's sentence: 16 px Arial at 180 px on the Mac
+(`TextBalanceTests`), 16 px DejaVu Sans at 240 px on Linux
+(`balance_tests.rs`); the web JS target's conformance fixture carries it
+(`styles.contract`). A terminal entry refuses the row.
 
 **Book typography** (the reader diary, 2026-10-04). `text-align: justify`
 fills every line but a paragraph's last and one before a forced break, on
@@ -1183,6 +1411,10 @@ with its tint, as iOS does on the web and Linux; inherited typography is
 reset on the web's native face; Linux draws no symbol. Its size is the
 platform's, as any control's is.
 
+> **Amended by LLP 1104 D1.** An unset `appearance` is `auto`, the platform's own button. This
+> paragraph describes the bare box an author gets with `appearance="none"` or a background,
+> border or radius.
+
 ### Window toolbars
 
 Charlie requested native window-toolbar presentation for Interview on 2026-09-15;
@@ -1266,12 +1498,21 @@ CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
 minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
 limits user UTF-16 edits, leaving authored values intact. Native interactive
 CSS resize handles are not implemented; Contract admits none and diagnoses
-other CSS values. Portable user-select admits auto/none: macOS selection omits
-none subtrees and resolves auto as AppKit does (LLP 1115 D8: a control's or the
-chrome's label is not selectable, `article` and other content text is); iOS/Linux have no ordinary selectable text executor, so
-text/all/contain are diagnosed at compile time. Border shorthands reset and
-lower to existing side rows. Native border painters support none/hidden/solid;
-other line styles are diagnosed. Text-decoration lowers solid currentcolor
+other CSS values. user-select admits auto, none and text (2026-10-12, LLP
+1115.000 D11.6): the nearest authored value decides, and a control's label is
+not selectable unless text is said on it or inside the control. What is left
+is auto with nothing above it, the platform's: macOS resolves it as AppKit
+does (LLP 1115 D8: the chrome's label is not selectable, `article` and other
+content text is) and iOS as UIKit does (not selectable, a `UILabel`), so on
+iOS only text its author made selectable is, by UIKit's own text interaction
+over the paragraph's lines, one paragraph at a time. Declared deviation:
+Linux, Windows, Android and tvOS have no text selection executor, and text
+there is auto. all and contain are diagnosed at compile time
+(`lower-css-user-select`): no native presenter selects an element whole on one
+press or keeps a selection inside its element. Border shorthands reset and
+lower to existing side rows, including `inset`, `dotted` and `dashed` under
+§1's border semantics and raster deviation; other line styles are diagnosed.
+Text-decoration lowers solid currentcolor
 underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph
 advances; underline skip-ink:auto is not implemented and its driver log names

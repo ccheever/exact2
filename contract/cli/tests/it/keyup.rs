@@ -59,6 +59,19 @@ fn wire(kind: u32, payload: &str) -> Event {
 }
 
 #[test]
+fn capture_handler_compiles_and_dispatches_keyboard_event() {
+    let src = HINTS.replace(
+        "column key=down keyup=up",
+        "column keycapture=down key=down keyup=up",
+    );
+    let mut r = boot(&src);
+    let list = id(&r, "list");
+    assert!(r.handlers_of(list).contains(&EventKind::Keycapture));
+    r.dispatch(list, wire(44, "Meta+b\nKeyB\nfalse")).unwrap();
+    assert_eq!(r.slot("log"), Some(&Value::str("d:b:KeyB:false:true;")));
+}
+
+#[test]
 fn keyup_hears_a_modifiers_release_and_both_carry_code_and_repeat() {
     let mut r = boot(HINTS);
     let list = id(&r, "list");
@@ -151,7 +164,7 @@ component App
     after(1, forget)
   view
     column key=down keyup=up testId="list"
-      when meta and page.hasFocus
+      if meta and page.hasFocus
         text "⌘" testId="hint"
 "#;
 

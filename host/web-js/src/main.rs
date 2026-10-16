@@ -18,6 +18,9 @@ mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+mod modes;
+#[cfg(test)]
+mod modes_tests;
 mod paint;
 #[cfg(test)]
 mod paint_tests;
@@ -65,6 +68,8 @@ fn main() -> ExitCode {
     // (animations, clip paths and filters, gradients, drag timelines) is
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
+    // Direct compiler invocations use the same roles and metrics as web builds.
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     let path = std::path::Path::new(input);
     // The dev loop watches every package the Contract reads (LLP 1091 D10),
     // even when this compile fails: the fix may be in the library.
@@ -152,6 +157,9 @@ fn main() -> ExitCode {
         let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);
     }
     let mut map = None;
+    // The compiler's warnings, as `contract build` prints them: a build says
+    // them too, and counts them, or they reach no one (LLP 1116.004 D7).
+    let mut warned = Vec::new();
     let plan = if input.ends_with(".plan") {
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
@@ -169,7 +177,9 @@ fn main() -> ExitCode {
         }
     } else {
         // Every refusal, each naming its own file (LLP 1054 L9), as `contract build` prints them.
-        match contract::compile_path_all(path, sites) {
+        let (compiled, warnings) = contract::compile_path_all_with_warnings(path, sites);
+        warned = warnings;
+        match compiled {
             Ok((p, m)) => {
                 // The native bake's refusals, here too: this build bakes
                 // nothing, and a plan every native build refuses must not
@@ -321,14 +331,18 @@ fn main() -> ExitCode {
             if let Some(meta) = &out_files.viewport {
                 let _ = std::fs::write(dir.join("viewport.txt"), meta);
             }
+            for w in &warned {
+                eprintln!("{w}");
+            }
             for w in &out_files.warnings {
                 eprintln!("warning: {w}");
             }
+            let count = warned.len() + out_files.warnings.len();
             println!(
-                "{out}: app.js {} B, app.css {} B, {} warnings",
+                "{out}: app.js {} B, app.css {} B, {count} warning{}",
                 out_files.js.len(),
                 out_files.css.len(),
-                out_files.warnings.len()
+                if count == 1 { "" } else { "s" }
             );
             ExitCode::SUCCESS
         }

@@ -461,7 +461,8 @@ fn unsupported_authored_height_requires_explicit_clear_not_stale_projection() {
     for value in [
         StyleValue::Auto,
         StyleValue::Percent(50.0),
-        StyleValue::Number(-1.0),
+        // A calculation that resolves only at layout
+        StyleValue::Text("min(10%, 20px)".into()),
         StyleValue::Text("env(safe-area-inset-top)".into()),
     ] {
         let mut k = tree();
@@ -479,7 +480,16 @@ fn unsupported_authored_height_requires_explicit_clear_not_stale_projection() {
     project(&mut k, 2, 250.0);
     let mut mask = StyleMask::EMPTY;
     mask.set(StyleId::Height);
-    k.apply(0, 2, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    k.apply(
+        0,
+        2,
+        &[Op::ClearStyle {
+            id: 2,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     let p = sample(&k, 2, 250.0);
     rejected_without_publication(&mut k, 1, offer(), p);
     k.compute_layout(1, offer()).unwrap();

@@ -32,14 +32,14 @@ final class OwnerCanvasMacTests: XCTestCase {
           distance: number
         component App
           resource location = defaultLocation() as shape Location
-          resource allStations = stations(location) as shape list<Station>
+          resource allStations = stations(location) as shape Station[]
           view
             column width="100%" height="100%"
               list virtualized=true estimated-item-height=90 flex=1 min-height=0 width="100%" testId="feed"
-                each s in allStations key=s.id
+                for s in allStations key=s.id
                   column width="100%" padding=8
                     text `${s.name}, zone ${s.zone}`
-                    canvas surface=map(allStations, s.id, allStations, s.zone) width="100%" height=60 testId="map"
+                    canvas surface=allStations.map(s.id, allStations, s.zone) width="100%" height=60 testId="map"
 
         """
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)

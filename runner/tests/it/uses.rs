@@ -69,7 +69,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
 fn collections_are_lists_the_host_windows() {
     let list = |attrs: &str| {
         used(&format!(
-            "component A\n  resource rows = rows() as shape list<string>\n  view\n    list {attrs}\n      each x in rows key=x\n        column\n          text x\n"
+            "component A\n  resource rows = rows() as shape string[]\n  view\n    list {attrs}\n      for x in rows key=x\n        column\n          text x\n"
         ))
     };
     assert_eq!(list("height=100"), Uses::NONE, "a plain list is the core's");
@@ -113,7 +113,7 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     );
     assert!(action.has(Capability::Format));
     let callback = used(
-        "component A\n  resource xs = xs() as shape list<number>\n  derive ys = map(xs, x => formatNumber(x, \"compact\"))\n  view\n    text join(ys, \",\")\n",
+        "component A\n  resource xs = xs() as shape number[]\n  derive ys = xs.map(x => formatNumber(x, \"compact\"))\n  view\n    text ys.join(\",\")\n",
     );
     assert!(callback.has(Capability::Format));
     let wrapped = used(
@@ -127,10 +127,10 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
 #[test]
 fn to_lower_case_links_the_case_tables_and_slice_links_nothing() {
     let cut = used(
-        "component A\n  state s = \"Ab\"\n  view\n    text replaceAll(slice(s, 1), \"b\", \"c\")\n",
+        "component A\n  state s = \"Ab\"\n  view\n    text s.slice(1).replaceAll(\"b\", \"c\")\n",
     );
     assert_eq!(cut, Uses::NONE);
-    let lower = used("component A\n  state s = \"Ab\"\n  view\n    text toLowerCase(s)\n");
+    let lower = used("component A\n  state s = \"Ab\"\n  view\n    text s.toLowerCase()\n");
     assert_eq!(lower.to_string(), "text_transform");
 }
 
@@ -304,6 +304,30 @@ fn the_picker_is_a_file_input_or_show_picker() {
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Picker));
     let input = used("component A\n  view\n    input type=\"file\" accept=\"image/*\" id=\"f\"\n");
     assert!(input.has(Capability::Picker));
+}
+
+/// LLP 1047.001.000 E: iOS's photo picker is a file input whose `accept` is
+/// only images and videos (the compiler takes only a literal); a document
+/// input links the picker without it.
+#[test]
+fn the_media_picker_is_a_file_input_that_accepts_only_media() {
+    let input = |attrs: &str| {
+        used(&format!("component A\n  view\n    column\n      input type=\"file\" id=\"f\"{attrs}\n      text \"a\"\n"))
+    };
+    for media in [" accept=\"image/*\"", " accept=\"image/png, video/mp4\""] {
+        let uses = input(media);
+        assert!(
+            uses.has(Capability::Picker) && uses.has(Capability::MediaPicker),
+            "{media}"
+        );
+    }
+    for document in ["", " accept=\"image/*, */*\"", " accept=\"*/*\""] {
+        let uses = input(document);
+        assert!(
+            uses.has(Capability::Picker) && !uses.has(Capability::MediaPicker),
+            "{document}"
+        );
+    }
 }
 
 #[test]

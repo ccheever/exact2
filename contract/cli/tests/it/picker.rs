@@ -1,6 +1,6 @@
 //! LLP 1069.002: `input type="file"` is a `Control` with `accept` and
 //! `multiple`; `showPicker` is a host command; `change` carries a
-//! `list<Picked>` and `cancel` nothing; `accept` is bounded at bake.
+//! `Picked[]` and `cancel` nothing; `accept` is bounded at bake.
 
 use exact_kernel::{Kernel, NodeType, PropId};
 use exact_runner::{ControlValue, DataError, DataSource, Event, Picked, Runner, Value};
@@ -18,8 +18,8 @@ const COMPOSE: &str = r#"component App
   state cancels = 0
   action choose
     showPicker("attach")
-  action attach(files: list<Picked>)
-    summary = join(map(files, (f, i) => `${f.name}:${f.type}:${f.size}:${match f.width { case some(w) => w, case none => 0 }}`), ",")
+  action attach(files: Picked[])
+    summary = files.map((f, i) => `${f.name}:${f.type}:${f.size}:${match f.width { case some(w) => w, case none => 0 }}`).join(",")
   action dismissed
     cancels = cancels + 1
   view
@@ -114,6 +114,27 @@ fn a_hold_is_answered_only_by_files_the_input_accepts() {
 }
 
 #[test]
+fn an_unrestricted_file_input_accepts_any_file() {
+    for accept in [
+        "",
+        "accept=\"\"",
+        "accept=\"*/*\"",
+        "accept=\"image/*,*/*\"",
+    ] {
+        let source = COMPOSE.replace("accept=\"image/png\"", accept);
+        let mut r = boot(&source);
+        let request = r.picker("one").unwrap();
+        assert!(request.accept.is_empty() || request.accept.iter().any(|t| t == "*/*"));
+        let ticket = r.hold_picker("one").unwrap();
+        r.answer_hold(
+            ticket,
+            &exact_runner::HoldAnswer::Value("/a/archive.xyz".into()),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
 fn the_bake_bounds_accept_and_refuses_capture() {
     let refused = |src: &str| contract::compile(src).unwrap_err().id;
     let view = |attrs: &str| format!("component App\n  view\n    input type=\"file\" {attrs}\n");
@@ -122,10 +143,9 @@ fn the_bake_bounds_accept_and_refuses_capture() {
         "bake-picker-accept"
     );
     assert_eq!(
-        refused(&view("accept=\"image/*,*/*\"")),
+        refused(&view("accept=\"application/octet-stream\"")),
         "bake-picker-accept"
     );
-    assert_eq!(refused(&view("")), "lower-picker-accept");
     let bound = "component App\n  state kinds = \"image/*\"\n  view\n    input type=\"file\" accept=kinds\n";
     assert_eq!(refused(bound), "lower-picker-accept");
     assert_eq!(

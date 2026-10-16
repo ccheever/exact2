@@ -21,7 +21,7 @@ import AppKit
 
 extension ExactSession {
     /// This session's number in the library's document table.
-    var documentOwner: UInt64 { UInt64(UInt(bitPattern: ObjectIdentifier(self).hashValue)) }
+    var documentOwner: UInt64 { UInt64(runtime.rt) }
 
     private func documentCall(_ request: [String: Any]) -> [String: Any] {
         var request = request

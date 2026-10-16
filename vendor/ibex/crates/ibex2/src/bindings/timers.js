@@ -2,8 +2,8 @@
 //
 // The wheel is Rust's — deadlines, ordering, interval rescheduling. This file
 // holds the one thing that cannot cross the boundary: the callback. Closures
-// live here in a Map keyed by the integer handle Rust mints, and the pump calls
-// __ibex2_fire_timer(handle) when Rust says that handle is due.
+// live here in a Map keyed by the integer handle Rust mints, and the adapter
+// calls this script's private completion function when that handle is due.
 (function (global) {
   "use strict";
 
@@ -19,6 +19,7 @@
   delete global.__ibex2_timer_clear;
   delete global.__ibex2_performance_now;
 
+  var apply = Reflect.apply;
   var callbacks = new Map();
 
   function schedule(repeating, handler, delay) {
@@ -39,14 +40,16 @@
   }
 
   global.setTimeout = function (handler, delay) {
-    return schedule.apply(
+    return apply(
+      schedule,
       null,
       [false, handler, delay].concat(Array.prototype.slice.call(arguments, 2))
     );
   };
 
   global.setInterval = function (handler, delay) {
-    return schedule.apply(
+    return apply(
+      schedule,
       null,
       [true, handler, delay].concat(Array.prototype.slice.call(arguments, 2))
     );
@@ -63,14 +66,14 @@
   global.clearInterval = cancel;
 
   // Called by the pump, once per due timer.
-  global.__ibex2_fire_timer = function (handle) {
+  function fireTimer(handle) {
     var entry = callbacks.get(handle);
     if (!entry) return;
     // A one-shot is forgotten before it runs, so a callback that clears itself
     // — or throws — cannot leave a dead entry behind.
     if (!entry.repeating) callbacks.delete(handle);
-    entry.fn.apply(undefined, entry.args);
-  };
+    apply(entry.fn, undefined, entry.args);
+  }
 
   // queueMicrotask: the one scheduling primitive the engine's Promise jobs
   // already provide, given its name. A callback that throws is reported as
@@ -90,10 +93,20 @@
     });
   };
 
+  // The runtime's clock, replacing any earlier performance.now: timers and
+  // performance.now read one clock (LLP 0071 D4).
   global.performance = global.performance || {};
-  if (!global.performance.now) {
-    global.performance.now = function () {
-      return performanceNow();
-    };
+  var runtimeNow = function () {
+    return performanceNow();
+  };
+  global.performance.now = runtimeNow;
+  // An accessor can accept the assignment and keep its own clock: refuse
+  // installation rather than leave two clocks (LLP 0071 D4).
+  if (global.performance.now !== runtimeNow) {
+    throw new TypeError("performance.now cannot be replaced with the runtime's clock");
   }
+  // The adapter retains this completion value in native state. It is not an
+  // application global: only a host task already reserved by the pump may
+  // choose the private timer handle passed here.
+  return fireTimer;
 })(globalThis);

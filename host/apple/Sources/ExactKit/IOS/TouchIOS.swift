@@ -60,7 +60,7 @@ enum TouchLog {
         // node alone is the list's for every row (LLP 1084).
         if let projected = GroupedListsLink.part?(view) { out["projected"] = projected }
         if let v = view {
-            for (label, session) in Agent.routes where v.isDescendant(of: session.presenter.viewport) || session.view.map({ v.isDescendant(of: $0) }) == true {
+            for (label, session) in Agent.routes where Agent.shows(session, v) {
                 out["session"] = label
                 out["generation"] = session.generation
                 break
@@ -91,12 +91,14 @@ extension Agent {
         // Under `--chrome platform` UIKit's bars draw these: a finger aims
         // at a node, and the node is not where the bar item is.
         let shown = ExactEnv.authoredChrome ? "the agent shows in place of" : "drawn by (--chrome platform; tap it without --touch platform)"
-        if nav.tabController != nil, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
+        if nav.tabController != nil, !nav.tablistAppearanceNone, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
             return "is in the authored tablist \(shown) UIKit's tab bar"
         }
         for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
             for case let route as RouteController in controller.viewControllers {
-                if let header = HeaderShape(route: route.node, back: nil)?.header, v === header || v.isDescendant(of: header) {
+                guard let shape = HeaderShape.bar(of: route.node) else { continue }
+                let replaced = shape.authored.isEmpty ? [shape.header] : shape.placed
+                if replaced.contains(where: { v === $0 || v.isDescendant(of: $0) }) {
                     return "is in the authored header \(shown) UIKit's navigation bar"
                 }
             }
@@ -138,6 +140,7 @@ extension Agent {
     /// or why it may not: the refusals `tap` makes, computed with nothing
     /// pressed, focused or opened.
     func aim(_ req: [String: Any]) -> [String: Any] {
+        settleForPress()
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         if v.placedAncestor?.placementHidden == true { return ["error": "tap #\(v.id): placed child is hidden"] }
         // Said before where it sits: until a swipe reveals it, its node is
@@ -169,13 +172,22 @@ extension Agent {
         // A row a grouped list draws, or its toggle's or detail button's
         // control (LLP 1084 D5): the finger aims at UIKit's cell or
         // accessory, never the hidden authored node beneath it.
-        var target: UIView = v, port: UIScrollView?
+        var target: UIView = v, port: UIScrollView?, region: CGRect?
         switch presenter.groupedLists?.shown(v) {
         case .refused(let why): return ["error": "tap #\(v.id): \(why)"]
         case .view(let drawn, let list): target = drawn; port = list
         case nil: break
         }
-        let drawnBox = target === v ? nil : box(target)
+        // A tab a segmented control draws: its segment, the control taking
+        // the touch (r5 weather). A header button UIKit's bar draws under
+        // `--chrome platform`: its bar item (r5 weather, mood journal).
+        if target === v, let (control, segment) = presenter.segments.drawn(v) { target = control; region = segment }
+        var barred = false
+        if target === v, let item = barItem(v) {
+            guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
+            target = bar; region = frame; barred = true
+        }
+        let drawnBox = target === v ? nil : box(target, region: region)
         // A point from the top left of what is drawn: UIKit's cell for a row a list draws.
         if let pair = at["at"] as? [Double] {
             let whole = drawnBox ?? box(v)
@@ -191,7 +203,7 @@ extension Agent {
         let vp = presenter.viewport
         var p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
         var seen = win.hitTest(p, with: nil)
-        if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {
+        if !presenter.reach(of: v).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
         if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
@@ -222,7 +234,7 @@ extension Agent {
         // Stage 3's boundary, over the target, every node enclosing it (an
         // invoker around a label) and every node enclosing what the finger
         // would hit.
-        for node in Agent.enclosing(v) + Agent.enclosing(seen) {
+        for node in (barred ? [] : Agent.enclosing(v)) + Agent.enclosing(seen) {
             if let why = substituted(node) {
                 return ["error": "unsupported: tap #\(v.id)\(node === v ? "" : " (through node #\(node.id))") \(why); native presentation under a real touch lands at LLP 1080.000 stage 3"]
             }

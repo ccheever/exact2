@@ -148,6 +148,20 @@
         "browser"
       ]
     },
+    "orientation": {
+      "type": "string",
+      "description": "The Web App Manifest's default screen orientation (Screen Orientation API values). The web manifest carries it; the iPhone and Android lock to it; iPad keeps every orientation, as its multitasking requires.",
+      "enum": [
+        "any",
+        "natural",
+        "landscape",
+        "landscape-primary",
+        "landscape-secondary",
+        "portrait",
+        "portrait-primary",
+        "portrait-secondary"
+      ]
+    },
     "theme_color": {
       "type": "string"
     },
@@ -159,7 +173,7 @@
     "background_color": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds."
+      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds. Unset, the iOS launch screen is the platform's: systemBackground, or the grouped background where the first route scrolls a grouped list."
     },
     "lang": {
       "description": "The W3C manifest's language: a BCP 47 tag for the page's <html lang> and the web manifest. Absent is en.",
@@ -168,9 +182,9 @@
     },
     "link": {
       "type": "array",
-      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions"] },
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session"] },
       "uniqueItems": true,
-      "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses and nothing else, and a bundle that needs more is a new binary. Names are the runner's (`exact_runner::Capability::name`)."
+      "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would (LLP 1047.001.000 F). Names are the runner's (`exact_runner::Capability::name`)."
     },
     "icons": {
       "description": "The app's icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). The native bakes derive their icon sets from these; a distribution build refuses an app without a square one.",
@@ -195,6 +209,19 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    "protocol_handlers": {
+      "type": "array",
+      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",
+      "items": {
+        "type": "object",
+        "required": ["protocol", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
+          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" }
+        }
       }
     },
     "file_handlers": {
@@ -248,7 +275,7 @@
       ],
       "properties": {
         "id": {
-          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>; change it before distributing.",
+          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
         },
@@ -342,6 +369,15 @@
                 "type": "string"
               }
             },
+            "queriesSchemes": {
+              "description": "Other apps' URL schemes a native module may ask `canOpenURL` about, to see whether the app is installed (Info.plist's LSApplicationQueriesSchemes): iOS answers false for any scheme not listed, and honours at most 50. A scheme as RFC 3986 writes it, without `:`.",
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
+              }
+            },
             "team": {
               "type": "string"
             }
@@ -353,7 +389,7 @@
           "type": "object",
           "properties": {
             "resources": {
-              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved. Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle.",
+              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved, before the bundle is sealed (a build stamp placed here is inside the seal). Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle; a helper executable needing a hardened-runtime exception names it in the source's grants, as `runtime.allow-jit Helpers/node/bin/node`; the app's own executable takes none (LLP 1069.008 D9).",
               "type": "array",
               "items": {
                 "type": "object", "required": ["from", "to"], "additionalProperties": false,
@@ -707,6 +743,10 @@
         "minItems": 1,
         "items": { "type": "string", "minLength": 1 }
       }
+    },
+    "tamber": {
+      "type": "string",
+      "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
     },
     "strings": {
       "type": "object",

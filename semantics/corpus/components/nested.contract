@@ -21,7 +21,7 @@ component Card
     column
       button heading press=toggle testId="toggle"
       text heading testId="heading"
-      when open
+      if open
         children
       Inner(prefix=heading)
 

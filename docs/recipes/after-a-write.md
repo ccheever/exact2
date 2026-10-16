@@ -1,12 +1,10 @@
 # Recipe: after a write
 
-What happens once a save is answered. The field clears, or the form closes, only when
-the reply is ok. A refusal keeps what the person typed and says why, where they type.
-The old reason goes as the next attempt starts.
+The field clears, or the form closes, only when the reply is ok; a refusal keeps what was
+typed and says why, under the field.
 
 ```contract
 shape Tag
-  id: string
   name: string
 
 shape Reply
@@ -15,14 +13,14 @@ shape Reply
 
 component TagList
   state draft = ""
-  resource tags = loadTags() as shape list<Tag> else empty()
+  resource tags = loadTags() as shape Tag[] else empty()
   mutation added as shape Reply refreshes tags then afterAdd
   derive addError = match added { case some(r) => r.error, case none => "" }
   action edit(v: string)
     draft = v
   action add
-    if trim(draft) != "" and not pending(added)
-      send added = addTag(trim(draft))
+    if draft.trim() != "" and not pending(added)
+      send added = addTag(draft.trim())
   action afterAdd
     if addError == ""
       draft = ""
@@ -31,16 +29,16 @@ component TagList
       section
         row gap=8 align-items="center"
           column flex=1 min-width=0 gap=4
-            input appearance="none" value=draft input=edit submit=add placeholder="New tag"
-              aria-label="New tag" enterkeyhint="done" testId="draft"
-            when addError != "" and not pending(added)
+            input value=draft input=edit submit=add placeholder="New tag"
+              aria-label="New tag" testId="draft"
+            if addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
-          button press=add disabled=(trim(draft) == "" or pending(added)) testId="add"
+          button press=add disabled=(draft.trim() == "" or pending(added)) buttonStyle="filled" testId="add"
             text "Add"
       section
-        each t in tags key=t.id
+        for t in tags key=t.name
           row
-            text t.name testId=`tag-${t.id}`
+            text t.name
 ```
 
 ```ts
@@ -54,8 +52,8 @@ const sources: Sources = {
   loadTags: () => tags,
   addTag: ([name]) => {
     const same = tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
-    if (same) return { ok: false, error: `There’s already a tag called ${same.name}. Try another name.` }; // a refusal is a reply
-    tags.push({ id: String(tags.length + 1), name });
+    if (same) return { ok: false, error: `${same.name} is taken. Try another name.` };
+    tags.push({ name });
     return { ok: true, error: '' };
   },
 };
@@ -63,14 +61,14 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 ```
 
 ```contract-test
-test "a refused add keeps the text and says why; the next attempt clears it"
+test "a refused add keeps its text and says why; the next one clears it"
   type "draft" "Work"
   tap "add"
   clock data
   type "draft" "work"
-  type "draft" key "Enter"
+  tap "add"
   clock data
-  expect text "add-error" == "There’s already a tag called Work. Try another name."
+  expect text "add-error" == "Work is taken. Try another name."
   expect text "draft" == "work"
   type "draft" "Home"
   tap "add"
@@ -78,18 +76,12 @@ test "a refused add keeps the text and says why; the next attempt clears it"
   expect tree missing "add-error"
 ```
 
-- **Clear in `then`.** `then afterAdd` runs once each reply lands, as its own commit,
-  reading that reply. Clearing where you send loses the text when the write is refused.
-- **A refusal is a reply**, `{ ok: false, error: '…' }` in words, for every failure the
-  data module can name: a rule, a server's 4xx, a lost connection ([rest-backend](rest-backend.md)).
-  A throw brings no answer: `then` doesn't run and nothing is said (`failure()` is for
-  resources only).
-- **Where they type**: under the field, in its row, in `-exact-system-red` and words
-  that say what to do (a section `footer` is always grey on iOS, and a row of text alone
-  drops its colour). It hides while `pending(added)`, so the next attempt starts clean.
-- **One at a time.** `not pending(added)` stops a second Enter: a newer send replaces
-  the first's reply, not its work, so both would be saved.
-- **Closing a form** is the same `then`: `if saveError == "" and top(nav).name == "add"`,
-  then `nav = back(nav)`, so a refused save keeps the sheet open ([navigation-stack](navigation-stack.md)).
-- Give the write its own mutation: a `then` runs for every reply of its mutation, so one
-  shared with a toggle would clear the field when a toggle lands.
+- **Clear in `then`**, which runs as its own commit when each reply lands and reads it; clearing
+  where you send loses the text on a refusal. Give the write its own mutation: a `then` runs for
+  every reply of its mutation. `not pending(added)` stops a second Enter: a newer send replaces
+  the reply, not the work.
+- **A refusal is a reply** (`{ ok: false, error }` in words) for every failure the data module
+  can name: a rule, a 4xx, a lost connection ([rest-backend](rest-backend.md)). A throw brings no
+  answer: `then` doesn't run and nothing is said.
+- Closing a form is the same `then`: `if saveError == "" and top(nav).name == "add"`, then
+  `nav = back(nav)` ([navigation-stack](navigation-stack.md)).

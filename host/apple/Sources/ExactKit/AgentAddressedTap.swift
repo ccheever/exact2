@@ -182,7 +182,8 @@ extension Agent {
     /// nearest node from the hit one up that takes a press — or a disabled
     /// one on the way, which stops it.
     func pressReach(_ v: NodeView, at p: CGPoint, in win: NSWindow) -> PressReach? {
-        guard let hit = win.contentView?.hitTest(p), hit === v || hit.isDescendant(of: v) else { return nil }
+        // What is under the point, a table's row included: the table takes a row's click and presses its root (LLP 1115.002 D5).
+        guard let hit = TableRowCell.whatIsThere({ win.contentView?.hitTest(p) }), hit === v || hit.isDescendant(of: v) else { return nil }
         var at: NSView? = hit, node: NodeView?
         while let cur = at {
             if let n = cur as? NodeView { node = n; break }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import QuartzCore
 import XCTest
 @testable import ExactKit
 
@@ -39,8 +40,24 @@ enum GradientParity {
             }()),
             ("scheme", ["border_radius_top_left": 20, "border_radius_top_right": 20, "border_radius_bottom_right": 20, "border_radius_bottom_left": 20,
                         "background_image": g(linear(180), [0, 229, 57, 53, 255, 1, 253, 216, 53, 255], dark: [0, 128, 222, 234, 255, 1, 206, 147, 216, 255])]),
+            ("hatch", ["background_color": n([252, 252, 252, 255]), "background_image": ["css": "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"]]),
+            ("length", ["background_color": n([252, 252, 252, 255]), "background_image": ["css": "linear-gradient(-45deg, transparent 0px 4.243px, #e6e6e6 4.243px 5.657px)"]]),
+            ("mixed", ["background_image": ["css": "linear-gradient(to right, #e53935 20px, #fdd835, #1e88e5 80%)"]]),
+            ("zero-two", ["background_image": ["css": "repeating-linear-gradient(to right, red 0px, blue 0px)"]]),
+            ("zero-three", ["background_image": ["css": "repeating-linear-gradient(to right, red 0px, lime 0px, blue 0px)"]]),
+            ("zero-four", ["background_image": ["css": "repeating-linear-gradient(to right, red 0px, lime 0px, blue 0px, white 0px)"]]),
         ]
-        return styles.enumerated().map { i, s in BorderParity.Case(name: s.0, x: [20, 145, 270][i % 3], y: [20, 115, 210, 305][i / 3], style: s.1) }
+        return styles.enumerated().map { i, s in BorderParity.Case(name: s.0, x: [20, 145, 270][i % 3], y: [20, 115, 210, 305, 400, 495][i / 3], style: s.1) }
+    }
+
+    static func checkLengthResize() {
+        let gradient = Gradient(["css": "linear-gradient(to right, red 20px, green, blue 80%)"] as BatchValue)!
+        let layer = CAGradientLayer()
+        for (width, first) in [(100.0, 0.2), (200.0, 0.1)] {
+            let box = CGRect(x: 0, y: 0, width: width, height: 70)
+            gradient.apply(layer, bounds: box, box: box, dark: false)
+            XCTAssertEqual(layer.locations?[1].doubleValue ?? -1, first, accuracy: 0.0001)
+        }
     }
 
     /// Every case against one of Chrome's pictures; the failures, named.

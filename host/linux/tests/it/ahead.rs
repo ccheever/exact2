@@ -1,21 +1,9 @@
 //! A press's screen is laid out ahead of its release: its text is shaped by
 //! then, and nothing shown, committed or kept by the runner has changed.
 use exact_linux::{presenter::PainterChoice, Presenter};
-use exact_runner::{agent, DataError, DataSource};
+use exact_runner::agent;
 use std::path::PathBuf;
 use std::time::Duration;
-
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 const APP: &str = r##"component App
   state shown = none
@@ -43,10 +31,10 @@ const APP: &str = r##"component App
           case none
 "##;
 
-fn boot() -> Presenter<Empty> {
+fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(APP).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -57,24 +45,24 @@ fn boot() -> Presenter<Empty> {
     p
 }
 
-fn frame(p: &Presenter<Empty>, name: &str) -> exact_kernel::Frame {
+fn frame(p: &Presenter<()>, name: &str) -> exact_kernel::Frame {
     let kernel = p.host().kernel();
     let key = kernel.find_by_test_id(name)[0];
     kernel.node_by_key(key).unwrap().frame
 }
 
-fn centre(p: &Presenter<Empty>, name: &str) -> (f32, f32) {
+fn centre(p: &Presenter<()>, name: &str) -> (f32, f32) {
     let f = frame(p, name);
     (f.x + f.width / 2., f.y + f.height / 2.)
 }
 
 /// (sources shaped, layout misses) so far.
-fn work(p: &Presenter<Empty>) -> (usize, usize) {
+fn work(p: &Presenter<()>) -> (usize, usize) {
     let text = p.text().borrow();
     (text.shape_calls, text.measures - text.hits)
 }
 
-fn seen(p: &Presenter<Empty>) -> (String, String, usize, u64) {
+fn seen(p: &Presenter<()>) -> (String, String, usize, u64) {
     let host = p.host();
     (
         agent::tree(host.runner()),
@@ -132,6 +120,46 @@ fn the_release_finds_its_screen_shaped_and_nothing_changed_before_it() {
     assert_eq!(
         agent::tree(p.host().runner()),
         agent::tree(twin.host().runner())
+    );
+}
+
+#[test]
+fn a_new_runtime_family_reshapes_text_opened_on_press_release() {
+    let source = r#"component App
+  state open = false
+  state family = "sans-serif"
+  action show
+    family = "monospace"
+    open = true
+  view
+    column
+      button "Open" press=show testId="open" width=200 height=60
+      if open
+        text "The quick brown fox" font-family=family testId="sample"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let (x, y) = centre(&p, "open");
+    p.pointer_down(x, y, 0.).unwrap();
+    p.foresee_press(x, y, 0.);
+    let cold = work(&p).0;
+    while p.foresee_slice(Duration::from_secs(1)) {}
+    let warm = work(&p).0;
+    assert!(warm > cold, "the new text was shaped ahead");
+    p.pointer_up(x, y, 60.).unwrap();
+    let sample = p.host().kernel().find_by_test_id("sample");
+    assert_eq!(sample.len(), 1);
+    assert!(
+        work(&p).0 > warm,
+        "the fallback shape must be replaced after font registration"
     );
 }
 

@@ -25,13 +25,62 @@
      first frame of an app that never calls `setScheme` is wrong. `setScheme`
      overrides this on the element, as an app choosing light or dark. */
   html { color-scheme: light dark; }
-  /* Press feedback is the node's own (`-exact-press-scale`, LLP 1061); a page
-     shows none unless it declares one (the iOS host dims an undeclared custom
-     pressable as UIKit does, LLP 1115, which a web page is not). Mobile
-     WebKit's grey tap highlight would paint over it on every button and link. A
-     native button keeps a highlight as UIButton does: the input glue marks it
-     `data-pressed` by the same rule as a press, and its face dims. */
+  /* One device pixel (LLP 1115.000 D10.3): what `-exact-hairline` is on a page that keeps no kernel. The JS target
+     writes `var(--exact-hairline)` for it; the wasm page's kernel is told `devicePixelRatio` and writes the pixels.
+     It is 1px over the display's scale, by the resolutions a sheet can ask about, so it holds before any script runs.
+     Between two steps a border still snaps down to one device pixel. */
+  :root { --exact-hairline: 1px; }
+  @media (min-resolution: 1.5dppx) { :root { --exact-hairline: calc(1px / 1.5); } }
+  @media (min-resolution: 2dppx) { :root { --exact-hairline: .5px; } }
+  @media (min-resolution: 2.5dppx) { :root { --exact-hairline: .4px; } }
+  @media (min-resolution: 3dppx) { :root { --exact-hairline: calc(1px / 3); } }
+  @media (min-resolution: 4dppx) { :root { --exact-hairline: .25px; } }
+  /* Every pressable shows its own press (LLP 1115.000 D6), so mobile WebKit's
+     grey tap highlight, which would paint a second response over each button
+     and link, stays off. A node's `-exact-press-scale` is its own (LLP 1061).
+     The input glue marks a held native button `data-pressed`, including
+     while Space holds it (D4.14); neutral.css paints its response. */
   html { -webkit-tap-highlight-color: transparent; }
+  /* LLP 1115.000 D4.12: the resets a careful web app ships. A phone does not inflate the text in landscape (normalize.css
+     and Tailwind's preflight say the same). A control answers a tap at once: a second quick tap on it is a second tap,
+     not the browser's zoom (panning and pinching from it are unchanged). And a shell that scrolls inside itself (every
+     page but a `scroll document` one, where the document is the scroller and keeps the browser's own ends) does not
+     hand a scroller's end to the page: a list at its top does not pull the page to refresh or drag the window. */
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior: contain; }
+  #exact-root :is(button, a[href], input, select, textarea, summary, [data-exact-on~="press"]) { touch-action: manipulation; }
+  /* LLP 1115.000 D4.14: a symbol, and an image in something pressable, is part of the control, not content: no long-press
+     callout and no image drag (the navigation glue cancels the drag where the engine has no property for it). */
+  #exact-root img[data-symbol-source], #exact-root :is(button, a[href], [data-exact-on~="press"]) img { -webkit-touch-callout: none; -webkit-user-drag: none; }
+  /* The unsaid press (LLP 1115.000 D6): a custom `button`, a link or a box
+     with a `press` that declares no feedback shows 65% of its opacity, the iOS
+     host's dim (PressFeedback.swift), while the browser holds it `:active` (a
+     mouse button, a finger after the browser's tap delay, Space on a button)
+     or the input glue holds it `data-pressed` (Space on a box it presses by
+     key). It goes at once on release: iOS's fades back, and a transition here
+     would stay dimmed under the agent's clock until the clock moved.
+     Only the innermost pressable shows it (the last line). Not dimmed, in the
+     selector's order: a disabled button; a native control, which keeps its own
+     feedback, and a game's action button, which is held; an authored press,
+     which replaces it (`-exact-press-scale`, or `pointerdown` or `pointerup`
+     handlers, which draw one; a `hover` handler observes and replaces
+     nothing); a pressable covering the window, a surface the input glue
+     measures at the press; anything in a row of a `list` whose rows are
+     cells (`data-listrows`, LLP 1115.000 D16: the look's own row answers
+     there, neutral.css), or a grouped list's row in its section. A list
+     that is no cell list (`appearance="none"`, a carousel) holds ordinary
+     pressables, which dim. An `opacity` the author wrote on the node wins
+     (inline, or the JS target's classes). */
+  #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(
+    :disabled,
+    [data-button-style], [data-native], input, select, textarea, [data-action],
+    [style*="--exact-press:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
+    [data-exact-surface],
+    [data-listrows] *, [data-liststyle] > section > * > *,
+    :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { opacity: .65; }
+  /* A disabled custom button dims as the drawn switch does, and takes no press; not one whose
+     author styles its own disabled state (Contract's `disabledStyled`, LLP 1115.000 D6). */
+  #exact-root button:disabled:not([data-button-style], [data-native], [data-disabledstyled]) { opacity: .5; }
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
   /* LLP 1069.000 D3: unsized text takes the root font size (16 unless the
@@ -43,10 +92,29 @@
      the common reset's inherited typography (LLP 1104 D4, D8). */
   #exact-root [data-native] { all: revert; display: block; font: inherit; letter-spacing: inherit; color: inherit; }
   #exact-root [data-native]:disabled { color: revert; }
+  /* LLP 1116.007 D4: `appearance: textfield` is a number input without its spin buttons. */
+  #exact-root input[data-exact-textfield]::-webkit-inner-spin-button, #exact-root input[data-exact-textfield]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   select { display: block; }
-  /* A determinate progress is HTML's (LLP 1116 D8): the browser draws it and its UA sheet sizes it (`10em` by `1em`,
-     border-box), as the kernel does; a block, as every node is, where the UA's is an inline-block. */
-  progress { display: block; }
+  /* A determinate progress is HTML's (LLP 1116 D8): its UA sheet sizes it (`10em` by `1em`, border-box), as the kernel
+     does; a block, as every node is, where the UA's is an inline-block. The page draws its bar as UIKit draws its own and
+     Linux paints it (LLP 1116.003): a 4 px capsule centred across the box, the accent's to the value over a track of
+     the neutral fill, whatever the accent, in either scheme. Chrome's own takes its track by contrast with the accent:
+     near black under a light accent (teal, mint, yellow) in light, near white under a dark one in dark. The element
+     keeps no border (Firefox's UA would add 2 px to the box) or background, so an authored background is the box's,
+     under the track, as on iOS. Firefox styles no track and puts its bar at the top of the box: there both are bands
+     centred in the box, square-ended.
+     Its size (LLP 1115.000 D10.2): the plan says `width: 100%`, so the bar is as wide as what holds it. Where that
+     percentage has nothing to resolve against (a shrink-to-fit box), or its author writes `width: auto` in a flex row,
+     it is its intrinsic size, `10em` by `1em`: a bare `<progress>` has none (it would be 0 wide), so size containment
+     gives it one, which is what the kernel measures. `min-width: 0` lets it shrink below that beside a row's other
+     children, as a percentage-wide range does of itself. */
+  progress { display: block; appearance: none; border: none; background: none; contain: size; contain-intrinsic-size: 10em 1em; min-width: 0; }
+  progress::-webkit-progress-bar { position: relative; top: calc(50% - 2px); height: 4px; border-radius: 2px; background-color: var(--exact-fill); }
+  progress::-webkit-progress-value { border-radius: 2px; background-color: var(--exact-accent, AccentColor); }
+  @supports (-moz-appearance: none) {
+    progress { background: linear-gradient(var(--exact-fill) 0 0) 0 50% / 100% 4px no-repeat; }
+    progress::-moz-progress-bar { background: linear-gradient(var(--exact-accent, AccentColor) 0 0) 0 50% / 100% 4px no-repeat; }
+  }
   /* A link is a bare node too: the UA's underline goes, as a button's control
      styling does. A \`link\` is block-level like any node; a run with an
      \`href\` stays inline in its paragraph, and its colour is the compiler's
@@ -56,9 +124,11 @@
      and the tab bar are (the tint, iOS's \`LinkText\`); one holding a row or
      column, or given a \`role\` or a \`buttonStyle\`, is the author's row or
      button and inherits. Both are \`:where()\`, so an authored colour wins.
-     Every link points, as on any web page. Markdown's own links (never
-     views) keep the UA's look. */
-  #exact-root a[data-view] { text-decoration: none; cursor: pointer; display: block; }
+     Every link points, as on any web page: one with an \`href\`, since an
+     \`href\` that turns out empty is no link and is not written. Markdown's
+     own links (never views) keep the UA's look. */
+  #exact-root a[data-view] { text-decoration: none; display: block; }
+  #exact-root a[data-view][href] { cursor: pointer; }
   :where(#exact-root a[data-view]) { color: inherit; }
   :where(#exact-root a[data-view][href]:not([role], [data-button-style], [data-exact-text] a):not(:has(> :not([data-exact-text], img)))) { color: var(--exact-accent, AccentColor); }
   #exact-root [data-exact-text] a[data-view] { display: inline; }
@@ -69,6 +139,11 @@
      for a title (LLP 1115 D3; LLP 1116 D7), the same rows on every host. They
      win here, inline or as the JS target's classes, as an author's do. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
+  /* An `hr` is one hairline with no margin of its own (LLP 1115.000 D10.3). Its look is the plan's rows, a solid top
+     edge `-exact-hairline` thick in the separator role, the same on every host; so the UA's `margin: 0.5em auto` and
+     its 1px inset border on all four sides go, as the common resets take them (the page drew it 2px tall, and no
+     wider than nothing in a flex column, where an `auto` side margin stops the stretch). */
+  hr { margin: 0; border: 0 none; }
   #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
   #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
@@ -76,21 +151,26 @@
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
   #exact-root [data-native], input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* A checkbox, radio, range or date control is the platform's again (LLP 1069.001 D3, D6): its
-     size is the UA's; `appearance: none` on the node hands it to the author. */
+     size is the UA's; `appearance: none` on the node hands it to the author. Its margin is not the UA's (LLP
+     1115.000 D10.1): a checkbox's `3px 3px 3px 4px`, a radio's `3px 3px 0 5px` and a range's `2px` are zero here, as
+     in every common reset and in the kernel's layout on every host, so a control sits where its row puts it and the
+     space beside a label is the author's `gap`. The reset above (`all: unset`) zeroes them already; this says so,
+     under any margin the author writes. */
+  input[type="checkbox"], input[type="radio"], input[type="range"] { margin: 0; }
   input[type="checkbox"], input[type="radio"], input[type="file"], input[type="range"], input[type="date"], input[type="time"], input[type="datetime-local"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
   input[type="checkbox"], input[type="radio"] { box-sizing: border-box; }
   /* LLP 1104 D4: native buttons inherit the page's typography. Face fields
      use grid areas so a subtitle remains under its title beside a symbol.
      The empty gap is a real space glyph, D3's declared web approximation.
-     LLP 1116 D1: every style has one shape, 8 px corners (a `capsule` corner
-     style still rounds fully), `.5em 1em` and weight 500. The title column
+     Every style has 8 px corners (a `capsule` corner style still rounds
+     fully) and weight 500; neutral.css supplies its size and padding. The title column
      keeps its min-content floor, so a narrow row overflows rather than
      cutting "End session" to "E… s…"; only a title the author keeps to one
      line (`white-space`, which writes --exact-button-title-min: 0px)
      truncates. `overflow: clip` clips without making the box a scroll
      container, whose automatic minimum size would be 0. */
-  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; border: none; border-radius: var(--exact-control-radius, 8px); padding: .5em 1em; align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
-    --exact-control-font-size: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-accent-fill: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; }
+  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; border-radius: var(--exact-control-radius, 8px); align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
+    --exact-control-font-size: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; }
   #exact-root button[data-button-style]:has(> img) { grid-template-areas: var(--exact-button-leading-areas, "image space title"); grid-template-columns: var(--exact-button-columns, auto auto minmax(var(--exact-button-title-min, min-content), auto)); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-areas, "title space image"); }
   #exact-root button[data-button-style]:has(> img):has(> [data-exact-text] ~ [data-exact-text]) { grid-template-areas: var(--exact-button-leading-subtitle-areas, "image space title" "image space subtitle"); }
@@ -100,86 +180,80 @@
   #exact-root button[data-button-style] > [data-exact-text] { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: inherit; display: var(--exact-button-title-display, block) !important; -webkit-box-orient: vertical; -webkit-line-clamp: var(--exact-button-clamp, none); }
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   #exact-root button[data-button-style] > img { grid-area: image; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
-  button[data-button-style][data-pressed] > * { opacity: .5; }
+  /* LLP 1116.003 D4: a native button taller than its face (a round button's
+     80 by 80) centres the face, as UIKit and a browser's own button do; the
+     grid's empty subtitle row no longer takes half the height. */
+  #exact-root button[data-button-style] { align-content: center; }
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
-  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }
-  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); --exact-button-accent-fill: var(--exact-accent); color: #fff; }
-  #exact-root button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%) !important; background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
-  #exact-root button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%) !important; background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
-  #exact-root button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); --exact-button-accent-fill: color-mix(in srgb, var(--exact-accent) 85%, transparent); color: #fff; }
-  /* LLP 1116 D1: `bordered` and `gray`, the unsaid button, as Apple draws
-     them: a neutral fill under the accent's ink, darker under the pointer
-     and while pressed (when the face also dims, as above). `destructive` is
-     the system red as the button's accent, so each style draws it: red ink,
-     a red tint, a red fill. An accent-color on the button still wins. */
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#7676801f, #7676803d); color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
-  @media (hover: hover) {
-    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
-    #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 22%, transparent); }
-    #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor), #000 10%); }
-  }
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"])[data-pressed] { background-color: light-dark(#7676803d, #7676805c); }
-  #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: light-dark(#ff3b30, #ff453a); }
-  /* A content `tablist` of native tabs is a segmented control: a track, the
-     selected tab raised in it. The root tab bar (tabs that name the panel
-     they show, `aria-controls`) is a bar with a top separator, its selected
-     tab in the accent. */
-  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls]))) { background-color: light-dark(#7676801f, #7676803d); border-radius: 9px; padding: 2px; }
-  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
-  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
-  #exact-root [role="tablist"] > button[role="tab"]:not([aria-controls]):is([data-button-style="bordered"], [data-button-style="gray"])[aria-selected="true"] { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
-  :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9eb, #1d1d1feb); box-shadow: 0 -.5px 0 light-dark(#3c3c434a, #54545899); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: none; color: var(--exact-accent, AccentColor); }
+  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); color: #fff; }
+  #exact-root button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%) !important; background: light-dark(#ffffffb3, #262629b3); color: var(--exact-canvas-text, CanvasText); box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  #exact-root button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%) !important; background: light-dark(#ffffff26, #ffffff1a); color: var(--exact-canvas-text, CanvasText); box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  #exact-root button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); color: #fff; }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; }
+  /* A destructive tinted button keeps readable red ink over its accent tint. */
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-destructive="true"] { color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 88%, #000), var(--exact-accent, AccentColor)); }
+  #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: var(--exact-system-red); }
+  /* Segment faces have no fill until the neutral sheet marks the selected one. */
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; }
+  :where(#exact-root [role="tablist"]) { appearance: auto; }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
-  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: light-dark(#8e8e93, #98989d); }
-  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-accent, AccentColor); }
-  /* Disabled UA ink, while inline author colours and symbol tint still win. */
-  #exact-root button[data-button-style]:disabled { color: GrayText; }
-  #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]):disabled { background-color: var(--exact-button-accent-fill, color-mix(in srgb, var(--exact-accent, AccentColor) 45%, transparent)); }
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"]):disabled { color: var(--exact-accent, GrayText); }
-  /* LLP 1116 D1: the rest of what an author leaves unsaid, as a well-made web
-     app draws it (LLP 1115 §3, amended). Each rule is `:where()`, or sits
-     under one #exact-root to override the reset above it, so the author's
-     rows win: the wasm page writes them inline, and the JS target's classes
-     sit under #exact-root#exact-root.
-     A route's `header` is an app bar: a material over what scrolls under it
-     (a `scroll document` page), a bottom separator, a minimum height. */
-  :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; background-color: light-dark(#f9f9f9eb, #1d1d1feb); backdrop-filter: saturate(180%) blur(20px); box-shadow: 0 .5px 0 light-dark(#3c3c434a, #54545899); }
-  /* A dialog is a card over a dimmed page. An alert (`role="alertdialog"`) is
-     the system's: a fixed width, its title (the label, which assistive
-     technology already reads) over its message, its actions side by side. */
-  :where(#exact-root dialog) { border: none; border-radius: 14px; background-color: light-dark(#fff, #2c2c2e); color: CanvasText; box-shadow: 0 10px 40px #0000004d, 0 0 0 .5px #0000001f; }
-  :where(#exact-root dialog)::backdrop { background-color: #00000066; }
-  :where(#exact-root dialog[role="alertdialog"]) { box-sizing: border-box; width: min(300px, calc(100vw - 32px)); padding: 20px 16px 16px; display: flex; flex-wrap: wrap; gap: 8px; text-align: center; }
-  :where(#exact-root dialog[role="alertdialog"][aria-label])::before { content: attr(aria-label) / ""; flex-basis: 100%; font-weight: 600; font-size: 1.0625em; }
-  :where(#exact-root dialog[role="alertdialog"] > :not(button)) { flex-basis: 100%; font-size: .9375em; }
-  :where(#exact-root dialog[role="alertdialog"] > :not(button):has(+ button)) { margin-bottom: 8px; }
+  /* LLP 1116.004 D1: a wide window (900 px and up, the navigation glue's `WIDE`) adapts what the app left unsaid, as the
+     projection marks it. A root tab bar whose placement is unsaid is a sidebar: the root's column turns, the tabs
+     are rows beside their labels; neutral.css supplies their selected state. An authored colour
+     still wins; the layout is the platform's. A stack whose root route is a list whose rows push shows that route
+     as a column beside the detail, as a split view does: `navigationSplit` wide (320 by default), its rows without
+     the disclosure (they select, not push), the row whose press pushed the detail shown marked. */
+  #exact-root [data-exact-sidebar] { flex-direction: row !important; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] { order: -1; flex: none !important; box-sizing: border-box !important; width: 240px !important; height: auto !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; gap: 2px !important; padding: 12px 10px !important; overflow-y: auto; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > [role="tab"] { flex: none !important; width: auto !important; height: auto !important; min-height: 36px; justify-content: start !important; padding: 6px 10px !important; border-radius: 8px !important; }
+  /* A tab's symbol is in its ink as the page lays it out now (the runtimes copy the title's at a commit, and a resize is none). */
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls] > img { color: inherit !important; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
+  #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; }
+  #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
+  #exact-root [data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]) { display: none !important; }
+  /* LLP 1116.006 D2: a split showing no detail fills the detail pane as an iPad's split view does: one quiet line,
+     centred, in the secondary label's colour (in English: the web host has no strings table of its own). A box of
+     the root route marked `navigationSplit="placeholder"`, the author's own, takes the pane instead: a centred
+     column at the pane's width (the navigation glue sets it), its alignment the author's. The lowerer hides that box
+     wherever no split shows it (a phone, a detail shown, a host that does not split). */
+  #exact-root [data-exact-split-empty]::before { content: "No Selection"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label); font-size: 1.25rem; text-align: center; pointer-events: none; }
+  #exact-root [data-exact-split-placeholder] { display: flex !important; position: absolute !important; inset-block: 0 !important; inset-inline: 100% auto !important; box-sizing: border-box !important; width: var(--exact-split-pane) !important; height: auto !important; margin: 0 !important; }
+  :where(#exact-root [data-exact-split-placeholder]) { flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
+  /* Explicit glass styles retain their material when disabled. */
+  #exact-root button[data-button-style="prominent-glass"]:disabled { background-color: light-dark(#ffffffb3, #262629b3); }
+  #exact-root button[data-button-style="prominent-clear-glass"]:disabled { background-color: light-dark(#ffffff26, #ffffff1a); }
+  /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. */
+  :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
+  /* A dialog's padding is its author's (LLP 1115.000 D4.14): the user agent's own `1em` is a box the kernel does not
+     know, so a plain `dialog` has none; the alert's is the page's, below. */
+  :where(#exact-root dialog) { padding: 0; }
+  :where(#exact-root dialog[role="alertdialog"]) { box-sizing: border-box; display: flex; flex-wrap: wrap; }
+  :where(#exact-root dialog[role="alertdialog"][aria-label])::before { content: attr(aria-label) / ""; flex-basis: 100%; font-weight: 600; }
+  :where(#exact-root dialog[role="alertdialog"] > :not(button)) { flex-basis: 100%; }
   #exact-root dialog[role="alertdialog"] > button { flex: 1 1 0; }
   /* Fields and `select` at a tap size (36 px at the body size) with one look:
      a 1 px line, 8 px corners, the field's own background. A select's height
      is its line height, so an authored padding adds to it as to the UA's and
      its box keeps the recorded rules (kernel/tests/it/browser_controls.rs);
-     its chevron is drawn in its ink. A date, time or local date-time control
+     its chevron is drawn in its ink, at its inline end. A date, time or local date-time control
      whose appearance is the platform's (`data-exact-field`) is a border box
      the same way (LLP 1116.001 D1); the browser keeps its picker and icon. */
-  #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; padding: .5em .75em; background-color: light-dark(#fff, #1c1c1e); }
-  #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled { background-color: light-dark(#f2f2f7, #2c2c2e); }
-  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding: 0 2em 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background: linear-gradient(45deg, #0000 50%, currentColor 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, currentColor 50%, #0000 50%) right .75em center / 4px 4px no-repeat, light-dark(#fff, #1c1c1e); }
-  #exact-root select:not([multiple]):disabled { color: GrayText; }
-  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: 2; padding: 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background-color: light-dark(#fff, #1c1c1e); }
-  #exact-root input[data-exact-field]:disabled { color: GrayText; background-color: light-dark(#f2f2f7, #2c2c2e); }
-  /* A switch where the browser draws none (LLP 1069.001 D1, amended by LLP
-     1116 D1): a track and a thumb in WebKit's box, 38 × 22, which Linux
-     paints too; a browser that styles its own (`::thumb`) keeps it. The box
-     is a block pseudo-element's, so the input shrinks to it and stretches
-     past it as a native control does (the recorded cases, Chrome, Firefox and
-     WebKit alike), and its padding draws nothing, as a native checkbox's.
-     `appearance: none` on the node hands it to the author (no marker). */
-  @supports not selector(::thumb) {
-    #exact-root input[data-exact-switch] { appearance: none; display: inline-block; vertical-align: top; padding: 0 !important; border-radius: 11px; }
-    #exact-root input[data-exact-switch]::before { content: ""; display: block; width: 38px; height: 22px; border-radius: 11px; background: radial-gradient(circle closest-side, #fff 8.5px, #fff0 9.25px) 0 0 / 22px 22px no-repeat, radial-gradient(circle closest-side, #00000038 7px, #0000 11px) 0 1px / 22px 22px no-repeat light-dark(#78788029, #78788052); transition: background-position .2s, background-color .2s; }
-    #exact-root input[data-exact-switch]:checked::before { background-color: var(--exact-accent, AccentColor); background-position: 16px 0, 16px 1px; }
-    #exact-root input[data-exact-switch]:disabled::before { opacity: .5; }
-  }
+  #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid; border-radius: 8px; }
+  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: 8px; background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
+  /* LLP 1115.000 D4.14: the chevron is at the inline end, so on a right-to-left page it is at the left. */
+  #exact-root select:not([multiple]):dir(rtl) { background-position: left .75em center, left calc(.75em + 4px) center, 0 0; }
+  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: 2; padding: 0 .75em; border: 1px solid; border-radius: 8px; }
+  /* LLP 1116.005 D8: a field the author marks invalid (`aria-invalid=true`,
+     beside its error text's `aria-describedby`) is outlined in the system
+     red, and focused its ring is red too, as a well-made web form marks
+     one: a 2 px line, Chrome's own ring's, which Firefox and WebKit would
+     draw in their focus colour as `auto`. Only the lines the page draws: an
+     authored border or outline wins, and a bare field (`appearance="none"`)
+     draws none. */
+  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"] { border-color: var(--exact-system-red); }
+  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"]:focus-visible { outline: 2px solid var(--exact-system-red); outline-offset: 0; }
   /* An indeterminate progress (LLP 1069.001, amended 2026-10-07): HTML's draws a bar, so the page draws the
      platform's spinner instead, the one deliberate divergence from the web's own control: an arc fading to `color`
      in a circle at the shorter side of the content box, centred, a turn a second (UIActivityIndicatorView's period).
@@ -188,6 +262,19 @@
      CSS animation does. */
   [data-exact-progress]::before { content: ""; pointer-events: none; background: conic-gradient(transparent 10%, currentColor); mask: radial-gradient(circle closest-side, transparent 76%, #000 calc(76% + .5px) calc(100% - .5px), transparent 100%); animation: exact-progress 1s linear infinite; }
   @keyframes exact-progress { to { rotate: 1turn; } }
+  /* LLP 1115.000 D4.11: under forced colours (a contrast theme) a fill, a shadow and a gradient are gone, and a control
+     drawn with them shows no edge and no state. So each drawn control is the browser's own again: a button and a
+     dialog take the user agent's border, a select, the switch and a determinate progress are its controls, the
+     selected segment or tab is the system's selection, and the spinner, which no browser draws, is a ring of borders. */
+  @media (forced-colors: active) {
+    #exact-root button[data-button-style], :where(#exact-root dialog) { border: revert; }
+    #exact-root :is([role="tablist"] > button[role="tab"][aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"])[data-button-style] { forced-color-adjust: none; background: SelectedItem; color: SelectedItemText; }
+    #exact-root select:not([multiple]) { appearance: auto; padding: revert; background: revert; }
+    #exact-root input[data-exact-switch] { appearance: auto; }
+    #exact-root input[data-exact-switch]::before { content: none; }
+    progress { appearance: auto; border: revert; }
+    [data-exact-progress]::before { box-sizing: border-box; background: none; mask: none; border: .15em solid; border-block-start-color: transparent; border-radius: 50%; }
+  }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */
@@ -196,11 +283,10 @@
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
   /* Modal dimming belongs to the host; UIKit supplies its own backdrop. It dims the route the
-     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6). */
+     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6).
+     neutral.css supplies the sheet's ground; authored paint wins. */
   [navigationPresentation="modal"] { isolation: isolate; position: relative; }
   [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
-  /* `all: unset` would inherit the field's color onto the placeholder. */
-  input:not([data-native])::placeholder, textarea:not([data-native])::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
   /* A platform material (host policy, LLP 1053.000 D3, D4): the schema's approximation of the named material, from the variables the host sets
      (element.rs `material_css`). It wins over an authored backdrop-filter on the same node, as the native hosts do. */
   [backgroundMaterial] { backdrop-filter: blur(var(--exact-material-blur)) saturate(var(--exact-material-saturate)) !important; background-color: light-dark(var(--exact-material-light), var(--exact-material-dark)); }
@@ -223,6 +309,12 @@
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */
   img, video, svg { display: block; }
+  /* LLP 1115.000 D3.8: an unsaid `fill` is `currentcolor` on every host, where SVG's own initial value is black, so an
+     icon nobody filled follows its text's colour and is not black on a dark page (the kernel's default, which native
+     hosts paint; declared in LLP 1001). `fill` inherits, so the outermost `svg` says it once: a nested `svg` saying
+     it too would end the inheritance of a `fill` its author wrote on a group above it. `:where()`, and the hosts write
+     an authored `fill` inline, so the author's wins. A gradient's stops and a filter's flood stay SVG's black. */
+  :where(#exact-root svg:not(svg svg)) { fill: currentColor; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
      borders and inline baseline space must not enlarge or shift it. Scope
      this to presented nodes: the data module's hidden iframe is not UI. */

@@ -297,6 +297,40 @@ impl PlanBuilder {
         ProfilesId(self.plan.profiles.len() as u32 - 1)
     }
 
+    /// One `theme` entry (LLP 1095 D4): its name, the role it overrides
+    /// (`""` for none) and the colour text it stands for.
+    pub fn theme_entry(&mut self, name: &str, role: &str, value: &str) -> ThemeId {
+        self.theme_token(name, role, value, &[])
+    }
+
+    /// A `theme` entry that varies by the app's axes (LLP 1121 D5): its
+    /// value for every full tuple, in tuple order; `value` is the default's.
+    pub fn theme_token(&mut self, name: &str, role: &str, value: &str, slices: &[&str]) -> ThemeId {
+        let (name, role, value) = (self.str(name), self.str(role), self.str(value));
+        let start = self.plan.theme_slices.len() as u32;
+        for s in slices {
+            let value = self.str(s);
+            self.plan.theme_slices.push(ThemeSlicesRow { value });
+        }
+        let slices = ThemeSlicesRange {
+            start,
+            len: slices.len() as u32,
+        };
+        self.plan.theme.push(ThemeRow {
+            name,
+            role,
+            value,
+            slices,
+        });
+        ThemeId(self.plan.theme.len() as u32 - 1)
+    }
+
+    /// One app axis (LLP 1121 D5): its name and values, the first the default.
+    pub fn axis(&mut self, name: &str, values: &[&str]) {
+        let (name, values) = (self.str(name), self.str(&values.join("|")));
+        self.plan.axes.push(AxesRow { name, values });
+    }
+
     /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;
@@ -728,7 +762,7 @@ impl PlanBuilder {
         self.plan.slots[id.0 as usize].init = init;
     }
 
-    /// Make a slot owned by an arm's instance — an `each` row, a `when` or
+    /// Make a slot owned by an arm's instance — a `for` row, an `if` or
     /// `match` arm: one value per instance, created with it, read and
     /// written through its frame (LLP 1017 P4c).
     pub fn set_slot_owner(&mut self, id: SlotsId, arm: ArmsId) {

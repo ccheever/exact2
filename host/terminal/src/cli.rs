@@ -171,23 +171,6 @@ pub fn run<D: DataSource>(
             }
         },
     };
-    let mut size = None;
-    if let Some(i) = args.iter().position(|a| a == "--size") {
-        size = args.get(i + 1).and_then(|s| parse_size(s));
-        args.drain(i..(i + 2).min(args.len()));
-    }
-    let mut mode = mode;
-    if let Some(i) = args
-        .iter()
-        .position(|a| a == "--inline" || a == "--fullscreen")
-    {
-        mode = if args[i] == "--inline" {
-            Mode::Inline
-        } else {
-            Mode::Fullscreen
-        };
-        args.remove(i);
-    }
     let plan = if path.ends_with(".contract") {
         match contract::compile_path_terminal(std::path::Path::new(&path)) {
             Ok(p) => p,
@@ -202,6 +185,80 @@ pub fn run<D: DataSource>(
         let bytes = std::fs::read(&path).expect("plan bytes");
         exact_plan::Plan::decode(&bytes).expect("a plan")
     };
+    run_plan(args, data, plan, mode)
+}
+
+/// Run an app whose terminal entry was compiled at build time. The bytes
+/// are its encoded plan, typically embedded with `include_bytes!`. No
+/// source files or compiler work are needed when the app starts.
+pub fn run_embedded<D: DataSource>(
+    args: Vec<String>,
+    data: D,
+    bytes: &[u8],
+    mode: Mode,
+) -> ExitCode {
+    let plan = match exact_plan::Plan::decode(bytes) {
+        Ok(plan) => plan,
+        Err(e) => {
+            eprintln!("embedded terminal plan: {e:?}");
+            return ExitCode::FAILURE;
+        }
+    };
+    run_plan(args, data, plan, mode)
+}
+
+fn run_plan<D: DataSource>(
+    mut args: Vec<String>,
+    data: D,
+    plan: exact_plan::Plan,
+    mut mode: Mode,
+) -> ExitCode {
+    let mut size = None;
+    if let Some(i) = args.iter().position(|a| a == "--size") {
+        size = args.get(i + 1).and_then(|s| parse_size(s));
+        args.drain(i..(i + 2).min(args.len()));
+    }
+    if let Some(i) = args
+        .iter()
+        .position(|a| a == "--inline" || a == "--fullscreen")
+    {
+        mode = if args[i] == "--inline" {
+            Mode::Inline
+        } else {
+            Mode::Fullscreen
+        };
+        args.remove(i);
+    }
+    let mut colors = None;
+    if let Some(i) = args
+        .iter()
+        .position(|a| a == "--color" || a.starts_with("--color="))
+    {
+        let value = if let Some(value) = args[i].strip_prefix("--color=") {
+            let value = value.to_owned();
+            args.remove(i);
+            value
+        } else {
+            args.remove(i);
+            if i < args.len() {
+                args.remove(i)
+            } else {
+                String::new()
+            }
+        };
+        use crate::color::ColorDepth;
+        colors = match value.as_str() {
+            "auto" => None,
+            "never" => Some(ColorDepth::Monochrome),
+            "16" => Some(ColorDepth::Ansi16),
+            "256" => Some(ColorDepth::Ansi256),
+            "always" | "truecolor" => Some(ColorDepth::TrueColor),
+            _ => {
+                eprintln!("--color expects auto, never, 16, 256, or truecolor (always)");
+                return ExitCode::FAILURE;
+            }
+        };
+    }
     let interactive = args.is_empty() && crate::term::is_terminal();
     let (cols, rows) = size
         .or_else(|| interactive.then(crate::term::size).flatten())
@@ -213,6 +270,7 @@ pub fn run<D: DataSource>(
             return ExitCode::FAILURE;
         }
     };
+    host.set_colors(colors.unwrap_or_else(crate::color::ColorDepth::detect));
     if interactive {
         return match crate::term::run(&mut host) {
             Ok(()) => ExitCode::SUCCESS,
@@ -231,6 +289,7 @@ pub fn run<D: DataSource>(
     let flag = woken.clone();
     host.listen(Arc::new(move || flag.store(true, Ordering::SeqCst)));
     let start = Instant::now();
+    host.live_from(start);
     let pump = |host: &mut Host<D>, vt: &mut crate::vt::Vt| {
         if woken.swap(false, Ordering::SeqCst) {
             host.announced();

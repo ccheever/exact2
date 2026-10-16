@@ -1,6 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, watchFile, unwatchFile, statSync, utimesSync, symlinkSync} from 'node:fs';
+import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, statSync, utimesSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {open, Cdp} from '../../../scripts/agent.mjs';
@@ -10,6 +10,9 @@ import {runInNewContext} from 'node:vm';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
 import {watchStaticTrees} from '../serve.mjs';
+import {chromium} from '../../../scripts/agent-launch.mjs';
+import {need} from '../../../scripts/coverage.mjs';
+const {executable:chrome,unavailable}=chromium();
 // A test that edits an app's files and writes them back also puts their
 // times back, so a later test's build-freshness check is not tripped.
 const keepTimes = paths => { const kept = paths.map(p => [p, statSync(p)]); return () => { for (const [p, st] of kept) utimesSync(p, st.atime, st.mtime); }; };
@@ -25,9 +28,9 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
   const privateDist=mkdtempSync(join(tmpdir(),'exact-dev-carry-'));
   const withProbe=text=>text
     .replace('component RealWorld\n','shape DevReloadAnswer\n  value: string\nshape DevReloadRow\n  id: string\nshape DevReloadPage\n  visibilityState: string\n  onLine: bool\n  canShare: bool\n\ncomponent RealWorld\n  state reloadProbe = "fresh"\n  state rowProbe = "row fresh"\n')
-    .replace('  resource follows = followings() as shape list<Follow>\n','  resource follows = followings() as shape list<Follow>\n  resource devReloadAnswer = devReloadAnswer() as shape DevReloadAnswer\n  resource devReloadRows = devReloadRows() as shape list<DevReloadRow>\n  resource devReloadPage = exactPage() as shape DevReloadPage\n')
+    .replace('  resource follows = followings() as shape Follow[]\n','  resource follows = followings() as shape Follow[]\n  resource devReloadAnswer = devReloadAnswer() as shape DevReloadAnswer\n  resource devReloadRows = devReloadRows() as shape DevReloadRow[]\n  resource devReloadPage = exactPage() as shape DevReloadPage\n')
     .replace('  action go(url: string)\n','  action setReloadProbe(value)\n    reloadProbe = value\n  action setRowProbe(value)\n    rowProbe = value\n  action go(url: string)\n')
-    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      input value=reloadProbe input=setReloadProbe testId="reload-probe" aria-label="Reload probe"\n      text devReloadAnswer.value testId="reload-answer"\n      text `${devReloadPage.onLine}` testId="reload-page-online"\n      list virtualized=true height=80 width="100%" overflow-y="scroll" testId="reload-list"\n        each row in devReloadRows key=row.id\n          column width="100%"\n            input value=rowProbe input=setRowProbe testId=`row-probe-${row.id}` aria-label="Row reload probe"\n');
+    .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      input value=reloadProbe input=setReloadProbe testId="reload-probe" aria-label="Reload probe"\n      text devReloadAnswer.value testId="reload-answer"\n      text `${devReloadPage.onLine}` testId="reload-page-online"\n      list virtualized=true height=80 width="100%" overflow-y="scroll" testId="reload-list"\n        for row in devReloadRows key=row.id\n          column width="100%"\n            input value=rowProbe input=setRowProbe testId=`row-probe-${row.id}` aria-label="Row reload probe"\n');
   const withNumberProbe=text=>text
     .replace('component RealWorld\n','component RealWorld\n  state reloadProbe = 7\n')
     .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      text `${reloadProbe}` testId="reload-probe"\n');
@@ -127,12 +130,10 @@ test('the Caltrain JS dev loop keeps its station search across an app edit', asy
     if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
   }
 },180_000);
-test('a page whose first build failed reloads into the fixed build', async () => {
+need('chrome', unavailable)('a page whose first build failed reloads into the fixed build', async () => {
   // The first build's error page has no runtime (`globalThis.exact` never
   // exists), so its reload must not wait for one. Driven over a raw DevTools
   // pipe: agent.mjs's open() waits for a runtime this page never has.
-  const chrome=process.env.CHROME;
-  if(!chrome||!existsSync(chrome)){console.warn('SKIP first-build error reload: CHROME names no browser');return;}
   const contract=resolve(new URL('../../../apps/realworld/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
@@ -450,49 +451,60 @@ test('GPU reloads refresh their includes while retaining the current app input g
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test('declared source files report in-place edits after inclusion and replacement', async () => {
+test('declared source files report in-place edits after inclusion and replacement', () => {
+  // The dev loop polls each declared file's metadata (`watchFile`) and debounces a build (`setTimeout`). The test
+  // stats the real files itself and runs the debounce at once, so what it checks holds at any machine speed
   const dir=mkdtempSync(join(tmpdir(),'exact-source-watch-'));
   let api;
   try {
     const src=join(dir,'logic'), main=join(src,'lib.rs'), extra=join(src,'extra.rs');
     mkdirSync(src);mkdirSync(join(dir,'target'));writeFileSync(join(dir,'app.json'),'{}');
     writeFileSync(main,'one');writeFileSync(extra,'unused');
+    const polled=new Map(), timers=new Map();
+    const stats=path=>statSync(path,{bigint:true,throwIfNoEntry:false})??{dev:0n,ino:0n,size:0n,mtimeNs:0n,ctimeNs:0n};
+    const fakeWatchFile=(path,_options,listener)=>polled.set(path,{listener,previous:stats(path)});
+    const fakeUnwatchFile=path=>polled.delete(path);
+    let nextTimer=0;
+    const fakeSetTimeout=fn=>{timers.set(++nextTimer,fn);return nextTimer;}, fakeClearTimeout=id=>timers.delete(id);
+    // Poll every watched file, then run the pending build timers
+    const settle=()=>{
+      for(const [path,record] of polled){const previous=record.previous;record.previous=stats(path);record.listener(record.previous,previous);}
+      for(const [id,fn] of [...timers]){timers.delete(id);fn();}
+    };
     const start=source.indexOf('const watched=new Map();'),end=source.indexOf('\nwatchCompilerInputs();',start);
-    api=new Function('app','main','watch','resolve','existsSync','watchFile','unwatchFile',`
+    api=new Function('app','main','watch','resolve','existsSync','watchFile','unwatchFile','setTimeout','clearTimeout',`
       const source=resolve(app.dir,'app.contract'),skipped=/(^|\\/)(target|dist)(\\/|$)/;
       const builtReceipts=[{binary:{inputs:[{path:main}],directories:[],missing:[]}}];
       const contractGraph=()=>({files:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
-      let built=()=>{};const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();built();};let timer;
+      const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();};let timer;
       ${source.slice(start,end)}
       watchCompilerInputs();
-      return {changed,builds,build:()=>new Promise(r=>{built=r;}),add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
-        has:path=>watched.has(path),close(){clearTimeout(timer);for(const record of watched.values())record.close();}};
-    `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,watchFile,unwatchFile);
-    const edit=async(path,text,atomic=false)=>{
-      const count=api.builds.length,build=api.build();
+      return {changed,builds,add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
+        has:path=>watched.has(path),close(){for(const record of watched.values())record.close();}};
+    `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,fakeWatchFile,fakeUnwatchFile,fakeSetTimeout,fakeClearTimeout);
+    const edit=(path,text,atomic=false)=>{
+      const count=api.builds.length;
       if(text===null)unlinkSync(path);
       else if(atomic){const temp=path+'.new';writeFileSync(temp,text);renameSync(temp,path);}
       else writeFileSync(path,text);
-      await build; // the build the save requests; the test's timeout is the hang bound
-      assert.deepEqual(api.builds[count],[path],`save was not observed: ${path}`);
-      await Bun.sleep(1000);
-      assert.equal(api.builds.length,count+1,'one save requests one build');
+      settle();
+      assert.deepEqual(api.builds.slice(count),[[path]],`one save of ${path} requests one build of it`);
     };
     api.add(extra);
-    await edit(extra,'included');
-    await edit(extra,'replaced',true);
-    await edit(extra,'edited again');
-    await edit(extra,null);
-    await edit(extra,'recreated',true);
-    await edit(extra,'edited after recreation');
+    edit(extra,'included');
+    edit(extra,'replaced',true);
+    edit(extra,'edited again');
+    edit(extra,null);
+    edit(extra,'recreated',true);
+    edit(extra,'edited after recreation');
     api.remove(extra);assert.equal(api.has(extra),false,'obsolete file watches close');
     const count=api.builds.length;writeFileSync(extra,'no longer included');
     writeFileSync(join(dir,'target/output.rs'),'output');
-    writeFileSync(join(dir,'notes.txt'),'unrelated');await Bun.sleep(1000);
+    writeFileSync(join(dir,'notes.txt'),'unrelated');settle();
     assert.deepEqual([...api.changed],[],'output and unrelated files do not rebuild');
     assert.equal(api.builds.length,count,'ignored edits do not build');
   } finally {api?.close();rmSync(dir,{recursive:true,force:true});}
-},60_000); // a hang bound: six one-second quiet windows plus waits on the builds themselves
+});

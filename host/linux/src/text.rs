@@ -145,6 +145,9 @@ pub struct Spec {
     pub overflow_wrap: exact_kernel::OverflowWrap,
     /// CSS whitespace processing mode.
     pub white_space: exact_kernel::WhiteSpace,
+    /// CSS `text-wrap-style`; `balance` balances the lines before the first
+    /// forced break (`shaping::ShapedSource::balanced`).
+    pub text_wrap_style: exact_kernel::TextWrapStyle,
     /// CSS paragraph base direction.
     pub direction: exact_kernel::Direction,
     /// CSS `text-indent`, points: the first line's inset from its start edge.
@@ -209,6 +212,7 @@ impl Spec {
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
             white_space: request.paragraph.white_space,
+            text_wrap_style: request.paragraph.text_wrap_style,
             direction: request.paragraph.direction,
             text_indent: request.paragraph.text_indent,
             text_box_trim: request.paragraph.text_box_trim,
@@ -616,6 +620,14 @@ impl TextEngine {
     /// the plan-identity boundary on a dev reload (LLP 1019 D4).
     pub fn install_plan(&mut self, plan: &Plan, assets: &Path) {
         self.install_plan_assets(plan, &Assets::embedded(assets.to_path_buf()));
+    }
+
+    /// Add newly interned installed-family lists before the next measure.
+    pub fn install_runtime(&mut self, compiled: usize, lists: &[String]) {
+        let added = self.catalog.borrow_mut().install_runtime(compiled, lists);
+        if !added.is_empty() {
+            self.paragraphs.invalidate_families(added);
+        }
     }
 
     fn install_plan_assets(&mut self, plan: &Plan, assets: &Assets) {
@@ -1054,9 +1066,18 @@ impl TextMeasurer for Measurer {
 
     fn field_chrome(
         &mut self,
-        _request: &exact_kernel::FieldChromeRequest,
+        request: &exact_kernel::FieldChromeRequest,
     ) -> exact_kernel::FieldChrome {
-        crate::paint::control::field_chrome()
+        crate::paint::control::field_chrome(request.font.size)
+    }
+
+    /// The shell's own field measures a field it hosts (LLP 1115.001 D8).
+    fn field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
     }
 
     fn set_language(&mut self, language: &str) {
@@ -1206,3 +1227,7 @@ mod eviction_tests;
 #[cfg(test)]
 #[path = "text/text_box_tests.rs"]
 mod text_box_tests;
+
+#[cfg(test)]
+#[path = "text/balance_tests.rs"]
+mod balance_tests;

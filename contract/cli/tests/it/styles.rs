@@ -178,7 +178,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
         ("position", StyleId::PositionType, "fixed"),
-        ("border-style", StyleId::BorderStyleTop, "dashed"),
+        ("border-style", StyleId::BorderStyleTop, "double"),
         ("align-self", StyleId::AlignSelf, "middle"),
         (
             "overscroll-behavior",
@@ -301,6 +301,21 @@ fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refus
             .ends_with("expected one of \"normal\", \"tabular-nums\""),
         "{error}"
     );
+}
+
+#[test]
+fn text_wrap_balance_shorthand_and_longhand_reach_the_kernel() {
+    let source = "component App\n  view\n    column text-wrap=\"balance\"\n      text \"Settle every thread in this section and keep the newest one open\" testId=\"balanced\"\n      text \"Plain\" text-wrap-style=\"auto\" testId=\"auto\"\n";
+    let r = boot(source);
+    let row = exact_kernel::StyleId::TextWrapStyle;
+    for (id, expected) in [("balanced", "balance"), ("auto", "auto")] {
+        let node = r
+            .kernel()
+            .node_by_key(r.kernel().find_by_test_id(id)[0])
+            .unwrap();
+        let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+        assert_eq!(style.get(row), exact_kernel::RowValue::Enum(expected));
+    }
 }
 
 #[test]
@@ -492,10 +507,6 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     assert_eq!(style_of(&r, "c").background_image.gradient(), None);
     for (value, says) in [
         (
-            "repeating-linear-gradient(#000, #fff 10%)",
-            "repeating-linear-gradient() is not implemented",
-        ),
-        (
             "repeating-conic-gradient(#000, #fff)",
             "repeating-conic-gradient() is not implemented",
         ),
@@ -506,7 +517,7 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
         ),
         ("linear-gradient(red, blurple)", "a stop's colour is"),
         (
-            "linear-gradient(#000 10px, #fff)",
+            "linear-gradient(#000 10, #fff)",
             "a stop's position is a percentage",
         ),
     ] {
@@ -520,16 +531,24 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     // A computed value's own text (studio diary R15: a grid the web painted
     // and the Mac dropped): the function it names is refused on every target.
     let e = refused(
-        "background-image=`repeating-linear-gradient(0deg, #0001 0 1px, transparent 1px ${10}px)`",
+        "background-image=`repeating-radial-gradient(#0001 0 1px, transparent 1px ${10}px)`",
     );
     assert_eq!(e.id, "lower-attr-value", "{e}");
     assert!(
         e.message
-            .contains("repeating-linear-gradient() is not implemented"),
+            .contains("repeating-radial-gradient() is not implemented"),
         "{e}"
     );
     let e = refused("mask-image=(true ? `url(${\"a\"}.png)` : \"none\")");
     assert!(e.message.contains("image as a background"), "{e}");
+    let hatch = boot("component App\n  state stop = 5.657\n  view\n    view testId=\"hatch\" background-image=`repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px ${stop}px)`\n");
+    assert!(
+        style_of(&hatch, "hatch")
+            .background_image
+            .gradient()
+            .unwrap()
+            .repeating
+    );
     let fine = boot("component App\n  state stop = 40\n  view\n    view background-image=`linear-gradient(#000, #fff ${stop}%)` testId=\"a\"\n");
     assert!(style_of(&fine, "a").background_image.gradient().is_some());
 }
@@ -555,7 +574,7 @@ fn backdrop_saturation_is_admitted_alone_and_beside_blur() {
 fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
     // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
     // grammar at run time as a literal at compile time.
-    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px) saturate(\" + toString(saturation) + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
+    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + blur.toString() + \"px) saturate(\" + saturation.toString() + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
@@ -997,7 +1016,7 @@ component App
       box class=Panel left=20 top=80 width=200 height=200
         row testId="branch" gap=10
           box contextTarget="bubble" width=100 height=40
-          when shown
+          if shown
             box testId="side" width=40 height=40
               box testId="side-absolute" position="absolute" right=0 bottom=0 width=5 height=5
         box testId="trailing" width=70 height=20
@@ -1050,13 +1069,13 @@ fn repeated_context_branches_contain_descendants_in_every_instance() {
     for virtualized in ["", "virtualized=true"] {
         let source = format!(
             r#"component App
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   view
     column
       box id="bubble" height=10
       box position="absolute" width=200 height=200
         list height=100 {virtualized}
-          each x in rows key=x
+          for x in rows key=x
             box testId=`row-${{x}}` width=100 height=30
               box contextTarget="bubble" width=20 height=10
               box testId=`absolute-${{x}}` position="absolute" right=0 bottom=0 width=5 height=5
@@ -1399,7 +1418,7 @@ fn css_native_interaction_gaps_are_named_precisely() {
     for (name, value, reason) in [
         ("resize", "vertical", "user-controlled box geometry"),
         ("user-select", "all", "selection ownership"),
-        ("border", "1px dashed red", "native painters"),
+        ("border", "1px double red", "native painters"),
         ("text-decoration", "underline wavy", "native text painters"),
     ] {
         let source = format!("component App\n  view\n    text \"x\" {name}=\"{value}\"\n");

@@ -202,6 +202,7 @@ fn measured(r: &mut Runner<Counted>, pin: NodeKey) {
             port_cross: f64::from(frame.width),
             port_main: f64::from(frame.height),
             cross: f64::from(frame.width),
+            padding: [0.0; 2],
             measurements: c
                 .rows
                 .iter()

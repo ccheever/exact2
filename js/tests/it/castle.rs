@@ -59,7 +59,7 @@ component App
       button press=logout aria-label="Log out" testId="logout"
         text "Log out"
       text remembered.username testId="remembered"
-      when busy
+      if busy
         text "busy" testId="busy"
       match session
         case some(s)
@@ -183,7 +183,7 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
             )
             .unwrap_err();
         assert!(
-            matches!(&error, DataError::Unavailable(message) if message.contains("maxResponseBytes")),
+            matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message) if message.contains("maxResponseBytes")),
             "{error:?}"
         );
         assert_eq!(m.in_flight(), 0);
@@ -331,7 +331,7 @@ fn fetch_carries_its_redirect_mode_and_refuses_an_unknown_one() {
         .answer(&mut s, "redirected", &[Value::str("sideways")])
         .unwrap_err();
     assert!(
-        matches!(&error, DataError::Unavailable(message) if message.contains("redirect")),
+        matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message) if message.contains("redirect")),
         "{error:?}"
     );
     assert_eq!(m.in_flight(), before);
@@ -353,6 +353,7 @@ fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
         id: id.into(),
         data: data.into(),
         coalesced,
+        binary: None,
     })
 }
 
@@ -561,7 +562,7 @@ fn a_failed_fetch_is_a_fetch_error_the_module_turns_into_its_own_words() {
 
 /// Hermes watches a fetch's signal through Ibex's abort hooks, which an
 /// app's listener cannot stop, and leaves no listener behind (review r4a
-/// 7, 8; the browser realm's listener is js/web/tests/browser.rs's).
+/// 7, 8; the browser realm's listener is js/web/tests/it/browser.rs's).
 #[test]
 fn a_reused_signal_gains_no_listener_per_fetch() {
     let mut m = module();
@@ -637,7 +638,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut s = store();
     assert!(matches!(
         m.answer(&mut s, "refused", &[]),
-        Err(DataError::Unavailable(ref e)) if e == "refused on purpose"
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e)) if e == "refused on purpose"
     ));
     later(m.answer(&mut s, "refusedLater", &[]).unwrap());
     assert!(matches!(
@@ -646,7 +647,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     ));
     assert!(matches!(
         m.answer(&mut s, "stuck", &[]),
-        Err(DataError::Unavailable(ref e)) if e.contains("pending on nothing")
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e)) if e.contains("pending on nothing")
     ));
     // A reply for nothing in flight, and a fetching source at bake.
     assert!(matches!(

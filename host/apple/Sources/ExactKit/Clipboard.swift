@@ -35,15 +35,11 @@ extension NodeView {
         #if os(macOS)
         let chain = sequence(first: self as NSView, next: \.superview)
         #else
-        let chain = sequence(first: self as UIView, next: \.superview)
+        // Up the logical ancestry, out of a presentation too (LLP 1123 D2)
+        let chain = presenter?.logicalAncestry(of: self) ?? sequence(first: self as UIView, next: \.superview)
         #endif
         guard let node = chain.lazy.compactMap({ $0 as? NodeView }).first(where: { $0.handlers.contains(name) && !$0.disabled }) else { return nil }
         return (kind, node)
-    }
-
-    /// Whether a field's editor would be heard for `action`: the node or an ancestor has the handler.
-    func hearsFieldClipboard() -> Bool {
-        [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains { clipboardHearer($0) != nil }
     }
 
     /// The `copy`, `cut` or `paste` this field's or text area's editor is
@@ -71,7 +67,9 @@ extension NodeView {
             let outer = cutting
             cutting = cutting || action == #selector(cut(_:))
             defer { cutting = outer }
-            perform()
+            if let fields = owner?.presenter?.fieldSelections, action != #selector(copy(_:)) {
+                fields.withIntent(owner, action == #selector(paste(_:)) ? "insertFromPaste" : "deleteByCut", perform)
+            } else { perform() }
         }
     }
 
@@ -107,15 +105,26 @@ extension NodeView {
     #else
     // UIView implements none of the three: forwarding an unheard one to
     // super raised doesNotRecognizeSelector (a field's Cut, empty, crashed).
-    package override func copy(_ sender: Any?) { clipboard(#selector(copy(_:))) }
+    /// Unheard, a copy is the text selection's, as on the Mac: the edit
+    /// menu's Copy over text its author made selectable (`TextSelectionIOS`).
+    package override func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { copySelectedText() } }
     package override func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
     package override func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
-    /// A copy, cut or paste is this node's only while a node hears it;
-    /// UIResponder's default would claim it because the class implements it.
+    /// A copy, cut or paste is this node's only while a node hears it, and
+    /// a copy while text of it is selected; UIResponder's default would
+    /// claim it because the class implements it.
     package override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(copy(_:)), hasSelectedText { return true }
         if [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains(action) { return clipboardTarget(action) != nil }
         return super.canPerformAction(action, withSender: sender)
     }
+    #if os(iOS)
+    private var hasSelectedText: Bool { presenter?.textSelection.text(for: self)?.selected.length ?? 0 > 0 }
+    private func copySelectedText() { presenter?.textSelection.copy(self) }
+    #else
+    private var hasSelectedText: Bool { false } // tvOS has no text selection
+    private func copySelectedText() {}
+    #endif
     #endif
 }
 
@@ -128,7 +137,9 @@ extension NodeView {
         editor.insertText(text, replacementRange: editor.selectedRange())
         #else
         guard let editor: UITextInput = textArea ?? field, let range = editor.selectedTextRange else { return }
-        editor.replace(range, withText: text)
+        if let fields = presenter?.fieldSelections {
+            fields.nativeEdit(self, replacement: text, marked: editor.markedTextRange != nil) { editor.replace(range, withText: text) }
+        } else { editor.replace(range, withText: text) }
         #endif
     }
 }
@@ -141,7 +152,7 @@ extension Agent {
         let actions = ["copy": #selector(NodeView.copy(_:)), "cut": #selector(NodeView.cut(_:)), "paste": #selector(NodeView.paste(_:))]
         guard let action = actions[edit] else { return ["error": "type: \(edit) is not copy, cut or paste"] }
         let editing = v.field != nil || v.textArea != nil
-        guard (editing ? v.clipboardHearer(action) : v.clipboardTarget(action)) != nil else { return ["error": "no \(edit) handler at view \(v.id) or above it"] }
+        guard editing || v.clipboardTarget(action) != nil else { return ["error": "no \(edit) handler at view \(v.id) or above it"] }
         #if os(macOS)
         if editing {
             if let f = v.textArea, v.window?.firstResponder !== f { v.window?.makeFirstResponder(f) }
@@ -174,7 +185,9 @@ extension Agent {
             // An unprevented paste inserts the driver's text, without the
             // pasteboard; a copy or cut is the event alone, as the web
             // driver's (agent-keys.mjs `deliverClipboard`).
-            if !v.fieldClipboard(action, text: text ?? ""), edit == "paste" { v.insertAtFieldSelection(text ?? "") }
+            if !v.fieldClipboard(action, text: text ?? ""), edit == "paste" {
+                v.presenter?.fieldSelections.withIntent(v, "insertFromPaste") { v.insertAtFieldSelection(text ?? "") }
+            }
             return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized", "value": v.fieldText]
         }
         v.clipboard(action, text: text ?? "")

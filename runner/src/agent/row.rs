@@ -122,6 +122,7 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::AnimationTimeline(t) => quote(&t.css(), out),
         RowValue::AnimationRange(r) => quote(&r.css(), out),
         RowValue::TimelineScope(s) => quote(&s.css(), out),
+        RowValue::PositionTryFallbacks(s) => quote(&s.css(), out),
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
         RowValue::TextShadow(s) => quote(&s.css(), out),
         RowValue::BoxShadow(s) => quote(&s.css(), out),

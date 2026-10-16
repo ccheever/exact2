@@ -1,18 +1,22 @@
-import {test} from 'bun:test';
+import {expect,test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {existsSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {boundedHttpBody as readBody, waitForInflight} from './http-body.js';
+import {boundedHttpBody as readBody, request, waitForInflight} from './http-body.js';
+import {scopedGrantSet} from './grant-admission.js';
+import {createRequestExecutor} from '../web-js/admission.js';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),sets=new Map();
+const target=resolve(process.env.CARGO_TARGET_DIR||resolve(ROOT,'target'),`debug/exact-web-js${process.platform==='win32'?'.exe':''}`);
+const built=spawnSync('cargo',['build','-q','-p','exact-web-js'],{cwd:ROOT,encoding:'utf8'});
+if(built.status!==0)throw new Error(built.stderr||'grant normalizer build failed');
 function normalized(spec){
   if(sets.has(spec))return sets.get(spec);
   const scratch=mkdtempSync(resolve(tmpdir(),'exact-grants-')),input=resolve(scratch,'grants.txt');writeFileSync(input,spec);
-  const target=resolve(process.env.CARGO_TARGET_DIR||resolve(ROOT,'target'),'debug/exact-web-js');
-  const result=existsSync(target)?spawnSync(target,['normalize-grants',input],{cwd:ROOT,encoding:'utf8'}):spawnSync('cargo',['run','-q','-p','exact-web-js','--','normalize-grants',input],{cwd:ROOT,encoding:'utf8'});
+  const result=spawnSync(target,['normalize-grants',input],{cwd:ROOT,encoding:'utf8'});
   rmSync(scratch,{recursive:true});if(result.status!==0)throw new Error(result.stderr||'grant normalizer failed');
   const set=JSON.parse(result.stdout);sets.set(spec,set);return set;
 }
@@ -110,32 +114,31 @@ test('a stream delivers each read as its newest event, then its end', async () =
   assert.equal(new TextDecoder().decode(end.body), 'the event stream ended');
 });
 
-// A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends `a`, then
-// `b c d` in one write, then a close; `/binary` a binary frame; `/hold`
-// one message, then waits for the client to go.
+// A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends `a`, then at
+// each `next('/three')` `b c d` in one write, then a close; `/binary` a binary
+// frame; `/hold` one message, then waits for the client to go.
 async function socketPeer() {
   const { createServer } = await import('node:http');
   const { createHash } = await import('node:crypto');
   const frame = (op, payload) => Buffer.concat([Buffer.from([0x80 | op, payload.length]), payload]);
-  const gone = [];
+  const gone = [], closing = new Map(), steps = new Map();
   const server = createServer((_, res) => res.end());
   server.on('upgrade', (req, socket) => {
     const accept = createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
-    socket.on('close', () => gone.push(req.url));
+    socket.on('close', () => { gone.push(req.url); closing.get(req.url)?.(); });
     socket.on('error', () => {});
     // The client's close: answer it and hang up (a server's half of the handshake).
     socket.on('data', (d) => { if ((d[0] & 0x0f) === 8) socket.end(frame(8, Buffer.from([0x03, 0xe8]))); });
     if (req.url === '/binary') return socket.write(frame(2, Buffer.from([1, 2, 3])));
     if (req.url === '/hold') return socket.write(frame(1, Buffer.from('held')));
     socket.write(frame(1, Buffer.from('a')));
-    setTimeout(() => {
-      socket.write(Buffer.concat(['b', 'c', 'd'].map((s) => frame(1, Buffer.from(s)))));
-      setTimeout(() => socket.write(frame(8, Buffer.from([0x03, 0xe8]))), 30);
-    }, 30);
+    steps.set(req.url, [() => socket.write(Buffer.concat(['b', 'c', 'd'].map((s) => frame(1, Buffer.from(s))))), () => socket.write(frame(8, Buffer.from([0x03, 0xe8])))]);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  return { url: `ws://127.0.0.1:${server.address().port}`, gone, close: () => server.close() };
+  // `closed(path)`: once the socket of the request for `path` has closed
+  const closed = path => gone.includes(path) ? Promise.resolve() : new Promise((ok) => closing.set(path, ok));
+  return { url: `ws://127.0.0.1:${server.address().port}`, closed, next: path => steps.get(path).shift()(), close: () => server.close() };
 }
 
 test('a socket delivers text messages, coalescing a burst, then its close (LLP 1069.004)', async () => {
@@ -147,8 +150,9 @@ test('a socket delivers text messages, coalescing a burst, then its close (LLP 1
   );
   const text = (r) => new TextDecoder().decode(r.body);
   try {
+    // The burst once `a` is delivered, and the close once `d` is, so that neither arrives with what came before
     const sent = [];
-    const end = await open('/three', sent);
+    const end = await open('/three', { push: (m) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); } });
     assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
     assert.equal(sent.at(-1).data, 'd', 'the newest of a burst');
     assert.equal(sent.reduce((n, m) => n + 1 + m.coalesced, 0), 4, 'every message delivered or counted');
@@ -156,15 +160,15 @@ test('a socket delivers text messages, coalescing a burst, then its close (LLP 1
     const binary = await open('/binary', []);
     assert.deepEqual([binary.kind, text(binary)], [2, "a binary message: a socket's messages are text"]);
     // Letting the ticket go aborts it, and the far side sees the socket close.
-    const controller = new AbortController(), held = [];
-    const done = open('/hold', held, controller);
-    while (!held.length) await new Promise((r) => setTimeout(r, 5));
+    const controller = new AbortController();
+    const { promise: heard, resolve: hear } = Promise.withResolvers();
+    const done = open('/hold', { push: hear }, controller);
+    await heard;
     controller.abort();
     assert.equal((await done).kind, 4);
-    for (let i = 0; i < 200 && !peer.gone.includes('/hold'); i++) await new Promise((r) => setTimeout(r, 5));
-    assert.ok(peer.gone.includes('/hold'), 'the peer saw the socket close');
+    await peer.closed('/hold');
   } finally { peer.close(); }
-});
+}, 30_000); // hang bound
 
 // The JS target's stream (`streamed`, LLP 1016.000): a source's request run
 // as the wasm host runs it, so a socket is admitted by `net.websocket` alone
@@ -176,10 +180,48 @@ test('the JS target opens a socket under net.websocket, never net.fetch', async 
   const text = (r) => new TextDecoder().decode(r.body);
   try {
     const sent = [];
-    const end = await streamed({ method: 'GET', url: `${peer.url}/three`, headers: [], maxResponseBytes: 64 }, normalized(`net.websocket ${peer.url}`), (m) => sent.push(m), new AbortController());
+    const end = await streamed({ method: 'GET', url: `${peer.url}/three`, headers: [], maxResponseBytes: 64 }, normalized(`net.websocket ${peer.url}`), (m) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); }, new AbortController());
     assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
     assert.deepEqual([end.kind, text(end)], [1, 'the socket closed (1000)']);
     const refused = await streamed({ url: `${peer.url}/three`, maxResponseBytes: 64 }, normalized(`net.fetch ${peer.url.replace('ws:', 'http:')}`), () => {}, new AbortController());
     assert.deepEqual([refused.kind, text(refused)], [2, "outside the app's grants (net.websocket)"]);
   } finally { peer.close(); }
+});
+
+test('a source-scoped POST can return through an app-granted middle origin', async () => {
+  const hops = [], finals = [];
+  const final = Bun.serve({ port: 0, async fetch(req) { finals.push([req.method, await req.text()]); return new Response('accepted'); } });
+  const middle = Bun.serve({ port: 0, async fetch(req) { hops.push([req.method, await req.text()]); return new Response(null, { status: 307, headers: { location: `${final.url}finish` } }); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 307, headers: { location: `${middle.url}middle` } }); } });
+  const app = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${middle.url.origin}\nnet.fetch ${final.url.origin}`);
+  const scope = `net.fetch ${origin.url.origin}\nnet.fetch ${final.url.origin}`;
+  const js = createRequestExecutor('test.app', app, response => response.arrayBuffer());
+  try {
+    for (const run of [
+      () => request({ method: 'POST', url: `${origin.url}start`, headers: [], body: btoa('payload'), scope }, { grantSet: app, controllers: new Set(), moduleLoader: null }),
+      () => js({ method: 'POST', url: `${origin.url}start`, headers: [], raw: 'payload', scope }),
+    ]) {
+      const result = await run();
+      expect([result.failed ?? result.kind ?? 0, new TextDecoder().decode(result.body)]).toEqual([0, 'accepted']);
+    }
+    expect([hops, finals]).toEqual([[['POST', 'payload'], ['POST', 'payload']], [['POST', 'payload'], ['POST', 'payload']]]);
+  } finally { origin.stop(true); middle.stop(true); final.stop(true); }
+});
+
+test('the wasm early GET follows a return chain and is claimed at the granted final URL', async () => {
+  globalThis.exact ??= {};
+  const { claim, fetchEarly } = await import('./module-glue.js');
+  let middleHits = 0, finalHits = 0;
+  const final = Bun.serve({ port: 0, fetch() { finalHits++; return new Response('accepted'); } });
+  const middle = Bun.serve({ port: 0, fetch() { middleHits++; return new Response(null, { status: 307, headers: { location: `${final.url}finish` } }); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 307, headers: { location: `${middle.url}middle` } }); } });
+  const app = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${middle.url.origin}\nnet.fetch ${final.url.origin}`);
+  const scope = `net.fetch ${origin.url.origin}\nnet.fetch ${final.url.origin}`;
+  try {
+    const op = { method: 'GET', url: `${origin.url}start`, headers: [], scope };
+    const source = scopedGrantSet(app, scope);
+    expect(fetchEarly(op, source)).toBeFunction();
+    const response = await request(op, { grantSet: app, controllers: new Set(), moduleLoader: { claim } });
+    expect([response.kind, new TextDecoder().decode(response.body), middleHits, finalHits]).toEqual([0, 'accepted', 1, 1]);
+  } finally { origin.stop(true); middle.stop(true); final.stop(true); }
 });

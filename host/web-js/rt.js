@@ -1,7 +1,7 @@
-import { renderMarkup, reportPlace, onSelection, textField, settleRadios, installFits } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
-import * as Ov from "./overlay.js"; // optimistic writes shown over answers (the runner's writes.rs)
+import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
@@ -18,7 +18,7 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
 // ---------------------------------------------------------------- signals
-let Listener = null, Owner = null, Queue = [], Flushing = false, Rev = 0;
+let Listener = null, Owner = null, Queue = [], FocusQueue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
 function node(fn, v, effect) {
   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
@@ -81,9 +81,9 @@ function flush() {
   Flushing = true;
   try { for (let i = 0; i < Queue.length; i++) if (!Queue[i].gone) fresh(Queue[i]); }
   finally { Queue = []; Flushing = false; }
+  while (FocusQueue.length) FocusQueue.shift()();
 }
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
-
 /** A slot: a getter, `.n` its node; `t` its declared type (writes conform); `name` a string slot's, which a write past MAX_STRING names. */
 export function sig(v, t, name) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
   if (t && !conforms(v, t)) throw new Error(`a slot's initial value does not conform to its type: ${v}`);
@@ -210,9 +210,9 @@ export function commit(f, what = "commit") {
     try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); if (!Booting) autofocus(); // after its focus commands, as the wasm host (focus.js)
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
-    for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
+    for (const m of landed) if (m.then) { m.due = armedAt(); if (!clock.agent) drive(); }
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
     return true;
   };
@@ -237,7 +237,7 @@ function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
     if (e.$jump) e.$jump(name, at);
-    else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
+    else if (e[name] !== at) { if (Booting && (at < 0 || Math.min(at, name === "scrollTop" ? e.scrollHeight - e.clientHeight : e.scrollWidth - e.clientWidth) !== e[name])) e.$bootScroll = e.$bootScrollEnd = true; /* only an offset that moves fires */ if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
   // Options compare as nodes and values: a branch that replaces them with equal values still resets the pick.
   Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
@@ -269,7 +269,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; }, requestFullscreen: id => Media ? Media.requestFullscreen(id) : say(`requestFullscreen: refused: no video with id "${id}"`), // media.js's where a plan has media; without any, the same refusal
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = document.getElementById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
 };
-let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
+let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 /** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood. */
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]) };
 function command(name, args) {
@@ -280,18 +280,16 @@ function command(name, args) {
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
-// `performanceNow()` is elapsed time: the driver's clock under the agent and in a
-// render, else the page's since it started; a timer commits at its due time.
-// A reader of `performanceNow()` is re-evaluated at each commit made at a later time,
-// as the runner marks the clock read dirty (instance/deps.rs), and never by
-// the clock moving alone. Not a write: no commit counts it as a change.
+// `performanceNow()` is elapsed time: the driver's clock under the agent and in a render, else the
+// page's since it started; a timer commits at its due time. A reader of `performanceNow()` is
+// re-evaluated at each commit made at a later time, as the runner marks the clock read dirty
+// (instance/deps.rs), and never by the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
-let Timing = false;
+let Timing = false, Instant = null; export const armedAt = () => Instant ?? clock.now; // where a `then` or queue `next` armed now is due: on the wall clock, a callback's own place (the timers RFC, D2)
 // A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the pre-state.
 export function time() { if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start); }
 function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
-// A release build never enters agent mode (LLP 1069.007 D2): its build
-// writes this false, as the wasm host's files are gated.
+// A release build never enters agent mode (LLP 1069.007 D2): its build writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
 /** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
 let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
@@ -328,17 +326,19 @@ export function advance(to, wall, stop, timers = true) {
     if (head) then = null;
     if (!next && !then && !head) break;
     if (fired === 4096) return say("refused advance: 4096 commits in one advance (TIMER_FIRE_LIMIT)"), journal.at(-1);
+    // On the wall clock (the timers RFC, D2, D3) a repeat that missed beats fires once, its firing consumed first; each callback observes the clock as it runs and as it ends, and what it arms takes its place; a repeat's next beat is the first of its phase after the end, unless its callback dropped it, or re-armed it (a gate's step) from there.
+    const at = head ? head.next : then ? then.due : next.due, repeat = wall && !head && !then && !next.once && !next.frame && !next.hatch, gen = next?.gen;
     if (head) clock.now = Math.max(clock.now, head.next);
     else if (then) { clock.now = Math.max(clock.now, then.due); then.due = Infinity; }
-    else { clock.now = next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : next.due + next.ms; }
-    if (fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action) !== true) return journal.at(-1);
+    else { clock.now = wall ? Math.max(clock.now, next.due) : next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, to)) : next.due + next.ms; }
+    const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? at : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
+    if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, to)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
     if (head || then || !next.hatch) fired++; // a hatch's instant is no commit: it has its own caps
     if (stop?.()) { stopped = true; break; }
   }
   if (!stopped) clock.now = Math.max(clock.now, to);
   for (const f of Clocked) f();
-  // Under the agent only: this journal is not a ring, and a page's own
-  // clock would add a line a tick.
+  // Under the agent only: this journal is not a ring, and a page's own clock would add a line a tick.
   if (fired && clock.agent) say(`advance → ${fired} timer${fired === 1 ? "" : "s"} fired, epoch ${clock.epoch}`);
   return stopped;
 }
@@ -382,22 +382,23 @@ function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); }
  * a Promise (an executor-local continuation: TypeScript), or `null` while
  * the source is not ready; `ready(f)` calls `f` once it is. */
 export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f) };
-/** The durable store (LLP 1018): name → text, persisted as the web host
- * does (`localStorage` "exact.secret.<name>") after a commit stands. */
+const DEVELOPMENT_STORE = null; // a development build's app directory, as storage-environment.js's (host/web-js/build.mjs writes both)
+/** The page's `localStorage` keys of a kind: "exact.<kind>.<name>", or in a development build "exact.<kind>.@<digest>/<name>", its app's own on the origin the dev server's apps share (LLP 1116.004 D8). Persisted state's kind is "state" (persist.js); the durable store's (LLP 1018, `Store`: name → text, kept after a commit stands) is "secret". */
+export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT_STORE}/` : ''}`;
 export const Store = {
   map: new Map(), writes: [], dirty: false,
   get(k) { return this.map.get(k); },
-  set(k, v) { if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
+  // Keeping what is already kept is no write, as the runner's `Store::set`.
+  set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
-  persist() { for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem("exact.secret." + k) : localStorage.setItem("exact.secret." + k, v); } catch {} },
-  load() { try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("exact.secret.")) this.map.set(k.slice(13), localStorage.getItem(k)); } } catch {} },
+  persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, v); } catch {} },
+  load() { const p = Kept("secret"); try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(p)) this.map.set(k.slice(p.length), localStorage.getItem(k)); } } catch {} },
 };
 /** Every resource, in plan order: the checkpoint a render writes reads them. */
 export const Resources = [];
 let Ticket = 0;
 const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
-/** Run a request after the commit publishes; `land(outcome)` on reply. */
 /** Requests in flight, for the agent's `clock settle`. */
 export const inflight = { n: 0 };
 function send(t, land) {
@@ -417,7 +418,7 @@ function send(t, land) {
     // source's `exactStream` (ts-data.js). It is in flight until its first message (D5), then open
     // until its end or until its ticket is let go (`Open`, after each commit).
     if (t.stream || t.req?.stream) {
-      t.ctl = new AbortController(); t.messages = t.coalesced = 0; Open.add(t);
+      t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.messages = t.coalesced = 0; Open.add(t);
       (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e) }));
@@ -433,8 +434,8 @@ function closeLetGo() {
     say(`close stream ${t.id}: its ticket was let go`);
   }
 }
-function ask(source, args, name) {
-  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name);
+function ask(source, args, name, mutation = false) {
+  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation);
   return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
@@ -484,7 +485,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   }, "it keeps its last value", (error, code) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; write(pend.n, false); write(fail.n, failure()); });
   const m = memo(() => Ov.shown(r, (() => {
     ver();
-    const a = r.asked = args(); if (Restoring) return r.value; // `asked`: the overlay's arguments while a placeholder stands
+    const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
     const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
     r.forced = r.rev = r.reconciling = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
@@ -580,10 +581,11 @@ export function mut(name, slot, refreshes, type, queue) {
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
       let a;
       try {
-        a = ask(source, args, name);
+        a = ask(source, args, name, true);
         if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
         if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
-      } catch (e) { if (own) Sched.own = e; throw e; }
+      } catch (e) { if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; } m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length); say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return; }
+      Out.push(...(a.effects ?? []));
       if ("v" in a) {
         m.checked = a.v;
         Ov.land(m, a.v);
@@ -612,11 +614,12 @@ const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shader
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null) input();
-  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); return e; }
-  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
+  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); return e; }
+  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
+  if (tag === "iframe") frame(e, attrs?.["data-app-src"]);
   p.append(e);
   if (tag === "video" || tag === "audio") Media.media(e, attrs); // an `audio` is the same media host (LLP 1042 §8)
   Paint?.list(e); return e;
@@ -645,7 +648,7 @@ function adopt(p, tag, cls, attrs) {
   let e = at(p);
   while (e && e.nodeType !== 1) e = e.nextSibling;
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
-  p.$n = e.nextSibling;
+  p.$n = e.nextSibling; e.$exactTree = true;
   e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
   // The renderer's inline style stays: it is the class's declarations and
   // the live rows, which the node's style bindings rewrite as they change.
@@ -668,27 +671,35 @@ export function adoptRow(w, f) {
   w.textContent = ""; w.$n = undefined;
   return unadopted(f);
 }
-const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
+const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback|autofocus)$/; // present means true: a bound `autofocus` false is no attribute (rows.rs writes the static one so)
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
+const Composing = new WeakSet(), Held = new WeakMap(), HeldTask = new WeakMap(); function writeValue(e, v) { if (!HeldTask.has(e) && (e.localName === "input" || e.localName === "textarea")) { HeldTask.set(e, 0); e.addEventListener("compositionstart", () => { clearTimeout(HeldTask.get(e)); Composing.add(e); }); e.addEventListener("compositionend", () => HeldTask.set(e, setTimeout(() => { Composing.delete(e); if (Held.has(e)) writeValue(e, Held.get(e)); }, 0))); } if (e.value !== v && Composing.has(e)) return Held.set(e, v); Held.delete(e); if (e.value !== v) e.value = v; } // the app's `value` never ends a composition (LLP 1115.000 §5, ruling 6; the wasm host's `writeValue`, glue.js): another value written while a field's text composes is held, the last one, and written when the composition has ended and its last `input` was heard.
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 const navigable = v => { try { return ["http:", "https:", "mailto:", "tel:"].includes(new URL(v, document.baseURI).protocol); } catch { return false; } };
+function frame(e, v) {
+  if (v?.startsWith("app:/")) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return !!v?.startsWith("app:/");
+  if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); }, true); onEnd(() => e.exactAppFrame?.dispose()); }
+  if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!v?.startsWith("app:/")) return false;
+  const s = e.exactAppFrame = { path: v, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; e.removeAttribute("src"); inflight.n++;
+  globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId)).finally(() => inflight.n--); return true;
+}
 export function P(e, name, f) {
   if (name === "aria-keyshortcuts") input();
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
     v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
-    // A URL that navigates is written only if the web host's policy takes it
-    // (navigation.js `navigableURL`: http, https, mailto, tel): a refused
-    // link loses its `href`, an iframe shows about:blank.
-    if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
+    if (name === "src" && e.localName === "iframe" && frame(e, v)) return;
+    // A URL that navigates is written only if the web host's policy takes it (navigation.js `navigableURL`: http, https, mailto, tel): a refused
+    // link loses its `href`, an iframe shows about:blank. An `href` that turns out empty is no link either: the kernel's `Props::link` (element.rs `props_of`).
+    if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && (!navigable(v) || name === "href" && v === "")) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
-    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
+    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
-    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
+    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; if (name === "autofocus") { if (v === "true") e.removeAttribute("data-autofocus"); else e.setAttribute("data-autofocus", "false"); } }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
@@ -782,9 +793,9 @@ export function c2(e, name, values, types, names) {
 let Painted = null, Native = null;
 export const painted = () => Painted ??= new Promise(r => { let o; const done = () => { o?.disconnect(); r(); }; try { o = new PerformanceObserver(() => requestAnimationFrame(done)); o.observe({ type: "paint", buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250))); });
 /** A context menu's popover (LLP 1021 §5.1): after the node's own `contextmenu` (both fire), the popover its `contextpopover` names opens anchored to it,
- * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a field's edit menu stays the browser's, and a disabled or inert node opens nothing. */
+ * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a text field's edit menu stays the browser's (navigation.js `editMenu`), and a disabled or inert node opens nothing. */
 export function cp(e) {
-  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || ev.target.closest("input,textarea,[contenteditable]") || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); setTimeout(() => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: e }); } catch {} }); });
+  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || editMenu(ev.target) || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); contextAt(ev, () => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); if (p && !p.matches(":popover-open")) return [p, e]; }); });
 }
 /** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
  * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
@@ -808,8 +819,8 @@ export function normal(prop, t) {
   return v;
 }
 export { gridValue } from "./grid.js";
-// A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11).
-const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
+// A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11); a bound `-exact-hairline` is the sheet's one device pixel, as css.rs writes a literal one (LLP 1115.000 D10.3).
+const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
@@ -822,12 +833,12 @@ function css(e, prop, unit, v, rendered) {
   // (`transparent` is the color the renderer writes as rgba(0, 0, 0, 0).)
   if (rendered) {
     const now = e.style.getPropertyValue(prop);
-    if (t == null ? !now : same(now) === normal(prop, t)) return;
+    if (t == null ? !now : same(now) === (normal(prop, t) || "unset")) return;
   }
   if (t == null) return e.style.removeProperty(prop);
   e.style.removeProperty(prop);
   e.style.setProperty(prop, t);
-  if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
+  if (!e.style.getPropertyValue(prop)) { e.style.setProperty(prop, "unset"); say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`); }
 }
 /** `S` for a row that can reference an element (`url(#…)`): an authored id
  * names the node the kernel's `resolve_id` would, the nearest in the tree
@@ -851,7 +862,7 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
+export { svgTransform, svgGeometry } from "./svg-transform.js"; export { ds, x_querySelectorAll } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
 import { backdropValue as backdropCss } from "./backdrop.js"; export const backdropValue = (v, report = true) => backdropCss(v, report ? why => say(`unset backdrop-filter: ${why}`) : undefined);
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
@@ -866,7 +877,6 @@ export function Sm(e, prop, unit, f) {
     else css(e, prop, unit, v);
   });
 }
-/** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
 export const OnHooks = {};
 function guestOrigin(e) {
@@ -885,17 +895,18 @@ function imageEvent(e, kind, f) {
 }
 export function on(e, kind, f, bind) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
-  const go = f, wall = !clock.agent;
-  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); return go(...a); };
-  const l = (t, g) => e.addEventListener(t, g);
+  const ends = kind === "close" || kind === "scrollend", go = f, wall = !clock.agent, own = ends ? Owner : null;
+  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (!ends || (e.isConnected && !own?.gone)) return go(...a); };
+  // A queued dialog close (or a scroll's end a due task's removal outlived) can outlive its arm, even while an exit animation keeps the element connected.
+  const l = (t, g, capture = false) => { e.addEventListener(t, g, capture); if (ends) onEnd(() => e.removeEventListener(t, g, capture)); };
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
   if (e.$media && Media.MEDIA_EVENTS.has(kind)) return Media.mediaOn(e, kind, f); // media.js: the glue's reports
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f);
+  if (e.localName === "iframe" && kind === "error") return l(kind, ev => f(ev.detail ?? "iframe did not load"));
   return bind ? bind(e, kind, f, l) : l(kind, () => f());
 }
-
 // Each event family's binder, passed to `on` by the generated module only where its plan binds that family
 // (emit.rs `binder`), so a plan carries only the families it hears; any other event is a plain listener.
 // A link with a press is the app's navigation: the browser's is prevented. A modified or other-button click, a `target` or `download`, is the browser's alone and the press does not run, with a router or without (`router`, input-glue.js).
@@ -905,13 +916,15 @@ export const onPress = (e, kind, f, l) => { if (!e.matches("button, a[href], inp
 export const onValue = (e, kind, f, l) => { return l(kind, ev => {
       if (ev instanceof CustomEvent) return f(ev.detail);
       const box = e.type === "checkbox", radio = e.type === "radio", v = box ? e.checked : e.type === "range" ? Number(e.value) : e.value;
-      f(v, inputRecord(e, box || radio ? e.value : String(v), box ? e.checked : radio));
+      f(v, inputRecord(e, box || radio ? e.value : String(v), box ? e.checked : radio, ev));
       if (box && e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked;
       if (radio) settleRadios(e, r => r.$checked);
     }); };
+export const onBeforeInput = (e, kind, f, l) => l(kind, ev => { const outer = KeyEvent; KeyEvent = ev; try { f(inputRecord(e, e.value, false, ev)); } finally { KeyEvent = outer; } });
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
-// `key` is keydown and `keyup` keyup (#140); each bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order: code and repeat last)
-export const onKey = (e, kind, f, l) => { return l(kind === "keyup" ? "keyup" : "keydown", ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }); };
+export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f([ev.target?.exactExitId ?? ev.target?.id ?? "", ev.relatedTarget?.exactExitId ?? ev.relatedTarget?.id ?? null]); } finally { KeyEvent = outer; } });
+// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last).
+export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }, kind === "keycapture"); };
 // The window's, heard by every connected element that declares it (studio diary R17).
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)
@@ -919,25 +932,25 @@ export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.
 // Only from the origin of the src the app committed (glue.js `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is not heard; an opaque sandbox's origin is "null".
 export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
-export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight]); }); };
+export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } e.$bootScrollEnd = false; f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight, ...(e.$list?.scrollAnchor() ?? [null, 0])]); }); }; export const onScrollend = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScrollEnd) { e.$bootScrollEnd = false; return; } f(); }); }; // the boot's restored offset ends no reader's scroll, unless a smooth restore went on to deliver scrolls
 // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
 export const onRefresh = () => {};
 export const onDblclick = (e, kind, f, l) => { return l(kind, ev => { ev.preventDefault(); f(); }); };
 // pointer.js (LLP 1005 §Events, 1056 §3)
 export const onPointer = (e, kind, f, l) => { return pointer(e, kind, f); };
 // UI Events' `contextmenu` is a PointerEvent: where the secondary click was (studio diary R22).
-// A field's own edit menu stays the browser's; the nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
-export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (ev.target.closest("input,textarea,[contenteditable]")) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
+// A text field's own edit menu stays the browser's (navigation.js `editMenu`); a control's input has none, so its node's handler runs (#487). The nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
+export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (editMenu(ev.target)) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
 // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
 export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
 // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
 export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
-// Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js). A `focus` waits the same microtask, so moving the focus runs the old field's `blur` before the new one's `focus`, in DOM order: undeferred, `type` into a second field ran its `focus` first and the first's `blur` undid it (splitter rough 13).
-export const onFocus = (e, kind, f, l) => { return l(kind, () => queueMicrotask(() => e.isConnected && f())); };
+// Normal blur commits before focusout chooses its DOM path. Flush callbacks run before post-flush focus commands or autofocus; retired owners never dispatch teardown blur.
+export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
-// its part of the page's selection, the `Selection` record (navigation.js)
-export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b) => f([text, a, b])); };
+export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
+export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
@@ -1059,18 +1072,7 @@ export function wf(e, f) {
     .then(m => { Fl = m; Before.push(() => Fl.before()); After.push(() => Fl.after()); (globalThis.exact ??= {}).flowSettle = () => Fl.settle(); Fl.after(); })
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
 }
-/** `resize=action`, the element resize event: the browser's ResizeObserver
- * (the web host's own resize-glue.js, fetched after first paint by a plan
- * with one), the action hearing the content box's width and height, then
- * its `DOMRectReadOnly` record. */
-let Resizes = null;
-export function onResize(e, f) {
-  if (typeof ResizeObserver !== "function" || globalThis.__exactRender) return;
-  inflight.n++;
-  (Resizes ??= new Promise(r => requestAnimationFrame(() => r())).then(() => import("./resize-glue.js")))
-    .then(m => m.observeResize(e, r => { if (e.isConnected) f(r.width, r.height, [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left]); }))
-    .catch(err => say(`resize: ${err.message}`)).finally(() => inflight.n--);
-}
+export { onResize, onIntersect } from "./observers.js";
 /** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
  * the web host's own geometry-glue.js, fetched after first paint by a plan
  * whose actions read geometry (`geo`); unavailable until it is (D5). The
@@ -1089,14 +1091,13 @@ function geoRead(op, id) {
   return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
 }
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
-/** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most
- * of the same untransformed boxes at the viewport point; `none` until the
- * reader has loaded. */
-export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest("[id]"); return n && n !== root && root.contains(n) && n.id || null; };
-/** A Markdown text field (LLP 1045 D5): the web host's own editor
- * (markup-editor.js over its wasm), fetched at the first one; it replaces
- * the textarea, which then forwards to it what this runtime writes and
- * listens for: its value, attributes, style and events. */
+/** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most untransformed box
+ * at the viewport point, `none` until the reader has loaded; `elementsFromPoint` every one. */
+export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
+export const x_elementsFromPoint = (x, y) => Geo?.namedPoints(x, y) ?? [];
+/** A Markdown field (LLP 1045 D5): markup-editor.js over its wasm replaces
+ * the textarea on demand. Runtime writes proxy to the editor; its events
+ * forward to the detached textarea's handlers. */
 let Editor = null;
 export function mde(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
@@ -1113,22 +1114,23 @@ export function mde(e) {
       replace(n) {
         Ids.set(n, id); Views.set(id, n);
         Object.defineProperty(e, "value", { configurable: true, get: () => n.value, set: v => { n.value = v; } });
-        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => e.dispatchEvent(new ev.constructor(t, ev)));
+        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
+          const forwarded = new ev.constructor(t, ev); forwarded.$stopped = ev.$stopped; if (ev.defaultPrevented) forwarded.preventDefault();
+          if (!e.dispatchEvent(forwarded)) ev.preventDefault(); if (forwarded.$stopped) ev.$stopped = true;
+        }, t === "keydown"); // before the editor applies its own key default
         new MutationObserver(ms => { for (const m of ms) { const v = e.getAttribute(m.attributeName); v == null ? n.removeAttribute(m.attributeName) : n.setAttribute(m.attributeName, v); } n.exactMarkup?.sync(); }).observe(e, { attributes: true });
       },
       select: (n, p) => { const [formats, mixed, unavailable, link] = p.split("\n"); e.$select?.([formats, mixed === "1", link ?? "", unavailable]); },
     });
   }).catch(err => say(`markup editor: ${err.message}`)).finally(() => inflight.n--);
 }
-/** `select`: the editor's facts at each selection change (runner Event::Select);
- * a text field's own, HTML's, its `InputEvent` (x2apps codeedit #2). */
+/** `select`: the editor's selection facts (runner Event::Select); a field's `InputEvent` (x2apps codeedit #2). */
 export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () => { if (textField(e)) f(inputRecord(e, e.value, false)); }); }
-/** The `InputEvent` record (contract/types selection.rs's order): the value,
- * whether checked, and a text field's selection (UTF-16, the DOM's); a type
+/** The `InputEvent` record (contract/types selection.rs's order); a type
  * with none has its caret after its text, a control 0, 0, `none`. */
-function inputRecord(e, value, checked) {
+function inputRecord(e, value, checked, event) {
   const n = e.value?.length ?? 0, field = textField(e);
-  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none"];
+  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none", event?.inputType ?? "", event?.data ?? null, event?.cancelable ?? false, event?.isComposing ?? false];
 }
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
  * the node's own `--exact-press` (css.rs). */
@@ -1144,7 +1146,7 @@ function input() {
   Inputs = new Promise(r => requestAnimationFrame(() => setTimeout(r))).then(() => import("./input-glue.js")).then(m => {
     Input = m.createInputHandlers({ root: document.getElementById("exact-root"), views: Views, retiredViews: new WeakSet(), ready: () => true,
       inertAncestor: el => el.closest("[inert]"), agentMode: clock.agent, dispatch: (id, p) => to(id, p, "$pan"), release: (id, p) => to(id, p, "$panrelease"),
-      velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) }, log: say });
+      velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) }, log: say }); Input.arrive(); // the stack as it stands, for the focus to follow (LLP 1115.000 D4.2)
   }).catch(err => say(`input: ${err.message}`)).finally(() => inflight.n--);
 }
 /** A `head` (LLP 1048.003 D1): its node, as the kernel keeps it, an inert
@@ -1152,6 +1154,7 @@ function input() {
  * active head (document.js, as runner/src/head.rs). */
 export function hd(p, fields) {
   const t = document.createElement("template");
+  t.$exactTree = true;
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
   onEnd(head(t, fields, effect, After));
 }
@@ -1444,8 +1447,7 @@ export function checkpoint() {
   Checkpoint.time = clock.now = driven ? 0 : cp.time || 0;
   return Checkpoint;
 }
-/** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value:
- * lists and records are arrays, unit and `none` null, `some(v)` v. */
+/** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value: lists and records are arrays, unit and `none` null, `some(v)` v. */
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
 // Read untracked (an action's body, a handler's curried argument evaluated as the event arrives) it is the clock now:
@@ -1455,32 +1457,31 @@ export const x_performanceNow = () => { NowRead = true; if (Listener) return rea
 export * from "./roster.js"; // the roster's pure entries
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
-// starts at the base, and after boot holds the table the viewer's locale
-// reads, as the runner's `set_place` writes it; `t` reads that table, else
-// the base.
+// holds the table the viewer's launch locale reads before state initializes;
+// `t` reads that table, else the base.
 let Texts = [];
 export function strings(tables) { Texts = tables; }
 /** RFC 4647 lookup of the page's locale (an agent's `?locale`): the longest
  * subtag prefix a table is named for, without case, else the base. */
-function locale() {
-  let tag = "en-US";
+export function locale() {
+  let tag = Texts[0]?.[0] ?? "";
   try { tag = reportPlace().split("\0")[0]; } catch {}
   for (;;) {
     const t = Texts.find(r => r[0].toLowerCase() === tag.toLowerCase());
     if (t) return t[0];
     const i = tag.lastIndexOf("-");
-    if (i < 0) return Texts[0][0];
+    if (i < 0) return Texts[0]?.[0] ?? "";
     tag = tag.slice(0, i);
   }
 }
 const table = name => Texts.find(r => r[0] === name);
-/** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an
- * unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
-export function text(name, key, pairs) {
+/** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
+export function text(name, key, pairs, emit) {
   const text = table(name)?.[2][key] ?? Texts[0][2][key];
   if (text == null) throw new Refusal(`t: no text ${key}`);
-  const at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; };
-  return text.replace(/\\([{}\\])|\{\s*\$?([A-Za-z_][\w-]*)\s*\}/g, (m, e, n) => e ?? at(n) ?? m);
+  const out = [], put = emit ?? (piece => out.push(piece)), at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; }; let from = 0;
+  for (const m of text.matchAll(/\\([{}\\])|\{\s*\$?([A-Za-z_][\w-]*)\s*\}/g)) { put(text.slice(from, m.index)); put(m[1] ?? at(m[2]) ?? m[0]); from = m.index + m[0].length; }
+  put(text.slice(from)); return out;
 }
 /** The resolved table sets the document's `lang` and `dir` (LLP 1060, ruled). */
 let LocaleSlot = null;

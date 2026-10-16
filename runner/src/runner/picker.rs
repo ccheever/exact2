@@ -169,8 +169,12 @@ pub fn mime_for(name: &str) -> &'static str {
 }
 
 /// Whether `accept` takes a file named `name` of type `mime`, as HTML
-/// matches it: an extension, `kind/*`, or the exact type.
+/// matches it: absent or `*/*` accepts all; otherwise an extension,
+/// `kind/*`, or the exact type.
 pub fn accepts(accept: &[String], name: &str, mime: &str) -> bool {
+    if accept.is_empty() || accept.iter().any(|t| t == "*/*") {
+        return true;
+    }
     let ext = format!(".{}", extension(name));
     accept.iter().any(|t| {
         t == &ext
@@ -188,7 +192,7 @@ pub fn delivered_type<'a>(mime: &'a str, accept: &[String]) -> &'a str {
     let keeps = accept.iter().any(|t| {
         matches!(
             t.as_str(),
-            "image/*" | "image/heic" | "image/heif" | ".heic" | ".heif"
+            "*/*" | "image/*" | "image/heic" | "image/heif" | ".heic" | ".heif"
         )
     });
     let images = accept.iter().any(|t| t.starts_with("image/"));
@@ -339,5 +343,17 @@ mod tests {
         assert_eq!(Picked::payload("").unwrap(), vec![]);
         assert_eq!(extension("IMG_0412.HEIC"), "heic");
         assert_eq!(extension("noext"), "bin");
+    }
+
+    #[test]
+    fn a_wildcard_keeps_a_heic_when_an_image_type_is_also_named() {
+        let accept = ["image/jpeg".into(), "*/*".into()];
+        assert!(accepts(&accept, "photo.heic", "image/heic"));
+        assert_eq!(delivered_type("image/heic", &accept), "image/heic");
+        assert_eq!(delivered_type("image/heif", &accept), "image/heif");
+        assert_eq!(
+            delivered_type("image/heic", &["image/jpeg".into()]),
+            "image/jpeg"
+        );
     }
 }

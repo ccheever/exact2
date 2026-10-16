@@ -6,7 +6,7 @@
 //! the system's in Chrome, so the shadow page is checked by where the
 //! shadow's colour lands, not against Chrome's glyphs.
 
-use crate::borders::{boot, held_to_chrome, view, NoData};
+use crate::borders::{boot, held_to_chrome, view};
 use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
 use tiny_skia::Pixmap;
@@ -30,7 +30,15 @@ fn painters() -> Vec<PainterChoice> {
     let mut choices = vec![PainterChoice::Cpu];
     match exact_linux::gpu::Gpu::new() {
         Ok(_) => choices.push(PainterChoice::Gpu),
-        Err(error) => eprintln!("GPU painter unavailable: {error}"),
+        Err(error) => {
+            // A missing GPU fails under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing gpu: {error}"
+            );
+            eprintln!("GPU painter unavailable: {error}");
+        }
     }
     choices
 }
@@ -44,7 +52,7 @@ fn every_corner_and_mask_case_matches_chrome_light_then_dark() {
         failures.extend(held_to_chrome(&mut p, "visual.web.png", &name, &CASES));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
-        p.run_commands(NoData::default);
+        p.run_commands(<()>::default);
         failures.extend(held_to_chrome(&mut p, "visual.web-dark.png", &name, &CASES));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -52,7 +60,7 @@ fn every_corner_and_mask_case_matches_chrome_light_then_dark() {
 
 /// Pixels in a case's box (and `pad` points around it) whose colour is
 /// within 40 of `rgb` in every channel.
-fn count(p: &mut Presenter<NoData>, case: &str, pad: f32, rgb: [u8; 3]) -> usize {
+fn count(p: &mut Presenter<()>, case: &str, pad: f32, rgb: [u8; 3]) -> usize {
     count_where(p, case, pad, |c| {
         c.iter().zip(rgb).all(|(a, b)| a.abs_diff(b) <= 40)
     })
@@ -60,7 +68,7 @@ fn count(p: &mut Presenter<NoData>, case: &str, pad: f32, rgb: [u8; 3]) -> usize
 
 /// Pixels in a case's box (and `pad` points around it) that `like` takes.
 fn count_where(
-    p: &mut Presenter<NoData>,
+    p: &mut Presenter<()>,
     case: &str,
     pad: f32,
     like: impl Fn([u8; 3]) -> bool,
@@ -218,7 +226,7 @@ fn inline_shadows_and_strokes_follow_each_runs_computed_style() {
             if reference.contains("dark") {
                 let id = view(&p, "dark");
                 p.tap(id).unwrap();
-                p.run_commands(NoData::default);
+                p.run_commands(<()>::default);
             }
             // LLP 1104: Linux's own button ring differs from Chrome's.
             // Compare this text-paint oracle with the scheme button blurred;
@@ -313,7 +321,7 @@ fn every_shadow_case_matches_chrome_light_then_dark() {
         ));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
-        p.run_commands(NoData::default);
+        p.run_commands(<()>::default);
         failures.extend(held_to_chrome(
             &mut p,
             "shadows.web-dark.png",
@@ -343,7 +351,7 @@ fn every_layer_case_matches_chrome_light_then_dark() {
         ));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
-        p.run_commands(NoData::default);
+        p.run_commands(<()>::default);
         failures.extend(held_to_chrome(
             &mut p,
             "layers.web-dark.png",
@@ -421,7 +429,7 @@ fn every_space_case_matches_chrome_light_then_dark() {
         failures.extend(held_to_chrome(&mut p, "space.web.png", &name, &SPACE_CASES));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
-        p.run_commands(NoData::default);
+        p.run_commands(<()>::default);
         failures.extend(held_to_chrome(
             &mut p,
             "space.web-dark.png",
@@ -455,10 +463,9 @@ component Order
         let plan = contract::compile(PAGE).unwrap();
         let assets =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/fixtures");
-        let mut p =
-            Presenter::boot_with(&plan.encode(), NoData, (390.0, 200.0), 1.0, assets, choice)
-                .unwrap()
-                .0;
+        let mut p = Presenter::boot_with(&plan.encode(), (), (390.0, 200.0), 1.0, assets, choice)
+            .unwrap()
+            .0;
         let (plain, cast) = (view(&p, "plain"), view(&p, "cast"));
         let boxes = p.boxes();
         let rect = |id| boxes.iter().find(|b| b.id == id).unwrap().rect;

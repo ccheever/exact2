@@ -427,9 +427,9 @@ component App
       column testId="card" width=400
         SummaryCard(label="Habits", value="3 / 3", detail="", progress=some(1), symbol=none)
       row testId="marks"
-        DoneMark(label="Mon", done=true)
-        DoneMark(label="Tue", done=false)
-        DoneMark(label="", done=true)
+        DoneMark(caption="Mon", done=true)
+        DoneMark(caption="Tue", done=false)
+        DoneMark(caption="", done=true)
 "#,
     );
     let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
@@ -527,6 +527,13 @@ component App
         .map(|m| m.props.str(PropId::AccessibilityLabel).unwrap_or(""))
         .collect();
     assert_eq!(names, ["Mon, done", "Tue, not done", "Done"]);
+    // The caption is what shows: short, under the mark (LLP 1116.003 D7).
+    let captions: Vec<_> = under(k, at(k, "marks"))
+        .into_iter()
+        .filter(|n| n.node_type == NodeType::Text)
+        .map(|n| n.props.str(PropId::Text).unwrap_or("").to_owned())
+        .collect();
+    assert_eq!(captions, ["Mon", "Tue"]);
     let tints: Vec<_> = marks
         .iter()
         .map(|m| {
@@ -554,4 +561,323 @@ component App
             ),
         ]
     );
+}
+
+/// LLP 1116.003 D4: emphasis is a part. `RoundButton` is the platform's own
+/// button as an 80-point circle, filled with its `tint` (the neutral grey
+/// for `none`, the hue at low opacity for a light one); `AnswerTile` is a
+/// tile whose status is its fill, legible in both schemes: the green under
+/// dark ink, the red under white, whatever the app's scheme. Both pass their
+/// press, `disabled` and `testId` through.
+#[test]
+fn exact_content_draws_round_buttons_and_answer_tiles() {
+    use exact_kernel::style::roles::role;
+    use exact_kernel::{ColorValue, NodeType, Offer, PropId, PropValue};
+    let dir = Dir::new("content-controls");
+    let root = dir.write(
+        "app.contract",
+        r#"use RoundButton, AnswerTile from "exact:content"
+component App
+  state n = 0
+  state picked = ""
+  action add(k: number)
+    n = n + k
+  action pick(a: string)
+    picked = a
+  view
+    column testId="root" width=400 height=900
+      row justify-content="space-between"
+        RoundButton(label="Lap", tint=none, press=add(1), disabled=false, testId="lap")
+        RoundButton(label="Stop", tint=some("-exact-system-red"), press=add(10), disabled=false, testId="start")
+        RoundButton(label="Reset", tint=none, press=add(100), disabled=true, testId="reset")
+      row justify-content="space-between"
+        RoundButton(label="Go", tint=some("-exact-system-green"), press=add(1000), disabled=false, testId="go")
+        RoundButton(label="Wait", tint=some("-exact-system-yellow"), press=add(10000), disabled=true, testId="wait")
+      for a in ["Lima", "Quito", "Bogota", "Caracas"] key=a
+        AnswerTile(label=a, status=(picked == "" ? (a == "Caracas" ? "selected" : "idle") : a == "Quito" ? "correct" : a == picked ? "wrong" : "dimmed"), press=pick(a), testId=a)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let layout = |r: &mut exact_runner::Runner<NoData>| {
+        let k = r.kernel_mut();
+        let top = at(k, "root");
+        k.compute_layout(top, Offer::definite(400.0, 900.0))
+            .unwrap();
+    };
+    layout(&mut r);
+    let named = |n: &str| ColorValue::Role(role(n).unwrap());
+    let k = r.kernel();
+    // The platform's own button, a circle 80 across, filled with the tint
+    // or the neutral grey.
+    for (id, style, accent) in [
+        ("lap", "gray", None),
+        ("start", "filled", Some(named("-exact-system-red"))),
+    ] {
+        let b = k.node(at(k, id)).unwrap();
+        assert_eq!(b.node_type, NodeType::Control, "{id}");
+        assert_eq!(
+            b.props.get(PropId::ButtonStyle),
+            Some(&PropValue::Str(style.into())),
+            "{id}"
+        );
+        assert_eq!(b.style.accent_color, accent, "{id}");
+        assert_eq!((b.frame.width, b.frame.height), (80.0, 80.0), "{id}");
+    }
+    let reset = k.node(at(k, "reset")).unwrap();
+    assert_eq!(reset.props.bool(PropId::Disabled), Some(true));
+    // LLP 1116.008 D6: a light system hue fails 4.5:1 under the filled
+    // button's white ink (green's is 2.2:1) and looks off-platform under black
+    // (trivia's teal Start), so it draws the platform's tinted style, the hue at
+    // low opacity under the label's own ink (the tertiary label once disabled,
+    // as the neutral button's); the other tints keep the platform's filled look.
+    for (id, label, hue, disabled, ink) in [
+        ("go", "Go", "-exact-system-green", false, "-exact-label"),
+        (
+            "wait",
+            "Wait",
+            "-exact-system-yellow",
+            true,
+            "-exact-tertiary-label",
+        ),
+    ] {
+        let b = k.node(at(k, id)).unwrap();
+        assert_eq!(b.node_type, NodeType::Control, "{id}");
+        assert_eq!(
+            b.props.get(PropId::ButtonStyle),
+            Some(&PropValue::Str("tinted".into())),
+            "{id}"
+        );
+        assert_eq!(b.style.accent_color, Some(named(hue)), "{id}");
+        assert_eq!((b.frame.width, b.frame.height), (80.0, 80.0), "{id}");
+        assert_eq!(b.props.bool(PropId::Disabled), Some(disabled), "{id}");
+        assert_eq!(b.child_nodes().next().unwrap().text_runs()[0].text, label);
+        assert_eq!(b.style.text_color, named(ink), "{id}");
+    }
+    assert!(!matches!(
+        k.node(at(k, "start")).unwrap().style.text_color,
+        ColorValue::LightDark(..)
+    ));
+    // Its press is the author's action, with its captured arguments.
+    let (lap, start) = (at(k, "lap"), at(k, "start"));
+    r.dispatch(lap, exact_runner::Event::Press).unwrap();
+    r.dispatch(start, exact_runner::Event::Press).unwrap();
+    assert_eq!(r.slot("n"), Some(&exact_runner::Value::Number(11.0)));
+    // Untold: a neutral fill, a target over 44 points; the selected one
+    // carries the accent's outline and says so.
+    let k = r.kernel();
+    let lima = k.node(at(k, "Lima")).unwrap();
+    assert_eq!(
+        lima.style.background_color,
+        Some(named("-exact-tertiary-fill"))
+    );
+    assert!(lima.frame.height >= 44.0, "{:?}", lima.frame);
+    assert_ne!(lima.props.bool(PropId::Disabled), Some(true));
+    let caracas = k.node(at(k, "Caracas")).unwrap();
+    assert_eq!(
+        caracas.props.str(PropId::AccessibilityLabel),
+        Some("Caracas, selected")
+    );
+    let bogota = at(k, "Bogota");
+    r.dispatch(bogota, exact_runner::Event::Press).unwrap();
+    assert_eq!(r.slot("picked").and_then(|v| v.as_str()), Some("Bogota"));
+    layout(&mut r);
+    // Told: green under a light scheme (dark ink), red under a dark one
+    // (white ink), the rest dimmed; none of them presses again.
+    let k = r.kernel();
+    let tile = |t: &str| k.node(at(k, t)).unwrap();
+    let told = [
+        (
+            "Quito",
+            "-exact-system-green",
+            Some(false),
+            "Quito, correct",
+        ),
+        ("Bogota", "-exact-system-red", Some(true), "Bogota, wrong"),
+        ("Lima", "-exact-tertiary-fill", None, "Lima"),
+    ];
+    for (t, fill, dark, name) in told {
+        let n = tile(t);
+        assert_eq!(n.style.background_color, Some(named(fill)), "{t}");
+        assert_eq!(n.color_scheme_dark(), dark, "{t}");
+        assert_eq!(n.props.str(PropId::AccessibilityLabel), Some(name), "{t}");
+        assert_eq!(n.props.bool(PropId::Disabled), Some(true), "{t}");
+    }
+    assert_eq!(tile("Quito").style.text_color, named("-exact-label"));
+}
+
+/// LLP 1116.004 D9: a status is a `Badge`, not coloured text: its label in a
+/// capsule that keeps its own size at the start of a column and centred in a
+/// row, never stretched; its ink legible on its fill in either scheme (dark
+/// on a system hue, white on indigo, the platform's own on the accent and on
+/// the neutral grey); and a reader hears its text.
+#[test]
+fn exact_content_draws_a_status_badge() {
+    use exact_kernel::style::roles::role;
+    use exact_kernel::{ColorValue, NodeType, Offer, PropId};
+    let dir = Dir::new("content-badge");
+    let root = dir.write(
+        "app.contract",
+        r#"use Badge from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=400
+      column testId="col" width=300
+        Badge(label="Locked", tint=none)
+      row testId="row" width=380 height=60 gap=8
+        text "Garden party" flex=1 min-width=0
+        Badge(label="Full", tint=some("-exact-system-orange"))
+        Badge(label="New", tint=some("AccentColor"))
+        Badge(label="Indigo", tint=some("-exact-system-indigo"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(400.0, 400.0))
+        .unwrap();
+    let k = r.kernel();
+    let named = |n: &str| ColorValue::Role(role(n).unwrap());
+    // Each capsule (the node right over a text) and its text.
+    let capsules = |t: &str| -> Vec<(exact_kernel::NodeRef<'_>, exact_kernel::NodeRef<'_>)> {
+        under(k, at(k, t))
+            .into_iter()
+            .filter_map(|c| {
+                // A capsule holds its text, and the accent's tint a layer under it.
+                let only = c.children();
+                let text = k.node(*only.last()?).unwrap();
+                (matches!(only.len(), 1 | 2) && text.node_type == NodeType::Text)
+                    .then_some((c, text))
+            })
+            .collect()
+    };
+    let col = capsules("col");
+    let (locked, label) = &col[0];
+    assert_eq!(label.props.str(PropId::Text), Some("Locked"));
+    assert!(
+        locked.frame.width < 150.0 && locked.frame.x == 0.0,
+        "its own width, at the column's start: {:?}",
+        locked.frame
+    );
+    assert_eq!(
+        locked.style.background_color,
+        Some(named("-exact-tertiary-fill"))
+    );
+    assert_eq!(
+        locked.color_scheme_dark(),
+        None,
+        "the grey follows the scheme"
+    );
+    assert_eq!(label.style.text_color, named("-exact-label"));
+    let row = capsules("row");
+    let words: Vec<&str> = row
+        .iter()
+        .map(|(_, t)| t.props.str(PropId::Text).unwrap())
+        .collect();
+    assert_eq!(words, ["Full", "New", "Indigo"]);
+    for (c, _) in &row {
+        assert!(
+            c.frame.height < 40.0 && c.frame.y > 0.0,
+            "centred in the row's height, not stretched: {:?}",
+            c.frame
+        );
+    }
+    let (full, new, indigo) = (&row[0], &row[1], &row[2]);
+    assert_eq!(
+        full.0.color_scheme_dark(),
+        Some(false),
+        "dark ink on orange"
+    );
+    assert_eq!(full.1.style.text_color, named("-exact-label"));
+    assert_eq!(indigo.0.color_scheme_dark(), Some(true), "white on indigo");
+    // LLP 1116.007 D3.10: the accent is a tint, not a fill under white ink (1.4:1 on
+    // yellow, 3.5:1 on the system blue, against a caption's 4.5:1): the accent at 16% on a
+    // layer under the label, which keeps its own ink, so it reads on every accent.
+    assert_eq!(new.0.color_scheme_dark(), None);
+    assert_eq!(new.1.style.text_color, named("-exact-label"));
+    let tint = k.node(new.0.children()[0]).unwrap();
+    assert_eq!(tint.style.background_color, Some(named("AccentColor")));
+    assert!(
+        (tint.style.opacity - 0.16).abs() < 1e-3,
+        "{}",
+        tint.style.opacity
+    );
+    assert!(
+        new.0
+            .style
+            .background_color
+            .is_none_or(|c| c.resolve(false).a() == 0),
+        "the capsule paints nothing of its own: the layer is the tint"
+    );
+}
+
+/// LLP 1116.007 D3.10: `SummaryCard` cannot know its page, and the secondary
+/// background is the grouped page's own grey in the light scheme (the card
+/// vanished on unit-converter's grouped page, `check`'s `card` finding). Its
+/// surface is a translucent fill, which differs from the plain page and from
+/// the grouped page, by more than `check`'s four-step tolerance, in each
+/// scheme.
+#[test]
+fn a_summary_card_shows_on_a_plain_page_and_on_a_grouped_one_in_either_scheme() {
+    use exact_kernel::style::roles::role;
+    use exact_kernel::ColorValue;
+    let dir = Dir::new("card-surface");
+    let root = dir.write(
+        "app.contract",
+        r#"use SummaryCard from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=400
+      column testId="holder"
+        SummaryCard(label="Today", value="1", detail="of 2", progress=none, symbol=none)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let holder = k.node_by_key(k.find_by_test_id("holder")[0]).unwrap();
+    let card = k.node(holder.children()[0]).unwrap();
+    let fill = card.style.background_color.expect("the card has a fill");
+    for dark in [false, true] {
+        let over = |page: ColorValue| {
+            let (f, p) = (fill.resolve(dark), page.resolve(dark));
+            let a = f64::from(f.a()) / 255.0;
+            let mix = |f: u8, p: u8| f64::from(f) * a + f64::from(p) * (1.0 - a);
+            [mix(f.r(), p.r()), mix(f.g(), p.g()), mix(f.b(), p.b())]
+        };
+        for page in ["-exact-background", "-exact-grouped-background"] {
+            let page = ColorValue::Role(role(page).unwrap());
+            let (shown, behind) = (over(page), page.resolve(dark));
+            let behind = [behind.r(), behind.g(), behind.b()].map(f64::from);
+            let apart = (0..3).any(|i| (shown[i] - behind[i]).abs() > 4.0);
+            assert!(
+                apart,
+                "the card {shown:?} is its page {behind:?} (dark: {dark})"
+            );
+        }
+    }
 }

@@ -10,7 +10,7 @@
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
 //
-// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10] [--jobs 4]
+// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10] [--jobs 4] [--js-from <an earlier run's --out> | --build-js]
 //   (the JS builds go to <out>/dist/<target>)
 //   --jobs drives that many targets at once (default 4), each with its own
 //   browsers, servers and Linux host; the report is in target order.
@@ -18,13 +18,19 @@
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
 //   --build makes each named app's wasm dist there first (and an
 //   EXACT_WEB_LINK=all data-app dist for --synthetic, whose swapped plans
-//   can use any capability);
+//   can use any capability); without it a dist older than its sources is
+//   refused by name (a `wasm-open` failure), as the driver refuses one;
 //   --synthetic adds host/web-js/conformance/*.contract (and */app.contract), run on
 //   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
 //   data sources they may ask; the JS side loads the same Rust module. A
 //   plan whose first lines say `// data: <app>` runs on that app's dist
 //   instead, for its sources and the capabilities it links; one that says
-//   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts.
+//   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts, and
+//   `scale=<n>` in that line opens all three at that display scale
+//   (EXACT_SCALE: Chrome's own device scale factor for both pages, the Linux
+//   host's pixels a point), so a hairline is the same device pixel on each
+//   (LLP 1115.000 D10.3, D14.2); with none every host is at the scale its
+//   environment names, 1 unless EXACT_SCALE says.
 //   Every page freezes media time (`mediaClock: 'frozen'`: rate 0 from a
 //   media element's first load): a playing video would otherwise follow the
 //   wall clock, so two pages read different positions; play, pause and seeks
@@ -49,28 +55,35 @@
 //   --browser runs a cross-browser comparison of the JS target instead:
 //   Chrome is the oracle and Firefox or WebKit takes the identical steps.
 //   In this mode --build compiles a plan directly for a TypeScript data app;
-//   the comparison needs no Rust wasm reference.
+//   the comparison needs no Rust wasm reference. It drives the JS builds of a
+//   Chrome run, named by --js-from (a target whose build there is missing or
+//   from other inputs builds its own, and says so), or builds its own with
+//   --build-js; it refuses to start with neither.
 //   Typed state and the existing wasm/JS tree fields (plus focus) compare
 //   exactly. Boxes compare by testId in their parent's coordinate space:
 //   positions and sizes tolerate 4 CSS px (Charlie, 2026-10-07: engines shape
 //   glyphs 1.6-3.3 px apart), scroll offsets 1 px; a wrap moves a box by a
 //   whole line at the pinned line height, so it still fails. Larger
 //   CSS-permitted differences must be named in
-//   conformance/known-<engine>.json and print as KNOWN. Screenshots from both
-//   engines are saved for inspection and are never pixel-compared. Install
+//   conformance/known-<engine>.json and print as KNOWN. Screenshots are never
+//   pixel-compared across engines; both are saved, for inspection, only at a
+//   checkpoint that differed (a failure or a known difference). Install
 //   the browsers outside this repo with:
 //     bunx playwright@1.63.0 install firefox webkit
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { availableParallelism } from 'node:os';
+import { conformArgs } from './conform-args.mjs';
 import { open } from '../../scripts/agent.mjs';
-import { chromium } from '../../scripts/agent-launch.mjs';
-import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
+import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
+import { poolBrowsers, probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
+import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
+import { startNet } from './conformance/net.mjs';
 
 /** `spawnSync`'s result without holding the event loop: the other targets'
  *  drives keep running while one builds. */
@@ -85,11 +98,26 @@ const spawned = (command, args, options) => new Promise((done) => {
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const argv = process.argv.slice(2);
-const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
-const wasmRoot = resolve(opt('--wasm-root', '/tmp/e3-wasm'));
-const out = resolve(opt('--out', '/tmp/exact-web-js-conform'));
-const maxSteps = Number(opt('--steps', 10));
-const crossBrowser = opt('--browser', null);
+const { options, named } = conformArgs(argv);
+const wasmRoot = resolve(options['--wasm-root']);
+const out = resolve(options['--out']);
+const maxSteps = Number(options['--steps']);
+const crossBrowser = options['--browser'];
+// `--js-from <out>`: an earlier step's JS build of a target (the lane's Chrome step), driven instead of building it
+// again when it was completed from the same plan, data module and source tree. A cross-browser run names where its
+// JS comes from, so a lane that stops passing the Chrome run's builds fails rather than quietly building them again
+const jsFrom = options['--js-from'] == null ? null : resolve(options['--js-from']);
+if (crossBrowser != null && !jsFrom && !argv.includes('--build-js')) {
+  console.error(`conform: --browser ${crossBrowser} drives the JS builds of a Chrome run: pass --js-from <that run's --out> (the lane's conform step), or --build-js to build them here`);
+  process.exit(2);
+}
+const JS_BUILT = '.conform-js.json';
+const sourceTree = (() => {
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const changes = spawnSync('git', ['diff', 'HEAD'], { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20 }).stdout;
+  return `${head} ${createHash('sha256').update(changes).digest('hex')}`;
+})();
+const fileDigest = path => existsSync(path) ? createHash('sha256').update(readFileSync(path)).digest('hex') : null;
 if (crossBrowser != null && !['firefox', 'webkit'].includes(crossBrowser)) throw new Error(`--browser: firefox or webkit, not ${crossBrowser}`);
 const known = crossBrowser ? JSON.parse(readFileSync(resolve(here, 'conformance', `known-${crossBrowser}.json`), 'utf8')) : [];
 // An entry names one difference exactly, or a class of them: `*` in app, step or
@@ -104,12 +132,16 @@ const knownFor = (app, step, field, what) => knownByKey.get(`${app}\0${step}\0${
   ?? knownClasses.find(c => c.app.test(app) && c.step.test(step) && c.field.test(field) && (!c.pattern || c.pattern.test(what)))?.entry;
 if (known.some(entry => !entry.app || !entry.step || !entry.field || !entry.reason)) throw new Error(`known-${crossBrowser}.json: every entry needs app, step, field, and reason`);
 if (knownByKey.size !== exact.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
-const only = opt('--only', null);
-const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--browser', '--only'].includes(argv[i - 1]));
+const only = options['--only'];
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 // The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
 process.env.CHROME ??= chromium().executable;
+// The outside servers the apps ask are answered locally (conformance/net.mjs): every browser, build
+// and child process this run starts inherits the route and its trust, and an outside request nothing answers is
+// a failure (an app catches a failed fetch and shows its fallback, so it would otherwise pass).
+const net = await startNet(out);
+Object.assign(process.env, net.env);
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.mp4': 'video/mp4', '.css': 'text/css', '.svg': 'image/svg+xml' };
 function serve(dir) {
@@ -138,11 +170,14 @@ function serve(dir) {
 // only as refused or not (the steps' state). A refusal repeated by a host's own deliveries counts once: a list's edge
 // is asked again at each report, and the Linux host reports a settling list more often than a page does.
 const BOUND = /Instance\(Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)\)|Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)|StringTooLong \{ name: "(?:[^"\\]|\\.)*" \}/;
-const boundReasons = async S => (await S.logs()).lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
+const boundReasons = lines => lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
 // The voice table's journal (LLP 1096 D5): every `sound …` and `sounds …` line, stamped, the same on every target; the
 // JS target never refuses one of its three commands (they are the runtime's own, not a host's).
 const SOUND = /^t=\S+ sounds? .*$|refused: (?:playSound|playSounds|stopSounds) .*$/;
-const soundLines = async S => (await S.logs()).lines.flatMap(l => SOUND.exec(l)?.[0] ?? []);
+const soundLines = lines => lines.flatMap(l => SOUND.exec(l)?.[0] ?? []);
+// A host's journal since its last read, read once for both filters: a read advances the cursor, so a second read
+// would see none of what the first consumed
+const journal = async S => { const { lines } = await S.logs(); return { bounds: boundReasons(lines), sounds: soundLines(lines) }; };
 const norm = t => t.nodes.map(n => [n.depth ?? 0, n.type, n.props?.testId ?? '', n.props?.text ?? '', n.props?.value ?? '', n.props?.accessibilityLabel ?? '', n.props?.checked ?? '', (n.handlers ?? []).join(' '), n.focused === true ? 'focused' : ''].join('|'));
 function diffLists(a, b, what, other = 'js', reference = 'wasm') {
   const out = [];
@@ -256,22 +291,41 @@ async function target(t, report) {
     }
     return;
   }
-  const build = await spawned('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve(out, 'dist', t.name)], { cwd: root });
-  report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
-  if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
+  // An app's wasm page is served from here and opened by its address, so the driver has no dist to check, as it checks
+  // a synthetic plan's (`webDist`). One older than its sources is refused here by the driver's rule (agent-launch.mjs;
+  // LLP 1012.001.000 D1): both pages would be the app as it was built, the JS build being of the dist's plan.
+  if (!t.contract && !crossBrowser) try { refuseStale('web', resolve(t.wasm, '.exact-build.json'), webChanges(t.wasm, resolveApp(t.app)).all, 'conform.mjs with --build'); } catch (e) { return fail('wasm-open', e.message); }
+  const plan = t.contract ? t.plan : resolve(t.wasm, 'app.plan');
+  const inputs = { plan: fileDigest(plan), data: fileDigest(resolve(t.wasm, '.exact-build.json')), source: sourceTree };
+  const earlier = jsFrom && resolve(jsFrom, 'dist', t.name);
+  const built = earlier && existsSync(resolve(earlier, JS_BUILT)) ? JSON.parse(readFileSync(resolve(earlier, JS_BUILT), 'utf8')) : null;
+  const stale = built && ['plan', 'data', 'source'].filter(k => built[k] !== inputs[k]);
+  if (built && !stale.length) {
+    t.dist = earlier;
+    report.targets[t.name] = { jsBuild: true, warnings: built.warnings, sharedFrom: jsFrom };
+  } else {
+    const named = (stale || []).map(k => ({ plan: 'plan', data: 'data module', source: 'source tree' })[k]);
+    if (jsFrom) process.stderr.write(`${t.name}: building its JS here: ${built ? `its ${named.join(' and ')} ${named.length > 1 ? 'differ' : 'differs'} from the build in` : 'there is no completed build in'} ${earlier}\n`);
+    t.dist = resolve(out, 'dist', t.name);
+    const build = await spawned('bun', ['host/web-js/build.mjs', t.app, '--plan', plan, ...(t.contract ? ['--data', t.wasm] : []), '--out', t.dist], { cwd: root });
+    const warnings = (build.stderr.match(/^warning: .*/gm) ?? []).length;
+    report.targets[t.name] = { jsBuild: build.status === 0, warnings };
+    if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
+    writeFileSync(resolve(t.dist, JS_BUILT), JSON.stringify({ ...inputs, warnings }));
+  }
   // A route that paints its boot document first is checked as its server
   // serves it: a press and an edit on the boot document (below). Its data
   // app's module is not swapped under a wasm page (a paired generation).
   if (t.contract && /\bpaint=boot\b/.test(readFileSync(t.contract, 'utf8'))) {
-    if (crossBrowser) { await bootPress(t, report, fail, resolve(out, 'dist', t.name), 'chrome'); return bootPress(t, report, fail, resolve(out, 'dist', t.name), crossBrowser); }
-    return bootPress(t, report, fail, resolve(out, 'dist', t.name), 'chrome');
+    if (crossBrowser) { await bootPress(t, report, fail, t.dist, 'chrome'); return bootPress(t, report, fail, t.dist, crossBrowser); }
+    return bootPress(t, report, fail, t.dist, 'chrome');
   }
-  const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve(out, 'dist', t.name))]);
+  const [ws, js] = await Promise.all([serve(t.wasm), serve(t.dist)]);
   await drive(t, report, fail, dir, ws, js);
   // A page rendered at build that loads its script at the first input: the
   // reader's first press or edits, before the runtime (below).
-  if (/data-activate="interaction"/.test(readFileSync(resolve(out, 'dist', t.name, 'index.html'), 'utf8'))) {
-    const page = await serve(resolve(out, 'dist', t.name));
+  if (/data-activate="interaction"/.test(readFileSync(resolve(t.dist, 'index.html'), 'utf8'))) {
+    const page = await serve(t.dist);
     await activation(t, report, fail, page.url, 'chrome');
     if (crossBrowser) await activation(t, report, fail, page.url, crossBrowser);
     page.close();
@@ -284,8 +338,9 @@ async function drive(t, report, fail, dir, ws, js) {
   const reference = crossBrowser ? 'chrome' : 'wasm', other = crossBrowser ?? 'js';
   const pair = async (left, right) => crossBrowser ? [await left(), await right()] : Promise.all([left(), right()]);
   try {
-    // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both.
+    // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both. `scale=` is the display's, a launch fact of every host.
     const facts = Object.fromEntries([...(t.contract ? /^\/\/ agent: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1] ?? '' : '').matchAll(/(\w+)=(\S+)/g)].map(([, k, v]) => [k, k === 'epoch' ? Number(v) : v]));
+    const scaled = facts.scale ? { env: { EXACT_SCALE: String(facts.scale) } } : {}; delete facts.scale;
     if (crossBrowser) {
       // Both engines hold media time and the default line height equal (agent-launch.mjs `parityScript`):
       // `line-height: normal` is each engine's own font metric (Firefox 20 px where Chrome is 18 at 16px
@@ -296,16 +351,16 @@ async function drive(t, report, fail, dir, ws, js) {
       try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url, ...parity }); }
       catch (e) { return fail(`${reference}-open`, e.message.replace(/\s+/g, ' ').trim()); }
     } else {
-      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
+      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...scaled, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${reference}-open`, e.message.split('\n')[0]); }
-      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: js.url , mediaClock: 'frozen' }); }
+      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...scaled, url: js.url , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${other}-open`, e.message.split('\n')[0]); }
     }
     const linux = crossBrowser || t.urls ? null : linuxFor(t);
     if (linux?.why) report.steps.push({ target: t.name, step: 'linux', skipped: linux.why });
     else if (linux) {
       // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
-      try { L = await open({ host: 'linux', app: t.app, ...facts, ...(t.contract ? { plan: t.plan } : {}) }); }
+      try { L = await open({ host: 'linux', app: t.app, ...facts, ...scaled, ...(t.contract ? { plan: t.plan } : {}) }); }
       catch (e) { fail('linux-open', e.message.split('\n').filter(l => !/^crash report/.test(l)).slice(0, 4).join(' ').slice(0, 400)); }
     }
     // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).
@@ -321,8 +376,9 @@ async function drive(t, report, fail, dir, ws, js) {
       let linuxReport = null;
       driveAt = `${step} state`;
       const [sw, sj] = await pair(() => W.state(), () => J.state().catch(e => ({ error: e.message })));
-      // A write's id orders it within one runtime; the two number them apart, so the mutations and states compare.
-      for (const s of [sw, sj]) if (s?.writes) s.writes = s.writes.map(w => ({ mutation: w.mutation, landed: w.landed }));
+      // A write's id orders it within one runtime; each numbers them apart (the Linux host's too), so the mutations and states compare.
+      const plainWrites = s => { if (s?.writes) s.writes = s.writes.map(w => ({ mutation: w.mutation, landed: w.landed })); };
+      plainWrites(sw); plainWrites(sj);
       addSession(sw); addSession(sj);
       if (sj.error) { fail(step, `state: ${other} ${sj.error}`); st++; }
       else if (crossBrowser) {
@@ -334,7 +390,7 @@ async function drive(t, report, fail, dir, ws, js) {
       const o2 = diffLists(norm(tw), norm(tj), 'tree', other, reference); o2.forEach((x, i) => fail(step, x, crossBrowser ? `tree.${i}` : null)); st += o2.length;
       await onLinux(step, async L => {
         const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [];
-        addSession(sl);
+        plainWrites(sl); addSession(sl);
         for (const k of STATE_KEYS) diffJSON(sw[k], sl[k], k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
@@ -361,6 +417,12 @@ async function drive(t, report, fail, dir, ws, js) {
         const [fw, fj] = await pair(() => W.carrier.evaluate(paint), () => J.carrier.evaluate(paint));
         const op = []; diffJSON(fw, fj, 'paint', op); op.forEach(x => fail(step, x)); st += op.length;
       }
+      // Cross-browser pictures are never compared (each engine rasterizes text its own way): both are kept only as
+      // evidence for a checkpoint that differed
+      if (crossBrowser && st === 0) {
+        report.steps.push({ target: t.name, step, differences: st, maxLayoutDelta: o3.maxDelta });
+        return tw;
+      }
       driveAt = `${step} screenshot`;
       const slug = step.replace(/[^a-z0-9]+/gi, '-');
       const [pw, pj] = [resolve(dir, `${slug}-${reference}.png`), resolve(dir, `${slug}-${other}.png`)];
@@ -369,14 +431,16 @@ async function drive(t, report, fail, dir, ws, js) {
       // own clock); nearest-neighbour on both leaves one filter to compare.
       const still = `document.getElementById('conform-still') || document.head.insertAdjacentHTML('beforeend', '<style id=conform-still>img{image-rendering:pixelated!important}</style>'); new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))`;
       await pair(() => W.carrier?.evaluate(still).catch(() => {}), () => J.carrier?.evaluate(still).catch(() => {}));
+      // Each picture is the clock's, a transition where it stands, as a film's frame is (a plain
+      // screenshot shows one where it ends, LLP 1116.003 D8, which the wasm target's does not).
       if (crossBrowser) {
         // Preserve the other engine's picture even when Chrome's oracle
         // cannot capture (for example a broken GPU process on Linux).
         for (const [session, path, label] of [[J, pj, other], [W, pw, reference]]) {
-          try { await session.screenshot(path); }
+          try { await session.screenshot(path, false, undefined, true); }
           catch (error) { fail(step, `${label} screenshot: ${error.message.split('\n')[0]}`); st++; }
         }
-      } else await pair(() => W.screenshot(pw), () => J.screenshot(pj));
+      } else await pair(() => W.screenshot(pw, false, undefined, true), () => J.screenshot(pj, false, undefined, true));
       // A playing video's frames and controls are the browser's clock, not the runner's.
       if (!crossBrowser) {
         const share = diffPng(pw, pj, resolve(dir, `${slug}-side-by-side.png`), lw.nodes.filter(n => n.type === 'Video'));
@@ -386,7 +450,7 @@ async function drive(t, report, fail, dir, ws, js) {
       return tw;
     };
     // A scripted scenario (`conformance/<app>.steps`): one agent operation
-    // a line — `tap <target>`, `type <target> <text…>`, `key <target> <name>`, `clock <+ms|settle>`,
+    // a line — `resize <width>x<height>`, `tap <target>`, `type <target> <text…>`, `key <target> <name>`, `clock <+ms|settle>`,
     // `back` (the browser's history), `wheel <target> <dy> [dx]`, `into
     // <list> <key> [block]` (a virtualized list's row by key), `drag
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
@@ -404,14 +468,14 @@ async function drive(t, report, fail, dir, ws, js) {
     await settle();
     // Each step's bound refusals, on every target (the journals read from here on).
     const bounds = async step => {
-      const [rw, rj] = await pair(() => boundReasons(W), () => boundReasons(J));
+      const [{ bounds: rw, sounds: sw }, { bounds: rj, sounds: sj }] = await pair(() => journal(W), () => journal(J));
       const say = r => r.join(' | ') || '—';
       if (say(rw) !== say(rj)) fail(step, `bound refusals: ${reference} «${say(rw)}» ${other} «${say(rj)}»`);
-      const [sw, sj] = await pair(() => soundLines(W), () => soundLines(J));
       if (say(sw) !== say(sj)) fail(step, `sound lines: ${reference} «${say(sw).slice(-400)}» ${other} «${say(sj).slice(-400)}»`);
       await onLinux(step, async L => {
-        const rl = await boundReasons(L); if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`);
-        const sl = await soundLines(L); if (say(sl) !== say(sw)) fail(step, `linux sound lines: ${reference} «${say(sw).slice(-400)}» linux «${say(sl).slice(-400)}»`);
+        const { bounds: rl, sounds: sl } = await journal(L);
+        if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`);
+        if (say(sl) !== say(sw)) fail(step, `linux sound lines: ${reference} «${say(sw).slice(-400)}» linux «${say(sl).slice(-400)}»`);
       });
     };
     await bounds('boot');
@@ -421,7 +485,7 @@ async function drive(t, report, fail, dir, ws, js) {
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0], ...(rest[1] === 'for' ? { for: Number(rest[2]) } : rest[1] ? { phase: rest[1] } : {}) }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'move' ? s.pointer('move', { dx: Number(target), dy: Number(rest[0]), ms: Number(rest[1] ?? 200) }) : op === 'drag' && rest[0] === 'to' ? s.tap(target, { drag: { to: rest[1], over: Number(rest[2] ?? 200) } }) : op === 'drag' && rest[3] === 'hold' ? s.tap(target, { drag: { dx: Number(rest[0]), dy: Number(rest[1]), over: Number(rest[2]), hold: Number(rest[4]) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'mediasession' ? s.tap(target, { mediaSession: rest[0], ...(rest[1] != null ? { seconds: Number(rest[1]) } : {}) }) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'resize' ? s.resize(...target.split('x').map(Number)) : op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0], ...(rest[1] === 'for' ? { for: Number(rest[2]) } : rest[1] ? { phase: rest[1] } : {}) }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'move' ? s.pointer('move', { dx: Number(target), dy: Number(rest[0]), ms: Number(rest[1] ?? 200) }) : op === 'drag' && rest[0] === 'to' ? s.tap(target, { drag: { to: rest[1], over: Number(rest[2] ?? 200) } }) : op === 'drag' && rest[3] === 'hold' ? s.tap(target, { drag: { dx: Number(rest[0]), dy: Number(rest[1]), over: Number(rest[2]), hold: Number(rest[4]) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'mediasession' ? s.tap(target, { mediaSession: rest[0], ...(rest[1] != null ? { seconds: Number(rest[1]) } : {}) }) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
       // named, side-effect-free refusals are exercised by agent.test.mjs.
@@ -432,7 +496,8 @@ async function drive(t, report, fail, dir, ws, js) {
       // A clock step the wasm runner refuses (a timer's or a `then`'s refusal
       // stops the advance at its time) is refused by the others too, then compared.
       let refused = null;
-      try { await run(W); } catch (e) { if (op !== 'clock') { report.steps.push({ target: t.name, step: line, skipped: `${reference}: ${e.message.split('\n')[0]}` }); continue; } refused = e.message.split('\n')[0]; }
+      // A scripted step is one the reference must take: one it cannot take is a failure, not a skip.
+      try { await run(W); } catch (e) { if (op !== 'clock') { fail(line, `${reference}: ${e.message.split('\n')[0]}`); continue; } refused = e.message.split('\n')[0]; }
       const answered = who => { if (refused) fail(line, `${who}: answered where ${reference} refused (${refused})`); };
       let jsRefused = null;
       try { await run(J); } catch (e) { jsRefused = e.message.split('\n')[0]; }
@@ -478,7 +543,7 @@ async function drive(t, report, fail, dir, ws, js) {
       let output = ''; child.stdout.on('data', d => { output += d; }); child.stderr.on('data', d => { output += d; });
       child.on('error', error => ok({ output: output + error.message, status: 127 })); child.on('exit', status => ok({ output, status: status ?? 128 }));
     });
-    const [w2, j2] = await Promise.all([serve(crossBrowser ? resolve(out, 'dist', t.name) : t.wasm), serve(resolve(out, 'dist', t.name))]);
+    const [w2, j2] = await Promise.all([serve(crossBrowser ? t.dist : t.wasm), serve(t.dist)]);
     const [rw, rj] = await Promise.all([run(w2.url), run(j2.url, crossBrowser ?? 'chrome')]);
     w2.close(); j2.close();
     const lines = s => s.split('\n').filter(l => l.startsWith('test '));
@@ -666,6 +731,7 @@ const LINUX_APART = {
   'synthetic-rowsmore': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
   'synthetic-reorder': ['drag grip-5 0 -300 500', "a drag past the list's top autoscrolls on the page and not on the Linux host, so the row lands elsewhere"],
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "a height drag ends 3 px apart (518 on the page, 521 on the Linux host)"],
+  'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
   textflow: ['drag orb-1 60 40 300', "a drag advances the scene's elapsed time on the Linux host and not on the page"],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
@@ -713,9 +779,10 @@ if (argv.includes('--build') && engineReady) mkdirSync(wasmRoot, { recursive: tr
 if (argv.includes('--build') && engineReady) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const direct = crossBrowser && existsSync(resolve(root, 'apps', a, 'app.ts'));
   if (direct) mkdirSync(resolve(wasmRoot, a), { recursive: true });
+  // Asynchronously, as a build's render may fetch through the proxy this process serves
   const b = direct
-    ? spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(root, 'apps', a, 'app.contract'), '-o', resolve(wasmRoot, a, 'app.plan')], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
-    : spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], {
+    ? await spawned('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(root, 'apps', a, 'app.contract'), '-o', resolve(wasmRoot, a, 'app.plan')], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
+    : await spawned('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 64 << 20,
@@ -742,12 +809,12 @@ if (linuxRef && argv.includes('--build') && engineReady) {
   const builds = [...(rooted.length ? [{ what: rooted.join(' '), args: rooted.flatMap(c => ['-p', c]), env: {} }] : []),
     ...own.map(o => ({ what: o.crate, args: [...injectedProfiles(resolveApp(o.a)), '--manifest-path', resolve(root, 'apps', o.a, 'linux', 'Cargo.toml')], env: { CARGO_TARGET_DIR: o.target } }))];
   for (const { what, args, env } of builds) {
-    const b = spawnSync('cargo', ['build', '-q', '--profile', HOST_DEV, ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...env } });
+    const b = await spawned('cargo', ['build', '-q', '--profile', HOST_DEV, ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...env } });
     if (b.status !== 0) report.failures.push({ target: 'linux', step: `linux-build ${what}`, what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
   }
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
-if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
+if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${options['--label']}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (synthetic.length) {
   // The compiler is built once, as `cargo run` builds it, and run directly
   // for each fixture: a `cargo run` per fixture repeats Cargo's freshness check.
@@ -764,16 +831,32 @@ if (synthetic.length) {
 }
 // Several targets at once, one queue: `next` is read and advanced with no
 // await between, and each target's failures are its own entries.
-const jobs = Math.max(1, Number(opt('--jobs', Math.min(4, availableParallelism()))));
+const jobs = Number(options['--jobs']);
+if (!Number.isInteger(jobs) || jobs < 1) {
+  console.error(`conform: --jobs takes a positive whole number, not "${options['--jobs']}"`);
+  process.exit(2);
+}
 const queue = engineReady ? targets : [];
+// A run that compares nothing fails rather than passing: no app named, built or matched by --only
+if (engineReady && !targets.length) report.failures.push({ target: 'harness', step: 'targets', what: 'no app or fixture to compare: name one, build with --build, or check --only' });
 let next = 0;
-await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
-  while (next < queue.length) {
-    const t = queue[next++];
-    try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
-    process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
-  }
-}));
+// Keep each worker's Firefox or WebKit between its targets, with a fresh context for each
+const closeBrowsers = crossBrowser ? poolBrowsers() : async () => {};
+try {
+  await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+    while (next < queue.length) {
+      const t = queue[next++];
+      try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
+      process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
+    }
+  }));
+} finally {
+  closeFilesystemReader();
+  await closeBrowsers();
+  await net.close();
+}
+report.net = { answered: [...new Set(net.answered)].sort(), unanswered: net.unanswered, tunnels: [...new Set(net.tunnels)].sort(), aborted: net.aborted, browser: [...new Set(net.browser)].sort() };
+for (const request of net.unanswered) report.failures.push({ target: 'net', step: 'unanswered', what: `${request}: no generated answer in conformance/net.mjs` });
 // The report lists targets in their order, whatever order they finished in.
 const order = new Map(targets.map((t, i) => [t.name, i]));
 const byOrder = (a, b) => (order.get(a.target) ?? -1) - (order.get(b.target) ?? -1);
@@ -787,7 +870,7 @@ const lines = [`# JS target ${crossBrowser ? `cross-browser conformance (Chrome 
 for (const t of targets) {
   const mine = report.steps.filter(x => x.target === t.name), s = mine.filter(x => x.differences != null && !x.reference), info = report.targets[t.name] ?? {};
   const lx = mine.filter(x => x.reference === 'linux'), lskip = mine.find(x => x.step === 'linux' || x.linux === 'stopped');
-  const lcell = lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`;
+  const lcell = (lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`);
   const testCell = info.tests ? crossBrowser ? `${info.tests.chrome} / ${info.tests[crossBrowser]}` : `${info.tests.wasm} / ${info.tests.js}` : '—';
   lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${testCell} |${crossBrowser ? ` ${(info.maxLayoutDelta ?? 0).toFixed(3)} px |` : ''}${linuxRef ? ` ${lcell} |` : ''}`);
 }
@@ -800,6 +883,10 @@ if (report.known.length) {
 }
 writeFileSync(resolve(out, 'report.md'), lines.join('\n'));
 console.log(lines.slice(0, targets.length + 4).join('\n'));
+if (jsFrom) {
+  const shared = Object.values(report.targets).filter(t => t.sharedFrom).length, builds = Object.values(report.targets).filter(t => t.jsBuild != null).length;
+  console.log(`\nJS builds: ${shared} shared from ${jsFrom}, ${builds - shared} built here`);
+}
 console.log(`\n${report.failures.length} failures across ${targets.length} targets; ${resolve(out, 'report.md')}`);
 if (argv.includes('--strict') && report.failures.length) {
   for (const f of report.failures) {
@@ -808,3 +895,4 @@ if (argv.includes('--strict') && report.failures.length) {
   }
   process.exit(1);
 }
+process.exit(0);

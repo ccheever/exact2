@@ -133,8 +133,10 @@ fn drive_names_normalize_without_changing_authority_namespace() {
     assert!(!PathPrefix::new("app:/").unwrap().covers(r"C:\data"));
     assert!(!PathPrefix::new("/").unwrap().covers(r"C:\data"));
     let posix = GrantSet::parse("fs.read /\nfs.write /\n").unwrap();
-    assert_eq!(crate::grant::realized_fs(&posix), posix);
-    assert!(!crate::grant::realized_fs(&posix).permits(&Operation::FsRead { path: "C:/".into() }));
+    assert_eq!(posix.realized_fs(), posix);
+    assert!(!posix
+        .realized_fs()
+        .permits(&Operation::FsRead { path: "C:/".into() }));
 }
 
 #[test]

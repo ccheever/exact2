@@ -6,7 +6,7 @@ component App
   resource flag = enabled(q) as shape bool
   resource maybe = lookup(q) as shape option<string>
   derive shown = match maybe { case some(m) => m, case none => "(none)" }
-  derive sum = n + length(s)
+  derive sum = n + s.length
   action setQ(v: string)
     q = v
   view

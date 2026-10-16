@@ -70,16 +70,17 @@ final class HatchDiagnosticsTests: XCTestCase {
 
     func testACallsTimeIsItsOwn() throws {
         try XCTSkipUnless(HatchDiagnostics.measuring)
-        let store = HatchDiagnostics()
+        var now = 0.0
+        let store = HatchDiagnostics(mediaTime: { now })
         store.timed("navigation", "built") {
-            Thread.sleep(forTimeInterval: 0.004)
-            store.timed("element dot", "built", counts: false) { Thread.sleep(forTimeInterval: 0.02) }
+            now += 0.003
+            store.timed("element dot", "built", counts: false) { now += 0.02 }
+            now += 0.001
         }
         let hatches = try XCTUnwrap(store.perf(tags: [:])["hatches"] as? [String: [String: Any]])
         let outer = try XCTUnwrap(hatches["navigation"]?["ms"] as? Double), inner = try XCTUnwrap(hatches["element dot"]?["ms"] as? Double)
-        XCTAssertGreaterThanOrEqual(inner, 20)
-        XCTAssertGreaterThanOrEqual(outer, 4)
-        XCTAssertLessThan(outer, 20, "the nested call's time is not the outer call's")
+        XCTAssertEqual(inner, 20, accuracy: 1e-9)
+        XCTAssertEqual(outer, 4, accuracy: 1e-9, "the nested call's time is not the outer call's")
         // A container's calls are counted by scope; a node's are ElementHatches'.
         let scopes = try XCTUnwrap(store.state(words: [:])["scopes"] as? [String: [String: Any]])
         XCTAssertEqual(scopes["navigation"]?["calls"] as? [String: Int], ["built": 1])

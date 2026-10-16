@@ -130,6 +130,7 @@ pub(crate) fn positioned(
                 name: "position".into(),
                 value: Expr::Str("relative".into(), span),
                 span,
+                written: crate::IMPLIED,
             });
             Ok(Some(attrs))
         }

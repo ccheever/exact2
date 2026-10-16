@@ -5,7 +5,7 @@ shape Item
   n: number
 
 component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   state head = "?"
   state tail = "?"
   state sum = 0
@@ -13,7 +13,7 @@ component App
     match first(items)
       case some(f)
         head = f.id
-        match at(items, -1)
+        match items.at(-1)
           case some(l)
             tail = l.id
             sum = f.n + l.n

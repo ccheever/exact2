@@ -61,7 +61,7 @@ fn checked(r: &Runner<NoData>, test_id: &str) -> (Option<bool>, Option<bool>) {
 }
 
 #[test]
-fn a_checkbox_is_a_control_with_a_role_and_chromes_margins() {
+fn a_checkbox_is_a_control_with_a_role() {
     let r = boot(SETTINGS);
     let muted = r.kernel().node(view_of(&r, "muted")).unwrap();
     assert_eq!(muted.node_type, NodeType::Control);
@@ -72,17 +72,58 @@ fn a_checkbox_is_a_control_with_a_role_and_chromes_margins() {
         airplane.props.str(PropId::AccessibilityRole),
         Some("checkbox")
     );
-    assert_eq!(
-        airplane.style.margin_left,
-        exact_kernel::Dimension::Points(4.0)
-    );
-    assert_eq!(
-        airplane.style.margin_top,
-        exact_kernel::Dimension::Points(3.0)
-    );
     let draft = r.kernel().node(view_of(&r, "draft")).unwrap();
     assert_eq!(draft.node_type, NodeType::TextInput);
     assert_eq!(checked(&r, "muted"), (Some(false), Some(false)));
+}
+
+/// LLP 1115.000 D10.1: a checkbox, a radio and a range have no margin of
+/// their own on any host (Chrome's UA sheet gives them `3px 3px 3px 4px`,
+/// `3px 3px 0 5px` and `2px`, which lowering wrote into every plan). The
+/// rows are unset, so the space beside a label is the author's `gap`, and a
+/// margin the author writes is the control's.
+#[test]
+fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    row testId="root"
+      input type="checkbox" testId="check"
+      input type="checkbox" switch testId="switch"
+      input type="radio" testId="radio"
+      input type="range" width=90 testId="range"
+      input type="checkbox" margin-left=6 testId="spaced"
+"#,
+    );
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let margins = [
+        StyleId::MarginTop,
+        StyleId::MarginRight,
+        StyleId::MarginBottom,
+        StyleId::MarginLeft,
+    ];
+    for id in ["check", "switch", "radio", "range"] {
+        let node = r.kernel().node(view_of(&r, id)).unwrap();
+        for margin in margins {
+            assert!(!node.style.mask.has(margin), "{id} sets {margin:?}");
+        }
+        let frame = node.frame;
+        assert_eq!(frame.y, 0.0, "{id} sits at the top of its row");
+    }
+    // Nothing between the controls but their own boxes.
+    let x = |id: &str| r.kernel().node(view_of(&r, id)).unwrap().frame;
+    assert_eq!(x("check").x, 0.0);
+    assert_eq!(x("switch").x, x("check").width);
+    assert_eq!(x("radio").x, x("switch").x + x("switch").width);
+    assert_eq!(x("range").x, x("radio").x + x("radio").width);
+    let spaced = r.kernel().node(view_of(&r, "spaced")).unwrap();
+    assert_eq!(spaced.style.margin_left, Dimension::Points(6.0));
+    assert!(spaced.style.written.has(StyleId::MarginLeft));
+    assert_eq!(spaced.frame.x, x("range").x + x("range").width + 6.0);
 }
 
 #[test]
@@ -204,11 +245,9 @@ fn a_radio_is_a_control_of_its_name_whose_change_carries_its_value() {
     assert_eq!(node.node_type, NodeType::Control);
     assert_eq!(node.props.str(PropId::AccessibilityRole), Some("radio"));
     assert_eq!(node.props.str(PropId::Name), Some("color"));
-    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(5.0));
-    assert_eq!(
-        node.style.margin_bottom,
-        exact_kernel::Dimension::Points(0.0)
-    );
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `3px 3px 0 5px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginLeft));
+    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(0.0));
     let green = view_of(&r, "green");
     assert_eq!(
         r.kernel().node(green).unwrap().props.str(PropId::Type),
@@ -335,7 +374,7 @@ const THEME: &str = r#"shape Theme
   name: string
 
 component App
-  resource themes = themes() as shape list<Theme>
+  resource themes = themes() as shape Theme[]
   state theme = "system"
   state moves = 0
   action setTheme(value: string)
@@ -348,7 +387,7 @@ component App
       select value=theme change=setTheme testId="theme" aria-label="Theme"
         option value="system"
           text "System"
-        each t in themes key=t.id
+        for t in themes key=t.id
           option t.name value=t.id testId=`theme-${t.id}`
         option "Sepia" value="sepia" disabled=true
       select value=theme input=refuse testId="fixed" aria-label="Fixed"
@@ -381,7 +420,7 @@ fn a_select_is_a_control_whose_options_are_its_children() {
     assert_eq!(node.node_type, NodeType::Control);
     assert_eq!(node.props.str(PropId::Type), Some("select"));
     assert_eq!(node.props.str(PropId::AccessibilityRole), Some("combobox"));
-    // `each` and keys work: the options are nodes, never laid out.
+    // `for` and keys work: the options are nodes, never laid out.
     let choices = r.kernel().select_choices(theme);
     let values: Vec<_> = choices.iter().map(|c| c.value.as_str()).collect();
     assert_eq!(values, ["system", "light", "dark", "sepia"]);
@@ -506,6 +545,72 @@ fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
     }
 }
 
+/// LLP 1116.010 D3: a negative literal is a number as a positive one is, in
+/// a field's bounds (the decimal pad's ± key comes of a negative `min`) and in a
+/// style (`margin-top=-8` is -8 px), and a text field's bounds take numbers.
+#[test]
+fn a_negative_literal_is_a_number_as_a_positive_one_is() {
+    let r = boot(
+        r#"component App
+  state n = "3"
+  action edit(v: string)
+    n = v
+  view
+    column margin-top=-8
+      input value=n input=edit type="text" inputmode="decimal" min=-999999999999999 max=999 testId="pad" aria-label="Pad"
+      input value=n input=edit inputmode="decimal" min=-0.5 step=-1e-3 testId="plain" aria-label="Plain"
+      input type="number" value=n input=edit min=-40 max=40 step=-0.5 testId="number" aria-label="Number"
+      input type="number" value=n input=edit min=-1e300 max=1e300 testId="wide" aria-label="Wide"
+      input type="range" min=-5 max=5 step=-0.5 value=1 testId="range" aria-label="Range"
+      input value=n input=edit min=40 testId="positive" aria-label="Positive"
+"#,
+    );
+    let prop = |id: &str, p: PropId| {
+        r.kernel()
+            .node(view_of(&r, id))
+            .unwrap()
+            .props
+            .str(p)
+            .map(str::to_owned)
+    };
+    assert_eq!(
+        prop("pad", PropId::Min).as_deref(),
+        Some("-999999999999999")
+    );
+    assert_eq!(prop("pad", PropId::Max).as_deref(), Some("999"));
+    assert_eq!(prop("plain", PropId::Min).as_deref(), Some("-0.5"));
+    assert_eq!(prop("plain", PropId::Step).as_deref(), Some("-0.001"));
+    assert_eq!(prop("number", PropId::Min).as_deref(), Some("-40"));
+    assert_eq!(prop("number", PropId::Max).as_deref(), Some("40"));
+    assert_eq!(prop("number", PropId::Step).as_deref(), Some("-0.5"));
+    assert_eq!(prop("wide", PropId::Min).as_deref(), Some("-1e+300"));
+    assert_eq!(prop("wide", PropId::Max).as_deref(), Some("1e+300"));
+    assert_eq!(prop("range", PropId::Min).as_deref(), Some("-5"));
+    assert_eq!(prop("range", PropId::Step).as_deref(), Some("-0.5"));
+    // The positive literal on a text field is the same text of a number.
+    assert_eq!(prop("positive", PropId::Min).as_deref(), Some("40"));
+    // A style takes it as CSS's negative length: -8 px, a constant.
+    let root = r.kernel().node(view_of(&r, "pad")).unwrap().parent.unwrap();
+    assert_eq!(
+        r.kernel().node(root).unwrap().style.margin_top,
+        exact_kernel::Dimension::Points(-8.0)
+    );
+    // The same plan as the positive literal, bar the sign: the negative is
+    // folded to a constant, not computed.
+    let plan = |v: &str| {
+        contract::compile(&format!(
+            "component App\n  view\n    column margin-top={v}\n      text \"x\"\n"
+        ))
+        .unwrap()
+        .encode()
+        .len()
+    };
+    assert_eq!(plan("-8"), plan("8"));
+    // A bound number is still written at run time; a text field's `textarea` is no bound.
+    let e = contract::compile("component App\n  view\n    textarea min=-2\n").unwrap_err();
+    assert!(format!("{e:?}").contains("lower-attr"), "{e:?}");
+}
+
 const VOLUME: &str = r#"component App
   state volume = 40
   state scale = 1
@@ -534,7 +639,9 @@ fn a_range_carries_a_number_clamped_and_snapped_as_html_does() {
     assert_eq!(node.props.str(PropId::Min), Some("0"));
     assert_eq!(node.props.str(PropId::Step), Some("5"));
     assert_eq!(node.props.str(PropId::Value), Some("40"));
-    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(2.0));
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `2px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginTop));
+    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(0.0));
     // `input` moves, `change` commits; each payload a number on the step.
     r.dispatch(volume, Event::Input("62".into())).unwrap();
     let preview = r.kernel().node(view_of(&r, "preview")).unwrap();
@@ -671,6 +778,63 @@ const EDITOR: &str = r#"component App
       text `${seen}|${picked}` testId="out"
 "#;
 
+#[test]
+fn set_range_text_is_a_typed_host_command_with_dom_overloads() {
+    for tail in ["", ", 4, 9", ", 4, 9, \"end\""] {
+        let src = format!(
+            "component App\n  action replace\n    setRangeText(\"editor\", \"[a.ts]\"{tail})\n  view\n    button press=replace testId=\"replace\"\n      text \"Replace\"\n"
+        );
+        let mut r = boot(&src);
+        r.dispatch(view_of(&r, "replace"), Event::Press).unwrap();
+        let commands = r.take_commands();
+        let command = commands.iter().find(|c| c.name == "setRangeText").unwrap();
+        assert_eq!(command.args[0], Value::str("editor"));
+        assert_eq!(command.args[1], Value::str("[a.ts]"));
+        assert_eq!(
+            command.args.len(),
+            if tail.is_empty() {
+                2
+            } else if tail.ends_with('9') {
+                4
+            } else {
+                5
+            }
+        );
+    }
+    for args in [
+        "\"editor\"",
+        "\"editor\", 3",
+        "\"editor\", \"x\", 1",
+        "\"editor\", \"x\", true, 2",
+        "\"editor\", \"x\", 1, 2, false",
+    ] {
+        let src = format!("component App\n  action replace\n    setRangeText({args})\n  view\n    text \"Editor\"\n");
+        let error = contract::compile(&src).unwrap_err().to_string();
+        assert!(error.contains("type-set-range-text"), "{error}");
+    }
+}
+
+#[test]
+fn range_replacement_input_type_reaches_contract() {
+    let mut r = boot(
+        r#"component App
+  state heard = ""
+  action edited(v: string, e: InputEvent)
+    heard = `${v}|${e.inputType}|${e.selectionStart}-${e.selectionEnd}`
+  view
+    column
+      textarea testId="editor" input=edited
+      text heard testId="out"
+"#,
+    );
+    let editor = view_of(&r, "editor");
+    r.dispatch(editor, Event::of_host_kind(48, "1,3,none,aXYb").unwrap())
+        .unwrap();
+    assert_eq!(out(&r), "aXYb|insertReplacementText|1-3");
+    r.dispatch(editor, Event::Input("typed".into())).unwrap();
+    assert_eq!(out(&r), "typed||5-5");
+}
+
 fn out<D: DataSource>(r: &Runner<D>) -> String {
     let node = r.kernel().node(view_in(r, "out")).unwrap();
     node.props.str(PropId::Text).unwrap_or("").to_owned()
@@ -766,12 +930,13 @@ fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
 
 /// LLP 1116 D8: `progress value=… max=…` is HTML's determinate bar: the
 /// same `Control`, its `value` and `max` HTML's strings (a bound number
-/// follows its state), not busy, and the box HTML's UA sheet gives it —
-/// `10em` by `1em`, kept in a flex column, `width` and `height` winning.
+/// follows its state), not busy. LLP 1115.000 D10.2: it is as wide as what
+/// holds it and `1em` tall, `width` and `height` winning, and `10em` wide
+/// where the author says `auto`.
 #[test]
 fn a_progress_with_a_value_is_the_determinate_bar() {
     let mut r = boot(
-        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=\"100%\" height=4 testId=\"wide\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
+        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=120 height=4 testId=\"sized\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n        row\n          progress value=1 width=\"auto\" testId=\"auto\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
     );
     let water = r.kernel().node(view_of(&r, "water")).unwrap();
     assert_eq!(water.node_type, NodeType::Control);
@@ -804,9 +969,65 @@ fn a_progress_with_a_value_is_the_determinate_bar() {
         let f = r.kernel().node(view_of(r, t)).unwrap().frame;
         (f.width, f.height)
     };
-    assert_eq!(size(&r, "water"), (160.0, 16.0), "a flex column keeps it");
-    assert_eq!(size(&r, "wide"), (320.0, 4.0));
-    assert_eq!(size(&r, "big"), (200.0, 20.0), "in `em`s");
+    assert_eq!(size(&r, "water"), (320.0, 16.0), "as wide as its column");
+    assert_eq!(size(&r, "sized"), (120.0, 4.0), "an authored size wins");
+    assert_eq!(size(&r, "big"), (320.0, 20.0), "`1em` tall");
+    assert_eq!(size(&r, "auto"), (200.0, 20.0), "`10em` by `1em`");
+}
+
+/// LLP 1115.000 D10.2: a range and a determinate `progress` are full width
+/// by a row lowering implies, `width: 100%`, which is not the author's (LLP
+/// 1115.000 D2): the mask has it and the written bit does not. A `width` the
+/// author writes replaces it, written; an indeterminate `progress` and every
+/// other control keep their own size.
+#[test]
+fn a_range_and_a_determinate_progress_are_full_width_by_an_implied_row() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    column width=300 testId="root"
+      input type="range" testId="range"
+      progress value=0.5 testId="bar"
+      input type="range" width=90 testId="narrow"
+      progress value=0.5 width="50%" testId="half"
+      progress testId="spinner"
+      input type="checkbox" testId="check"
+      row testId="beside"
+        box width=100 height=10 flex-shrink=0
+        input type="range" testId="beside-range"
+      row
+        column testId="fit"
+          input type="range" testId="fit-range"
+"#,
+    );
+    let row = |r: &Runner<NoData>, id: &str| {
+        let style = r.kernel().node(view_of(r, id)).unwrap().style;
+        (
+            style.mask.has(StyleId::Width).then_some(style.width),
+            style.written.has(StyleId::Width),
+        )
+    };
+    assert_eq!(row(&r, "range"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "bar"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "narrow"), (Some(Dimension::Points(90.0)), true));
+    assert_eq!(row(&r, "half"), (Some(Dimension::Percent(50.0)), true));
+    assert_eq!(row(&r, "spinner"), (None, false));
+    assert_eq!(row(&r, "check"), (None, false));
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let width = |r: &Runner<NoData>, id: &str| r.kernel().node(view_of(r, id)).unwrap().frame.width;
+    assert_eq!(width(&r, "range"), 300.0);
+    assert_eq!(width(&r, "bar"), 300.0);
+    assert_eq!(width(&r, "narrow"), 90.0);
+    assert_eq!(width(&r, "half"), 150.0);
+    // In a row it takes what the row's other children leave.
+    assert_eq!(width(&r, "beside-range"), 200.0);
+    // Where the percentage has nothing to resolve against, its own 129.
+    assert_eq!(width(&r, "fit"), 129.0);
+    assert_eq!(width(&r, "fit-range"), 129.0);
 }
 
 #[test]
@@ -841,4 +1062,86 @@ fn the_compiler_refuses_what_a_progress_does_not_take() {
         "component App\n  view\n    progress value=0.5 aria-valuetext=\"Half\" aria-label=\"Upload\"\n",
     )
     .unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn field_selectionchange_reports_caret_without_changing_the_value() {
+    for tag in ["input", "textarea"] {
+        let mut r = boot(&format!(
+            r#"component App
+  state caret = ""
+  action moved(e: InputEvent)
+    caret = `${{e.value}}:${{e.selectionStart}}-${{e.selectionEnd}}`
+  view
+    column
+      {tag} value="see @a.ts now" selectionchange=moved testId="field"
+      text caret testId="caret"
+"#
+        ));
+        let field = view_of(&r, "field");
+        r.dispatch(
+            field,
+            Event::of_host_kind(52, "3,3,none,see @a.ts now").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            r.kernel()
+                .node(view_of(&r, "caret"))
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some("see @a.ts now:3-3")
+        );
+        assert_eq!(
+            r.kernel().node(field).unwrap().props.str(PropId::Value),
+            Some("see @a.ts now")
+        );
+    }
+}
+
+#[test]
+fn beforeinput_carries_the_proposed_edit_and_input_carries_the_applied_edit() {
+    let mut r = boot(
+        r#"component App
+  state seen = ""
+  action before(e: InputEvent)
+    seen = `${e.value}:${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}:${e.cancelable}:${e.isComposing}`
+    preventDefault()
+  action edited(v: string, e: InputEvent)
+    seen = `${v}:${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}:${e.cancelable}:${e.isComposing}`
+  view
+    column
+      textarea value="abc" beforeinput=before input=edited testId="field"
+      text seen testId="seen"
+"#,
+    );
+    let field = view_of(&r, "field");
+    for (kind, payload, expected) in [
+        (
+            53,
+            "insertFromPaste,1,0,7,a,\n😀1,2,none,abc",
+            "abc:insertFromPaste:a,\n😀:true:false",
+        ),
+        (
+            53,
+            "insertCompositionText,0,1,3,あ1,2,none,abc",
+            "abc:insertCompositionText:あ:false:true",
+        ),
+        (
+            54,
+            "deleteContentBackward,0,0,-1,1,1,none,ac",
+            "ac:deleteContentBackward:null:false:false",
+        ),
+    ] {
+        r.dispatch(field, Event::of_host_kind(kind, payload).unwrap())
+            .unwrap();
+        assert_eq!(
+            r.kernel()
+                .node(view_of(&r, "seen"))
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some(expected)
+        );
+    }
 }

@@ -2,7 +2,9 @@
 //! `contract` block in `docs/*.md`, the recipes (`docs/recipes/*.md`, LLP
 //! 1116 D3) and `README.md` compiles with no diagnostics, and each
 //! `contract-test` block parses. A deliberately partial block is fenced
-//! `text`. Every failure is reported in one run. So does every starter
+//! `text`. A `tamber` block is checked as a design, and is the design of
+//! the `contract` blocks after it in its section (LLP 1121 D2). Every
+//! failure is reported in one run. So does every starter
 //! pattern (`docs/patterns/<name>/`, LLP 1116.001 D3), and the async lane
 //! runs each one's tests in an app `exact new` made.
 
@@ -17,6 +19,9 @@ pub(crate) struct Block {
     pub(crate) info: String,
     pub(crate) body: String,
     pub(crate) contract: Option<String>,
+    /// The nearest `tamber` block before it in the same section: the app's
+    /// design (`app.tamber`, LLP 1121 D2), which a `contract` block names.
+    pub(crate) design: Option<String>,
     /// The `<!-- check: … -->` marker on the line before the fence, if any:
     /// `app`, `route <name>` or `file`. Marked blocks are parts of one app
     /// and are compiled assembled, not one by one.
@@ -58,6 +63,7 @@ pub(crate) fn blocks() -> Vec<Block> {
             .to_path_buf();
         let mut open: Option<(usize, String, String)> = None;
         let mut contract: Option<String> = None;
+        let mut design: Option<String> = None;
         let mut marker: Option<String> = None;
         let mut pending: Option<String> = None;
         let mut split: Vec<(String, String)> = Vec::new();
@@ -72,6 +78,7 @@ pub(crate) fn blocks() -> Vec<Block> {
                             info: std::mem::take(info),
                             body: std::mem::take(body),
                             contract: contract.clone(),
+                            design: design.clone(),
                             check: pending.take(),
                         };
                         if block.info == "ts" && after_split {
@@ -80,6 +87,9 @@ pub(crate) fn blocks() -> Vec<Block> {
                                 .map(|(c, b)| (c.as_str(), b.as_str()))
                                 .collect();
                             block.contract = Some(assemble(&parts).0);
+                        }
+                        if block.info == "tamber" {
+                            design = Some(block.body.clone());
                         }
                         if block.info == "contract" {
                             contract = Some(block.body.clone());
@@ -107,6 +117,7 @@ pub(crate) fn blocks() -> Vec<Block> {
                             .map(|m| m.trim().to_string());
                         if line.starts_with('#') {
                             contract = None;
+                            design = None;
                             after_split = false;
                         }
                     }
@@ -116,6 +127,63 @@ pub(crate) fn blocks() -> Vec<Block> {
         assert!(open.is_none(), "{}: unclosed fence", shown.display());
     }
     out
+}
+
+#[test]
+fn the_paging_columns_recipe_ignores_leave_and_loads_until_the_last_page() {
+    use exact_kernel::{Kernel, Offer};
+    use exact_plan::Value;
+    use exact_runner::{Event, Runner};
+
+    let source = blocks()
+        .into_iter()
+        .find(|block| {
+            block.doc.ends_with("recipes/responsive-columns.md")
+                && block.info == "contract"
+                && block.body.starts_with("component Feed\n")
+        })
+        .expect("paging columns example")
+        .body;
+    let mut runner = Runner::boot(
+        contract::compile(&source).unwrap(),
+        (),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    runner
+        .act(
+            "loadMore",
+            vec![Value::record(vec![Value::Bool(false), Value::Number(0.0)])],
+        )
+        .unwrap();
+    let cards = |count| Value::list((0..count).map(|n| Value::Number(n as f64)).collect());
+    assert_eq!(runner.slot("cards"), Some(&cards(3)));
+    for count in [6, 9, 12] {
+        let root = runner.kernel().roots()[0];
+        runner
+            .kernel_mut()
+            .compute_layout(root, Offer::definite(390.0, 844.0))
+            .unwrap();
+        let due = runner.intersect_due();
+        assert_eq!(due.len(), 1, "one marker after all columns");
+        let entry = &due[0];
+        assert!(entry.is_intersecting);
+        assert!(runner.intersect_delivered(entry));
+        runner
+            .dispatch(
+                entry.view,
+                Event::Intersect {
+                    is_intersecting: entry.is_intersecting,
+                    intersection_ratio: entry.intersection_ratio,
+                },
+            )
+            .unwrap();
+        assert_eq!(runner.slot("cards"), Some(&cards(count)));
+    }
+    assert!(runner.intersect_due().is_empty());
+    assert!(runner.kernel().find_by_test_id("load-more").is_empty());
 }
 
 #[test]
@@ -145,9 +213,26 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
                         std::fs::write(&file, wav()).unwrap();
                     }
                 }
+                // A design shown before it in its section is the app's.
+                let tamber = dir.join("app.tamber");
+                match &block.design {
+                    Some(design) => std::fs::write(&tamber, design).unwrap(),
+                    None => {
+                        let _ = std::fs::remove_file(&tamber);
+                    }
+                }
                 if let Err(all) = contract::compile_path_source_all(&path, &block.body, false) {
                     for e in all {
                         failures.push(format!("{}: [{}] {}", at(e.span.line), e.id, e.message));
+                    }
+                }
+            }
+            "tamber" => {
+                parsed += 1;
+                if let Err(all) = exact_tamber::check(&block.body, &contract_lower::tamber_vocab())
+                {
+                    for d in all {
+                        failures.push(format!("{}: [{}] {}", at(d.line), d.id, d.message));
                     }
                 }
             }
@@ -173,7 +258,7 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
 /// Blocks marked `<!-- check: app -->`, `<!-- check: route <name> -->` and
 /// `<!-- check: file -->` are one app split across a guide (LLP 1115 D7;
 /// docs/recipes/navigation-stack.md): the `app` blocks in order, each `route` block in
-/// place of the placeholder under `when e.name == "<name>"`, and each `file`
+/// place of the placeholder under `if e.name == "<name>"`, and each `file`
 /// block appended. The assembled app compiles with no diagnostics.
 #[test]
 fn every_split_app_in_the_guides_compiles_assembled() {
@@ -305,12 +390,13 @@ fn every_pattern_passes_its_tests_on_the_web() {
     std::fs::create_dir_all(&parent).unwrap();
     let app = parent.join("patterns-check");
     let run = |cwd: &Path, args: &[&str]| {
-        let output = std::process::Command::new("bun")
-            .args(args)
-            .current_dir(cwd)
-            .env_remove("EXACT_APP_DIR")
-            .output()
-            .expect("bun runs");
+        let output =
+            std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+                .args(args)
+                .current_dir(cwd)
+                .env_remove("EXACT_APP_DIR")
+                .output()
+                .expect("bun runs");
         let said = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
@@ -347,26 +433,31 @@ fn every_pattern_passes_its_tests_on_the_web() {
 }
 
 /// A recipe builders copy carries no tells (LLP 1116 D3 §6.5): `no-tells`
-/// passes over every recipe's `contract` blocks and start-here's, and over
-/// every pattern's (LLP 1116.001 D3).
+/// passes over every recipe's `contract` blocks and start-here's, over
+/// every pattern's (LLP 1116.001 D3), and over `README.md`'s, the first
+/// Contract a reader meets (Charlie, 2026-10-12).
 #[test]
 #[ignore = "async lane: launches Bun for scripts/no-tells.mjs; bun scripts/async.mjs runs it"]
-fn the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
+fn the_readme_the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let readme = root.join("README.md");
     let guides: Vec<PathBuf> = documents()
         .into_iter()
         .filter(|doc| {
-            doc.parent().is_some_and(|dir| dir.ends_with("recipes"))
+            *doc == readme
+                || doc.parent().is_some_and(|dir| dir.ends_with("recipes"))
                 || doc.ends_with("start-here.md")
         })
         .collect();
-    assert!(guides.len() > 1, "no recipes found under docs/recipes");
-    let output = std::process::Command::new("bun")
-        .arg(root.join("scripts/no-tells.mjs"))
-        .args(&guides)
-        .args(patterns().iter().map(|dir| dir.join("app.contract")))
-        .output()
-        .expect("bun runs scripts/no-tells.mjs");
+    assert!(guides.contains(&readme), "README.md is not a guide");
+    assert!(guides.len() > 2, "no recipes found under docs/recipes");
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .arg(root.join("scripts/no-tells.mjs"))
+            .args(&guides)
+            .args(patterns().iter().map(|dir| dir.join("app.contract")))
+            .output()
+            .expect("bun runs scripts/no-tells.mjs");
     assert!(
         output.status.success(),
         "{}{}",
@@ -408,7 +499,7 @@ pub(crate) fn assemble(parts: &[(&str, &str)]) -> (String, Vec<(usize, String)>)
                 Some(filled) => app = filled,
                 None => wrong.push((
                     i,
-                    format!("no `when e.name == \"{name}\"` placeholder in the app blocks"),
+                    format!("no `if e.name == \"{name}\"` placeholder in the app blocks"),
                 )),
             }
         }
@@ -421,10 +512,10 @@ pub(crate) fn assemble(parts: &[(&str, &str)]) -> (String, Vec<(usize, String)>)
 }
 
 /// The app with the route's block in place of the lines under
-/// `when e.name == "<name>"` (the placeholder screen and its comment).
+/// `if e.name == "<name>"` (the placeholder screen and its comment).
 fn fill_route(app: &str, name: &str, route: &str) -> Option<String> {
     let lines: Vec<&str> = app.lines().collect();
-    let head = format!("when e.name == \"{name}\"");
+    let head = format!("if e.name == \"{name}\"");
     let at = lines.iter().position(|l| l.trim() == head)?;
     let depth = lines[at].len() - lines[at].trim_start().len();
     let mut end = at + 1;

@@ -26,6 +26,7 @@ fn validate(schema: &Schema) {
             "schema: symbol {role}: `-fill` is exactly Apple's `.fill`, beside its role"
         );
     }
+    symbol_spellings(schema);
     let mut materials = BTreeSet::new();
     for [name, ios, macos, blur, saturate, ..] in &schema.materials {
         assert!(
@@ -136,10 +137,10 @@ fn validate(schema: &Schema) {
             "schema: ends applies to animations rows (`{}`)",
             row.field
         );
-        if row.admits_auto {
+        if row.admits_auto || row.refuses_percent {
             assert!(
                 matches!(codec, Codec::Dimension),
-                "schema: admitsAuto only applies to dimension rows (`{}`)",
+                "schema: admitsAuto and refusesPercent only apply to dimension rows (`{}`)",
                 row.field
             );
         }
@@ -183,4 +184,57 @@ fn validate(schema: &Schema) {
             row.name
         );
     }
+}
+
+/// `StyleProps::validate_domain`: every masked row against the schema's
+/// closed value domain.
+fn write_validate_domain(w: &mut String, schema: &Schema) {
+    writeln!(
+        w,
+        "    /// Validate every masked row against the schema's closed value domain."
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "    pub fn validate_domain(&self) -> Result<(), StyleDomainError> {{"
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "        self.check_finite().map_err(StyleDomainError::NonFinite)?;"
+    )
+    .unwrap();
+    for row in &schema.styles {
+        let id = pascal(&row.field);
+        let field = &at(row);
+        match parse_codec(&row.codec) {
+            Codec::LineHeight => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidLineHeight); }}").unwrap();
+            }
+            Codec::Dimension => {
+                if !row.admits_auto {
+                    writeln!(w, "        if self.mask.has(StyleId::{id}) && matches!(self.{field}, Dimension::Auto) {{ return Err(StyleDomainError::AutoNotAdmitted(StyleId::{id})); }}").unwrap();
+                }
+                if row.refuses_percent {
+                    writeln!(w, "        if self.mask.has(StyleId::{id}) && self.{field}.has_percent() {{ return Err(StyleDomainError::PercentNotAdmitted(StyleId::{id})); }}").unwrap();
+                }
+            }
+            Codec::Tracks => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridTrack(StyleId::{id})); }}").unwrap();
+            }
+            Codec::Placement => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridSpan(StyleId::{id})); }}").unwrap();
+            }
+            Codec::Transitions => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
+            }
+            Codec::Animations => {
+                let check = ["validate", "validate_ending"][row.ends as usize];
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
+            }
+            _ => {}
+        }
+    }
+    writeln!(w, "        Ok(())").unwrap();
+    writeln!(w, "    }}").unwrap();
 }

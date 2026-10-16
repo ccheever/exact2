@@ -107,7 +107,12 @@ fn a_progress_with_a_value_is_htmls_progress_element() {
     }
     let css = super::host_css_of(&facts, None, String::new(), "progress");
     assert!(!css.contains("contain"), "the browser's box: {css}");
-    assert!(include_str!("../index.html").contains("progress { display: block; }"));
+    // The page draws its bar (LLP 1116.003; tests/document.test.mjs), and
+    // gives the element the intrinsic size the kernel measures, `10em` by
+    // `1em`, and no automatic minimum (LLP 1115.000 D10.2).
+    assert!(include_str!("../index.html").contains(
+        "progress { display: block; appearance: none; border: none; background: none; contain: size; contain-intrinsic-size: 10em 1em; min-width: 0; }"
+    ));
 }
 
 /// LLP 1069.001, amended 2026-10-07: an indeterminate progress is a box
@@ -209,6 +214,39 @@ fn a_date_or_time_control_takes_the_field_look_unless_the_author_has_it() {
     assert!(include_str!("../index.html").contains("input[data-exact-field]"));
 }
 
+/// LLP 1116.007 D4: a text field whose appearance is `textfield` is still the
+/// platform's field (`data-native`) and is marked for the page to take a
+/// number input's spin buttons off; `auto` and `none` are not.
+#[test]
+fn a_textfield_appearance_is_native_and_marked_for_the_page() {
+    let marks = |appearance| {
+        let style = StyleProps {
+            appearance,
+            ..StyleProps::default()
+        };
+        let mut props = PropList::default();
+        props.set(PropId::Type, PropValue::Str("number".into()));
+        let out = super::props_of(&NodeFacts {
+            id: 1,
+            node_type: NodeType::TextInput,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        });
+        (
+            out.contains_key("data-native"),
+            out.contains_key("data-exact-textfield"),
+        )
+    };
+    use exact_kernel::Appearance::{Auto, None, Textfield};
+    assert_eq!(marks(Auto), (true, false));
+    assert_eq!(marks(Textfield), (true, true));
+    assert_eq!(marks(None), (false, false));
+    assert!(include_str!("../index.html")
+        .contains("input[data-exact-textfield]::-webkit-inner-spin-button"));
+}
+
 /// A link to an absolute URL opens outside the app, as natively, unless
 /// its `target` is authored; a path stays (chat F11, hn-reader F3).
 #[test]
@@ -297,6 +335,18 @@ fn every_data_name_the_host_writes_is_a_reserved_word() {
 }
 
 #[test]
+fn menu_hints_write_no_dom_attributes() {
+    for (kind, prop, value) in [
+        (NodeType::Pressable, PropId::MenuPlacement, "help"),
+        (NodeType::View, PropId::MenuRemove, "close-all"),
+    ] {
+        let out = written(kind, prop, PropValue::Str(value.into()));
+        assert!(out.get("data-menuplacement").is_none());
+        assert!(out.get("data-menuremove").is_none());
+    }
+}
+
+#[test]
 fn a_dataset_is_one_attribute_per_word() {
     crate::link::link(crate::Linked {
         dataset: Some(crate::document::dataset),
@@ -323,4 +373,84 @@ fn a_dataset_is_one_attribute_per_word() {
             ("b".into(), String::new())
         ]
     );
+}
+
+#[test]
+fn svg_geometry_attributes_preserve_css_lengths() {
+    use exact_kernel::{StyleId, StyleValue};
+    let props = PropList::new();
+    for (length, expected) in [
+        ("0", "0"),
+        ("12px", "12"),
+        ("25%", "25%"),
+        ("50vh", "50vh"),
+        ("10vw", "10vw"),
+        ("5vmin", "5vmin"),
+        ("8vmax", "8vmax"),
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::Height, &StyleValue::Text(length.into()))
+            .unwrap();
+        let facts = NodeFacts {
+            id: 1,
+            node_type: NodeType::SvgViewport,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        };
+        let mut out = super::SortedMap::new();
+        super::svg_props_of(&|_, _| None, &facts, &mut out);
+        assert_eq!(
+            out.get("height").map(String::as_str),
+            Some(expected),
+            "{length}"
+        );
+    }
+}
+
+#[test]
+fn complex_svg_geometry_attributes_take_the_initial_value() {
+    use exact_kernel::{StyleId, StyleValue};
+    exact_kernel::link_segments();
+    for (kind, row, name) in [
+        (NodeType::SvgViewport, StyleId::Height, "height"),
+        (NodeType::SvgRadialGradient, StyleId::Cx, "cx"),
+    ] {
+        for length in [
+            "calc(10vh + 10%)",
+            "min(10vw, 50%)",
+            "max(5px, 10vw)",
+            "clamp(1px, 10vw, 100px)",
+            "10svh",
+            "10lvw",
+            "10dvh",
+            "env(viewport-segment-height 1 0)",
+            "env(viewport-segment-height 1 0, 25%)",
+            "ENV(viewport-segment-height 1 0, 25%)",
+            "env(safe-area-inset-top)",
+            "calc(env(viewport-segment-height 1 0) + 10%)",
+            "min(env(viewport-segment-height 1 0), 50%)",
+            "max(5px, env(viewport-segment-height 1 0))",
+            "clamp(1px, env(viewport-segment-height 1 0), 100px)",
+        ] {
+            let mut style = StyleProps::default();
+            style
+                .set_dynamic(row, &StyleValue::Text(length.into()))
+                .unwrap();
+            let props = PropList::new();
+            let facts = NodeFacts {
+                id: 1,
+                node_type: kind,
+                style: &style,
+                props: &props,
+                is_root: false,
+                inline_run: false,
+            };
+            let mut out = super::SortedMap::new();
+            super::svg_props_of(&|_, _| None, &facts, &mut out);
+            assert!(out.get(name).is_none(), "{kind:?}: {length}");
+        }
+    }
 }

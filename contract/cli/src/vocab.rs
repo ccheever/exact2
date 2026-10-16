@@ -1,14 +1,22 @@
 //! `contract vocab [--json] [<name> …]` — what the compiler admits: every tag,
 //! every attribute by kind (a style's rows with codec, values and default; a
 //! prop's type; a handler), the renamed spellings, and the rules no lookup
-//! lists, the host commands an action states, and the standard functions:
-//! each one's signature, rules and example (LLP 1116.000 D5). @ref LLP 1086
+//! lists, the host commands an action states, the standard functions:
+//! each one's signature, rules and example (LLP 1116.000 D5), and the
+//! idioms a builder looks up by what they want (`plural`, LLP 1116.004 D4). @ref LLP 1086
 //! D3. The list is `contract_lower::vocab`'s, which keeps only what the live
 //! lookups admit; the commands are `contract_syntax::HOST_COMMANDS`; the
 //! functions are `contract::functions`', the roster's signatures beside the
 //! grammar's tables. Several names are one call, each entry in turn (LLP
-//! 1116.001 D4.3), so a build's lookups are one step.
+//! 1116.001 D4.3), so a build's lookups are one step. A concept (`scroll`,
+//! `plural`, `choice`, `modal`) answers with its whole idiom, after the
+//! entries of a tag or attribute of the same name (`concepts.md`, LLP
+//! 1116.004 D5.1).
 
+mod card;
+mod concepts;
+
+use concepts::Concept;
 use contract::functions::{self, Function};
 use contract_lower::tags::{self, AttrTarget, Tag};
 use contract_lower::vocab;
@@ -17,10 +25,11 @@ use exact_kernel::{PropId, StyleId};
 use serde_json::{json, Value};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: contract vocab [--json] [<name> …]";
+const USAGE: &str = "usage: contract vocab [--json] [--all] [<name> …]\n  no name: the card, what an app writes, in one read; --all: every tag, attribute and function\n  names: each one's entry in turn (exit 1 if one is unknown); --json: everything, as JSON";
 
 pub fn run(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut all = false;
     let mut names = Vec::new();
     for arg in args {
         match arg.as_str() {
@@ -29,6 +38,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--json" => json = true,
+            "--all" => all = true,
             // A vendor-prefixed name (`-exact-fit`, `-webkit-line-clamp`) is a name, not a flag.
             _ if !arg.starts_with('-') || (arg.len() > 2 && !arg.starts_with("--")) => {
                 names.push(arg.as_str())
@@ -44,8 +54,12 @@ pub fn run(args: &[String]) -> ExitCode {
             println!("{:#}", everything());
             ExitCode::SUCCESS
         }
-        [] => {
+        [] if all => {
             print!("{}", listing());
+            ExitCode::SUCCESS
+        }
+        [] => {
+            print!("{}", card::card());
             ExitCode::SUCCESS
         }
         [name] if json => {
@@ -63,11 +77,13 @@ pub fn run(args: &[String]) -> ExitCode {
         }
         _ => {
             let mut known = true;
+            // A concept two names share prints once, at the first.
+            let mut shown = Vec::new();
             for (i, name) in names.iter().enumerate() {
                 if i > 0 {
                     println!();
                 }
-                known &= one_text(name);
+                known &= one_text(name, &mut shown);
             }
             exit(known)
         }
@@ -94,6 +110,61 @@ struct Entry {
     open: Option<&'static str>,
     command: Option<String>,
     function: Option<Function>,
+    part: Option<Part>,
+    concept: Option<Concept>,
+}
+
+/// A component of a built-in library (`exact:content`'s `RoundButton`), read
+/// from its source: its props, the comment above it (LLP 1116.003 D4), and the
+/// call that comment ends with (`// Call: EmptyState(…)`, LLP 1116.010 D3): one
+/// that works as written, which a test compiles for every part, so it cannot
+/// drift from the props.
+struct Part {
+    module: &'static str,
+    props: Vec<String>,
+    about: String,
+    call: Option<String>,
+}
+
+const PARTS: &[(&str, &str)] = &[("exact:content", include_str!("../../lib/content.contract"))];
+
+fn part(name: &str) -> Option<Part> {
+    PARTS.iter().find_map(|(module, source)| {
+        let lines: Vec<&str> = source.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.strip_prefix("component ") == Some(name))?;
+        let first = lines[..at]
+            .iter()
+            .rposition(|l| !l.starts_with("//"))
+            .map_or(0, |i| i + 1);
+        let comment: Vec<&str> = lines[first..at]
+            .iter()
+            .map(|l| l.trim_start_matches('/').trim())
+            .collect();
+        let call = comment
+            .iter()
+            .find_map(|l| l.strip_prefix("Call:"))
+            .map(|c| c.trim().to_owned());
+        let about: Vec<&str> = comment
+            .into_iter()
+            .filter(|l| !l.starts_with("Call:"))
+            .collect();
+        let mut props = Vec::new();
+        let mut rest = lines[at + 1..].iter().skip_while(|l| l.trim() != "props");
+        if rest.next().is_some() {
+            props = rest
+                .take_while(|l| l.starts_with("    "))
+                .map(|l| l.trim().to_owned())
+                .collect();
+        }
+        Some(Part {
+            module,
+            props,
+            about: about.join(" "),
+            call,
+        })
+    })
 }
 
 fn entry(name: &str) -> Option<Entry> {
@@ -104,16 +175,22 @@ fn entry(name: &str) -> Option<Entry> {
         .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))
         .map(|(n, _)| n)
         .collect();
-    let open =
-        vocab::open_set(name).filter(|_| tag.is_none() && attr.is_none() && value_of.is_empty());
+    let concept = concepts::concept(name);
+    // A concept's own name (`placeholder-color`) is answered by the concept,
+    // not by the open set's note that it might be a native module.
+    let open = vocab::open_set(name)
+        .filter(|_| tag.is_none() && attr.is_none() && value_of.is_empty() && concept.is_none());
     let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
     let function = functions::function(name);
+    let part = part(name);
     let known = tag.is_some()
         || attr.is_some()
         || !value_of.is_empty()
         || open.is_some()
         || command.is_some()
-        || function.is_some();
+        || function.is_some()
+        || part.is_some()
+        || concept.is_some();
     known.then_some(Entry {
         tag,
         attr,
@@ -121,6 +198,8 @@ fn entry(name: &str) -> Option<Entry> {
         open,
         command,
         function,
+        part,
+        concept,
     })
 }
 
@@ -138,6 +217,8 @@ fn one_json(name: &str) -> (Value, bool) {
         open,
         command,
         function,
+        part,
+        concept,
     }) = entry(name)
     else {
         return (json!({ "name": name, "refused": refusal(name) }), false);
@@ -161,24 +242,64 @@ fn one_json(name: &str) -> (Value, bool) {
     if let Some(f) = &function {
         doc["function"] = function_json(f);
     }
+    if let Some(p) = part {
+        doc["part"] =
+            json!({ "module": p.module, "props": p.props, "about": p.about, "call": p.call });
+    }
+    if let Some(c) = concept {
+        // A name the web has and Contract refuses (`every`) says so beside it.
+        if function.is_none() {
+            if let Some(note) = idiom(name) {
+                doc["refusal"] = note.into();
+            }
+        }
+        doc["concept"] = concept_json(&c);
+    }
     (doc, true)
 }
 
-/// One name as text, printed (a refusal on stderr), and whether it was known.
-fn one_text(name: &str) -> bool {
+/// One name as text, printed (a refusal on stderr), and whether it was
+/// known; a concept already in `shown` is named, not printed again.
+fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
     let Some(Entry {
+        tag,
+        attr,
         value_of,
         open,
         command,
         function,
-        ..
+        part,
+        concept,
     }) = entry(name)
     else {
         eprintln!("{}", refusal(name));
         return false;
     };
+    // Nothing but the concept: a name the web has and Contract refuses
+    // (`every`) says so first; anything else is printed above the concept.
+    let only = tag.is_none()
+        && attr.is_none()
+        && value_of.is_empty()
+        && open.is_none()
+        && command.is_none()
+        && function.is_none()
+        && part.is_none();
+    if let Some(p) = part {
+        println!(
+            "{name}: a part of `{}` (`use {name} from \"{}\"`)",
+            p.module, p.module
+        );
+        println!("  props {}", p.props.join(", "));
+        println!("  {}", p.about);
+        if let Some(call) = &p.call {
+            println!("  call {call}");
+        }
+    }
     if let Some(t) = tags::tag(name) {
         println!("{name}: tag, {}", tag_text(&t));
+        if let Some(note) = vocab::tag_note(name) {
+            println!("  {note}");
+        }
     }
     if let Some(a) = tags::attr(name) {
         println!("{name}: {} attribute", kind(&a));
@@ -188,14 +309,32 @@ fn one_text(name: &str) -> bool {
         if let Some(only) = only_on(name) {
             println!("  only on {only}");
         }
+        if matches!(name, "min" | "max" | "step") {
+            println!("  on an `input` a number of either sign is written as its text: `min=-40`, `step=0.5`, `max=1e6` (LLP 1116.010 D3); a decimal pad (`inputmode=\"decimal\"`) with a negative `min` has the ± key");
+        }
         if name == "markup" {
             println!("  \"markdown\" or \"none\" (the default): a `text` reads its string as Markdown, a `textarea` edits it (LLP 1045)");
+        }
+        if matches!(name, "intersect" | "intersect-margin") {
+            println!("  IntersectionObserver: nearest scroller or viewport, threshold 0; mount and enter/leave. Optional final IntersectionObserverEntry: isIntersecting (bool), intersectionRatio (number). intersect-margin is a literal 1–4 px/% rootMargin, default 0px. Browser executors and shared AppKit/UIKit/Linux layout/scroll delivery; native geometry qualification remains open, see LLP 1001 for geometry deviations (LLP 1005).");
+        }
+        if matches!(name, "reachstart" | "reachend") {
+            println!("  {}", vocab::collection_edge_refusal(name));
         }
         if name == "resize" {
             println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
         }
+        if matches!(name, "focusin" | "focusout") {
+            println!("  bubbles from the focused child without making this node a Tab stop; an action may take `FocusEvent(target: string, relatedTarget: option<string>)` on every host (`focusout` also fires on a move between descendants and on the focused node's removal)");
+        }
         if name == "title" {
             println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
+        }
+        if name == "navigationBar" {
+            println!("  on a route (LLP 1115.000 D5.2). \"none\": the screen has no navigation bar on iOS, a full-bleed screen that draws its own chrome and way back (a photo viewer, a header laid out by hand); its `header` paints as written and the edge swipe still goes back. \"auto\", the default, is the platform's bar: the route's `header` when it is one (`contract vocab header`), else the system Back button alone on a pushed route, and no bar on a stack's first route. A `navigationBack` control drawn in a pushed route's page without it is a second Back (warning `lower-back-twice`). On the navigation root or off a route it is refused. docs/recipes/navigation-stack.md");
+        }
+        if name == "navigationSplit" {
+            println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` (the chevron an iOS list draws) in a `link`, or in a `button` or pressable whose action writes the router (`push`, `open`, `go`); a chevron on a row that only selects is decoration, and its route is left unsplit, `navigationSplit=\"none\"` said for you. The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. While nothing is selected the detail pane shows the platform's placeholder (\"No Selection\", centred, in the secondary label's colour); \"placeholder\" on a box in the root route (an `EmptyState`) is your own instead, shown only there and then and laid out nowhere else. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
         }
         if name == "-exact-fit" {
             println!("  on a `text`: \"shrink\" draws a line too wide for its box smaller until it fits, down to half its size, as UIKit's adjustsFontSizeToFitWidth (a timer's readout at the largest text size); with `white-space=\"nowrap\"` the whole line fits, else its longest word (LLP 1116.001 D1.4)");
@@ -224,7 +363,33 @@ fn one_text(name: &str) -> bool {
     if let Some(f) = &function {
         print!("{}", function_text(f));
     }
+    if let Some(c) = concept {
+        if only {
+            if let Some(note) = idiom(name) {
+                println!("{note}");
+            }
+        }
+        if shown.contains(&c.name) {
+            println!("{name}: the concept `{}`, above", c.name);
+        } else {
+            if !only {
+                println!();
+            }
+            print!("{}", c.text());
+            shown.push(c.name);
+        }
+    }
     true
+}
+
+fn concept_json(c: &Concept) -> Value {
+    json!({
+        "name": c.name,
+        "title": c.title,
+        "names": c.names,
+        "answer": c.answer,
+        "contract": c.contract(),
+    })
 }
 
 /// Why the compiler refuses a name the web has (`sort`, `now`, `padStart`),
@@ -321,7 +486,10 @@ fn function_text(f: &Function) -> String {
 /// A host command: an action statement, never a value.
 fn command_text(name: &str) -> String {
     let what = match name {
-        "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3)",
+        "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
+        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step. Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
+        "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
+        "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => "",
     };
     format!("host command, an action statement (docs/contract-grammar.md#host-commands){what}")
@@ -354,6 +522,10 @@ fn prop_type(p: PropId) -> String {
 
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
+
+/// `border-radius` on a sheet route (ModalIOS.swift `cornerRadius(of:)`).
+const SHEET_RADIUS: &str = "on iOS a sheet route's (`navigationPresentation=\"modal\"`) top-left radius is also its sheet's corner radius (`preferredCornerRadius`), which seats a large sheet flat on the bottom edge. Unsaid, the sheet is UIKit's: on iOS 26 and later rounded like the display and inset from the bottom edge, as Apple's own sheets are";
+const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
@@ -389,14 +561,18 @@ fn row_json(row: StyleId) -> Value {
 }
 
 fn tag_json(name: &str, t: &Tag) -> Value {
-    json!({
+    let mut doc = json!({
         "name": name,
         "node": t.node_type.name(),
         "family": family(t),
         "fixedStyles": t.fixed_styles.iter().map(|(row, v)| json!({"row": row.name(), "value": v})).collect::<Vec<_>>(),
         "fixedProps": t.fixed_props.iter().map(|(p, v)| json!({"prop": p.name(), "value": v})).collect::<Vec<_>>(),
         "positional": t.positional.map(PropId::name),
-    })
+    });
+    if let Some(note) = vocab::tag_note(name) {
+        doc["note"] = note.into();
+    }
+    doc
 }
 
 fn attr_json(name: &str, a: &AttrTarget) -> Value {
@@ -404,10 +580,17 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     match a {
         AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand => {
             doc["rows"] = rows_of(name, a).iter().map(|r| row_json(*r)).collect();
+            if rows_of(name, a).iter().any(|r| vocab::takes_roles(*r)) {
+                let (exact, css) = vocab::color_roles();
+                doc["roles"] = json!({ "exact": exact, "css": css });
+            }
         }
         AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p) => {
             doc["prop"] = p.name().into();
             doc["type"] = prop_type(*p).into();
+            if let Some(accepts) = vocab::accepts(*p) {
+                doc["accepts"] = accepts.into();
+            }
         }
         AttrTarget::Handler(event) => doc["event"] = (*event).into(),
         AttrTarget::Surface => {}
@@ -418,6 +601,24 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if let Some(only) = only_on(name) {
         doc["only"] = only.into();
+    }
+    if name == "accept" {
+        doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
+    }
+    if name == "buttonStyle" {
+        doc["note"] = vocab::BUTTON_DEFAULT_NOTE.into();
+    }
+    if name == "appearance" {
+        doc["note"] = APPEARANCE.into();
+    }
+    if name == "border-radius" {
+        doc["note"] = SHEET_RADIUS.into();
+    }
+    if name == "transform" {
+        doc["note"] = vocab::BOX_TRANSFORM_REFUSAL.into();
+    }
+    if matches!(name, "reachstart" | "reachend") {
+        doc["note"] = vocab::collection_edge_refusal(name).into();
     }
     doc
 }
@@ -432,6 +633,7 @@ fn everything() -> Value {
         "contextual": vocab::CONTEXTUAL.iter().map(|(n, on)| json!({"name": n, "only": on})).collect::<Vec<_>>(),
         "commands": HOST_COMMANDS,
         "functions": functions::functions().iter().map(function_json).collect::<Vec<_>>(),
+        "concepts": concepts::concepts().iter().map(concept_json).collect::<Vec<_>>(),
         "notes": { "modules": vocab::MODULE_NOTE, "data": vocab::DATA_NOTE },
     })
 }
@@ -487,22 +689,54 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if matches!(a, AttrTarget::Flex) {
                 lines.push("`flex: <n>` is CSS's `<n> 1 0%`".into());
             }
+            // The roles a colour takes, by name: a builder guessed one (`contract vocab background-color`, tip-splitter).
+            if rows.iter().any(|r| vocab::takes_roles(*r)) {
+                let (exact, css) = vocab::color_roles();
+                lines.push(format!(
+                    "roles `-exact-<role>`, a role that follows the platform and the scheme: {}",
+                    exact.join(", ")
+                ));
+                lines.push(format!("CSS system colours, by name: {}", css.join(", ")));
+            }
             if rows == [StyleId::Transition] {
                 lines.push(format!(
                     "properties {}",
                     vocab::transition_properties().join(", ")
                 ));
             }
+            if name == "backdrop-filter" {
+                lines.push("macOS samples only the parent's subtree; make the glass a sibling of what it covers (LLP 1053.000 §3)".into());
+            }
+            if name == "font-family" {
+                lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());
+            }
+            if name == "appearance" {
+                lines.push(APPEARANCE.into());
+            }
+            if name == "border-radius" {
+                lines.push(SHEET_RADIUS.into());
+            }
+            if name == "transform" {
+                lines.push(vocab::BOX_TRANSFORM_REFUSAL.into());
+            }
             lines
         }
         AttrTarget::Prop(p) => {
             let mut line = format!("prop {}, {}", p.name(), prop_type(*p));
+            if let Some(accepts) = vocab::accepts(*p) {
+                line += &format!(", accepts {accepts}");
+            }
             // A prop with a fixed set of names lists them (authoring bench: `vocab buttonStyle`).
             if p.name() == "buttonStyle" {
                 line += &format!(
                     ", one of {}",
                     exact_kernel::generated::BUTTON_STYLES.join("|")
                 );
+                // LLP 1115.000 D14.5: a presentation default is the platform's, said per host.
+                return vec![line, vocab::BUTTON_DEFAULT_NOTE.into()];
+            }
+            if name == "accept" {
+                return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];
             }
             vec![line]
         }
@@ -630,5 +864,13 @@ fn listing() -> String {
         vocab::MODULE_NOTE,
         vocab::DATA_NOTE
     );
+    let concepts = concepts::concepts();
+    out += &format!(
+        "\nconcepts ({}): `contract vocab <name>` answers with the whole idiom, its code and its recipe\n",
+        concepts.len()
+    );
+    for c in &concepts {
+        out += &format!("  {:<10} {}\n", c.name, c.title);
+    }
     out
 }

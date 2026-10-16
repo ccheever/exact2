@@ -41,9 +41,69 @@ struct LineBreakPlan {
         return TextEngine.cssBreak(start: start, fitted: fitted, hard: hard, boundaries: boundaries, contentEnds: contentEnds,
                                    from: boundaryIndex, breakWord: breakWord, text: text)
     }
+    /// The next line's length from `start` in `room`, as `suggest`, where a
+    /// soft hyphen's break shows one, which must fit too (`fitSoftHyphen`).
+    mutating func next(_ typesetter: CTTypesetter, source: NSAttributedString, text: NSString, start: Int, room: Double,
+                       offerWidth: CGFloat, breakWord: Bool, length: Int) -> Int {
+        advance(to: start)
+        let plan = self
+        func suggest(_ room: Double) -> Int {
+            plan.suggest(typesetter, start: start, room: room, offerWidth: offerWidth, breakWord: breakWord, length: length, text: text)
+        }
+        return TextEngine.fitSoftHyphen(start: start, count: suggest(room), room: room, boundaries: boundaries, source: source,
+                                        typesetter: typesetter, length: length, retry: suggest)
+    }
+
+    /// CSS `text-wrap-style: balance` (LLP 1001 §6, as Chrome does it): the
+    /// lines before the first forced break (`until`) take the narrowest room,
+    /// `room`, that keeps the count they have at `limit`, when that is two to
+    /// six (`TextEngine.balancedLimit`); the rest break at `limit`. `widest`
+    /// is those lines' widest broken greedily, which is still the box's
+    /// measure: balancing moves breaks, never the box. Call before the
+    /// layout advances this plan; `next` is the layout's own break.
+    func balance(_ limit: Double, length: Int, inset: (Int) -> Double, next: (inout LineBreakPlan, Int, Double) -> Int,
+                 typesetter: CTTypesetter, source: NSAttributedString) -> (until: Int, room: Double, widest: CGFloat)? {
+        let until = hardEnds.first ?? length
+        func lines(_ limit: Double, widest: (Int, Int) -> Void = { _, _ in }) -> Int {
+            var plan = self, start = 0, n = 0
+            while start < until && n <= TextEngine.balanceMaxLines {
+                var count = next(&plan, start, limit - inset(start))
+                if count <= 0 { count = length - start }
+                widest(start, count)
+                start += count; n += 1
+            }
+            return n
+        }
+        guard let room = TextEngine.balancedLimit(limit, lines: { lines($0) }) else { return nil }
+        var widest: CGFloat = 0
+        _ = lines(limit) { start, count in
+            let range = CFRangeMake(start, count)
+            let line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: source, range: range)
+            widest = max(widest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + CGFloat(inset(start)))
+        }
+        return (until, room, widest)
+    }
 }
 
 extension TextEngine {
+    /// The most lines `balance` balances; more break greedily, as in Chromium.
+    static let balanceMaxLines = 6
+    /// `exact_textflow::balanced_width` over a paragraph's own breaker: the
+    /// narrowest limit, to 1/64 pt (a browser layout unit), at which
+    /// `lines` (which may stop counting past `balanceMaxLines`) is still what
+    /// it is at `limit`; nil for one line or more than `balanceMaxLines`.
+    static func balancedLimit(_ limit: Double, lines: (Double) -> Int) -> Double? {
+        guard limit.isFinite, limit > 0 else { return nil }
+        let count = lines(limit)
+        guard (2...balanceMaxLines).contains(count) else { return nil }
+        var lo = 0, hi = Int((limit * 64).rounded(.down))
+        if lines(Double(hi) / 64) > count { return limit }
+        while hi - lo > 1 {
+            let mid = lo + (hi - lo) / 2
+            if lines(Double(mid) / 64) > count { lo = mid } else { hi = mid }
+        }
+        return Double(hi) / 64
+    }
     /// Each opportunity's content end, and the ends of the forced breaks
     /// (CR LF one), in one forward pass. A boundary's own forced break is no
     /// content, and the spaces before it hang (CSS Text 3 §4.1.3): U+0020,

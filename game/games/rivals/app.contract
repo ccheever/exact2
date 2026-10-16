@@ -37,8 +37,8 @@ shape Hud
   you_won: bool
   sliding: bool
   accuracy: number
-  feed: list<Feed>
-  marks: list<Mark>
+  feed: Feed[]
+  marks: Mark[]
 
 component Rivals
   state playing = false
@@ -76,14 +76,14 @@ component Rivals
 
   view
     main width="100%" height="100%" background-color="#10141b" color="#f5f7fa"
-      when playing
+      if playing
         canvas surface=world(seed=7, bots=bots, range=training, paused=paused, restart=again) testId="world" data-pointer-lock="true" width="100%" height="100%" position="relative"
-          when hud.hurt
+          if hud.hurt
             column testId="hurt" position="absolute" inset=0 pointer-events="none" border-width=10 border-color="#e5484d88"
           column position="absolute" top="50%" left="50%" width=40 height=40 margin-left=-20 margin-top=-20 align-items="center" justify-content="center" pointer-events="none"
             text (hud.marker == "" ? "+" : "×") testId="crosshair" line-height=1 font-size=(hud.marker == "" ? 26 : 34) font-weight=700 color=(hud.marker == "kill" ? "#ff4d4f" : hud.marker == "head" ? "#ffd33d" : hud.marker == "body" ? "#ffffff" : "#ffffffcc")
           column testId="marks" position="absolute" top="50%" left="50%" margin-left=28 margin-top=-64 gap=2 pointer-events="none"
-            each m in hud.marks key=m.id
+            for m in hud.marks key=m.id
               text (m.kill ? `${m.amount} ✚` : `${m.amount}`) font-size=(m.head ? 22 : 17) font-weight=800 color=(m.kill ? "#ff4d4f" : m.head ? "#ffd33d" : "#ffffff")
           row testId="score" position="absolute" top=16 left="50%" width=360 margin-left=-180 justify-content="center" align-items="center" gap=14 padding=10 border-radius=12 background-color="#10141bcc" pointer-events="none"
             text "You" font-weight=700 color="#6cb6ff"
@@ -94,9 +94,9 @@ component Rivals
             text `${hud.rival_kills}` testId="rival-kills" font-size=28 font-weight=800
             text hud.rival font-weight=700 color="#ff8a8a"
           column testId="feed" position="absolute" top=16 right=16 gap=6 align-items="flex-end" pointer-events="none"
-            each f in hud.feed key=f.id
+            for f in hud.feed key=f.id
               row gap=8 padding-top=4 padding-bottom=4 padding-left=10 padding-right=10 border-radius=8 background-color=(f.you ? "#2b3a55e6" : "#10141bcc")
-                when f.killer != ""
+                if f.killer != ""
                   text f.killer font-weight=700 color=(f.killer == "player" ? "#6cb6ff" : "#ff8a8a")
                 text (f.head ? `[${f.weapon} ◎]` : `[${f.weapon}]`) color="#c9d1d9"
                 text f.victim font-weight=700 color=(f.victim == "player" ? "#6cb6ff" : "#ff8a8a")
@@ -111,15 +111,15 @@ component Rivals
               text "1 Rifle" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 1 ? "#e8ad61" : "#2d333b") color=(hud.slot == 1 ? "#10141b" : "#c9d1d9")
               text "2 Rockets" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 2 ? "#e8ad61" : "#2d333b") color=(hud.slot == 2 ? "#10141b" : "#c9d1d9")
               text "3 Knife" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 3 ? "#e8ad61" : "#2d333b") color=(hud.slot == 3 ? "#10141b" : "#c9d1d9")
-          when not hud.alive and not hud.over
+          if not hud.alive and not hud.over
             column testId="dead" position="absolute" top="34%" left=0 right=0 align-items="center" gap=6 pointer-events="none"
               text `Eliminated by ${hud.killed_by}` font-size=26 font-weight=800 color="#ff8a8a"
               text `Respawning in ${hud.respawn}` color="#c9d1d9"
-          when hud.over
+          if hud.over
             column testId="round-over" position="absolute" inset=0 align-items="center" justify-content="center" gap=10 background-color="#10141baa" pointer-events="none"
               text (hud.you_won ? "You win the round" : `${hud.winner} wins the round`) testId="winner" font-size=40 font-weight=800 color=(hud.you_won ? "#6cb6ff" : "#ff8a8a")
               text `Rounds ${hud.you_rounds}–${hud.rival_rounds} · accuracy ${hud.accuracy}%` color="#c9d1d9"
-          when paused
+          if paused
             column testId="paused" position="absolute" inset=0 align-items="center" justify-content="center" gap=14 background-color="#10141bcc"
               text "Paused" font-size=40 font-weight=800
               button press=restart testId="restart" aria-label="Restart" padding=12 border-radius=10 background-color="#354751"

@@ -3,11 +3,37 @@
 //! The innermost enabled node under the press hearing any of them holds the
 //! pointer until it lifts (a cancel is an up), and hears its moves; a free
 //! pointer's moves go to the innermost such node under it. Each carries the
-//! `PointerEvent` record from the node's content box. Linux's pointer is a
-//! mouse (evdev, VNC, the agent): id 1, DOM's 0.5 of pressure while down.
-//! A wheel over a node is DOM's `wheel` first (studio diary R3).
+//! `PointerEvent` record from the node's content box. The pointer is a mouse
+//! (evdev, VNC, the agent: id 1) unless the device's shell says what touched
+//! the screen ([`Presenter::set_pointer_kind`]: Android's reader names a
+//! finger or a pen with each touch, id 2 as on iOS); DOM's 0.5 of pressure
+//! while down either way. A wheel over a node is DOM's `wheel` first (studio
+//! diary R3).
 use super::*;
 use exact_runner::PointerEvent;
+
+/// What the pointer is: DOM's `pointerType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PointerKind {
+    /// A mouse: it hovers, and a focus it gives shows its ring.
+    #[default]
+    Mouse,
+    /// A finger on the screen.
+    Touch,
+    /// A stylus on the screen.
+    Pen,
+}
+
+impl PointerKind {
+    /// DOM's keyword and the contact's id.
+    fn wire(self) -> (&'static str, u8) {
+        match self {
+            PointerKind::Mouse => ("mouse", 1),
+            PointerKind::Touch => ("touch", 2),
+            PointerKind::Pen => ("pen", 2),
+        }
+    }
+}
 
 const KINDS: [EventKind; 3] = [
     EventKind::Pointerdown,
@@ -16,6 +42,20 @@ const KINDS: [EventKind; 3] = [
 ];
 
 impl<D: DataSource> Presenter<D> {
+    /// What the pointer is from now on (LLP 1115.001 D7.4): told by a shell
+    /// that knows, with each contact. A finger or a pen touches the screen
+    /// directly: it is reported as itself, hovers nothing ([`Presenter::direct`]),
+    /// and leaves no focus ring on what it presses.
+    pub fn set_pointer_kind(&mut self, kind: PointerKind) {
+        self.pointer_kind = kind;
+    }
+
+    /// Whether the pointer touches the screen itself (a finger, a pen): it
+    /// is nowhere between contacts, so nothing is hovered.
+    pub(crate) fn direct(&self) -> bool {
+        self.pointer_kind != PointerKind::Mouse
+    }
+
     /// The innermost enabled node from `hit` up that hears one of `kinds`.
     /// A `wheel` is heard by a disabled box too, as by a `<div disabled>`
     /// in Chrome; only a disabled form control is out (review b5-b 4).
@@ -51,10 +91,11 @@ impl<D: DataSource> Presenter<D> {
         buttons: u8,
     ) -> Option<PointerEvent> {
         let (ox, oy, _, _) = self.rect_of(view)?;
-        let (left, top, _, _) =
-            exact_kernel::svg::scene::content_box(&self.host.kernel().node(view)?);
+        let kernel = self.host.kernel();
+        let (left, top, _, _) = exact_kernel::svg::scene::content_box(kernel, &kernel.node(view)?);
+        let (kind, id) = self.pointer_kind.wire();
         let mut record = PointerEvent::parse(&format!(
-            "{},{},{},{},mouse,1,{x},{y}",
+            "{},{},{},{},{kind},{id},{x},{y}",
             x - ox - left,
             y - oy - top,
             buttons,
@@ -199,3 +240,7 @@ impl<D: DataSource> Presenter<D> {
         prevented
     }
 }
+
+#[cfg(test)]
+#[path = "touch_tests.rs"]
+mod touch_tests;

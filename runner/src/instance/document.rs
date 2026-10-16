@@ -145,10 +145,16 @@ impl DocTree {
 
 impl Tree {
     /// The document's nodes, from the values the tree's bindings last took.
-    pub(crate) fn document(&self, plan: &Plan, sites: &SiteIndex) -> Result<DocTree, DocTreeError> {
+    pub(crate) fn document(
+        &self,
+        plan: &Plan,
+        sites: &SiteIndex,
+        fonts: Rc<RefCell<bridge::RuntimeFonts>>,
+    ) -> Result<DocTree, DocTreeError> {
         let mut build = Build {
             plan,
             sites,
+            fonts,
             doc: DocTree::default(),
             shared: vec![None; plan.nodes.len()],
         };
@@ -161,6 +167,7 @@ impl Tree {
 struct Build<'p> {
     plan: &'p Plan,
     sites: &'p SiteIndex,
+    fonts: Rc<RefCell<bridge::RuntimeFonts>>,
     doc: DocTree,
     /// Each plan node's rows when every style binding it has reads nothing:
     /// one allocation for all its instances.
@@ -341,7 +348,32 @@ impl Build<'_> {
                     if matches!(value, Value::Option(None))
                         || bridge::unsets(binding.id, value) => {}
                 BindingKind::Style => {
-                    match bridge::set_plan_style(&mut patch, binding.id, value, plan) {
+                    let family_value = if binding.id == StyleId::FontFamily as u16 {
+                        match value {
+                            Value::Option(Some(inner)) => inner.as_ref(),
+                            _ => value,
+                        }
+                    } else {
+                        value
+                    };
+                    let family_id = if binding.id == StyleId::FontFamily as u16 {
+                        family_value.as_str().and_then(|name| {
+                            self.fonts.borrow_mut().intern(name, plan.stacks.len())
+                        })
+                    } else {
+                        None
+                    };
+                    let styled = if let Some(id) = family_id {
+                        bridge::set_runtime_font_style(
+                            &mut patch,
+                            binding,
+                            id,
+                            plan.stacks.len() + self.fonts.borrow().names().len(),
+                        )
+                    } else {
+                        bridge::set_binding_style(&mut patch, binding, family_value, plan)
+                    };
+                    match styled {
                         Ok(StyleId::Animation) => {
                             self.sites.keyframes.resolve(&mut patch.animation);
                         }
@@ -365,6 +397,14 @@ impl Build<'_> {
             // The kernel resolves `rem` and `em` against inherited font
             // sizes; the fold doesn't.
             return Err(DocTreeError::Unsupported("a relative length (rem, em)"));
+        }
+        if !plan.axes.is_empty() || !plan.theme.is_empty() && patch.mask.has(StyleId::ColorScheme) {
+            // A token's slice is the tuple around the node and a mode
+            // boundary's implied rows, which the instance tree keeps
+            // (LLP 1121 D7); the fold doesn't.
+            return Err(DocTreeError::Unsupported(
+                "a design's modes or a themed scheme boundary",
+            ));
         }
         patch
             .validate_domain()

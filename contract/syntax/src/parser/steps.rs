@@ -174,6 +174,130 @@ impl Parser {
         }
     }
 
+    /// `request METHOD "/path" [json] [as persona]` (LLP 1116.006 D8): a
+    /// write through the app's server as another person, by the driver.
+    fn request_step(&mut self, span: Span) -> R<Step> {
+        const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+        let method = match self.peek_kind().clone() {
+            TokenKind::Ident(m) if METHODS.contains(&m.as_str()) => {
+                self.next();
+                m
+            }
+            other => {
+                return self.err(
+                    "syntax-expected-step",
+                    format!(
+                        "`request` takes a method (GET, POST, PUT, PATCH or DELETE), then a path in quotes, as `request POST \"/items\" {{\"title\": \"Bread\"}} as grace`, then optionally `expect 409`; found {}",
+                        describe(&other)
+                    ),
+                )
+            }
+        };
+        let path = self.launch_str("request", "a path under the app's server, as \"/items\",")?;
+        if !(path.starts_with('/') || path.starts_with("http://") || path.starts_with("https://")) {
+            return Err(SyntaxError {
+                id: "syntax-expected-step",
+                message: format!("`request` takes a path under the app's server, starting with `/` (\"/items\"), or a whole URL, not {path:?}"),
+                span,
+            });
+        }
+        let body = match self.peek_kind() {
+            TokenKind::Punct("{") | TokenKind::Punct("[") => Some(self.json_value()?),
+            _ => None,
+        };
+        let persona = if self.at_ident("as") {
+            self.next();
+            match self.peek_kind().clone() {
+                TokenKind::Ident(w) | TokenKind::Str(w) if !w.is_empty() => {
+                    self.next();
+                    Some(w)
+                }
+                other => {
+                    return self.err(
+                        "syntax-expected-step",
+                        format!(
+                            "`as` takes the persona whose token the request carries, as `as grace` (`as \"token-grace\"`), found {}",
+                            describe(&other)
+                        ),
+                    )
+                }
+            }
+        } else {
+            None
+        };
+        // LLP 1116.010 D3: `expect 409`, the status a refusal answers.
+        let status = if self.at_ident("expect") {
+            self.next();
+            match self.peek_kind().clone() {
+                TokenKind::Number(n) if n.fract() == 0.0 && (100.0..=599.0).contains(&n) => {
+                    self.next();
+                    Some(n as u16)
+                }
+                other => {
+                    return self.err(
+                        "syntax-expected-step",
+                        format!(
+                            "`expect` takes the status the server must answer, as `expect 409`, found {}",
+                            describe(&other)
+                        ),
+                    )
+                }
+            }
+        } else {
+            None
+        };
+        Ok(Step::Request {
+            method,
+            path,
+            body,
+            persona,
+            status,
+            span,
+        })
+    }
+
+    /// A JSON value from its tokens, as JSON text: a request's body. Its
+    /// brackets may span lines.
+    fn json_value(&mut self) -> R<String> {
+        let token = self.next();
+        Ok(match token.kind {
+            TokenKind::Punct(open @ ("{" | "[")) => {
+                let close = if open == "{" { "}" } else { "]" };
+                let mut out = String::from(open);
+                while !self.eat_punct(close) {
+                    if out.len() > 1 {
+                        self.expect_punct(",")?;
+                        out.push(',');
+                    }
+                    if open == "{" {
+                        out.push_str(&json_string(&self.str_lit("a key")?));
+                        self.expect_punct(":")?;
+                        out.push(':');
+                    }
+                    out.push_str(&self.json_value()?);
+                }
+                out.push_str(close);
+                out
+            }
+            TokenKind::Str(s) => json_string(&s),
+            TokenKind::Number(n) => format!("{n}"),
+            TokenKind::Punct("-") if matches!(self.peek_kind(), TokenKind::Number(_)) => {
+                format!("-{}", self.step_number("a number")?)
+            }
+            TokenKind::Ident(w) if w == "true" || w == "false" || w == "null" => w,
+            other => {
+                return Err(SyntaxError {
+                    id: "syntax-expected-step",
+                    message: format!(
+                        "a request's body is JSON (an object, a list, a string, a number, true, false or null), not {}",
+                        describe(&other)
+                    ),
+                    span: token.span,
+                })
+            }
+        })
+    }
+
     pub(super) fn step(&mut self) -> R<Step> {
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
@@ -181,7 +305,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `screenshot`, `fail fetch`, `pass fetch`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`, `fail fetch`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`, `fail fetch`), found {}",
                     describe(&other)
                 ),
                 )
@@ -523,10 +647,11 @@ impl Parser {
             },
             "seed" => {
                 let seed = self.step_number("the seed, a whole number")?;
-                if seed.fract() != 0.0 || !(0.0..=9_007_199_254_740_991.0).contains(&seed) {
+                // Below 2^32, as every host draws it (LLP 1116.005 D5).
+                if seed.fract() != 0.0 || !(0.0..=4_294_967_295.0).contains(&seed) {
                     return self.err(
                         "syntax-expected-step",
-                        "`seed` takes a whole number from 0 through 2^53 - 1",
+                        "`seed` takes a whole number from 0 through 2^32 - 1 (4294967295), as every host's launch seed is",
                     );
                 }
                 Step::Seed { seed, span }
@@ -571,8 +696,20 @@ impl Parser {
                     Step::FailFetch { prefix, times, span }
                 }
             }
+            // @ref LLP 1116.006 D8 — `request POST "/items" {"title": "Bread"} as grace`.
+            "request" => self.request_step(span)?,
             "reload" => Step::Reload { span },
             "close" => Step::Close { span },
+            // @ref LLP 1116.006 D4 — the platform's Back from what is on top: it names no target.
+            "back" => {
+                if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`back` takes nothing: it is the platform's Back from what is on top (a dialog, a sheet, a pushed route); `tap` the app's own control to press it",
+                    );
+                }
+                Step::Back { span }
+            }
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
                 span,
@@ -588,7 +725,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, `state`, `sound`, or `mediasession`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -612,6 +749,15 @@ impl Parser {
                         Step::ExpectTree {
                             target,
                             present,
+                            span,
+                        }
+                    }
+                    // LLP 1116.010 D3: a control's `disabled`, asserted rather than tapped.
+                    "disabled" | "enabled" => {
+                        let target = self.str_lit("a testId")?;
+                        Step::ExpectDisabled {
+                            target,
+                            disabled: what == "disabled",
                             span,
                         }
                     }
@@ -684,7 +830,7 @@ impl Parser {
                         };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, `state`, `sound`, or `mediasession`, not `{other}`{hint}"),
+                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, not `{other}`{hint}"),
                         );
                     }
                 }
@@ -693,7 +839,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `request`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
                 ),
                     span,
                 })
@@ -702,6 +848,21 @@ impl Parser {
         self.newline()?;
         Ok(step)
     }
+}
+
+/// A string as JSON writes it.
+fn json_string(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// A drag's `during` op is a read or the clock, not a second finger (drums R8).

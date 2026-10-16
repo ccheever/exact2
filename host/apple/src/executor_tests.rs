@@ -11,9 +11,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Every file body counts against the process's `MAX_READERS`, so the tests
+/// that send them take turns rather than refuse each other.
+pub(super) fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[derive(Default)]
 struct Fixture {
     state: Mutex<(usize, bool, Vec<String>)>,
+    requests: Mutex<Vec<(String, Option<Vec<u8>>)>>,
     ready: Condvar,
 }
 impl Fixture {
@@ -48,6 +56,11 @@ impl Transport for Fake {
         });
         let mut state = self.0.state.lock().unwrap();
         state.2.push(request.url.clone());
+        self.0
+            .requests
+            .lock()
+            .unwrap()
+            .push((request.url.clone(), request.body.clone()));
         if request.url.ends_with("/release") {
             state.1 = true;
             self.0.ready.notify_all();
@@ -72,11 +85,23 @@ impl Transport for Fake {
         // `/away` redirects to an origin the fixture's grants lack.
         let mut headers = Headers::default();
         let away = request.url.ends_with("/away");
+        let return_start = request.url.ends_with("/return-start");
+        let return_middle = request.url.ends_with("/return-middle");
         if away {
             headers.set_response("location", "https://elsewhere.test/feed");
+        } else if return_start {
+            headers.set_response("location", "https://elsewhere.test/return-middle");
+        } else if return_middle {
+            headers.set_response("location", "https://finish.test/return-finish");
         }
         Ok(ibex2::stdlib::fetch::Response {
-            status: if away { 301 } else { 200 },
+            status: if away {
+                301
+            } else if return_start || return_middle {
+                307
+            } else {
+                200
+            },
             status_text: "OK".into(),
             headers,
             body: b"done".to_vec(),
@@ -87,8 +112,10 @@ impl Transport for Fake {
     }
 }
 fn setup() -> (Core, Arc<Fixture>, Receiver<()>) {
+    setup_with_grants("net.fetch https://example.test")
+}
+fn setup_with_grants(grants: &str) -> (Core, Arc<Fixture>, Receiver<()>) {
     let fixture = Arc::new(Fixture::default());
-    let grants = "net.fetch https://example.test";
     let owners = (0..WORKERS)
         .map(|_| {
             Some(
@@ -98,6 +125,7 @@ fn setup() -> (Core, Arc<Fixture>, Receiver<()>) {
         })
         .collect();
     let (wake, woke) = channel();
+    let scoped_fixture = fixture.clone();
     (
         Core::with_owners(
             owners,
@@ -105,7 +133,10 @@ fn setup() -> (Core, Arc<Fixture>, Receiver<()>) {
             Box::new(move || {
                 let _ = wake.send(());
             }),
-        ),
+        )
+        .streams_on(move || {
+            ibex2::host::Host::with_transport(Box::new(Fake(scoped_fixture.clone())))
+        }),
         fixture,
         woke,
     )
@@ -227,7 +258,7 @@ fn independent_reads_overlap_up_to_the_lanes_workers() {
         collect(&core, &woke, INDEPENDENT + 1).len(),
         INDEPENDENT + 1
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -374,7 +405,7 @@ fn an_independent_read_over_the_budget_waits_instead_of_refusing() {
     let mut done: Vec<u64> = collect(&core, &woke, 2).into_iter().map(|v| v.0).collect();
     done.sort();
     assert_eq!(done, [1, 2]);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -444,18 +475,10 @@ fn a_full_new_cohort_recovers_only_after_old_outcomes_are_drained() {
         .unwrap();
     }
     fixture.wait_held(2);
-    // Until the host forgets their tickets (`Core::forget`), old work keeps
-    // its reservations: the next generation gets explicit refusals.
+    // Old tickets keep admission full until drained or forgotten.
+    let read = || Request::get("https://example.test/read").independent_http(4096);
     for ticket in 128..256 {
-        assert!(core
-            .run(
-                job(
-                    ticket,
-                    Request::get("https://example.test/read").independent_http(4096)
-                ),
-                None
-            )
-            .is_err());
+        assert!(core.run(job(ticket, read()), None).is_err());
     }
     core.run(
         job(
@@ -468,14 +491,7 @@ fn a_full_new_cohort_recovers_only_after_old_outcomes_are_drained() {
     let old = collect(&core, &woke, 129);
     assert_eq!(old.iter().filter(|(ticket, _)| *ticket < 128).count(), 128);
     for ticket in 128..256 {
-        core.run(
-            job(
-                ticket,
-                Request::get("https://example.test/read").independent_http(4096),
-            ),
-            None,
-        )
-        .unwrap();
+        core.run(job(ticket, read()), None).unwrap();
     }
     let current = collect(&core, &woke, 128);
     assert!(current
@@ -483,6 +499,12 @@ fn a_full_new_cohort_recovers_only_after_old_outcomes_are_drained() {
         .all(|(ticket, outcome)| (128..256).contains(ticket)
             && matches!(outcome, Outcome::Response(Response { status: 200, .. }))));
     let state = core.shared.state.lock().unwrap();
+    // Draining can precede the async finisher's physical releases (LLP 1120 D5).
+    let (state, _) = core
+        .shared
+        .ready
+        .wait_timeout_while(state, Duration::from_secs(5), |s| !s.running.is_empty())
+        .unwrap();
     assert_eq!(state.counts, [0, 0]);
     assert_eq!(state.bytes, [0, 0]);
 }
@@ -657,6 +679,61 @@ fn a_refused_redirect_names_where_it_led() {
     );
 }
 
+#[test]
+fn native_post_refuses_a_source_ungranted_middle_hop_before_contact() {
+    let grants = "net.fetch https://example.test\nnet.fetch https://elsewhere.test\nnet.fetch https://finish.test";
+    let (core, fixture, woke) = setup_with_grants(grants);
+    core.run(
+        job(
+            1,
+            Request::post_json("https://example.test/return-start", "\"payload\""),
+        ),
+        None,
+    )
+    .unwrap();
+    assert!(matches!(
+        collect(&core, &woke, 1)[0].1,
+        Outcome::Response(Response { status: 200, .. })
+    ));
+    assert_eq!(
+        fixture.requests.lock().unwrap().as_slice(),
+        &[
+            (
+                "https://example.test/return-start".into(),
+                Some(b"\"payload\"".to_vec())
+            ),
+            (
+                "https://elsewhere.test/return-middle".into(),
+                Some(b"\"payload\"".to_vec())
+            ),
+            (
+                "https://finish.test/return-finish".into(),
+                Some(b"\"payload\"".to_vec())
+            ),
+        ]
+    );
+    fixture.requests.lock().unwrap().clear();
+    let mut request = Request::post_json("https://example.test/return-start", "\"payload\"");
+    request.grants = Some("net.fetch https://example.test\nnet.fetch https://finish.test".into());
+    core.run(job(2, request), None).unwrap();
+    let [(_, outcome)] = collect(&core, &woke, 1).try_into().unwrap();
+    assert_eq!(
+        outcome,
+        Outcome::Failed {
+            kind: FailureKind::Refused,
+            message: "outside the app's grants (net.fetch): redirected to https://elsewhere.test"
+                .into(),
+        }
+    );
+    assert_eq!(
+        fixture.requests.lock().unwrap().as_slice(),
+        &[(
+            "https://example.test/return-start".into(),
+            Some(b"\"payload\"".to_vec())
+        )]
+    );
+}
+
 fn settled(core: &Core) -> bool {
     let state = core.shared.state.lock().unwrap();
     state.counts == [0, 0]
@@ -801,12 +878,12 @@ fn ordered_reads_queue_in_order_and_count_undrained_results() {
     let mut sent = vec!["https://example.test/hold".to_string()];
     sent.extend((1..128).map(|ticket| format!("https://example.test/read/{ticket}")));
     assert_eq!(fixture.state.lock().unwrap().2, sent);
-    assert!(settled(&core));
+    until_settled(&core);
     core.resume_ordered();
     core.run(job(130, Request::get("https://example.test/read")), None)
         .unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].0, 130);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -848,12 +925,12 @@ fn ordered_waiting_bytes_include_writes_and_leave_room_for_progress() {
         (0..22).collect::<Vec<_>>()
     );
     assert_eq!(fixture.state.lock().unwrap().2.len(), 22);
-    assert!(settled(&core));
+    until_settled(&core);
     core.resume_ordered();
     core.run(job(23, Request::get("https://example.test/read")), None)
         .unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].0, 23);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -903,7 +980,7 @@ fn writes_and_opaque_work_keep_the_sixteen_ticket_admission_bound() {
     assert_eq!(collect(&core, &woke, 16).len(), 16);
     assert_eq!(called.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.state.lock().unwrap().2.len(), 16);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Sixteen writes in flight, a seventeenth refused at the limit: the ordered
@@ -959,7 +1036,7 @@ fn ordered_requests_after_a_capacity_refusal_wait_for_it_to_settle() {
             "https://example.test/read"
         ]
     );
-    assert!(settled(&core));
+    until_settled(&core);
     // The lane is not poisoned: a later request is admitted at once.
     core.run(job(20, write(20)), None).unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].0, 20);
@@ -1005,7 +1082,7 @@ fn held_ordered_requests_past_the_limit_refuse_one_and_wait_again() {
     assert!(!sent
         .iter()
         .any(|url| url.ends_with("/write/20") || url.ends_with("/write/34")));
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Sixteen in flight from a hold and fifteen writes, the next write refused
@@ -1058,7 +1135,7 @@ fn a_refusal_behind_held_work_settles_after_it() {
     assert!(core.ordered_idle());
     assert_eq!(core.resume_ordered(), []);
     assert_eq!(tickets(collect(&core, &woke, 1)), [19]);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The 129th request behind the fence is refused, in its place: after the
@@ -1081,7 +1158,7 @@ fn the_request_past_the_held_count_is_refused_after_the_held_ones() {
     );
     assert_eq!(core.resume_ordered(), [(146, fence)]);
     assert_eq!(core.resume_ordered(), []);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Held request buffers are capped at 64 MiB: the one over is refused in its
@@ -1116,7 +1193,7 @@ fn the_request_past_the_held_bytes_is_refused_in_its_place() {
     );
     assert_eq!(core.resume_ordered(), []);
     assert_eq!(tickets(collect(&core, &woke, 1)), [39]);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The last forgotten ordered job ending wakes the host: the lane is idle,
@@ -1186,7 +1263,7 @@ fn forgotten_held_work_is_destroyed_by_a_worker_unrun() {
     fixture.release();
     assert_eq!(collect(&core, &woke, 16).len(), 16);
     assert_eq!(core.resume_ordered(), []);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Retiring the executor destroys held work on a retiring worker, while
@@ -1222,7 +1299,7 @@ fn forgotten_ordered_backlog_releases_queued_buffers_and_aborts_running_read() {
         fixture.state.lock().unwrap().2,
         ["https://example.test/hold", "https://example.test/read"]
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -1257,7 +1334,7 @@ fn an_ordered_job_waits_for_retained_bytes_instead_of_refusing() {
         fixture.state.lock().unwrap().2,
         ["https://example.test/read"]
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The platform transport, a loopback server and a body over its 64 KiB

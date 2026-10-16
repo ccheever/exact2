@@ -14,6 +14,7 @@ import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
 import { nodeNamed } from '../../scripts/agent-test.mjs';
+import { browserMissing } from '../../scripts/agent-playwright.mjs'; import { required } from '../../scripts/coverage.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -249,7 +250,7 @@ function fixture(agentMode = true) {
     Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
     foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
-    document: { activeElement: null, body: {}, querySelector: () => null },
+    document: { activeElement: null, body: {}, querySelector: () => null, getElementById: () => null }, // boot's last plan's theme: none
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     viewBox: element => element.getBoundingClientRect(),
@@ -490,11 +491,11 @@ test('a timer whose request never lands cannot hold the clock: past the deadline
 
 test('launch setup supplies fixed defaults and carries CLI overrides to every host', () => {
   expect(launchFacts({})).toEqual({seed:1, locale:'en-US', timeZone:'UTC', epoch:Date.UTC(2026, 0, 1)});
-  const {flags, rest} = parseFlags(['web', '--browser', 'firefox', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
+  const {flags, rest} = parseFlags(['web', '--browser', 'firefox', '--seed', '4294967295', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
   expect(rest).toEqual(['web', 'tree']);
   expect(flags.browser).toBe('firefox');
   const facts = launchFacts(flags);
-  expect(facts).toEqual({seed:9007199254740991, locale:'fr-CA', timeZone:'America/Toronto', epoch:1790000000000});
+  expect(facts).toEqual({seed:4294967295, locale:'fr-CA', timeZone:'America/Toronto', epoch:1790000000000});
   expect(launchFacts({epoch:'1790000000000'}).epoch).toBe(1790000000000);
   const time = timeReporter(new URLSearchParams({agent:'1', ...facts}), new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
   expect(time(60000)).toEqual([1790000000000, -240]);
@@ -507,9 +508,9 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   expect(launchFacts({env:launchEnvironment(facts)})).toEqual(facts);
   const params = new URLSearchParams({agent:'1', ...facts});
   const report = placeReporter(params, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
-  expect(report()).toBe(['fr-CA', 'America/Toronto', 9007199254740991].join('\0'));
-  expect(report()).toBe(report());
-  for (const seed of [-1, 0.5, NaN, Infinity, 9007199254740992]) expect(() => launchFacts({seed})).toThrow('seed:');
+  expect([report(), report()]).toEqual(Array(2).fill(['fr-CA', 'America/Toronto', 4294967295].join('\0')));
+  for (const seed of [-1, 0.5, NaN, Infinity, 4294967296]) for (const f of [() => launchFacts({seed}), () => placeReporter(new URLSearchParams({agent:'1', seed:String(seed)}))()]) expect(f).toThrow('seed: a whole number from 0 through 2^32 - 1'); // below 2^32 on every host (LLP 1116.005 D5): refused by the driver and the page,
+  for (let i = 0, drawn; i < 64; i++) expect([(drawn = placeReporter(new URLSearchParams()))(), Number(drawn().split('\0')[2]) < 2 ** 32]).toEqual([drawn(), true]); // and drawn below it, once a launch
   expect(() => launchFacts({locale:'en_US'})).toThrow();
   expect(() => launchFacts({timeZone:'Not/AZone'})).toThrow();
 });
@@ -553,11 +554,10 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     expect(await chrome.carrier.evaluate(({ probe() { return 5; } }).probe)).toBe(5);
     expect(await chrome.carrier.evaluate(({ async probe() { return 6; } }).probe)).toBe(6);
     await chrome.close(); chrome = null;
-    const { firefox } = await import('playwright-core');
-    if (!existsSync(firefox.executablePath())) {
-      console.log('skip: Firefox is not installed; bunx playwright@1.63.0 install firefox webkit');
-      return;
-    }
+    // The Firefox half: a missing Firefox fails under EXACT_REQUIRED (scripts/coverage.mjs), else the Chrome half stands.
+    const firefoxMissing = await browserMissing('firefox');
+    if (firefoxMissing && required()) throw new Error(`missing firefox: ${firefoxMissing} (EXACT_REQUIRED=1)`);
+    if (firefoxMissing) return console.warn(`SKIP: missing firefox: ${firefoxMissing}`);
     session = await open({ host:'web', browser:'firefox', url, onProcess: child => { browserProcess = child; } });
     expect(session.carrier.browser).toBe('firefox');
     expect(browserProcess?.pid).toBeGreaterThan(0);
@@ -627,17 +627,17 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(16); focused = true; expect(real.bits()).toBe(0); // #114: bit 4 while `document.hasFocus()` is false
   real.onChange(() => {});
   expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
-  const agent = pageReporter(true, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
+  const agent = pageReporter(true, new Proxy({}, {get(_, name) { if (name === 'devicePixelRatio') return 2; throw new Error('agent read the platform'); }})); // the display's scale alone is the page's own under the agent too: no drive value stands in for it (LLP 1115.000 D10.3)
   expect(agent.bits()).toBe(4 | 8);
   agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16); agent.prefer({ 'has-focus': 'true' });
   expect(agent.bits()).toBe(1 | 2 | 4);
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
-  expect(agent.read()['can-share']).toBe(true);
+  expect(agent.read()['can-share']).toBe(true); expect(agent.read()['display-scale']).toBe(2); expect(real.displayScale()).toBe(1); agent.prefer({ 'display-scale': 2 }); expect(() => agent.prefer({ 'display-scale': 3 })).toThrow("prefer: display-scale: 3: the page's is 2");
   agent.onChange(() => { throw new Error('agent listened to the platform'); });
 });
 
 test('the app\'s root font size: a rule over the root, read past by the host (LLP 1069.000 D3)', () => { const rules = new Map(), said = [], say = line => said.push(line), document = { documentElement: {}, head: { append: el => rules.set(el.id, el) }, getElementById: id => rules.get(id) ?? null, createElement: () => ({ remove() { rules.delete(this.id); } }) }; const platform = { document, getComputedStyle: () => { const r = [...rules.values()].find(r => !r.disabled); return { fontSize: r ? r.textContent.match(/font-size:([\d.]+)px/)[1] + 'px' : '18px' }; } }, host = pageReporter(false, platform); // the browser's own 18; an enabled rule's `!important` wins
-  appRootFontSize(20, say, platform); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); expect(platform.getComputedStyle().fontSize).toBe('20px'); expect(host.rootFontSize()).toBe(18); for (const bad of [0, -4, NaN, '20px', 1e300]) appRootFontSize(bad, say, platform); expect(said).toHaveLength(5); expect(said[0]).toBe('setRootFontSize(0) refused: the root font size is a number of px above 0, or "medium"'); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); appRootFontSize('medium', null, platform); expect(rules.size).toBe(0); expect(host.rootFontSize()).toBe(18); });
+  appRootFontSize(20, say, platform); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); expect(platform.getComputedStyle().fontSize).toBe('20px'); expect(host.rootFontSize()).toBe(18); for (const bad of [0, -4, NaN, '20px', 1e300]) appRootFontSize(bad, say, platform); expect(said).toHaveLength(5); expect(said[0]).toBe('setRootFontSize(0) refused: the root font size is a number of px above 0, a percentage of the host\'s above 0 ("125%"), or "medium"'); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); appRootFontSize('medium', null, platform); expect(rules.size).toBe(0); expect(host.rootFontSize()).toBe(18); }); test('the app\'s percentage root font size is a share of the host\'s, the agent\'s substitute included (LLP 1121 D6)', () => { const rules = new Map(), said = [], say = line => said.push(line), style = { setProperty(k, v) { this[k] = v; } }, document = { documentElement: { style }, head: { append: el => rules.set(el.id, el) }, getElementById: id => rules.get(id) ?? null, createElement: () => ({ remove() { rules.delete(this.id); } }) }, platform = { document }, rule = () => rules.get('exact-root-font-size').textContent; appRootFontSize('125%', null, platform); expect(rule()).toBe(':root{font-size:calc(var(--exact-host-font-size, 100%) * 1.25)!important}'); appRootFontSize('.5e2%', null, platform); expect(rule()).toContain('* 0.5)'); for (const bad of ['0%', '-5%', '125', '125.%', ' 125%', 'inf%', '1e400%', '1e300%', '1e-100%']) appRootFontSize(bad, say, platform); expect(said).toHaveLength(9); expect(rule()).toContain('* 0.5)'); const sized = px => ({ document, getComputedStyle: () => ({ fontSize: `${px}px` }) }); said.length = 0; /* the share is the runner's, host * (n / 100) as an f32, at the host's own size beneath the app's rule */ appRootFontSize('3.8924957342356035e-45%', say, sized(18)); appRootFontSize('1.4178431532488902e+39%', say, sized(24)); expect(said).toHaveLength(1); expect(rule()).toContain('* 1.41784315324889e+37)'); pageReporter(true, platform).prefer({ 'root-font-size': 20 }); expect(style.fontSize).toBe('20px'); expect(style['--exact-host-font-size']).toBe('20px'); });
 test('agent launch facts never read the platform locale, zone or entropy', async () => {
   const f = fixture(), reported = [];
   f.navigator = { language: 'fr-FR' };
@@ -659,7 +659,7 @@ test('ordinary web reloads keep the launch seed', async () => {
   f.navigator = { language: 'fr-FR' };
   f.Intl = { DateTimeFormat: () => ({ resolvedOptions: () => ({timeZone:'Europe/Paris'}) }) };
   let draws = 0;
-  f.crypto = { getRandomValues: bytes => { bytes.set([0, ++draws]); return bytes; } };
+  f.crypto = { getRandomValues: words => { words.set([++draws]); return words; } }; // one 32-bit word (LLP 1116.005 D5)
   f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
@@ -856,7 +856,7 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
 // a link, as a click, after the key's handlers and unless one prevented it.
 test('a pressable that is no button activates by Enter or Space', () => {
   const h = inputFixture(); h.load(); let clicks = 0;
-  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; } });
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; }, toggleAttribute() {}, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
   const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
   expect(key(pressable('div')).prevented).toBe(true);
   expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);
@@ -889,7 +889,7 @@ async function startupFixture(rustOnly = false) {
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
-    applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
+    applyBatch: () => events.push('batch'), inertAncestor: () => false, editMenu: () => false, focusAutofocus() {},
     resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
     loadAfterPaint(file) {
       loads.push(file);
@@ -926,7 +926,7 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
     h.timer.reject(new Error('timer unavailable'));
     if (failure === 'reject') h.input.reject(new Error('input unavailable'));
     else if (failure === 'invalid') h.input.resolve(undefined);
-    else h.input.resolve(() => ({ pan: 'installed after readiness' }));
+    else h.input.resolve(() => ({ pan: 'installed after readiness', arrive() {} }));
     await h.activation;
     await checkpoint();
     expect(f.root.dataset.error).toBeUndefined();
@@ -945,7 +945,7 @@ test('required app module failure still keeps dispatch gated and settles the err
   expect(h.f.root.dataset.moduleReady).toBeUndefined();
   expect(h.f.root.dataset.error).toContain('required app unavailable');
   expect(h.f.events).toEqual(['boot', 'ready']);
-  h.input.resolve(() => ({})); h.timer.resolve(() => ({}));
+  h.input.resolve(() => ({ arrive() {} })); h.timer.resolve(() => ({}));
   await checkpoint();
 });
 
@@ -1156,8 +1156,8 @@ test('tree --ax: a targeted read keeps its subtree, the chain above it, and its 
 
 test('tree --ax: parity joins by unique testId, normalizes the fixture controls, and refuses a partial side', () => {
   const web = axReply([el(0, 'checkbox', 'Checked', { testId: 'check', states: { checked: true } }), el(1, 'button', 'Add', { testId: 'add' }), el(2, 'button', 'A', { testId: 'dup' }), el(3, 'button', 'B', { testId: 'dup' })]);
-  const ios = axReply([
-    el(0, 'checkbox', 'Checked', { testId: 'check', value: 'checked', native: { role: ['button'] } }),
+  const ios = axReply([ // UIKit's form of a checkbox: a toggle whose value is "1" (LLP 1115.000 D13.3; agent-ax.test.mjs).
+    el(0, 'checkbox', 'Checked', { testId: 'check', value: '1', native: { role: ['button', 'toggleButton'] } }),
     el(1, 'button', 'Plus', { testId: 'add', native: { role: ['button'] } })], { source: 'uikit' });
   const { findings, unjoined } = axParity(web, ios);
   expect(findings.map(f => f.detail)).toEqual(['name "Add" (web) vs "Plus" (uikit)']);

@@ -1,17 +1,30 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
+// And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 let binary;
+const HELPER = 'EXACT_FILESYSTEM_HELPER';
+/** The helper this process runs, checked current: the bake names it to the Bun processes it spawns. */
+export const filesystemHelper = () => executable();
 function executable() {
   if (binary) return binary;
   const directory = resolve(root, 'target/exact-filesystem-tool');
   const suffix = process.platform === 'win32' ? '.exe' : '';
+  // A caller that checked the helper itself may name its captured copy in `EXACT_FILESYSTEM_HELPER`
+  // for the processes it spawns (the bake does, once per process, for its many Bun calls). The copy
+  // is taken after confirming it is this checkout's and still has the digest its name gives;
+  // anything else is checked here as usual
+  const inherited = process.env[HELPER];
+  if (inherited && dirname(inherited) === directory) {
+    const digest = new RegExp(`^exact-filesystem-([0-9a-f]{64})${suffix.replace('.', '\\.')}$`).exec(basename(inherited))?.[1];
+    if (digest && existsSync(inherited) && createHash('sha256').update(readFileSync(inherited)).digest('hex') === digest) return binary = inherited;
+  }
   const target = resolve(directory, `debug/exact-filesystem${suffix}`);
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
@@ -30,15 +43,7 @@ function executable() {
   // This is not the helper's stream lock; stale build claims are never stolen.
   mkdirSync(directory, { recursive: true });
   const claim = resolve(directory, '.bootstrap.lock'), owner = `${process.pid}-${randomBytes(12).toString('hex')}`;
-  const started = Date.now(), wait = new Int32Array(new SharedArrayBuffer(4));
-  for (;;) {
-    try { writeFileSync(claim, owner, { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      if (Date.now() - started >= 60000) throw new Error(`filesystem helper build busy (${claim}); remove a stale claim only after verifying its owner has exited`);
-      Atomics.wait(wait, 0, 0, 25);
-    }
-  }
+  claimBuild(claim, owner);
   let held = true;
   const release = () => {
     if (!held) return;
@@ -63,6 +68,51 @@ function executable() {
     binary = captured;
     return captured;
   } finally { release(); }
+}
+
+/** The wait for the helper's build claim. It ends when the owner releases the claim, and
+ * has no duration while that process runs: callers take the claim in turn, some two hundred
+ * of them in a cold workspace check, and a fixed bound fails everything still in line
+ * together on a loaded Mac. `unowned` bounds only the state with nobody to wait on: a
+ * claim that names no running process, which is never taken (LLP 1030.002 D3) and so
+ * fails. `now` is the clock that bound reads; a test advances it. */
+export const helperBuildWait = { now: () => Date.now(), unowned: 60_000 };
+const readClaim = (path) => {
+  try { return readFileSync(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+};
+const pidRuns = (pid) => {
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
+};
+// A killed builder's pid comes round again: a process that started after the claim was
+// written is not its owner. `lstart` has whole seconds. Where `ps` cannot say (Windows),
+// or the claim has gone, a running pid is believed. So is the pid of a claim seconds
+// old, which no pid has had time to come round to: that spares the line of callers a
+// `ps` each at every turn.
+function pidRecycled(pid, claim) {
+  let written;
+  try { written = statSync(claim).mtimeMs; } catch { return false; }
+  if (Date.now() - written < 10_000) return false;
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+  return Date.parse(ps.stdout?.trim() ?? '') > written + 1000;
+}
+// One condition, the claim is free, and one bound, `unowned`. Nothing notifies, so it polls.
+function claimBuild(claim, owner) {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  let seen, since, recycled;
+  for (;;) {
+    try { writeFileSync(claim, owner, { flag: 'wx' }); return; }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    const text = readClaim(claim);
+    if (text === null) continue; // released between the two calls
+    const now = helperBuildWait.now(), pid = Number(/^(\d+)-[0-9a-f]{24}$/.exec(text)?.[1]);
+    if (text !== seen) { seen = text; since = now; recycled = pid > 0 && pidRuns(pid) && pidRecycled(pid, claim); }
+    const running = pid > 0 && !recycled && pidRuns(pid);
+    if (!running && now - since >= helperBuildWait.unowned) {
+      const why = pid > 0 ? `pid ${pid} ${recycled ? 'is a later process, not its builder' : 'has stopped'}` : `it reads ${JSON.stringify(text)}, which names no process`;
+      throw new Error(`filesystem helper: nothing has been building it for ${Math.round((now - since) / 1000)} s, yet its build claim is held (${claim}: ${why}). This is the tooling's own helper, not the code being built. A stale claim is never taken automatically: remove it only after verifying its owner has exited.`);
+    }
+    Atomics.wait(pause, 0, 0, 25);
+  }
 }
 export function filesystemErrorCode(errno, platform = process.platform) {
   const codes = platform === 'win32'
@@ -95,7 +145,9 @@ export async function filesystemLock(root, path, fn) {
   const rejectAll = (error) => { failure = error; for (const item of pending.splice(0)) item.reject(error); };
   child.on('error', rejectAll);
   child.stdin.on('error', rejectAll);
-  child.on('exit', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
+  // Fail what is pending only once its output is read: a reply written just before exiting (a held lock's refusal)
+  // answers its request, as the reader's does
+  child.on('close', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
   lines.on('line', (line) => {
     const item = pending.shift();
     if (!item) return;
@@ -173,3 +225,21 @@ function createReader() {
   reference(false);
   return session;
 }
+
+/** Remove a private mkdtemp directory owned by this invocation. Bun 1.4.2's
+ * recursive rm can silently leave entries in large captured Git repositories. */
+export function removePrivateTree(path) {
+  path = resolve(path);
+  if (dirname(path) === path) throw new Error(`refusing to remove a filesystem root: ${path}`);
+  if (process.platform === 'win32') {
+    rmSync(path, {recursive:true, force:true, maxRetries:3, retryDelay:100});
+    if (existsSync(path)) throw new Error(`could not remove private directory ${path}: directory remains`);
+    return;
+  }
+  const result = spawnSync('/bin/rm', ['-rf', '--', path], { encoding: 'utf8' });
+  if (result.status !== 0 || existsSync(path)) {
+    throw new Error(`could not remove private directory ${path}: ${result.error?.message || result.stderr || result.signal || 'directory remains'}`);
+  }
+}
+
+if (import.meta.main && process.argv[2] === '--helper') process.stdout.write(filesystemHelper());

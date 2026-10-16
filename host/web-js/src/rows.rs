@@ -119,6 +119,23 @@ impl Em<'_> {
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
+        let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
+        // @ref LLP 1115.002 D6 — a metric the binding may name is its value
+        // in the web's column before the row's own map sees it.
+        let metric =
+            style::metric_map(plan, plan.code(b.expr)).map(|m| format!("()=>({m})(({f})())"));
+        let f = metric.as_deref().unwrap_or(f);
+        if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
+            .iter()
+            .find(|(attribute, _)| *attribute == id)
+        {
+            let p = self.uses.rt("svgGeometry");
+            let css = self
+                .uses
+                .rt(if self.is_motion_node(i) { "Sm" } else { "S" });
+            let _ = write!(self.out, "{p}({e},\"{name}\",{f},{css});");
+            return Ok(());
+        }
         if matches!(
             id,
             StyleId::GridTemplateColumns
@@ -132,6 +149,12 @@ impl Em<'_> {
         }
         if id == StyleId::AnimationTimeline && style::can_be(plan, plan.code(b.expr), &clock) {
             self.clocks();
+        }
+        // A bound pin: modes.js gives the boundary its tuple (LLP 1121 D7).
+        if id == StyleId::Mode {
+            let p = self.uses.rt("P");
+            let _ = write!(self.out, "{p}({e},\"data-x-pin\",{f});");
+            return Ok(());
         }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
@@ -177,7 +200,8 @@ impl Em<'_> {
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
                 let table = serde_json::to_string(&style::font_family_table(plan)).unwrap();
-                one("font-family", Some(format!("v=>{table}[v]??null")))
+                let runtime = self.uses.rt("fontFamily");
+                one("font-family", Some(format!("v=>typeof v===\"string\"?{runtime}(v):{table}[v]??null")))
             }
             // css.rs's legacy clamp, on a non-scrolling block only.
             StyleId::Display if parts.props.contains_key("data-button-style") =>
@@ -234,11 +258,11 @@ impl Em<'_> {
                 let press = self.uses.rt("pressFeedback");
                 let _ = write!(self.out, "{press}();");
                 vec![
-                    ("--exact-press".into(), String::new(), Some("v=>v==null||v===1?null:v".into())),
+                    ("--exact-press".into(), String::new(), Some("v=>v==null||v===1||/^\\s*unset\\s*$/i.test(v)?null:v".into())),
                     (
                         "scale".into(),
                         String::new(),
-                        Some("v=>v==null||v===1?null:\"calc(var(--exact-scale,1) * var(--exact-press-factor,1))\"".into()),
+                        Some("v=>v==null||v===1||/^\\s*unset\\s*$/i.test(v)?null:\"calc(var(--exact-scale,1) * var(--exact-press-factor,1))\"".into()),
                     ),
                 ]
             }
@@ -307,7 +331,7 @@ impl Em<'_> {
                             .join("|");
                         let inner = map.unwrap_or_else(|| "v=>v".into());
                         Some(format!(
-                            "v=>{{if(v!=null&&/(^|[^a-z0-9-])({names})\\(/i.test(v)){{const x=globalThis.exact;x?.journal?.push(`t=${{x.now?.()??0}} invalid {} value ${{JSON.stringify(String(v))}}; unset`);return null}}return({inner})(v)}}",
+                            "v=>{{if(v!=null&&/(^|[^a-z0-9-])({names})\\(/i.test(v)){{const x=globalThis.exact;x?.journal?.push(`t=${{x.now?.()??0}} invalid {} value ${{JSON.stringify(String(v))}}; unset`);return \"unset\"}}return({inner})(v)}}",
                             id.name().replace('_', "-")
                         ))
                     } else {
@@ -328,16 +352,37 @@ impl Em<'_> {
         } else {
             "S"
         });
+        // @ref LLP 1121 D7 — an inherited colour row says whether it read
+        // a token (modes.js `Sx`), which a boundary below writes again (a
+        // stroke's shorthand by its colour). A boundary declares the tokens,
+        // so its `--exact-accent` naming one that names the accent would name
+        // itself: that token's colour stands by tuple (`data-x-accent`), as
+        // css.rs leaves a self-reference out; a clear there writes nothing.
         for (name, unit, map) in writes {
-            match map {
-                Some(m) => {
-                    let _ = write!(
-                        self.out,
-                        "{s}({e},\"{name}\",\"{unit}\",()=>({m})(({f})()));"
-                    );
+            let modes = crate::modes::active(plan);
+            let channel = crate::modes::CHANNELS
+                .iter()
+                .position(|(_, p)| {
+                    *p == name || name == "-webkit-text-stroke" && *p == "-webkit-text-stroke-color"
+                })
+                .filter(|_| modes);
+            let map = match map {
+                Some(m) if modes && name == "--exact-accent" => Some(format!(
+                    "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
+                    serde_json::to_string(&crate::modes::accent_properties(plan)).unwrap()
+                )),
+                map => map,
+            };
+            let value = match map {
+                Some(m) => format!("()=>({m})(({f})())"),
+                None => f.to_string(),
+            };
+            match channel {
+                Some(j) => {
+                    let _ = write!(self.out, "Sx({s},{e},\"{name}\",\"{unit}\",{value},{j});");
                 }
                 None => {
-                    let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{f});");
+                    let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{value});");
                 }
             }
         }
@@ -590,7 +635,10 @@ pub(super) fn attributes(
             // The app's own file (LLP 1069.002 D7): symbols.js shows it
             // through an object URL, media.js plays it (podcast F19); the
             // browser has no `app:` scheme.
-            "src" if matches!(element, "img" | "video" | "audio") && value.starts_with("app:/") => {
+            "src"
+                if matches!(element, "img" | "video" | "audio" | "iframe")
+                    && value.starts_with("app:/") =>
+            {
                 attrs.push(("data-app-src".into(), value.clone()));
             }
             "poster" if element == "video" && value.starts_with("app:/") => {
@@ -611,9 +659,13 @@ pub(super) fn attributes(
                 attrs.push((name.clone(), value.clone()));
                 css.push_str("touch-action:none;");
             }
-            // A select's value is its options' (`element_extras`).
+            // A select's value is its options' (`element_extras`); a
+            // `<progress>`'s is its attribute, without which it is
+            // indeterminate (LLP 1116 D8).
             "value" => match element {
-                "input" | "button" | "option" => attrs.push((name.clone(), value.clone())),
+                "input" | "button" | "option" | "progress" => {
+                    attrs.push((name.clone(), value.clone()))
+                }
                 "textarea" => content = Some(value.clone()),
                 _ => {}
             },
@@ -748,8 +800,79 @@ mod tests {
             serde_json::json!([
                 format!("drop-shadow(0px 2px 4px {})", role("system-orange")),
                 "drop-shadow(0px 2px 4px #010203ff)",
-                null,
+                "unset",
             ])
+        );
+    }
+
+    /// A grouped row whose flag is bound chooses between two metrics as it
+    /// runs (LLP 1115.002 D6): the page, which keeps no kernel, reads each
+    /// name as its value in the web's column, as the kernel reads a literal
+    /// one. A number takes the row's `px`, a role goes on through the colour
+    /// map, and a metric with no row on the web unsets the row.
+    #[test]
+    fn a_bound_metric_is_its_value_in_the_webs_column() {
+        let plan = contract::compile(
+            r#"component App
+  state gone = false
+  action flip
+    gone = !gone
+  view
+    list appearance="auto" flex=1
+      section
+        button press=flip destructive=gone testId="row"
+          if gone
+            image "symbol:sf/trash"
+          text "Remove"
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(
+            !js.contains("\"-exact-grouped-") || js.contains("Object.hasOwn(M,v)?M[v]:v"),
+            "a metric's name is bound and nothing reads it:\n{js}"
+        );
+        let named = |row: &str| {
+            let binding = plan
+                .bindings
+                .iter()
+                .find(|b| {
+                    b.kind == exact_plan::BindingKind::Style
+                        && exact_kernel::StyleId::from_bit(b.id as u32)
+                            .is_some_and(|id| id.name() == row)
+                        && crate::style::literal(&plan, plan.code(b.expr)).is_none()
+                        && crate::style::metric_map(&plan, plan.code(b.expr)).is_some()
+                })
+                .unwrap_or_else(|| panic!("no bound {row} names a metric"));
+            crate::style::metric_map(&plan, plan.code(binding.expr)).unwrap()
+        };
+        // The row starts at its text, after a symbol where one is shown.
+        assert_eq!(
+            run(
+                &named("margin_left"),
+                &[
+                    "-exact-grouped-row-inset",
+                    "-exact-grouped-row-inset-symbol",
+                    "12px"
+                ]
+            ),
+            serde_json::json!([16, 56, "12px"])
+        );
+        // Red when destructive, by its role; the label's colour is no metric.
+        assert_eq!(
+            run(
+                &named("text_color"),
+                &["-exact-grouped-destructive-color", "-exact-label"]
+            ),
+            serde_json::json!(["-exact-system-red", "-exact-label"])
+        );
+        // The Mac's push button's padding is no row on the web.
+        assert_eq!(
+            run(
+                &named("padding_left"),
+                &["-exact-grouped-button-padding-start", "unset"]
+            ),
+            serde_json::json!([null, "unset"])
         );
     }
 
@@ -802,15 +925,21 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("exact-column-count-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let page = dir.join("col.html");
+        let cursor_writes =
+            crate::style::style_writes(exact_kernel::StyleId::Cursor as u16, false).unwrap();
+        let cursor_map = cursor_writes[0].map.unwrap();
         let html = format!(
-            r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}</style><div id="flow">column</div><pre id="out"></pre><script>
-const journal=[];
+            r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}button{{cursor:default}}</style><div id="flow">column</div><div style="cursor:grab"><button id="cursor">Cursor</button></div><pre id="out"></pre><script>
+const journal=[];globalThis.exact={{journal,now:()=>0}};
 function css(e,prop,unit,v){{const t=v==null?null:typeof v==="number"?v+unit:String(v);if(t==null){{e.style.removeProperty(prop);return}}e.style.removeProperty(prop);e.style.setProperty(prop,t);if(!e.style.getPropertyValue(prop))journal.push(`unset ${{prop}}: ${{JSON.stringify(v)}} is not a value it takes`)}}
 const map={map_src};const unit={unit:?};const flow=document.getElementById("flow");
 const apply=v=>css(flow,"column-count",unit,map(v));
 apply(2);const after2=getComputedStyle(flow).columnCount;const journal2=journal.slice();journal.length=0;
 apply(0);const after0=getComputedStyle(flow).columnCount;
-document.getElementById("out").textContent=JSON.stringify({{after2,after0,journal2,journal0:journal.slice(),inline:flow.style.getPropertyValue("column-count")}});
+const journal0=journal.slice();journal.length=0;
+const cursorMap={cursor_map},cursor=document.getElementById("cursor");
+const cursors=["pointer","inherit","unset","not-a-cursor",null].map(v=>{{css(cursor,"cursor","",cursorMap(v));return getComputedStyle(cursor).cursor}});
+document.getElementById("out").textContent=JSON.stringify({{after2,after0,journal2,journal0,inline:flow.style.getPropertyValue("column-count"),cursors,cursorJournal:journal}});
 </script>"#
         );
         std::fs::write(&page, html).unwrap();
@@ -869,6 +998,16 @@ document.getElementById("out").textContent=JSON.stringify({{after2,after0,journa
         assert_eq!(computed["journal2"], serde_json::json!([]), "{computed}");
         assert_eq!(computed["journal0"], serde_json::json!([]), "{computed}");
         assert_eq!(computed["inline"], "auto", "{computed}");
+        assert_eq!(
+            computed["cursors"],
+            serde_json::json!(["pointer", "grab", "grab", "grab", "default"]),
+            "{computed}"
+        );
+        assert_eq!(
+            computed["cursorJournal"].as_array().unwrap().len(),
+            1,
+            "{computed}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

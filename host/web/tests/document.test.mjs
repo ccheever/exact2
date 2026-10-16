@@ -3,34 +3,39 @@
 // live host's DOM at the same URL once the runtime is ready. A difference
 // names the view. What the browser owns after layout — a symbol's sized
 // source, a surface's pixel size, focus — is left out of both sides.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
+import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
-import { jsTargetBuild, serveStatic } from '../serve.mjs';
+import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
+import { withLook } from '../look.mjs';
+import { need, notApplicable } from '../../../scripts/coverage.mjs';
+import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+// The shell as a default build ships it (look.mjs): what the stylesheet's own tests below draw on.
+const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'));
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
-function weatherlightPrerequisite() {
-  if (process.env.EXACT_GLUE_FAST === '1') return 'the async glue step does not build apps; the web-build-test step runs this test';
-  if (browserUnavailable) return browserUnavailable;
-  if (process.env.EXACT_JS_ENGINE === 'stub') return 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub';
-  if (!['linux', 'darwin'].includes(process.platform)) return `the Weatherlight wasm build is not provisioned on ${process.platform}`;
+/** How the Weatherlight test is chosen: `need(kind, why)` or `notApplicable(why)`, or `test`. */
+function weatherlightCheckFor() {
+  if (process.env.EXACT_GLUE_FAST === '1') return notApplicable('the async glue step does not build apps; the web-build-test step runs this test');
+  if (!['linux', 'darwin'].includes(process.platform)) return notApplicable(`the Weatherlight wasm build is not provisioned on ${process.platform}`);
+  if (browserUnavailable) return need('chrome', browserUnavailable);
+  if (process.env.EXACT_JS_ENGINE === 'stub') return need('hermes', 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub');
   const bundle = hermesBundle(hermesTarget());
-  if (!bundle.installed) return `the Weatherlight wasm build needs ${bundle.target}; missing ${bundle.missing.join(', ')}; run ${bundle.fix}`;
+  if (!bundle.installed) return need('hermes', `the Weatherlight wasm build needs ${bundle.target}; missing ${bundle.missing.join(', ')}; run ${bundle.fix}`);
   const needed = [resolve(process.env.EXACT_TSC ?? resolve(ROOT, 'node_modules/.bin/tsc')),
     resolve(process.env.EXACT_ROLLDOWN ?? resolve(ROOT, 'node_modules/.bin/rolldown'))];
   const missing = needed.filter(path => !existsSync(path));
-  return missing.length ? `the Weatherlight wasm build needs its complete Hermes and TypeScript toolchain; missing ${missing.join(', ')}` : null;
+  return need('typescript', missing.length ? `the Weatherlight wasm build needs tsc and rolldown; missing ${missing.join(', ')}` : null);
 }
-const weatherlightUnavailable = weatherlightPrerequisite();
 let unavailable = browserUnavailable;
 try {
   if (!unavailable) {
@@ -43,18 +48,29 @@ try {
   if (!error.message.startsWith('web dist is not a complete build') && !error.message.startsWith('web dist is a JS-target build') && !error.message.startsWith('web build is stale')) throw error;
   unavailable = error.message;
 }
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-if (weatherlightUnavailable && weatherlightUnavailable !== unavailable) console.warn(`SKIP: ${weatherlightUnavailable}`);
-const check = unavailable ? test.skip : test;
-const browserCheck = browserUnavailable ? test.skip : test;
-const weatherlightCheck = weatherlightUnavailable ? test.skip : test;
+// The Caltrain document tests need a current wasm Caltrain dist (EXACT_WEB_DIST, else host/web/dist).
+const check = need(browserUnavailable ? 'chrome' : 'fixture', unavailable);
+const browserCheck = need('chrome', browserUnavailable);
+const weatherlightCheck = weatherlightCheckFor();
 const [width, height] = [390, 844]; // the page viewport documents render at
+
+/** The shell the renderer is given: host/web/index.html in this run's look (look.mjs), which is the dist's (one
+ * built in another look is stale, above), so the renderer resolves a role in the column the live page does. */
+let shellFile;
+function shellInLook() {
+  if (!shellFile) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-document-shell-'));
+    process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(shellFile = resolve(dir, 'index.html'), withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8')));
+  }
+  return shellFile;
+}
 
 /** The rendered page: the shell with the renderer's head, the document in
  * `#exact-root` and its checkpoint, as the build writes it. */
 function renderedPage(location) {
   const render = spawnSync('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--',
-    '--plan', resolve(dist, 'app.plan'), '--viewport', `${width}x${height}`, '--shell', resolve(ROOT, 'host/web/index.html'), location],
+    '--plan', resolve(dist, 'app.plan'), '--viewport', `${width}x${height}`, '--shell', shellInLook(), location],
   { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' } });
   if (render.status !== 0) throw new Error(`caltrain-render: ${render.stderr}${render.stdout}`);
   const page = JSON.parse(render.stdout.trim().split('\n').at(-1));
@@ -150,20 +166,16 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
-    `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
-    '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
-  { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
-  const lines = [];
-  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
-  const exited = new Promise((ok) => child.on('exit', ok));
+  const { cdp, lines } = await browser();
+  lines.length = 0;
+  // A browser context of its own: no cookie, storage, cache or history of another test's
+  const { browserContextId } = await cdp.send('Target.createBrowserContext');
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
     const tab = async (scripts, onNew) => {
-      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId });
       const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
       const call = (method, params) => cdp.send(method, params, sessionId);
+      await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
       await call('Page.enable');
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
       await call('Emulation.setScriptExecutionDisabled', { value: !scripts });
@@ -193,16 +205,41 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     };
     await drive(tab);
   } finally {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    await Promise.race([exited, Bun.sleep(2000)]);
+    await cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {});
     server?.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
 
+/** The file's one Chrome, launched at its first document and again after it exits (Bun kills it when a test times out): a
+ * launch per test cost 0.17 s each. `lines` holds the stderr received since the current test reset it, which can include the
+ * end of the previous test's. */
+let launched = null;
+function browser() {
+  if (launched) return launched;
+  const started = launched = (async () => {
+    const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
+    const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
+      `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
+      '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
+    { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    const lines = [];
+    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
+    const exited = new Promise((ok) => child.on('exit', ok));
+    exited.then(() => { if (launched === started) launched = null; });
+    const close = async () => {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      await Promise.race([exited, Bun.sleep(2000)]);
+      rmSync(profile, { recursive: true, force: true });
+    };
+    return { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines, close };
+  })();
+  return started;
+}
+afterAll(async () => { if (launched) await (await launched).close(); });
+
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 
-check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`Caltrain's served document is the live host's DOM`, async () => {
   // The live page launches at its own URL, agent query included; the
   // document is rendered at that same location.
   await withDocument('/?agent=1', async (tab) => {
@@ -232,7 +269,7 @@ check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${
   });
 }, 180000);
 
-check(`a document whose digest doesn't match is replaced once, and the journal says where${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a document whose digest doesn't match is replaced once, and the journal says where`, async () => {
   await withDocument('/?agent=1', async (tab) => {
     const live = await tab(true, WATCH);
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
@@ -245,7 +282,7 @@ check(`a document whose digest doesn't match is replaced once, and the journal s
   }, { tamper: (page) => page.replace(/data-digest="[0-9a-f]{32}"/, `data-digest="${'0'.repeat(32)}"`) });
 }, 180000);
 
-check(`a press on the document before the runtime starts is replayed once${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a press on the document before the runtime starts is replayed once`, async () => {
   let clicked;
   const wasmAfter = new Promise((resolve) => { clicked = resolve; });
   await withDocument('/?agent=1', async (tab) => {
@@ -265,7 +302,7 @@ check(`a press on the document before the runtime starts is replayed once${unava
   }, { wasmAfter });
 }, 180000);
 
-check(`a press before the glue runs is captured, replays once, and a later one isn't doubled${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a press before the glue runs is captured, replays once, and a later one isn't doubled`, async () => {
   // LLP 1048.000 D6, 1048.001 D5: the page's inline capture script hears a
   // press from first parse; here the glue is held back until after it.
   let release;
@@ -284,7 +321,7 @@ check(`a press before the glue runs is captured, replays once, and a later one i
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
     await live.until("document.documentElement.style.colorScheme === 'dark'", 'the replayed press');
     await live(settled);
-    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(setScheme\)/.test(l)).length;
+    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(chooseScheme\)/.test(l)).length;
     expect(await presses()).toBe(1);
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
     // After adoption a press is the runtime's own: once.
@@ -302,7 +339,7 @@ check(`a press before the glue runs is captured, replays once, and a later one i
 const away = (href) => `(() => { const a = document.createElement('a'); a.href = '${href}'; document.body.append(a); a.click(); })()`;
 const downloading = "!!globalThis.exact?.runtime && performance.getEntriesByType('resource').some((e) => e.name.endsWith('/document-glue.js'))";
 
-check(`a link that doesn't leave (a 204) stops the runtime's download, and the page downloads it again${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a link that doesn't leave (a 204) stops the runtime's download, and the page downloads it again`, async () => {
   let release;
   const wasmAfter = new Promise((resolve) => { release = resolve; });
   const wasm = [];
@@ -320,7 +357,7 @@ check(`a link that doesn't leave (a 204) stops the runtime's download, and the p
   }, { wasmAfter, answers: { '/no-content': [204, ''] }, requested: (url) => { if (url.startsWith('/app.wasm')) wasm.push(url); } });
 }, 180000);
 
-check(`Back from the bfcache downloads the runtime a link stopped${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`Back from the bfcache downloads the runtime a link stopped`, async () => {
   let release;
   const wasmAfter = new Promise((resolve) => { release = resolve; });
   await withDocument('/?agent=1', async (tab) => {
@@ -355,7 +392,7 @@ async function renderServer({ app = 'caltrain', dir = dist, name = 'Caltrain' } 
   return { origin, lines, stop: () => { try { child.kill('SIGKILL'); } catch {} } };
 }
 
-check(`the render server's page is the document, and the runtime adopts it${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`the render server's page is the document, and the runtime adopts it`, async () => {
   const server = await renderServer();
   try {
     const response = await fetch(`${server.origin}/?agent=1`);
@@ -385,7 +422,7 @@ check(`the render server's page is the document, and the runtime adopts it${unav
 // document renders at build and per request with no network. The runtime
 // adopts it, and the module's realm runs under the server's CSP: its two
 // inline scripts are admitted by hash, nothing else is.
-weatherlightCheck(`a TypeScript app's served document is adopted, with its module running under the CSP${weatherlightUnavailable ? ` — ${weatherlightUnavailable}` : ''}`, async () => {
+weatherlightCheck(`a TypeScript app's served document is adopted, with its module running under the CSP`, async () => {
   const out = mkdtempSync(resolve(tmpdir(), 'exact-weatherlight-'));
   try {
     const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight', '--wasm'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
@@ -425,7 +462,7 @@ weatherlightCheck(`a TypeScript app's served document is adopted, with its modul
 
 // The small entry can be exercised without a compiled application. Its runtime
 // consumer here records semantic dispatches, including the first edit and IME.
-browserCheck(`interaction documents stay readable, then replay edits and actions once${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
+browserCheck(`interaction documents stay readable, then replay edits and actions once`, async () => {
   const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
     <div data-view="1" data-exact-on="navigate">
       <p id="reading">Public content</p><a href="#reading" id="link">Read more</a>
@@ -475,12 +512,110 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
   }, { html, files });
 }, 60000);
 
-// LLP 1069.011.001 D5/D6/D16: the shipped shell isolates button layout,
-// truncates only the requested titles, and keeps authored disabled colours.
+browserCheck(`early key replay carries capture cancellation to key handlers and Enter submit`, async () => {
+  const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
+    <div data-view="1" data-exact-on="keycapture key"><input data-view="2" data-exact-on="key submit" name="draft"></div></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = [];
+      const views = new Map([...document.querySelectorAll('[data-view]')].map(el => {
+        el.exactHandlers = el.dataset.exactOn.split(' '); return [Number(el.dataset.view), el];
+      }));
+      const page = exact.documentPage.connect({ views, dispatch: (id, kind, value, event) => {
+        __events.push([id, kind, value]);
+        if (kind === 44) { if (value.startsWith('Shift+')) event?.preventDefault(); else if (!value.startsWith('Alt+') && event) event.exactStopped = true; }
+        if (kind === 6 && id === 1 && value.startsWith('Alt+')) event?.preventDefault();
+      }});
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+  };
+  await withDocument('/', async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live(`(() => { const el = document.querySelector('input');
+      el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,cancelable:true}));
+      el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',shiftKey:true,bubbles:true,cancelable:true}));
+      el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',altKey:true,bubbles:true,cancelable:true})); })()`);
+    await live.until('typeof globalThis.__release === "function"', 'interaction runtime');
+    await live('__release()');
+    await live.until('!exact.documentPage.holding && __events.length >= 2', 'early key replay');
+    expect(await live('__events.map(([id,kind]) => [id,kind])')).toEqual([[1,44],[2,7],[1,44],[2,6],[1,6],[1,44],[2,6],[1,6]]);
+  }, { html, files });
+}, 60000);
+
+browserCheck('early presses reject replacement labels after an adoption mismatch', async () => {
+  const html = `<!doctype html><div id="exact-root">
+    <button data-view="1" data-exact-on="press">Delete Alice</button>
+    <button data-view="2" data-exact-on="press">Keep</button></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = []; globalThis.__logs = [];
+      const views = new Map(), root = document.getElementById('exact-root');
+      const page = exact.documentPage.connect({ views, log: line => __logs.push(line),
+        dispatch: (id, kind) => __events.push([id, kind]) });
+      globalThis.__release = () => {
+        page.hold({ops:[{op:'adopt',adopted:false}]});
+        page.release(() => {
+          for (const [id, label] of [[1, 'Delete Bob'], [2, 'Keep']]) {
+            const el = document.createElement('button'); el.dataset.view = id;
+            el.textContent = label; el.exactHandlers = ['press']; views.set(id, el); root.append(el);
+          }
+        });
+      };`,
+  };
+  await withDocument('/', async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live("document.querySelectorAll('button').forEach(el => el.click())");
+    await live.until('typeof globalThis.__release === "function"', 'interaction runtime');
+    await live('__release()');
+    expect(await live('__events')).toEqual([[2, 0]]);
+    expect(await live('__logs.some(line => line.includes("early press was dropped (view 1"))')).toBe(true);
+  }, { html, files });
+}, 60000);
+
+browserCheck(`early capture updates keep the same view's bubble handler`, async () => {
+  const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
+    <div data-view="1" data-exact-on="keycapture key"><input data-view="2" data-exact-on="submit"><span id="log">before</span></div></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = []; globalThis.__logs = [];
+      const views = new Map([...document.querySelectorAll('[data-view]')].map(el => {
+        el.exactHandlers = el.dataset.exactOn.split(' '); return [Number(el.dataset.view), el];
+      }));
+      const page = exact.documentPage.connect({ views, log: line => __logs.push(line),
+        dispatch: (id, kind, value, event) => {
+          __events.push([id, kind]);
+          if (kind === 44) document.getElementById('log').textContent = 'after';
+          if (kind === 6) event.preventDefault();
+        }});
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+  };
+  await withDocument('/', async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live("document.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,cancelable:true}))");
+    await live.until('typeof globalThis.__release === "function"', 'interaction runtime');
+    await live('__release()');
+    await live.until('!exact.documentPage.holding', 'early key replay');
+    expect(await live('__events')).toEqual([[1, 44], [1, 6]]);
+    expect(await live('__logs')).toEqual([]);
+  }, { html, files });
+}, 60000);
+
+// LLP 1069.011.001 D5/D6: the shipped shell isolates button layout and
+// truncates only the requested titles. LLP 1116.005 D8 (superseding D16's
+// kept accent on the web): a disabled button is the disabled look whatever
+// its accent, a glass its own material (form-chrome.test.mjs has the rest).
 for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   const button = (id, style = '', extra = '') => `<button id="${id}" data-native data-button-style="${id === 'plain-accent' ? 'plain' : id === 'glass-accent' ? 'glass' : id === 'clear-glass-accent' ? 'clear-glass' : 'filled'}" style="display:grid;width:120px;${style}" ${extra}><span data-exact-text>A native title long enough to wrap onto several lines</span></button>`;
-  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;--exact-button-title-min:0px;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div><div style="display:flex;width:40px">${button('floor', 'width:auto;flex:1 1 0;')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;--exact-button-title-min:0px;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div><div style="display:flex;width:40px">${button('floor', 'width:auto;flex:1 1 0;')}</div><span id="fill" style="background-color:var(--exact-tertiary-fill)"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'native fixture');
@@ -508,13 +643,120 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
       expect(facts.floor.width).toBeGreaterThan(40);
       expect(facts.floor.scroll).toBeLessThanOrEqual(facts.floor.width);
     }
-    if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
-    if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
-    if (concern === 'disabled plain accent') expect(facts['plain-accent'].color).toBe('rgb(255, 0, 0)');
-    if (concern === 'disabled accent') {
-      expect(facts.authored.background).toBe('rgb(255, 0, 0)');
-      expect(facts['default-off'].background).not.toBe(facts.authored.background);
+    if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('rgba(255, 255, 255, 0.7)');
+    if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('rgba(255, 255, 255, 0.15)');
+    if (concern === 'disabled plain accent') {
+      expect(facts['plain-accent'].color).not.toBe('rgb(255, 0, 0)');
+      expect(facts['plain-accent'].color).toBe(facts['default-off'].color);
     }
+    if (concern === 'disabled accent') {
+      // The look's neutral fill (`-exact-tertiary-fill`, which its sheet carries), not the accent's red.
+      const fill = await page("getComputedStyle(document.getElementById('fill')).backgroundColor");
+      expect(fill).not.toBe('rgba(0, 0, 0, 0)');
+      expect(facts.authored.background).toBe(fill);
+      expect(facts['default-off'].background).toBe(facts.authored.background);
+    }
+  }, {html});
+});
+
+// LLP 1116.003 D3.1, as the neutral look draws it (LLP 1115.000 D4 part B):
+// the ink on an accent fill is white or black, whichever reads at 4.5:1 or
+// better on the accent as the scheme resolves it. A pale dark-scheme accent
+// (event-rsvp's, recipe-finder's) takes black, and so does a mid-light blue
+// (`#007aff`, on which white is 4.0:1); the unsaid accent and the destructive
+// red are dark in light and light in dark, so white and then black; an
+// authored colour wins. (LLP 1116 D1's look kept white down to 3:1.)
+browserCheck('the ink on an accent fill is chosen for contrast in each scheme', async () => {
+  const shell = SHIPPED;
+  const cases = {
+    pale: ['bordered-prominent', '--exact-accent:light-dark(#6652c5, #b5a4ff);'],
+    salmon: ['filled', '--exact-accent:light-dark(#b74e2e, #f49d7d);'],
+    teal: ['prominent-glass', '--exact-accent:light-dark(#16766c, #74d6c5);'],
+    unsaid: ['bordered-prominent', ''],
+    blue: ['filled', '--exact-accent:light-dark(#007aff, #0a84ff);'],
+    destructive: ['bordered-prominent', '', 'data-destructive="true"'],
+    authored: ['bordered-prominent', '--exact-accent:#b5a4ff;color:rgb(255, 0, 0);'],
+    disabled: ['bordered-prominent', '--exact-accent:#b5a4ff;', 'disabled'],
+  };
+  const buttons = scheme => Object.entries(cases).map(([id, [look, style, extra = '']]) =>
+    `<button id="${scheme}-${id}" data-native data-button-style="${look}" style="display:grid;${style}" ${extra}><span data-exact-text>Going</span></button>`).join('');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light">${buttons('light')}</div><div style="color-scheme:dark">${buttons('dark')}</div><span id="light-gray" style="color-scheme:light;color:var(--exact-gray-text)"></span><span id="dark-gray" style="color-scheme:dark;color:var(--exact-gray-text)"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'accent fill fixture');
+    // Each button's ink and fill as the engine paints them, and the ratio between the two.
+    const drawn = await page(`(() => { const x = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+      const rgb = c => { x.clearRect(0, 0, 1, 1); x.fillStyle = c; x.fillRect(0, 0, 1, 1); return [...x.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+      const lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+      return Object.fromEntries([...document.querySelectorAll('button, #light-gray, #dark-gray')].map(e => { const s = getComputedStyle(e), ink = rgb(s.color), fill = rgb(s.backgroundColor), [hi, lo] = [lum(ink), lum(fill)].sort((a, b) => b - a);
+        return [e.id, { ink: ink.join(), ratio: (hi + .05) / (lo + .05) }]; })); })()`);
+    const ink = Object.fromEntries(Object.entries(drawn).map(([id, d]) => [id, d.ink]));
+    const [white, black] = ['255,255,255', '0,0,0'];
+    expect(Object.fromEntries(['pale', 'salmon', 'teal', 'unsaid', 'blue', 'destructive'].flatMap(id => ['light', 'dark'].map(scheme => [`${scheme}-${id}`, ink[`${scheme}-${id}`]])))).toEqual({
+      'light-pale': white, 'dark-pale': black, 'light-salmon': white, 'dark-salmon': black, 'light-teal': white, 'dark-teal': black,
+      'light-unsaid': white, 'dark-unsaid': black, 'light-blue': black, 'dark-blue': black, 'light-destructive': white, 'dark-destructive': black,
+    });
+    // On a fill that is the accent itself (a glass is its own material) the ink reads at 4.5:1 or better.
+    for (const id of ['pale', 'salmon', 'unsaid', 'blue', 'destructive']) for (const scheme of ['light', 'dark']) expect([scheme, id, drawn[`${scheme}-${id}`].ratio >= 4.5]).toEqual([scheme, id, true]);
+    for (const scheme of ['light', 'dark']) {
+      expect(ink[`${scheme}-authored`]).toBe('255,0,0');
+      expect(ink[`${scheme}-disabled`]).toBe(ink[`${scheme}-gray`]);
+    }
+  }, {html});
+});
+
+// LLP 1116.003 D3.2: a symbol that names no tint is the nearest authored
+// accent, as `AccentColor` is (LLP 1116.001 D2) and UIKit's inherited tint
+// is: event-rsvp's calendar under `light-dark(#6652c5, #b5a4ff)` drew the
+// browser's blue. Both targets' symbol sheets; an authored tint still wins.
+for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is the nearest accent (${sheet})`, async () => {
+  const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
+  const shell = SHIPPED;
+  const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
+  const html = shell.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root"><div style="--exact-accent:light-dark(#6652c5, #b5a4ff)"><div style="color-scheme:light">${img('light')}</div><div style="color-scheme:dark">${img('dark')}</div>${img('authored', '--exact-tint:rgb(255, 0, 0)')}</div>${img('unsaid')}<span id="system" style="color:var(--exact-accent, AccentColor)"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'symbol fixture');
+    const tint = await page(`(() => Object.fromEntries(['light', 'dark', 'authored', 'unsaid'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor]).concat([['system', getComputedStyle(document.getElementById('system')).color]])))()`);
+    expect(tint.light).toBe('rgb(102, 82, 197)');
+    expect(tint.dark).toBe('rgb(181, 164, 255)');
+    expect(tint.authored).toBe('rgb(255, 0, 0)');
+    expect(tint.unsaid).toBe(tint.system); // with no accent authored, the page's own: the look's (the browser's hue, fitted to read)
+  }, {html});
+});
+
+// LLP 1115.000 D3.8: an SVG shape nobody filled is its text's colour, where
+// the browser's own initial `fill` is black. The page's sheet says it on the
+// outermost `svg`, so a `fill` on a shape or on a group wins and reaches a
+// nested `svg` below the group; `currentcolor` is each element's own colour;
+// a gradient's stop and a filter's flood stay SVG's black.
+browserCheck('an unsaid SVG fill is the text colour', async () => {
+  const shell = SHIPPED;
+  const rect = (id, css = '') => `<rect id="${id}" width="4" height="4"${css ? ` style="${css}"` : ''}/>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color:rgb(10, 20, 30)">
+    <svg id="root" viewBox="0 0 20 20" style="width:20px;height:20px">${rect('unsaid')}${rect('own', 'fill:rgb(255, 0, 0)')}
+      <g style="fill:rgb(0, 128, 0)">${rect('group')}<svg>${rect('nested')}</svg></g>
+      <g style="color:rgb(1, 2, 3)">${rect('recoloured')}<svg>${rect('nested-colour')}</svg></g>
+      <g style="fill:none">${rect('none')}</g>
+      <linearGradient><stop id="stop"/></linearGradient><filter><feFlood id="flood"/></filter>
+    </svg></div><svg id="plain" viewBox="0 0 4 4" style="width:4px;height:4px">${rect('page')}</svg><span id="ink">ink</span></div>`)
+    .replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'svg fixture');
+    const of = (id, property = 'fill') => `[${JSON.stringify(id)}, getComputedStyle(document.getElementById(${JSON.stringify(id)}))[${JSON.stringify(property)}]]`;
+    const got = await page(`Object.fromEntries([${['unsaid', 'own', 'group', 'nested', 'recoloured', 'nested-colour', 'none', 'page'].map((id) => of(id)).join(',')},
+      ${of('stop', 'stopColor')}, ${of('flood', 'floodColor')}, ${of('ink', 'color')}])`);
+    expect(got.unsaid).toBe('rgb(10, 20, 30)');
+    expect(got.own).toBe('rgb(255, 0, 0)');
+    expect(got.group).toBe('rgb(0, 128, 0)');
+    expect(got.nested).toBe('rgb(0, 128, 0)'); // a nested svg does not end the group's fill
+    expect(got.recoloured).toBe('rgb(1, 2, 3)');
+    expect(got['nested-colour']).toBe('rgb(1, 2, 3)');
+    expect(got.none).toBe('none');
+    expect(got.page).toBe(got.ink); // no colour written: the page's own text colour
+    expect(got.stop).toBe('rgb(0, 0, 0)');
+    expect(got.flood).toBe('rgb(0, 0, 0)');
   }, {html});
 });
 
@@ -523,7 +765,7 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
 // tall at the body size) in light and dark, as a border box the kernel
 // models; the author's rows win, and `appearance: none` (no marker) is bare.
 browserCheck('date and time controls take the field look', async () => {
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   const field = (id, type, extra = '') => `<input id="${id}" type="${type}" ${extra}>`;
   const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="width:300px">${
     field('date', 'date', 'data-exact-field')}${field('time', 'time', 'data-exact-field value="14:30"')}${
@@ -543,7 +785,7 @@ browserCheck('date and time controls take the field look', async () => {
       expect(facts[id].radius).toBe(facts.text.radius);
       expect(facts[id].background).toBe(facts.text.background);
     }
-    expect(facts.date.border).toBe('1px solid rgb(199, 199, 204)');
+    expect(facts.date.border).toMatch(/^1px solid (?!rgb\(0, 0, 0\)$)/); // the look's line for a control's edge, as the text field's is
     expect(facts.dark.border).toBe(facts['dark-text'].border);
     expect(facts.dark.background).toBe(facts['dark-text'].background);
     expect(facts.dark.background).not.toBe(facts.date.background);
@@ -556,9 +798,295 @@ browserCheck('date and time controls take the field look', async () => {
   }, {html});
 });
 
+// LLP 1116.003: a determinate progress is the platform's bar, as UIKit draws
+// its own and Linux paints it: a 4 px capsule centred across its box, the
+// accent's over a track of the system fill, the same fill whatever the
+// accent, in light and dark. Chrome's own takes its track by contrast with
+// the accent (near black under teal in light, near white under indigo in
+// dark). An authored background is the box's, under the track, as on iOS.
+browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
+  const shell = SHIPPED;
+  // As both targets write a role's accent: `accent-color` and the custom property beside it.
+  const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
+  const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
+  const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
+  // A box of the look's `-exact-fill` over the same ground as the bars beside it: what a track is drawn in.
+  const fill = (id, under = '') => `<div style="width:160px;margin:8px;${under}"><div id="${id}" style="height:16px;background-color:var(--exact-fill)"></div></div>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light;background:#fff;padding:8px">${
+    bar('teal-light', teal)}${bar('indigo-light', indigo)}${bar('authored', teal + 'background-color:rgb(255, 0, 0)')}${fill('fill-light')}${fill('fill-red', 'background-color:rgb(255, 0, 0)')}</div><div style="color-scheme:dark;background:#000;padding:8px">${
+    bar('teal-dark', teal)}${bar('indigo-dark', indigo)}${fill('fill-dark')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'progress fixture');
+    await page(settled);
+    const boxes = await page(`(() => Object.fromEntries([...document.querySelectorAll('progress, [id^="fill-"]')].map(e => { const r = e.getBoundingClientRect(); return [e.id, [r.x, r.y, r.width, r.height]]; })))()`);
+    const { data } = await page.call('Page.captureScreenshot', { format: 'png' });
+    const shot = decodePng(Buffer.from(data, 'base64'));
+    const at = (id, dx, dy) => { const [x, y] = boxes[id], i = (Math.round(y + dy) * shot.width + Math.round(x + dx)) * 4; return [...shot.data.slice(i, i + 3)]; };
+    const near = (seen, want, what) => expect(seen.every((c, i) => Math.abs(c - want[i]) <= 3), `${what}: ${seen} for ${want}`).toBe(true);
+    for (const id of Object.keys(boxes)) expect(boxes[id].slice(2)).toEqual([160, 16]);
+    // The fill over white, over black and over the authored red, as the boxes of it show; it is a fill, so neither ground.
+    const [light, dark, red] = ['fill-light', 'fill-dark', 'fill-red'].map((id) => at(id, 80, 8));
+    expect([light.join() === '255,255,255', dark.join() === '0,0,0', red.join() === '255,0,0']).toEqual([false, false, false]);
+    for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), light, `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
+    for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), dark, `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
+    near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
+    near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
+    near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
+    near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
+    near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
+    near(at('authored', 120, 8), red, 'the track over it');
+    near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
+  }, {html});
+});
+
+browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
+  const css = SHIPPED.match(/<style>([\s\S]*?)<\/style>/)[1];
+  const html = `<!doctype html><style>${css}</style><style>#exact-root#exact-root .authored {background-color:rgb(20,40,60)}</style>
+    <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
+      <section id="home" navigationKey="0"><button>Home</button></section>
+      <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>
+      <section id="second" navigationKey="2" navigationPresentation="modal"><button>Second sheet</button></section>
+    </main><div id="canvas" style="background-color:Canvas"></div><div id="bare"></div></div>`;
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'modal fixture');
+    await page(`import('/navigation.js').then(({navigation}) => {
+      globalThis.project = () => navigation.project(document.getElementById('exact-root'), line => {throw new Error(line)});
+      project();
+    })`);
+    const read = `(() => { const read = id => {const el=document.getElementById(id),s=getComputedStyle(el);return {background:s.backgroundColor,visibility:s.visibility,inert:el.inert,covered:el.hasAttribute('data-exact-covered')};};
+      return Object.fromEntries(['home','first','second','canvas','bare'].map(id=>[id,read(id)])); })()`;
+    const canvases = [];
+    for (const scheme of ['light', 'dark']) {
+      await page(`document.documentElement.style.colorScheme='${scheme}'`);
+      const facts = await page(read);
+      canvases.push(facts.canvas.background);
+      expect(facts.first.background).toBe(facts.canvas.background);
+      expect(facts.second.background).toBe(facts.canvas.background);
+      expect(facts.second.background).not.toBe('rgba(0, 0, 0, 0)');
+      expect(facts.bare.background).toBe('rgba(0, 0, 0, 0)');
+      expect(facts.home.visibility).toBe('hidden');
+      expect(facts.first.covered).toBe(true);
+      expect(facts.first.inert).toBe(true);
+      expect(facts.second.inert).toBe(false);
+      // Authored static classes and inline rows win, including deliberate transparency.
+      await page("document.getElementById('second').className='authored'");
+      expect((await page(read)).second.background).toBe('rgb(20, 40, 60)');
+      await page("document.getElementById('second').style.backgroundColor='transparent'");
+      expect((await page(read)).second.background).toBe('rgba(0, 0, 0, 0)');
+      await page("document.getElementById('second').style.backgroundColor='';document.getElementById('second').className=''");
+    }
+    expect(canvases[0]).not.toBe(canvases[1]);
+    await page("document.getElementById('nav').setAttribute('navigationKey','1');project()");
+    const back = await page(read);
+    expect(back.first.inert).toBe(false);
+    expect(back.first.covered).toBe(false);
+    expect(back.first.visibility).toBe('visible');
+    expect(back.second.visibility).toBe('hidden');
+    expect(back.second.inert).toBe(true);
+  }, {html, files: {'/navigation.js': readFileSync(resolve(ROOT, 'host/web/navigation.js'), 'utf8')}});
+}, 20000);
+
 test('native button WebKit allowance ends at exactly 6.00 px', () => {
   const known = JSON.parse(readFileSync(resolve(ROOT, 'host/web-js/conformance/known-webkit.json'), 'utf8'));
   const pattern = new RegExp(known.find(entry => entry.app === 'synthetic-native-buttons').pattern);
   for (const delta of ['0.00', '4.99', '5.99', '6.00']) expect(pattern.test(`(delta ${delta} px, tolerance 4 px)`)).toBe(true);
   for (const delta of ['6.01', '6.99', '7.00', '16.00']) expect(pattern.test(`(delta ${delta} px, tolerance 4 px)`)).toBe(false);
 });
+
+// These event probes need only Chrome and the production document entry.
+async function withFocusDocument(drive, {html, files = {}}) {
+  const {chromium} = await import('playwright-core');
+  const server = Bun.serve({port: 0, hostname: '127.0.0.1', fetch(req) {
+    const path = new URL(req.url).pathname;
+    return new Response(path === '/' ? html : files[path] ?? '',
+      {headers: {'content-type': path === '/' ? 'text/html' : 'text/javascript'}});
+  }});
+  let browser;
+  try {
+    browser = await chromium.launch({executablePath: chrome, headless: true});
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${server.port}`);
+    const session = await page.context().newCDPSession(page);
+    const live = expression => page.evaluate(expression);
+    live.until = expression => page.waitForFunction(expression);
+    live.call = (method, params) => session.send(method, params);
+    await drive(async () => live);
+  } finally { await browser?.close(); server.stop(true); }
+}
+
+browserCheck('early focus replay stops at the inner handler for each transition', async () => {
+  const html = `<!doctype html><div id="exact-root">
+    <div data-view="1" data-exact-on="focusin focusout"><div data-view="2" data-exact-on="focusin focusout">
+    <input id="a" data-view="3"><input id="b" data-view="4"></div></div></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = [];
+      const views = new Map([...document.querySelectorAll('[data-view]')].map(el => {
+        el.exactHandlers = (el.dataset.exactOn ?? '').split(' '); return [Number(el.dataset.view), el];
+      }));
+      const page = exact.documentPage.connect({ views, log: console.warn,
+        dispatch: (id, kind, value, event) => { __events.push([id, kind, value]); if (id === 2 && event) event.exactStopped = true; } });
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+  };
+  await withFocusDocument(async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live("document.getElementById('a').focus(); document.getElementById('b').focus()");
+    await live.until('!!globalThis.__release', 'runtime connection');
+    await live('__release()');
+    expect(await live('__events')).toEqual([[2,46,'1:a0'],[2,47,'1:a1b'],[2,46,'1:b1a']]);
+  }, {html, files});
+}, 180000);
+
+browserCheck('Chrome orders edited focus transitions including wrapper removal during blur', async () => {
+  await withFocusDocument(async tab => {
+    const live = await tab(true);
+    await live.until('!!document.getElementById("b")', 'fields');
+    const prepare = remove => live(`(() => {
+      globalThis.heard = [];
+      const a = document.getElementById('a'), b = document.getElementById('b'), wrapper = document.getElementById('wrapper');
+      for (const el of [a,b]) for (const kind of ['change','blur','focusout','focus','focusin'])
+        el.addEventListener(kind, () => heard.push(el.id + ':' + kind));
+      wrapper.addEventListener('focusout', () => heard.push('wrapper:focusout'));
+      document.body.addEventListener('focusout', () => heard.push('body:focusout'));
+      if (${remove}) a.addEventListener('blur', () => wrapper.remove());
+      a.focus(); heard.length = 0;
+    })()`);
+    await prepare(false);
+    await live.call('Input.insertText', {text:'edited'});
+    await live("document.getElementById('b').focus()");
+    expect(await live('heard')).toEqual(['a:change','a:blur','a:focusout','wrapper:focusout','body:focusout','b:focus','b:focusin']);
+    await live("document.body.innerHTML = '<div id=wrapper><input id=a></div><input id=b>'");
+    await prepare(true);
+    await live.call('Input.insertText', {text:'edited'});
+    await live("document.getElementById('b').focus()");
+    expect(await live('heard')).toEqual(['a:change','a:blur','a:focusout','wrapper:focusout','b:focus','b:focusin']);
+  }, {html:'<!doctype html><div id="wrapper"><input id="a"></div><input id="b">'});
+}, 180000);
+
+browserCheck('Chrome runs disabling blur before the next focus', async () => {
+  await withFocusDocument(async tab => {
+    const live = await tab(true);
+    expect(await live(`(() => {
+      const a = document.getElementById('a'), b = document.getElementById('b'), heard = [];
+      let focused = true;
+      a.addEventListener('blur', () => { heard.push('blur'); focused = false; });
+      b.addEventListener('focus', () => { heard.push('focus'); focused = true; });
+      a.focus(); a.disabled = true; b.hidden = false; b.focus();
+      return [heard, focused, document.activeElement.id];
+    })()`)).toEqual([['blur', 'focus'], true, 'b']);
+  }, {html: '<!doctype html><input id="a"><input id="b" hidden>'});
+}, 180000);
+
+async function withFocusContract(target, webDist, contract, drive) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-compiled-focus-'));
+  try {
+    const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
+    writeFileSync(source, contract);
+    const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    if (built.status !== 0) throw new Error(built.stderr);
+    let server;
+    let options = { plan, webDist: target === 'wasm' ? resolve(webDist) : undefined };
+    if (target === 'JS') {
+      const out = resolve(dir, 'dist');
+      const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', out, '--render', 'none'], { cwd: ROOT, encoding: 'utf8' });
+      if (build.status !== 0) throw new Error(build.stderr);
+      server = createServer((req, res) => serveBuildTree(out, req, res));
+      await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+      options = { url: `http://127.0.0.1:${server.address().port}/` };
+    }
+    let s;
+    try {
+      s = await open({ host: 'web', ...options });
+      await drive(s);
+    } finally { await s?.close(); server?.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+// Exercise compiled Contract through both runtimes; raw DOM alone misses retired listeners.
+// The wasm fixtures need an EXACT_WEB_LINK=all build for animation support.
+for (const [target, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DIST, JS: true })) {
+  const check = browserUnavailable ? need('chrome', browserUnavailable)
+    : need('fixture', webDist ? null : 'no wasm dist built with EXACT_WEB_LINK=all: name one with EXACT_WEB_DIST');
+  for (const animated of [false, true]) check(`${target} compiled focusout survives ${animated ? 'exit-animated' : 'immediate'} wrapper removal during blur`, async () => {
+    await withFocusContract(target, webDist, `keyframes leave
+  to opacity=0
+
+component App
+  state shown = true
+  state log = ""
+  action reset
+    shown = true
+    log = ""
+  action changed(value: string)
+    log = \`\${log}change;\`
+  action remove
+    log = \`\${log}blur;\`
+    shown = false
+  action heard(label: string, e: FocusEvent)
+    log = \`\${log}\${label}:\${e.target}:\${match e.relatedTarget { case some(id) => id, case none => "-" }};\`
+  view
+    column focusout=heard("outer")
+      if shown
+        for label in ["wrapper"] key=label
+          column focusout=heard(label) ${animated ? '-exact-exit-animation="leave 10s linear both"' : ""}
+            input id="a" change=changed blur=remove focusout=heard("field")
+      input id="b" focusin=heard("in")
+      button "Reset" id="reset" press=reset
+      button "Remove" id="remove" press=remove
+      text log testId="log"
+`, async s => {
+      const evaluate = s.carrier.evaluate;
+      if (animated && target === 'JS') await evaluate("(async () => { while (!globalThis.exact?.presenceLive) await new Promise(requestAnimationFrame); })()", 15000);
+      for (const mode of ['focus', 'Tab', 'teardown']) {
+        await evaluate("document.activeElement.blur(); document.getElementById('reset').click(); document.getElementById('a').focus()");
+        if (mode === 'teardown') {
+          await evaluate("document.getElementById('remove').click()");
+          expect(await evaluate("document.querySelector('[data-testid=log]').textContent.match(/blur;/g)")).toEqual(['blur;']);
+          expect(await evaluate("document.getElementById('a') === null")).toBe(true);
+          continue;
+        }
+        await s.carrier.call('Input.insertText', { text: 'edited' });
+        if (mode === 'focus') await evaluate("document.getElementById('b').focus()");
+        else {
+          await s.carrier.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+          await s.carrier.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+        }
+        if (animated) expect(await evaluate("!!document.querySelector('[data-exiting]')")).toBe(true);
+        expect(await evaluate("document.querySelector('[data-testid=log]').textContent")).toBe('change;blur;field:a:b;wrapper:a:b;in:b:a;');
+      }
+    });
+  }, 240000);
+  for (const command of [false, true]) check(`${target} compiled flush blur precedes ${command ? 'focus command' : 'autofocus'}`, async () => {
+    await withFocusContract(target, webDist, `component App
+  state disabled = false
+  state focused = true
+  state log = ""
+  action move
+    disabled = true
+    ${command ? 'focus("b")' : ''}
+  action left
+    focused = false
+    log = \`\${log}blur;\`
+  action entered
+    focused = true
+    log = \`\${log}focus;\`
+  view
+    column
+      input id="a" disabled=disabled blur=left
+      if disabled
+        input id="b" ${command ? '' : 'autofocus'} focus=entered
+      button "Move" id="move" press=move
+      text log testId="log"
+      text \`\${focused}\` testId="focused"
+`, async s => {
+      const evaluate = s.carrier.evaluate;
+      await evaluate("document.getElementById('a').focus(); document.getElementById('move').click()");
+      expect(await evaluate("[document.querySelector('[data-testid=log]').textContent, document.querySelector('[data-testid=focused]').textContent, document.activeElement.id]")).toEqual(['blur;focus;', 'true', 'b']);
+    });
+  }, 240000);
+}

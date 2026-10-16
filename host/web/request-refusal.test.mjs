@@ -10,26 +10,59 @@ import { boundedHttpBody, request, streamed } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
 import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 import { createRequestExecutor, createSecretFacade, fetchWith, redirectOf } from '../web-js/admission.js';
+import { chromium } from '../../scripts/agent-launch.mjs';
+import { need } from '../../scripts/coverage.mjs';
+const { executable: chrome, unavailable } = chromium(), chromeTest = need('chrome', unavailable);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // The real `redirectOf` and `ownWithout`, for a stub `admission.js` written beside a module under test
 const realHelpers = `export { ownWithout, redirectOf } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 const sets = new Map();
-function normalized(spec) {
+const normalizers = new Map();
+function builtNormalizer(target, run = spawnSync) {
+  const result = run('cargo', ['build', '-q', '-p', 'exact-web-js'], { cwd: ROOT, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer build failed');
+  return target;
+}
+const normalizerTarget = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
+normalizers.set(normalizerTarget, builtNormalizer(normalizerTarget));
+function normalized(spec, { target = normalizerTarget, build = spawnSync, run = spawnSync } = {}) {
   if (sets.has(spec)) return sets.get(spec);
+  if (!normalizers.has(target)) normalizers.set(target, builtNormalizer(target, build));
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
-  const result = existsSync(target)
-    ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
-    : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
+  const result = run(normalizers.get(target), ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
   rmSync(scratch, { recursive: true });
   if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer failed');
   const set = JSON.parse(result.stdout);
   sets.set(spec, set);
   return set;
 }
+test('grant normalization rebuilds when an old binary exists', () => {
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-stale-normalizer-'));
+  const old = resolve(scratch, 'exact-web-js');
+  writeFileSync(old, 'old CLI');
+  try {
+    const calls = [];
+    const set = normalized('secret.keep stale-binary-regression', {
+      target: old,
+      build: (command, args) => {
+        calls.push([command, args]);
+        writeFileSync(old, 'current CLI');
+        return { status: 0 };
+      },
+      run: (command, args) => {
+        expect(command).toBe(old);
+        expect(args[0]).toBe('normalize-grants');
+        expect(readFileSync(command, 'utf8')).toBe('current CLI');
+        return { status: 0, stdout: '{"grants":[]}' };
+      },
+    });
+    expect(set).toEqual({ grants: [] });
+    expect(calls).toEqual([['cargo', ['build', '-q', '-p', 'exact-web-js']]]);
+  } finally { rmSync(scratch, { recursive: true }); }
+});
 const text = result => new TextDecoder().decode(result.body);
 
 test('native requests resolve their real source scope before calling the module', async () => {
@@ -87,7 +120,18 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
     expect(destinationHits).toBe(2);
   } finally { origin.stop(true); destination.stop(true); grantedDestination.stop(true); }
 });
-
+test('wasm and JS accept a POST redirected through an ungranted origin to a granted final URL without CSP', async () => {
+  const hops = [], finals = [], final = Bun.serve({ port: 0, async fetch(req) { finals.push([req.method, await req.text()]); return new Response('accepted'); } });
+  const hop = Bun.serve({ port: 0, async fetch(req) { hops.push([req.method, await req.text()]); return new Response(null, { status: 307, headers: { location: `${final.url}finish` } }); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 307, headers: { location: `${hop.url}middle` } }); } });
+  const set = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${final.url.origin}`), js = createRequestExecutor('test.app', set, response => response.arrayBuffer());
+  try {
+    for (const run of [() => request({ method: 'POST', url: `${origin.url}start`, headers: [], body: btoa('payload') }, { grantSet: set, controllers: new Set(), moduleLoader: null }), () => js({ method: 'POST', url: `${origin.url}start`, headers: [], raw: 'payload' })]) {
+      const result = await run(); expect([result.failed ?? result.kind ?? 0, new TextDecoder().decode(result.body)]).toEqual([0, 'accepted']);
+    }
+    expect([hops, finals]).toEqual([[['POST', 'payload'], ['POST', 'payload']], [['POST', 'payload'], ['POST', 'payload']]]);
+  } finally { origin.stop(true); hop.stop(true); final.stop(true); }
+});
 // fetch's `redirect` reaches the browser on every web path: the wasm host's request op, a stream's,
 // and the JS target's `fetch`; a GET that asked not to follow is never sent early; a word that is
 // not a mode is a TypeError, as in the native prelude.
@@ -504,8 +548,7 @@ test('a typescript.sources mount still builds after it moves', () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 60_000);
 
-test('a built TypeScript source refuses fetch and storage without grants', async () => {
-  if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
+chromeTest('a built TypeScript source refuses fetch and storage without grants', async () => {
   let destinationHits = 0;
   const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('raw browser fetch', { headers: { 'access-control-allow-origin': '*' } }); } });
   const dir = mkdtempSync(resolve(tmpdir(), 'exact ts fetch # ')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
@@ -525,7 +568,7 @@ test('a built TypeScript source refuses fetch and storage without grants', async
       if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
-    child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
     cdp = new Cdp(child.stdio[3], child.stdio[4]);
     exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
     const { targetInfos } = await cdp.send('Target.getTargets');
@@ -534,7 +577,7 @@ test('a built TypeScript source refuses fetch and storage without grants', async
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
     await call('Page.navigate', { url: page.url.href });
-    const result = await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<120;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true });
+    const result = await call('Runtime.evaluate', { expression: `(async()=>{for(const end=performance.now()+20000;performance.now()<end;){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true });
     expect(result.exceptionDetails).toBeUndefined();
     expect(result.result.value).toBe('FetchError:Refused|Unavailable:denied|Unavailable:denied');
     expect(existsSync(resolve(dist, 'storage-fs.js'))).toBe(false);
@@ -555,7 +598,7 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
   const fetchBefore = globalThis.fetch;
   globalThis.fetch = async () => { sent++; return new Response('sent'); };
   try {
-    const host = { grantSet: grants, controllers: new Set(), bodyFile: () => new Promise(r => setTimeout(() => r(new Blob(['late'])), 100)) };
+    const lateReads = [], host = { grantSet: grants, controllers: new Set(), bodyFile: () => { const read = new Promise(r => setTimeout(() => r(new Blob(['late'])), 100)); lateReads.push(read); return read; } };
     const op = { op: 'request', ticket: 1, method: 'POST', url: 'https://x.test/up', headers: [], body: '', bodyFrom: 'app:/data/p.jpg', cache: 'default', timeoutMs: 10 };
     const late = await request(op, host);
     expect([late.kind, text(late)]).toEqual([10, 'the request timed out after 10 ms']);
@@ -572,8 +615,8 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
     expect([socket.kind, text(socket)]).toEqual([2, 'exactBodyFrom: a WebSocket sends no body']);
     const traversal = await request({ ...op, bodyFrom: 'app:/data/../tmp/p.jpg', timeoutMs: undefined }, host);
     expect(text(traversal)).toContain('no . or .. segment');
-    await new Promise(r => setTimeout(r, 150));
-    expect(sent).toBe(0);
+    await Promise.all(lateReads); await new Promise(r => setTimeout(r, 0)); // the late reads and what they resolve have run
+    expect([lateReads.length, sent]).toEqual([1, 0]);
     // The JS target carries the deadline's instant into fetchWith, which checks it after its grant work.
     const lateJs = await fetchWith(normalized('net.fetch https://x.test'), 'https://x.test/up', { method: 'POST', exactTimeout: 1000 }, { at: performance.now() - 1, ms: 5 }).catch(e => e);
     expect([lateJs.kind, lateJs.message]).toEqual(['Timeout', 'the request timed out after 5 ms']);
@@ -585,7 +628,7 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
 // rejection unhandled (Astra, post-landing).
 test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves nothing unhandled', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-abort-'));
-  writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  for (const name of ['ts-fetch.js', 'ts-body-from.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
   writeFileSync(resolve(dir, 'admission.js'), '' + realHelpers + 'export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.bodyReads = (globalThis.bodyReads ?? 0) + 1; return true; }; export const fetchWith = async () => { globalThis.sentBodies = (globalThis.sentBodies ?? 0) + 1; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   const unhandled = [];
@@ -606,6 +649,7 @@ test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves 
 test('the JS target checks and takes the redirect mode once, as fetch is called', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-redirect-'));
   writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  writeFileSync(resolve(dir, 'ts-body-from.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-body-from.js'), 'utf8'));
   writeFileSync(resolve(dir, 'admission.js'), `${realHelpers}export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.redirectReads = (globalThis.redirectReads ?? 0) + 1; return true; }; export const fetchWith = async (set, input, init, expires, redirect) => { globalThis.redirectSent = redirect; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n`);
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   writeFileSync(resolve(dir, 'storage-fs.js'), 'export const requestBody = async () => new Blob([\'x\']);\n');
@@ -642,8 +686,7 @@ test('the JS target checks and takes the redirect mode once, as fetch is called'
 // own File), with no Content-Type but the author's; a missing file and a path
 // outside `fs.read` reject the fetch before anything is sent, and fetch's own
 // refusals are TypeErrors.
-test('exactBodyFrom sends an app file from the page\'s store, a picked File too', async () => {
-  if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
+chromeTest('exactBodyFrom sends an app file from the page\'s store, a picked File too', async () => {
   const received = [];
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST' };
   const destination = Bun.serve({ port: 0, async fetch(request) {
@@ -688,7 +731,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
       if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
-    child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
     cdp = new Cdp(child.stdio[3], child.stdio[4]);
     exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
     const { targetInfos } = await cdp.send('Target.getTargets');
@@ -696,7 +739,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
-    const result = async () => (await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<240;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true })).result.value;
+    const result = async () => (await call('Runtime.evaluate', { expression: `(async()=>{for(const end=performance.now()+20000;performance.now()<end;){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true })).result.value;
     await call('Page.navigate', { url: page.url.href });
     const first = (await result()).split('|');
     expect(first[0]).toBe('typed 200 got 300000');
@@ -704,8 +747,8 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
     expect(first[2]).toStartWith('denied FetchError:Refused exactBodyFrom app:/tmp/photo.bin: denied: fs.read app:/tmp/photo.bin');
     expect(first.slice(3)).toEqual(['get TypeError: fetch: a GET request cannot have a body', 'both TypeError: fetch: a request has one body: body or exactBodyFrom']);
     expect(received).toEqual([{ type: 'image/jpeg', sha: expected, length: 300000 }]);
-    // A picked file's entry, the browser's own File with its type (LLP 1069.002 D5): sent untyped, as its bytes.
-    const put = await call('Runtime.evaluate', { expression: `(async()=>{const {createFileStore}=await import('/storage-fs.js');const s=createFileStore('test.upload-probe');await s.putBlob('app:/data/picked.bin',new File([${bytes}],'picked.jpg',{type:'image/jpeg'}));s.close();return 'put';})()`, returnByValue: true, awaitPromise: true });
+    // A picked file's entry, the browser's own File with its type (LLP 1069.002 D5), in the page's store: sent untyped, as its bytes.
+    const put = await call('Runtime.evaluate', { expression: `(async()=>{const {createFileStore}=await import('/storage-fs.js');const {storageKey}=await import('/storage-environment.js');const s=createFileStore(storageKey('test.upload-probe'));await s.putBlob('app:/data/picked.bin',new File([${bytes}],'picked.jpg',{type:'image/jpeg'}));s.close();return 'put';})()`, returnByValue: true, awaitPromise: true });
     expect(put.result.value).toBe('put');
     await call('Page.reload');
     const second = (await result()).split('|');
@@ -721,12 +764,11 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 // @ref LLP 1069.002 D7 — an `image` shows a file the app keeps in `app:/data`
 // on the JS target, bound or literal, and again after the page reloads
 // (recipes F9, gallery F7): the web host's file store, as an object URL.
-test('an app:/data image shows from the page\'s store, after a reload too', async () => {
-  if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
+chromeTest('an app:/data image shows from the page\'s store, after a reload too', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-app-image-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
   const png = [137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,120,218,99,252,207,192,80,15,0,4,133,1,128,132,169,140,33,0,0,0,0,73,69,78,68,174,66,96,130];
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Image probe', app: { id: 'test.image-probe', name: 'Image probe' }, host: { web: {} } }));
-  writeFileSync(resolve(dir, 'app.contract'), `shape Photo\n  path: string\n  how: string\ncomponent Probe\n  resource photo = photo() as shape Photo\n  view\n    column\n      text photo.how testId="how"\n      image photo.path width=4 height=4 testId="bound"\n      when photo.how != ""\n        image "app:/data/p.png" width=4 height=4 testId="literal"\n`);
+  writeFileSync(resolve(dir, 'app.contract'), `shape Photo\n  path: string\n  how: string\ncomponent Probe\n  resource photo = photo() as shape Photo\n  view\n    column\n      text photo.how testId="how"\n      image photo.path width=4 height=4 testId="bound"\n      if photo.how != ""\n        image "app:/data/p.png" width=4 height=4 testId="literal"\n`);
   writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId = 'test.image-probe', grants = 'fs.read app:/data\\nfs.write app:/data';\nconst P = 'app:/data/p.png';\nconst sources: Sources = { photo: async (_args, _store, storage) => {\n  try { await storage!.fs.stat(P); return { path: P, how: 'found' }; } catch {}\n  await storage!.fs.atomicWriteFile(P, new Uint8Array([${png}]));\n  return { path: P, how: 'written' };\n} };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'image-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
   let page, child, cdp, exited;
@@ -738,7 +780,7 @@ test('an app:/data image shows from the page\'s store, after a reload too', asyn
       if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
-    child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
     cdp = new Cdp(child.stdio[3], child.stdio[4]);
     exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
     const { targetInfos } = await cdp.send('Target.getTargets');
@@ -747,7 +789,7 @@ test('an app:/data image shows from the page\'s store, after a reload too', asyn
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
     // Each image's `src` (an object URL, never `app:`) once both have decoded, and what the source did.
-    const shown = async () => (await call('Runtime.evaluate', { expression: `(async()=>{const img=id=>document.querySelector('[data-testid="'+id+'"]');for(let i=0;i<240;i++){await new Promise(r=>requestAnimationFrame(r));const how=img('how')?.textContent,a=img('bound'),b=img('literal');if(how&&a?.complete&&a.naturalWidth&&b?.complete&&b.naturalWidth)return [how,a.src.slice(0,5),b.src.slice(0,5),a.naturalWidth];}return document.body.innerHTML;})()`, returnByValue: true, awaitPromise: true })).result.value;
+    const shown = async () => (await call('Runtime.evaluate', { expression: `(async()=>{const img=id=>document.querySelector('[data-testid="'+id+'"]');for(const end=performance.now()+20000;performance.now()<end;){await new Promise(r=>requestAnimationFrame(r));const how=img('how')?.textContent,a=img('bound'),b=img('literal');if(how&&a?.complete&&a.naturalWidth&&b?.complete&&b.naturalWidth)return [how,a.src.slice(0,5),b.src.slice(0,5),a.naturalWidth];}return document.body.innerHTML;})()`, returnByValue: true, awaitPromise: true })).result.value;
     await call('Page.navigate', { url: page.url.href });
     expect(await shown()).toEqual(['written', 'blob:', 'blob:', 1]);
     await call('Page.reload');
@@ -901,15 +943,14 @@ export function answer(name, args, store, storage) {
 }
 `);
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
-    .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
-    .replace("from './rt.js'", "from './rt-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
+    .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', ''));
+  writeFileSync(resolve(dir, 'rt.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"],stream:[[],"s"]};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized('fs.read app:/data'))});\n`);
   for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
-  for (const name of ['ts-fetch.js', 'ts-stream.js', 'shape.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
+  for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
   try {
     const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
     ts.install(data);
@@ -1145,7 +1186,7 @@ test('storage re-homes an answer\'s writes to the background before retiring it'
     const results = [];
     const first = storage.capability.fs.writeFile('app:/data/a', 'one').then(() => results.push('first'));
     const second = storage.capability.fs.writeFile('app:/data/b', 'two').then(() => results.push('second'));
-    for (let i = 0; i < 20 && globalThis.landWrite.length < 2; i++) await new Promise(r => setTimeout(r, 1));
+    for (const end = Date.now() + 10_000; globalThis.landWrite.length < 2 && Date.now() < end;) await new Promise(r => setTimeout(r, 1));
     globalThis.landWrite.shift()(); // the first lands while the answer is current: queued for it
     await new Promise(r => setTimeout(r, 1));
     // The answer replies: its owner's storage becomes the background's.
@@ -1161,7 +1202,7 @@ test('storage re-homes an answer\'s writes to the background before retiring it'
     delete globalThis.landWrite;
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 30_000); // hang bound: the import is waited for up to 10 s
 
 // A read queued behind a write the answer did not await is issued later, in
 // the background round that delivers the write (LLP 1097 D7). The cell has
@@ -1174,7 +1215,7 @@ test('a read queued behind a background write stays the answer\'s', async () => 
   writeFileSync(workerPath, `
 import { readFileSync } from 'node:fs';
 import * as api from './storage.js';
-const realSetTimeout = setTimeout;
+const realSetTimeout = setTimeout, realNow = Date.now; // the prelude refuses both to data sources
 self.land = [];
 const checkpoint = () => new Promise(resolve => {
   const channel = new MessageChannel();
@@ -1182,9 +1223,8 @@ const checkpoint = () => new Promise(resolve => {
   channel.port2.postMessage(null);
 });
 const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
-async function until(pred) {
-  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
-}
+async function until(pred) { for (const end = realNow() + 10_000; !pred() && realNow() < end;) await wait(10); }
+const stuck = async () => { for (let i = 0; i < 20; i++) await checkpoint(); return 'stuck'; }; // twenty turns: nothing outside is left to wait on
 let context = null;
 const backgroundOwner = {};
 self.__exact_host = op => {
@@ -1234,7 +1274,7 @@ try {
   if (self.land.length) {
     self.land.shift()();
     await checkpoint();
-    verdict = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+    verdict = await Promise.race([pending.then(() => 'answer', () => 'rejected'), stuck()]);
   }
   postMessage(verdict);
 } catch (error) {
@@ -1250,7 +1290,7 @@ try {
   const worker = new Worker(pathToFileURL(workerPath), { type: 'module' });
   try {
     const verdict = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      const timer = setTimeout(() => reject(new Error('worker hung')), 25_000);
       worker.on('message', value => { clearTimeout(timer); resolve(value); });
       worker.on('error', error => { clearTimeout(timer); reject(error); });
     });
@@ -1259,7 +1299,7 @@ try {
     await worker.terminate();
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 30_000); // hang bound: the worker's own is 25 s
 
 // A realm worker with the real prelude and a filesystem that lands when the
 // test says. `body` posts one verdict.
@@ -1269,16 +1309,16 @@ async function realmVerdict(body) {
   writeFileSync(resolve(dir, 'worker.mjs'), `
 import { readFileSync } from 'node:fs';
 import * as api from './storage.js';
-const realSetTimeout = setTimeout;
+
+const realSetTimeout = setTimeout, realNow = Date.now; // the prelude refuses both to data sources
 const checkpoint = () => new Promise(resolve => {
   const channel = new MessageChannel();
   channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
   channel.port2.postMessage(null);
 });
 const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
-async function until(pred) {
-  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
-}
+async function until(pred) { for (const end = realNow() + 10_000; !pred() && realNow() < end;) await wait(10); }
+const stuck = async () => { for (let i = 0; i < 20; i++) await checkpoint(); return 'stuck'; }; // twenty turns: nothing outside is left to wait on
 self.land = [];
 self.writes = 0;
 let context = null;
@@ -1307,7 +1347,7 @@ ${body}
   const worker = new Worker(pathToFileURL(resolve(dir, 'worker.mjs')), { type: 'module' });
   try {
     return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      const timer = setTimeout(() => reject(new Error('worker hung')), 25_000);
       worker.on('message', value => { clearTimeout(timer); resolve(value); });
       worker.on('error', error => { clearTimeout(timer); reject(error); });
     });
@@ -1363,7 +1403,7 @@ try {
     self.land.shift()();
     await checkpoint();
     const settled = JSON.parse(self.__exact_settle(String(read.call)));
-    const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+    const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), stuck()]);
     verdict = settled.tag === 0 && delivered === 'answer' ? 'answer' : 'stuck:' + JSON.stringify(settled) + ':' + delivered;
   }
   postMessage(verdict + ':' + self.writes);
@@ -1372,7 +1412,7 @@ try {
 }
 `);
   expect(verdict).toBe('answer:2');
-});
+}, 30_000); // hang bound: the worker's own is 25 s
 
 // Retire can still race a completion already in flight. That completion has
 // to reject the promise the prelude is waiting on, so the head clears and
@@ -1401,7 +1441,7 @@ try {
   const pending = storage.deliver(context.owner);
   self.land.shift()();
   await checkpoint();
-  const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+  const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), stuck()]);
   const settled = JSON.parse(self.__exact_settle(String(read.call)));
   postMessage(delivered === 'answer' && settled.tag === 0 ? 'advanced' : 'stuck:' + delivered + ':' + JSON.stringify(settled));
 } catch (error) {
@@ -1409,7 +1449,7 @@ try {
 }
 `);
   expect(verdict).toBe('advanced');
-});
+}, 30_000); // hang bound: the worker's own is 25 s
 
 test('a request deadline cancels a server that never answers, on the wasm and TypeScript paths', async () => {
   const origin = Bun.serve({ port: 0, idleTimeout: 0, fetch: () => new Promise(() => {}) });
@@ -1440,11 +1480,11 @@ test('the web build\'s deadline covers a stalled body, and keeps the caller\'s o
       const done = await fetchWith(normalized(`net.fetch ${empty.url.origin}`), empty.url.href, { exactTimeout: 2000 });
       expect([done.status, done.url, await done.text()]).toEqual([204, empty.url.href, '']);
     } finally { empty.stop(true); }
-    // A body that arrived in time stays readable after the deadline.
-    const quick = Bun.serve({ port: 0, fetch: () => new Response('in time') });
+    // A body that arrived in time stays readable after the deadline, which is 1 s so that the local fetch arrives first.
+    const quick = Bun.serve({ port: 0, fetch: () => new Response('in time') }), grants = normalized(`net.fetch ${quick.url.origin}`);
     try {
-      const arrived = await fetchWith(normalized(`net.fetch ${quick.url.origin}`), quick.url.href, { exactTimeout: 100 });
-      await new Promise(r => setTimeout(r, 250));
+      const asked = performance.now(), arrived = await fetchWith(grants, quick.url.href, { exactTimeout: 1000 });
+      await new Promise(r => setTimeout(r, asked + 1200 - performance.now())); // past the deadline `fetchWith` set as it began
       expect(await arrived.text()).toBe('in time');
     } finally { quick.stop(true); }
     const aborted = new AbortController(); aborted.abort();

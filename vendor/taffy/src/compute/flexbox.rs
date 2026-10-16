@@ -1455,16 +1455,23 @@ fn determine_container_main_size(
     let dir = constants.dir;
     let main_content_box_inset = constants.content_box_inset.main_axis_sum(constants.dir);
 
+    // EXACT PATCH 33: an item's length is its flex base size clamped by its
+    // min *and* max main size, as an intrinsic contribution below is. Floored
+    // by the minimum alone, a leaf's length was its whole content (a leaf's
+    // base size is measured without its max-height), and a column in definite
+    // space was as tall as that content. The clamp can now go below the
+    // padding and border, so the inner size is floored there before the
+    // margin is added (patch 14's order), or a margin was lost to the floor.
+    let item_main_length = |child: &FlexItem| {
+        let padding_border_sum = (child.padding + child.border).main_axis_sum(dir);
+        child.flex_basis.maybe_clamp(child.min_size.main(dir), child.max_size.main(dir)).max(padding_border_sum)
+            + child.margin.main_axis_sum(dir)
+    };
+
     let outer_main_size: f32 = constants.node_outer_size.main(constants.dir).unwrap_or_else(|| {
         match available_space.main(dir) {
             AvailableSpace::Definite(main_axis_available_space) => {
                 let main_axis_gap = constants.gap.main(constants.dir);
-                let item_main_length = |child: &FlexItem| {
-                    let padding_border_sum = (child.padding + child.border).main_axis_sum(constants.dir);
-                    (child.flex_basis.maybe_max(child.min_size.main(constants.dir))
-                        + child.margin.main_axis_sum(constants.dir))
-                    .max(padding_border_sum)
-                };
                 let longest_line_length: f32 = lines
                     .iter()
                     .map(|line| {
@@ -1522,16 +1529,7 @@ fn determine_container_main_size(
                     .iter()
                     .map(|line| {
                         let line_main_axis_gap = sum_axis_gaps(constants.gap.main(constants.dir), line.items.len());
-                        let total_target_size = line
-                            .items
-                            .iter()
-                            .map(|child| {
-                                let padding_border_sum = (child.padding + child.border).main_axis_sum(constants.dir);
-                                (child.flex_basis.maybe_max(child.min_size.main(constants.dir))
-                                    + child.margin.main_axis_sum(constants.dir))
-                                .max(padding_border_sum)
-                            })
-                            .sum::<f32>();
+                        let total_target_size = line.items.iter().map(item_main_length).sum::<f32>();
                         total_target_size + line_main_axis_gap
                     })
                     .max_by(|a, b| a.total_cmp(b))
@@ -1569,18 +1567,37 @@ fn determine_container_main_size(
                         let max_main_size =
                             style_max.maybe_min(flex_basis_max).or(flex_basis_max).unwrap_or(f32::INFINITY);
 
+                        // EXACT PATCH 33: the flex base size clamps a size first and the
+                        // min and max main size last (§9.9.1), so an item that may not
+                        // shrink below a base size past its max-height (`flex-shrink: 0`)
+                        // contributes its max-height. Where the two ranges overlap this is
+                        // the clamp to `min_main_size..max_main_size`; where they do not,
+                        // that clamp gave the base size.
+                        let clamp = |size: f32| {
+                            size.maybe_min(flex_basis_max)
+                                .maybe_max(flex_basis_min)
+                                .maybe_min(style_max)
+                                .max(item.resolved_minimum_main_size)
+                        };
+
                         let content_contribution = match (min_main_size, style_preferred, max_main_size) {
                             // If the clamping values are such that max <= min, then we can avoid the expensive step of computing the content size
                             // as we know that the clamping values will override it anyway
                             (min, Some(pref), max) if max <= min || max <= pref => {
-                                pref.min(max).max(min) + item.margin.main_axis_sum(constants.dir)
+                                clamp(pref) + item.margin.main_axis_sum(constants.dir)
                             }
-                            (min, _, max) if max <= min => min + item.margin.main_axis_sum(constants.dir),
+                            // EXACT PATCH 33: the clamps meet, so any size clamps to the answer.
+                            (min, _, max) if max <= min => clamp(min) + item.margin.main_axis_sum(constants.dir),
 
                             // Else compute the min- or -max content size and apply the full formula for computing the
                             // min- or max- content contribution
+                            // EXACT PATCH 33: clamped as the other contributions are, and
+                            // floored by the padding and border the base size already was.
                             _ if item.is_scroll_container() => {
-                                item.flex_basis + item.margin.main_axis_sum(constants.dir)
+                                let item_pb_main = item.padding.main_axis_sum(constants.dir)
+                                    + item.border.main_axis_sum(constants.dir);
+                                item.flex_basis.maybe_clamp(style_min, style_max).max(item_pb_main)
+                                    + item.margin.main_axis_sum(constants.dir)
                             }
 
                             // If the item has a definite preferred main size then that is its content

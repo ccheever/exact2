@@ -121,6 +121,11 @@ pub struct FieldChromeRequest {
     /// Computed font. An authored family id resolves through the host's
     /// existing catalog; `family` is empty when the kernel has no name for it.
     pub font: ControlFont,
+    /// The field is a grouped list row's content (`NodeRef::is_cell_field`,
+    /// LLP 1116.005 D2): the field the platform draws in a list's cell. On
+    /// iOS the cell is the field, so it has no border of its own; a host
+    /// whose field is the same anywhere answers as for any other.
+    pub cell: bool,
 }
 
 /// Chrome in logical pixels, outside authored content, padding and borders.
@@ -175,6 +180,9 @@ pub enum ButtonImagePlacement {
 /// own answer on Apple, not an instruction to write the computed initial.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ButtonFaceStyle {
+    /// Root font size for an admitted Neutral narrow tab. Host-only geometry
+    /// context shared by measurement and paint, not an authored style row.
+    pub neutral_tab_root: Option<f32>,
     /// Title typography; its own rows win over the button's.
     pub title: crate::StyleProps,
     /// Subtitle typography, resolved independently in the same way.
@@ -194,16 +202,9 @@ impl ButtonFaceStyle {
         containing_width: Option<f32>,
         frame: crate::Frame,
     ) {
+        // With no basis a percentage resolves against 0
         let length = |d: crate::Dimension, basis: Option<f32>| {
-            crate::Dimension::Points(
-                match d.resolve(env) {
-                    crate::Dimension::Points(n) => n,
-                    crate::Dimension::Percent(p) => basis.map_or(0.0, |b| b * p / 100.0),
-                    crate::Dimension::Calc(p, n) => basis.map_or(0.0, |b| b * p / 100.0 + n),
-                    _ => 0.0,
-                }
-                .max(0.0),
-            )
+            crate::Dimension::Points(d.at_basis(env, basis.unwrap_or(0.0)).max(0.0))
         };
         let s = &mut self.button;
         for side in [
@@ -235,8 +236,10 @@ pub struct ButtonMeasureRequest {
     pub face: crate::PressFace,
     /// Resolved rows with authored masks.
     pub style: ButtonFaceStyle,
-    /// Name from buttonStyles; bordered when absent.
-    pub button_style: String,
+    /// The `buttonStyle` its author wrote, a name from `buttonStyles`;
+    /// `None` when they wrote none, which each host draws as its platform's
+    /// own default (LLP 1115.000 D15).
+    pub button_style: Option<String>,
     /// Offered border-box width; hosts answer height-for-width.
     pub width: crate::AxisOffer,
 }

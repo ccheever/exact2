@@ -6,8 +6,7 @@ import { chromium } from '../../scripts/agent-launch.mjs';
 import { timerWake, createTimerScheduler } from './timer-glue.js';
 
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
-if (browserUnavailable) console.warn(`SKIP: ${browserUnavailable}`);
-const browserTest = browserUnavailable ? (name, ...args) => test.skip(`${name} — ${browserUnavailable}`, ...args) : test;
+const browserTest = need('chrome', browserUnavailable);
 
 test('plain agent layout prints web fragment ranges, shapes and refusal reasons', () => {
   const node = { id: 7, type: 'Text', flow_shapes: [{ kind: 'Circle', cx: 40, cy: 30, r: 12 }],
@@ -108,6 +107,7 @@ test('worst fragment array is linear and a stable 1000-frame geometry touches no
 // Minimal DOM test double: exercises the actual controller and its phase order,
 // not browser line layout. Real metrics/selection remain an orchestrator check.
 import { createTextFlow } from './textflow-glue.js';
+import { need } from '../../scripts/coverage.mjs';
 function controllerFixture({ trim = false, clamp = false, empty = false, ascent = () => [16, 4], paragraph = { id: 2, definite: true } } = {}) {
   const events = [], frames = new Map(), timers = new Map(), fontEvents = new Map(); let serial = 0, paused = false, time = 0, interval = 16;
   const defaults = { ...style, fontFamily: 'serif', fontStyle: 'normal', fontWeight: '400', letterSpacing: '0px',
@@ -572,7 +572,7 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
 // Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
-async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js'], files = {}) {
+async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js'], files = {}, runtime = false) {
   const { spawn } = await import('node:child_process');
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -583,6 +583,11 @@ async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
     if (files[path]) return new Response(Bun.file(files[path]));
+    if (runtime && path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    if (runtime && path.endsWith('.js')) {
+      const js = Bun.file(new URL('../web-js' + path, import.meta.url));
+      return js.exists().then(exists => new Response(exists ? js : Bun.file(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }));
+    }
     return served.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
       : new Response('<!doctype html><body><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
   }});
@@ -613,6 +618,100 @@ browserTest('flowed links keep press ownership through document capture', async 
     { press: 0, navigate: 0, prevented: false },
   ]);
 }, 20000);
+
+// Exercise the runtime listener installation with Chrome's dispatchEvent, not a
+// test double that orders capture listeners itself. The dispatch sink stands in
+// for a Contract action; both hosts' actual listener functions run unchanged.
+browserTest('same-target capture precedes a key registered first in both web runtimes', async () => {
+  expect(await inChrome(targetKeyFixture, ['/glue.js'], {
+    '/rt.js': new URL('../web-js/rt.js', import.meta.url).pathname,
+  })).toEqual([
+    [['capture', 'key'], ['capture']],
+    [['capture', 'key'], ['capture']],
+  ]);
+}, 60000);
+
+async function targetKeyFixture() {
+  const [glue, rt] = await Promise.all(['/glue.js', '/rt.js'].map(url => fetch(url).then(r => r.text())));
+  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  const on = rt.slice(rt.indexOf('export function on('), rt.indexOf('// Each event family')).replace('export ', '');
+  const onKey = rt.split('\n').find(line => line.startsWith('export const onKey =')).replace('export ', '');
+  const bindWasm = new Function('el', 'heard', `
+    let keyEvent = null;
+    const views = new Map([[1, el]]), retiredViews = new WeakSet(), inputReady = true, page = null;
+    const send = () => {}, writeIn = s => s, now = () => 0, keyChord = e => e.key;
+    const compositionFlush = new Map(), composing = new Set();
+    const wasm = { exact_dispatch(id, kind, key) {
+      heard.push(kind === 44 ? 'capture' : 'key');
+      if (kind === 44 && key === 'x') keyEvent.exactStopped = true;
+    }};
+    ${attach}
+    attach(el, 1, ['key', 'keycapture']);
+  `);
+  const bindJs = new Function('el', 'heard', `
+    let KeyEvent = null;
+    const clock = { agent: true, timers: [], now: 0 }, Mutations = [], OnHooks = {};
+    ${on}
+${onKey}
+    on(el, 'key', () => heard.push('key'), onKey);
+    on(el, 'keycapture', key => { heard.push('capture'); if (key === 'x') KeyEvent.$stopped = true; }, onKey);
+  `);
+  return [bindWasm, bindJs].map(bind => {
+    const el = document.createElement('input'), heard = [], result = [];
+    document.getElementById('root').append(el); bind(el, heard); el.focus();
+    for (const key of ['a', 'x']) {
+      heard.length = 0;
+      el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      result.push([...heard]);
+    }
+    el.remove(); return result;
+  });
+}
+
+browserTest('a flowed keydown forwards once with capture and bubble handlers', async () => {
+  expect(await inChrome(flowKeyFixture, undefined, {}, true)).toEqual({ events: ['keydown'], deliveries: [
+    { heard: ['column', 'capture', 'bubble'], prevented: false },
+    { heard: ['column'], prevented: false },
+    { heard: ['column', 'capture'], prevented: false },
+    { heard: ['column', 'capture', 'bubble'], prevented: true },
+    { heard: ['column', 'capture', 'bubble'], prevented: true },
+    { heard: ['column', 'capture', 'bubble'], prevented: true },
+  ] });
+}, 60000);
+
+async function flowKeyFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const { on, onKey, Hosts } = await import('/rt.js');
+  const root = document.getElementById('root'), views = new Map(), heard = [], results = [];
+  root.innerHTML = '<div style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="/story" tabindex="0">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
+  const parent = root.firstElementChild, paragraph = parent.firstElementChild, original = paragraph.firstElementChild, ball = parent.lastElementChild;
+  on(parent, 'keycapture', key => {
+    heard.push('column');
+    if (key === 'x') Hosts.stopPropagation();
+    if (key === 'z') Hosts.preventDefault();
+  }, onKey);
+  // Exact's stopPropagation marks the native event so its default stays available.
+  on(original, 'key', key => { heard.push('bubble'); if (key === 'p') Hosts.preventDefault(); }, onKey);
+  on(original, 'keycapture', key => { heard.push('capture'); if (key === 'y') Hosts.stopPropagation(); if (key === 'Enter') Hosts.preventDefault(); }, onKey);
+  views.set(1, parent); views.set(2, paragraph); views.set(3, ball);
+  const request = op => op === 0 ? { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) }
+    : op === 1 ? { prepared: true } : { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 24, line_height: 24,
+      fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 0, width: 70, available: 80, line: 0 }] };
+  const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+  flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
+  await flow.settle();
+  const clone = paragraph.querySelector('[data-flow-fragment] a');
+  if (!clone || clone === original) throw Error('fixture must key a flowed clone');
+  clone.focus();
+  for (const key of ['b', 'x', 'y', 'z', 'p', 'Enter']) {
+    heard.length = 0;
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    clone.dispatchEvent(event);
+    results.push({ heard: [...heard], prevented: event.defaultPrevented });
+  }
+  flow.dispose();
+  return { events: original.exactFlowEvents, deliveries: results };
+}
 
 // A batch that puts flowed paragraphs back to their text (the JS target's every commit, a topology
 // change on the wasm host) flows them again in the same task: no frame paints them unflowed, and a

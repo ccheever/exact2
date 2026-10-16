@@ -51,6 +51,8 @@
 //        "data"}; flags bit 0: the hatch made it reusable
 // 176  module_toolbar(module, toolbar, window)        size ≥ 184; macOS:
 //        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
+// 208  module_will_quit(module, ctx, done)            size ≥ 216; macOS:
+//        the quit's work (LLP 1069.010 Q4); done(ctx) once, from any thread
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -109,6 +111,8 @@ private final class NativeTable {
     typealias ModuleCreateFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, ChangedFn?, NowFn?, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ModuleDestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias ModuleLaterFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, AnswerFn?) -> Void
+    typealias QuitDoneFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    typealias WillQuitFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, QuitDoneFn?) -> Void
 
     let path: String
     let roster: [String: [String: Any]]
@@ -133,6 +137,8 @@ private final class NativeTable {
     var appHatch: HatchAppFn?, windowHatch: HatchWindowFn?
     /// The frame clock's callback (§2.4), in a table of 208 bytes or more.
     var tickHatch: HatchTickFn?
+    /// The quit's work (macOS), in a table of 216 bytes or more.
+    var willQuit: WillQuitFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -207,8 +213,17 @@ private final class NativeTable {
             loaded.windowHatch = pointer(192).map { unsafeBitCast($0, to: HatchWindowFn.self) }
         }
         if size >= 208 { loaded.tickHatch = pointer(200).map { unsafeBitCast($0, to: HatchTickFn.self) } }
+        if size >= 216 { loaded.willQuit = pointer(208).map { unsafeBitCast($0, to: WillQuitFn.self) } }
         return .success(loaded)
     }
+}
+
+/// One module's quit work: pending until its `done`, which may arrive from any thread.
+private final class QuitWork: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    var pending: Bool { lock.withLock { !done } }
+    func finish() { lock.withLock { done = true } }
 }
 
 private final class NativeEntry {
@@ -480,7 +495,11 @@ final class NativeViews {
 
     // MARK: The session's module (LLP 1067.000 Q5–Q7)
 
-    private(set) var instance: UnsafeMutableRawPointer?
+    private(set) var instance: UnsafeMutableRawPointer? {
+        // A module made after the quit was decided (its first pixel came
+        // during the hold) is asked at once, under the same deadline.
+        didSet { if instance != nil, quitAsked { askQuit() } }
+    }
     private var instanceFailure: NativeFailure?
     /// Whether the module's hatches are connected, and who replays them for
     /// the objects built before (LLP 1075.003 §3.2; NativeHatches.swift).
@@ -528,10 +547,17 @@ final class NativeViews {
     }
 
     /// Where the module keeps its files: the app's roots, as the runtime
-    /// configures storage; under the agent, a scratch tree of this process.
-    private static func roots(session: ExactSession) -> (data: String, cache: String, temporary: String) {
+    /// configures storage, including a named agent store. An unnamed drive
+    /// gets a process-local tree. Temporary files survive named relaunches,
+    /// except the picker's separately managed `picked` directory.
+    static func roots(session: ExactSession, agent: Bool = ExactEnv.agentMode,
+                      namedStore: String? = ExactEnv.environment["EXACT_AGENT_STORAGE"]) -> (data: String, cache: String, temporary: String) {
+        if (!agent || namedStore != nil), let data = session.appFileRoots["data"], let cache = session.appFileRoots["cache"],
+           let temporary = session.appFileRoots["tmp"] {
+            return (data, cache, temporary)
+        }
         let id = Bundle.main.bundleIdentifier ?? "app"
-        if ExactEnv.agentMode {
+        if agent {
             let base = (NSTemporaryDirectory() as NSString).appendingPathComponent("exact-agent-\(getpid())-\(session.runtime.rt)")
             return (base + "/data", base + "/cache", base + "/temporary")
         }
@@ -604,6 +630,33 @@ final class NativeViews {
         }
     }
 
+    /// The module's quit work, from the ask until the module says it is done
+    /// or the session ends.
+    private var quitWork: QuitWork?
+    private var quitAsked = false
+    var quitWorkPending: Bool { quitWork?.pending ?? false }
+
+    /// The quit is decided: the module starts the work the quit waits for
+    /// (`ExactModule.willQuit`), now or when it is made. Once per session;
+    /// nothing for a module built without the entry. Main thread.
+    func willQuit() {
+        guard !quitAsked else { return }
+        quitAsked = true
+        askQuit()
+    }
+
+    private func askQuit() {
+        guard quitWork == nil, let instance, case .success(let table)? = NativeProcess.table, let willQuit = table.willQuit else { return }
+        let work = QuitWork()
+        quitWork = work
+        // The module's `done` may come at once, inside this call, or later from any thread.
+        willQuit(instance, Unmanaged.passRetained(work).toOpaque()) { ctx in
+            guard let ctx else { return }
+            Unmanaged<QuitWork>.fromOpaque(ctx).takeRetainedValue().finish()
+        }
+        log(work.pending ? "module quit work started" : "module quit work: none")
+    }
+
     /// Session teardown, after the views and the runtime: the module goes last.
     func destroyModule() {
         #if os(iOS) || os(tvOS)
@@ -614,6 +667,7 @@ final class NativeViews {
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
         hatchesConnected = false
+        quitWork = nil
         table.moduleDestroy(instance)
         log("module instance destroyed")
     }
@@ -990,7 +1044,7 @@ final class NativeViews {
         if kind == 7, entry.revealing { entry.revealing = false; entry.view?.alpha = 1 }
         #endif
         let name = NativeViews.kinds[Int(kind)], text = String(decoding: data, as: UTF8.self), id = entry.id
-        guard owner.handlers.contains(name) else { return }
+        guard owner.handlers.contains(name) || kind == 3 || kind == 4 else { return }
         switch kind {
         case 0: presenter.press(id)
         case 1: presenter.change(id, text)

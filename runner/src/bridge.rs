@@ -9,6 +9,100 @@
 
 use exact_kernel::{PropId, PropValue, StyleId, StyleProps, StyleValue, StyleValueError};
 use exact_plan::Value;
+use std::collections::HashMap;
+
+/// Session-scoped CSS family lists, indexed after the plan's compiled stacks.
+#[derive(Debug, Default, Clone)]
+pub struct RuntimeFonts {
+    names: Vec<String>,
+    ids: HashMap<String, u16>,
+}
+
+impl RuntimeFonts {
+    /// Intern a CSS family list, returning its kernel stack id.
+    pub fn intern(&mut self, name: &str, compiled: usize) -> Option<u16> {
+        if let Some(id) = self.ids.get(name) {
+            return Some(*id);
+        }
+        if runtime_family_members(name).is_empty() {
+            return None;
+        }
+        let id = u16::try_from(compiled.checked_add(self.names.len())?).ok()?;
+        self.names.push(name.to_string());
+        self.ids.insert(name.to_string(), id);
+        Some(id)
+    }
+
+    /// Runtime lists in id order.
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+}
+
+/// One CSS family name; quoting makes a generic keyword an installed name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeFamilyMember {
+    /// The family name without CSS quotes.
+    pub name: String,
+    /// Whether the author quoted this member.
+    pub quoted: bool,
+}
+
+/// Members of a runtime CSS family list. A malformed list has no members
+/// and leaves the binding unset, as an invalid computed CSS value does.
+pub fn runtime_family_members(list: &str) -> Vec<RuntimeFamilyMember> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    for (i, c) in list.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+        } else if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+        } else if c == '\'' || c == '"' {
+            quote = Some(c);
+        } else if c == ',' {
+            out.push(&list[start..i]);
+            start = i + 1;
+        }
+    }
+    out.push(&list[start..]);
+    if quote.is_some() || escaped || out.len() > 64 {
+        return Vec::new();
+    }
+    out.into_iter()
+        .map(|part| {
+            let part = part.trim();
+            let quoted = part.len() >= 2
+                && ((part.starts_with('"') && part.ends_with('"'))
+                    || (part.starts_with('\'') && part.ends_with('\'')));
+            let name = if quoted {
+                &part[1..part.len() - 1]
+            } else if part.contains(['"', '\'']) {
+                return None;
+            } else {
+                part
+            };
+            // Unquoted, a member is CSS identifiers, by the rule a compiled
+            // literal meets: a browser refuses the whole declaration otherwise.
+            if name.is_empty() || (!quoted && !exact_plan::is_css_family_name(name)) {
+                return None;
+            }
+            Some(RuntimeFamilyMember {
+                name: name.to_string(),
+                quoted,
+            })
+        })
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default()
+}
 
 /// Why a binding's value could not become a kernel row.
 #[allow(missing_docs)]
@@ -31,10 +125,10 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     };
     let out = match (prop.kind(), value) {
         (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
-            PropValue::Str(String::from(v.text()))
+            PropValue::Str(v.text().into())
         }
         (exact_kernel::PropKind::Str, Value::Number(n)) => {
-            PropValue::Str(crate::stdlib::format_number(*n))
+            PropValue::Str(crate::stdlib::format_number(*n).into())
         }
         (exact_kernel::PropKind::Bool, Value::Bool(b)) => PropValue::Bool(*b),
         (exact_kernel::PropKind::Int, Value::Number(n))
@@ -53,11 +147,19 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
 
 /// Whether `value` is a CSS-wide keyword that leaves row `id` unset
 /// ([`StyleValue::unsets`]): the row is cleared, as a class choice's
-/// `none` is, and nothing is refused.
+/// `none` is, and nothing is refused. On `font-family`, `revert` and
+/// `revert-layer` are `unset` too, as for an author style the user agent
+/// has no rule for; `initial` is the row's initial family ([`set_style`]).
 pub fn unsets(id: u16, value: &Value) -> bool {
-    matches!(value, exact_plan::str_value!())
-        && StyleId::from_bit(id as u32)
-            .is_some_and(|style| StyleValue::Text(value.text().into()).unsets(style))
+    value.as_str().is_some_and(|text| {
+        StyleId::from_bit(id as u32).is_some_and(|style| {
+            StyleValue::text_unsets(text, style)
+                || (style == StyleId::FontFamily
+                    && ["revert", "revert-layer"]
+                        .iter()
+                        .any(|keyword| text.trim().eq_ignore_ascii_case(keyword)))
+        })
+    })
 }
 
 /// [`set_style`] for a binding of `plan`: a `-exact-platform-color()` only as one
@@ -91,14 +193,286 @@ pub fn set_plan_style(
                 .any(|w| w.eq_ignore_ascii_case(b"color(--"))
         })
         .unwrap_or(false)
-        .then(|| {
+        // A theme entry may stand for a profile's colour.
+        .then_some(())
+        .or_else(|| (!plan.theme.is_empty() && !plan.profiles.is_empty()).then_some(()))
+        .map(|()| {
             exact_kernel::style::profiled::declarations(
                 plan.profiles
                     .iter()
                     .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
             )
         });
+    // @ref LLP 1121 D5 — a pin's text is the plan's axes: the row holds the
+    // full tuple it makes over the tuple around the node, plus one.
+    if id == StyleId::Mode as u16 {
+        let tuple = value
+            .as_str()
+            .and_then(|text| pinned(plan, text, tuple()))
+            .ok_or(BridgeError::StyleKind {
+                style: StyleId::Mode,
+                value: value.clone(),
+            })?;
+        return set_style(
+            patch,
+            id,
+            &Value::Number(f64::from(tuple + 1)),
+            plan.stacks.len(),
+        );
+    }
+    // @ref LLP 1095 D4 — the plan's theme, for a colour that names an entry.
+    let _theme = (!plan.theme.is_empty() && matches!(value, exact_plan::str_value!()))
+        .then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
     set_style(patch, id, value, plan.stacks.len())
+}
+
+/// The full app tuple `text`'s pins (`axis=value`, space- or comma-
+/// separated) make over `base`, axis by axis (LLP 1121 D5); `None` when a
+/// pin names no axis or value of `plan`'s.
+pub fn pinned(plan: &exact_plan::Plan, text: &str, base: u32) -> Option<u32> {
+    let axes: Vec<(&str, Vec<&str>)> = plan
+        .axes
+        .iter()
+        .map(|a| (plan.str(a.name), plan.str(a.values).split('|').collect()))
+        .collect();
+    // The base's digit per axis, the first axis most significant.
+    let mut digits = vec![0u32; axes.len()];
+    let mut rest = base;
+    for (i, (_, values)) in axes.iter().enumerate().rev() {
+        digits[i] = rest % values.len() as u32;
+        rest /= values.len() as u32;
+    }
+    // Each axis once, as the compiler checks a literal pin.
+    let mut pinned = 0u64;
+    for pin in text.split([' ', ',']).filter(|p| !p.is_empty()) {
+        let (axis, value) = pin.split_once('=')?;
+        let i = axes.iter().position(|(name, _)| *name == axis)?;
+        if i >= 64 || pinned & (1 << i) != 0 {
+            return None;
+        }
+        pinned |= 1 << i;
+        digits[i] = axes[i].1.iter().position(|v| *v == value)? as u32;
+    }
+    (pinned != 0).then(|| {
+        axes.iter()
+            .zip(&digits)
+            .fold(0, |tuple, ((_, values), d)| tuple * values.len() as u32 + d)
+    })
+}
+
+/// A plan's theme and strings buffers and the theme's length: which plan a
+/// cached table is.
+type PlanAt = (usize, usize, usize);
+
+/// One token's edit: its plan, its name, its default tuple's value and,
+/// when it varies, every tuple's.
+type Edit = (PlanAt, String, String, Vec<String>);
+
+thread_local! {
+    /// The last plan's theme tables, one an app tuple as it is first bound,
+    /// kept so a themed list's thousand rows bind one by pointer instead of
+    /// building it each.
+    static THEME_TABLE: std::cell::RefCell<Option<(PlanAt, Vec<Option<exact_kernel::style::theme::Table>>)>> =
+        const { std::cell::RefCell::new(None) };
+    /// The app tuple of the rows being set (LLP 1121 D5): the window's,
+    /// overridden by the nearest `-exact-mode` pin; the runner sets it
+    /// around a node.
+    static TUPLE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// Tokens edited since a plan was built (LLP 1121 D13), by the plan and
+    /// the token's name: the default tuple's value and, when it varies,
+    /// every tuple's.
+    static EDITS: std::cell::RefCell<Vec<Edit>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A token's value from now on, over the plan's (LLP 1121 D13's edit): its
+/// default tuple's and, when it varies, every tuple's. The tables are built
+/// again when next bound.
+pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) {
+    let at = plan_at(plan);
+    EDITS.with(|edits| {
+        let mut edits = edits.borrow_mut();
+        edits.retain(|(p, n, ..)| *p != at || n != name);
+        edits.push((
+            at,
+            name.into(),
+            value.into(),
+            slices.iter().map(|s| (*s).into()).collect(),
+        ));
+    });
+    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+}
+
+/// A plan's buffers: which plan a cached table or an edit is.
+fn plan_at(plan: &exact_plan::Plan) -> PlanAt {
+    (
+        plan.theme.as_ptr() as usize,
+        plan.theme.len(),
+        plan.strings.as_ptr() as usize,
+    )
+}
+
+/// Set the app tuple rows are set in; the one before.
+pub fn set_tuple(tuple: u32) -> u32 {
+    TUPLE.with(|t| t.replace(tuple))
+}
+
+/// The app tuple rows are set in ([`set_tuple`]).
+pub fn tuple() -> u32 {
+    TUPLE.with(|t| t.get())
+}
+
+/// How many full app tuples `plan`'s axes make (1 with none).
+pub fn tuples(plan: &exact_plan::Plan) -> u32 {
+    plan.axes
+        .iter()
+        .map(|a| plan.str(a.values).split('|').count() as u32)
+        .product()
+}
+
+/// `plan`'s theme as a parse binds it, in the current app tuple
+/// ([`theme_table_at`]).
+pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table {
+    theme_table_at(plan, tuple())
+}
+
+/// `plan`'s theme as a parse binds it in app tuple `tuple`: each entry under
+/// its name, its value that tuple's slice when it varies (LLP 1121 D5), and
+/// an override under its role's spelling too. Built when the plan differs
+/// from the last one this thread bound (known by its buffers' addresses,
+/// nothing scanned per row) or the tuple was not bound yet, else the one
+/// built before.
+pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::style::theme::Table {
+    use exact_kernel::style::roles;
+    // The plan's own buffers: a cached table built from them is this plan's.
+    let at = plan_at(plan);
+    THEME_TABLE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.as_ref().is_none_or(|(key, _)| *key != at) {
+            *cache = Some((at, Vec::new()));
+        }
+        let (_, tables) = cache.as_mut().expect("set above");
+        let slot = tuple as usize;
+        if let Some(Some(table)) = tables.get(slot) {
+            return table.clone();
+        }
+        let edits: Vec<_> = EDITS.with(|e| {
+            e.borrow()
+                .iter()
+                .filter(|(p, ..)| *p == at)
+                .cloned()
+                .collect()
+        });
+        let table = exact_kernel::style::theme::table(plan.theme.iter().flat_map(|row| {
+            let (name, role) = (plan.str(row.name), plan.str(row.role));
+            let edit = edits.iter().find(|(_, n, ..)| n == name);
+            let value = match (edit, row.slices.len) {
+                (Some((_, _, value, slices)), _) => {
+                    slices.get(tuple as usize).unwrap_or(value).as_str()
+                }
+                (None, 0) => plan.str(row.value),
+                (None, len) => plan
+                    .str(plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value),
+            };
+            // A tint role stays the role in its row (`ColorValue::themed`).
+            let tint = roles::role(role).is_some_and(roles::tint);
+            (!tint)
+                .then_some((name, value, false))
+                .into_iter()
+                .chain((!role.is_empty() && !tint).then_some((role, value, true)))
+        }));
+        if tables.len() <= slot {
+            tables.resize(slot + 1, None);
+        }
+        tables[slot] = Some(table.clone());
+        table
+    })
+}
+
+/// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, set where the
+/// kernel resolves a role: its own defaults (unsaid text is `CanvasText`)
+/// and what crosses to a host, as well as a row naming the role. A plan with
+/// none clears them. `true` when they replace a different set another plan
+/// made (a second session's, a reload's), which the runner says.
+pub fn set_role_overrides(plan: &exact_plan::Plan) -> bool {
+    // A plan this thread boots or emits is the one its rows are set from
+    // next: the cached table is rebuilt for it (never another plan's whose
+    // buffers it reuses).
+    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+    // A plan booted afresh starts from its own tokens (LLP 1121 D13), though
+    // its buffers may be where an edited one's were.
+    let at = plan_at(plan);
+    EDITS.with(|edits| edits.borrow_mut().retain(|(p, ..)| *p != at));
+    let _profiles = exact_kernel::style::profiled::declarations(
+        plan.profiles
+            .iter()
+            .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+    );
+    let overrides = plan
+        .theme
+        .iter()
+        .filter_map(|row| {
+            let id = exact_kernel::style::roles::role(plan.str(row.role))?;
+            let value = plan.str(row.value);
+            let colour = exact_kernel::ColorValue::parse_light_dark(value).or_else(|| {
+                exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed)
+            })?;
+            Some((id, colour))
+        })
+        .collect();
+    exact_kernel::style::roles::set_overrides(overrides)
+}
+
+/// [`set_plan_style`] for one of `plan`'s style bindings, with what the
+/// binding says of the row: whether its author wrote it on this node
+/// (@ref LLP 1115.000 D2). The kernel keeps that beside the row.
+pub fn set_binding_style(
+    patch: &mut StyleProps,
+    binding: &exact_plan::BindingsRow,
+    value: &Value,
+    plan: &exact_plan::Plan,
+) -> Result<StyleId, BridgeError> {
+    // @ref LLP 1115.002 D6 — a metric's name is the compiler's, in a sheet
+    // it writes: a row its author wrote never reads one, whatever built
+    // the value (the compiler refuses the literal).
+    if binding.written
+        && value
+            .as_str()
+            .is_some_and(|text| exact_kernel::style::metrics::named(text).is_some())
+    {
+        let style =
+            StyleId::from_bit(binding.id as u32).ok_or(BridgeError::UnknownStyle(binding.id))?;
+        return Err(BridgeError::StyleKind {
+            style,
+            value: value.clone(),
+        });
+    }
+    let style = set_plan_style(patch, binding.id, value, plan)?;
+    set_written(patch, binding, style);
+    Ok(style)
+}
+
+/// A binding whose runtime font stack id has been interned by this session.
+pub fn set_runtime_font_style(
+    patch: &mut StyleProps,
+    binding: &exact_plan::BindingsRow,
+    id: u16,
+    stacks: usize,
+) -> Result<StyleId, BridgeError> {
+    let style = set_style(patch, binding.id, &Value::Number(f64::from(id)), stacks)?;
+    set_written(patch, binding, style);
+    Ok(style)
+}
+
+fn set_written(patch: &mut StyleProps, binding: &exact_plan::BindingsRow, style: StyleId) {
+    // Both ways: a later binding for the same row is the winner, and an
+    // implied winner takes an earlier written bit off (a compiled plan
+    // has one binding a row; a built one may not).
+    if binding.written {
+        patch.written.set(style);
+    } else {
+        patch.written.clear(style);
+    }
 }
 
 /// Set style row `id` on `patch` from `value`.
@@ -110,6 +484,14 @@ pub fn set_style(
 ) -> Result<StyleId, BridgeError> {
     let style = StyleId::from_bit(id as u32).ok_or(BridgeError::UnknownStyle(id))?;
     if style == StyleId::FontFamily {
+        // CSS's `initial` is the row's initial value, not the parent's.
+        if value
+            .as_str()
+            .is_some_and(|text| text.trim().eq_ignore_ascii_case("initial"))
+        {
+            let initial = StyleProps::default().font_family;
+            return set_style(patch, id, &Value::Number(f64::from(initial)), stacks);
+        }
         let index = match value {
             Value::Number(n) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n as u32,
             _ => {
@@ -134,7 +516,7 @@ pub fn set_style(
                 .and_then(|p| exact_num::parse_f64(p).ok())
             {
                 Some(p) => StyleValue::Percent(p),
-                _ => StyleValue::Text(t.to_string()),
+                _ => StyleValue::Text(t.into()),
             },
         },
         _ => {
@@ -203,9 +585,121 @@ impl KeyframesTable {
     }
 }
 
+/// The thread's role overrides from before a boot, put back unless the boot
+/// succeeds and clears it (LLP 1095 D4).
+pub(crate) struct RestoreOverrides(pub(crate) Option<Vec<(u8, exact_kernel::ColorValue)>>);
+
+impl RestoreOverrides {
+    /// Set `plan`'s overrides, keeping the thread's to put back; and whether
+    /// they replace another plan's.
+    pub(crate) fn set(plan: &exact_plan::Plan) -> (RestoreOverrides, bool) {
+        let previous = exact_kernel::style::roles::overrides();
+        let replaced = set_role_overrides(plan);
+        (RestoreOverrides(Some(previous)), replaced)
+    }
+}
+
+impl Drop for RestoreOverrides {
+    fn drop(&mut self) {
+        if let Some(previous) = self.0.take() {
+            let _ = exact_kernel::style::roles::set_overrides(previous);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_css_family_members_keep_quoted_commas_and_order() {
+        assert_eq!(
+            runtime_family_members("Missing, 'A, B', ui-monospace"),
+            [
+                RuntimeFamilyMember {
+                    name: "Missing".into(),
+                    quoted: false
+                },
+                RuntimeFamilyMember {
+                    name: "A, B".into(),
+                    quoted: true
+                },
+                RuntimeFamilyMember {
+                    name: "ui-monospace".into(),
+                    quoted: false
+                },
+            ]
+        );
+        assert!(runtime_family_members("'unfinished, serif").is_empty());
+        assert!(runtime_family_members("serif,,monospace").is_empty());
+    }
+
+    #[test]
+    fn invalid_runtime_lists_do_not_intern() {
+        let mut fonts = RuntimeFonts::default();
+        for value in [
+            "inherit",
+            "initial",
+            "unset",
+            "revert",
+            "revert-layer",
+            "serif,,monospace",
+            "'unfinished",
+            // Not CSS identifiers: the browser refuses the declaration.
+            "Arial;",
+            "1Arial",
+            "Arial 2",
+            "Arial!",
+            "Foo/Bar",
+            "-1x",
+            "Arial, 1x",
+            "Arial, initial",
+            "default",
+            "serif Foo",
+            "Monospace Foo",
+        ] {
+            assert_eq!(fonts.intern(value, 8), None, "{value}");
+        }
+        assert!(fonts.names().is_empty());
+        assert_eq!(fonts.intern("'inherit', Arial", 8), Some(8));
+        for value in [
+            "'Arial;'",
+            "Helvetica Neue",
+            "Helvetica\tNeue",
+            "-x",
+            "--x",
+            "_x",
+            "a-b_c9",
+            "\\31 x",
+            "Foo default",
+            "inherit Foo",
+            "Foo serif",
+            "emoji Foo",
+            "ui-monospace Foo",
+            "Ünï",
+        ] {
+            assert!(fonts.intern(value, 8).is_some(), "{value}");
+        }
+    }
+
+    /// CSS-wide keywords: `initial` is the row's initial value, the
+    /// kernel's family 0, not the parent's; `revert` on an author style,
+    /// with no user-agent rule for the row, is `unset`, as `inherit` is.
+    #[test]
+    fn initial_is_the_kernel_family_and_revert_inherits() {
+        let family = StyleId::FontFamily as u16;
+        for keyword in ["initial", "INITIAL", " initial "] {
+            let mut style = StyleProps::default();
+            set_style(&mut style, family, &Value::Number(4.0), 8).unwrap();
+            set_style(&mut style, family, &Value::str(keyword), 8).unwrap();
+            assert!(style.mask.has(StyleId::FontFamily), "{keyword}");
+            assert_eq!(style.font_family, 0, "{keyword}");
+        }
+        for keyword in ["inherit", "unset", "revert", "Revert-Layer"] {
+            assert!(unsets(family, &Value::str(keyword)), "{keyword}");
+        }
+        assert!(!unsets(family, &Value::str("initial")));
+    }
 
     #[test]
     fn a_platform_color_is_admitted_only_as_a_plan_literal() {
@@ -228,6 +722,56 @@ mod tests {
             );
         }
         assert!(set_plan_style(&mut style, color, &Value::str("#fff"), &plan).is_ok());
+    }
+
+    /// LLP 1115.002 D6: a metric's name is the compiler's. A row its author
+    /// wrote never reads one, whatever built the value; a row of a sheet
+    /// the compiler wrote holds the metric's value in this process's column
+    /// (the web's, until a host says its platform).
+    #[test]
+    fn a_metric_is_read_only_on_a_row_the_compiler_wrote() {
+        let plan = exact_plan::Plan::default();
+        let row = |written| exact_plan::BindingsRow {
+            kind: exact_plan::BindingKind::Style,
+            id: StyleId::MinHeight as u16,
+            expr: Default::default(),
+            written,
+        };
+        let name = Value::str("-exact-grouped-row-min-height");
+        let mut style = StyleProps::default();
+        assert!(matches!(
+            set_binding_style(&mut style, &row(true), &name, &plan),
+            Err(BridgeError::StyleKind { .. })
+        ));
+        assert!(!style.mask.has(StyleId::MinHeight));
+        set_binding_style(&mut style, &row(false), &name, &plan).unwrap();
+        assert_eq!(style.min_height, exact_kernel::Dimension::Points(52.0));
+        assert!(!style.written.has(StyleId::MinHeight), "the platform's");
+    }
+
+    /// LLP 1115.000 D2: where two bindings set one row the node has the
+    /// winner's bit, an implied winner's too. A compiled plan has one
+    /// binding a row, but validation admits two.
+    #[test]
+    fn a_later_binding_for_the_same_row_brings_its_own_written_bit() {
+        let plan = exact_plan::Plan::default();
+        let row = |written| exact_plan::BindingsRow {
+            kind: exact_plan::BindingKind::Style,
+            id: StyleId::TextColor as u16,
+            expr: Default::default(),
+            written,
+        };
+        let mut style = StyleProps::default();
+        set_binding_style(&mut style, &row(true), &Value::str("#ff0000"), &plan).unwrap();
+        assert!(style.written.has(StyleId::TextColor));
+        set_binding_style(&mut style, &row(false), &Value::str("#0000ff"), &plan).unwrap();
+        assert!(style.mask.has(StyleId::TextColor), "the row is still set");
+        assert!(
+            !style.written.has(StyleId::TextColor),
+            "the implied winner takes the written bit off"
+        );
+        set_binding_style(&mut style, &row(true), &Value::str("#00ff00"), &plan).unwrap();
+        assert!(style.written.has(StyleId::TextColor));
     }
 
     #[test]

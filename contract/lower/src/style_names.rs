@@ -63,6 +63,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("r", "css SVG 2", AttrTarget::Styles(&[StyleId::R])),
     // style rows, by their CSS property names
     ("white-space", "css CSS Text 3", AttrTarget::Styles(&[StyleId::WhiteSpace])),
+    ("text-wrap-style", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
+    ("text-wrap", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
+    // @ref LLP 1104 D3 — `::placeholder`'s `color`, the part block's
+    // declaration (contract_syntax::PLACEHOLDER_COLOR); never written as one name.
+    ("::placeholder color", "css CSS Pseudo-Elements 4", AttrTarget::Styles(&[StyleId::PlaceholderColor])),
     ("overflow-wrap", "css CSS Text 3", AttrTarget::Styles(&[StyleId::OverflowWrap])),
     ("field-sizing", "css CSS Form Control Styling 1", AttrTarget::Styles(&[StyleId::FieldSizing])),
     ("scroll-snap-type", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollSnapType])),
@@ -90,6 +95,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("resize", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Resize])),
     ("user-select", "css CSS UI 4", AttrTarget::Styles(&[StyleId::UserSelect])),
     // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
+    ("position-try-fallbacks", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionTryFallbacks])),
     ("position-area", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionArea])),
     ("text-decoration-line", "css CSS Text Decoration 3", AttrTarget::Styles(&[StyleId::TextDecorationLine])),
     // @ref LLP 1064 D5
@@ -119,6 +125,10 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // platform draws it.
     ("accent-color", "css CSS UI 4", AttrTarget::Styles(&[StyleId::AccentColor])),
     ("appearance", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Appearance])),
+    // @ref LLP 1104 D6 — a text field's focus ring off: `outline: none`,
+    // the one value either name takes (`fields::outline_refusal`).
+    ("outline-style", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
+    ("outline", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
     ("-exact-tint-color", "exact LLP 1011", AttrTarget::Styles(&[StyleId::TintColor])),
     ("opacity", "css CSS Color 4", AttrTarget::Styles(&[StyleId::Opacity])),
     // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
@@ -225,6 +235,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("scroll-padding-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingRight])),
     ("scroll-padding-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingBottom])),
     ("scroll-padding-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingLeft])),
+    ("scroll-margin", "css CSS Scroll Snap 1", AttrTarget::Styles(&[ StyleId::ScrollMarginTop, StyleId::ScrollMarginRight, StyleId::ScrollMarginBottom, StyleId::ScrollMarginLeft, ])),
+    ("scroll-margin-top", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginTop])),
+    ("scroll-margin-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginRight])),
+    ("scroll-margin-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginBottom])),
+    ("scroll-margin-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginLeft])),
     ("z-index", "css CSS 2", AttrTarget::Styles(&[StyleId::ZIndex])),
     ("order", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Order])),
     ("transition", "css CSS Transitions 1", AttrTarget::Styles(&[StyleId::Transition])),
@@ -245,6 +260,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("backface-visibility", "css CSS Transforms 2", AttrTarget::Styles(&[StyleId::BackfaceVisibility])),
     // @ref LLP 1077 §5 — declared rows CSS has no name for.
     ("-exact-symbol-rendering", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolRendering])),
+    // @ref LLP 1121 D5 — a subtree's app modes, pinned.
+    ("-exact-mode", "exact LLP 1121", AttrTarget::Styles(&[StyleId::Mode])),
     ("-exact-symbol-palette", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolPalette])),
     ("-exact-symbol-value", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolValue])),
     ("-exact-symbol-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolEffect])),

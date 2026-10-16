@@ -66,22 +66,35 @@ impl ControlKind {
         })
     }
 
-    /// The content size a host that reports none shows (LLP 1069.001 D3):
-    /// each is Chrome's bare control under the web reset. A switch is the
-    /// web page's drawn one (LLP 1116 D1), WebKit's own box and Linux's
-    /// painted one, 38 × 22; an empty select, the page's 36 px tall select
-    /// (its line, padding and line), and a date, time or local date-time
-    /// control in the same field look (LLP 1116.001 D1), Chrome's on macOS
-    /// with an empty value. A native host that presents a different
-    /// switch reports that size through the intrinsic seam. A host that knows
-    /// any control's size reports it.
-    pub fn default_size(self) -> (f32, f32) {
+    /// The content size a host that reports none shows (LLP 1069.001 D3),
+    /// for a control whose font size is `em`.
+    ///
+    /// A checkbox, a radio, a switch and a range's height are the look's
+    /// this process draws, rows of the schema's `metrics` (LLP 1115.000
+    /// D17). Under the neutral look they follow the control's font size (a
+    /// mark is the line's height, 20 px at 16), as the page's sheet sizes
+    /// them, so the kernel and a page lay the same box out. In every other
+    /// column they are Chrome's bare control under the web reset, and the
+    /// switch WebKit's own box, 38 × 22: an Apple host shows them until it
+    /// reports its control's size, and Android's reader paints them.
+    ///
+    /// The rest are the same in every look: an empty select, the page's
+    /// 36 px tall select (its line, padding and line), and a date, time or
+    /// local date-time control in the same field look (LLP 1116.001 D1),
+    /// Chrome's on macOS with an empty value. A host that knows any
+    /// control's size reports it.
+    pub fn default_size(self, em: f32) -> (f32, f32) {
+        use crate::generated::metric;
+        // None of these rows is in `rem`, and each has a value in every column.
+        let look = |index| crate::style::metrics::length(index, em, em).unwrap_or(0.0);
         match self {
-            ControlKind::Checkbox | ControlKind::Radio => (13.0, 13.0),
-            ControlKind::Switch => (38.0, 22.0),
+            ControlKind::Checkbox | ControlKind::Radio => {
+                (look(metric::MARK_SIZE), look(metric::MARK_SIZE))
+            }
+            ControlKind::Switch => (look(metric::SWITCH_WIDTH), look(metric::SWITCH_HEIGHT)),
             ControlKind::File => (347.0, 25.0),
             ControlKind::Select => (46.0, 36.0),
-            ControlKind::Range => (129.0, 16.0),
+            ControlKind::Range => (129.0, look(metric::RANGE_HEIGHT)),
             ControlKind::Date => (164.0, 36.0),
             ControlKind::Time => (131.796_88, 36.0),
             ControlKind::DateTimeLocal => (247.0, 36.0),
@@ -92,9 +105,8 @@ impl ControlKind {
             // is the size, not a host's report (LLP 1069.001, amended
             // 2026-10-07).
             ControlKind::Progress => (20.0, 20.0),
-            // Chrome's `<progress>` at the reset's 16 px. Its UA sheet sizes
-            // the box (`10em` by `1em`, `style::taffy_style`), so this is only
-            // an axis the author made `auto`.
+            // `10em` by `1em` at CSS's 16 px. Layout reads the node's own
+            // font size ([`progress_size`]), never this.
             ControlKind::ProgressBar => (160.0, 16.0),
         }
     }
@@ -256,15 +268,23 @@ impl Progress {
     }
 }
 
-/// A determinate `progress`'s box as HTML's UA sheet gives it (Chrome 154,
-/// as Gecko and WebKit): `width: 10em; height: 1em; box-sizing:
-/// border-box`, under every authored row. They are specified sizes, so a
-/// flex column or a grid does not stretch the bar, as it would a range
-/// (LLP 1116 D8; `kernel/tests/it/browser_controls.rs`). Its font size is a
-/// layout row, so a change to it restyles the node.
+/// A determinate `progress`'s box (LLP 1116 D8; LLP 1115.000 D10.2). It is
+/// HTML's `<progress>` made a block: a box with no content of its own whose
+/// intrinsic size is `10em` by `1em` ([`progress_size`]; on the page,
+/// `contain-intrinsic-size`), so with `width: auto` it fills a block
+/// container as a `<div>` does and is `10em` wide where CSS sizes a box by
+/// its content: a flex row's basis, a shrink-to-fit box. It shrinks below
+/// that in a flex row (the page's `min-width: 0`), so a bar that is as wide
+/// as its row gives way to its neighbours. Lowering writes it `width: 100%`;
+/// under no width row at all it keeps the UA sheet's `width: 10em`, and
+/// under no height row the UA's `height: 1em`, in a border box (Chrome 154,
+/// as Gecko and WebKit). Its font size is a layout row, so a change to it
+/// restyles the node. `kernel/tests/it/browser_controls.rs` holds each case
+/// to Chrome's boxes.
 pub(crate) fn progress_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taffy::Style) {
     let style = arena.style(slot);
     let em = arena.computed_source(slot, StyleId::FontSize).font_size;
+    s.item_is_table = false;
     if !style.mask.has(StyleId::Width) {
         s.size.width = taffy::prelude::length(10.0 * em);
     }
@@ -273,6 +293,32 @@ pub(crate) fn progress_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut t
     }
     if !style.mask.has(StyleId::BoxSizing) {
         s.box_sizing = taffy::style::BoxSizing::BorderBox;
+    }
+    if style.min_width == crate::Dimension::Auto {
+        s.min_size.width = taffy::prelude::length(0.0);
+    }
+}
+
+/// A determinate `progress`'s intrinsic size, `10em` by `1em` of its own
+/// font size: what it falls back to where no row sizes an axis, whatever
+/// size the host's own bar reports (UIKit's is 4 points tall).
+pub(crate) fn progress_size(arena: &crate::arena::NodeArena, slot: u32) -> (f32, f32) {
+    let em = arena.computed_source(slot, StyleId::FontSize).font_size;
+    (10.0 * em, em)
+}
+
+/// A range whose `width` is a percentage shrinks below its intrinsic width
+/// in a flex row, as Chrome's does (CSS Sizing 3 §5.2.2: a form control
+/// with a percentage width is compressible, its automatic minimum zero): a
+/// range is `width: 100%` unless its author says otherwise (LLP 1115.000
+/// D10.2), and beside a row's other children it takes what they leave.
+/// An authored `min-width` is the author's.
+pub(crate) fn range_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taffy::Style) {
+    let style = arena.style(slot);
+    if matches!(style.width, crate::Dimension::Percent(_))
+        && style.min_width == crate::Dimension::Auto
+    {
+        s.min_size.width = taffy::prelude::length(0.0);
     }
 }
 
@@ -421,7 +467,7 @@ impl Kernel {
     }
 
     /// A button's face (LLP 1069.011.000 D1), its children read as they now
-    /// stand (a `when` between them included); `None` for a node that is not
+    /// stand (an `if` between them included); `None` for a node that is not
     /// a custom or native button.
     pub fn press_face(&self, view: ViewId) -> Option<PressFace> {
         let slot = self.arena().slot_of(view)?;

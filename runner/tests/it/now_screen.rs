@@ -1,6 +1,6 @@
 //! A hand-built plan of the Caltrain "Now" screen's shape, run end to end:
 //! boot → kernel tree, press → state → resource re-request → keyed rows,
-//! text change → `when` flip, a timer under the seekable clock, `match` on an
+//! text change → `if` flip, a timer under the seekable clock, `match` on an
 //! option, and the refusals that leave the kernel untouched.
 //!
 //! This plan is also the first expected output of the compiler corpus
@@ -283,6 +283,7 @@ fn style(id: &str, expr: Code) -> BindingsRow {
         kind: BindingKind::Style,
         id: style_id(id),
         expr,
+        written: true,
     }
 }
 
@@ -291,6 +292,7 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
         kind: BindingKind::Prop,
         id: prop_id(id),
         expr,
+        written: true,
     }
 }
 
@@ -464,7 +466,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         key,
         1,
     );
-    // Inside the row, frames are [when-arm, row], innermost last: the item is depth 0.
+    // Inside the row, frames are [if-arm, row], innermost last: the item is depth 0.
     let train = b.str("Train ");
     let dep_prefix = b.str("dep-");
     let mut label = Asm::new();
@@ -967,7 +969,7 @@ fn values_conform_to_declared_types_at_every_boundary() {
 #[test]
 fn a_region_at_the_plan_root_is_refused() {
     let (mut plan, _) = now_screen();
-    // Detach the `when` region from its parent: it becomes a root site.
+    // Detach the `if` region from its parent: it becomes a root site.
     plan.regions[0].parent = None;
     // Remove the root node so the site count stays one.
     let root_children: Vec<usize> = (0..plan.nodes.len())

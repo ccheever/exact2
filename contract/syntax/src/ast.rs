@@ -1,5 +1,6 @@
 //! The abstract syntax tree.
 
+pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
 
@@ -46,6 +47,10 @@ pub struct File {
     pub timelines: Vec<TimelineDecl>,
     /// `color-profile` declarations, in order (LLP 1100 D3).
     pub color_profiles: Vec<ColorProfileDecl>,
+    /// The app's `theme` (LLP 1095 D4): the root file's only.
+    pub theme: Option<ThemeDecl>,
+    /// The app's design, `app.tamber` (LLP 1121 D2), set by the driver.
+    pub design: Option<DesignSource>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -188,8 +193,7 @@ pub enum Step {
         dy: f64,
         /// The node it ends on, by `testId`, and where in its box.
         to: Option<(String, Option<(f64, f64)>)>,
-        /// Where it starts, an offset from the node's top left; its middle
-        /// when `None`.
+        /// Where it starts, an offset from the node's top left; its middle when `None`.
         from: Option<(f64, f64)>,
         /// The left button rather than a finger, where a carrier has both.
         mouse: bool,
@@ -266,9 +270,25 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `request POST "/items" {"title": "Bread"} as grace [expect 409]` (LLP 1116.006
+    /// D8): the driver writes through the app's server as another person.
+    Request {
+        /// `GET`, `POST`, `PUT`, `PATCH` or `DELETE`.
+        method: String,
+        /// Under the server URL the app calls (`/items`), or a whole URL.
+        path: String,
+        /// The body, as JSON text.
+        body: Option<String>,
+        /// Whose bearer token it carries.
+        persona: Option<String>,
+        /// `expect 409` (LLP 1116.010 D3): the refusal's status; `None`: any 2xx.
+        status: Option<u16>,
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
-        /// A whole number from 0 through 2^53 − 1.
+        /// A whole number from 0 through 2^32 − 1.
         seed: f64,
         /// Where.
         span: Span,
@@ -354,6 +374,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect disabled "testId"` / `expect enabled "testId"` (LLP 1116.010 D3): whether
+    /// the control the node names is disabled (its `disabled` attribute).
+    ExpectDisabled {
+        /// The node, by `testId`.
+        target: String,
+        /// `disabled`, or `enabled`.
+        disabled: bool,
+        /// Where.
+        span: Span,
+    },
     /// `expect text "testId" == "value"`: the node's text — its `text` prop,
     /// else its descendants' text in order (the web's `textContent`), else a
     /// field's value.
@@ -375,6 +405,14 @@ pub enum Step {
     /// it, asking its `beforeunload` first (the driver's `close`, studio
     /// diary R17); a window a handler keeps stays, and the test goes on.
     Close {
+        /// Where.
+        span: Span,
+    },
+    /// `back`: the platform's Back, as a person takes it (LLP 1116.006 D4):
+    /// an open dialog's cancel (Escape), else the top sheet dismissed (its
+    /// swipe down), else the pushed route popped (iOS's Back button, the
+    /// browser's Back, ⌘[). With nothing to go back from, the step fails.
+    Back {
         /// Where.
         span: Span,
     },
@@ -548,17 +586,6 @@ pub struct TimelineDecl {
     pub span: Span,
 }
 
-/// `color-profile --name src="…" rendering-intent=…`: CSS's `@color-profile`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColorProfileDecl {
-    /// The dashed name `color()` refers to, `--` included.
-    pub name: String,
-    /// The descriptors, literal: `src` and `rendering-intent`.
-    pub attrs: Vec<Attr>,
-    /// Where.
-    pub span: Span,
-}
-
 /// One line of a `keyframes` declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframeDecl {
@@ -592,14 +619,14 @@ pub struct Field {
     pub span: Span,
 }
 
-/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `list<T>`.
+/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `T[]`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     /// A named type: a primitive or a shape.
     Named(String, Span),
     /// `option<T>`.
     Option(Box<TypeExpr>, Span),
-    /// `list<T>`.
+    /// `T[]`.
     List(Box<TypeExpr>, Span),
 }
 
@@ -926,8 +953,7 @@ pub enum Stmt {
         /// How many arguments the call itself writes.
         authored: usize,
         /// How many of the callee's own parameters were curried where it
-        /// was passed (`close=dismiss("photo")`); 0 for a same-component
-        /// call.
+        /// was passed (`close=dismiss("photo")`); 0 for a same-component call.
         curried: usize,
         /// The prop's or the `provide`'s binding (`go=move(id)`), for a
         /// prop or inject call.
@@ -964,7 +990,7 @@ pub struct Task {
     /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
     /// `None` for `mount` and for `key=` alone (`when true`).
     pub gate: Option<Expr>,
-    /// `key=expr`: a new key restarts the timer, as a new `each` key makes
+    /// `key=expr`: a new key restarts the timer, as a new `for` key makes
     /// a new row (LLP 1092 D7).
     pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
@@ -1025,7 +1051,7 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `when cond … else …`. `tag` is the inliner's, as on `Each`: its
+    /// `if cond … else …`. `tag` is the inliner's, as on `Each`: its
     /// arms own the state of the children used in them; 0 as parsed.
     When {
         /// The inliner's tag.
@@ -1039,9 +1065,9 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `each x in list key=expr`, or `each x, i in list key=expr` binding
+    /// `for x in list key=expr`, or `for x, i in list key=expr` binding
     /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
-    /// per region (`each`, `when`, `match`) in the expanded root, so a
+    /// per region (`for`, `if`, `match`) in the expanded root, so a
     /// lifted slot can name the region that owns it before regions exist
     /// (LLP 1017 P4c); 0 as parsed.
     Each {
@@ -1115,7 +1141,7 @@ pub fn is_input_multiple(tag: &str, positional: &Expr) -> bool {
 /// `Some("checkbox")` for a checkbox (a switch is one too), whose `change`
 /// and `input` carry a bool; `Some("radio")` for a radio, whose carry its
 /// `value`; `Some("file")` for a file input (LLP 1069.002
-/// D1), whose `change` carries a `list<Picked>`; `Some("select")` for a
+/// D1), whose `change` carries a `Picked[]`; `Some("select")` for a
 /// `select`, whose `change` and `input` carry the chosen option's value;
 /// `None` for a text field or any other element.
 pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
@@ -1207,6 +1233,8 @@ pub fn text_input_type(value: &Expr) -> bool {
     }
 }
 
+pub use crate::part::{part_attr, PLACEHOLDER_COLOR};
+
 /// `name=expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attr {
@@ -1216,6 +1244,9 @@ pub struct Attr {
     pub value: Expr,
     /// Where.
     pub span: Span,
+    /// Whether the author wrote it (LLP 1115.000 D2): the parser's are; a
+    /// row the compiler adds to an element (a sheet's, an implied one) is not.
+    pub written: bool,
 }
 
 /// A binary operator.
@@ -1273,7 +1304,7 @@ pub enum Expr {
     None(Span),
     /// `[a, b, c]`: a list of its items, which unify as the arms of `?:`
     /// do (LLP 1088 §9.1). `[]`'s element type comes from where it is
-    /// written (the other arm of a `match` or `?:`, a declared `list<T>`,
+    /// written (the other arm of a `match` or `?:`, a declared `T[]`,
     /// a write into the state it initializes).
     List(Vec<Expr>, Span),
     /// `some(expr)`.
@@ -1360,6 +1391,7 @@ impl Step {
             | Step::BeforeData { span }
             | Step::FailFetch { span, .. }
             | Step::PassFetch { span, .. }
+            | Step::Request { span, .. }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
@@ -1367,9 +1399,11 @@ impl Step {
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
             | Step::Close { span }
+            | Step::Back { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
+            | Step::ExpectDisabled { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
             | Step::ExpectSound { span, .. }

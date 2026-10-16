@@ -98,7 +98,7 @@ impl Kept {
 }
 
 /// Every collection in `children` (a row's roots), outside other collections'
-/// rows, with its site: its plan node and the keys of any eager `each` rows
+/// rows, with its site: its plan node and the keys of any eager `for` rows
 /// crossed to reach it, and the frames in force there.
 fn inner_lists<'a>(
     children: &'a mut [Child],
@@ -122,7 +122,7 @@ fn inner_lists<'a>(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     inner_lists(roots, &inner, site, sites, out);
                 }
                 Active::Rows { rows } => {

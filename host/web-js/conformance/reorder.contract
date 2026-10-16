@@ -19,7 +19,7 @@ shape Photo
   rank: number
 
 component Arrange
-  resource rows = galleryRows(0, 0, true) as shape list<Photo>
+  resource rows = galleryRows(0, 0, true) as shape Photo[]
   state last = "none"
   state drops = 0
   state limit = 99
@@ -39,7 +39,7 @@ component Arrange
         button appearance="none" testId="more" press=more
           text "more"
       list id="arrange" reorderdrop=dropped virtualized=true estimated-item-height=56 testId="list" flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each p in filter(rows, r => r.rank < limit) key=p.id
+        for p in rows.filter(r => r.rank < limit) key=p.id
           row testId=`row-${p.rank}` height=56 box-sizing="border-box" padding-left=12 align-items="center" gap=12 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb" background-color="#ffffff"
             box reorderFor="arrange" testId=`grip-${p.rank}` touch-action="none" width=32 height=32 background-color="#cbd5e1" border-radius=6
             text p.title font-size=15

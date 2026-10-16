@@ -133,7 +133,7 @@ fn text_of(r: &Runner<Stations>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap()
@@ -270,7 +270,7 @@ fn an_action_parameter_shadows_a_same_named_child_prop() {
 
 #[test]
 fn nested_row_actions_use_lexical_items_even_when_a_root_name_collides() {
-    let src = "shape Station\n  id: string\n  name: string\ncomponent App\n  state item = \"root collision\"\n  state visible = true\n  resource stations = stations(\"asc\") as shape list<Station>\n  view\n    column\n      each outer in stations key=outer.id\n        each item in stations key=item.id\n          when visible\n            ScopedRow(outer=outer, item=item)\ncomponent ScopedRow\n  props\n    outer: Station\n    item: Station\n  state selected = item.name\n  state result = \"\"\n  action choose\n    result = `${outer.name}/${item.name}`\n  view\n    column\n      text selected testId=`selected-${outer.id}-${item.id}`\n      button \"choose\" press=choose testId=`choose-${outer.id}-${item.id}`\n      text result testId=`result-${outer.id}-${item.id}`\n";
+    let src = "shape Station\n  id: string\n  name: string\ncomponent App\n  state item = \"root collision\"\n  state visible = true\n  resource stations = stations(\"asc\") as shape Station[]\n  view\n    column\n      for outer in stations key=outer.id\n        for item in stations key=item.id\n          if visible\n            ScopedRow(outer=outer, item=item)\ncomponent ScopedRow\n  props\n    outer: Station\n    item: Station\n  state selected = item.name\n  state result = \"\"\n  action choose\n    result = `${outer.name}/${item.name}`\n  view\n    column\n      text selected testId=`selected-${outer.id}-${item.id}`\n      button \"choose\" press=choose testId=`choose-${outer.id}-${item.id}`\n      text result testId=`result-${outer.id}-${item.id}`\n";
     let plan = contract::compile(src).unwrap();
     let plan = contract::bake(plan, Stations).unwrap();
     let mut r = Runner::boot(
@@ -318,15 +318,15 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     let source = r#"component App
   state reverse = false
   state shown = true
-  resource keys = keys(reverse) as shape list<number>
+  resource keys = keys(reverse) as shape number[]
   action flip
     reverse = !reverse
   action toggle
     shown = !shown
   view
     column testId="root"
-      when shown
-        each item in keys key=item
+      if shown
+        for item in keys key=item
           button press=flip testId=`key-${item}`
             text `${item}`
       else
@@ -378,7 +378,7 @@ fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
     shown = !shown
   view
     column testId="root"
-      when shown
+      if shown
         column testId="branch"
           button "first" press=toggle testId="repeated"
           column
@@ -679,14 +679,14 @@ component Child
 
 #[test]
 fn a_row_owned_state_reaches_the_rows_of_the_uses_own_each() {
-    // A use inside an `each` row owns its state on that row; the rows of the
-    // use's own `each` (or list) read it through their frames, so a write
+    // A use inside a `for` row owns its state on that row; the rows of the
+    // use's own `for` (or list) read it through their frames, so a write
     // revisits them. The other row's use keeps its own value.
     for list in [
         "column",
         "list virtualized=true height=400 estimated-item-height=40",
     ] {
-        let src = format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource stations = stations(\"asc\") as shape list<Station>\n  view\n    column\n      each outer in stations key=outer.id\n        Rows(outer=outer, items=stations)\ncomponent Rows\n  props\n    outer: Station\n    items: list<Station>\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button \"flip\" press=flip testId=`flip-${{outer.id}}`\n      {list}\n        each item in items key=item.id\n          text (on ? \"on\" : \"off\") height=40 testId=`row-${{outer.id}}-${{item.id}}`\n");
+        let src = format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource stations = stations(\"asc\") as shape Station[]\n  view\n    column\n      for outer in stations key=outer.id\n        Rows(outer=outer, items=stations)\ncomponent Rows\n  props\n    outer: Station\n    items: Station[]\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button \"flip\" press=flip testId=`flip-${{outer.id}}`\n      {list}\n        for item in items key=item.id\n          text (on ? \"on\" : \"off\") height=40 testId=`row-${{outer.id}}-${{item.id}}`\n");
         let mut r = Runner::boot(
             contract::compile(&src).unwrap(),
             Stations,
@@ -705,14 +705,14 @@ fn a_row_owned_state_reaches_the_rows_of_the_uses_own_each() {
 
 /// LLP 1088 D6's two compiler repros, by one ordered pass and not its
 /// (deferred) fixed point: a row's state is typed from its initializer
-/// before the derives that read it (shop F3), and an `each` over a list a
+/// before the derives that read it (shop F3), and a `for` over a list a
 /// later write types (`state items = []`) no longer stops the row scopes
 /// the other rows' state is typed in.
 #[test]
 fn a_rows_state_types_before_its_derives_and_an_untyped_list_waits() {
-    let shop = "shape Item\n  name: string\n  images: list<string>\nshape Product\n  id: string\n  items: list<Item>\ncomponent App\n  resource products = loadProducts() as shape list<Product>\n  view\n    column\n      each p in products key=p.id\n        Child(b=p)\ncomponent Child\n  props\n    b: Product\n  state pick = 0\n  derive chosen = at(b.items, pick)\n  derive images = match chosen { case some(i) => i.images, case none => [] }\n  view\n    column\n      each img, i in images key=img\n        text `${i} of ${length(images)}`\n";
-    let nested = "shape Item\n  id: string\n  images: list<string>\ncomponent App\n  state items = []\n  action load(v: list<Item>)\n    items = v\n  view\n    column\n      each i in items key=i.id\n        each image in i.images key=image\n          text image\n";
-    let replace = "shape Item\n  id: string\n  images: list<string>\ncomponent App\n  resource sourceItems = loadItems() as shape list<Item>\n  state items = []\n  action replaceItems(v)\n    items = v\n  view\n    column\n      button \"go\" press=replaceItems(sourceItems)\n      each i in items key=i.id\n        Row(item=i)\ncomponent Row\n  props\n    item: Item\n  state open = false\n  view\n    each image in item.images key=image\n      text image\n";
+    let shop = "shape Item\n  name: string\n  images: string[]\nshape Product\n  id: string\n  items: Item[]\ncomponent App\n  resource products = loadProducts() as shape Product[]\n  view\n    column\n      for p in products key=p.id\n        Child(b=p)\ncomponent Child\n  props\n    b: Product\n  state pick = 0\n  derive chosen = b.items.at(pick)\n  derive images = match chosen { case some(i) => i.images, case none => [] }\n  view\n    column\n      for img, i in images key=img\n        text `${i} of ${images.length}`\n";
+    let nested = "shape Item\n  id: string\n  images: string[]\ncomponent App\n  state items = []\n  action load(v: Item[])\n    items = v\n  view\n    column\n      for i in items key=i.id\n        for image in i.images key=image\n          text image\n";
+    let replace = "shape Item\n  id: string\n  images: string[]\ncomponent App\n  resource sourceItems = loadItems() as shape Item[]\n  state items = []\n  action replaceItems(v)\n    items = v\n  view\n    column\n      button \"go\" press=replaceItems(sourceItems)\n      for i in items key=i.id\n        Row(item=i)\ncomponent Row\n  props\n    item: Item\n  state open = false\n  view\n    for image in item.images key=image\n      text image\n";
     for src in [shop, nested, replace] {
         let plan = contract::compile(src);
         assert!(plan.is_ok(), "{src}\n{plan:?}");

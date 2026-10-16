@@ -7,6 +7,71 @@ import XCTest
 /// reports the control's height as its automatic minimum, as on iOS, so an
 /// unsized row of text tabs does not squash the control.
 final class SegmentsMacTests: XCTestCase {
+    func testARIAUnavailableTabStaysOperableInNativeSegments() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = p.viewport
+        defer { p.reset(); w.close() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab", "accessibilityDisabled": "true"], "handlers": ["press"]],
+            ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 13, "kind": "text", "props": ["text": "One"]],
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Two"]],
+            ["op": "children", "id": 11, "ids": [13]],
+            ["op": "children", "id": 12, "ids": [14]],
+            ["op": "children", "id": 10, "ids": [11, 12]],
+            ["op": "roots", "ids": [10]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 40.0],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        XCTAssertTrue(control.isEnabled(forSegment: 0), "ARIA does not suppress the native action")
+        let top = try XCTUnwrap(control.accessibilityChildren() as? [NSObject])
+        let children = top.count == 1
+            ? (top[0].accessibilityAttributeValue(.children) as? [NSObject] ?? []) : top
+        XCTAssertEqual(children.count, 2)
+        XCTAssertEqual(children[0].accessibilityAttributeValue(.role) as? String, "AXRadioButton")
+        XCTAssertEqual(children[0].accessibilityAttributeValue(.description) as? String, "One")
+        XCTAssertTrue(children[0].accessibilityActionNames().contains(.press))
+        XCTAssertEqual(children[0].accessibilityAttributeValue(.enabled) as? Bool, false, "VoiceOver's projected segment carries aria-disabled")
+        XCTAssertEqual(children[1].accessibilityAttributeValue(.enabled) as? Bool, true)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(p.segments.activate(try XCTUnwrap(p.views[11])) == true)
+        XCTAssertEqual(pressed, [11])
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertEqual(children[0].accessibilityAttributeValue(.enabled) as? Bool, true, "clearing ARIA restores AXEnabled")
+    }
+
+    func testAppearanceNoneRestoresAuthoredTabsAndTheirActions() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 13, "kind": "text", "props": ["text": "One"]],
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Two"]],
+            ["op": "children", "id": 11, "ids": [13]],
+            ["op": "children", "id": 12, "ids": [14]],
+            ["op": "children", "id": 10, "ids": [11, 12]],
+            ["op": "roots", "ids": [10]],
+        ]))
+        XCTAssertNotNil(p.segments.control(of: 10))
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["appearance": "none", "written": ["appearance"]]]]))
+        XCTAssertNil(p.segments.control(of: 10))
+        XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(11)
+        XCTAssertEqual(pressed, [11])
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["appearance": "auto", "written": ["appearance"]]]]))
+        XCTAssertNotNil(p.segments.control(of: 10))
+    }
+
     private func drain() {
         let delivered = expectation(description: "intrinsic size delivered after the batch")
         DispatchQueue.main.async { delivered.fulfill() }
@@ -58,11 +123,13 @@ final class SegmentsMacTests: XCTestCase {
         // The control fills the content box: a border-box minimum also holds
         // the padding and border around it; a content-box one does not.
         p.apply(wireBatch([["op": "style", "id": 10,
-                            "style": ["box_sizing": "border-box", "padding_top": 6.0, "padding_bottom": 4.0]]]))
+                            "style": ["box_sizing": "border-box", "padding_top": 6.0, "padding_bottom": 4.0]],
+                           contentOp(10, 300, Double(size.height), padding: [6, 0, 4, 0])]))
         drain()
         XCTAssertEqual((reports.last ?? nil)?.height, size.height + 10)
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
-                            "w": 300.0, "h": Double(size.height + 10)]]))
+                            "w": 300.0, "h": Double(size.height + 10)],
+                           contentOp(10, 300, Double(size.height + 10), padding: [6, 0, 4, 0])]))
         XCTAssertEqual(control.frame, owner.contentBox())
         XCTAssertEqual(control.frame.height, size.height, "the padding does not squash the control")
         p.apply(wireBatch([["op": "style", "id": 10,

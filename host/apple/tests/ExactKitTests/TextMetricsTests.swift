@@ -793,6 +793,55 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(paragraph.rastersText)
     }
 
+    func testShrinkingBelowRasterThresholdRetiresAcceptedInkAndCanGrowAgain() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-shrink")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        func batch(_ ops: [[String: Any]]) {
+            presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        }
+        batch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Not authenticated · Sign in with ChatGPT to use Codex."]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 80.0],
+        ])
+        let node = try XCTUnwrap(presenter.views[2])
+        let scale = window.backingScaleFactor
+        let smallHeight = Double(TextRasterizer.minPixels / (400 * scale * scale) - 1)
+        for clamp in [0, 2] { for shadow in [false, true] {
+            batch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 80.0]])
+            var style: [String: Any] = ["line_clamp": Double(clamp)]
+            if shadow { style["text_shadow"] = ["o": [2.0, 2.0], "b": 2.0, "c": [0.0, 0.0, 0.0, 255.0]] }
+            batch([["op": "style", "id": 2, "style": style]])
+            XCTAssertTrue(node.rastersText)
+            let pixels = try XCTUnwrap(IOSurface(properties: [.width: Int(400 * scale), .height: Int(80 * scale), .bytesPerElement: 4]))
+            let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size, box: node.contentBox(), scale: scale)
+            node.textRasterKey = key; node.textRasterReady = false
+            node.showTextRaster(pixels, for: key)
+            XCTAssertNotNil(node.textRaster)
+            if shadow { XCTAssertNotNil(node.textRasterOverflowLayer) }
+            batch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": smallHeight]])
+            XCTAssertFalse(node.rastersText)
+            XCTAssertNil(node.textRaster, "old ink cannot await a worker for a directly drawn paragraph")
+            XCTAssertNil(node.textRasterOverflowLayer, "old overflow and shadows must disappear")
+            XCTAssertNil(node.layer?.contents)
+            XCTAssertTrue(node.needsDisplay)
+            // A stale worker completion must not revive those pixels.
+            node.showTextRaster(pixels, for: key)
+            XCTAssertNil(node.textRaster)
+            batch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 80.0]])
+            node.updateLayer()
+            XCTAssertTrue(node.textRasterReady, "draw → raster still supplies first pixels")
+        } }
+    }
+
     func testOffscreenResizeRetiresTheRasterItsLayerWouldStretch() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "text-resize")
@@ -935,6 +984,134 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertNil(offscreen.textRaster)
         XCTAssertNil(offscreen.textRasterKey)
         XCTAssertFalse(offscreen.textRasterPending)
+    }
+
+    /// X82: a live colour-scheme switch repaints every rastered text, as the
+    /// web does, whether or not it can be selected. A display pass gives two
+    /// replacements to the two workers and declines the rest; the pump asks
+    /// those again, a button's labels and `user-select: none` included.
+    func testALiveSchemeSwitchRepaintsEveryRasterSelectableOrNot() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-scheme-switch")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        // `light-dark(#d00000, #00b4ff)`: red in light, blue in dark.
+        let ink: [String: Any] = ["font_size": 16.0, "font_weight": 700.0,
+                                  "text_color": [[208.0, 0.0, 0.0, 255.0], [0.0, 180.0, 255.0, 255.0]]]
+        let labels = [10, 11, 12, 13], unselectable = [20, 21, 22, 23], selectable = 30
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"],
+                                    ["op": "create", "id": 2, "kind": "button", "handlers": ["press"]],
+                                    ["op": "create", "id": 3, "kind": "view", "style": ["user_select": "none"]]]
+        for id in labels + unselectable + [selectable] {
+            ops.append(["op": "create", "id": id, "kind": "text", "style": ink, "props": ["text": "Probe \(id) MMMMMMMMMMMM"]])
+        }
+        ops += [["op": "children", "id": 1, "ids": [2, 3, selectable]], ["op": "children", "id": 2, "ids": labels],
+                ["op": "children", "id": 3, "ids": unselectable], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 420.0],
+                ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 420.0, "h": 184.0],
+                ["op": "frame", "id": 3, "x": 0.0, "y": 184.0, "w": 420.0, "h": 184.0],
+                ["op": "frame", "id": selectable, "x": 0.0, "y": 370.0, "w": 400.0, "h": 42.0]]
+        for (row, id) in Array(labels.enumerated()) + Array(unselectable.enumerated()) {
+            ops.append(["op": "frame", "id": id, "x": 0.0, "y": Double(row) * 46, "w": 400.0, "h": 42.0])
+        }
+        presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        let texts = try (labels + unselectable + [selectable]).map { try XCTUnwrap(presenter.views[UInt32($0)]) }
+        XCTAssertEqual(texts.filter(\.textSelectable).map(\.id), [UInt32(selectable)], "the Mac selects only the plain text")
+        XCTAssertTrue(texts.allSatisfy { $0.rastersText && presenter.textIsVisible($0) })
+        // A frame at a time, as AppKit and the display link run them: what
+        // is dirty is displayed, the pump runs, workers' results arrive.
+        // Returns the texts still owed their pixels.
+        func settle() -> [UInt32] {
+            let hang = Date(timeIntervalSinceNow: 10)
+            while true {
+                window.displayIfNeeded()
+                presenter.pump()
+                let owed = texts.filter {
+                    $0.needsTextRaster || $0.textRasterUsesStrips
+                        || ($0.textRasterOverflowLayer ?? $0.layer)?.contents as? IOSurface !== $0.textRaster
+                }
+                if owed.isEmpty || Date() > hang { return owed.map(\.id) }
+                RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
+            }
+        }
+        // Which half a text's pixels are in: premultiplied red against blue (BGRA).
+        func dark(_ node: NodeView) -> Bool? {
+            guard let surface = node.textRaster else { return nil }
+            surface.lock(options: .readOnly, seed: nil)
+            defer { surface.unlock(options: .readOnly, seed: nil) }
+            let bytes = surface.baseAddress.assumingMemoryBound(to: UInt8.self)
+            var red = 0, blue = 0
+            for y in 0..<surface.height {
+                for x in 0..<surface.width {
+                    blue += Int(bytes[y * surface.bytesPerRow + x * 4]); red += Int(bytes[y * surface.bytesPerRow + x * 4 + 2])
+                }
+            }
+            return blue > 4 * red ? true : red > 4 * blue ? false : nil
+        }
+        XCTAssertEqual(settle(), [])
+        XCTAssertEqual(texts.map(dark), Array(repeating: false, count: texts.count), "mounted in light")
+        for scheme in [true, false] {
+            window.appearance = NSAppearance(named: scheme ? .darkAqua : .aqua)
+            XCTAssertEqual(settle(), [], "every text has its pixels again after the switch to \(scheme ? "dark" : "light")")
+            XCTAssertEqual(texts.map(dark), Array(repeating: scheme, count: texts.count), "every raster in the new half")
+        }
+    }
+
+    /// X82's first-mount case: button labels AppKit asks for while they are
+    /// off screen (its overdraw) get a worker's pixels, which wait for the
+    /// pump to publish them; one asked while both workers are busy is
+    /// declined, and the pump asks it again. None can be selected.
+    func testOffscreenButtonLabelsArePublishedByThePump() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-offscreen-labels")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { RegionTextExecutor.queue.isSuspended = false; window.close(); session.destroy() }
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
+        for row in 0..<3 {
+            ops += [["op": "create", "id": 10 + row, "kind": "button", "handlers": ["press"]],
+                    ["op": "create", "id": 20 + row, "kind": "text", "props": ["text": "Commit title \(row) MMMMMMMM"]]]
+        }
+        ops += [["op": "children", "id": 1, "ids": [10, 11, 12]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0]]
+        for row in 0..<3 {
+            ops += [["op": "children", "id": 10 + row, "ids": [20 + row]],
+                    ["op": "frame", "id": 10 + row, "x": 0.0, "y": 800.0 + Double(row) * 50, "w": 420.0, "h": 42.0],
+                    ["op": "frame", "id": 20 + row, "x": 0.0, "y": 0.0, "w": 400.0, "h": 42.0]]
+        }
+        presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        let labels = try (20..<23).map { try XCTUnwrap(presenter.views[UInt32($0)]) }
+        XCTAssertTrue(labels.allSatisfy { !$0.textSelectable && $0.rastersText && !presenter.textIsVisible($0) && $0.textRasterKey == nil })
+        // AppKit's overdraw asks for the three layers while the workers are held.
+        RegionTextExecutor.queue.isSuspended = true
+        for label in labels { label.updateLayer() }
+        XCTAssertEqual(labels.map { $0.textRasterKey != nil }, [true, true, false], "two workers; the third is declined")
+        XCTAssertTrue(labels.allSatisfy { $0.layer?.contents == nil })
+        RegionTextExecutor.queue.isSuspended = false
+        // The display link's pump, a frame at a time, as the workers finish.
+        let hang = Date(timeIntervalSinceNow: 10)
+        while labels.contains(where: \.needsTextRaster) && Date() < hang {
+            presenter.pump()
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
+        }
+        XCTAssertEqual(labels.filter(\.needsTextRaster).map(\.id), [], "every label's pixels, published off screen")
+        for label in labels {
+            let pixels = try XCTUnwrap(label.textRaster)
+            let ink = try XCTUnwrap(label.textRasterOverflowLayer ?? label.layer)
+            XCTAssertTrue(ink.contents as? IOSurface === pixels, "label \(label.id) shows its pixels")
+            if let overflow = label.textRasterOverflowLayer {
+                XCTAssertTrue(overflow.superlayer === label.layer)
+                XCTAssertEqual(overflow.frame, label.textRasterFrame, "overhanging glyphs keep their position")
+            }
+        }
     }
 
     func testFlowChangesRetireOrdinaryRasterAndRejectItsLateWorker() throws {

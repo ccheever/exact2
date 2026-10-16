@@ -25,8 +25,10 @@ mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 pub mod fonts;
+mod mode;
+mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
-use fonts::{font_catalog, font_faces, font_names};
+use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
 #[path = "document.rs"]
 pub mod document;
 #[path = "element.rs"]
@@ -41,6 +43,8 @@ pub use height_drag::HeightDragBinding;
 mod flow_host;
 #[path = "layers.rs"]
 pub mod layers;
+#[path = "own.rs"]
+mod own;
 #[path = "reorder_drag.rs"]
 mod reorder_drag;
 #[path = "transform_drag.rs"]
@@ -63,6 +67,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
                 id: field("id"),
                 coalesced: field("coalesced").parse().unwrap_or(0),
                 data: String::from_utf8_lossy(&body).into_owned(),
+                binary: None,
             })
         }
         5 => Outcome::Storage(body),
@@ -276,6 +281,7 @@ impl exact_kernel::TextMeasurer for BrowserMeasures {
 /// engine's tree only if a layout is ever asked for, and links no text
 /// measurer of its own (LLP 1047 §6).
 pub(crate) fn browser_kernel() -> Kernel {
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     exact_kernel::style::wide::set_available(|wide| !wide.space.is_hdr());
     Kernel::on_demand(Box::new(BrowserMeasures))
 }
@@ -453,7 +459,13 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
         runner.set_device_links(links.device);
-        let font_names = font_names(runner.plan());
+        // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
+        // new runner's page drops the last one's, glue.js).
+        let theme = exact_kernel::style::roles::theme_css();
+        if !theme.is_empty() {
+            batch.theme(&theme);
+        }
+        let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
             runner,
@@ -593,19 +605,6 @@ impl<D: DataSource> Host<D> {
         self.now_ms = now_ms.max(self.now_ms);
         // At the event's time: an action's `performanceNow()` is the page's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
-        self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
-    }
-
-    /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
-    pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
-        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
-        self.now_ms = a.now_ms.max(self.now_ms);
-        let at_ms = self.now_ms;
-        match a.error.is_none().then(|| self.runner.host_back(id)) {
-            Some(Ok(r)) => a.receipts.extend(r.map(|receipt| Timed { at_ms, receipt })),
-            Some(Err(e)) => a.error = Some(e),
-            None => {}
-        }
         self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
 
@@ -901,6 +900,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
+        self.sync_runtime_font_names();
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
     }
@@ -966,16 +966,17 @@ impl<D: DataSource> Host<D> {
             // is in the page before the frames that approach it start playing.
             // Adopt this receipt's time/targets/transitions while the hold is
             // live, then cancel invalid bindings and lower dirty frames once.
-            let synced = self.springs.synchronize(
-                self.runner.kernel(),
-                std::slice::from_ref(r),
-                t.at_ms / 1000.0,
-            );
+            // Never past the host's clock: a live runner observes an input's
+            // commit at a sample after the input's time, whose gesture runs on
+            let at = t.at_ms.min(self.now_ms) / 1000.0;
+            let synced =
+                self.springs
+                    .synchronize(self.runner.kernel(), std::slice::from_ref(r), at);
             Self::emit_lowered(batch, synced);
             if let Some(drag) = self.drag {
                 (drag.receipt)(self, batch);
             }
-            self.emit_springs(batch, &[], t.at_ms / 1000.0);
+            self.emit_springs(batch, &[], at);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
@@ -1375,7 +1376,7 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
-                svg_props(kernel, &node, &mut props);
+                svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);

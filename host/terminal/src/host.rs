@@ -6,8 +6,9 @@
 
 use crate::grid::CellRect;
 use crate::paint::{paint, Painted, Scene};
+use exact_kernel::invocation::Action;
 use exact_kernel::style::cells::{COLUMN, ROW};
-use exact_kernel::{AxisOffer, Kernel, NodeType, Offer, PropId, ViewId};
+use exact_kernel::{AxisOffer, Kernel, NodeKey, NodeType, Offer, PropId, ViewId};
 use exact_plan::{EventKind, Plan};
 use exact_runner::{DataSource, Event, Runner, RunnerError, Viewport};
 use std::collections::HashMap;
@@ -27,6 +28,59 @@ pub enum Key {
     BackTab,
     /// Any other chord, in Playwright's spelling: `Shift+Enter`, `Alt+b`.
     Chord(String),
+}
+
+#[cfg(test)]
+mod structural_read_tests {
+    use super::*;
+    use exact_plan::Value;
+
+    #[test]
+    fn an_open_dialog_and_popover_answer_the_data_read() {
+        let plan = contract::compile(
+            r#"component App
+  state hits = []
+  action probe
+    hits = querySelectorAll("[data-paint~=\"accent\"]")
+  action openDialog
+    showModal("dialog")
+  view
+    column
+      button id="other" data-paint="accent"
+        text "Other"
+      dialog id="dialog"
+        button id="save" data-paint="accent"
+          text "Save"
+      column id="menu" popover="auto"
+        button id="menu-save" data-paint="accent"
+          text "Menu save"
+"#,
+        )
+        .unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 80, 24).unwrap();
+        let ids = |host: &Host<()>| host.runner.slot("hits").cloned();
+        host.act("probe");
+        assert_eq!(ids(&host), Some(Value::list(vec![Value::str("other")])));
+        host.act("openDialog");
+        host.act("probe");
+        assert_eq!(
+            ids(&host),
+            Some(Value::list(vec![Value::str("other"), Value::str("save")]))
+        );
+        let menu = host
+            .find(|n| n.props.str(PropId::Id) == Some("menu"))
+            .unwrap();
+        host.open_layer(menu, false);
+        host.act("probe");
+        assert_eq!(
+            ids(&host),
+            Some(Value::list(vec![
+                Value::str("other"),
+                Value::str("save"),
+                Value::str("menu-save")
+            ]))
+        );
+    }
 }
 
 impl Key {
@@ -113,11 +167,14 @@ pub struct Host<D: DataSource> {
     pub(crate) rows: usize,
     /// How the app occupies the terminal.
     pub mode: Mode,
+    pub(crate) colors: Option<crate::color::ColorDepth>,
     pub(crate) focus: Option<ViewId>,
     pub(crate) caret: usize,
     pub(crate) scroll: HashMap<ViewId, f32>,
-    /// Open dialogs and popovers, bottom to top, with the focus each took.
-    pub(crate) layers: Vec<(ViewId, Option<ViewId>)>,
+    pub(crate) collections: crate::collection::Collections,
+    /// Open dialogs and popovers, bottom to top, with the focus each took
+    /// and whether it was opened modally (`show-modal`) or as a popover.
+    pub(crate) layers: Vec<(ViewId, Option<ViewId>, bool)>,
     /// The appearance `light-dark()` resolves by.
     pub dark: bool,
     painted: Option<Painted>,
@@ -142,6 +199,8 @@ pub struct Host<D: DataSource> {
     /// frame written before the key was read had shown. No timer.
     pub frames: u64,
     pub(crate) born: HashMap<ViewId, u64>,
+    /// Largest settled tree since the last trim; halve before sweeping again.
+    trim_at: usize,
     /// The frame count when the keys being handled were read.
     pub read_at: u64,
     /// Whether keys arm only on shown nodes; off headless, where the
@@ -160,7 +219,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<Host<D>, String> {
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
-        let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer));
+        let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer::default()));
         kernel.set_cell_borders(true);
         // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
         let font = exact_kernel::ControlFont {
@@ -194,9 +253,11 @@ impl<D: DataSource> Host<D> {
             cols,
             rows,
             mode,
+            colors: None,
             focus: None,
             caret: 0,
             scroll: HashMap::new(),
+            collections: crate::collection::Collections::default(),
             layers: Vec::new(),
             dark: true,
             painted: None,
@@ -209,11 +270,27 @@ impl<D: DataSource> Host<D> {
             outbound: Vec::new(),
             frames: 0,
             born: HashMap::new(),
+            trim_at: 0,
             read_at: 0,
             arm: true,
         };
         host.after_commit();
         Ok(host)
+    }
+
+    /// Select the palette before starting the interactive loop or emulator.
+    /// The CLI's `--color` option calls this; interactive embedders otherwise
+    /// get automatic environment detection. Direct paint tests default to RGB.
+    pub fn set_colors(&mut self, colors: crate::color::ColorDepth) {
+        if self.colors != Some(colors) {
+            self.colors = Some(colors);
+            self.changed();
+        }
+    }
+
+    /// The selected palette, reported to the app in the terminal surface record.
+    pub fn colors(&self) -> crate::color::ColorDepth {
+        self.colors.unwrap_or_default()
     }
 
     /// Wake `waker` whenever the data module announces a change from another
@@ -251,6 +328,23 @@ impl<D: DataSource> Host<D> {
     /// Lay out again, take the commands actions emitted, keep the focus on
     /// a node that still exists, and mark the frame stale.
     pub(crate) fn after_commit(&mut self) {
+        let settling = self.collections.settling;
+        self.collections.settling = true;
+        self.after_commit_inner();
+        self.collections.settling = settling;
+        self.settle_collections();
+        if !settling {
+            let live = self.runner.kernel().live_count().max(64);
+            if live <= self.trim_at / 2 {
+                self.runner.kernel_mut().trim();
+                self.trim_at = live;
+            } else {
+                self.trim_at = self.trim_at.max(live);
+            }
+        }
+    }
+
+    fn after_commit_inner(&mut self) {
         let trace = std::env::var_os("EXACT_TERMINAL_TRACE").is_some();
         let t0 = std::time::Instant::now();
         let width = AxisOffer::Definite(self.cols as f32 * COLUMN);
@@ -298,11 +392,20 @@ impl<D: DataSource> Host<D> {
                 }
                 ("preventDefault", _) => self.prevented = true,
                 ("openURL", Some(url)) => self.open_url(&url),
+                ("showNotification", _) => {
+                    exact_runner::notify::arm(
+                        &mut self.runner,
+                        exact_runner::notify::Notice::from_args(&command.args),
+                        false,
+                        false,
+                    );
+                }
                 _ => {}
             }
         }
         self.layers
-            .retain(|(id, _)| self.runner.kernel().node(*id).is_some());
+            .retain(|(id, ..)| self.runner.kernel().node(*id).is_some());
+        self.sync_top_layer();
         if self.focus.is_some_and(|f| !self.focusables().contains(&f)) {
             self.focus = None;
         }
@@ -328,13 +431,18 @@ impl<D: DataSource> Host<D> {
         // Dialogs an action opened or closed, and focus it moved (LLP
         // 1101.001 P5), after the commit that asked for them.
         for op in layer_ops {
-            let Some(node) = self.find(|n| n.props.str(PropId::Id) == Some(op.id())) else {
+            // A dialog by the rule a button's `commandfor` names it by.
+            let named = match op {
+                ById::ShowModal(_) | ById::Close(_) => self.element(op.id()),
+                _ => self.find(|n| n.props.str(PropId::Id) == Some(op.id())),
+            };
+            let Some(node) = named else {
                 continue;
             };
-            let is_open = self.layers.iter().any(|(l, _)| *l == node);
             match op {
-                ById::ShowModal(_) if !is_open => self.open_layer(node),
-                ById::Close(_) if is_open => self.close_layer(node),
+                ById::ShowModal(_) if self.open_mode(node).is_none() => self.open_layer(node, true),
+                // HTML's `close` does nothing to a dialog shown as a popover.
+                ById::Close(_) if self.open_mode(node) == Some(true) => self.close_layer(node),
                 ById::Focus(_) => self.focus(Some(node)),
                 ById::IntoView(_, block) => self.reveal_to(node, &block),
                 ById::ScrollBy(_, y) => self.scroll_node_by(node, y),
@@ -376,7 +484,8 @@ impl<D: DataSource> Host<D> {
             scroll: &self.scroll,
             caret: self.caret,
             dark: self.dark,
-            layers: self.layers.iter().map(|(id, _)| *id).collect(),
+            colors: self.colors(),
+            layers: self.layers.iter().map(|(id, ..)| *id).collect(),
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
             env: self.runner.kernel().env(),
@@ -491,6 +600,14 @@ impl<D: DataSource> Host<D> {
         self.after_commit();
     }
 
+    /// The loop's clock, milliseconds since `start`, owns time (the timers
+    /// RFC, D1): a repeat that missed beats fires once, and every commit
+    /// observes the clock.
+    pub fn live_from(&mut self, start: std::time::Instant) {
+        let sample = move || start.elapsed().as_secs_f64() * 1000.0;
+        self.runner.set_live_clock(Some(Box::new(sample)));
+    }
+
     /// Advance the app's clock: timers fire.
     pub fn tick(&mut self, now_ms: f64) {
         if !self.runner.advance_timed(now_ms).receipts.is_empty() {
@@ -559,11 +676,11 @@ impl<D: DataSource> Host<D> {
         let kernel = self.runner.kernel();
         let mut out = Vec::new();
         let starts: Vec<ViewId> = match self.layers.last() {
-            Some((top, _)) => vec![*top],
+            Some((top, ..)) => vec![*top],
             None => self.runner.roots(),
         };
         let mut stack: Vec<ViewId> = starts.into_iter().rev().collect();
-        let open: Vec<ViewId> = self.layers.iter().map(|(id, _)| *id).collect();
+        let open: Vec<ViewId> = self.layers.iter().map(|(id, ..)| *id).collect();
         while let Some(id) = stack.pop() {
             let Some(n) = kernel.node(id) else { continue };
             if n.style.display == exact_kernel::Display::None
@@ -613,9 +730,13 @@ impl<D: DataSource> Host<D> {
             self.reveal(new);
         }
         self.changed();
+        self.settle_collections();
     }
 
     pub(crate) fn step_focus(&mut self, back: bool) {
+        if self.step_collection_focus(back) {
+            return;
+        }
         let all = self.focusables();
         if all.is_empty() {
             return;
@@ -630,8 +751,8 @@ impl<D: DataSource> Host<D> {
         self.focus(Some(all[next]));
     }
 
-    fn is_scroller(n: &exact_kernel::NodeRef<'_>) -> bool {
-        n.node_type == NodeType::ScrollView
+    pub(crate) fn is_scroller(n: &exact_kernel::NodeRef<'_>) -> bool {
+        matches!(n.node_type, NodeType::ScrollView | NodeType::List)
             || matches!(
                 n.style.overflow_y,
                 exact_kernel::Overflow::Scroll | exact_kernel::Overflow::Auto
@@ -676,8 +797,14 @@ impl<D: DataSource> Host<D> {
             }
             at = n.parent;
         }
-        self.scroll.extend(changes);
+        for (view, offset) in changes {
+            if self.scroll.get(&view).copied().unwrap_or(0.0) != offset {
+                self.collection_scrolled(view);
+                self.scroll.insert(view, offset);
+            }
+        }
         self.changed();
+        self.settle_collections();
     }
 
     /// Keep a `scrollFollowEnd` scroller at its end while it was there.
@@ -688,7 +815,10 @@ impl<D: DataSource> Host<D> {
         let mut ends = Vec::new();
         while let Some(id) = stack.pop() {
             let Some(n) = kernel.node(id) else { continue };
-            if Self::is_scroller(&n) && n.props.bool(PropId::ScrollFollowEnd) == Some(true) {
+            if Self::is_scroller(&n)
+                && n.props.bool(PropId::ScrollFollowEnd) == Some(true)
+                && n.props.bool(PropId::Virtualized) != Some(true)
+            {
                 let [bt, _, bb, _] = n.style.border_widths_in(&env);
                 let reach = (n.content.1 - (n.frame.height - bt - bb)).max(0.0);
                 ends.push((id, reach));
@@ -745,55 +875,84 @@ impl<D: DataSource> Host<D> {
     /// A press that moves the focus to what was pressed only when `take`:
     /// a keyboard shortcut acts without moving the person's place.
     pub(crate) fn press_with(&mut self, id: ViewId, take: bool) {
+        // Keep the clicked row alive through its press handler, which
+        // consumes its bound arguments, and the close it may invoke after.
+        let settling = self.collections.settling;
+        self.collections.settling = true;
+        self.press_with_inner(id, take);
+        self.collections.settling = settling;
+        self.settle_collections();
+    }
+
+    fn press_with_inner(&mut self, id: ViewId, take: bool) {
         if self.is_field(id) {
             self.focus(Some(id));
             return;
         }
-        self.invoke(id);
+        let key = self.runner.kernel().node(id).map(|node| node.key);
         if let Some(target) = self.handler(id, EventKind::Press) {
             if take && (self.layers.is_empty() || self.focusables().contains(&id)) {
                 self.focus(Some(id));
             }
             self.dispatch(target, Event::Press);
         }
+        if let Some(key) = key {
+            self.invoke(key);
+        }
     }
 
-    /// `commandfor`/`command` and `popovertarget`, before the press's own
-    /// handler runs (as the Mac host does, LLP 1021).
-    fn invoke(&mut self, id: ViewId) {
+    /// What the pressed button `key` invokes once its `press` has run, as
+    /// HTML resolves it (`exact_kernel::Invocation`), if it is still that
+    /// node, enabled and shown: a popover opens or closes by its action, a
+    /// dialog opens modally by `show-modal` and closes by `close`. A popover
+    /// action leaves a layer open modally alone, and `close` one open as a
+    /// popover.
+    fn invoke(&mut self, key: NodeKey) {
         let kernel = self.runner.kernel();
-        let Some(n) = kernel.node(id) else { return };
-        let (target, action) = if let Some(t) = n.props.str(PropId::Commandfor) {
-            (
-                t.to_string(),
-                n.props
-                    .str(PropId::Command)
-                    .unwrap_or("show-modal")
-                    .to_string(),
-            )
-        } else if let Some(t) = n.props.str(PropId::Popovertarget) {
-            let action = n.props.str(PropId::Popovertargetaction).unwrap_or("toggle");
-            (t.to_string(), action.to_string())
-        } else {
+        let Some(node) = kernel.node_by_key(key).filter(|node| {
+            node.props.bool(PropId::Disabled) != Some(true)
+                && node.style.display != exact_kernel::Display::None
+        }) else {
             return;
         };
-        let Some(layer) = self.find(|n| n.props.str(PropId::Id) == Some(target.as_str())) else {
+        let Some(invocation) = exact_kernel::Invocation::of(kernel, &node) else {
             return;
         };
-        let open = self.layers.iter().any(|(l, _)| *l == layer);
-        match (action.as_str(), open) {
-            ("show-modal" | "show" | "show-popover", false) | ("toggle", false) => {
-                self.open_layer(layer)
+        let Some(layer) = kernel.node_by_key(invocation.target).map(|n| n.id) else {
+            return;
+        };
+        match (invocation.action, self.open_mode(layer)) {
+            (Action::Show | Action::Toggle, None) => self.open_layer(layer, false),
+            (Action::ShowModal, None) => self.open_layer(layer, true),
+            (Action::Hide | Action::Toggle, Some(false)) | (Action::Close, Some(true)) => {
+                self.close_layer(layer)
             }
-            ("close" | "hide" | "hide-popover", true) | ("toggle", true) => self.close_layer(layer),
             _ => {}
         }
     }
 
+    /// How `layer` is open: `Some(true)` modally, `Some(false)` as a
+    /// popover, `None` when it is not.
+    fn open_mode(&self, layer: ViewId) -> Option<bool> {
+        self.layers
+            .iter()
+            .find(|(l, ..)| *l == layer)
+            .map(|(.., modal)| *modal)
+    }
+
+    /// The element an action's command names by `id`, by a button's rule
+    /// (`exact_kernel::invocation::element`).
+    fn element(&self, name: &str) -> Option<ViewId> {
+        let kernel = self.runner.kernel();
+        let key = exact_kernel::invocation::element(kernel, name)?;
+        kernel.node_by_key(key).map(|node| node.id)
+    }
+
     /// Open a dialog or popover: on top, its first autofocus or focusable
     /// descendant focused, the focus it took remembered.
-    pub fn open_layer(&mut self, layer: ViewId) {
-        self.layers.push((layer, self.focus));
+    pub fn open_layer(&mut self, layer: ViewId, modal: bool) {
+        self.layers.push((layer, self.focus, modal));
+        self.sync_top_layer();
         // Its controls are born now, unseen, even when it was open before:
         // a key read before a frame shows them cannot reach them (LLP
         // 1101.002 §0, typed-ahead). A click aimed at what was on the
@@ -802,6 +961,23 @@ impl<D: DataSource> Host<D> {
             self.born.insert(id, self.frames);
         }
         self.presented.stale = true;
+        if self
+            .runner
+            .collections_shallow()
+            .iter()
+            .any(|s| self.inside(s.view, layer))
+        {
+            // A hidden list has no row views. Choose the dialog's autofocus
+            // after its real viewport has restored the first window.
+            self.collections.focus_layer = Some(layer);
+            self.changed();
+            self.settle_collections();
+            return;
+        }
+        self.focus_open_layer();
+    }
+
+    pub(crate) fn focus_open_layer(&mut self) {
         let kernel = self.runner.kernel();
         let all = self.focusables();
         let first = all
@@ -814,7 +990,11 @@ impl<D: DataSource> Host<D> {
             })
             .or_else(|| all.first().copied());
         self.focus = None;
-        self.focus(first);
+        if let Some(first) = first {
+            self.focus(Some(first));
+        } else {
+            self.step_collection_focus(false);
+        }
         self.changed();
     }
 
@@ -831,19 +1011,22 @@ impl<D: DataSource> Host<D> {
 
     /// Close a dialog or popover, giving back the focus it took.
     pub fn close_layer(&mut self, layer: ViewId) {
-        let Some(at) = self.layers.iter().position(|(l, _)| *l == layer) else {
+        let Some(at) = self.layers.iter().position(|(l, ..)| *l == layer) else {
             return;
         };
-        let (_, restore) = self.layers.remove(at);
+        let (_, restore, _) = self.layers.remove(at);
+        self.sync_top_layer();
         self.presented.stale = true;
         self.focus = None;
         self.focus(restore.filter(|r| self.runner.kernel().node(*r).is_some()));
         self.changed();
+        // Restoring no focus can be a no-op; the hidden rows still need retiring.
+        self.settle_collections();
     }
 
     /// The open top layer's height in rows, if one is open.
     pub fn layer_rows(&self) -> Option<usize> {
-        let (top, _) = self.layers.last()?;
+        let (top, ..) = self.layers.last()?;
         let n = self.runner.kernel().node(*top)?;
         Some((n.frame.height / ROW).round().max(1.0) as usize)
     }
@@ -851,6 +1034,11 @@ impl<D: DataSource> Host<D> {
     /// Whether a dialog or popover is open.
     pub fn has_layer(&self) -> bool {
         !self.layers.is_empty()
+    }
+
+    fn sync_top_layer(&mut self) {
+        let open: Vec<ViewId> = self.layers.iter().map(|(id, ..)| *id).collect();
+        self.runner.top_layer(&open);
     }
 
     /// The node an agent names by `testId`.
@@ -876,3 +1064,41 @@ impl<D: DataSource> Host<D> {
         })
     }
 }
+
+#[cfg(test)]
+mod notify_tests {
+    use super::*;
+    use exact_plan::Value;
+    use exact_runner::DataError;
+
+    struct Granted;
+    impl DataSource for Granted {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn grants(&self) -> &str {
+            "device.notifications purpose.notifications"
+        }
+    }
+
+    #[test]
+    fn a_notification_refused_by_the_terminal_is_journaled() {
+        let source = "component App\n  action remind\n    showNotification(title=\"Hello\", navigate=\"/inbox\")\n  view\n    button press=remind\n      text \"Remind\"";
+        let plan = contract::compile_terminal(source).unwrap();
+        let mut host = Host::boot(plan, Granted, Mode::Inline, 40, 10).unwrap();
+        host.act("remind");
+        let logs = exact_runner::agent::logs(&host.runner, 0);
+        assert!(
+            logs.contains("showNotification: refused: unavailable"),
+            "{logs}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[path = "host_invocation_tests.rs"]
+mod invocation_tests;
+
+#[cfg(test)]
+#[path = "host_clock_tests.rs"]
+mod clock_tests;

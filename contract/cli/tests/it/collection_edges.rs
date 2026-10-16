@@ -3,6 +3,50 @@ use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{Advanced, CollectionFeedback, DataError, DataSource, Runner};
 
+#[test]
+fn edge_handlers_require_a_virtualized_collection() {
+    for event in ["reachstart", "reachend"] {
+        for node in [
+            "list",
+            "list virtualized=false",
+            "list virtualized=enabled",
+            "view",
+            "scroll",
+            "column",
+            "view virtualized=true",
+        ] {
+            let source = format!(
+                "component App\n  state enabled = true\n  action more\n    let n = 1\n  view\n    {node} {event}=more height=320\n      for x in [1, 2] key=x\n        text `${{x}}`\n"
+            );
+            let error = contract::compile(&source).expect_err(&source);
+            assert_eq!(error.id, "lower-collection-edge", "{error}");
+            assert_eq!(error.span.line, 6, "{error}");
+            for explanation in [
+                event,
+                "virtualized list",
+                "LLP 1010",
+                "plain list",
+                "geometric window",
+                "docs/reference.md",
+                "Intersection visibility",
+                "after the columns",
+                "view intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1",
+            ] {
+                assert!(
+                    error.message.contains(explanation),
+                    "{explanation}: {error}"
+                );
+            }
+        }
+    }
+    for node in [
+        "list virtualized=true height=320",
+        "list virtualized=true display=\"flex\" height=320",
+    ] {
+        contract::compile(&SOURCE.replace("list virtualized=true height=320", node)).unwrap();
+    }
+}
+
 #[derive(Default)]
 struct Rows {
     queries: usize,
@@ -49,7 +93,7 @@ const SOURCE: &str = r#"component App
   state ends = 0
   state refused = false
   state fail = false
-  resource rows = rows(start, count, revision, refused) as shape list<number>
+  resource rows = rows(start, count, revision, refused) as shape number[]
   action onStart
     starts = starts + 1
     refused = fail
@@ -64,7 +108,7 @@ const SOURCE: &str = r#"component App
     fail = true
   view
     list virtualized=true height=320 reachstart=onStart reachend=onEnd
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` testId=`row-${x}` height=32
 "#;
 fn boot(source: &str) -> Runner<Rows> {
@@ -87,6 +131,7 @@ fn facts(r: &Runner<Rows>, top: f64) -> CollectionFeedback {
         port_cross: 640.,
         port_main: 320.,
         cross: 640.,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -462,9 +507,8 @@ fn an_edge_before_activation_commits_and_activation_asks_its_arguments_once() {
 }
 
 #[test]
-fn edge_handlers_are_list_only_and_take_their_bound_arguments() {
+fn edge_handlers_take_their_bound_arguments() {
     for source in [
-        SOURCE.replace("list virtualized=true height=320", "column"),
         // `change` takes two parameters: bare, or with one, is the wrong arity.
         SOURCE.replace("reachstart=onStart", "reachstart=change"),
         SOURCE.replace("reachstart=onStart", "reachstart=change(0)"),
@@ -472,7 +516,6 @@ fn edge_handlers_are_list_only_and_take_their_bound_arguments() {
     ] {
         assert!(contract::compile(&source).is_err());
     }
-    contract::compile(&SOURCE.replace("virtualized=true", "virtualized=false")).unwrap();
     contract::compile(&SOURCE.replace("reachstart=onStart", "reachstart=change(0, 2)")).unwrap();
 }
 
@@ -528,16 +571,16 @@ fn lists_in_an_each_say_which_one_reached_its_end() {
   state refused = false
   state last = -1
   state ends = 0
-  resource groups = rows(0, 2, revision, refused) as shape list<number>
-  resource rows = rows(0, count, revision, refused) as shape list<number>
+  resource groups = rows(0, 2, revision, refused) as shape number[]
+  resource rows = rows(0, count, revision, refused) as shape number[]
   action onEnd(which: number)
     last = which
     ends = ends + 1
   view
     column
-      each g in groups key=g
+      for g in groups key=g
         list virtualized=true height=320 reachend=onEnd(g)
-          each x in rows key=x
+          for x in rows key=x
             text `${x}` height=32
 "#;
     let mut r = boot(source);
@@ -552,6 +595,7 @@ fn lists_in_an_each_say_which_one_reached_its_end() {
             port_cross: 640.,
             port_main: 320.,
             cross: 640.,
+            padding: [0.0; 2],
             measurements: vec![],
             focus_view: None,
             interaction_view: None,
@@ -705,9 +749,9 @@ fn rows_arriving_before_a_trailing_row_rearm_the_end() {
     let source = SOURCE
         .replace(
             "  state fail = false\n",
-            "  state fail = false\n  state limit = 20\n  derive shown = filter(rows, (x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
+            "  state fail = false\n  state limit = 20\n  derive shown = rows.filter((x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
         )
-        .replace("each x in rows key=x", "each x in shown key=x");
+        .replace("for x in rows key=x", "for x in shown key=x");
     let mut r = boot(&source);
     // 21 rows of 32: the end is at 352.
     measure(&mut r, 352., 32.);
@@ -734,8 +778,8 @@ fn a_list_on_a_covered_route_waits_for_it_to_show() {
             "routes nav\n  home \"/\"\n  post \"/post/:id\"\ncomponent App\n  derive current = top(nav)\n  action back\n    nav = back(nav)\n",
         )
         .replace(
-            "    list virtualized=true height=320 reachstart=onStart reachend=onEnd\n      each x in rows key=x\n        text `${x}` testId=`row-${x}` height=32\n",
-            "    main navigationKey=`${current.id}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          when e.name == \"home\"\n            list virtualized=true height=320 reachstart=onStart reachend=onEnd\n              each x in rows key=x\n                text `${x}` testId=`row-${x}` height=32\n          when e.name == \"post\"\n            button id=\"back\" press=back\n              text \"Back\"\n",
+            "    list virtualized=true height=320 reachstart=onStart reachend=onEnd\n      for x in rows key=x\n        text `${x}` testId=`row-${x}` height=32\n",
+            "    main navigationKey=`${current.id}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          if e.name == \"home\"\n            list virtualized=true height=320 reachstart=onStart reachend=onEnd\n              for x in rows key=x\n                text `${x}` testId=`row-${x}` height=32\n          if e.name == \"post\"\n            button id=\"back\" press=back\n              text \"Back\"\n",
         );
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),
@@ -765,4 +809,14 @@ fn a_list_on_a_covered_route_waits_for_it_to_show() {
     measure(&mut r, 0., 32.);
     send(&mut r, 0.);
     assert_eq!(hits(&r), (1., 1.), "shown, the list is offered both edges");
+}
+
+#[test]
+fn an_edge_on_a_live_clock_reports_when_its_callback_ended() {
+    let mut r = boot(SOURCE);
+    r.set_live_clock(Some(Box::new(|| 4500.)));
+    let result = send(&mut r, 0.);
+    assert_eq!(hits(&r), (1., 0.));
+    assert_eq!(result.now_ms, 4500.);
+    assert_eq!(result.receipts.last().unwrap().at_ms, 4500.);
 }

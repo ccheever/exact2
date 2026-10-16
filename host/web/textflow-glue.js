@@ -277,9 +277,11 @@ function paintContent(span, fragment, state, lineHeight) {
       clone.removeAttribute('id'); clone.removeAttribute('data-testid');
       // Original listeners remain valid by kernel view identity while detached.
       // Forward authored events only; a plain <a> keeps its native default.
-      for (const event of original.exactFlowEvents ?? []) clone.addEventListener(event, e => {
+      for (const event of new Set(original.exactFlowEvents ?? [])) clone.addEventListener(event, e => {
         e.stopPropagation();
         const forwarded = new e.constructor(e.type, e);
+        forwarded.exactStopped = e.exactStopped; forwarded.$stopped = e.$stopped;
+        if (e.defaultPrevented) forwarded.preventDefault();
         if (!original.dispatchEvent(forwarded)) e.preventDefault();
       });
       if (inner) inner.append(clone); else outer = clone;

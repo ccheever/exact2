@@ -131,7 +131,10 @@ from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw
 per line, flush by alignment inside the CSS content box. Borders and padding
 are excluded from the wrapping width and added to the painted origin; the
 paragraph cache keys that content width, even when its outer frame is unchanged.
-AppKit selection and link hits use the same origin and alignment. The padded
+AppKit selection and link hits use the same origin and alignment. Inline
+`frame()` reads and agent `layout` use the union of the run's fragments on
+AppKit and UIKit, through the paragraph's viewport conversion (LLP 1051.000
+D1). Collapsed whitespace at a soft wrap contributes no width to that union. The padded
 paragraph/container comparison, padding mutation and recreation, and Messages
 quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
 Painting still snaps baselines to the logical point
@@ -340,10 +343,13 @@ to the new extent. Browser/iOS/macOS fixtures cover both axes, manual scrolling,
 self/ancestor hiding and content shrinkage while hidden.
 An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
-`content` size. A new leading child is inserted before existing Exact-only
-siblings, preserving their mounts; containers with native decorations retain
-their existing ordering path. Child updates use an identity set for membership
-and compare each retained child's current position directly. Frames are set from `frame` ops; `present` ops set an
+`content` size. Child updates use an identity set for membership, mount only
+new children, and sort retained siblings in place without detaching their
+responders. A flight slot takes its lifted child's place in the authored order.
+Native decorations stay below the authored children, and exit ghosts keep
+their slots among live and flying children. Window overlays live outside
+these child containers.
+Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
 `alphaValue`. A press is a mouse-down and -up inside the bounds on a node
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The
@@ -997,6 +1003,9 @@ style dictionary carries an `env()` length as its resolved points (§2),
 re-sent by the batch that changes the insets. `layout` reports the insets
 given as `env` (LLP 1012 §1) — zero when the viewport is the safe area, as
 `env()` is zero on a page without the meta.
+
+> **Amended by LLP 1115 D2.** Where the root sets none it is the platform's background
+> (`systemBackground` on iOS, `windowBackgroundColor` on the Mac), never a fixed white.
 
 The standalone macOS adapter also applies the current `viewport-fit` when it
 installs its window callback: mounting the view can already have booted the

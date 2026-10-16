@@ -125,14 +125,16 @@ fn untinted_rasters_with_box_paint_stay_bare_in_batches_and_documents() {
 
 /// LLP 1116.001 D2: `AccentColor` (and `LinkText`) is the nearest authored
 /// `accent-color`, as UIKit's inherited tint: the page reads the
-/// `--exact-accent` the accent writes, else the browser's own colour.
+/// `--exact-accent` the accent writes, else the browser's own accent. A link
+/// is the accent with none authored too (LLP 1115.000 D3.5): one blue for
+/// links, where the browser's own `LinkText` was a second.
 #[test]
 fn the_accent_colour_role_is_the_nearest_accent_color() {
     let plan = contract::compile(
         r##"component App
   view
     column testId="root" accent-color="-exact-system-teal"
-      view testId="fill" height=8 background-color="AccentColor"
+      view testId="fill" height=8 accent-color="AccentColor" background-color="AccentColor"
       text "Link" testId="ink" color="LinkText"
       text "Plain" testId="plain" color="CanvasText"
 "##,
@@ -157,12 +159,17 @@ fn the_accent_colour_role_is_the_nearest_accent_color() {
     );
     let fill = create("fill");
     assert!(
+        fill.contains("accent-color:var(--exact-accent, AccentColor);")
+            && !fill.contains("--exact-accent:"),
+        "the accent role must inherit without a custom-property cycle: {fill}"
+    );
+    assert!(
         fill.contains("background-color:var(--exact-accent, AccentColor);"),
         "{fill}"
     );
     let ink = create("ink");
     assert!(
-        ink.contains("color:var(--exact-accent, LinkText);"),
+        ink.contains("color:var(--exact-linktext, var(--exact-accent, AccentColor));"),
         "{ink}"
     );
     let plain = create("plain");

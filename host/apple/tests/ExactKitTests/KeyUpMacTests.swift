@@ -53,6 +53,34 @@ final class KeyUpMacTests: XCTestCase {
         XCTAssertEqual(KeyPress("a").payload, "a", "a chord alone when the host knows no more")
     }
 
+    func testCaptureRunsBeforeTargetAndBubbleAndCanClaimTheFieldDefault() throws {
+        let p = try fixture()
+        p.views[1]!.handlers.insert("keycapture")
+        p.views[2]!.handlers.insert("keycapture")
+        p.views[1]!.handlers.remove("key")
+        p.views[1]!.handlers.remove("keyup")
+        XCTAssertFalse(p.views[1]!.acceptsFirstResponder, "capture alone adds no Tab stop")
+        p.views[1]!.handlers.formUnion(["key", "keyup"])
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : "bubble")") }
+        XCTAssertFalse(p.routeKey(event(.keyDown, 11, [], "b"), focused: true))
+        XCTAssertEqual(heard, ["1 capture", "2 capture", "2 bubble", "1 bubble"])
+        heard = []
+        p.onKey = { id, press in
+            heard.append("\(id) \(press.capture ? "capture" : "bubble")")
+            if id == 1 && press.capture { p.propagationStopped = true }
+        }
+        XCTAssertFalse(p.routeKey(event(.keyDown, 11, [], "b"), focused: true))
+        XCTAssertEqual(heard, ["1 capture"])
+        heard = []
+        p.onKey = { id, press in
+            heard.append("\(id) \(press.capture ? "capture" : "bubble")")
+            if id == 2 && press.capture { p.propagationStopped = true; p.defaultPrevented = true }
+        }
+        XCTAssertTrue(p.routeKey(event(.keyDown, 11, [], "b"), focused: true))
+        XCTAssertEqual(heard, ["1 capture", "2 capture"])
+    }
+
     /// A modifier is a flags change to AppKit: pressed, a keydown that holds
     /// it; released, a keyup that no longer does. The device bits tell the
     /// sides apart, so the left ⌘'s release while the right is held is one.
@@ -105,10 +133,10 @@ final class KeyUpMacTests: XCTestCase {
     /// A ⌘ chord during a composition (#140). Chrome hands the page the
     /// chord's keydown before the input method's result, with the composed
     /// text already in the field and reported to `input` (CDP's
-    /// `Input.imeSetComposition`, then ⌘B: `input 한`, then the keys).
-    /// AppKit reports composed text only once committed, so the chord
-    /// commits it first: its handlers hear the same value, ⌘'s own keys
-    /// pass through the composition, and the keyups follow.
+    /// `Input.imeSetComposition`, then ⌘B: `input 한`, then the keys). So
+    /// it is here: the text was heard as it was composed (LLP 1115.000 §5,
+    /// ruling 6), the chord commits it and that is not heard again, ⌘'s own
+    /// keys pass through the composition, and the keyups follow.
     func testACommandChordCommitsTheCompositionThenReachesTheHandlers() throws {
         let p = try fixture()
         let heard = record(p)
@@ -120,9 +148,22 @@ final class KeyUpMacTests: XCTestCase {
         XCTAssertTrue(p.endedComposition(chord), "its menu item, too, is refused")
         XCTAssertFalse(p.routeKey(event(.keyUp, 11, leftCommand, "b"), focused: true))
         flags(p, event(.flagsChanged, 55, []))
-        XCTAssertEqual(heard.lines, ["keydown Meta+Meta MetaLeft", "input 한", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
+        XCTAssertEqual(heard.lines, ["input 한", "keydown Meta+Meta MetaLeft", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
         XCTAssertEqual(editor.string, "한")
         XCTAssertFalse(p.endedComposition(event(.keyDown, 11, leftCommand, "b", at: 1)), "a later ⌘B is a chord like any")
+    }
+
+    func testCaptureHearsACommandChordAfterTheComposedInput() throws {
+        let p = try fixture()
+        p.views[1]!.handlers.insert("keycapture")
+        p.views[2]!.handlers.insert("input")
+        var heard: [String] = []
+        p.onInput = { _, value in heard.append("input \(value)") }
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : "key")") }
+        let editor = try compose("한")
+        XCTAssertFalse(p.routeKey(event(.keyDown, 11, leftCommand, "b"), focused: true))
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(heard, ["input 한", "1 capture", "2 key", "1 key"])
     }
 
     /// A composer's ⌘Enter during a composition sends what was typed: its

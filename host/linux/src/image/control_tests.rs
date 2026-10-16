@@ -201,6 +201,8 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
     }
     images.sync(&k, &[]);
     images.backend.session.trim();
+    // A metadata scan can still own a source after trim drops its last bitmap.
+    until(|| images.backend.sources() == 0);
     assert_eq!(images.backend.sources(), 0);
     assert!(images.loaded.is_empty());
     until(|| images.stats().resident_bytes == 0 && images.stats().reserved_bytes == 0);
@@ -524,9 +526,10 @@ fn boxed(k: &mut Kernel, id: u32, width: f32, height: f32, fit: exact_kernel::Ob
     let mut style = StyleProps {
         width: Dimension::Points(width),
         height: Dimension::Points(height),
-        object_fit: fit,
         ..Default::default()
     };
+    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+    style.object_fit = fit;
     for row in [StyleId::Width, StyleId::Height, StyleId::ObjectFit] {
         style.mask.set(row);
     }

@@ -75,6 +75,23 @@ pub fn parse_f32(s: &str) -> Result<f32, ParseFloatError> {
     parse(s.as_bytes(), &F32).map(|bits| f32::from_bits(bits as u32))
 }
 
+/// `"125%"` as `1.25`: a percentage above 0 in CSS's number syntax
+/// (`[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%`), so a runner and a page read the
+/// same text the same way (LLP 1121 D6's `setRootFontSize("125%")`).
+pub fn css_percent(s: &str) -> Option<f64> {
+    let n = s.strip_suffix('%')?;
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    let unsigned = n.strip_prefix(['+', '-']).unwrap_or(n);
+    let (mantissa, exponent) = unsigned.split_once(['e', 'E']).unwrap_or((unsigned, "0"));
+    let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+    let number = match mantissa.split_once('.') {
+        Some((int, frac)) => (int.is_empty() || digits(int)) && digits(frac),
+        None => digits(mantissa),
+    };
+    let ratio = parse_f64(n).ok().filter(|_| number && digits(exponent))? / 100.0;
+    (ratio.is_finite() && ratio > 0.0).then_some(ratio)
+}
+
 /// An IEEE 754 binary format, as the one code path both widths share.
 struct Format {
     /// Explicit mantissa bits.

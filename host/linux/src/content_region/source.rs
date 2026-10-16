@@ -118,7 +118,7 @@ impl Capture<'_> {
                     return Err("paragraph link ancestry limit");
                 }
                 let n = self.kernel.node(id).ok_or("detached paragraph link")?;
-                if let Some(href) = n.props.str(PropId::Href) {
+                if let Some(href) = n.props.link() {
                     self.link_bytes = self
                         .link_bytes
                         .checked_add(href.len())
@@ -137,15 +137,21 @@ impl Capture<'_> {
                 utf16: self.utf16..utf16,
                 link,
             });
+            // Kept with its accent: the palette resolves again outside any
+            // painting scope when the scheme changes.
+            let color = exact_kernel::style::roles::accented(
+                node.text_color(),
+                crate::paint::accent_of(node),
+            );
             self.palette.push(RunPaint {
                 color: if crate::paint::paints(self.kernel, node.id, None) {
-                    rgba(node.text_color().resolve(self.dark))
+                    rgba(color.resolve(self.dark))
                 } else {
                     [0, 0, 0, 0]
                 },
                 source: node.id,
             });
-            self.colors.push(node.text_color());
+            self.colors.push(color);
             self.bytes = bytes;
             self.utf16 = utf16;
         } else {

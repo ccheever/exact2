@@ -195,7 +195,9 @@ impl<D: DataSource> Presenter<D> {
         }
         // The paste's default action: the text in at the field's selection
         // (x2apps codeedit #2), after its listeners, as the web's.
-        if field {
+        let queued = self.commands.len();
+        self.commands.retain(|c| c.name != "preventDefault");
+        if field && queued == self.commands.len() {
             self.paste_field(id, text, now);
         }
         Ok(format!(
@@ -462,8 +464,17 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn key_pressed(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
+        // An open surface of the top layer takes every key (`top.rs`).
+        if self.surface_key(name, now_ms) {
+            return;
+        }
         // The page's shortcuts first, focus or none (`shortcuts.rs`).
         if self.shortcut(name, false, now_ms) {
+            return;
+        }
+        // Then a desktop's Back key (LLP 1115.000 D5.4), focus or none.
+        if self.back_key(name) {
+            self.back_key_down(name, code, repeat, now_ms);
             return;
         }
         let Some(id) = self.focus else {
@@ -525,7 +536,8 @@ impl<D: DataSource> Presenter<D> {
             && matches!(name, " " | "Enter")
             || role == Some("link") && name == "Enter"
         {
-            self.dispatch_press(id, now_ms, false);
+            self.note_press(id, true);
+            self.activate_with(id, now_ms, false);
             return;
         }
         // A radio's arrows and Space (x2apps survey #2).

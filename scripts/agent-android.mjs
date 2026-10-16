@@ -2,12 +2,16 @@
 // (`aarch64-linux-android`, the host's Android-gated code, bionic, the phone's
 // own fonts) and run headless under `adb shell`, where the agent protocol is
 // the Linux host's own (LLP 1012 over stdio, `host/linux/src/agent.rs`). It
-// drives the app's runner, kernel and painter on Android; it is not the
-// Android lane's Canvas reader (LLP 1076 §3.3), which paints through its own
-// Kotlin view.
+// drives the app's runner, kernel and painter on Android; it is not the Canvas
+// reader (LLP 1076 §3.3, `host/android`), which paints through its own Kotlin
+// view. `--reader` drives that one instead (LLP 1107 D1): the APK, installed
+// and launched, answering the same protocol in its own process
+// (`host/linux/src/canvas/agent.rs`) over a socket adb forwards.
 //
-//   bun scripts/agent-android.mjs build <app>     build the app's Linux crate for Android
-//   bun scripts/agent.mjs android --app <app> …   drive it on the first adb device or emulator
+//   bun scripts/agent-android.mjs build <app>              build the app's Linux crate for Android
+//   bun scripts/agent.mjs android --app <app> …            drive it on the first adb device or emulator
+//   bun scripts/agent-android.mjs build <app> --apk        the app on the Canvas reader, as an APK (host/android/README.md)
+//   bun scripts/agent.mjs android --reader --app <app> …   drive that APK (EXACT_ANDROID_BIN names another)
 //
 // An app with a TypeScript data module also needs the Android Hermes bundle:
 // `bun scripts/hermes-android.mjs build` once (scripts/hermes-android.mjs).
@@ -19,17 +23,20 @@
 // otherwise: the GPU painter needs a real GPU's Vulkan (an emulator's
 // SwiftShader crashes it).
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, linuxBuild, resolveApp } from './app.mjs';
+import { HOST_DEV, injectedProfiles, linuxBuild, resolveApp } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
 const API = 30;
-export const androidBinary = (app, bin = app.crate('linux')) => resolve(app.target, ANDROID_TARGET, HOST_DEV, bin);
+/** What a drive runs: the app's Linux host built for the phone, or with `--reader` (EXACT_ANDROID_READER) its APK. */
+export const androidBinary = (app, bin) => process.env.EXACT_ANDROID_READER ? readerApk(app)
+  : resolve(app.target, ANDROID_TARGET, HOST_DEV, bin ?? app.crate('linux'));
 export const androidBuild = (app, bin = null) => [...linuxBuild(app, bin), '--target', ANDROID_TARGET];
 
 export const androidSdk = (env = process.env) => env.ANDROID_HOME ?? env.ANDROID_SDK_ROOT
@@ -81,6 +88,7 @@ const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
  * directory is this drive's, so two drives of one app do not share a binary or a screenshot. Only
  * EXACT_* variables cross, with the device's own HOME, assets, native-module directory and fonts. */
 export function androidDeploy(app, bin, env) {
+  if (bin.endsWith('.apk')) return readerDeploy(app, bin, env);
   const serial = androidDevice(env), tool = adb(env);
   const base = `/data/local/tmp/exact/${app.id}`, home = `${base}/home`;
   const dir = `${base}/run-${process.pid}-${Date.now().toString(36)}`, exe = basename(bin);
@@ -117,19 +125,140 @@ export function androidDeploy(app, bin, env) {
   };
 }
 
-if (import.meta.main) {
-  const [verb, name] = guardFlags('android', process.argv.slice(2));
+/** The Gradle project that holds the Canvas reader and the shell that packages one app with it. */
+const READER = resolve(import.meta.dir, '../host/android');
+/** The APK `build <app> --apk` makes. */
+const readerApk = (app) => resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk');
+
+/** The reader carrier (LLP 1107 D1): install the APK and return what `androidDeploy` returns, with a process that
+ * launches the app under a driver and relays the agent protocol's lines between its stdio and the app (`relay`).
+ * The package is the app's id with the suffix the APK was built with (ORG_GRADLE_PROJECT_idSuffix, as the build
+ * reads it). The app boots its own baked plan with its own assets, at the phone's size, in the phone's fonts: a
+ * drive's `--plan`, `--world`, `--size` and launch URL do not reach it, and all but the size are refused. */
+function readerDeploy(app, apk, env) {
+  for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_DEV_PLAN', 'a development plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
+    if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
+  const serial = androidDevice(env), tool = adb(env), id = app.id + (env.ORG_GRADLE_PROJECT_idSuffix ?? '');
+  const dir = `/data/local/tmp/exact/${id}`, shot = `${dir}/reader-shot-${process.pid}.png`;
+  const run = (args, what) => {
+    const r = spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
+    if (r.status !== 0 || /^Failure/m.test(r.stdout)) throw new Error(`adb ${what}: ${(r.stderr || r.stdout || r.error?.message || '').trim()}`);
+  };
+  run(['install', '-r', apk], `install ${apk}`);
+  run(['shell', `mkdir -p ${quote(dir)}`], 'prepare');
+  // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
+  // seed, the fetch faults), which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_')));
+  return {
+    serial, dir, shot,
+    spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
+    pull(path) {
+      const r = spawnSync(tool, ['-s', serial, 'pull', shot, resolve(path)], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`adb pull the screenshot: ${(r.stderr || r.stdout).trim()}`);
+      spawnSync(tool, ['-s', serial, 'shell', `rm -f ${quote(shot)}`]);
+    },
+  };
+}
+
+/** How long after an operation's answer a screenshot is taken: the reader draws what the operation painted over
+ * the frames that follow, and a window of the top layer comes with its own animation. */
+const SHOT_SETTLE_MS = 400;
+
+/** The reader carrier's process: launch the app with a driver's socket (the shell's `agent=<name>` extra), have
+ * adb forward it, and carry the protocol's lines between this process's stdio and the app. Every line is the app's
+ * to answer but `screenshot`, whose picture is the device's (`screencap`), tagged as the app tags a reply. The
+ * app's own stderr (logcat's `exact` tag) is this process's. Ends when stdin does, and the app with it. */
+async function relay([serial, id, vars]) {
+  const tool = adb(), sh = (...args) => spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
+  const name = `exact-agent-${process.pid}`;
+  const extras = Object.entries(JSON.parse(vars)).flatMap(([k, v]) => ['--es', `x_${k.slice('EXACT_'.length).toLowerCase()}`, quote(v)]);
+  sh('shell', 'am', 'force-stop', id);
+  sh('logcat', '-c');
+  // `lower=0`: the engine samples every animation, so none plays on the reader's own clock.
+  const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras].join(' '));
+  if (started.status !== 0 || /Error/.test(started.stdout + started.stderr)) throw new Error(`am start ${id}: ${(started.stderr || started.stdout).trim()}`);
+  const port = Number(sh('forward', 'tcp:0', `localabstract:${name}`).stdout.trim());
+  if (!port) throw new Error('adb forward gave no port');
+  const logs = spawn(tool, ['-s', serial, 'logcat', '-v', 'raw', 'exact:V', 'AndroidRuntime:E', '*:S'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  logs.stdout.pipe(process.stderr);
+  const done = (code) => { logs.kill(); sh('forward', '--remove', `tcp:${port}`); sh('shell', 'am', 'force-stop', id); process.exit(code); };
+  // The app opens its socket as its activity is made; the forward connects when it is there.
+  let socket;
+  for (let tries = 0; !socket; tries++) {
+    socket = await new Promise((r) => { const c = createConnection(port, '127.0.0.1', () => r(c)); c.once('error', () => r(null)); });
+    if (!socket && tries > 50) throw new Error(`the reader opened no agent socket (${name}): is the APK built from a tree that has AgentDrive?`);
+    if (!socket) await new Promise((r) => setTimeout(r, 100));
+  }
+  // Lines from the app, in order: each goes to whoever waits for one.
+  const waiting = [], ready = [];
+  let rest = '';
+  socket.setEncoding('utf8');
+  socket.on('data', (d) => { const lines = (rest + d).split('\n'); rest = lines.pop(); for (const l of lines) (waiting.shift() ?? ((x) => ready.push(x)))(l); });
+  socket.on('close', () => done(1));
+  socket.on('error', () => done(1));
+  const answer = () => ready.length ? Promise.resolve(ready.shift()) : new Promise((r) => waiting.push(r));
+  const say = (line) => process.stdout.write(line + '\n');
+  say(await answer()); // the app's `ready`
+  let pending = '', turn = Promise.resolve();
+  const one = async (line) => {
+    let req = null;
+    try { req = JSON.parse(line); } catch {}
+    if (req?.op === 'quit') return done(0);
+    if (req?.op !== 'screenshot') { socket.write(line + '\n'); return say(await answer()); }
+    if (req.film) return say(JSON.stringify({ error: 'the reader carrier films nothing: its picture is a screencap of the device' }));
+    await new Promise((r) => setTimeout(r, SHOT_SETTLE_MS));
+    const shot = sh('shell', `screencap -p ${quote(req.path)}`);
+    socket.write('{"op":"tags"}\n');
+    const tags = JSON.parse(await answer());
+    say(JSON.stringify(shot.status === 0 ? { screenshot: req.path, device: true, ...tags } : { error: `screencap: ${(shot.stderr || shot.stdout).trim()}` }));
+  };
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (d) => { const lines = (pending + d).split('\n'); pending = lines.pop(); for (const l of lines) if (l.trim()) turn = turn.then(() => one(l)); });
+  process.stdin.on('end', () => { turn.then(() => done(0)); });
+}
+
+/** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`) built
+ * for the phone's ABI and put, with the app's assets, where the Gradle shell packages them (host/android/app), then
+ * `:app:assembleRelease`. Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
+function buildApk(app, env) {
+  const crate = app.crate('android');
+  if (!existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
+  const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--target', ANDROID_TARGET], { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
+  if (cargo.status !== 0) return null;
+  const staged = resolve(READER, 'app/build', app.name, 'rust');
+  rmSync(staged, { recursive: true, force: true });
+  mkdirSync(resolve(staged, 'jniLibs/arm64-v8a'), { recursive: true });
+  // The reader loads one name whatever the app; the plan names `assets/…` under the APK's `app/`.
+  copyFileSync(resolve(app.target, ANDROID_TARGET, HOST_DEV, `lib${crate.replaceAll('-', '_')}.so`), resolve(staged, 'jniLibs/arm64-v8a/libexactcanvas.so'));
+  if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(staged, 'assets/app/assets'), { recursive: true });
+  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.dir}`], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+  return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
+}
+
+if (import.meta.main && process.argv[2] === 'relay') {
+  // The reader carrier's own process (`readerDeploy`): not a verb a person runs.
+  await relay(process.argv.slice(3)).catch((e) => { console.error(e.message); process.exit(1); });
+} else if (import.meta.main) {
+  const args = guardFlags('android', process.argv.slice(2));
+  const [verb, name] = args.filter((arg) => !arg.startsWith('--'));
   if (verb !== 'build' || !name) {
-    console.error('usage: bun scripts/agent-android.mjs build <app>   (then: bun scripts/agent.mjs android --app <app> …)');
+    console.error('usage: bun scripts/agent-android.mjs build <app> [--apk]   (then: bun scripts/agent.mjs android --app <app> …; --apk: the app on the Canvas reader, host/android/README.md)');
     process.exit(2);
   }
-  const installed = spawnSync('rustup', ['target', 'list', '--installed'], { cwd: resolveApp(name).dir, encoding: 'utf8' }).stdout ?? '';
-  if (!installed.split('\n').includes(ANDROID_TARGET)) {
+  // Without rustup (a toolchain installed by hand) Cargo names a missing target itself.
+  const rustup = spawnSync('rustup', ['target', 'list', '--installed'], { cwd: resolveApp(name).dir, encoding: 'utf8' });
+  if (rustup.status === 0 && !rustup.stdout.split('\n').includes(ANDROID_TARGET)) {
     console.error(`the toolchain has no ${ANDROID_TARGET} target: rustup target add ${ANDROID_TARGET} (once, in the app's directory so its pinned toolchain gets it)`);
     process.exit(1);
   }
-  const app = resolveApp(name), [cmd, ...args] = androidBuild(app);
-  const built = spawnSync(cmd, args, { cwd: app.workspace ?? app.dir, env: { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target }, stdio: 'inherit' });
+  const app = resolveApp(name), env = { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target };
+  if (args.includes('--apk')) {
+    const apk = buildApk(app, env);
+    if (apk) console.log(apk);
+    process.exit(apk ? 0 : 1);
+  }
+  const [cmd, ...rest] = androidBuild(app);
+  const built = spawnSync(cmd, rest, { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
   if (built.status === 0) console.log(androidBinary(app));
   process.exit(built.status ?? 1);
 }

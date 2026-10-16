@@ -470,6 +470,7 @@ final class TextGeometryTests: XCTestCase {
         node.style = ["font_size": 16.0, "line_height": "20px", "padding_left": 8.0,
                       "padding_right": 12.0, "padding_top": 11.0, "padding_bottom": 7.0,
                       "border_width": 2.0]
+        node.applyContentBox(padding: [11, 12, 7, 8], border: [2, 2, 2, 2])
         func breaks(_ paragraph: Paragraph) -> [Int] {
             paragraph.lines.map { CTLineGetStringRange($0).length }
         }
@@ -478,12 +479,15 @@ final class TextGeometryTests: XCTestCase {
         XCTAssertEqual(breaks(first), breaks(session.text.paragraph(node.paragraphSpec(), width: 276)))
         // The outer frame is unchanged; the cache must still use the new content width.
         node.style["padding_left"] = 24.0
+        node.applyContentBox(padding: [11, 12, 7, 24], border: [2, 2, 2, 2])
         let changed = try XCTUnwrap(node.paragraphLayout())
         XCTAssertFalse(first === changed)
         XCTAssertEqual(breaks(changed), breaks(session.text.paragraph(node.paragraphSpec(), width: 260)))
         node.style["padding_left"] = 8.0
+        node.applyContentBox(padding: [11, 12, 7, 8], border: [2, 2, 2, 2])
         XCTAssertEqual(breaks(try XCTUnwrap(node.paragraphLayout())), breaks(first))
         node.style = ["font_size": 16.0, "line_height": "20px"]
+        node.applyFieldContent(["rect": NSNull()])
         XCTAssertEqual(breaks(try XCTUnwrap(node.paragraphLayout())),
                        breaks(session.text.paragraph(node.paragraphSpec(), width: 300)))
     }
@@ -541,6 +545,7 @@ final class TextGeometryTests: XCTestCase {
             node.style = ["font_size": 16.0, "line_height": "20px", "text_align": .string(alignment),
                           "padding_left": 20.0, "padding_top": 25.0, "padding_right": 30.0,
                           "border_width": 2.0, "white_space": "pre-wrap"]
+            node.applyContentBox(padding: [25, 30, 0, 20], border: [2, 2, 2, 2])
             node.invalidateText()
             let paragraph = try XCTUnwrap(node.paragraphLayout())
             let line = paragraph.lines[1]
@@ -769,7 +774,8 @@ extension TextGeometryTests {
             let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
             context.textMatrix = .identity
             for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
-                let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
+                // CSS Text 3 §7.1: a line wider than its box is start-aligned (left to right, here).
+                let x = max(0, CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width))))
                 context.saveGState()
                 context.translateBy(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
                 context.scaleBy(x: 1, y: -1)
@@ -849,9 +855,11 @@ extension TextGeometryTests {
         let paragraph = engine.paragraph(spec, width: 45)
         XCTAssertEqual(paragraph.lines.count, 1)
         XCTAssertGreaterThan(paragraph.width, 120)
+        // The overlong line starts at the box's left edge and runs on past its right one (CSS Text
+        // 3 §7.1; the culled paint must keep that ink, which lies wholly outside the content box).
         assertInkMatches(paragraph, spec: spec,
-                         bounds: CGRect(x: 240, y: 35, width: 45, height: paragraph.height),
-                         clip: CGRect(x: 0, y: 20, width: 220, height: 80))
+                         bounds: CGRect(x: 60, y: 35, width: 45, height: paragraph.height),
+                         clip: CGRect(x: 110, y: 20, width: 220, height: 80))
     }
 
     func testViewportInkIndexIsReusedAndKeepsZeroHeightPaintOrder() {
@@ -1282,6 +1290,38 @@ extension TextGeometryTests {
         assertInkMatches(replacement, spec: changed,
                          bounds: CGRect(x: 15, y: 20, width: 190, height: replacement.height),
                          clip: CGRect(x: 0, y: 0, width: 340, height: 160))
+    }
+
+    /// CSS Text 3 §7.1: a line wider than its box is start-aligned and
+    /// overflows the end edge, whatever `text-align` says (Chrome draws
+    /// `text-align: right` and `center` that way). CoreText's own flush puts
+    /// the overlong line left of the box, over a neighbour: round 13's
+    /// weather, a right-aligned "High" header at an accessibility text size
+    /// ran into "Low". A line that fits is CoreText's.
+    func testALineWiderThanItsBoxIsStartAlignedAndOverflowsTheEndEdge() {
+        var input = spec("Today")
+        input.runs[0].size = 33; input.runs[0].weight = 600; input.runs[0].lineHeight = nil
+        input.strut = input.runs[0]
+        let wide = engine.paragraph(input, width: 1000).width
+        XCTAssertGreaterThan(wide, 60, "the word at the accessibility headline size")
+        // One unbreakable word in a 48-point column (`width=48`, the author's).
+        let narrow = engine.paragraph(input, width: 48)
+        XCTAssertEqual(narrow.lines.count, 1)
+        for align in [0, 1, 2] {
+            XCTAssertEqual(narrow.origin(0, align: align, width: 48), 0, "start-aligned, not flush \(align)")
+        }
+        // The same line where it fits is CoreText's flush, to the point.
+        let roomy = engine.paragraph(input, width: 300)
+        let slack = 300 - wide
+        XCTAssertEqual(roomy.origin(0, align: 0, width: 300), 0)
+        XCTAssertEqual(roomy.origin(0, align: 1, width: 300), slack / 2, accuracy: 0.05)
+        XCTAssertEqual(roomy.origin(0, align: 2, width: 300), slack, accuracy: 0.05)
+        // Right to left starts at the right edge and overflows the left one.
+        input.direction = 1
+        let rtl = engine.paragraph(input, width: 48)
+        for align in [0, 1, 2] {
+            XCTAssertEqual(rtl.origin(0, align: align, width: 48), 48 - wide, accuracy: 0.05, "an rtl line overflows on the left, flush \(align)")
+        }
     }
 
 }

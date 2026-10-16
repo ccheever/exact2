@@ -4,6 +4,8 @@ import XCTest
 @testable import ExactKit
 
 final class AccessibilityTests: XCTestCase {
+    /// These cases walk Tab through buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
     private func fixture() -> (Presenter, NSWindow, NodeView, NodeView) {
         _ = NSApplication.shared
         let p = Presenter()
@@ -92,10 +94,13 @@ final class AccessibilityTests: XCTestCase {
         let spacer = NodeView(id: 12, kind: "image", presenter: p)
         spacer.applyProps(set: [:], clear: [])
         let heading = NodeView(id: 13, kind: "text", presenter: p)
-        heading.applyProps(set: ["text": "Palo Alto", "accessibilityHeadingLevel": "1"], clear: [])
+        heading.applyProps(set: ["text": "Palo Alto", "accessibilityRole": "heading", "accessibilityHeadingLevel": "1"], clear: [])
         let body = NodeView(id: 14, kind: "text", presenter: p)
         body.applyProps(set: ["text": "Northbound"], clear: [])
-        for n in [logo, spacer, heading, body] {
+        // LLP 1115.000 D12.5: an `aria-level` with no `role="heading"` is not a heading.
+        let levelled = NodeView(id: 15, kind: "text", presenter: p)
+        levelled.applyProps(set: ["text": "Departures", "accessibilityHeadingLevel": "2"], clear: [])
+        for n in [logo, spacer, heading, body, levelled] {
             n.frame = NSRect(x: 0, y: 60, width: 100, height: 20)
             p.root.addSubview(n); p.views[n.id] = n
         }
@@ -118,6 +123,12 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(heading.accessibilityValue() as? Int, 1)
         XCTAssertEqual(heading.accessibilityLabel(), "Palo Alto")
         XCTAssertEqual(body.accessibilityRole(), .staticText)
+        XCTAssertEqual(levelled.accessibilityRole(), .staticText, "a level alone is text")
+        XCTAssertEqual(levelled.accessibilityValue() as? String, "Departures")
+        levelled.applyProps(set: ["accessibilityRole": "heading"], clear: [])
+        p.syncAccessibility()
+        XCTAssertEqual(levelled.accessibilityRole()?.rawValue, "AXHeading", "its role makes it one")
+        XCTAssertEqual(levelled.accessibilityValue() as? Int, 2)
 
         // What VoiceOver walks: element children from the window's content.
         var reached: [NSView] = []
@@ -131,6 +142,46 @@ final class AccessibilityTests: XCTestCase {
         for node in [button, other, logo, heading, body] { XCTAssertTrue(reached.contains(node), "\(node.kind) \(node.id) is unreachable") }
         XCTAssertFalse(reached.contains(caption), "a button's text is its name, not a second stop")
         XCTAssertFalse(reached.contains(spacer))
+    }
+    /// X74: a heading inside a button is the button's child, as Chrome keeps
+    /// `<button><h2>` (button › heading). The button keeps its name, state
+    /// and press; its text and images stay its name, not children, so a
+    /// button holding only those is still a leaf, and `aria-hidden` hides.
+    func testAHeadingInsideAButtonIsItsChild() {
+        let (p, w, button, other) = fixture()
+        button.handlers = ["press"]
+        button.applyProps(set: ["accessibilityExpanded": "false"], clear: [])
+        let row = NodeView(id: 30, kind: "view", presenter: p)
+        let heading = NodeView(id: 31, kind: "text", presenter: p)
+        heading.applyProps(set: ["text": "Legacy features", "accessibilityRole": "heading", "accessibilityHeadingLevel": "2"], clear: [])
+        let count = NodeView(id: 32, kind: "text", presenter: p)
+        count.applyProps(set: ["text": "3 rows"], clear: [])
+        let chevron = NodeView(id: 33, kind: "image", presenter: p)
+        chevron.applyProps(set: [:], clear: [])
+        button.addSubview(row); row.addSubview(heading); button.addSubview(count); button.addSubview(chevron)
+        let caption = NodeView(id: 34, kind: "text", presenter: p)
+        caption.applyProps(set: ["text": "Dark"], clear: [])
+        let icon = NodeView(id: 35, kind: "image", presenter: p)
+        icon.applyProps(set: ["accessibilityLabel": "Moon"], clear: [])
+        other.addSubview(caption); other.addSubview(icon)
+        for n in [row, heading, count, chevron, caption, icon] { p.views[n.id] = n }
+        p.syncAccessibility()
+
+        XCTAssertEqual(button.accessibilityRole(), .button)
+        XCTAssertEqual(button.accessibilityLabel(), "Legacy features 3 rows")
+        XCTAssertFalse(button.isAccessibilityExpanded())
+        XCTAssertTrue(button.accessibilityPerformPress())
+        let children = button.accessibilityChildren() ?? []
+        XCTAssertEqual(children.count, 1, "the heading, not the button's text or images")
+        XCTAssertTrue(children.first as? NodeView === heading)
+        XCTAssertTrue(heading.accessibilityParent() as? NodeView === button)
+        XCTAssertEqual(heading.accessibilityRole()?.rawValue, "AXHeading")
+        XCTAssertEqual(heading.accessibilityValue() as? Int, 2)
+        XCTAssertFalse(heading.accessibilityPerformPress(), "the press is the button's")
+        XCTAssertNil(other.accessibilityChildren(), "a button of text and an image is a leaf")
+        heading.applyProps(set: ["accessibilityElementsHidden": "true"], clear: [])
+        XCTAssertNil(button.accessibilityChildren(), "an aria-hidden heading is no child")
+        withExtendedLifetime(w) {}
     }
     /// Plain text takes the focus for selection but is never a Tab stop, as
     /// on the web: Tab walks the controls, and from a selected paragraph it
@@ -264,6 +315,154 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(bar.accessibilityRole(), .slider)
         withExtendedLifetime(w) {}
     }
+    private final class Opened: ExactSessionDelegate {
+        var urls: [String] = []
+        func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+            if name == "openURL" { urls += args.compactMap { $0 as? String } }
+        }
+    }
+    /// X78: a link carries its URL, as an `NSTextView` link run and a SwiftUI
+    /// `Link` do. A `link` node's `AXURL` is its `href`. A paragraph's `href`
+    /// run is one element from one ask to the next, and a hit test returns
+    /// it (one made per ask is invalid to another process, VoiceOver's);
+    /// new runs make a new one. Pressing either opens its URL once AppKit's
+    /// request has returned (`testAnInlineRunsPressRunsOnceTheRequestReturns`).
+    func testALinkCarriesItsURLAndAnInlineLinkIsOneElementWhileItsRunsLast() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "link-url")
+        defer { session.destroy() }
+        let opened = Opened()
+        session.delegate = opened
+        let p = session.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+        let w = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = p.viewport
+        defer { w.close() }
+        func runs(_ href: String) -> [String: Any] {
+            func run(_ id: Int, _ props: [String: String]) -> [String: Any] { ["id": id, "parent": 3, "paint": true, "props": props, "style": ["font_size": 18.0]] }
+            return ["op": "paragraph", "id": 3, "runs": [run(4, ["text": "Visit the "]), run(5, ["text": "site", "href": href]), run(6, ["text": " today"])]]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "button", "props": ["accessibilityRole": "link", "href": "https://example.com/link-node", "text": "Example link"]],
+            ["op": "create", "id": 3, "kind": "text", "style": ["font_size": 18.0]],
+            runs("https://example.com/inline-run"),
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 200],
+            ["op": "frame", "id": 2, "x": 16, "y": 16, "w": 140, "h": 28],
+            ["op": "frame", "id": 3, "x": 16, "y": 56, "w": 300, "h": 28],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let link = try XCTUnwrap(p.views[2]), paragraph = try XCTUnwrap(p.views[3])
+        XCTAssertEqual(link.accessibilityRole(), .link)
+        XCTAssertEqual(link.accessibilityURL(), URL(string: "https://example.com/link-node"))
+        let run = try XCTUnwrap(paragraph.accessibilityChildren()?.first as? NSAccessibilityElement)
+        XCTAssertEqual(paragraph.accessibilityChildren()?.count, 1)
+        XCTAssertTrue(paragraph.accessibilityChildren()?.first as AnyObject === run, "the same element at the next ask")
+        XCTAssertEqual(run.accessibilityRole(), .link)
+        XCTAssertEqual(run.accessibilityLabel(), "site")
+        XCTAssertEqual(run.accessibilityURL(), URL(string: "https://example.com/inline-run"))
+        let frame = run.accessibilityFrame()
+        XCTAssertFalse(frame.isEmpty)
+        XCTAssertTrue(paragraph.accessibilityHitTest(NSPoint(x: frame.midX, y: frame.midY)) as AnyObject === run, "a hit test over the run returns it")
+        XCTAssertTrue(link.accessibilityPerformPress())
+        XCTAssertTrue(run.accessibilityPerformPress())
+        XCTAssertEqual(opened.urls, [], "each URL opens after the request")
+        spin { opened.urls.count == 2 }
+        XCTAssertEqual(opened.urls, ["https://example.com/link-node", "https://example.com/inline-run"])
+        p.apply(wireBatch([runs("https://example.com/moved")]))
+        let moved = try XCTUnwrap(paragraph.accessibilityChildren()?.first as? NSAccessibilityElement)
+        XCTAssertFalse(moved === run, "new runs, a new element")
+        XCTAssertEqual(moved.accessibilityURL(), URL(string: "https://example.com/moved"))
+        XCTAssertTrue(paragraph.accessibilityChildren()?.first as AnyObject === moved)
+    }
+    /// An assistive app's press on an inline run (VoiceOver's VO-Space,
+    /// Switch Control: AppKit's AXPress request) runs the run's `press` once
+    /// the request has returned, and once. AppKit answers the request with
+    /// the first accessibility error recorded while it is open, and the
+    /// update a press makes records one: run inside it, a press that landed
+    /// answered kAXErrorAttributeUnsupported. A run with neither a `press`
+    /// nor an `href` has nothing to do, nor has an `href` run with no
+    /// session to follow it (`canActivateInline`, as `activateInline`).
+    func testAnInlineRunsPressRunsOnceTheRequestReturns() throws {
+        let (p, w, _, _) = fixture()
+        let paragraph = NodeView(id: 80, kind: "text", presenter: p)
+        paragraph.frame = NSRect(x: 0, y: 60, width: 300, height: 20)
+        p.root.addSubview(paragraph); p.views[paragraph.id] = paragraph
+        func run(_ id: Int, _ props: [String: String], _ handlers: [String] = []) -> [String: Any] {
+            ["id": id, "parent": 80, "paint": true, "props": props, "style": ["font_size": 16.0], "handlers": handlers]
+        }
+        p.apply(wireBatch([["op": "paragraph", "id": 80, "runs": [run(81, ["text": "Press "]), run(82, ["text": "here"], ["press"]),
+                                                                  run(83, ["text": " or "]), run(84, ["text": "this", "accessibilityLabel": "This"]),
+                                                                  run(85, ["text": " "]), run(86, ["text": "that", "href": "https://example.com/unfollowed"])]]]))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let runs = paragraph.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement } ?? []
+        XCTAssertEqual(runs.map { $0.accessibilityLabel() }, ["here", "This", "that"])
+        XCTAssertFalse(runs[1].accessibilityPerformPress(), "nothing to do")
+        XCTAssertNil(p.session)
+        XCTAssertFalse(runs[2].accessibilityPerformPress(), "no session to follow the href")
+        XCTAssertTrue(runs[0].accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        spin { drained }
+        XCTAssertEqual(pressed, [82])
+        withExtendedLifetime(w) {}
+    }
+    /// A button's press from an assistive app (AXPress) runs once AppKit's
+    /// request has returned, and once, as an inline run's does: run inside
+    /// it, the update the press made recorded an error, and a press that
+    /// landed answered kAXErrorAttributeUnsupported.
+    func testAButtonsAssistivePressRunsOnceTheRequestReturns() {
+        let (p, w, button, other) = fixture()
+        button.handlers = ["press"]
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertFalse(other.accessibilityPerformPress(), "nothing to press")
+        XCTAssertTrue(button.accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        spin { drained }
+        XCTAssertEqual(pressed, [1])
+        withExtendedLifetime(w) {}
+    }
+    /// X78 with #278: a status paragraph's words and link are kept from one
+    /// ask to the next like any paragraph's runs, and made again when its
+    /// runs change, when it stops being a group, or (with no runs) when its
+    /// text changes.
+    func testAStatusParagraphKeepsItsWordsWhileItsRunsLast() throws {
+        let (p, w, _, _) = fixture()
+        let status = NodeView(id: 70, kind: "text", presenter: p)
+        status.frame = NSRect(x: 0, y: 60, width: 300, height: 20)
+        p.root.addSubview(status); p.views[status.id] = status
+        func runs(_ href: String) -> [String: Any] {
+            func run(_ id: Int, _ props: [String: String]) -> [String: Any] { ["id": id, "parent": 70, "paint": true, "props": props, "style": ["font_size": 16.0]] }
+            return ["op": "paragraph", "id": 70, "runs": [run(71, ["text": "Archived. "]), run(72, ["text": "Undo", "href": href])]]
+        }
+        status.applyProps(set: ["accessibilityRole": "status"], clear: [])
+        p.apply(wireBatch([runs("https://example.com/undo")]))
+        func children() -> [NSAccessibilityElement] { status.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement } ?? [] }
+        let first = children()
+        XCTAssertEqual(first.map { $0.accessibilityRole() }, [.staticText, .link])
+        XCTAssertTrue(zip(first, children()).allSatisfy { $0 === $1 }, "the same elements at the next ask")
+        p.apply(wireBatch([runs("https://example.com/moved")]))
+        let moved = children()
+        XCTAssertFalse(moved.first === first.first, "new runs, new elements")
+        XCTAssertEqual(moved.last?.accessibilityURL(), URL(string: "https://example.com/moved"))
+        status.applyProps(set: [:], clear: ["accessibilityRole"])
+        XCTAssertEqual(children().map { $0.accessibilityRole() }, [.link], "no role: only its link, as any paragraph")
+        p.apply(wireBatch([["op": "paragraph", "id": 70, "runs": []]]))
+        status.applyProps(set: ["text": "Saved", "accessibilityRole": "status"], clear: [])
+        let saved = try XCTUnwrap(children().first)
+        XCTAssertTrue(children().first === saved)
+        XCTAssertEqual(saved.accessibilityValue() as? String, "Saved")
+        status.applyProps(set: ["text": "Synced"], clear: [])
+        XCTAssertEqual(children().first?.accessibilityValue() as? String, "Synced", "its text changed: a new element")
+        withExtendedLifetime(w) {}
+    }
     /// The agent's name follows the web's accname: a non-empty label names
     /// any node (a status text); an empty one names nothing, so a button
     /// falls back to its content.
@@ -287,6 +486,123 @@ final class AccessibilityTests: XCTestCase {
         first.props["accessibilityLive"] = "polite"
         p.syncAccessibility()
         XCTAssertEqual(first.liveText, "Quiet")
+        withExtendedLifetime(w) {}
+    }
+    /// #278: `status` and `alert` are live regions by their roles, as WebKit
+    /// serves them: a group whose subrole is the role, named only by its
+    /// author, a paragraph's words a static text inside it, a container's
+    /// its children; live with no `aria-live`, and `off` silences one.
+    func testStatusAndAlertAreLiveRegionGroups() {
+        let (p, w, _, _) = fixture()
+        let stage = NodeView(id: 40, kind: "text", presenter: p)
+        let error = NodeView(id: 41, kind: "view", presenter: p)
+        let words = NodeView(id: 42, kind: "text", presenter: p)
+        stage.frame = NSRect(x: 0, y: 60, width: 200, height: 20)
+        error.frame = NSRect(x: 0, y: 90, width: 200, height: 20)
+        words.frame = NSRect(x: 0, y: 0, width: 200, height: 20)
+        for n in [stage, error] { p.root.addSubview(n); p.views[n.id] = n }
+        error.addSubview(words); p.views[words.id] = words
+        stage.applyProps(set: ["text": "Downloading", "accessibilityRole": "status"], clear: [])
+        error.applyProps(set: ["accessibilityRole": "alert"], clear: [])
+        words.applyProps(set: ["text": "Setup failed"], clear: [])
+        p.syncAccessibility()
+        XCTAssertTrue(stage.isAccessibilityElement())
+        XCTAssertEqual(stage.accessibilityRole(), .group)
+        XCTAssertEqual(stage.accessibilitySubrole()?.rawValue, "AXApplicationStatus")
+        XCTAssertNil(stage.accessibilityLabel(), "named only by its author")
+        let text = stage.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement } ?? []
+        XCTAssertEqual(text.map { $0.accessibilityRole() }, [.staticText])
+        XCTAssertEqual(text.first?.accessibilityValue() as? String, "Downloading")
+        XCTAssertEqual(stage.liveText, "Downloading", "live by its role")
+        XCTAssertTrue(error.isAccessibilityElement())
+        XCTAssertEqual(error.accessibilityRole(), .group)
+        XCTAssertEqual(error.accessibilitySubrole()?.rawValue, "AXApplicationAlert")
+        XCTAssertEqual(error.accessibilityChildren()?.first as? NodeView, words)
+        XCTAssertEqual(error.liveText, "Setup failed")
+        stage.applyProps(set: ["accessibilityLive": "off"], clear: [])
+        p.syncAccessibility()
+        XCTAssertNil(stage.liveText, "its aria-live over its role's")
+        stage.applyProps(set: [:], clear: ["accessibilityRole", "accessibilityLive"])
+        XCTAssertEqual(stage.accessibilityRole(), .staticText, "no role: a paragraph again")
+        XCTAssertNil(stage.accessibilitySubrole())
+        withExtendedLifetime(w) {}
+    }
+    /// A `dialog` element is a dialog by its implicit role, and an explicit
+    /// role wins, as HTML-AAM has them.
+    func testADialogElementIsADialogGroup() {
+        let (p, w, _, _) = fixture()
+        let dialog = NodeView(id: 44, kind: "view", presenter: p)
+        dialog.frame = NSRect(x: 0, y: 60, width: 200, height: 80)
+        p.root.addSubview(dialog); p.views[dialog.id] = dialog
+        dialog.applyProps(set: ["semanticTag": "dialog", "accessibilityLabel": "Rename"], clear: [])
+        XCTAssertTrue(dialog.isAccessibilityElement())
+        XCTAssertEqual(dialog.accessibilityRole(), .group)
+        XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationDialog")
+        XCTAssertEqual(dialog.accessibilityLabel(), "Rename")
+        let word = NSAccessibility.Role.window.description(with: .dialog)
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), word, "VoiceOver says dialog, as for a dialog window, not group")
+        dialog.applyProps(set: ["accessibilityRole": "alertdialog"], clear: [])
+        XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationAlertDialog")
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), word, "an alert's window is a dialog too")
+        dialog.applyProps(set: ["accessibilityRole": "status"], clear: [])
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), NSAccessibility.Role.group.description(with: .init(rawValue: "AXApplicationStatus")))
+        withExtendedLifetime(w) {}
+    }
+    /// A role removed or changed at runtime leaves no trace of it: a box
+    /// that was a status, a dialog, a group or a range is a plain view again,
+    /// as a new one is, and a status that becomes a group has no subrole.
+    func testARemovedRoleLeavesAPlainView() {
+        let (p, w, _, _) = fixture()
+        let fresh = NodeView(id: 49, kind: "view", presenter: p)
+        let roles: [[String: String]] = [["accessibilityRole": "status"], ["accessibilityRole": "dialog", "accessibilityLabel": "Setup"],
+                                         ["accessibilityRole": "group"], ["accessibilityRole": "progressbar", "accessibilityValueNow": "30", "accessibilityValueText": "30 files"]]
+        for (i, set) in roles.enumerated() {
+            let box = NodeView(id: UInt32(50 + i), kind: "view", presenter: p)
+            box.frame = NSRect(x: 0, y: 30 * CGFloat(i), width: 200, height: 20)
+            p.root.addSubview(box); p.views[box.id] = box
+            box.applyProps(set: set, clear: [])
+            p.syncAccessibility()
+            XCTAssertTrue(box.isAccessibilityElement(), "\(set)")
+            box.applyProps(set: [:], clear: ["accessibilityRole"])
+            p.syncAccessibility()
+            XCTAssertFalse(box.isAccessibilityElement(), "\(set) removed")
+            XCTAssertTrue([nil, fresh.accessibilityRole()].contains(box.accessibilityRole()), "\(set) removed: AppKit's default role, or none")
+            XCTAssertNil(box.accessibilitySubrole(), "\(set) removed")
+            XCTAssertTrue([nil, fresh.accessibilityRoleDescription()].contains(box.accessibilityRoleDescription()), "\(set) removed: no dialog's")
+            XCTAssertNil(box.accessibilityValue(), "\(set) removed")
+            XCTAssertNil(box.accessibilityValueDescription(), "\(set) removed")
+            XCTAssertNil(box.liveText, "\(set) removed")
+        }
+        let box = NodeView(id: 60, kind: "view", presenter: p)
+        p.root.addSubview(box); p.views[box.id] = box
+        box.applyProps(set: ["accessibilityRole": "status"], clear: [])
+        box.applyProps(set: ["accessibilityRole": "group"], clear: [])
+        XCTAssertEqual(box.accessibilityRole(), .group)
+        XCTAssertNil(box.accessibilitySubrole(), "a status become a group")
+        box.applyProps(set: ["accessibilityRole": "none"], clear: [])
+        XCTAssertFalse(box.isAccessibilityElement(), "role=\"none\"")
+        withExtendedLifetime(w) {}
+    }
+    /// An `alert` speaks as it appears, as a browser's alert event has it,
+    /// except at launch; a live region otherwise only as its text changes.
+    func testAnAlertSpeaksAsItAppears() {
+        let (p, w, _, _) = fixture()
+        let error = NodeView(id: 43, kind: "text", presenter: p)
+        error.frame = NSRect(x: 0, y: 60, width: 200, height: 20)
+        p.root.addSubview(error); p.views[error.id] = error
+        error.applyProps(set: ["text": "Setup failed", "accessibilityRole": "alert"], clear: [])
+        XCTAssertEqual(error.livePoliteness, "assertive")
+        XCTAssertTrue(error.liveSpeaks("Setup failed", launching: false))
+        XCTAssertFalse(error.liveSpeaks("Setup failed", launching: true), "there at launch: read with the screen")
+        error.props["accessibilityRole"] = "status"
+        XCTAssertEqual(error.livePoliteness, "polite")
+        XCTAssertFalse(error.liveSpeaks("Setup failed", launching: false), "a status appearing is not spoken")
+        p.syncAccessibility()
+        XCTAssertFalse(error.liveSpeaks("Setup failed", launching: false), "unchanged")
+        XCTAssertTrue(error.liveSpeaks("Unpacking", launching: false))
+        XCTAssertFalse(error.liveSpeaks("", launching: false))
+        error.props["accessibilityLive"] = "assertive"
+        XCTAssertEqual(error.livePoliteness, "assertive", "its aria-live over its role's")
         withExtendedLifetime(w) {}
     }
     /// Spreadsheet F4, F14: ⌘V, ⌘C and ⌘X at a focused node are its

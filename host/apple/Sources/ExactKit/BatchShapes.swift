@@ -21,6 +21,7 @@ extension BatchReader {
         var clock: Double?, due: Double?, error: String?
         var images: [String] = []
         var seq: (UInt64, UInt64)?
+        var modes: [String: String]?
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -40,6 +41,7 @@ extension BatchReader {
             case "clock": clock = try r.number()
             case "timer_due_ms": due = try r.number()
             case "error": error = try r.string()
+            case "modes": if case .object(let object) = try r.value() { modes = object.compactMapValues { $0.string } }
             case "seq":
                 let range = try r.array { try $0.number() }
                 if range.count == 2, range.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) { seq = (UInt64(range[0]), UInt64(range[1])) }
@@ -55,6 +57,7 @@ extension BatchReader {
         batch.layoutProvisional = layoutProvisional
         batch.canvasImages = images
         batch.seq = seq
+        batch.modes = modes
         return batch
     }
 
@@ -99,6 +102,7 @@ extension BatchReader {
             case (.create, "kind"): op.kind = try string()
             case (.create, "props"), (.props, "set"): op.props = try strings()
             case (.create, "style"), (.style, "style"): op.style = try style()
+            case (.roles, "roles"): op.style = try values()
             case (.create, "handlers"): op.handlers = Set(try array { try $0.string() })
             case (.props, "clear"): op.clear = try array { try $0.string() }
             case (.paragraph, "runs"): op.runs = try array { try $0.inline() }
@@ -155,7 +159,7 @@ extension BatchReader {
 extension BatchOp {
     var isAdapter: Bool {
         switch op {
-        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy: return false
+        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy, .roles: return false
         default: return true
         }
     }
@@ -212,10 +216,10 @@ struct BatchFields {
         switch op.op {
         case .create:
             op.kind = try string("kind") ?? "view"
-            op.props = try strings("props"); op.style = try object("style")
+            op.props = try strings("props"); op.style = try CalculatedLength.decode(object("style"))
             op.handlers = Set(try array("handlers", Self.string))
         case .props: op.props = try strings("set"); op.clear = try array("clear", Self.string)
-        case .style: op.style = try object("style")
+        case .style: op.style = try CalculatedLength.decode(object("style"))
         case .paragraph: op.runs = try array("runs") { try Self(Self.object($0)).inline() }
         case .children, .roots: op.ids = try array("ids", Self.id)
         case .frame, .content, .present:
@@ -223,6 +227,7 @@ struct BatchFields {
             op.w = try number("w") ?? 0; op.h = try number("h") ?? 0
             op.property = try string("property") ?? ""
         case .destroy: break
+        case .roles: op.style = try object("roles")
         default: op.payload = fields.mapValues(\.any)
         }
         return op
@@ -232,6 +237,7 @@ struct BatchFields {
 extension InlineStyle {
     mutating func set(_ key: String, _ value: BatchValue) throws {
         if value == .null { return }
+        if key == "text_color" { fixedInk = value.fixesInk }
         switch key {
         case "font_size": run.size = CGFloat(Float(try BatchFields.number(value)))
         case "font_weight", "font_family":

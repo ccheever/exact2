@@ -1,0 +1,326 @@
+// A page that says nothing about its look (LLP 1115 D7): a heading, a
+// paragraph, a button and a field, with no colour, font or size written.
+// What shows is the platform's: the page and its text follow the device's
+// scheme, and the text its font scale. The first button opens a second page
+// that says nothing about Back either: no Back control, no `navigate`
+// handler, so the system's Back is the router's own (LLP 1115 D5). A fixture
+// for a host's defaults, built for Android's Canvas host first (LLP 1115.001
+// D3, D6; `android/`).
+//
+// The second button opens a page to scroll (LLP 1115.001 D7): a list of 240
+// rows, virtualized, each a button that says which it was. Its first row is
+// a strip that scrolls sideways and its second a scroller of its own, nested
+// in the list, which hands a drag on to the list at its ends. The button
+// above the list scrolls it to a row, as an app does (`scrollTop`). Nothing
+// says how any of it scrolls: the slop, the fling, the ends and the
+// indicator are the platform's.
+//
+// The third button opens the device's colours (LLP 1115.001 D4, D5): a text
+// in each label role and a card in each background role, by the roles'
+// names and no colour of the app's own, then the controls whose accent is
+// the platform's, a link of each kind that leaves the app, and a button for
+// each thing an app asks of the platform (a haptic, the clipboard, the
+// share sheet, a link). One screen shows a host's whole palette. Its last
+// button authors an `accent-color` over the page, the one colour written
+// here, which must win over the platform's.
+//
+// The fourth button opens a form (LLP 1115.001 D8): a field of each kind a
+// keyboard has a shape for (text, email, password, number, search), a
+// textarea, a field that takes five characters, one the app rewrites in
+// lower case as it is typed, three chained by their enter keys (Next, Next,
+// then Done, which submits) and ten more with nothing bound to them, so the
+// form is longer than the screen. Nothing says how a field looks or types:
+// on Android each is the platform's own field.
+//
+// The fifth button opens the top layer (LLP 1115.001 D10): a confirmation
+// with a cancel and a destructive action, one with three buttons, and one
+// menu of four rows (a symbol, a separator, a destructive row that asks
+// first) opened four ways: by the button at the end of a row, by holding
+// the row, and by a button at the page's bottom and one in its corner, where
+// the menu has to open upward and end at its button's end. The text under
+// the heading says what was chosen. A field on the page shows a surface
+// over a text field, and opens the confirmation when `ask` is typed into
+// it, the keyboard still up. Nothing says how a confirmation or a menu
+// looks: on Android each is a window of the platform's, in Material's form.
+routes nav
+  home "/"
+    next "/next"
+    rows "/rows"
+    colours "/colours"
+    form "/form"
+    surfaces "/surfaces"
+
+component Unsaid
+  state name = ""
+  state picked = -1
+  state target = 60
+  state top = 0
+  state authored = false
+  state said = "Nothing asked yet"
+  state plain = ""
+  state email = ""
+  state secret = ""
+  state amount = ""
+  state query = ""
+  state notes = ""
+  state short = ""
+  state quiet = ""
+  state first = ""
+  state second = ""
+  state last = ""
+  state sent = ""
+  state chose = "Nothing chosen yet"
+  state asked = ""
+  derive ten = "0 1 2 3 4 5 6 7 8 9".split(" ")
+  derive forty = ten.concat(ten).concat(ten.concat(ten))
+  derive cards = ten.concat(ten).map((x, i) => i)
+  derive lines = forty.map((x, i) => i)
+  derive rows = forty.concat(forty).concat(forty.concat(forty).concat(forty.concat(forty))).map((x, i) => i)
+  action open
+    nav = push(nav, "/next")
+  action openRows
+    nav = push(nav, "/rows")
+  action openColours
+    nav = push(nav, "/colours")
+  action buzz
+    haptic("success")
+    said = "Asked for a haptic: success"
+  action thump
+    said = "Pressed, with a press haptic"
+  action copy
+    copyText("Copied from Unsaid")
+    said = "Copied: Copied from Unsaid"
+  action send
+    share(title="Unsaid", text="Shared from Unsaid", url="https://example.com/unsaid")
+    said = "Asked for the share sheet"
+  action browse
+    openURL("https://example.com/")
+    said = "Asked to open example.com"
+  action author
+    authored = not authored
+  action rename(value)
+    name = value
+  action openForm
+    nav = push(nav, "/form")
+  action openSurfaces
+    nav = push(nav, "/surfaces")
+  action choose(what: string)
+    chose = `Chose: ${what}`
+  action aim(what: string)
+    chose = `Held: ${what}`
+  // A destructive choice asks first: the confirmation, from any action.
+  action ask
+    showModal("confirm")
+  action askTyped(value)
+    asked = value
+    if value == "ask"
+      showModal("confirm")
+  action setPlain(value)
+    plain = value
+  action setEmail(value)
+    email = value
+  action setSecret(value)
+    secret = value
+  action setAmount(value)
+    amount = value
+  action setQuery(value)
+    query = value
+  action setNotes(value)
+    notes = value
+  action setShort(value)
+    short = value
+  // The app writes another value than the one typed: the field takes it.
+  action hush(value)
+    quiet = value.toLowerCase()
+  action setFirst(value)
+    first = value
+  action setSecond(value)
+    second = value
+  action setLast(value)
+    last = value
+  action sendForm
+    sent = `${first} / ${second} / ${last}`
+  action pick(i: number)
+    picked = i
+  // The strip is 120 tall, the nested scroller 200, and each row after them 56.
+  action jump
+    let next = target == 60 ? 150 : 60
+    target = next
+    top = 320 + (next - 2) * 56
+  view
+    main navigationKey=`${top(nav).id}` testId="unsaid" width="100%" height="100%"
+      for e in stack(nav) key = e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=12 padding=16
+          if e.name == "home"
+            text "Nothing written" role="heading" aria-level=1 testId="heading"
+            text "This page writes no colour, font or size. Its background and its text follow the device's scheme, and the text follows the device's font scale." testId="paragraph"
+            button press=open testId="button"
+              text "Open the next page"
+            input value=name input=rename placeholder="A field" aria-label="A field" testId="field"
+            button press=openRows testId="open-rows"
+              text "Open a list to scroll"
+            button press=openColours testId="open-colours"
+              text "Open the device's colours"
+            button press=openForm testId="open-form"
+              text "Open a form"
+            button press=openSurfaces testId="open-surfaces"
+              text "Open the top layer"
+          if e.name == "surfaces"
+            column display="flex" flex-direction="column" height="100%" gap=12
+              text "The top layer" role="heading" aria-level=1 testId="surfaces-heading"
+              text chose testId="chose"
+              input value=asked input=askTyped placeholder="Type ask to be asked" aria-label="Type ask" testId="ask-field"
+              button press=ask testId="ask"
+                text "Delete something"
+              button commandfor="three" command="show-modal" testId="ask-three"
+                text "Leave with changes"
+              row display="flex" align-items="center" gap=12
+                button press=choose("the row") contextmenu=aim("the row") contextPopover="row-menu" flex=1 text-align="start" testId="held"
+                  text "A row: hold it, or use its button"
+                button popovertarget="row-menu" aria-label="More" testId="more"
+                  image "symbol:more"
+              column flex=1
+              row display="flex" align-items="center" justify-content="space-between"
+                button popovertarget="row-menu" testId="more-bottom"
+                  text "A menu at the bottom"
+                button popovertarget="row-menu" aria-label="More, in the corner" testId="more-corner"
+                  image "symbol:more"
+          if e.name == "colours"
+            column gap=10 accent-color=(authored ? "light-dark(#ad1457, #f48fb1)" : "auto") testId="colours"
+              text "The device's colours" role="heading" aria-level=1 testId="colours-heading"
+              row display="flex" flex-wrap="wrap" column-gap=12 row-gap=2 testId="labels"
+                text "label" color="-exact-label"
+                text "secondary" color="-exact-secondary-label"
+                text "tertiary" color="-exact-tertiary-label"
+                text "quaternary" color="-exact-quaternary-label"
+                text "placeholder" color="-exact-placeholder"
+                text "GrayText" color="GrayText"
+                text "LinkText" color="LinkText"
+                text "AccentColor" color="AccentColor" testId="accent-text"
+                text "red" color="-exact-system-red"
+                text "blue" color="-exact-system-blue"
+                text "green" color="-exact-system-green"
+              column display="grid" grid-template-columns="minmax(0, 1fr) minmax(0, 1fr)" gap=6 testId="cards"
+                Swatch(name="background", fill="-exact-background", ink="-exact-label")
+                Swatch(name="secondary", fill="-exact-secondary-background", ink="-exact-label")
+                Swatch(name="tertiary", fill="-exact-tertiary-background", ink="-exact-label")
+                Swatch(name="grouped", fill="-exact-grouped-background", ink="-exact-label")
+                Swatch(name="secondary grouped", fill="-exact-secondary-grouped-background", ink="-exact-label")
+                Swatch(name="tertiary grouped", fill="-exact-tertiary-grouped-background", ink="-exact-label")
+                Swatch(name="Field", fill="Field", ink="FieldText")
+                Swatch(name="fill", fill="-exact-fill", ink="-exact-label")
+                Swatch(name="ButtonFace", fill="ButtonFace", ink="ButtonText")
+                Swatch(name="Highlight", fill="Highlight", ink="HighlightText")
+                Swatch(name="AccentColor", fill="AccentColor", ink="AccentColorText")
+                Swatch(name="red", fill="-exact-system-red", ink="AccentColorText")
+              row display="flex" flex-wrap="wrap" align-items="center" gap=14 testId="controls"
+                input type="checkbox" checked=true aria-label="Checked" testId="check"
+                input type="radio" checked=true aria-label="Chosen" testId="radio"
+                input type="checkbox" role="switch" checked=true aria-label="On" testId="switch"
+                input type="range" min=0 max=100 value=60 aria-label="A range" width=90 testId="range"
+                progress value=60 max=100 width=60 testId="progress"
+                button "Filled" appearance="auto" buttonStyle="filled" press=buzz testId="filled"
+              row display="flex" flex-wrap="wrap" column-gap=20 testId="links"
+                link href="https://example.com/" testId="link-web"
+                  text "example.com"
+                link href="mailto:someone@example.com" testId="link-mail"
+                  text "Mail someone"
+                link href="tel:+15550100" testId="link-phone"
+                  text "Call 555 0100"
+              row display="flex" flex-wrap="wrap" gap=8 testId="asks"
+                button press=buzz testId="haptic"
+                  text "Haptic"
+                button press=thump -exact-press-haptic="impact-heavy" testId="press-haptic"
+                  text "Press haptic"
+                button press=copy testId="copy"
+                  text "Copy"
+                button press=send testId="share"
+                  text "Share"
+                button press=browse testId="open-url"
+                  text "openURL"
+                button press=author testId="author"
+                  text (authored ? "The platform's accent" : "Author an accent")
+              text said testId="said"
+          if e.name == "form"
+            column display="flex" flex-direction="column" height="100%" gap=8
+              text "A form" role="heading" aria-level=1 testId="form-heading"
+              text (sent == "" ? "Nothing submitted yet" : `Submitted: ${sent}`) testId="sent"
+              scroll flex=1 min-height=0 width="100%" testId="form"
+                column gap=10 padding-bottom=24
+                  input value=plain input=setPlain placeholder="Plain text" aria-label="Plain text" testId="f-plain"
+                  input type="email" value=email input=setEmail placeholder="Email" autocomplete="email" aria-label="Email" testId="f-email"
+                  input type="password" value=secret input=setSecret placeholder="Password" autocomplete="current-password" aria-label="Password" testId="f-password"
+                  input type="number" value=amount input=setAmount placeholder="Number" aria-label="Number" testId="f-number"
+                  input type="search" value=query input=setQuery placeholder="Search" aria-label="Search" testId="f-search"
+                  textarea value=notes input=setNotes rows=3 placeholder="Notes, on several lines" aria-label="Notes" testId="f-notes"
+                  input value=short input=setShort maxlength=5 placeholder="At most five" aria-label="At most five" testId="f-max"
+                  input value=quiet input=hush placeholder="Rewritten in lower case" aria-label="Lower case" testId="f-lower"
+                  text `plain "${plain}", lower "${quiet}", five "${short}"` testId="echo"
+                  input value=first input=setFirst enterkeyhint="next" placeholder="First, then Next" aria-label="First" testId="f-first"
+                  input value=second input=setSecond enterkeyhint="next" placeholder="Second, then Next" aria-label="Second" testId="f-second"
+                  input value=last input=setLast submit=sendForm enterkeyhint="done" placeholder="Last, then Done" aria-label="Last" testId="f-last"
+                  for n in ten key=n
+                    input placeholder=`Extra field ${n}` aria-label=`Extra field ${n}` testId=`f-extra-${n}`
+          if e.name == "next"
+            text "The next page" role="heading" aria-level=1 testId="next-heading"
+            text "It has no Back control. The system's Back returns to the first page, and from there it leaves the app." testId="next-paragraph"
+          if e.name == "rows"
+            column display="flex" flex-direction="column" height="100%" gap=8
+              row display="flex" align-items="center" gap=12
+                text (picked < 0 ? "No row pressed" : `Pressed row ${picked}`) flex=1 testId="picked"
+                button press=jump testId="jump"
+                  text `Go to row ${target == 60 ? 150 : 60}`
+              list id="rows" virtualized=true flex=1 min-height=0 width="100%" overflow-x="hidden" estimated-item-height=56 scrollTop=top testId="rows"
+                for i in rows key=i
+                  column width="100%"
+                    if i == 0
+                      scroll width="100%" height=120 overflow-x="scroll" overflow-y="hidden" testId="strip"
+                        row display="flex" gap=8 height="100%"
+                          for c in cards key=c
+                            column width=140 flex-shrink=0 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-radius=12
+                              text `Card ${c}`
+                    if i == 1
+                      scroll width="100%" height=200 box-sizing="border-box" border-width=1 border-style="solid" border-radius=12 testId="nested"
+                        for n in lines key=n
+                          text `Nested line ${n}` padding=12
+                    if i > 1
+                      button press=pick(i) width="100%" height=56 box-sizing="border-box" text-align="start" testId=`row-${i}`
+                        text `Row ${i}`
+      // The top layer's surfaces, declared once at the root: two confirmations
+      // (the label is the title, the text the message, Cancel the closing
+      // button with no `press`) and the menu every invoker above names.
+      dialog id="confirm" role="alertdialog" aria-label="Delete it?"
+        text "This cannot be undone."
+        button press=choose("Delete") destructive=true commandfor="confirm" command="close" testId="confirm-delete"
+          text "Delete"
+        button commandfor="confirm" command="close" testId="confirm-cancel"
+          text "Cancel"
+      dialog id="three" role="alertdialog" aria-label="Save your changes?"
+        text "You have changed this page. Leaving now loses what you changed."
+        button press=choose("Save") commandfor="three" command="close" testId="three-save"
+          text "Save"
+        button press=choose("Discard") destructive=true commandfor="three" command="close" testId="three-discard"
+          text "Discard"
+        button commandfor="three" command="close" testId="three-cancel"
+          text "Cancel"
+      column id="row-menu" popover="auto" role="menu" aria-label="Row"
+        button press=choose("Rename") popovertarget="row-menu" popovertargetaction="hide" testId="menu-rename"
+          image "symbol:pencil"
+          text "Rename"
+        button press=choose("Share") popovertarget="row-menu" popovertargetaction="hide" testId="menu-share"
+          text "Share"
+        button press=choose("Pin to the top") popovertarget="row-menu" popovertargetaction="hide" testId="menu-pin"
+          text "Pin to the top"
+        hr
+        button press=ask destructive=true popovertarget="row-menu" popovertargetaction="hide" testId="menu-delete"
+          text "Delete…"
+
+// A card in a background role, labelled in the role that reads on it.
+component Swatch
+  props
+    name: string
+    fill: string
+    ink: string
+  view
+    column background-color=fill padding=8 border-radius=8 border-width=1 border-style="solid" border-color="-exact-separator"
+      text name color=ink

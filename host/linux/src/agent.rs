@@ -236,6 +236,21 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 if let Some(hatches) = p.hatch_state() {
                     s.push_str(&format!(",\"hatches\":{hatches}"));
                 }
+                // The top layer's open surface (LLP 1115.001 D10): each row's
+                // authored node and its box in the surface's window, which
+                // `tap` takes by that node. No shell makes windows here.
+                let surface = match p.has_windows() {
+                    true => p.surface_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"surface\":{surface}"));
+                // The shell's bars (LLP 1115.001 D11): each target's authored
+                // node and its box in the window. No shell has bars here.
+                let bars = match p.has_bars() {
+                    true => p.bars_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"bars\":{bars}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -283,6 +298,20 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             // the Linux presenter closes no window, as the guide says.
             if request.get("close").is_some() {
                 return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
+            }
+            // @ref LLP 1116.006 D4 — the platform's Back, as Alt+Left or a Back key takes it.
+            if request.get("back").is_some() {
+                if request
+                    .as_object()
+                    .is_some_and(|o| o.keys().any(|k| k != "op" && k != "back"))
+                {
+                    return error("tap back takes no other input fields");
+                }
+                return match p.agent_back(p.host().now()) {
+                    None => error("back: nothing to go back from: no route is beneath the selected one"),
+                    Some(Ok(())) => serde_json::json!({ "back": "route", "delivery": "platform" }).to_string(),
+                    Some(Err(why)) => serde_json::json!({ "back": "route", "delivery": "platform", "refused": why }).to_string(),
+                };
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
@@ -496,10 +525,21 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let empty = serde_json::Map::new();
     let group = |name: &str| request.get(name).and_then(|m| m.as_object());
     let (media, page_facts, fold) = (group("media"), group("page"), group("fold"));
-    if media.is_none() && page_facts.is_none() && fold.is_none() {
+    let mode = group("mode");
+    if media.is_none() && page_facts.is_none() && fold.is_none() && mode.is_none() {
         return error(
-            "prefer needs media, page or fold: {\"prefers-reduced-motion\": \"reduce\", …}",
+            "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}",
         );
+    }
+    // @ref LLP 1121 D13 — the mode group: checked before any fact is set,
+    // set after every other one in one commit; the scheme stays the system's.
+    let pins: Vec<(&str, &str)> = mode
+        .into_iter()
+        .flatten()
+        .map(|(axis, value)| (axis.as_str(), value.as_str().unwrap_or_default()))
+        .collect();
+    if let Err(e) = mode.map_or(Ok(()), |_| p.host().runner().check_modes(&pins)) {
+        return error(&format!("prefer mode: {e:?}"));
     }
     if let Some(fold) = fold {
         if let Some(e) = prefer_fold(p, fold) {
@@ -510,6 +550,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let mut preferences = p.host().runner().viewport().preferences;
     let mut page = p.host().runner().page();
     let mut root_font_size = None;
+    let mut display_scale = None;
     let mut dark = p.scheme.1;
     for (name, value) in media {
         match (name.as_str(), value.as_str().unwrap_or_default()) {
@@ -556,6 +597,10 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
+            // @ref LLP 1115.000 D10.3 — the pixels a point this host draws at.
+            ("display-scale", v) if v.parse::<f32>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
+                display_scale = v.parse::<f32>().ok()
+            }
             _ => {
                 return error(&format!(
                     "prefer: {name}: {value} is not a page fact this host sets"
@@ -575,8 +620,19 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             return error(&e);
         }
     }
+    if let Some(scale) = display_scale {
+        let (width, height) = p.viewport();
+        if let Some(e) = p.resize_scaled(width, height, scale) {
+            return error(&e);
+        }
+    }
     if media.contains_key("prefers-color-scheme") {
         p.set_system_scheme(dark);
+    }
+    if !pins.is_empty() {
+        if let Some(e) = p.set_modes(&pins) {
+            return error(&format!("prefer mode: {e}"));
+        }
     }
     let (preferences, page) = (
         p.host().runner().viewport().preferences,
@@ -598,12 +654,13 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "can-open-files": page.can_open_files,
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
+        "display-scale": p.host().runner().display_scale(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
         "horizontal-viewport-segments": fold.cols,
         "vertical-viewport-segments": fold.rows,
         "viewport-segments": p.segments.iter().map(|r| [r.x, r.y, r.width, r.height]).collect::<Vec<_>>(),
-    }})
+    }, "mode": p.host().runner().modes().into_iter().map(|(a, v)| (a, v.into())).collect::<serde_json::Map<String, serde_json::Value>>()})
     .to_string()
 }
 

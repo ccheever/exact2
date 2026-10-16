@@ -26,7 +26,7 @@ component App
         text "Save file"
       button press=invoke("add", "from SQLite") testId="sqlite"
         text "Save row"
-      when pending(output)
+      if pending(output)
         text "Working" testId="pending"
       match output
         case some(result)
@@ -1095,8 +1095,9 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     std::fs::write(folder.join("sub/b.txt"), "B").unwrap();
     let doc = exact_data::documents::mint(&folder, 9101).unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
-    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable failed";
+    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable ENOENT";
     let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
+    agent.set_document_owner(9101);
     agent.set_budget_ms(f64::INFINITY);
     agent.bind(&plan());
     agent.activate().unwrap();
@@ -1105,13 +1106,52 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
         format!("{expected} Unavailable agent")
     );
     let mut m = dir.module();
+    m.set_document_owner(9101);
     m.activate().unwrap();
     assert_eq!(
         call(&mut m, &mut s, "doc", &doc),
         format!("{expected} Unavailable ENOENT")
     );
     assert!(!folder.join("new.txt").exists());
+    let mut other = dir.module();
+    other.set_document_owner(9103);
+    other.activate().unwrap();
+    assert_eq!(
+        call(&mut other, &mut s, "doc-link", &format!("{doc}/a.txt")),
+        ["refused"; 8].join(" ")
+    );
     exact_data::documents::forget(9101);
+}
+
+#[test]
+fn typescript_file_reads_obey_the_encoded_result_boundary() {
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("large");
+    let boundary = ((exact_data::storage::MAX_BYTES - 13) / 4) * 3;
+    std::fs::File::create(&file)
+        .unwrap()
+        .set_len(boundary as u64)
+        .unwrap();
+    let doc = exact_data::documents::mint(&file, 9120).unwrap();
+    let mut module = root.module();
+    module.set_document_owner(9120);
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    assert_eq!(
+        call(&mut module, &mut store, "read-size", &doc),
+        boundary.to_string()
+    );
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len((boundary + 1) as u64)
+        .unwrap();
+    assert!(call(&mut module, &mut store, "read-size", &doc)
+        .contains("storage result exceeds its byte limit"));
+    exact_data::documents::forget(9120);
 }
 
 #[test]
@@ -1128,6 +1168,7 @@ fn typescript_document_operations_refuse_descendant_symlinks() {
     symlink(&outside, folder.join("dir-link")).unwrap();
     let doc = exact_data::documents::mint(&folder, 9102).unwrap();
     let mut module = root.module();
+    module.set_document_owner(9102);
     module.activate().unwrap();
     let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     for leaf in ["link", "dir-link/secret"] {

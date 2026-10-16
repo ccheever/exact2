@@ -71,6 +71,8 @@ pub(crate) struct SvgState {
     dirty: IdSet<ViewId>,
     /// The last scene sent per `svg`, and its content box.
     sent: IdMap<ViewId, (String, Rect)>,
+    /// Environment used by the cached scenes, including the window unit basis.
+    environment: Option<exact_kernel::Env>,
     /// Boxes whose lowered animations may have changed, and their last spec.
     boxes: IdSet<ViewId>,
     box_sent: IdMap<ViewId, String>,
@@ -177,6 +179,14 @@ impl SvgState {
         }
     }
 
+    /// Owes every scene sent again, as the presenter may not have it.
+    pub(crate) fn resend(&mut self) {
+        for (id, (scene, _)) in &mut self.sent {
+            scene.clear();
+            self.dirty.insert(*id);
+        }
+    }
+
     /// A presented value moved on an element: its scene is rebuilt.
     pub(crate) fn presented(&mut self, id: ViewId) -> bool {
         match self.elements.get(&id) {
@@ -190,11 +200,22 @@ impl SvgState {
 
     /// The `svg` and `animations` ops this batch owes.
     pub(crate) fn emit(&mut self, kernel: &Kernel, engine: &Engine, batch: &mut Batch) {
+        let environment = kernel.arena().env();
+        if self.environment.as_ref() != Some(environment) {
+            // A fixed content box can contain window-relative geometry, including
+            // referenced definitions. Unchanged scenes are suppressed below.
+            self.all_dirty();
+            self.environment = Some(environment.clone());
+        }
         // A resized `svg` needs a new transform.
         let moved: Vec<ViewId> = self
             .sent
             .iter()
-            .filter(|(id, (_, bx))| kernel.node(**id).is_some_and(|n| content_box(&n) != *bx))
+            .filter(|(id, (_, bx))| {
+                kernel
+                    .node(**id)
+                    .is_some_and(|n| content_box(kernel, &n) != *bx)
+            })
             .map(|(id, _)| *id)
             .collect();
         self.dirty.extend(moved);
@@ -205,7 +226,7 @@ impl SvgState {
                 self.sent.remove(&root);
                 continue;
             };
-            let bx = content_box(&node);
+            let bx = content_box(kernel, &node);
             let scene = scene(kernel, engine, &self.pressable, &node, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);
@@ -1040,11 +1061,11 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
     }
     // LLP 1116.001 D2: the tint crosses as a reference, so the presenter
     // resolves it by the svg view's own tint (the nearest `accent-color`),
-    // the reported pair its fallback. macOS has no view tint.
+    // the reported pair its fallback: UIKit's inherited tint, and on the Mac
+    // the nearest authored accent up the view chain (LLP 1115.000 D3.4).
     if let ColorValue::Role(id) = paint.color {
-        if !cfg!(target_os = "macos")
-            && paint.pattern.is_none()
-            && exact_kernel::style::roles::follows_accent(id)
+        if paint.pattern.is_none()
+            && exact_kernel::style::roles::follows_accent(id, cfg!(target_os = "macos"))
         {
             s.push_str("{\"sys\":\"@tint");
             if paint.opacity < 1.0 {

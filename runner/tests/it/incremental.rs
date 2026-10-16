@@ -196,6 +196,9 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Focus => Event::Focus,
         EventKind::Blur => Event::Blur,
         EventKind::Key => Event::key(rng.pick(&["Enter", "Escape", "Shift+ArrowDown", "a"])),
+        EventKind::Keycapture => {
+            Event::of_host_kind(44, rng.pick(&["Meta+b\nKeyB\nfalse", "a\nKeyA\ntrue"])).unwrap()
+        }
         EventKind::Keyup => {
             Event::of_host_kind(43, rng.pick(&["Meta\nMetaLeft\nfalse", "a\nKeyA\nfalse"])).unwrap()
         }
@@ -228,18 +231,55 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
     })
 }
 
-/// Everything observable after one step, for comparison across modes, and
-/// the tickets of the requests it handed out.
-fn observe<D: DataSource>(r: &mut Runner<D>) -> (String, Vec<u64>) {
+/// Everything observable after one step, for comparison across modes: the
+/// kernel's export as bytes, compared without printing them, and the rest as
+/// text.
+#[derive(Debug, PartialEq)]
+struct Seen {
+    kernel: Result<Vec<u8>, String>,
+    rest: String,
+}
+
+impl Seen {
+    /// Where two observations first differ
+    fn divergence(&self, other: &Seen) -> String {
+        if self.kernel != other.kernel {
+            return match (&self.kernel, &other.kernel) {
+                (Ok(a), Ok(b)) => {
+                    let at = a.iter().zip(b).position(|(x, y)| x != y);
+                    format!(
+                        "kernel exports differ at byte {} (lengths {} and {})",
+                        at.unwrap_or(a.len().min(b.len())),
+                        a.len(),
+                        b.len()
+                    )
+                }
+                (a, b) => format!("full:        kernel {a:?}\nincremental: kernel {b:?}")
+                    .chars()
+                    .take(4000)
+                    .collect(),
+            };
+        }
+        self.rest
+            .lines()
+            .zip(other.rest.lines())
+            .find(|(a, b)| a != b)
+            .map(|(a, b)| format!("full:        {}\nincremental: {}", clip(a), clip(b)))
+            .unwrap_or_default()
+    }
+}
+
+/// What one step left observable, and the tickets of the requests it
+/// handed out.
+fn observe<D: DataSource>(r: &mut Runner<D>) -> (Seen, Vec<u64>) {
     let requests = r.take_requests();
     let tickets = requests.iter().map(|q| q.ticket).collect();
     // Revisions, epochs and measurements included: protocol state is the
     // same in both modes (re-measuring follows inputs that actually changed).
     let collections = r.collections();
-    let seen = format!(
-        "poisoned {}\nkernel {:?}\ncarry {:?}\ncommands {:?}\nrequests {:?}\nsurfaces {:?}\nrouter {:?}\nstore {:?}\ncollections {:?}\njournal {:?}",
+    let rest = format!(
+        "poisoned {}\ncarry {:?}\ncommands {:?}\nrequests {:?}\nsurfaces {:?}\nrouter {:?}\nstore {:?}\ncollections {:?}\njournal {:?}",
         r.is_poisoned(),
-        r.kernel().export(None),
         r.carry(),
         r.take_commands(),
         requests,
@@ -249,7 +289,8 @@ fn observe<D: DataSource>(r: &mut Runner<D>) -> (String, Vec<u64>) {
         collections,
         r.journal().collect::<Vec<_>>(),
     );
-    (seen, tickets)
+    let kernel = r.kernel().export(None).map_err(|e| format!("{e:?}"));
+    (Seen { kernel, rest }, tickets)
 }
 
 fn outcome(result: Result<exact_kernel::CommitReceipt, RunnerError>) -> String {
@@ -292,6 +333,7 @@ fn feedback(r: &Runner<Fake>, rng: &mut Rng) -> Option<CollectionFeedback> {
         port_cross: 320.0,
         port_main: *rng.pick(&[120.0, 400.0]),
         cross: *rng.pick(&[320.0, 320.0, 640.0]),
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()
@@ -351,6 +393,7 @@ fn reorder(full: &mut Runner<Fake>, incremental: &mut Runner<Fake>, y: f64) -> (
                 port_cross: 320.0,
                 port_main: 400.0,
                 cross: 320.0,
+                padding: [0.0; 2],
                 measurements: c
                     .rows
                     .iter()
@@ -394,7 +437,13 @@ fn reorder(full: &mut Runner<Fake>, incremental: &mut Runner<Fake>, y: f64) -> (
 fn lockstep(app: &str, plan: &Plan, seed: u64, steps: usize, deferred: bool) -> usize {
     let mut full = boot(plan, true, deferred);
     let mut incremental = boot(plan, false, deferred);
-    assert_eq!(observe(&mut full), observe(&mut incremental), "{app}: boot");
+    let (seen, handed) = observe(&mut full);
+    let (other, others) = observe(&mut incremental);
+    assert!(
+        (&seen, &handed) == (&other, &others),
+        "{app}: boot diverged (tickets {handed:?} and {others:?}):\n{}",
+        seen.divergence(&other)
+    );
     let mut rng = Rng(seed);
     let mut tickets: Vec<u64> = Vec::new();
     let mut reports: Vec<CollectionFeedback> = Vec::new();
@@ -480,15 +529,10 @@ fn lockstep(app: &str, plan: &Plan, seed: u64, steps: usize, deferred: bool) -> 
         tickets.extend(handed);
         let (other, _) = observe(&mut incremental);
         if seen != other {
-            let diff = seen
-                .lines()
-                .zip(other.lines())
-                .find(|(a, b)| a != b)
-                .map(|(a, b)| format!("full:        {}\nincremental: {}", clip(a), clip(b)));
             panic!(
                 "{app} step {step} ({}) diverged:\n{}",
                 clip(&what),
-                diff.unwrap_or_default()
+                seen.divergence(&other)
             );
         }
         assert!(
@@ -507,7 +551,7 @@ fn clip(s: &str) -> &str {
 
 /// What the apps may not exercise: row-owned state, `performanceNow()` read by a
 /// binding under a timer, nested lists reading the outer item,
-/// `when`/`match` inside rows, both windowed lists (one scrolled by a
+/// `if`/`match` inside rows, both windowed lists (one scrolled by a
 /// binding), and a list reordered by its rows' grips.
 const DECK: &str = r#"
 shape Tag
@@ -518,7 +562,7 @@ shape Item
   label: string
   n: number
   note: option<string>
-  tags: list<Tag>
+  tags: Tag[]
 component Deck
   state query = ""
   state picked = ""
@@ -527,8 +571,8 @@ component Deck
   state stamp = 0
   state scrollTo = 0
   state moved = ""
-  resource items = items(revision) as shape list<Item>
-  derive title = `${query} ${length(items)} ${stamp}`
+  resource items = items(revision) as shape Item[]
+  derive title = `${query} ${items.length} ${stamp}`
   task clock mount
     every(250, tick)
   action tick
@@ -557,26 +601,26 @@ component Deck
       button press=jump
         text "jump"
       list virtualized=true estimated-item-height=24 height=200 scrollTop=scrollTo
-        each it in items key=it.id
+        for it in items key=it.id
           column width="100%"
             text `${it.label} ${picked}`
       list virtualized=true height=200
-        each it in items key=it.id
+        for it in items key=it.id
           column width="100%"
             text `${it.n} ${picked}`
-            text join(map(it.tags, (t, i) => `${i}:${t.name}`), ",")
+            text it.tags.map((t, i) => `${i}:${t.name}`).join(",")
       text moved
       list id="deck-list" reorderdrop=moveItem virtualized=true height=200
-        each it in items key=it.id
+        for it in items key=it.id
           column width="100%"
             box reorderFor="deck-list" padding=4
               text it.label
-      when shown
+      if shown
         column
-          each it in items key=it.id
+          for it in items key=it.id
             column
               Card(item=it, picked=picked)
-              text join(filter(map(it.tags, t => t.name), n => n != picked), " ")
+              text it.tags.map(t => t.name).filter(n => n != picked).join(" ")
               button press=pick(it.id)
                 text `${performanceNow()} ${it.n}`
 component Card
@@ -593,8 +637,8 @@ component Card
       button press=flip
         text `${item.label} ${taps}`
       text (picked == item.id ? "picked" : "")
-      when open
-        each t in item.tags key=t.id
+      if open
+        for t in item.tags key=t.id
           text `${t.name} ${item.n} ${taps}`
       match item.note
         case some(s)

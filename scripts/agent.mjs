@@ -4,10 +4,10 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--size <w>x<h>] [--json] <op> [<op> …]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--size <w>x<h>] [--scale <n>] [--json] <op> [<op> …]
 //   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
-//   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
+//   tree | layout | state | logs | check [light|dark|both] | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
 //   tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
 //   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others)
 //   A word a form does not use is refused by name; a form a carrier cannot deliver as a hand's answers `delivery: "unsupported"` (#107).
@@ -20,40 +20,31 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, browserDiagnosticNoise, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript } from './agent-launch.mjs';
+import { Cdp, browserDiagnosticNoise, closePage, backLayer, cdpEscape, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { guardFlags } from './help.mjs';
-import { nativeBuild, refuseBuild } from './agent-build.mjs';
+import { nativeBuild, planOverride, refuseBuild } from './agent-build.mjs';
 import { axTree } from './agent-ax.mjs';
 export { sourceMapReader, identifyInspectedNode, render, tapRefusal, worldView } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-const WORLD_LIMIT = 256 * 1024 * 1024;
-function worldFile(path) {
-  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
-  const bytes = readFileSync(path);
-  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
-  return bytes;
-}
 import { connect } from 'node:net';
-import { contactSheet, decodePng, encodeApng, encodePng } from './png.mjs';
-/** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
-const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
+import { contactSheet, encodeApng, encodePng } from './png.mjs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
-import { pageAim, namedRefusal } from './agent-aim.mjs';
+import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs';
 import { dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { driveNotes, runTests, nodeNamed, targetsIn } from './agent-test.mjs';
+import { driveNotes, runTests, nodeNamed, targetsIn, refuseDisabled } from './agent-test.mjs';
 import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
 export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
+import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator, withKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -69,7 +60,6 @@ async function waitAtMost(operation, ms, onTimeout) {
 // web
 /** Every desktop carrier's viewport unless a drive names one (LLP 1012.001.000 D8, Charlie 2026-09-30: 900, the page's and the conformance run's), so one drive gives one set of numbers on every host. A phone or simulator is its device's size. */
 export const VIEWPORT = [420, 900];
-
 export { LAUNCH_MEDIA, PREFERENCES, PAGE_FACTS, FOLD_FACTS, displayFeatures } from './agent-prefer.mjs'; // `prefer`'s tables and the web carrier's CDP path
 /** An app made by `exact new` builds itself: its own `exact.mjs web-build`, when the dist is its default one. */
 const ownWebBuild = (app, dist) => app.dir && app.target && existsSync(resolve(app.dir, 'exact.mjs')) && resolve(dist) === resolve(app.target, 'web-dist')
@@ -80,7 +70,6 @@ export async function assertWebDistApp(dist, app) {
   const shellQuote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run ${ownWebBuild(app, dist) ?? `EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`}`);
 }
-
 async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null }) {
   if (browser !== 'chrome') {
     const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
@@ -123,25 +112,25 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
   });
   // A named store's profile and origin are kept between drives, as a native scratch store is; `fresh` empties it first (a test's).
   // Under the drive's env, as `runTests` places and removes it (review b5-c 3).
-  const kept = storage === undefined ? null : driveStore(selected.id, storage, env);
+  const kept = storage === undefined ? null : driveStore(selected, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(kept && !pageURL ? kept.port : 0, '127.0.0.1', ok); }).catch((e) => {
     throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name`) : e;
   });
   const port = server.address().port;
-  const chrome = chromium().executable;
+  const chrome = chromium().executable, scale = Number(env?.EXACT_SCALE ?? process.env.EXACT_SCALE) || 0; // LLP 1115.000 D10.3: EXACT_SCALE, the Linux host's variable, launches Chrome at that device scale factor too, its own and not CDP's emulated one (which leaves a 0.5px border 1px): an override's 0 keeps it
   const profile = kept ? (mkdirSync(kept.profile, { recursive: true }), kept.profile) : mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
     child = spawn(chrome, [
-    '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars',
+    '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars', ...(scale ? [`--force-device-scale-factor=${scale}`] : []),
     '--enable-unsafe-webgpu', '--disable-smooth-scrolling', `--user-data-dir=${profile}`, '--no-sandbox',
     '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--no-first-run',
     '--no-default-browser-check',
     // The profile is a throwaway: a mock keychain and a plain password
     // store keep Chrome from asking the login keychain, which a shell
     // without keychain access refuses (errSecInteractionNotAllowed).
-    '--use-mock-keychain', '--password-store=basic', 'about:blank',
+    '--use-mock-keychain', '--password-store=basic', ...netFlags({ ...process.env, ...env }), 'about:blank',
   ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], windowsHide:true });
     // Bun exposes null stdio on a failed spawn; wait before constructing CDP.
     // A pid is a started child: Bun 1.4.2 can drop the 'spawn' event of the
@@ -230,7 +219,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     // (the document's autofocus at boot) moved the focus and fired no `focus` event, which iOS fires (splitter rough 13).
     await call('Emulation.setFocusEmulationEnabled', { enabled: true });
     // The viewport exactly: Chrome will not make a window narrower than 500.
-    await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
+    await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: scale ? 0 : 1, mobile: false });
     const evaluate = async (expression, timeoutMs) => {
       // A function of no arguments is called in the page, as Playwright's carriers do (a method's shorthand too).
       if (typeof expression === 'function') { let text = `${expression}`; try { new Function(`(${text})`); } catch { text = text.startsWith('async ') ? `async function ${text.slice(6)}` : `function ${text}`; } expression = `(${text})()`; }
@@ -275,11 +264,12 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         const pair = req.resize;
         if (Object.keys(req).some(k => !['op', 'resize'].includes(k)) || !Array.isArray(pair) || pair.length !== 2
           || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
-        await call('Emulation.setDeviceMetricsOverride', { width: pair[0], height: pair[1], deviceScaleFactor: 1, mobile: false });
+        await call('Emulation.setDeviceMetricsOverride', { width: pair[0], height: pair[1], deviceScaleFactor: scale ? 0 : 1, mobile: false }); size = [...pair]; // a later screenshot reports this size, not the launch's
         await frame();
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
       }
       if (req.op === 'tap' && req.close !== undefined) return closePage(req, { cdp, sessionId, call, frame });
+      if (req.op === 'tap' && req.back !== undefined) { const r = await backLayer(req, { evaluate, escape: cdpEscape(call), frame }); if (r) return r; } // an open dialog's Escape, else the page's Back (LLP 1116.006 D4)
       // A clock op waits up to the page's one 20 s request deadline (a jump, for a request in flight before a due timer;
       // a settle or `data`, across its rounds); 60 s is headroom past it and CDP's default 15 s (ios21 t3: one never answered).
       const timeout = req.op === 'clock' ? 60000 : req.op === 'perf' && req.live > 0 ? req.live + 30000 : undefined;
@@ -292,7 +282,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         return ms == null ? null : Number(ms);
       },
       /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
-      async reset({ keep = false, failFetch } = {}) {
+      async reset({ keep = false, failFetch, epoch } = {}) {
         // Release browser-owned input while its original document still exists.
         for (const key of heldKeys.values()) await call('Input.dispatchKeyEvent', {...key, type:'keyUp', text:undefined});
         if (contact?.mouse) await call('Input.dispatchMouseEvent', {type:'mouseReleased', x:contact.x, y:contact.y, button:'left', buttons:0, clickCount:1});
@@ -301,7 +291,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         contact = null;
         await evaluate('sessionStorage.clear()');
         if (!keep) await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
-        const destination = withFaults(keep ? await evaluate('location.href') : page.href, failFetch);
+        const destination = withEpoch(withFaults(keep ? await evaluate('location.href') : page.href, failFetch), epoch);
         await call('Page.navigate', {url:'about:blank'});
         const deadline = Date.now() + 30000;
         while (!await evaluate("location.href === 'about:blank'").catch(() => false)) {
@@ -321,7 +311,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
-      prefer: (media, page, fold) => preferWeb({ media, page, fold, emulated, call, evaluate, frame, ask }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
+      prefer: (media, page, fold, mode) => preferWeb({ media, page, fold, mode, emulated, call, evaluate, frame, ask, scale }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
       // A click with modifiers named holds them as a keyboard does (`heldForClick`; Charlie, 2026-10-07).
       input(id, kind, opts) { return heldForClick(call, kind, opts, () => this.deliverInput(id, kind, opts)); },
       async deliverInput(id, kind, opts) {
@@ -499,9 +489,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         await frame();
         return { at: [x, y], ...(avoided ? { avoided } : {}) };
       },
-      async screenshot(path) {
-        const tags = await ask({ op: 'tags' });
-        if (tags.error) throw new Error(tags.error);
+      async screenshot(path, window = false, film = false) {
+        const tags = await ask({ op: film ? 'tags' : 'picture' }).then((r) => r.error && !film ? ask({ op: 'tags' }) : r); // a transition under way is shown where it ends, unless filmed (LLP 1116.003 D8; the wasm target has no `picture`)
+        if (tags.error) throw new Error(tags.error); delete tags.moving;
         await frame();
         // Images in the viewport finish loading first, up to 3 s: a picture
         // of grey placeholders is not the page (LLP 1054.000 R9). `clock
@@ -525,9 +515,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     throw e;
   }
 }
-
 // ---------------------------------------------------------------- macOS and Linux, over stdio
-
 /** JSON lines over a duplex: each request is answered by the next line the app writes; unmatched lines are host output (`hostLines`). `fail` rejects every pending request (the app is gone). */
 export function jsonLines(readable, writable, hostLines) {
   const waiting = [];
@@ -580,9 +568,10 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const deviceBundle = artifacts?.bundle;
   const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, 'dist-windows', `${executableName(a)}.exe`))
     : android ? (process.env.EXACT_ANDROID_BIN ?? androidBinary(a)) : linux ? (process.env.EXACT_LINUX_BIN ?? linuxBinary(a)) : (process.env.EXACT_MAC_BIN ?? appleRunBinary(a, sample));
-  // The macOS build by its own record (agent-build.mjs, which an app's exact.mjs runs first to build it).
-  if (!portable && !device && !process.env.EXACT_MAC_BIN) refuseBuild('macos', nativeBuild('macos', a, { sample }), a, { sample });
-  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : android ? `run bun scripts/agent-android.mjs build ${a.name} first` : linux ? `run ${linuxBuild(a).join(' ')} first` : `EXACT_MAC_BIN names no file: ${bin}`);
+  // The macOS build by its own record (agent-build.mjs, which an app's exact.mjs runs first to build it, or bakes its plan-only edit).
+  const macBuild = !portable && !device && !process.env.EXACT_MAC_BIN ? nativeBuild('macos', a, { sample }) : null, macPlan = macBuild && !plan && !sample ? planOverride('macos', a, macBuild) : null;
+  if (macPlan) plan = macPlan.plan; else if (macBuild) refuseBuild('macos', macBuild, a, { sample });
+  if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : android ? `run bun scripts/agent-android.mjs build ${a.name}${process.env.EXACT_ANDROID_READER ? ' --apk' : ''} first` : linux ? `run ${linuxBuild(a).join(' ')} first` : `EXACT_MAC_BIN names no file: ${bin}`);
   if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, artifacts.executable) : bin);
   if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
   else if (windows) {
@@ -659,7 +648,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
       throw new Error(why);
     });
     return {
-      host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
+      host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -675,9 +664,9 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
         if (r.error) throw new Error(r.error);
         return r;
       },
-      async screenshot(path, window = false) {
+      async screenshot(path, window = false, film = false) {
         const remote = device ? `${ready.container}/tmp/exact-agent.png` : droid ? droid.shot : path;
-        const r = await ask({ op: 'screenshot', path: remote, window });
+        const r = await ask({ op: 'screenshot', path: remote, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
         if (droid) { droid.pull(path); r.screenshot = path; }
         if (device) {
@@ -697,13 +686,14 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
     clearTimeout(readyTimeout);
   }
 }
-
 /** The simulator carrier: the bundle `build.mjs --ios` assembled, installed and launched on a simulator with the agent socket's path in its environment (simctl passes SIMCTL_CHILD_*); then the same JSON lines over that socket (`AgentIOS.swift`). A `simctl launch --console` stays attached for the app's stdout and stderr (its `--stdout=`/`--stderr=` files stay empty on Xcode 26). One app per bundle id per device: a session replaces a running copy; closing hangs up the socket, which ends the app, and kills the pid the app reported if it lingers. */
 async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture = false, touch = 'agent', onProcess }) {
   const a = resolveApp(app);
   const built = nativeBuild('ios', a, { sample: hostFixture }), bundle = built.built;
   const id = hostFixture ? `${a.id}.host` : a.id;
-  refuseBuild('ios', built, a, { sample: hostFixture }); // an app's exact.mjs builds first instead (agent-build.mjs)
+  // An app's exact.mjs builds first instead, or bakes a plan-only edit to run on this build (agent-build.mjs, LLP 1116.003).
+  const override = plan || hostFixture ? null : planOverride('ios', a, built);
+  if (override) plan = override.plan; else refuseBuild('ios', built, a, { sample: hostFixture });
   const dev = simulator();
   return exclusiveIOS(dev.udid, id, () => openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }));
 }
@@ -773,7 +763,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     });
     let canvasContact = false;
     return {
-      host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
+      host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
       touches, touch,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
@@ -804,14 +794,14 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
           if (Object.values(guest).some((v) => v != null)) throw new Error('unsupported under --touch platform: a press into an iframe guest or a world entity reaches no real touch yet (LLP 1080.000 stage 1)');
           return realTap({ ask, touches, id, rel: opts.at, abandon: (why) => lines.fail(why) });
         }
-        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.at !== undefined ? { at: opts.at } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'mediasession' ? await ask({ op: 'tap', id, mediaSession: opts.mediaSession, ...(opts.seconds != null ? { seconds: opts.seconds } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
+        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true, ...(opts.at ? { at: opts.at } : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.at !== undefined ? { at: opts.at } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'mediasession' ? await ask({ op: 'tap', id, mediaSession: opts.mediaSession, ...(opts.seconds != null ? { seconds: opts.seconds } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
-      async screenshot(path, window = false) {
-        const r = await ask({ op: 'screenshot', path, window });
+      async screenshot(path, window = false, film = false) {
+        const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
-        return r;
+        return (window || r.window === true) && !film && r.keyboard?.windowTop != null ? withKeyboard(r, path, dev.udid) : r; // the host draws the window itself with an alert or sheet up; the keyboard is a process of its own: the display's pixels
       },
       close,
     };
@@ -836,7 +826,7 @@ export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(s
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', storage, seed, locale, timeZone, epoch, failFetch, mediaClock = 'wall', lineHeight = null } = {}) {
+export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', storage, seed, locale, timeZone, epoch, failFetch, mediaClock = 'wall', lineHeight = null, scale } = {}) {
   browser ??= 'chrome';
   if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, failFetch, env});
@@ -860,9 +850,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // and `screenshot <png> window` draws them, a presented sheet's too; a tap naming a tab or a header button the bars
   // stand for presses it (`native: "tab-bar-item"`, `"bar-button-item"`). The default paints the authored header and
   // tablist, which the tree, layout and every tap address as on the web; a header node the bar would not show is
-  // marked `unshown` in the tree, struck through in a screenshot, and fails an `expect` or a `tap` (LLP 1116 D2).
-  if (!['agent', 'platform'].includes(chrome) || (chrome !== 'agent' && !['ios', 'host-ios'].includes(host))) throw new Error(`chrome: ${chrome} is iOS's (agent or platform), not ${host}'s`);
+  // marked `unshown` in the tree, struck through in a screenshot, and fails an `expect` or a `tap` (LLP 1116 D2). macOS: AppKit's sidebar for a root tab bar, `native: "sidebar-row"` (LLP 1115.002 D3); a `dialog` as its sheet and a popover that is no menu as AppKit's popover, windows of their own that `screenshot <png> window` draws over the window (D7.2, D7.3).
+  if (!['agent', 'platform'].includes(chrome) || (chrome !== 'agent' && !['ios', 'host-ios', 'macos'].includes(host))) throw new Error(`chrome: ${chrome} is iOS's and macOS's (agent or platform), not ${host}'s`);
   if (chrome === 'platform') env = { ...(env ?? {}), EXACT_AGENT_CHROME: 'platform' };
+  // `scale` (--scale <n>): a screenshot's pixels a point, shrunk by area from the device's (an iPhone draws 3), never enlarged.
+  if (scale !== undefined && !(Number.isFinite(scale) && scale > 0)) throw new Error(`--scale ${typeof scale === 'string' ? JSON.stringify(scale) : scale}: pixels a point, a number above 0 (1 is the web's CSS pixel; an iPhone draws 3)`);
   // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept
   // between drives: a tree under the cache base on native; on the web, Chrome's profile for it and its page's origin
   // (agent-launch.mjs `webStore`; Firefox and WebKit open a fresh one each drive). EXACT_AGENT_STORAGE_FRESH empties it.
@@ -892,7 +884,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
     : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env, mediaClock, lineHeight });
-  const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
+  const mapLocator = plan ?? carrier.plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     // The dist the carrier serves — an app outside the repo's own (shop F2), never Caltrain's by default.
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);
   // Without a plan of the drive's own, a native host runs its bake's: the maps a development bake left (LLP 1012.001.000 D6).
@@ -1036,7 +1028,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (holdOf(target)) return s.answer('tap', target, opts.choice);
       let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
       try { node = await s.target(target); }
-      catch (error) { throw await tapRefusal(s, target, error); }
+      catch (error) { throw await tapRefusal(s, target, error); } await refuseDisabled(s, node, target, opts); // a disabled control is refused the same on every host (LLP 1116.010 D3)
       // @ref LLP 1098 D10 — a media element's session action, as the platform's handler: no reveal, no box, never a press.
       if (opts.mediaSession !== undefined) return s.landed({ ...await carrier.input(node.id, 'mediasession', opts), tapped: node.id, target, delivery: 'substituted', carrier: host, mode: timing });
       // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
@@ -1083,7 +1075,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const pressAt = !button.length && !opts.wheel && opts.down !== true && opts.pinch === undefined && !opts.drag && opts.at !== undefined;
       if ((button.length || opts.wheel || pressAt) && opts.at !== undefined) {
         const form = button[0] ?? (opts.wheel ? 'wheel' : 'a press');
-        if (!['web', 'linux', 'android', 'windows', 'macos', 'mac', 'host', ...(pressAt ? ['ios', 'host-ios'] : [])].includes(host)) throw new Error(`${host} does not carry ${form} at an explicit point`);
+        if (!['web', 'linux', 'android', 'windows', 'macos', 'mac', 'host', ...(pressAt || ['contextmenu', 'dblclick'].includes(form) ? ['ios', 'host-ios'] : [])].includes(host)) throw new Error(`${host} does not carry ${form} at an explicit point`); // iOS: a press, and the long press and double tap that select text there (LLP 1115.000 D11.6)
         if (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite)) throw new Error(`${form} at needs two finite numbers`);
         const layout = await s.layout(), b = layout.nodes.find(n => n.id === node.id), [x, y] = opts.at;
         if (!b || x < 0 || y < 0 || x >= b.w || y >= b.h) throw new Error(`${form} at must be inside the target box`);
@@ -1281,15 +1273,16 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const r = { ...(await s.op({ op: 'tap', close: true })), carrier: host };
       return r.closed ? r : s.landed(r);
     },
+    async back() { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); const r = await carrier.ask({ op: 'tap', back: true }); if (r.error) throw Object.assign(new Error(r.error), { reply: r }); return s.landed({ ...r, carrier: host }); }, // the platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed route popped; the wire's `tap` with `back`
     /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online`, `can-share`, `can-open-files` and `has-focus` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
-      const { media, page, fold } = preferGroups(facts);
-      if (carrier.prefer) return s.tagged(await carrier.prefer(media, page, fold));
-      return s.op(preferOp(media, page, fold));
+      const { media, page, fold, mode } = preferGroups(facts);
+      if (carrier.prefer) return s.tagged(await carrier.prefer(media, page, fold, mode));
+      return s.op(preferOp(media, page, fold, mode));
     },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`, or film: `(path, {over, every})` (LLP 1012.001.000 D2). */
-    screenshot: async (path, target = false, form) => {
+    screenshot: async (path, target = false, form, film = false) => {
       // `screenshot shots/home.png` makes `shots/`, as a shell redirect would not but every agent expects.
       mkdirSync(dirname(resolve(path)), { recursive: true });
       if (target && typeof target === 'object') return s.film(path, target);
@@ -1306,9 +1299,14 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       }
       if (form !== undefined) throw new Error(`screenshot: unknown form ${form}`);
       if (typeof target === 'string') return s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)});
-      return s.tagged(await carrier.screenshot(resolve(path), target));
+      const r = await carrier.screenshot(resolve(path), target, film);
+      if (scale === undefined) return s.tagged(r);
+      const { image, shrunk } = s.scaled(r);
+      if (shrunk) writeFileSync(r.screenshot, encodePng(image));
+      return s.tagged({ ...r, scale });
     },
-    /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at). Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
+    scaled(r) { return scaledScreenshot(r, scale, host); },
+    /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at), both at the drive's `--scale` (a grid wider than 2048 px is shrunk again; the reply's `scale` is the picture's). Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
     async film(path, { over, every }) {
       const frames = Math.floor(over / every) + 1;
       if (!(Number.isFinite(over) && over >= 0 && Number.isFinite(every) && every >= 1)) throw new Error('screenshot over <ms> every <ms>: over ≥ 0, every ≥ 1 ms');
@@ -1323,18 +1321,23 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         try {
           if (i) await s.clock('+' + every);
           const file = resolve(dir, `${String(i).padStart(3, '0')}-${s.now}ms.png`);
-          last = await s.screenshot(file);
-          const image = decodePng(readFileSync(file));
+          // The frame on disk stays at full size (D2); the sheet takes it at the drive's --scale.
+          last = await s.tagged(await carrier.screenshot(file, false, true));
+          const { image } = s.scaled(last);
+          if (scale !== undefined) last = { ...last, scale };
           if (images.length && (image.width !== images[0].width || image.height !== images[0].height)) throw new Error(`frame ${i} is ${image.width}×${image.height}, frame 0 ${images[0].width}×${images[0].height}; film needs one size`);
           if (frames * image.width * image.height > FILM_PIXELS) throw new Error(`${frames} frames of ${image.width}×${image.height} px exceed ${FILM_PIXELS / 1e6}M pixels; take a longer every, a shorter over, or a smaller --size`);
           images.push(image); at.push(s.now);
         } catch (error) { failure = Object.assign(new Error(`screenshot over: stopped at frame ${i} (clock ${s.now}) of ${frames}: ${error.message}`), { reply: error.reply }); }
       }
-      if (images.length) writeFileSync(out, animated ? encodeApng(images, every) : encodePng(contactSheet(images)));
+      const sheet = images.length && !animated ? contactSheet(images) : null;
+      if (images.length) writeFileSync(out, animated ? encodeApng(images, every) : encodePng(sheet));
       else rmSync(dir, { recursive: true, force: true });
       if (failure) { failure.message += images.length ? `; the ${images.length} frames taken are in ${out} and ${dir}` : ''; throw failure; }
       const { screenshot, ...tags } = last;
-      return { ...tags, screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
+      // `scale` is the written picture's pixels a point: a sheet wider than its bound is shrunk again, by a whole factor.
+      const perPoint = (sheet ? sheet.cell[0] : images[0].width) / tags.w;
+      return { ...tags, ...(Number.isFinite(perPoint) ? { scale: Math.round(perPoint * 1000) / 1000 } : {}), screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
     },
     /** An input's end (LLP 1012 §2): the `then` of each answer the input settled lands before the reply, as a click
      * handler's state is there for a test's next line — the clock unmoved and no timer fired (trivia F3, kanban F19).
@@ -1344,7 +1347,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // The input closed the window (the app's `close()`, or `close`'s button): no session is left to land in.
       if (r.closed) return r;
       const l = await carrier.ask({ op: 'clock', land: true });
-      if (l.error) return { ...r, error: l.error };
+      if (l.error) return { ...r, landError: l.error }; // delivered: not `error`, so neither an agent nor a test sends it again as if refused
       // A sheet the input (or its answer's `then`) opened or closed still moving past the iOS host's bound.
       if (l.settled === false) { r.settled = false; r.reason = l.reason; }
       delete r.epoch; delete r.incarnation; delete r.clock;
@@ -1375,7 +1378,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
 // Authored tests (LLP 1017 P7): agent-test.mjs drives a file's `test` blocks through `open`.
 export { runTests, textOf } from './agent-test.mjs';
 export { browserDiagnosticNoise };
-async function main(argv) {
+// Exported for game/proof.test.mjs, which drives the real CLI with a fake
+// session (`injected.open`) and no app server (`injected.driveServer`).
+export async function main(argv, injected = {}) {
   const { flags, rest } = parseFlags(argv);
   guardFlags(flags.test ? 'test' : 'agent', rest, { parsed: true }); // --help, or a flag parseFlags left (never an op)
   if (flags.sim) process.env.EXACT_SIM = flags.sim; // the simulator, named as EXACT_SIM names it (devices.mjs `simulator`)
@@ -1384,7 +1389,7 @@ async function main(argv) {
   if (host && flags.test) {
     // A test's `drag` on an iOS simulator is a real gesture by itself; `--touch platform` makes every tap one too (LLP 1080.000).
     if (flags.touch && !['agent', 'platform'].includes(flags.touch)) throw new Error(`--touch ${flags.touch} is not taken with --test: a test's \`drag\` is a real gesture by itself on an iOS simulator; --touch platform makes every tap one too (LLP 1080.000)`);
-    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, storage: flags.storage, touch: flags.touch, chrome: flags.chrome });
+    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, storage: flags.storage, touch: flags.touch, chrome: flags.chrome, scale: flags.scale });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);
@@ -1396,10 +1401,11 @@ async function main(argv) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && (ops.length === 1 || (!ops.length && (flags.phone || flags.device)))) { const t = await readTrace(ops[0] ?? phoneTrace(phone(flags.phone), resolveApp(flags.app)), traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--timing platform] [--touch platform] [--chrome platform] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick (the middle button) | clicks <1-3> (each [at <x> <y>: from its top left] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down; inside the hold under --touch platform] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>] [modifiers <M>], then tap move [by] <x> <y> [over <ms>] [modifiers <M>] | tap hold <ms> | tap up [modifiers <M>] | tap cancel (a word a form does not use is refused; a form a carrier cannot deliver answers unsupported) | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | sample <x> <y> […] | resize <w>x<h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | fail fetch <url-prefix> [times <n>] | pass fetch <url-prefix> (LLP 1103: a matching fetch fails as a refused connection; --fail-fetch <url-prefix> arms one before the first data load) | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs trace --phone <name|udid> | trace --device [--app <name>]   (a phone\'s last Save Trace, copied off it)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--timing platform] [--touch platform] [--chrome platform] [--size <w>x<h>] [--scale <n>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | check [light|dark|both] (what is wrong with the screen, in text: run it before a screenshot) | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | hover | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick (the middle button) | clicks <1-3> (each [at <x> <y>: from its top left] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down; inside the hold under --touch platform] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>] [modifiers <M>], then tap move [by] <x> <y> [over <ms>] [modifiers <M>] | tap hold <ms> | tap up [modifiers <M>] | tap cancel (a word a form does not use is refused; a form a carrier cannot deliver answers unsupported) | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | sample <x> <y> […] | resize <w>x<h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | back (the platform\'s Back: an open dialog\'s cancel, else the top sheet dismissed, else the pushed route popped) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | fail fetch <url-prefix> [times <n>] | pass fetch <url-prefix> (LLP 1103: a matching fetch fails as a refused connection; --fail-fetch <url-prefix> arms one before the first data load) | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs trace --phone <name|udid> | trace --device [--app <name>]   (a phone\'s last Save Trace, copied off it)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch });
+  const served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage); // the app's own server, if it has one (LLP 1116.008 D1)
+  const s = await (injected.open ?? open)({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale });
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
   const step = async (line) => {
@@ -1413,7 +1419,7 @@ async function main(argv) {
       let r;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', {...(args.includes('from') ? {from:Number(args[args.indexOf('from') + 1])} : {}), ...(args.includes('limit') ? {limit:Number(args[args.indexOf('limit') + 1])} : {}), ...(args.includes('resources') ? {resources:true} : {})}); break;
+        case 'state': r = await stateOp(s, args); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
         case 'screenshot':
@@ -1459,11 +1465,12 @@ async function main(argv) {
           break;
         case 'clock': r = await s.clock(args.join(' ') || 'settle'); break; case 'sample': { const n = args.map(Number); if (!n.length || n.length % 2 || n.some(v => !Number.isFinite(v))) throw new Error('sample <x> <y> [<x> <y> …]: view points; layout <target> gives a node\'s frame'); r = await s.op({ op: 'sample', points: n.flatMap((v, i) => i % 2 ? [] : [[v, n[i + 1]]]) }); break; }
         case 'resize': { const m = /^(\d+)x(\d+)$/.exec(args.join('')); if (!m) throw new Error('resize <w>x<h>, as resize 800x600'); r = await s.resize(Number(m[1]), Number(m[2])); break; }
-        case 'close': if (args.length) throw new Error('close takes nothing: it presses the window\'s close button'); r = await s.closeWindow(); break;
+        case 'close': if (args.length) throw new Error('close takes nothing: it presses the window\'s close button'); r = await s.closeWindow(); break; case 'back': if (args.length) throw new Error('back takes nothing: it is the platform\'s Back from what is on top'); r = await s.back(); break;
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
         case 'fail': case 'pass': r = await s.op(faultRequest(op, args)); break;
         case 'perf': r = await perfOp(s, args, line, step); break;
-        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, sample, tap, type, clock, resize, close, prefer, perf, fail fetch, pass fetch)`);
+        case 'check': r = await checkOp(s, args); break; // LLP 1116.003 D8: the presented screen, judged in text
+        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)${op === 'reload' ? '; reload is an authored test\'s line: a drive relaunches as a second drive on the same --storage' : ''}`);
       }
       return [op, r];
   };
@@ -1484,10 +1491,9 @@ async function main(argv) {
     e.message = `op ${at}/${ops.length} \`${ops[at - 1]?.trim()}\`: ${e.message}`;
     throw e;
   } finally {
-    await s.close();
+    await s.close(); await served?.stop();
   }
 }
-
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (e.steps) console.error(render('type', {steps:e.steps})); console.error(e.message); process.exit(e.stale ? 3 : 1); });
 }

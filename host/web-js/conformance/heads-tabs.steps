@@ -1,0 +1,8 @@
+tap tab-saved
+tap tab-home
+tap push-detail
+tap tab-saved
+tap tab-home
+tap back
+tap tab-saved
+tap tab-home

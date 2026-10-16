@@ -1,5 +1,4 @@
-import {parseFlags, chromium} from '../scripts/agent-launch.mjs';
-import {layoutArgs} from '../scripts/agent-inspect.mjs';
+import {chromium} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {createHash} from 'node:crypto';
@@ -12,7 +11,7 @@ import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan, main} from '../scripts/agent.mjs';
 
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
@@ -403,13 +402,15 @@ test('steady residency skips no-device worlds and asserts only device-backed wor
 test('explicit focus in a commit precedes autofocus and its authored side effects', () => {
   const source=readFileSync(resolve(import.meta.dir,'../host/web/glue.js'),'utf8');
   // The commit's tail: explicit focus commands, then autofocus (6dbf594b moved autofocus into navigation.js).
-  const start=source.indexOf('  runFocusCommands(focusCommands,'), end=source.indexOf('  positionContexts(); presence.live?.after');
+  const start=source.indexOf('  for (const command of focusCommands)'), end=source.indexOf('  positionContexts(); presence.live?.after');
   expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
   const code=runFocusCommands.toString()+';\n'+source.slice(start,end);
   const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
   const document={activeElement:null};
-  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document',code)(
-    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document);
+  // `inputHandlers` (the tail's route-arrival call, optional there) has no
+  // part in the order under test, so it stands in as absent.
+  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document','inputHandlers','popoverCommand',code)(
+    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document,undefined,()=>{});
   expect(calls).toEqual(['explicit']);
 });
 
@@ -712,7 +713,7 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
 });
 
 function pinLiterals(path, text) {
-  const evidence=/(^|\/)(artifacts|diaries)\/|^game\/bench\/results\/|^(llp|issues|vendor)\//;
+  const evidence=/(^|\/)(artifacts|diaries)\/|^game\/(bench|bakeoff\/[^/]+)\/results\/|^(llp|issues|vendor)\//;
   if(/(^|\/)(Cargo\.lock|bun\.lock|shells\.lock)$/.test(path) || path.endsWith('/pins.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') return [];
   const generated = path === '.llp/skills-receipt.json' || path.endsWith('/.baked-assets.json') || ['update/tests/it/fixtures/publisher/canonical.bin','update/tests/it/fixtures/publisher/exact.json'].includes(path);
   if (generated) return [];
@@ -726,6 +727,7 @@ test('pin scan includes authored benchmark tests and ordinary digest strings', (
   expect(pinLiterals('game/bench/feel.test.mjs',hash)).toEqual([hash]);
   for(const quote of ['"',"'",'`','']) expect(pinLiterals('game/engine/tests/foo.rs',quote+digest+quote).length).toBe(1);
   expect(pinLiterals('game/bench/results/receipt.md',digest)).toEqual([]);
+  expect(pinLiterals('game/bakeoff/garden/results/2026-10-06-r1/exact2/DIARY.md',hash)).toEqual([]); // a results diary is evidence, as the bench's is
   expect(pinLiterals('Cargo.lock',digest)).toEqual([]);
   expect(pinLiterals('game/engine/src/data/text.rs','0'.repeat(64))).toEqual([]); // Decimal padding, not a world pin.
   expect(pinLiterals('game/engine/src/data/text.rs',digest)).toEqual([digest]);
@@ -806,13 +808,20 @@ test('refusal advice executes as real driver CLI operations with a global JSON f
   const refusal=await tapRefusal(s,'sign',Error('no view matches sign'));
   const advised=[...refusal.message.matchAll(/`([^`]+)`/g)].map(m=>m[1]);
   expect(advised).toEqual(['layout world:sign']);
-  const source=readFileSync(new URL('../scripts/agent.mjs',import.meta.url),'utf8');
-  const body=source.slice(source.indexOf('async function main(argv)'),source.lastIndexOf('\nif (process.argv[1]'));
   const calls=[], output=[];
-  // main's free names: what agent.mjs imports and this test stands in for.
-  const cli=new Function('parseFlags','layoutArgs','open','resolve','render','console',`${body}; return main;`)(parseFlags,layoutArgs,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
-  for(const op of [...advised,'state']) expect(await cli(['web','--json',op])).toBe(0);
-  expect(calls).toEqual([['layout','world:sign'],['state']]);
+  // The real CLI (`main`), with a fake session and no app server. Captured
+  // output must parse as JSON: if `--json` were ignored, `render`'s text
+  // would reach `JSON.parse` and throw here. `driveNotes` also reads
+  // `state`, so only the layout call and the replies are pinned exactly.
+  const fakeOpen=async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}});
+  const realLog=console.log, realError=console.error;
+  console.log=x=>output.push(JSON.parse(x)); console.error=()=>{};
+  try {
+    for(const op of [...advised,'state']) expect(await main(['web','--json',op],{open:fakeOpen,driveServer:async()=>null})).toBe(0);
+  } finally { console.log=realLog; console.error=realError; }
+  expect(calls[0]).toEqual(['layout','world:sign']);
+  expect(calls).toContainEqual(['state']);
+  expect(output).toHaveLength(2);
   expect(output[1].world[0].loading).toEqual(['crate.model']);
 });
 
@@ -931,7 +940,7 @@ test('a game\'s helper scripts are not proof inputs; its build inputs are', asyn
   const {proofInputExcluded}=await import('./proof.mjs');
   for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
-  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','presentation/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','render/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
   // Shared SDK scripts stay inputs: the web glue is JavaScript.
   expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);
@@ -1155,7 +1164,7 @@ test.each(['in-tree','external','linked'])('R15 %s game compiles with contractio
     writeFileSync(resolve(probe,'Cargo.toml'),'[workspace]\n[package]\nname="flags-probe"\nversion="0.1.0"\nedition="2021"\n[lib]\npath="lib.rs"\n');
     writeFileSync(resolve(probe,'lib.rs'),'pub fn value() -> u32 { 1 }\n');
     writeFileSync(resolve(probe,'build.rs'),'fn main() { std::fs::write(std::env::var_os("EXACT_FLAGS_OUT").unwrap(), std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap()).unwrap(); }\n');
-    const env={...process.env,CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output};
+    const env={...process.env,RUSTC_WRAPPER:'',CARGO_BUILD_RUSTC_WRAPPER:'',CARGO_HOME:resolve(root,'cargo'),CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build'),EXACT_FLAGS_OUT:output}; // no rustc wrapper from a Cargo config above the checkout: a caching one can skip the build script's run
     for(const key of ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','CARGO_BUILD_RUSTFLAGS'])delete env[key];
     const result=spawnSync('cargo',['check','--offline'],{cwd:probe,env,encoding:'utf8',timeout:60000});
     expect({status:result.status,stderr:result.status===0?'':result.stderr}).toEqual({status:0,stderr:''});
@@ -1391,7 +1400,6 @@ test('world diff matches names across reordered slots, distinguishes unnamed ids
   ]);
   expect(diffWorlds(a,structuredClone(a)).total).toBe(0);
 });
-
 test('world diff bounds output, counts omitted changes, and never claims hash equality from JSON', () => {
   const a = diffCapture(), b = structuredClone(a);
   b.resources.Match.score = 2; b.entities[0].components.Health.hp = 0;
@@ -1400,7 +1408,6 @@ test('world diff bounds output, counts omitted changes, and never claims hash eq
   expect(formatWorldDiff(hashOnly)).toContain('not a complete binary save comparison');
   expect(()=>diffWorlds(a,b,{limit:0})).toThrow('positive integer');
 });
-
 test('world diff refuses partial, malformed, duplicate, and cross-game captures', () => {
   const a = diffCapture();
   for (const b of [null, {...a,truncated:true}, {...a,resources:undefined},
@@ -1409,7 +1416,6 @@ test('world diff refuses partial, malformed, duplicate, and cross-game captures'
   expect(diffWorlds({...a,resources:{x:null}}, {...a,resources:{x:[]}}).changes)
     .toEqual([{path:'resources.x',kind:'changed',before:null,after:[]}]);
 });
-
 test('capture uses existing reads and refuses mixed-tick or incomplete results', async () => {
   const a = diffCapture(), calls = [];
   const world = {name:a.name,tick:a.tick,hash:a.hash,entities:1,resources:a.resources,...a.simulation};
@@ -1422,7 +1428,6 @@ test('capture uses existing reads and refuses mixed-tick or incomplete results',
   world.tick--; world.entities++;
   await expect(captureWorld(session)).rejects.toThrow('incomplete');
 });
-
 test('offline world diff CLI reports differences and refuses invalid captures with distinct exits', () => {
   const dir = mkdtempSync(resolve(tmpdir(),'world-diff-'));
   try {
@@ -1437,8 +1442,6 @@ test('offline world diff CLI reports differences and refuses invalid captures wi
     writeFileSync(b,'{}'); expect(run().exitCode).toBe(2);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
-
-
 test('game proof outputs do not invalidate host freshness, but game sources do', async () => {
   const { newerThan } = await import('../scripts/agent-launch.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'game-freshness-'));
@@ -1452,8 +1455,6 @@ test('game proof outputs do not invalidate host freshness, but game sources do',
     expect(changed[0].endsWith('/logic/changed')).toBe(true);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
-
-
 test('repin provenance distinguishes commit-less games from broken Git repositories', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'repin-revision-'));
   try {
@@ -1466,7 +1467,6 @@ test('repin provenance distinguishes commit-less games from broken Git repositor
     expect(() => pinRevision(dir, 'digest')).toThrow('git provenance failed');
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
-
 test('a split clock grows at most 4x a step and never past ten world minutes', async () => {
   const {clockSpan} = await import('../scripts/agent.mjs');
   expect(clockSpan(1000, 1)).toBe(4000);

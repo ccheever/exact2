@@ -66,7 +66,7 @@ impl<D: DataSource> Host<D> {
             .iter()
             .rev()
             .find(|(_, r)| r.contains(x, y))
-            .map(|(id, _)| *id);
+            .map(|(id, ..)| *id);
         found.is_some_and(|id| self.press_run(id))
     }
 
@@ -106,7 +106,7 @@ impl<D: DataSource> Host<D> {
             .iter()
             .rev()
             .find(|(_, r)| r.contains(x, y))
-            .map(|(id, _)| *id)
+            .map(|(id, ..)| *id)
     }
 
     /// A mouse press at a screen cell. With a layer open, a press anywhere
@@ -115,7 +115,7 @@ impl<D: DataSource> Host<D> {
     pub fn click(&mut self, x: i32, y: i32) {
         let Some(local) = self.local(y) else { return };
         let hit = self.hit(x, y);
-        if let Some((top, _)) = self.layers.last().copied() {
+        if let Some((top, ..)) = self.layers.last().copied() {
             let inside = self.presented.layer.is_some_and(|r| r.contains(x, local));
             if !inside {
                 let any = self
@@ -197,8 +197,10 @@ impl<D: DataSource> Host<D> {
     /// The first presented scroller to its top or its end: Home and End.
     pub fn scroll_edge(&mut self, end: bool) {
         if let Some((id, _, reach)) = self.presented.scrollers.first().copied() {
+            self.collection_scrolled(id);
             self.scroll.insert(id, if end { reach } else { 0.0 });
             self.changed();
+            self.settle_collections();
         }
     }
 
@@ -208,12 +210,7 @@ impl<D: DataSource> Host<D> {
     pub(crate) fn scroll_node_by(&mut self, id: ViewId, y: f32) {
         let kernel = self.kernel();
         let Some(n) = kernel.node(id) else { return };
-        let scrolls = n.node_type == exact_kernel::NodeType::ScrollView
-            || matches!(
-                n.style.overflow_y,
-                exact_kernel::Overflow::Scroll | exact_kernel::Overflow::Auto
-            );
-        if !scrolls {
+        if !Self::is_scroller(&n) {
             return;
         }
         let [bt, _, bb, _] = n.style.border_widths_in(&kernel.env());
@@ -222,9 +219,11 @@ impl<D: DataSource> Host<D> {
     }
 
     fn scroll_by(&mut self, id: ViewId, reach: f32, rows: i32) {
+        self.collection_scrolled(id);
         let at = self.scroll.entry(id).or_insert(0.0);
         *at = (at.min(reach) + rows as f32 * ROW).clamp(0.0, reach);
         self.changed();
+        self.settle_collections();
     }
 
     /// Whether `id`, or the interactive node it sits in, has cells in what

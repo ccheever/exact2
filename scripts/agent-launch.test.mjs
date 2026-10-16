@@ -1,8 +1,28 @@
-// The drive's launch facts (agent-launch.mjs `launchFacts`, LLP 1027.000.000 D3); the fixed defaults and
-// overrides are host/web/agent.test.mjs's "launch setup" test.
+// The drive's launch facts (agent-launch.mjs `launchFacts`, LLP 1027.000.000 D3), and the browser it finds; the fixed
+// defaults and overrides are host/web/agent.test.mjs's "launch setup" test.
 import { test, expect } from 'bun:test';
-import { launchFacts, launchEnvironment, parseFlags } from './agent-launch.mjs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, resolve } from 'node:path';
+import { chromium, launchFacts, launchEnvironment, parseFlags } from './agent-launch.mjs';
 import { timeReporter } from '../host/web/navigation.js';
+
+// LLP 1107 D1: `--reader` is a flag of the drive, said to the Android carrier as the variable it reads
+// (agent-android.mjs `androidBinary`), and never an op.
+test('--reader names the Canvas reader to the Android carrier', () => {
+  const before = process.env.EXACT_ANDROID_READER;
+  try {
+    delete process.env.EXACT_ANDROID_READER;
+    expect(parseFlags(['android', '--app', 'shelf', 'tree']).flags.reader).toBeUndefined();
+    expect(process.env.EXACT_ANDROID_READER).toBeUndefined();
+    const { flags, rest } = parseFlags(['android', '--reader', '--app', 'shelf', 'tree']);
+    expect(flags.reader).toBe(true);
+    expect(rest).toEqual(['android', 'tree']);
+    expect(process.env.EXACT_ANDROID_READER).toBe('1');
+  } finally {
+    if (before === undefined) delete process.env.EXACT_ANDROID_READER; else process.env.EXACT_ANDROID_READER = before;
+  }
+});
 
 // App farm round 2: a drive against a live backend opts into the machine's clock, read once at launch; the host is
 // told those milliseconds, so `state.time.epochAtZero` is the launch instant and `clock +N` moves the date from it.
@@ -20,4 +40,17 @@ test('--epoch now is the machine clock read once at launch, reported as that ins
   const time = timeReporter(new URLSearchParams({agent:'1', ...facts}), new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
   expect(time(0)).toEqual([facts.epoch, 0]);
   expect(time(60000)).toEqual([facts.epoch, 0]);
+});
+
+test('Windows browser discovery accepts an installed Chrome and explicit executable paths with spaces', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact browser paths-'));
+  try {
+    const chrome = resolve(dir, 'Google/Chrome/Application/chrome.exe');
+    mkdirSync(dirname(chrome), {recursive:true});
+    writeFileSync(chrome, '');
+    chmodSync(chrome, 0o755);
+    expect(chromium({ProgramFiles:dir}, 'win32').executable).toBe(chrome);
+    expect(chromium({CHROME:chrome}, 'win32').unavailable).toBe(null);
+    expect(chromium({CHROME:resolve(dir, 'missing.exe')}, 'win32').unavailable).toBeTruthy();
+  } finally { rmSync(dir, {recursive:true, force:true}); }
 });

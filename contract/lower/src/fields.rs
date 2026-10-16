@@ -41,6 +41,47 @@ fn field(tag: &str, attrs: &[Attr]) -> bool {
     }
 }
 
+/// `outline="none"` takes a text field's focus ring off (LLP 1104 D6), and
+/// only a text field's: no host removes another element's ring yet (a
+/// button's, a checkbox's, a `tabindex` box's), so the name is refused there
+/// rather than honoured on the web alone. A Markdown editor is a `textarea`.
+pub(crate) fn outline_refusal(name: &str, tag: &str, control: Option<&str>) -> Option<String> {
+    let field = control == Some("field") || tag == "textarea";
+    (matches!(name, "outline" | "outline-style") && !field).then(|| {
+        let what = control.filter(|_| tag == "input").map_or(format!("`{tag}`"), |c| format!("an `input` of type `{c}`"));
+        format!("`{name}` takes a text field's focus ring off (`input` of a text type, `textarea`), and nothing else's yet: no host removes the ring of {what}")
+    })
+}
+
+/// `::placeholder`'s `color` (LLP 1104 D3) colours a text field's
+/// placeholder, and only a text field has one.
+pub(crate) fn placeholder_refusal(name: &str, tag: &str, control: Option<&str>) -> Option<String> {
+    let field = control == Some("field") || tag == "textarea";
+    (name.starts_with("::placeholder ") && !field).then(|| {
+        let what = control.filter(|_| tag == "input").map_or(format!("`{tag}`"), |c| format!("an `input` of type `{c}`"));
+        format!("`::placeholder` colours a text field's placeholder (an `input` of a text type, a `textarea`); {what} has none")
+    })
+}
+
+/// What an author may write for a placeholder's colour, and what to write
+/// (LLP 1104 D3): CSS's `::placeholder` block, and `color` alone in it.
+pub(crate) fn placeholder_hint(name: &str) -> Option<String> {
+    const BLOCK: &str = "`::placeholder` on its own line under the field (or in a `style`), then `color=\"#6b7280\"` indented beneath it, CSS's `::placeholder { color }`";
+    if let Some(property) = name.strip_prefix("::placeholder ") {
+        return Some(format!(
+            "; `::placeholder` admits only `color` for now, not `{property}`"
+        ));
+    }
+    matches!(
+        name,
+        "placeholder-color"
+            | "-exact-placeholder-color"
+            | "placeholderColor"
+            | "placeholderTextColor"
+    )
+    .then(|| format!("; a placeholder's colour is {BLOCK}"))
+}
+
 /// CSS UI 4 §7.2.1's appearance-disabling longhands that Contract has.
 pub(crate) fn disables(id: StyleId) -> bool {
     use StyleId::*;
@@ -67,6 +108,24 @@ pub(crate) fn disables(id: StyleId) -> bool {
     )
 }
 
+/// `appearance: textfield` (LLP 1116.007 D4) is CSS UI 4's compat keyword on
+/// a text field: the platform's field without a number field's stepper. On
+/// any other element it would be a quiet `none` to the hosts that read
+/// `auto` as the platform's control (a checkbox, a select, a date), so it is
+/// refused there with the word that does what its author meant.
+pub(crate) fn textfield_elsewhere(attrs: &[Attr]) -> Option<&Attr> {
+    attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "appearance")
+        .filter(|a| {
+            matches!(&a.value, Expr::Str(v, _) if v == "textfield")
+                || matches!(&a.value, Expr::Ternary(_, x, y, _)
+                if matches!(&**x, Expr::Str(v, _) if v == "textfield")
+                    || matches!(&**y, Expr::Str(v, _) if v == "textfield"))
+        })
+}
+
 impl Lowerer<'_> {
     /// Called only for a final TextInput, after class merge and shorthand
     /// expansion. Excluded types and the Markdown editor always get `none`;
@@ -84,10 +143,12 @@ impl Lowerer<'_> {
             match appearance {
                 None => None,
                 Some(a) => match &a.value {
-                    Expr::Str(v, _) if v == "auto" || v == "none" => Some(v.as_str()),
+                    Expr::Str(v, _) if matches!(v.as_str(), "auto" | "none" | "textfield") => {
+                        Some(v.as_str())
+                    }
                     _ => return err(
                         "lower-appearance",
-                        "a text field's `appearance` is a literal: `\"auto\"` (the platform's own field) or `\"none\"` (the bare box). To switch between them, write `when` with two fields",
+                        "a text field's `appearance` is a literal: `\"auto\"` (the platform's own field), `\"textfield\"` (the same, without a number field's stepper) or `\"none\"` (the bare box). To switch between them, write `if` with two fields",
                         a.span,
                     ),
                 },
@@ -101,7 +162,7 @@ impl Lowerer<'_> {
             .filter_map(|b| StyleId::from_bit(u32::from(b.id)))
             .filter(|&id| disables(id))
             .collect();
-        if explicit == Some("auto") {
+        if matches!(explicit, Some("auto" | "textfield")) {
             let names = crate::vocab::attrs();
             for row in &rows {
                 let name = names
@@ -124,12 +185,15 @@ impl Lowerer<'_> {
                 });
             }
         }
-        if !native || (explicit.is_none() && !rows.is_empty()) {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::Appearance as u16,
-                expr: self.fixed(true, "none"),
-            });
+        // A field that is never native whose author wrote `appearance="none"`
+        // already has that row, and it is the author's (LLP 1115.000 D2): an
+        // implied one after it would win and take the bit off.
+        let said = !native
+            && appearance
+                .is_some_and(|a| a.written && matches!(&a.value, Expr::Str(v, _) if v == "none"));
+        if (!native && !said) || (native && explicit.is_none() && !rows.is_empty()) {
+            let none = self.fixed(true, "none");
+            bindings.push(crate::style_row(StyleId::Appearance, none, crate::IMPLIED));
         }
         Ok(())
     }

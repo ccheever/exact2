@@ -10,7 +10,7 @@ shape DeliveryState
   embeddedSeq: number
   staged: bool
   sunset: string
-  interpreted: list<string>
+  interpreted: string[]
   compatibilityId: string
 
 component App
@@ -25,7 +25,7 @@ component App
     column testId="delivery" padding=16 gap=8
       text delivery.stream testId="delivery-stream"
       text `${delivery.seq}` testId="delivery-seq"
-      when delivery.staged
+      if delivery.staged
         text "staged" testId="delivery-staged"
       else
         text "current" testId="delivery-staged"

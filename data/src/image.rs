@@ -117,11 +117,17 @@ where
 
 /// When the codec must stop starting work: checked before the decode and
 /// before each trial (a trial already running finishes).
-pub struct Deadline(pub Instant);
+pub struct Deadline<'a> {
+    at: Instant,
+    check: &'a dyn Fn() -> Result<(), String>,
+    pub max_pixels: u64,
+    pub max_scratch_bytes: u64,
+}
 
-impl Deadline {
+impl Deadline<'_> {
     pub fn check(&self) -> Result<(), String> {
-        if Instant::now() >= self.0 {
+        (self.check)()?;
+        if Instant::now() >= self.at {
             return Err(failure("timeout", "the search ran past its time"));
         }
         Ok(())
@@ -137,14 +143,51 @@ pub fn compress(
     max_bytes: u64,
     deadline: Instant,
 ) -> Result<Compressed, String> {
+    compress_controlled(
+        source,
+        max_dimension,
+        max_bytes,
+        deadline,
+        &|| Ok(()),
+        MAX_SOURCE_PIXELS,
+        512 * 1024 * 1024,
+    )
+}
+
+/// The native storage provider's bounded, cooperatively cancellable entry.
+/// `check` is consulted before each decode/encode trial; a running native call
+/// finishes before that worker's reservation is released.
+/// `max_scratch_bytes` is a conservative estimate used for native-memory admission,
+/// not an allocator cap on ImageIO or a bound on process RSS.
+#[allow(clippy::too_many_arguments)]
+pub fn compress_controlled(
+    source: &[u8],
+    max_dimension: u32,
+    max_bytes: u64,
+    deadline: Instant,
+    check: &dyn Fn() -> Result<(), String>,
+    max_pixels: u64,
+    max_scratch_bytes: u64,
+) -> Result<Compressed, String> {
     check_limits(f64::from(max_dimension), max_bytes as f64)?;
+    check()?;
     if source.len() as u64 > MAX_BYTES {
         return Err(failure(
             "too-large",
             format!("{} bytes is over {MAX_BYTES}", source.len()),
         ));
     }
-    platform(source, max_dimension, max_bytes, Deadline(deadline))
+    platform(
+        source,
+        max_dimension,
+        max_bytes,
+        Deadline {
+            at: deadline,
+            check,
+            max_pixels: max_pixels.min(MAX_SOURCE_PIXELS),
+            max_scratch_bytes,
+        },
+    )
 }
 
 #[cfg(target_vendor = "apple")]
@@ -152,13 +195,13 @@ fn platform(
     source: &[u8],
     max_dimension: u32,
     max_bytes: u64,
-    deadline: Deadline,
+    deadline: Deadline<'_>,
 ) -> Result<Compressed, String> {
     apple::compress(source, max_dimension, max_bytes, deadline)
 }
 
 #[cfg(not(target_vendor = "apple"))]
-fn platform(_: &[u8], _: u32, _: u64, _: Deadline) -> Result<Compressed, String> {
+fn platform(_: &[u8], _: u32, _: u64, _: Deadline<'_>) -> Result<Compressed, String> {
     Err(unsupported())
 }
 

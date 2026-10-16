@@ -24,7 +24,13 @@ impl<D: DataSource> Runner<D> {
         let mismatch = || RunnerError::InvalidEvent { event };
         let invalid = |reason: String| RunnerError::InvalidValue { event, reason };
         match (kind, value) {
-            (None, ControlValue::Text(_) | ControlValue::Field(..))
+            (
+                None,
+                ControlValue::Text(_)
+                | ControlValue::Field(..)
+                | ControlValue::Replacement(..)
+                | ControlValue::Edit(..),
+            )
             | (Some(ControlKind::Checkbox | ControlKind::Switch), ControlValue::Checked(_))
             | (Some(ControlKind::File), ControlValue::Files(_)) => Ok(value.value()),
             // @ref LLP 1069.001 D4 — a select reports the chosen option's

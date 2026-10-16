@@ -3,6 +3,8 @@
 // a tab bar item's own shape — to a tab bar (LLP 1059). Contract remains the
 // state owner; UIKit owns the control. Layout stays authored: the control
 // fills the tablist's box and reports its native minimum height to layout.
+// @ref LLP 1116.004 D5.2 — a radio group of radios (a value chosen from a
+// few) is the same segmented control, its selection `aria-checked`.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -16,6 +18,7 @@ import UIKit
 class LabelledSegmentedControl: UISegmentedControl {
     var segmentLabels: [String?] = [] { didSet { if segmentLabels != oldValue { setNeedsLayout() } } }
     var segmentIDs: [String?] = [] { didSet { if segmentIDs != oldValue { setNeedsLayout() } } }
+    var segmentUnavailable: [Bool] = [] { didSet { if segmentUnavailable != oldValue { setNeedsLayout() } } }
     override func layoutSubviews() {
         super.layoutSubviews()
         labelSegments()
@@ -44,6 +47,9 @@ class LabelledSegmentedControl: UISegmentedControl {
             let id = segmentIDs.indices.contains(index) ? segmentIDs[index] : nil
             if view.accessibilityLabel != label { view.accessibilityLabel = label }
             if view.accessibilityIdentifier != id { view.accessibilityIdentifier = id }
+            let unavailable = segmentUnavailable.indices.contains(index) && segmentUnavailable[index]
+            if unavailable { view.accessibilityTraits.insert(.notEnabled) }
+            else { view.accessibilityTraits.remove(.notEnabled) }
         }
     }
 }
@@ -168,17 +174,25 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         presenter.contextmenu(tab.id)
     }
 
+    /// A tablist's pressable tabs, or a radio group's pressable radios
+    /// (LLP 1116.004 D5.2: a value chosen from a few is the same control).
     private func tabs(in owner: NodeView) -> [NodeView] {
-        owner.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+        let role = Self.member(of: owner)
+        return owner.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == role && $0.handlers.contains("press")
         }
+    }
+    static func member(of owner: NodeView) -> String { owner.props["accessibilityRole"] == "radiogroup" ? "radio" : "tab" }
+    /// The chosen member: a tab `aria-selected`, a radio `aria-checked`.
+    static func chosen(_ tab: NodeView) -> Bool {
+        tab.props[tab.props["accessibilityRole"] == "radio" ? "accessibilityChecked" : "accessibilitySelected"] == "true"
     }
 
     private func available(_ owner: UIView) -> Bool {
         var ancestor: UIView? = owner
         while let view = ancestor {
             if view.isHidden || view.alpha <= 0.01 || (view as? NodeView)?.props["inert"] == "true" { return false }
-            ancestor = view.superview
+            ancestor = presenter.eventParent(of: view)
         }
         return owner.window != nil
     }
@@ -224,11 +238,11 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
     }
 
-    /// Journal why a tablist is or is not a segmented control, once per change.
+    /// Journal why a tablist or radio group is or is not a segmented control, once per change.
     private func decide(_ owner: NodeView, _ decision: String) {
         guard decisions[owner.id] != decision else { return }
         decisions[owner.id] = decision
-        presenter.session?.log("tablist #\(owner.id): \(decision)")
+        presenter.session?.log("\(owner.props["accessibilityRole"] ?? "tablist") #\(owner.id): \(decision)")
     }
 
     private func restore(owner id: UInt32) {
@@ -257,7 +271,6 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     private func natural(_ id: UInt32, _ control: UISegmentedControl) -> CGSize {
         let fonts = [UIControl.State.normal, .selected].map { (control.titleTextAttributes(for: $0)?[.font] as? UIFont).map { "\($0.fontName) \($0.pointSize)" } ?? "" }
         let segments = (0..<control.numberOfSegments).map { "\(control.titleForSegment(at: $0) ?? "")|\(control.imageForSegment(at: $0)?.size ?? .zero)|\(control.widthForSegment(at: $0))" }
-            + ["\(control.apportionsSegmentWidthsByContent)"]
         let t = control.traitCollection
         let source = "\(segments)|\(fonts)|\(t.preferredContentSizeCategory.rawValue)|\(t.legibilityWeight.rawValue)"
         // A hatch's own look (a background image, a divider) sizes it too:
@@ -265,7 +278,12 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let customized = control.backgroundImage(for: .normal, barMetrics: .default) != nil
             || control.dividerImage(forLeftSegmentState: .normal, rightSegmentState: .normal, barMetrics: .default) != nil
         if !customized, let known = naturals[id], known.source == source { return known.size }
+        // As equal segments: the width they fit in before the control
+        // apportions a narrower box by their content (`sync`).
+        let apportioned = control.apportionsSegmentWidthsByContent
+        if apportioned { control.apportionsSegmentWidthsByContent = false }
         let size = control.intrinsicContentSize
+        if apportioned { control.apportionsSegmentWidthsByContent = true }
         naturals[id] = customized ? nil : (source, size)
         return size
     }
@@ -274,22 +292,22 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         guard bars[owner.id] === control || controls[owner.id] === control, presenter.views[owner.id] === owner else { return }
         var size: CGSize
         if control is UISegmentedControl {
-            // Its own size, at any width of the box: its height does not
-            // follow that width, and a tablist's reported width is never read
-            // (the seam takes only a positive one), so a resize does not
-            // remeasure. It fills the content box, so a border-box minimum
-            // also holds the padding and border around it.
+            // Its own height, at any width of the box: its height does not
+            // follow that width, so a resize does not remeasure. Its width
+            // is the narrowest it can be (LLP 1116.004 D2), the tablist's
+            // automatic minimum: none, as UIKit fits its segments to any
+            // box, so a row's other parts never push it past the row's edge
+            // (unit-converter: four text tabs overflowed a grouped row by
+            // the hidden tabs' own widths). It fills the content box, so a
+            // border-box minimum also holds the padding and border around it.
             let natural = natural(owner.id, control as! UISegmentedControl)
-            size = CGSize(width: max(natural.width, 1), height: natural.height)
-            if owner.style["box_sizing"]?.string == "border-box" {
-                let border = owner.number("border_width")
-                size.height += owner.number("border_width_top", border) + owner.number("padding_top")
-                    + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
-            }
+            size = CGSize(width: 1, height: natural.height)
+            // The padding and border around the content box layout sent
+            if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.bounds.height - owner.contentBox().height }
         } else {
             guard owner.bounds.width > 0 else { return }
-            size = CGSize(width: owner.bounds.width,
-                          height: control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height)
+            // A tab bar lays its items out in any width: none is its narrowest.
+            size = CGSize(width: 1, height: control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height)
         }
         guard size.width.isFinite, size.height.isFinite, size.height > 0 else { return }
         guard sizes[owner.id] != size else { return }
@@ -340,6 +358,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
         for ((item, tab), face) in zip(zip(bar.items ?? [], tabs), faces) {
             assign(item, \.isEnabled, !tab.disabled)
+            if tab.disabled || tab.ariaUnavailable { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
             // Its test id is the tab's (LLP 1116 D2).
             if item.accessibilityIdentifier != tab.props["testId"] { item.accessibilityIdentifier = tab.props["testId"] }
             // Its name is the tab's, as the hidden tab's was (astra's code review).
@@ -367,9 +387,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
         // A tablist whose place a tab container's bar takes is the container's
         // (LLP 1075.003 §3.7): it is hidden, and projects nothing of its own.
+        // A radio group of two or more radios is the same segmented control
+        // (LLP 1116.004 D5.2); it is never a tab bar.
         let owners = presenter.carrying("role:tablist").filter {
             $0.props["accessibilityRole"] == "tablist" &&
-                $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0)
+                $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0) &&
+                !($0.wrote("appearance") && $0.style["appearance"]?.string == "none")
+        } + presenter.carrying("role:radiogroup").filter {
+            $0.props["accessibilityRole"] == "radiogroup" && $0.props["accessibilityOrientation"] != "vertical"
         }
         for list in presenter.carrying("role:tablist") {
             let adopted = presenter.navigation.adopts(tablist: list)
@@ -382,7 +407,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         for id in Array(decisions.keys) where !live.contains(id) { decisions.removeValue(forKey: id) }
         for owner in owners {
             let tabs = tabs(in: owner)
-            let faces = tabs.compactMap(TabBarFace.init)
+            let radios = Self.member(of: owner) == "radio"
+            let faces = radios ? [] : tabs.compactMap(TabBarFace.init)
             if tabs.count > 1, faces.count == tabs.count {
                 owner.accessibilityTraits.remove(.tabBar)
                 decide(owner, "projected to UITabBar (\(tabs.count) items)")
@@ -395,8 +421,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let unshown = tabs.first { $0.segmentFace == nil }
             if tabs.count <= 1 || unshown != nil {
                 restore(owner: owner.id)
-                owner.accessibilityTraits.insert(.tabBar)
-                decide(owner, unshown.map { "kept as authored: tab #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable tabs")
+                if !radios { owner.accessibilityTraits.insert(.tabBar) }
+                let member = radios ? "radio" : "tab"
+                decide(owner, unshown.map { "kept as authored: \(member) #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable \(member)s")
                 continue
             }
             owner.accessibilityTraits.remove(.tabBar)
@@ -430,7 +457,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             control.accessibilityIdentifier = owner.props["testId"]
             control.segmentLabels = tabs.map(Self.segmentLabel)
             control.segmentIDs = tabs.map { $0.props["testId"] }
-            let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
+            control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
+            let selected = tabs.firstIndex(where: Self.chosen) ?? UISegmentedControl.noSegment
             // A choice the finger made and the control has not reported yet
             // stays; resetting it would make the report name the old segment.
             let pending = control.isTracking || control.selectedSegmentIndex != control.settled
@@ -438,6 +466,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             if control.selectedSegmentIndex == selected { control.settled = selected }
             owner.bringSubviewToFront(control)
             measure(owner, control)
+            // Equal segments where they fit; in a narrower box UIKit gives
+            // each segment its content's share, so "Temperature" keeps its
+            // letters beside "Length" (LLP 1116.004 D2).
+            assign(control, \.apportionsSegmentWidthsByContent, frame.width + 0.5 < natural(owner.id, control).width)
         }
     }
 
@@ -462,6 +494,20 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         guard let owner = presenter.views[entry.key], available(owner), !node.disabled else { return false }
         presenter.press(node.id)
         return true
+    }
+
+    /// Where a finger aimed at tab `node` lands, for a segment a control
+    /// draws (LLP 1080.000 D4; r5 weather): the control, and the segment's
+    /// box in it — its segment view's, else an equal share. Nil for a node no
+    /// segmented control draws (a tab bar's items are UIKit's private views).
+    func drawn(_ node: NodeView) -> (control: UIControl, segment: CGRect)? {
+        guard let entry = members.first(where: { $0.value.contains(node.id) }), let control = controls[entry.key],
+              let index = entry.value.firstIndex(of: node.id), control.numberOfSegments == entry.value.count else { return nil }
+        let views = control.segmentViews
+        if views.count == control.numberOfSegments { return (control, views[index].convert(views[index].bounds, to: control)) }
+        let share = control.bounds.width / CGFloat(entry.value.count)
+        let slot = control.effectiveUserInterfaceLayoutDirection == .rightToLeft ? entry.value.count - 1 - index : index
+        return (control, CGRect(x: share * CGFloat(slot), y: 0, width: share, height: control.bounds.height))
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {

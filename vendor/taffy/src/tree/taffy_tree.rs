@@ -13,7 +13,7 @@ use crate::geometry::{Point, Size};
 use crate::style::{AvailableSpace, Display, Style};
 use crate::sys::DefaultCheapStr;
 use crate::tree::{
-    Cache, ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
+    ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
     RunMode,
     TraversePartialTree, TraverseTree, StaticPosition,
 };
@@ -121,8 +121,8 @@ struct NodeData {
     /// subtree's algorithms read (`tree/memo.rs`).
     pub(crate) memo_root: bool,
 
-    /// The cached results of the layout computation
-    pub(crate) cache: Cache,
+    /// EXACT PATCH 30: cached layout results, allocated on their first store.
+    pub(crate) cache: super::cache::LazyCache,
 
     /// The computation result from layout algorithm
     #[cfg(feature = "detailed_layout_info")]
@@ -135,7 +135,7 @@ impl NodeData {
     pub fn new(style: Rc<Style>) -> Self {
         Self {
             style,
-            cache: Cache::new(),
+            cache: super::cache::LazyCache::new(),
             unrounded_layout: Layout::new(),
             final_layout: Layout::new(),
             has_context: false,
@@ -1178,6 +1178,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// Drops all nodes in the tree
     pub fn clear(&mut self) {
         self.nodes.clear();
+        self.node_context_data.clear();
         self.children.clear();
         self.parents.clear();
         self.changed_layouts.clear();
@@ -1210,6 +1211,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         let _ = self.children.remove(key);
         let _ = self.parents.remove(key);
         let _ = self.nodes.remove(key);
+        self.node_context_data.remove(key);
         self.layout_inputs.remove(key);
         self.hoisted_absolutes.remove(key);
         self.static_positions.remove(key);
@@ -1540,6 +1542,11 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.multicol_bounds.get(node.into()).copied().unwrap_or_default()
     }
 
+    /// Forget recorded layouts when a calc handle's environment changes.
+    pub fn forget_memo(&mut self) {
+        self.memo.clear();
+    }
+
     /// Remember marked roots' layouts (the default) or lay them out as any
     /// other box; turning it off forgets those held.
     pub fn enable_memo(&mut self, on: bool) {
@@ -1660,6 +1667,29 @@ mod tests {
     use crate::style::{Dimension, Display, FlexDirection};
     use crate::style_helpers::*;
     use crate::util::sys;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    #[derive(Debug)]
+    struct DropCounter {
+        name: &'static str,
+        drops: Rc<Cell<usize>>,
+    }
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.drops.set(self.drops.get() + 1);
+        }
+    }
+
+    fn counted(name: &'static str) -> (DropCounter, Rc<Cell<usize>>) {
+        let drops = Rc::new(Cell::new(0));
+        (DropCounter { name, drops: Rc::clone(&drops) }, drops)
+    }
+
+    fn slot(node: NodeId) -> u32 {
+        u64::from(node) as u32
+    }
 
     fn size_measure_function(
         inputs: LayoutInput,
@@ -1742,6 +1772,74 @@ mod tests {
         let node = taffy.new_leaf(Style::default()).unwrap();
 
         let _ = taffy.remove(node).unwrap();
+    }
+
+    #[test]
+    fn remove_releases_context_across_replacement_and_slot_reuse() {
+        let mut taffy = TaffyTree::new();
+        let (removed_context, removed_drops) = counted("removed");
+        let (survivor_context, survivor_drops) = counted("survivor");
+        let removed = taffy.new_leaf_with_context(Style::default(), removed_context).unwrap();
+        let survivor = taffy.new_leaf_with_context(Style::default(), survivor_context).unwrap();
+
+        taffy.remove(removed).unwrap();
+        assert_eq!(removed_drops.get(), 1);
+        assert!(taffy.get_node_context(removed).is_none());
+        assert_eq!(taffy.get_node_context(survivor).map(|context| context.name), Some("survivor"));
+        assert_eq!(survivor_drops.get(), 0);
+
+        let (reused_context, reused_drops) = counted("reused");
+        let reused = taffy.new_leaf_with_context(Style::default(), reused_context).unwrap();
+        assert_eq!(slot(reused), slot(removed));
+        assert_eq!(removed_drops.get(), 1);
+        assert_eq!(taffy.get_node_context(reused).map(|context| context.name), Some("reused"));
+
+        let (replacement_context, replacement_drops) = counted("replacement");
+        taffy.set_node_context(reused, Some(replacement_context)).unwrap();
+        assert_eq!(reused_drops.get(), 1);
+        assert_eq!(replacement_drops.get(), 0);
+        assert_eq!(taffy.get_node_context(reused).map(|context| context.name), Some("replacement"));
+
+        taffy.remove(reused).unwrap();
+        assert_eq!(replacement_drops.get(), 1);
+        assert!(taffy.get_node_context(reused).is_none());
+        assert_eq!(taffy.get_node_context(survivor).map(|context| context.name), Some("survivor"));
+        drop(taffy);
+        assert_eq!(removed_drops.get(), 1);
+        assert_eq!(reused_drops.get(), 1);
+        assert_eq!(replacement_drops.get(), 1);
+        assert_eq!(survivor_drops.get(), 1);
+    }
+
+    #[test]
+    fn clear_releases_contexts_and_reused_slots_start_empty() {
+        let mut taffy = TaffyTree::new();
+        let (first_context, first_drops) = counted("first");
+        let (second_context, second_drops) = counted("second");
+        let first = taffy.new_leaf_with_context(Style::default(), first_context).unwrap();
+        let second = taffy.new_leaf_with_context(Style::default(), second_context).unwrap();
+
+        taffy.clear();
+        assert_eq!(first_drops.get(), 1);
+        assert_eq!(second_drops.get(), 1);
+        assert!(taffy.get_node_context(first).is_none());
+        assert!(taffy.get_node_context(second).is_none());
+
+        let (fresh_context, fresh_drops) = counted("fresh");
+        let fresh = taffy.new_leaf_with_context(Style::default(), fresh_context).unwrap();
+        assert!(slot(fresh) == slot(first) || slot(fresh) == slot(second));
+        assert_eq!(first_drops.get(), 1);
+        assert_eq!(second_drops.get(), 1);
+        assert_eq!(fresh_drops.get(), 0);
+        assert_eq!(taffy.get_node_context(fresh).map(|context| context.name), Some("fresh"));
+
+        taffy.clear();
+        assert_eq!(fresh_drops.get(), 1);
+        assert!(taffy.get_node_context(fresh).is_none());
+        drop(taffy);
+        assert_eq!(first_drops.get(), 1);
+        assert_eq!(second_drops.get(), 1);
+        assert_eq!(fresh_drops.get(), 1);
     }
 
     #[test]

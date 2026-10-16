@@ -1,8 +1,14 @@
 // Starter: a list that pushes a detail, a sheet to add, an alert to delete, kept in a file.
 // The items are app.ts's (app:/data/items.json). A phone pushes the detail; a wide window
-// shows the list and the detail side by side. A smaller app deletes what it doesn't need:
-// the wide split (`viewport`, `wide`, the `when wide` column), the delete (`askRemove`,
-// `remove`, the dialog), or the notes (the shape's field, the sheet's and detail's sections).
+// shows the list beside it by itself, because a row draws the disclosure chevron
+// (`contract vocab navigationSplit`). A smaller app deletes what it doesn't need: the
+// delete (`askRemove`, `remove`, the dialog), the notes (the shape's field, the sheet's and
+// the detail's sections), or the lock (the shape's `locked`, `setLock`, the badge, the
+// switch and Delete's reason).
+// Compose as the platform does: a row pushes its detail, create and edit are sheets, a phone
+// gets one column and a wide window two (`responsive-columns`); not a form above one long list.
+use Badge, EmptyState from "exact:content"
+
 routes nav
   items "/"
     item "/item/:id"
@@ -12,33 +18,28 @@ shape Item
   id: string
   title: string
   notes: string
+  locked: bool
 
 shape Reply
   ok: bool
   error: string
 
-shape Viewport
-  width: number
-
-fn titleOf(items: list<Item>, id: string): string = match first(filter(items, i => i.id == id)) { case some(i) => i.title, case none => "" }
+fn titleOf(items: Item[], id: string): string = match first(items.filter(i => i.id == id)) { case some(i) => i.title, case none => "" }
+fn found(items: Item[], id: string): bool = items.filter(i => i.id == id).length > 0
 
 component App
   state draftTitle = ""
   state draftNotes = ""
   state submitted = false
-  resource lib = loadItems() as shape list<Item> else empty()
-  resource viewport = exactViewport() as shape Viewport
+  resource lib = loadItems() as shape Item[] else empty()
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
-  derive wide = viewport.width >= 720
-  derive selected = match at(filter(stack(nav), e => e.name == "item"), -1) { case some(e) => e.params.id, case none => "" }
+  mutation lockSaved as shape Reply refreshes lib
+  derive selected = match stack(nav).filter(e => e.name == "item").at(-1) { case some(e) => e.params.id, case none => "" }
   derive saveError = match added { case some(r) => r.error, case none => "" }
   // Said after the first Save, in red under the field; the next attempt clears it.
-  derive formError = not submitted ? "" : trim(draftTitle) == "" ? "Enter a title." : pending(added) ? "" : saveError
+  derive formError = not submitted ? "" : draftTitle.trim() == "" ? "Enter a title." : pending(added) ? "" : saveError
 
-  // A phone pushes the item; a wide window replaces the one beside the list.
-  action open(id: string)
-    nav = selected == "" ? push(nav, path("item", id)) : replace(nav, path("item", id))
   action openAdd
     draftTitle = ""
     draftNotes = ""
@@ -46,21 +47,24 @@ component App
     nav = push(nav, "/add")
   action back
     nav = back(nav)
-  // The browser's Back and a deep link arrive here.
+  // A row is a link to its item; the browser's Back, Forward and a deep link arrive here too.
+  // An item shown beside the list (a wide window) is replaced by the next one opened.
   action follow(url: string)
-    nav = go(nav, url)
+    nav = top(nav).name == "item" and url.startsWith("/item/") ? replace(nav, url) : go(nav, url)
   action editTitle(v: string)
     draftTitle = v
   action editNotes(v: string)
     draftNotes = v
   action save
     submitted = true
-    if trim(draftTitle) != "" and not pending(added)
-      send added = addItem(trim(draftTitle), trim(draftNotes))
+    if draftTitle.trim() != "" and not pending(added)
+      send added = addItem(draftTitle.trim(), draftNotes.trim())
   // The sheet closes only on an ok reply; a refusal keeps it open, saying why.
   action afterSave
     if saveError == "" and top(nav).name == "add"
       nav = back(nav)
+  action setLock(on: bool)
+    send lockSaved = lockItem(selected, on)
   action askRemove
     showModal("remove")
   action remove
@@ -68,47 +72,46 @@ component App
     nav = back(nav)
 
   view
-    // Wide, the list and the selected item are one screen, side by side; a phone pushes it.
-    main navigationKey=(top(nav).name == "items" or (wide and top(nav).name == "item") ? "items" : `${top(nav).id}`)
-      navigationBack="back" navigate=follow testId="app" width="100%" height="100%" accent-color="-exact-system-indigo"
-      each e in stack(nav) key=e.id
-        when e.name == "items"
-          column navigationKey="items" navigationScroll="items-list" position="absolute" inset=0
-            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              text "Starter" role="heading" aria-level=1
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      accent-color="-exact-system-indigo"
+      for e in stack(nav) key=e.id
+        if e.name == "items"
+          column navigationKey=`${e.id}` navigationScroll="items-list" position="absolute" inset=0
+            display="flex" flex-direction="column"
+            header display="flex" align-items="center" padding="8px 16px"
+              text "Starter" role="heading" aria-level=1 flex=1
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
-            row flex=1 min-height=0
-              list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-width=0
-                section
-                  // A title over its notes; a phone's rows push (the chevron), wide the selected is the accent.
-                  each it in lib key=it.id
-                    button press=open(it.id) aria-current=(wide and it.id == selected) testId=`item-${it.id}`
-                      column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
-                        text it.title color=(wide and it.id == selected ? "AccentColor" : "-exact-label")
-                        when it.notes != ""
-                          text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
-                      when not wide
-                        image "symbol:forward-chevron"
-                  footer
-                    text (length(lib) == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
-              when wide
-                column flex=2 min-width=0 background-color="-exact-grouped-background" border-left="1px solid -exact-separator"
-                  when selected == ""
-                    text "Choose an item." color="-exact-secondary-label" padding=24
-                  else
-                    text titleOf(lib, selected) role="heading" aria-level=2 padding="20px 32px 0" testId="detail-title"
-                    list id="detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-                      each it in filter(lib, x => x.id == selected) key=it.id
-                        ItemSections(item=it, askRemove=askRemove)
-        when e.name == "item" and not wide
+            list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section
+                // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
+                for it in lib key=it.id
+                  link href=path("item", it.id) testId=`item-${it.id}`
+                    column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
+                      text it.title
+                      if it.notes != ""
+                        text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+                    // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                    if it.locked
+                      Badge(label="Locked", tint=none)
+                    image "symbol:forward-chevron"
+                footer
+                  text (lib.length == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
+        if e.name == "item"
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
+            display="flex" flex-direction="column"
             header display="flex" align-items="center" padding="8px 16px"
-              text titleOf(lib, e.params.id) role="heading" aria-level=2
-            list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-              each it in filter(lib, x => x.id == e.params.id) key=it.id
-                ItemSections(item=it, askRemove=askRemove)
-        when e.name == "add"
+              text (found(lib, e.params.id) or pending(lib) ? titleOf(lib, e.params.id) : "Not Found") role="heading" aria-level=2 testId="detail-title"
+            // An id that names nothing (a stale link, /item/999) says so, once the list has loaded.
+            if found(lib, e.params.id) or pending(lib)
+              list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                for it in lib.filter(x => x.id == e.params.id) key=it.id
+                  ItemSections(item=it, setLock=setLock, askRemove=askRemove)
+            else
+              EmptyState(symbol="symbol:alert", title="No such item", message="It may have been deleted.")
+                button press=back buttonStyle="filled" testId="missing-back"
+                  text "Back to Items"
+        if e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
               button id="back" press=back testId="add-cancel"
@@ -118,18 +121,18 @@ component App
                 text "Save"
             list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                // The message sits in the field's row, under the field: a footer is grey on iOS.
+                // The message sits in the field's row, under the field.
                 row
                   column flex=1 min-width=0 gap=4
-                    input appearance="none" value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
+                    input value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
                       autofocus=true enterkeyhint="next" testId="add-title"
-                    when formError != ""
+                    if formError != ""
                       text formError font="-exact-footnote" color="-exact-system-red" testId="add-error"
               section
                 header
                   text "Notes"
                 row padding-top=8 padding-bottom=8
-                  textarea appearance="none" value=draftNotes input=editNotes placeholder="Optional" aria-label="Notes"
+                  textarea value=draftNotes input=editNotes placeholder="Optional" aria-label="Notes"
                     rows=4 testId="add-notes" flex=1 min-width=0
       dialog id="remove" role="alertdialog" aria-label="Delete Item?"
         text "This can’t be undone."
@@ -138,10 +141,11 @@ component App
         button commandfor="remove" command="close" testId="remove-cancel"
           text "Cancel"
 
-// One item: its notes, and Delete, which asks first.
+// One item: its notes, its lock, and Delete, which asks first, or says why it can't.
 component ItemSections
   props
     item: Item
+    setLock: action
     askRemove: action
   view
     section
@@ -151,5 +155,10 @@ component ItemSections
         text (item.notes == "" ? "No notes." : item.notes) flex=1 min-width=0
           color=(item.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
     section
-      button press=askRemove destructive=true testId="delete-item"
+      row
+        text "Locked"
+        input type="checkbox" switch checked=item.locked change=setLock aria-label="Locked" testId="lock-item"
+      button press=askRemove destructive=true disabled=item.locked testId="delete-item"
         text "Delete Item"
+      footer
+        text (item.locked ? "Unlock this item to delete it." : "") testId="delete-reason"

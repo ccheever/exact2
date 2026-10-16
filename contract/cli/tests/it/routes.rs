@@ -433,7 +433,7 @@ component App
     main
       button press=open(top(nav).url) testId="read"
         text "Read"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}`
           text e.url
 "#;
@@ -676,7 +676,7 @@ component App
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" display="flex" flex-direction="column"
       column flex=1 position="relative"
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             STACK
       row role="tablist"
@@ -685,7 +685,7 @@ component App
         button role="tab" aria-controls="panel-saved" press=pick("saved")
           text "Saved"
 "#;
-    let stack = "each e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
+    let stack = "for e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
     contract::compile(&tabs.replace("STACK", stack)).unwrap();
     // A route inside a route is shown by no host.
     let nested = stack.replace("text e.url", "column navigationKey=\"inner\"");
@@ -693,7 +693,7 @@ component App
     assert_eq!(error.id, "lower-route-place", "{error}");
     assert!(error.message.contains("inside another route"), "{error}");
     // Behind a wrapper inside a panel: the message names the path.
-    let wrapped = "column\n              each e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
+    let wrapped = "column\n              for e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
     let error = contract::compile(&tabs.replace("STACK", wrapped)).unwrap_err();
     assert_eq!(error.id, "lower-route-place", "{error}");
     assert!(
@@ -723,7 +723,7 @@ fn a_root_with_a_key_and_no_back_control_named_is_the_navigation_root() {
 component App
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0
           text e.url
 "#;
@@ -743,8 +743,8 @@ component App
     assert_rows(&r);
     // Routes now sit where every host finds them, or are refused.
     let wrapped = source.replace(
-        "      each e in stack(nav) key=e.id\n        column navigationKey",
-        "      column\n        each e in stack(nav) key=e.id\n          column navigationKey",
+        "      for e in stack(nav) key=e.id\n        column navigationKey",
+        "      column\n        for e in stack(nav) key=e.id\n          column navigationKey",
     );
     let error = contract::compile(&wrapped).unwrap_err();
     assert_eq!(error.id, "lower-route-place", "{error}");
@@ -767,6 +767,89 @@ component App
 }
 
 #[test]
+fn an_app_with_no_notfound_route_is_given_one_that_keeps_the_url_and_says_so() {
+    // @ref LLP 1116.009 D2 — a location no route matches keeps its URL: the
+    // compiler writes `notfound` and a screen for it where the app draws a
+    // route per stack entry, whether the route element is under an `if` or
+    // stands for every entry (a blank screen for one no branch names).
+    let source = r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          if e.name == "home"
+            text "Home" testId="home"
+          if e.name == "detail"
+            text "Detail" testId="detail"
+"#;
+    let under_when = source
+        .replace(
+            "        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          if e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          if e.name == \"detail\"\n            text \"Detail\" testId=\"detail\"\n",
+            "        if e.name == \"home\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Home\" testId=\"home\"\n        if e.name == \"detail\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Detail\" testId=\"detail\"\n",
+        );
+    assert_ne!(under_when, source);
+    for source in [source, under_when.as_str()] {
+        let plan = contract::compile(source).unwrap();
+        let notfound: Vec<_> = plan.routes.iter().filter(|r| r.notfound).collect();
+        assert_eq!(notfound.len(), 1, "the compiler wrote one `notfound` route");
+        assert_eq!(plan.str(notfound[0].name), "notfound");
+        let mut r = boot(plan, "/absent/path?q=1");
+        // The location stays: no refusal, the root beneath it, the screen over it.
+        assert_eq!(r.take_router_change().unwrap().url, "/absent/path?q=1");
+        assert!(!r.journal().any(|l| l.contains("refused")));
+        let nav = state(&r)["slots"]["nav"].clone();
+        let stack = selected(&nav);
+        assert_eq!(stack.len(), 2);
+        assert_eq!(stack[0]["name"], "home");
+        assert_eq!(stack[1]["name"], "notfound");
+        assert_rows(&r);
+        let k = r.kernel();
+        assert_eq!(k.find_by_test_id("not-found").len(), 1);
+        let message = k.node_by_key(k.find_by_test_id("not-found-message")[0]);
+        assert_eq!(
+            message.unwrap().props.str(PropId::Text),
+            Some("There is no page at /absent/path?q=1.")
+        );
+        // A way home: a link to the first screen, which the platform follows as the router's own
+        // `go` (no `navigate` handler here), the not-found entry gone.
+        let link = r.kernel().find_by_test_id("not-found-home")[0];
+        assert_eq!(
+            r.kernel()
+                .node_by_key(link)
+                .unwrap()
+                .props
+                .str(PropId::Href),
+            Some("/")
+        );
+        r.host_go("/").unwrap().unwrap();
+        assert_eq!(r.take_router_change().unwrap().url, "/");
+        assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
+        assert!(r.kernel().find_by_test_id("not-found").is_empty());
+        assert_eq!(r.kernel().find_by_test_id("home").len(), 1);
+        assert_rows(&r);
+    }
+    // An app that writes `notfound` draws its own; one with no navigation
+    // root has no screen to draw it in, and keeps the table it wrote.
+    let own = source.replace(
+        "    detail \"/detail\"\n",
+        "    detail \"/detail\"\n  notfound\n",
+    );
+    let plan = contract::compile(&own).unwrap();
+    assert_eq!(plan.routes.iter().filter(|r| r.notfound).count(), 1);
+    let r = boot(plan, "/absent");
+    assert!(r.kernel().find_by_test_id("not-found").is_empty());
+    let bare = "routes nav\n  home \"/\"\ncomponent App\n  view\n    text top(nav).url\n";
+    assert!(contract::compile(bare)
+        .unwrap()
+        .routes
+        .iter()
+        .all(|r| !r.notfound));
+}
+
+#[test]
 fn a_route_scroll_names_an_element_of_the_route_that_scrolls_on_y() {
     // @ref LLP 1075.003 §3.5 — `navigationScroll` names the route's content
     // scroller by HTML id; refused only where that provably fails.
@@ -777,7 +860,7 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` NAMED position="absolute" inset=0 display="flex" flex-direction="column"
           header
             text "Title"
@@ -802,7 +885,7 @@ component Pane
         // What the compiler cannot see through is given the benefit.
         "column id=e.url",
         "column id=\"list\" overflow-y=(e.url == \"/\" ? \"auto\" : \"hidden\")",
-        "when e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
+        "if e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
         "Pane(name=\"list\")",
         // A computed id may name the scroller beside a static still box.
         "column id=\"list\"\n          scroll id=e.url flex=1 min-height=0",

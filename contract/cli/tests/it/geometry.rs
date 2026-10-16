@@ -378,6 +378,394 @@ fn element_from_point_names_the_front_most_box_by_its_nearest_id() {
     assert_eq!(at(&mut r, 10.0, 5000.0), "none");
 }
 
+#[test]
+fn elements_from_point_reads_every_own_id_in_paint_order() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state first = ""
+  action probe
+    hits = elementsFromPoint(10, 10)
+    first = match elementFromPoint(10, 10) { case some(id) => id, case none => "" }
+  view
+    column id="back" width=100 height=100 position="relative"
+      column id="front" width=50 height=50
+      column id="overlay" position="absolute" left=0 top=0 width=40 height=40
+      column id="passed" position="absolute" left=0 top=0 width=40 height=40 pointer-events="none"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("overlay"),
+            Value::str("front"),
+            Value::str("back")
+        ]))
+    );
+    assert_eq!(r.slot("first"), Some(&Value::str("overlay")));
+}
+
+#[test]
+fn elements_from_point_keeps_the_first_entry_when_an_idless_child_overflows() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state first = ""
+  action probe
+    hits = elementsFromPoint(110, 5)
+    first = match elementFromPoint(110, 5) { case some(id) => id, case none => "" }
+  view
+    column width=200 height=100 position="relative"
+      column id="under" position="absolute" left=100 top=0 width=50 height=50
+      column id="parent" position="relative" width=10 height=10
+        column position="absolute" left=100 top=0 width=50 height=50
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(r.slot("first"), Some(&Value::str("parent")));
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("parent"),
+            Value::str("under")
+        ]))
+    );
+}
+
+#[test]
+fn elements_from_point_skips_an_idless_inspect_layer_inside_its_card() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state first = ""
+  action probe
+    hits = elementsFromPoint(10, 10)
+    first = match elementFromPoint(10, 10) { case some(id) => id, case none => "" }
+  view
+    column id="paint-surface-card" width=100 height=100 position="relative"
+      button id="paint-primary-save" width=50 height=50
+        text "Save"
+      column testId="layer" position="absolute" left=0 top=0 width=100 height=100
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(r.slot("first"), Some(&Value::str("paint-surface-card")));
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("paint-primary-save"),
+            Value::str("paint-surface-card")
+        ]))
+    );
+}
+
+#[test]
+fn query_selector_all_reads_mounted_data_words_in_tree_order() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state show = true
+  action probe
+    hits = querySelectorAll("[data-paint~=\"accent\"]")
+  action hide
+    show = false
+  view
+    column
+      text "first" id="first" data-paint="accent muted"
+      text "other" id="other" data-paint="muted"
+      if show
+        text "second" id="second" data-paint="accent"
+      text "hidden" id="hidden" data-paint="accent" display="none"
+      column inert=true
+        text "inert" id="inert" data-paint="accent"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("first"),
+            Value::str("second")
+        ]))
+    );
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("first"),
+            Value::str("second")
+        ]))
+    );
+    r.act("hide", vec![]).unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("first")]))
+    );
+}
+
+#[test]
+fn query_selector_all_excludes_closed_top_layer_and_native_split_list() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state point = []
+  action probe
+    hits = querySelectorAll("[data-paint~=\"accent\"]")
+    point = elementsFromPoint(10, 10)
+  view
+    main navigationBack="back" navigationKey="detail" width=100 height=100
+      column navigationKey="list" navigationSplit=320 position="absolute" width=100 height=100
+        button id="save" data-paint="accent" width=100 height=100
+          text "Save"
+      column navigationKey="detail" position="absolute" width=100 height=100
+        button id="detail" data-paint="accent" width=100 height=100
+          text "Detail"
+      column id="menu" popover="auto"
+        button id="closed-menu-item" data-paint="accent"
+          text "Closed"
+      dialog id="closed-dialog"
+        button id="closed-dialog-item" data-paint="accent"
+          text "Closed"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.set_viewport(1000.0, 800.0).unwrap();
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, Offer::definite(1000.0, 800.0))
+        .unwrap();
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("detail")]))
+    );
+    assert_eq!(
+        r.slot("point"),
+        Some(&Value::list(vec![Value::str("detail")]))
+    );
+    let menu = r.kernel().find_by_id("menu")[0];
+    let dialog = r.kernel().find_by_id("closed-dialog")[0];
+    let open = [menu, dialog].map(|key| r.kernel().arena().local_id(key.index));
+    r.top_layer(&open);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("detail"),
+            Value::str("closed-menu-item"),
+            Value::str("closed-dialog-item")
+        ]))
+    );
+}
+
+#[test]
+fn elements_from_point_skips_inert_subtrees() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  action probe
+    hits = elementsFromPoint(10, 10)
+  view
+    column width=100 height=100 position="relative"
+      button id="behind" width=50 height=50
+        text "Behind"
+      column inert=true position="absolute" left=0 top=0 width=50 height=50
+        button id="inert-child" width=50 height=50
+          text "Inert"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("behind")]))
+    );
+}
+
+#[test]
+fn open_top_layer_escapes_its_authored_clip() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  action probe
+    hits = elementsFromPoint(80, 10)
+  view
+    column width=200 height=100 position="relative"
+      column width=20 height=20 overflow="hidden"
+        dialog id="dialog" position="absolute" left=70 top=0 width=50 height=50
+          button id="dialog-button" width=50 height=50
+            text "Open"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let key = r.kernel().find_by_id("dialog")[0];
+    r.top_layer(&[r.kernel().arena().local_id(key.index)]);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("dialog-button"),
+            Value::str("dialog")
+        ]))
+    );
+}
+
+#[test]
+fn top_layer_uses_presented_frames_and_stack_order() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state left = 0
+  action probe
+    hits = elementsFromPoint(125, 15)
+    left = frame("front").x
+  view
+    column width=200 height=100 position="relative"
+      column width=20 height=20 overflow="hidden"
+        dialog id="back" width=50 height=50
+        dialog id="front" width=50 height=50
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let view = |id| {
+        let key = r.kernel().find_by_id(id)[0];
+        r.kernel().arena().local_id(key.index)
+    };
+    let back = view("back");
+    let front = view("front");
+    r.top_layer_frames(
+        &[
+            (back, [120.0, 10.0, 50.0, 50.0]),
+            (front, [120.0, 10.0, 50.0, 50.0]),
+        ],
+        None,
+    );
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("front"), Value::str("back")]))
+    );
+    assert_eq!(r.slot("left"), Some(&Value::Number(120.0)));
+}
+
+#[test]
+fn structural_reads_skip_a_covered_stack_route() {
+    let plan = contract::compile(
+        r#"component App
+  state matches = []
+  state hits = []
+  action probe
+    matches = querySelectorAll("[data-paint~=\"accent\"]")
+    hits = elementsFromPoint(10, 10)
+  view
+    main navigationBack="back" navigationKey="detail" width=100 height=100
+      column navigationKey="list" position="absolute" width=100 height=100
+        button id="list-save" data-paint="accent" width=100 height=100
+          text "List"
+      column navigationKey="detail" position="absolute" width=100 height=100
+        button id="detail-save" data-paint="accent" width=100 height=100
+          text "Detail"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("matches"),
+        Some(&Value::list(vec![Value::str("detail-save")]))
+    );
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("detail-save")]))
+    );
+}
+
 /// b6 review B2: `contentRect`'s `x` and `y` are the padding's left and
 /// top, as ResizeObserver reports them; the border is outside the padding
 /// box the rect is placed in. A percentage padding is of the containing
@@ -510,5 +898,72 @@ fn a_column_childs_percentage_padding_is_of_the_column() {
         (child.x, child.y, child.width, child.height),
         (20.0, 20.0, 160.0, 20.0),
         "10% of the 200-wide column"
+    );
+}
+
+#[test]
+fn intersect_compiles_and_dispatches_its_entry_after_authored_arguments() {
+    contract::compile("component App\n  state calls = 0\n  action seen\n    calls = calls + 1\n  view\n    box intersect=seen intersect-margin=\"20px 5%\"\n").unwrap();
+    let plan = contract::compile(
+        r#"component App
+  state seen = "none"
+  action observe(label: string, e: IntersectionObserverEntry)
+    seen = `${label}:${e.isIntersecting}:${e.intersectionRatio}`
+  view
+    box id="row" intersect=observe("row") intersect-margin="20px 5%"
+"#,
+    )
+    .unwrap();
+    assert_eq!(plan.handlers[0].event, exact_plan::EventKind::Intersect);
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_id("row")[0];
+    let view = r.kernel().arena().local_id(key.index);
+    for (payload, expected) in [
+        ("0,0", "row:false:0"),
+        ("1,0.25", "row:true:0.25"),
+        ("1,0", "row:true:0"),
+        ("1,1", "row:true:1"),
+    ] {
+        r.dispatch(
+            view,
+            exact_runner::Event::of_host_kind(45, payload).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r.slot("seen").and_then(Value::as_str), Some(expected));
+    }
+    for bad in [
+        "true,1", "1,-1", "1,1.1", "1,NaN", "1,inf", "1,0,0", "0,0.5",
+    ] {
+        assert!(exact_runner::Event::of_host_kind(45, bad).is_err(), "{bad}");
+    }
+    for margin in ["0px", "-20px 5%", ".5px 1px 2% 3px", "1e2px"] {
+        contract::compile(&format!(
+            "component App\n  view\n    box intersect-margin={margin:?}\n"
+        ))
+        .unwrap();
+    }
+    for margin in ["", "0", "10em", "auto", "NaNpx", "1px 2px 3px 4px 5px"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    box intersect-margin={margin:?}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "lower-intersect-margin", "{margin}: {error:?}");
+    }
+    let error = contract::compile(
+        "component App\n  state margin = \"10px\"\n  view\n    box intersect-margin=margin\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-intersect-margin");
+    let error = contract::compile("component App\n  action seen(e: ScrollEvent)\n    let x = e.scrollTop\n  view\n    box intersect=seen\n").unwrap_err();
+    assert!(
+        error.id.starts_with("type") || error.id.starts_with("analyze"),
+        "{error:?}"
     );
 }

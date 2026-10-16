@@ -98,7 +98,10 @@ impl Lowerer<'_> {
             // `let`s first, as a block of their own, whose locals drop before
             // the next statement. No call opcode: the plan never sees one.
             Stmt::Call { body, .. } => self.block(asm, body, scope, locals)?,
-            Stmt::Command { name, args, .. } => {
+            Stmt::Command { name, args, span } => {
+                if name == "setMode" {
+                    crate::theme::set_mode_args(args, *span)?;
+                }
                 let args = expr::command_args(name, args);
                 for arg in &args {
                     expr::compile_or_none(self, asm, *arg, scope, locals)?;

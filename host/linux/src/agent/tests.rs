@@ -6,14 +6,6 @@ use exact_runner::{DataError, Value};
 // The clipboard, keys, modifiers and mouse contacts.
 mod input;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
-
 /// A source whose one request is handed to work that never replies: the
 /// reply is leaked, so neither an outcome nor the drop's abort arrives.
 #[derive(Default)]
@@ -77,7 +69,7 @@ impl DataSource for Echo {
 #[test]
 fn a_jump_lands_every_reply_and_fires_every_timer_due() {
     let plan = contract::compile(
-        "component App\n  state count = 0\n  mutation result as shape number\n  action ping\n    send result = save()\n  action tock\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text toString(count)\n",
+        "component App\n  state count = 0\n  mutation result as shape number\n  action ping\n    send result = save()\n  action tock\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text count.toString()\n",
     )
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
@@ -112,17 +104,17 @@ fn tree_answers_its_target() {
         "component App\n  view\n    column testId=\"outer\"\n      column testId=\"inner\"\n        text \"a\" testId=\"a\"\n      text \"b\" testId=\"b\"\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
     )
     .unwrap();
-    let ids = |p: &mut Presenter<NoData>, request: &str| -> Vec<String> {
+    let ids = |p: &mut Presenter<()>, request: &str| -> Vec<String> {
         let reply: serde_json::Value = serde_json::from_str(&handle(p, request)).unwrap();
         reply["nodes"]
             .as_array()
@@ -161,10 +153,10 @@ fn a_password_value_is_masked_in_every_reply() {
         "component App\n  state secret = \"\"\n  action onInput(v: string)\n    secret = v\n  view\n    column width=300\n      input type=\"password\" value=secret input=onInput testId=\"bound\" height=24\n      input type=\"password\" testId=\"loose\" height=24\n      input type=\"password\" testId=\"empty\" height=24\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -225,17 +217,17 @@ fn prefer_sets_the_display_preferences_by_their_media_names() {
         "shape M\n  prefersReducedMotion: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  view\n    text (m.prefersReducedMotion ? \"still\" : \"moving\") testId=\"t\"\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
     )
     .unwrap();
-    let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
+    let text = |p: &mut Presenter<()>| handle(p, r#"{"op":"tree"}"#);
     assert!(text(&mut p).contains("moving"));
     let refused = handle(
         &mut p,
@@ -269,17 +261,17 @@ fn prefer_sets_contrast_scheme_and_the_page_facts() {
         "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\n  canOpenFiles: bool\n  hasFocus: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"} ${g.canOpenFiles ? \"pickers\" : \"no-pickers\"} ${g.hasFocus ? \"focus\" : \"no-focus\"}` testId=\"t\"\n",
     )
     .unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
     )
     .unwrap();
-    let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
+    let text = |p: &mut Presenter<()>| handle(p, r#"{"op":"tree"}"#);
     assert!(
         text(&mut p).contains("no-preference light visible online no-share no-pickers focus"),
         "{}",
@@ -399,7 +391,7 @@ fn clock_data_lands_the_replies_without_moving_the_clock() {
 #[test]
 fn a_held_device_request_is_answered_by_ticket_and_never_waited_on() {
     let plan = contract::compile(
-        "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  action hide\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      when show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
+        "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  action hide\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      if show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
     )
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
@@ -529,7 +521,7 @@ fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
     let plan = contract::compile("component App\n  view\n    text \"x\" height=20\n").unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -543,7 +535,7 @@ fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
     };
     assert!(p.set_place(&place).is_none());
     assert!(p.set_time(1_772_960_400_000.0, -480.0).is_none());
-    let offset = |p: &mut Presenter<NoData>| {
+    let offset = |p: &mut Presenter<()>| {
         let state: serde_json::Value =
             serde_json::from_str(&handle(p, r#"{"op":"state"}"#)).unwrap();
         state["time"]["utcOffset"].clone()
@@ -562,12 +554,12 @@ fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
 #[test]
 fn a_picker_is_held_and_answered_by_ticket() {
     let plan = contract::compile(
-        "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>)\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${length(files)} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
+        "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: Picked[])\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${files.length} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
     )
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -642,6 +634,58 @@ fn a_picker_is_held_and_answered_by_ticket() {
 }
 
 #[test]
+fn an_unrestricted_picker_copies_an_unknown_file_under_the_agent() {
+    let plan = contract::compile(
+        "component App\n  state picked = \"none\"\n  action choose\n    showPicker(\"attach\")\n  action attach(files: Picked[])\n    picked = match first(files) { case some(f) => `${f.path} ${f.size}`, case none => \"empty\" }\n  view\n    column width=300 height=300\n      input type=\"file\" id=\"attach\" display=\"none\" change=attach\n      button press=choose testId=\"choose\"\n        text \"Choose\"\n      text picked testId=\"picked\"\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let dir = std::env::temp_dir().join(format!("exact-any-picker-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("archive.xyz");
+    std::fs::write(&file, b"any bytes").unwrap();
+    let choose = p
+        .host()
+        .kernel()
+        .node_by_key(p.host().kernel().find_by_test_id("choose")[0])
+        .unwrap()
+        .id;
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{choose}}}"#));
+    let state: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(
+        state["pending"][0]["device"]["args"]["accept"],
+        serde_json::json!([])
+    );
+    let ticket = state["pending"][0]["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(
+            r#"{{"op":"type","ticket":{ticket},"text":{}}}"#,
+            serde_json::Value::from(file.to_string_lossy().into_owned())
+        ),
+    );
+    let state: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    let picked = state["slots"]["picked"].as_str().unwrap();
+    assert!(
+        picked.starts_with("app:/tmp/picked/") && picked.ends_with(".xyz 9"),
+        "{picked}"
+    );
+    let copied = crate::picker::resolve(picked.split(' ').next().unwrap()).unwrap();
+    assert_eq!(std::fs::read(copied).unwrap(), b"any bytes");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn settle_takes_one_bound_for_a_request_that_never_answers() {
     let plan = contract::compile(
         "component App\n  resource item = item() as shape bool else fallback()\n  view\n    text \"x\" height=20\n",
@@ -675,7 +719,7 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
     let plan = contract::compile("component App\n  view\n    view width=\"100%\" height=\"100%\" background-color=\"#f00\"\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (390.0, 844.0),
         1.0,
         std::path::PathBuf::new(),
@@ -723,7 +767,7 @@ fn close_is_refused_by_name() {
     let plan = contract::compile("component App\n  view\n    text \"a\"\n").unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (390.0, 844.0),
         1.0,
         std::path::PathBuf::new(),
@@ -742,7 +786,7 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
     let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text input=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -750,11 +794,11 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let log = |p: &Presenter<NoData>| {
+    let log = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
         node.props
@@ -790,10 +834,10 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
 /// `hover` out of the row that slid away, into the one that slid under it.
 #[test]
 fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
-    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = slice(rows, 1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      each r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
+    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = rows.slice(1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      for r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -801,11 +845,11 @@ fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let log = |p: &Presenter<NoData>| {
+    let log = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
         node.props
@@ -829,7 +873,7 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  state due = \"\"\n  state noted = \"\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  action note(value: string)\n    noted = value\n  action level(value: number)\n    noted = `${value}`\n  view\n    column width=300\n      input type=\"date\" value=due change=note testId=\"due\"\n      input type=\"range\" value=10 change=level testId=\"level\"\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -837,11 +881,11 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let log = |p: &Presenter<NoData>| {
+    let log = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
         node.props
@@ -922,7 +966,7 @@ fn media_is_reported_unavailable() {
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -1053,7 +1097,7 @@ impl DataSource for Saving {
 #[test]
 fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
     let plan = contract::compile(
-        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text item.toString() testId=\"item\" height=20\n",
     )
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
@@ -1083,7 +1127,7 @@ fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
 #[test]
 fn an_orderly_exit_finishes_background_storage() {
     let plan = contract::compile(
-        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text item.toString() testId=\"item\" height=20\n",
     )
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
@@ -1099,4 +1143,69 @@ fn an_orderly_exit_finishes_background_storage() {
     crate::teardown::finish(&mut p, crate::teardown::EXIT_BOUND);
     assert_eq!(p.host().runner().background_operations(), 0);
     assert!(!p.host().runner().has_pending());
+}
+
+/// `prefer mode` (LLP 1121 D13): the app's `setMode` for each pin, the
+/// scheme left as it is; an axis or value the design lacks is refused.
+#[test]
+fn prefer_mode_sets_the_apps_modes() {
+    let dir = std::env::temp_dir().join(format!("exact-linux-prefer-mode-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  dark-style = black | dim\n\ntheme\n  page = #000000\n    when dark-style=dim: #161e27\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column background-color=\"page\" testId=\"page\"\n      text \"a\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let refused = handle(&mut p, r#"{"op":"prefer","mode":{"dark-style":"grey"}}"#);
+    assert!(refused.contains("\"error\""), "{refused}");
+    // A refused fact beside a good pin applies nothing.
+    let refused = handle(
+        &mut p,
+        r#"{"op":"prefer","mode":{"dark-style":"dim"},"media":{"color-gamut":"p3"}}"#,
+    );
+    assert!(refused.contains("\"error\""), "{refused}");
+    assert_eq!(p.host().runner().modes()[0].1, "black");
+    let reply: serde_json::Value = serde_json::from_str(&handle(
+        &mut p,
+        r#"{"op":"prefer","mode":{"dark-style":"dim"}}"#,
+    ))
+    .unwrap();
+    assert_eq!(reply["mode"]["dark-style"], "dim", "{reply}");
+    assert_eq!(
+        reply["media"]["prefers-color-scheme"], "light",
+        "the scheme stays"
+    );
+    let kernel = p.host().runner().kernel();
+    let page = kernel
+        .node_by_key(kernel.find_by_test_id("page")[0])
+        .unwrap();
+    assert_eq!(
+        format!(
+            "{:?}",
+            page.computed(exact_kernel::StyleId::BackgroundColor)
+        ),
+        format!(
+            "{:?}",
+            exact_kernel::RowValue::ColorValue(exact_kernel::ColorValue::Fixed(
+                exact_kernel::Color::parse("#161e27").unwrap()
+            ))
+        ),
+    );
 }

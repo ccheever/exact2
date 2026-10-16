@@ -88,10 +88,6 @@ fn stop_positions_follow_the_css_fix_up() {
 fn what_is_not_drawn_is_refused_by_name() {
     for (css, says) in [
         (
-            "repeating-linear-gradient(#000, #fff 10%)",
-            "repeating-linear-gradient",
-        ),
-        (
             "repeating-radial-gradient(#000, #fff 10%)",
             "repeating-radial-gradient",
         ),
@@ -103,7 +99,7 @@ fn what_is_not_drawn_is_refused_by_name() {
         ("conic-gradient(from up, #000, #fff)", "`from` takes an angle"),
         ("conic-gradient(#000 10px, #fff)", "percentage or an angle"),
         ("linear-gradient(#000, 30%, #fff)", "colour hints"),
-        ("linear-gradient(#000 10px, #fff)", "percentage"),
+        ("linear-gradient(#000 10em, #fff)", "colour"),
         ("linear-gradient(#000 -10%, #fff 120%)", "0% to 100%"),
         ("linear-gradient(#000)", "at least two"),
         ("linear-gradient(red, blurple)", "stop's colour"),
@@ -130,7 +126,7 @@ fn what_is_not_drawn_is_refused_by_name() {
     for (css, says) in [
         (
             "repeating-linear-gradient(0deg,  0 1px, transparent 1px)",
-            Some("repeating-linear"),
+            None,
         ),
         (
             "linear-gradient(#000, #fff), url( )",
@@ -278,6 +274,7 @@ fn generated_patch_codec_round_trips_and_refuses_bad_wire_data() {
     assert!(!StyleId::BackgroundImage.affects_layout());
     let mut bad = Writer::new();
     bad.style_mask(StyleMask::of(StyleId::BackgroundImage));
+    bad.style_mask(StyleMask::EMPTY);
     bad.string("repeating-conic-gradient(#000, #fff)");
     assert_eq!(
         StyleProps::decode_patch(&mut Reader::new(bad.as_slice())),
@@ -420,4 +417,73 @@ fn light_dark_interpolation_uses_the_resolved_half() {
     );
     assert!(g.interpolated(false).is_none());
     assert!(g.interpolated(true).is_some());
+}
+
+#[test]
+fn repeating_hatch_and_length_stops_round_trip() {
+    for css in [
+        "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)",
+        "linear-gradient(-45deg, transparent 0px 4.243px, #e6e6e6 4.243px 5.657px)",
+        "linear-gradient(to right, red 10px, green, blue 75%)",
+    ] {
+        let image = BackgroundImage::check(css).unwrap_or_else(|why| panic!("{css}: {why}"));
+        assert_eq!(BackgroundImage::check(&image.wire()).unwrap(), image);
+    }
+}
+
+#[test]
+fn length_fix_up_uses_the_painted_size_and_repetition_keeps_its_period() {
+    let hatch = BackgroundImage::parse(
+        "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)",
+    )
+    .unwrap();
+    let (ramp, _) = hatch.gradient().unwrap().placed(100.0, 70.0, false);
+    for pair in ramp.stops.chunks_exact(4).collect::<Vec<_>>().windows(2) {
+        assert_eq!(pair[0][3].at, pair[1][0].at);
+    }
+    assert!(ramp.stops.windows(2).all(|pair| pair[0].at <= pair[1].at));
+    let gradient = parse("linear-gradient(to right, red 20px, green, blue 80%)");
+    for (width, expected) in [(100.0, [20.0, 50.0, 80.0]), (200.0, [10.0, 45.0, 80.0])] {
+        let (ramp, _) = gradient.placed(width, 50.0, false);
+        assert_eq!(
+            ramp.stops.iter().map(|s| s.at).collect::<Vec<_>>(),
+            expected
+        );
+    }
+    let gradient = parse("repeating-linear-gradient(90deg, black 2px 4px, white 4px 10px)");
+    let (ramp, geometry) = gradient.placed(100.0, 50.0, false);
+    let Geometry::Linear { start, end } = geometry else {
+        panic!()
+    };
+    let positions: Vec<_> = ramp
+        .stops
+        .iter()
+        .map(|s| start.0 + (end.0 - start.0) * s.at / 100.0)
+        .collect();
+    assert!(positions
+        .windows(5)
+        .step_by(4)
+        .all(|s| (s[4] - s[0] - 8.0).abs() < 0.0001));
+    assert!(positions[0] <= 0.0 && *positions.last().unwrap() >= 100.0);
+}
+
+#[test]
+fn zero_period_repetition_matches_chromes_last_stop() {
+    // Chrome 155, scripts/fixtures/gradients.web.png: blue, blue, white.
+    for (stops, expected) in [
+        ("red 0px, blue 0px", Color::rgba(0, 0, 255, 255)),
+        ("red 0px, lime 0px, blue 0px", Color::rgba(0, 0, 255, 255)),
+        (
+            "red 0px, lime 0px, blue 0px, white 0px",
+            Color::rgba(255, 255, 255, 255),
+        ),
+    ] {
+        let (solid, _) = parse(&format!("repeating-linear-gradient(to right, {stops})"))
+            .placed(100.0, 70.0, false);
+        assert_eq!(
+            solid.resolved(false),
+            vec![(0.0, expected), (1.0, expected)],
+            "{stops}"
+        );
+    }
 }

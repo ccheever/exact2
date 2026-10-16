@@ -29,6 +29,9 @@ pub struct Store {
     /// A child executor may see only the intersection with its own grants.
     restricted: bool,
     values: exact_kernel::SortedMap<String, Vec<u8>>,
+    /// The snapshot it opened with held a granted secret (LLP 1027 D4,
+    /// 2026-10-10): a launch's fact, unchanged by later writes.
+    opened_with_secrets: bool,
     writes: Vec<StoreWrite>,
     /// Monotonic within a transaction; restored with a refused transaction.
     revision: u64,
@@ -40,6 +43,14 @@ pub struct Store {
     /// Device topics the answer being made watches (`native.watch`, LLP
     /// 1016.002): taken by the runner after each answer.
     topics: std::cell::RefCell<Vec<String>>,
+    /// Socket operations the mutation being answered staged, by the index
+    /// of the resource that owns each socket (LLP 1016.000 D7): taken by
+    /// the runner after each mutation's answer, which publishes them only
+    /// if the answer stands.
+    sockets: Vec<(usize, crate::SocketOp)>,
+    /// Each open socket's buffered bytes at the start of the turn, by its
+    /// resource's index: what its handle's `bufferedAmount` starts from.
+    socket_buffered: Vec<(usize, u64)>,
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
@@ -187,18 +198,22 @@ impl Store {
         let values = snapshot
             .into_iter()
             .filter(|(n, _)| granted.iter().any(|g| g == n) || Store::is_kept(n))
-            .collect();
+            .collect::<exact_kernel::SortedMap<_, _>>();
+        let opened_with_secrets = values.keys().any(|n| !Store::is_kept(n));
         Store {
             granted,
             scope_reader,
             unparsed,
             restricted: false,
             values,
+            opened_with_secrets,
             writes: Vec::new(),
             revision: 0,
             reads: std::cell::Cell::new(0),
             entropy: std::cell::Cell::new(0),
             topics: Default::default(),
+            sockets: Vec::new(),
+            socket_buffered: Vec::new(),
             undo: Vec::new(),
             copied: 0,
         }
@@ -314,6 +329,13 @@ impl Store {
         }
     }
 
+    /// Whether the snapshot this store opened with held a granted secret:
+    /// then an empty-store answer the bake computed does not describe this
+    /// device (LLP 1027 D4, 2026-10-10). Uncounted, the runner's question.
+    pub(crate) fn opened_with_secrets(&self) -> bool {
+        self.opened_with_secrets
+    }
+
     /// The kept value under `name` — `None` when nothing is kept, or when
     /// `name` is not granted (the same fact, as `process.env` has it), or
     /// when what is kept is not text.
@@ -331,10 +353,16 @@ impl Store {
     }
 
     /// Keep `value` under `name`, replacing what was there; refused outside
-    /// the grant.
+    /// the grant. Keeping what is already kept changes nothing, as Web
+    /// Storage's `setItem` does nothing then: no revision and no write, so a
+    /// source that writes as it answers does not make the store's readers
+    /// stale with a value they already have.
     pub fn set(&mut self, name: &str, value: &str) -> Result<(), StoreError> {
         if !self.is_granted(name) {
             return Err(self.refused(name));
+        }
+        if self.values.get(name).map(Vec::as_slice) == Some(value.as_bytes()) {
+            return Ok(());
         }
         self.remember(name);
         self.values.insert(name.to_string(), value.into());
@@ -423,6 +451,28 @@ impl Store {
         if !topics.iter().any(|t| t == topic) {
             topics.push(topic.to_owned());
         }
+    }
+
+    /// Stage `op` on the socket of resource `resource` for the mutation
+    /// being answered (LLP 1016.000 D7).
+    pub fn stage_socket(&mut self, resource: usize, op: crate::SocketOp) {
+        self.sockets.push((resource, op));
+    }
+
+    /// Set the turn's socket snapshot (see `socket_buffered`).
+    pub fn set_socket_buffered(&mut self, snapshot: Vec<(usize, u64)>) {
+        self.socket_buffered = snapshot;
+    }
+
+    /// Each open socket's buffered bytes at the start of this turn, by the
+    /// index of the resource that owns it.
+    pub fn socket_buffered(&self) -> &[(usize, u64)] {
+        &self.socket_buffered
+    }
+
+    /// The socket operations staged since the last take.
+    pub fn take_sockets(&mut self) -> Vec<(usize, crate::SocketOp)> {
+        std::mem::take(&mut self.sockets)
     }
 
     /// The topics watched since the last take.
@@ -561,5 +611,17 @@ mod tests {
         });
         assert_eq!(parent.unparsed(), None);
         assert!(parent.set("a", "1").is_ok());
+    }
+
+    #[test]
+    fn keeping_what_is_kept_is_no_change() {
+        let mut store = Store::new("secret.keep token\n", [("token".into(), "same".into())]);
+        let before = store.revision();
+        store.set("token", "same").unwrap();
+        assert_eq!(store.revision(), before);
+        assert!(store.take_writes().is_empty());
+        store.set("token", "new").unwrap();
+        assert_eq!(store.revision(), before + 1);
+        assert_eq!(store.take_writes().len(), 1);
     }
 }

@@ -106,9 +106,50 @@ fn a_heading_is_its_levels_text_style_at_the_root_size_unless_written() {
     assert_eq!(size(&r, "h3"), 15.0);
 }
 
+// @ref LLP 1116.007 D3.2 — round 9's builders wrote the role's number after a hyphen.
+#[test]
+fn a_text_styles_number_may_follow_a_hyphen() {
+    let mut src = String::from("component App\n  view\n    column\n");
+    for (i, name) in ["title1", "title2", "title3", "caption1", "caption2"]
+        .iter()
+        .enumerate()
+    {
+        let (head, number) = name.split_at(name.len() - 1);
+        src += &format!(
+            "      text testId=\"a{i}\" font=\"-exact-{name}\" \"x\"\n      text testId=\"b{i}\" font=\"-exact-{head}-{number}\" \"x\"\n      text testId=\"c{i}\" font-size=\"-exact-{head}-{number}\" \"x\"\n"
+        );
+    }
+    let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{e}"));
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(r.set_root_font_size(17.0).unwrap().is_some());
+    for (i, size) in [28.0, 22.0, 20.0, 12.0, 11.0].into_iter().enumerate() {
+        for prefix in ["a", "b", "c"] {
+            let id = format!("{prefix}{i}");
+            assert_eq!(number(&r, &id, StyleId::FontSize), size, "{id}");
+        }
+        assert_eq!(
+            number(&r, &format!("b{i}"), StyleId::FontWeight),
+            number(&r, &format!("a{i}"), StyleId::FontWeight),
+            "b{i}"
+        );
+    }
+}
+
 #[test]
 fn font_takes_only_a_text_style() {
-    for value in ["\"bold 16px Helvetica\"", "16", "\"-exact-title9\""] {
+    for value in [
+        "\"bold 16px Helvetica\"",
+        "16",
+        "\"-exact-title9\"",
+        "\"-exact-title-4\"",
+    ] {
         let src = format!("component App\n  view\n    text font={value} \"x\"\n");
         let e = contract::compile(&src).expect_err(value).to_string();
         assert!(

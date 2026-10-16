@@ -65,6 +65,23 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The platform's colours resolve differently (the device's shell
+    /// reported its palette, LLP 1115.001 D4): every paint owner re-targets
+    /// under its appearance, as the Apple host's does (LLP 1095 D6).
+    /// `first`: the first report, a correction in place without motion.
+    pub(crate) fn colors_changed(&mut self, first: bool) {
+        if let Some(retired) = self.paint.colors_changed(
+            self.runner.kernel(),
+            &mut self.engine,
+            self.now_ms / 1000.0,
+            first,
+        ) {
+            self.retire_paint(retired);
+            self.present();
+        }
+        self.flow_damage.repaint();
+    }
+
     /// Report a view's own appearance, following the same first-report
     /// correction and later transitions as the session's.
     pub fn set_view_scheme(&mut self, view: ViewId, dark: bool) {

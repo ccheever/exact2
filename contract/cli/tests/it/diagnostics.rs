@@ -385,20 +385,20 @@ fn unknown_types_list_named_choices_at_the_original_import() {
     );
     app.write("lib/contact.contract", "shape Contact\n  name: string\n");
     let source =
-        "use Contact from \"./contact.contract\"\nshape Wrapper\n  value: list<option<Contcat>>\n";
+        "use Contact from \"./contact.contract\"\nshape Wrapper\n  value: option<Contcat>[]\n";
     let model = app
         .write("lib/model.contract", source)
         .canonicalize()
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
     assert_eq!(errors[0]["line"], 3);
-    assert_eq!(errors[0]["col"], 22);
-    assert_eq!(errors[0]["end_col"], 29);
+    assert_eq!(errors[0]["col"], 17);
+    assert_eq!(errors[0]["end_col"], 24);
     let human = app.run(&[root.to_str().unwrap()]);
     assert_eq!(human.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&human.stderr).contains(&expected.message));
@@ -415,15 +415,15 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
         let root = app.write("app.contract", &format!("{prefix}{body}"));
         let error = contract::compile_path(&root).unwrap_err();
         // `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `KeyboardEvent`, `MarkdownSelection`,
-        // `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection` and
-        // `WheelEvent` are the clipboard, `drop`, `key`, `select`, `press`,
-        // file `change`, pointer, `reorderdrop`, scroll, `selectionchange` and wheel payloads
+        // `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`,
+        // `ToggleEvent` and `WheelEvent` are the clipboard, `drop`, `key`, `select`, `press`,
+        // file `change`, pointer, `reorderdrop`, scroll, `selectionchange`, `toggle` and wheel payloads
         // every file can name, `Geometry` what `frame` and `measure` answer, and
         // `Failure` what `failure(x)` does.
         let extra = if prefix.contains("Later") {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`"
         } else {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -434,7 +434,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Failure`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `ToggleEvent`, `WheelEvent`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
@@ -442,7 +442,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     assert_eq!(error.id, "type-unknown");
     assert!(error
         .message
-        .ends_with("`First`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"));
+        .ends_with("`First`, `FocusEvent`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `ToggleEvent`, `WheelEvent`"));
 }
 
 #[test]
@@ -719,7 +719,7 @@ fn an_imported_writes_clause_is_refused_at_its_token_and_symbols_show_the_inferr
     let unused =
         "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    text \"unused\"\n";
     let root = app.write("app.contract", used);
-    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
+    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(idle)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
     for root_source in [used, unused] {
         app.write("app.contract", root_source);
         let path = app
@@ -882,12 +882,21 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         "app.contract",
         "use Row from \"./row.contract\"\ncomponent App\n  view\n    Row()\n",
     );
-    for (typo, correct, argument) in [
-        ("lenght", "length", "\"hello\""),
-        ("toStrng", "toString", "42"),
-        ("toStringg", "toString", "42"),
-        ("formatTiem", "formatTime", "0, 0, \"short\""),
-        ("formatTme", "formatTime", "0, 0, \"short\""),
+    for (typo, correct, argument, repaired) in [
+        ("lenght", "x.length", "\"hello\"", "\"hello\".length"),
+        ("toStrng", "x.toString(…)", "42", "(42).toString()"),
+        (
+            "formatTiem",
+            "formatTime",
+            "0, 0, \"short\"",
+            "formatTime(0, 0, \"short\")",
+        ),
+        (
+            "formatTme",
+            "formatTime",
+            "0, 0, \"short\"",
+            "formatTime(0, 0, \"short\")",
+        ),
     ] {
         let source = format!("component Row\n  view\n    text `é ${{{typo}({argument})}}`\n");
         let path = app.write("row.contract", &source).canonicalize().unwrap();
@@ -911,7 +920,10 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         let human = app.run(&[root.to_str().unwrap()]);
         assert_eq!(human.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&human.stderr).contains(&error.message));
-        app.write("row.contract", &source.replace(typo, correct));
+        app.write(
+            "row.contract",
+            &source.replace(&format!("{typo}({argument})"), repaired),
+        );
         let repaired = contract::compile_path(&root).unwrap().encode();
         let output = app.run(&[root.to_str().unwrap(), "--json", "-o", "repaired.plan"]);
         assert!(diagnostics(&output, 0).is_empty());
@@ -993,7 +1005,7 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
     for (expression, id) in [
         ("length()", "type-arity"),
         ("floor(\"x\")", "type-argument"),
-        ("length(missing)", "type-unknown-name"),
+        ("missing.length", "type-unknown-name"),
     ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    text `${{{expression}}}`\n"
@@ -1051,7 +1063,7 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
         (format!("component App\n{action}  view\n    Row(commit=save)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=comimt\n"), "comimt", "commit"),
         (format!("component App\n{action}  provide\n    commit = save\n  view\n    Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=comimt()\n"), "comimt", "commit"),
         (format!("component App\n{action}  view\n    Row()\n      button \"Save\" press=svae\ncomponent Row\n  slot\n  view\n    column\n      children\n"), "svae", "save"),
-        (format!("component App\n{action}  task timer mount\n    every(1000, svae)\n  view\n    text toString(count)\n"), "svae", "save"),
+        (format!("component App\n{action}  task timer mount\n    every(1000, svae)\n  view\n    text count.toString()\n"), "svae", "save"),
     ] {
         let error = contract::compile(&source).unwrap_err();
         assert!(error.message.ends_with(&format!("; did you mean `{correct}`?")), "{error}");
@@ -1061,10 +1073,10 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
     // ambiguous correction; a generated spelling cannot be written. Global
     // functions are not handlers.
     for source in [
-        format!("component App\n  view\n    button \"Save\" press=svae\n    Row()\ncomponent Row\n{action}  view\n    text toString(count)\n"),
+        format!("component App\n  view\n    button \"Save\" press=svae\n    Row()\ncomponent Row\n{action}  view\n    text count.toString()\n"),
         format!("component App\n{action}  view\n    Row()\ncomponent Row\n  view\n    button \"Save\" press=svae\n"),
         format!("component App\n{action}  action sale\n    count = 1\n  view\n    button \"Save\" press=sace\n"),
-        format!("component App\n{action}  resource items = items() as shape list<number>\n  view\n    each save in items key=toString(save)\n      button \"Save\" press=svae\n"),
+        format!("component App\n{action}  resource items = items() as shape number[]\n  view\n    for save in items key=save.toString()\n      button \"Save\" press=svae\n"),
         format!("component App\n{action}  state chosen = some(1)\n  view\n    match chosen\n      case some(save)\n        button \"Save\" press=svae\n      case none\n        text \"None\"\n"),
         "fn save(): number = 1\ncomponent App\n  view\n    button \"Save\" press=svae()\n".into(),
     ] {
@@ -1073,7 +1085,7 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
         assert!(!error.message.contains("did you mean"), "{error}");
     }
     // A local in the opposite branch must not hide this arm's action.
-    let source = format!("component App\n{action}  state chosen = some(1)\n  view\n    column\n      match chosen\n        case some(save)\n          text toString(save)\n        case none\n          button \"Save\" press=svae\n");
+    let source = format!("component App\n{action}  state chosen = some(1)\n  view\n    column\n      match chosen\n        case some(save)\n          text save.toString()\n        case none\n          button \"Save\" press=svae\n");
     let error = contract::compile(&source).unwrap_err();
     assert!(error.message.ends_with("; did you mean `save`?"), "{error}");
     contract::compile(&source.replace("svae", "save")).unwrap();
@@ -1149,7 +1161,7 @@ fn action_hints_respect_call_intrinsics_and_function_precedence() {
         // intrinsic/function resolver, even when forwarded through a prop.
         for view in [
             format!("  view\n    button \"Save\" press={typo}\n"),
-            format!("  task timer mount\n    every(1000, {typo})\n  view\n    text toString(count)\n"),
+            format!("  task timer mount\n    every(1000, {typo})\n  view\n    text count.toString()\n"),
             format!("  view\n    Row(commit={typo})\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit\n"),
         ] {
             let source = format!("{declarations}{view}");
@@ -1268,7 +1280,7 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
     );
     app.write(
         "lib/fns.contract",
-        "fn mix(n: number, s: string, b: bool): string = b ? s : \"\"\nfn hello(): string = \"ok\"\nfn sizes(values: option<list<number>>): number = 0\nfn path(n: number): string = toString(n)\n",
+        "fn mix(n: number, s: string, b: bool): string = b ? s : \"\"\nfn hello(): string = \"ok\"\nfn sizes(values: option<number[]>): number = 0\nfn path(n: number): string = n.toString()\n",
     );
     let imports = "use mix from \"./fns.contract\"\nuse hello from \"./fns.contract\"\nuse sizes from \"./fns.contract\"\nuse path from \"./fns.contract\"\n";
     for (expr, id, message, marker, fixed) in [
@@ -1303,7 +1315,7 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
         (
             "sizes()",
             "type-arity",
-            "`sizes` takes 1 argument(s), given 0; expected `sizes(option<list<number>>)`",
+            "`sizes` takes 1 argument(s), given 0; expected `sizes(option<number[]>)`",
             "sizes",
             "sizes(none)",
         ),
@@ -1326,7 +1338,7 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
             "type-arity",
             "`length` takes 1 argument(s), given 0; expected `length(string | list)`",
             "length",
-            "length(\"abc\")",
+            "\"abc\".length",
         ),
         (
             "mix(1, false, true)",
@@ -1376,14 +1388,14 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
 #[test]
 fn deep_views_are_refused_without_aborting_the_compiler() {
     let app = App::new("view-depth");
-    for depth in [256, 400, 800] {
+    for depth in [255, 256, 257, 400, 800] {
         let mut source = String::from("component App\n  view\n");
         for level in 0..depth {
             source.push_str(&format!("{}column\n", " ".repeat(4 + level * 2)));
         }
         let path = app.write("app.contract", &source);
         let output = app.run(&[path.to_str().unwrap(), "--json", "-o", "out.plan"]);
-        if depth == 256 {
+        if depth <= 256 {
             assert!(output.status.success(), "{output:?}");
         } else {
             let errors = diagnostics(&output, 1);
@@ -1418,9 +1430,9 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     // D4 (kanban F5): an initializer's scope is said, not guessed at.
     let reads = "a state's initializer runs before any resource answers, and reads only props, injects and earlier states";
     says(
-        "shape Col\n  id: string\nshape Board\n  cols: list<Col>\ncomponent App\n  resource board = loadBoard() as shape Board\n  resource boardX = loadBoard() as shape Board\n  state scrolls = map(board.cols, c => c.id)\n  view\n    text \"a\"\n",
+        "shape Col\n  id: string\nshape Board\n  cols: Col[]\ncomponent App\n  resource board = loadBoard() as shape Board\n  resource boardX = loadBoard() as shape Board\n  state scrolls = board.cols.map(c => c.id)\n  view\n    text \"a\"\n",
         "type-initializer-scope",
-        &format!("`board` is a resource; {reads}. Derive it from `board`, or keep per-row state in a component used inside `each … in board.cols`"),
+        &format!("`board` is a resource; {reads}. Derive it from `board`, or keep per-row state in a component used inside `for … in board.cols`"),
     );
     says(
         "component App\n  derive two = 2\n  state n = two\n  view\n    text \"a\"\n",
@@ -1440,7 +1452,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     );
     // D7.1 (pomodoro F1): the declaration that fits, payload named and typed.
     says(
-        "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      each t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
+        "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape Task[]\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      for t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
         "analyze-handler-arity",
         "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`, or `action flipTask(id: string, checked: bool, event: InputEvent)` for its `InputEvent`",
     );
@@ -1461,20 +1473,20 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         "`background-color:` is CSS's declaration; a line of `style Card` is `attr=literal`: write `background-color=\"#fff\"`",
     );
     says(
-        "component App\n  state s = \"ab\"\n  view\n    text toString(len(s))\n",
+        "component App\n  state s = \"ab\"\n  view\n    text len(s).toString()\n",
         "type-refused-idiom",
-        "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function",
+        "write `x.length`, of text or of a list",
     );
     let idiom = |call: &str| {
         refused(&format!("component App\n  state s = \"a\"\n  state xs = []\n  action go\n    xs = {call}\n  view\n    text s\n"))
     };
     for (call, says) in [
-        ("push(xs, s)", "as in `xs = concat(xs, [x])`"),
+        ("push(xs, s)", "as in `xs = xs.concat([x])`"),
         (
             "replace(s, \"a\", \"b\")",
-            "write `replaceAll(s, find, with)`",
+            "write `s.replaceAll(find, with)`",
         ),
-        ("substring(s, 1)", "write `slice(s, start, end)`"),
+        ("substring(s, 1)", "write `s.slice(start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
         ("parseInt(s)", "write `parseNumber(s)` for `parseInt`"),

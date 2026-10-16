@@ -85,9 +85,14 @@ mod activation_tests;
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
-use layout::content_size;
+use layout::{content_size, published_content_box};
 #[path = "resize.rs"]
 mod resize;
+#[path = "scale.rs"]
+mod scale;
+#[cfg(test)]
+#[path = "spacing_tests.rs"]
+mod spacing_tests;
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod storage_tests;
@@ -135,12 +140,15 @@ pub(crate) struct Mirror {
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
     flow: Vec<exact_kernel::FlowShape>,
-    field_content: Option<exact_kernel::Frame>,
+    field_content: Option<crate::batch::ContentBox>,
+    field_cell: bool,
+    block: Option<(f32, f32)>,
 }
 
 /// One runner, one presenter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void, usize)>,
     /// Whether the plan declares a `head`, and the title the presenter was
     /// last told (LLP 1048.003 D1): the window or scene title.
     has_heads: bool,
@@ -166,8 +174,7 @@ pub struct Host<D: DataSource> {
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
     /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003
-    /// §9.11), each with its width, resolved padding, border and bottom
-    /// cover when last measured.
+    /// §9.11), each with its width, resolved padding, border and bottom cover when last measured.
     fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
@@ -209,11 +216,9 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
-    /// The session's wake (`listen`), which a pending activation leaves
-    /// with the data source.
+    /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
-    /// The update store's last line this host journaled, so a sync after
-    /// a check writes it once.
+    /// The update store's last line this host journaled, so a sync after a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
     /// The reported colours' generation this session last presented; `None`
@@ -315,6 +320,7 @@ impl<D: DataSource> Host<D> {
             false,
             None,
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -322,8 +328,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Boot with one action over the accepted plan before its first layout.
-    /// The Apple ABI uses this for synchronous font registration without
-    /// decoding the plan twice.
+    /// The Apple ABI uses this for synchronous font registration without decoding the plan twice.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode(
         plan_bytes: PlanBytes<'_>,
@@ -340,6 +345,7 @@ impl<D: DataSource> Host<D> {
         start_on_frame: bool,
         region: Option<crate::content_region::ContentRegionRegistration>,
         links: crate::link::Links<D>,
+        font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void)>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         Self::boot_stored_after_decode_mode(
@@ -358,6 +364,7 @@ impl<D: DataSource> Host<D> {
             region,
             None,
             links,
+            font_hook,
             prepare,
         )
     }
@@ -379,6 +386,7 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
         links: crate::link::Links<D>,
+        font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void)>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -397,7 +405,7 @@ impl<D: DataSource> Host<D> {
         // The grammars this archive links (LLP 1047.001 D3; every one for a
         // public boot, LLP 1053.000 §2).
         links.grammars.link();
-        let kernel = Kernel::new(measurer);
+        let kernel = scale::kernel(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
             if let Some(json) = compat {
@@ -441,10 +449,10 @@ impl<D: DataSource> Host<D> {
                 crate::content_region::NativeProjection::new(limits).map_err(HostError::Layout)?,
             );
         }
-        // The candidate catalog is installed before first text measurement.
-        // Platform registration is deferred until the app accepts it.
+        // Install the candidate catalog before first text measurement.
         prepare(&mut runner)?;
-
+        let font_hook =
+            font_hook.map(|(callback, ctx)| (callback, ctx, runner.runtime_font_count()));
         let has_heads = runner
             .plan()
             .nodes
@@ -457,6 +465,7 @@ impl<D: DataSource> Host<D> {
             language: None,
             hatches: paragraph::HatchWords::of(runner.plan()),
             runner,
+            font_hook,
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
@@ -529,6 +538,7 @@ impl<D: DataSource> Host<D> {
         batch.roots(&host.roots.clone());
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
+        colors::emit_roles(&mut batch);
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
         }
@@ -572,12 +582,10 @@ impl<D: DataSource> Host<D> {
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
         let (mut batch, _) = host.resize_rounds(batch, None);
-        let timers = host.runner.timer_due_ms();
-        let motion = !host.engine.quiescent();
         batch.spatial = host.engine.spatial();
         batch.frames = host.runner.wants_frames();
-        let clock = host.runner.now_ms();
-        Ok((host, batch.finish(timers, motion, clock, None)))
+        let batch = host.write(batch, None);
+        Ok((host, batch))
     }
 
     /// Release effects only after the containing app accepted every candidate.
@@ -654,8 +662,7 @@ impl<D: DataSource> Host<D> {
     /// What the update store has to say, into the runner (LLP 1030 D7) —
     /// after a check, after an activation: the `delivery` resource is
     /// answered again and the batch carries the commit; the check's line
-    /// goes to the journal once, so the agent's `logs` reads it beside the
-    /// app's own.
+    /// goes to the journal once, so the agent's `logs` reads it beside the app's own.
     pub fn sync_delivery(&mut self) -> String {
         let mut delivery = self.runner.delivery().clone();
         if let Some(hooks) = self.delivery {
@@ -707,6 +714,11 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it (D7).
+    pub fn listen_io(&mut self, io: &dyn crate::executor::Io) {
+        self.listen(io.waker());
+        self.runner.set_socket_reader(io.socket_reader());
+    }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
         self.runner.native_slot()
@@ -801,6 +813,8 @@ impl<D: DataSource> Host<D> {
         now_ms: f64,
     ) -> String {
         self.now_ms = now_ms.max(self.now_ms);
+        // Sample the presented batch's authored scroll before this pump changes geometry.
+        let (batch, intersect_error) = self.intersect_round(Batch::new(), None);
         // Announced topics first: what the device said before these replies.
         let (announced, failed) = self.runner.apply_announced();
         let mut error = failed.map(|e| format!("{e:?}"));
@@ -824,7 +838,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        self.commit(&receipts, error)
+        self.commit_into(&receipts, error.or(intersect_error), batch)
     }
 
     /// Strict common LE viewport feedback followed by any runner edge action.
@@ -911,8 +925,7 @@ impl<D: DataSource> Host<D> {
     /// Move the clock; every timer due fires at its own time; one batch for
     /// all of them, the engine hearing each commit at the time it was made.
     /// A timer's refusal stops the clock there: the commits before it are in
-    /// the batch, the refusal in `error`, and `clock` says where the runner
-    /// stands.
+    /// the batch, the refusal in `error`, and `clock` says where the runner stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
         if self.engine.starts_on_frame() {
             self.now_ms = now_ms.max(self.now_ms);
@@ -1061,8 +1074,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The page's visibility, connectivity and share sheet (LLP 1069.000
-    /// D2): re-answer `exactPage` in one commit; the same facts commit
-    /// nothing.
+    /// D2): re-answer `exactPage` in one commit; the same facts commit nothing.
     pub fn set_page(&mut self, page: exact_runner::Page) -> String {
         match self.runner.set_page(page) {
             Ok(Some(receipt)) => self.commit(
@@ -1166,25 +1178,24 @@ impl<D: DataSource> Host<D> {
     }
 
     fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
-        let (batch, error) = self.resize_rounds(batch, error);
-        if batch.layout_provisional {
-            self.withhold_layout();
-        }
-        self.refused(batch, error)
+        let (mut batch, error) = self.resize_rounds(batch, error);
+        self.state_onto(&mut batch);
+        self.write(batch, error.as_deref())
     }
 
-    /// [`Host::finish`] for a batch that commits nothing, a refusal's.
-    fn refused(&self, mut batch: Batch, error: Option<String>) -> String {
+    /// An empty batch, which has no geometry to hold: a refusal's.
+    fn refused(&self, error: Option<String>) -> String {
+        let mut batch = Batch::new();
+        self.state_onto(&mut batch);
+        let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
+        batch.finish(timers, motion, self.runner.now_ms(), error.as_deref())
+    }
+
+    fn state_onto(&self, batch: &mut Batch) {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
         batch.canvas_frames(self.runner.canvas_wants_frame());
-        batch.finish(
-            self.runner.timer_due_ms(),
-            !self.engine.quiescent(),
-            self.runner.now_ms(),
-            error.as_deref(),
-        )
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {
@@ -1424,7 +1435,6 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
     }
 }
 
-/// Props by their own names, as strings.
 /// @ref LLP 1116.001 D1.4 — the scale the kernel draws a fitted paragraph
 /// at, which Swift multiplies its runs' sizes by: none at full size.
 pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
@@ -1432,20 +1442,20 @@ pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
     (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
 }
 
+/// Props by their own names, as strings. An empty `href` is no link: not told.
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (id, value) in node.props.iter() {
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             PropValue::Float(f) => style::num(*f as f32),
         };
-        let _: PropId = id;
         out.insert(id.name().to_string(), text);
     }
-    // Swift paints a paragraph from its runs' `text`: the string the kernel
-    // measured, `text-transform` applied (LLP 1064 D5).
+    // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
         out.insert(PropId::Text.name().to_string(), shown);
     }
@@ -1472,10 +1482,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         {
             out.insert(
                 "symbolName".into(),
-                role.strip_prefix("sf/")
-                    .or_else(|| exact_kernel::generated::symbol(role).map(|s| s.0))
-                    .unwrap_or("")
-                    .into(),
+                exact_kernel::apple_symbol_name(role).into(),
             );
         }
     }

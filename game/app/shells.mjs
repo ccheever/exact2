@@ -421,12 +421,14 @@ const listed = (items, most = 6) => items.length > most ? `${items.slice(0, most
 /** Whether Cargo refused a locked graph because the lock no longer matches the
  * manifests, a lock to refresh, rather than for a crate missing from its cache. */
 export const staleLock = stderr => /cannot update the lock file|lock file \S+ needs to be updated/.test(stderr ?? '');
-// The refresh as an author runs it: the game's runner when it has the verb (one
-// generated before it has not, and `update` rewrites it), else this script from exact2.
+// The refresh as an author runs it: the game's runner when it has the verb (a launcher
+// of exact2's app-cli.mjs has; one generated before either has not, and `update`
+// rewrites it), else this script from exact2.
 const lockCommand = dir => {
   const runner = resolve(dir, 'exact.mjs');
   if (!existsSync(runner)) return `\`bun game/app/shells.mjs ${JSON.stringify(dir)} --lock\` from exact2`;
-  return /^\s*lock: \[/m.test(readFileSync(runner, 'utf8')) ? `\`bun exact.mjs lock\` in ${dir}` : `\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`;
+  const text = readFileSync(runner, 'utf8');
+  return /^\s*lock: \[/m.test(text) || text.includes('scripts/app-cli.mjs') ? `\`bun exact.mjs lock\` in ${dir}` : `\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`;
 };
 /** The first line of a refused captured lock (LLP 1046.011 D2), when Cargo says
  * the lock needs updating (never for a crate merely missing from its cache). It
@@ -582,6 +584,9 @@ function sdkStage(source, lock, use) {
     writeFileSync(resolve(stage, 'union/lib.rs'), '');
     writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}${cargo.workspace.dependencies.serde_json ? '' : 'serde_json = "1"\n'}`);
     if (lock !== null) writeFileSync(resolve(stage, 'Cargo.lock'), lock);
+    // The SDK's pinned toolchain, as a shell has (above): in a temporary directory rustup otherwise wants a default
+    const toolchain = resolve(source, '../rust-toolchain.toml');
+    if (existsSync(toolchain)) writeFileSync(resolve(stage, 'rust-toolchain.toml'), readFileSync(toolchain));
     return use(stage);
   } finally { rmSync(stage, {recursive:true, force:true}); }
 }

@@ -1,7 +1,7 @@
 // Symbol images on the JS target (`image "symbol:<role>"`, LLP 1011): the
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
 // mask over the node's tint (`AccentColor` when it sets none, LLP 1095 D8),
-// sized by its font — after each commit. A
+// sized by its font — after each commit and navigation projection. A
 // dynamic source names a role from `table`, the plan's own strings that are
 // roles, or, for one its data names (ledger diary F10), from every role,
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
@@ -10,6 +10,18 @@
 import { After, PropHooks, inflight, journal, clock, data } from "./rt.js";
 
 let Table = {}, All = null; // every role: not asked for, loading, or loaded (true)
+let Pending = false;
+function schedule() {
+  if (typeof window === "undefined" || globalThis.__exactRender) return refresh();
+  if (Pending) return;
+  Pending = true; inflight.n++;
+  // After runs before navigation projection and queued root-font commands.
+  // A microtask reads their final styles without waiting on a visible frame.
+  queueMicrotask(() => {
+    Pending = false;
+    try { refresh(); } finally { inflight.n--; }
+  });
+}
 const draw = (e, role) => { const [path, filled] = Table[role] ?? [""]; e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); };
 function everyRole() {
   inflight.n++;
@@ -19,7 +31,7 @@ function everyRole() {
     refresh();
   }).finally(() => inflight.n--);
 }
-const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:AccentColor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
+const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
 /** `table`: role → [path, filled], for sources a binding names. */
 export function symbols(table) {
   Table = table;
@@ -42,7 +54,15 @@ export function symbols(table) {
     if (!e.getAttribute("alt")) e.alt = "";
     return true;
   };
-  After.push(refresh);
+  After.push(schedule);
+  if (typeof window !== "undefined" && !globalThis.__exactRender) {
+    addEventListener("resize", schedule);
+    // A bare plan need not commit on resize. Projection can follow the resize
+    // listener, so observe its published marker rather than repeat its rule.
+    new MutationObserver(schedule).observe(document.getElementById("exact-root"), {
+      attributes: true, subtree: true, attributeFilter: ["data-exact-sidebar"],
+    });
+  }
 }
 function unsymbol(e) {
   if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;

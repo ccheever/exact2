@@ -47,8 +47,8 @@ export function watch(data, { types, say, owner = () => null, limit = ROWS }) {
     say(`big answer: ${target} (source ${source}) carries ${n} list rows across the web seam (over ${limit}); each ask copies them all. Answer a window: LLP 1027.004, docs/agent-pitfalls.md "A tap that changes one row of a long list"`);
   };
   const wrap = {
-    answer: f => (source, args, store, target) => {
-      const a = f(source, args, store, target), name = target ?? source;
+    answer: f => (source, args, store, target, mutation) => {
+      const a = f(source, args, store, target, mutation), name = target ?? source;
       if (a?.promise) return { ...a, promise: a.promise.then(v => (check(source, name, { v }), v)) };
       if (a?.then) return a.then(v => (check(source, name, { v }), v));
       check(source, name, a);

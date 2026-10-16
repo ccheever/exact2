@@ -49,6 +49,10 @@ scroll height=300
 - **Both Apple platforms.** `StickyHost` keeps the constraints by scroller. A node's `scrollViewDidScroll` (macOS: its clip view's bounds) re-places that scroller's boxes. The page viewport's scroll re-places the boxes whose scroller is a root that does not scroll itself. A sticky flat leaf is promoted to a view.
 - **Linux.** The painter moves the box when it paints it, from the same constraint at the scroller's offset (the page's for the root). The boxes it records for hit-testing follow.
 
+Intersection events use the same constraint in the runner sampler (LLP 1005):
+a pinned target or descendant remains inside until its containing block pushes
+it out. The nested cases listed below remain unqualified.
+
 **D5. Not a windowed row's root.** A virtualized list lays each row in a wrapper of its own, so a row root would stick only inside its own row. The compiler refuses it with that reason and the pattern that works: a section is one row, and its header is `position: sticky` inside it.
 
 **D6. Paint order stays tree order; `z-index` lifts a sticky box.** The kernel paints in tree order (LLP 1001). The web host keeps that order by isolating a static box that follows a positioned one. So, as on every Exact host, the content that scrolls under a sticky header paints over it unless the header has a `z-index`. A plain page would paint the header on top, because CSS paints positioned boxes after static ones. This is the existing declared deviation, not a new one. It shows more often with sticky, because a header is meant to be overlapped. The Linux painter did not read `z-index` at all. It now stacks siblings by their used `z-index`, by the rule of Apple's `usedZIndex` (a positioned box's, or a flex or grid item's, with tree order among equals), so `z-index=1` lifts a header there too.

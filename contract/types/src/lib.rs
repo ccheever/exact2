@@ -10,7 +10,7 @@
 //! stable id and a span.
 //!
 //! This crate also owns [`Scope`] and [`Ref`]: how a name resolves to a slot,
-//! derive, resource, prop, parameter, action, `each` item, or `match`
+//! derive, resource, prop, parameter, action, `for` item, or `match`
 //! binding. Later passes resolve names through the same code, so a name means
 //! one thing everywhere.
 
@@ -24,9 +24,11 @@ mod checks;
 mod component;
 mod failure;
 mod geometry;
+mod injects;
 mod lists;
 mod literals;
 mod media;
+mod payload;
 mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
@@ -36,6 +38,7 @@ pub mod routes;
 mod selection;
 mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
+pub use payload::handler_arity_message;
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
@@ -45,7 +48,8 @@ use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr
 use exact_plan::Stdlib;
 use std::{collections::BTreeMap, sync::Arc};
 
-use checks::{check_injects, check_shape_cycles};
+use checks::check_shape_cycles;
+use injects::check_injects;
 
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,7 +83,7 @@ impl std::fmt::Display for Ty {
             Ty::Bool => write!(f, "bool"),
             Ty::Unit => write!(f, "unit"),
             Ty::Option(t) => write!(f, "option<{t}>"),
-            Ty::List(t) => write!(f, "list<{t}>"),
+            Ty::List(t) => write!(f, "{t}[]"),
             Ty::Record(n) => write!(f, "{n}"),
             Ty::Action(ps) => write!(
                 f,
@@ -344,9 +348,9 @@ pub enum Ref {
     Prop(u32),
     /// An action parameter, by index.
     Param(u32),
-    /// An `each` item, `depth` region frames out (0 = innermost).
+    /// A `for` item, `depth` region frames out (0 = innermost).
     Item(u32),
-    /// An `each` item's position, `depth` region frames out (LLP 1062 D8).
+    /// A `for` item's position, `depth` region frames out (LLP 1062 D8).
     Index(u32),
     /// A `match` binding, `depth` region frames out.
     Bound(u32),
@@ -396,7 +400,7 @@ impl Scope {
         }));
     }
 
-    /// Push a region frame binding at most one name (`each` item or `match` binding).
+    /// Push a region frame binding at most one name (`for` item or `match` binding).
     pub fn push_region(&mut self, name: Option<(String, Ref, Ty)>) {
         self.frames.push(Arc::new(Frame {
             names: name.into_iter().collect(),
@@ -404,7 +408,7 @@ impl Scope {
         }));
     }
 
-    /// Push an `each` row's frame: its item, and its position when named.
+    /// Push a `for` row's frame: its item, and its position when named.
     pub fn push_each(&mut self, item: &str, index: Option<&str>, ty: Ty) {
         let mut names = vec![(item.to_string(), Ref::Item(0), ty)];
         names.extend(index.map(|i| (i.to_string(), Ref::Index(0), Ty::Number)));
@@ -568,6 +572,8 @@ pub struct Types {
 impl Types {
     /// The component's declaration scope: props, slots, derives, resources, actions.
     pub fn component_scope(&self, c: &Component, ct: &ComponentTypes) -> Scope {
+        #[cfg(test)]
+        component::SCOPE_BUILDS.with(|count| count.set(count.get() + 1));
         let mut names = Vec::new();
         for (i, p) in c.props.iter().enumerate() {
             names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
@@ -810,8 +816,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{want}`, given `{t}`",
-                                i + 1
+                                "{} expects `{want}`, given `{t}`",
+                                contract_syntax::idioms::argument(name, i)
                             ),
                             arg.span(),
                         );
@@ -889,8 +895,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{}`, given `{t}`",
-                                i + 1,
+                                "{} expects `{}`, given `{t}`",
+                                contract_syntax::idioms::argument(name, i),
                                 roster_spelling(f, spec)
                             ),
                             arg.span(),
@@ -1019,7 +1025,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         Expr::Arrow { span, .. } => {
             return err(
                 "type-arrow-position",
-                "an arrow function is only the second argument of `map` or `filter`: `map(list, (item, index) => …)`",
+                "an arrow function is only the argument of `map` or `filter`: `xs.map((item, index) => …)`",
                 *span,
             )
         }

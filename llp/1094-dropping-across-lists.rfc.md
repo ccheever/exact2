@@ -365,6 +365,31 @@ viewport y, minus the target port's viewport top, plus its scroll top.
 
 ### D10 — `elementFromPoint(x, y)`
 
+**Amended 2026-10-11 (Charlie; implementer: reads lane):**
+`elementsFromPoint(x, y) -> list<string>` is an action-only structural read
+over the same viewport point, clips, transforms, visibility and paint order.
+It returns every hit node's **own** nonempty `id`, front to back, including
+ancestors where their boxes hit; id-less nodes are skipped. It is the DOM's
+`document.elementsFromPoint(x, y)` filtered to elements with ids inside the
+app root. Its first entry agrees with `elementFromPoint` when the front hit
+has its own id, or when an id-less front hit lies outside its named ancestor's
+box (the exception below). When an id-less front hit is inside its named
+ancestor's box, it is skipped: a named sibling beneath it can be first in
+`elementsFromPoint`, while `elementFromPoint` still names the ancestor.
+Covered navigation routes, inert subtrees, and closed dialogs or popovers are absent from the
+native hit walk, as from the browser's hit test. Open dialogs and popovers are hit in the presenter's top-layer order and viewport frame, outside clips on their authored ancestors.
+An AppKit `alertdialog` projected as an `NSAlert` sheet or a UIKit confirmation projected as a native alert has no painted authored boxes for a point read; its declared node remains open for data-word list reads.
+An overlay can consume Inspect's click while the action reads the
+marked node beneath it. The AppKit host forwards an unhandled mouse contact along
+the responder chain, without retrying covered siblings; an ancestor's press
+still works. The result is a one-shot event/action snapshot, not
+a devtools, reactive geometry or pixel read.
+An id-less child drawn outside its named ancestor's own border box is the
+edge where Chrome's filtered `elementsFromPoint` would put a lower layer
+first while `elementFromPoint()?.closest("[id]")` names the ancestor. Exact
+includes that ancestor once at the child's place to preserve the ruled
+first-entry invariant (declared in LLP 1001 §1).
+
 - **Signature.** `elementFromPoint(x: number, y: number) -> option<string>`
   is a stdlib action read. Outside an action it is refused with
   `type-geometry-outside-action`.

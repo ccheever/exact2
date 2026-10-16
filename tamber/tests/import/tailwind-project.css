@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-*: initial;
+  --color-brand-500: oklch(0.62 0.19 255);
+  --color-brand-600: oklch(0.55 0.2 255);
+  --color-surface: #ffffff;
+  --color-ink: var(--color-brand-600);
+  --font-display: "Inter", sans-serif;
+  --radius-card: 0.75rem;
+  --breakpoint-3xl: 120rem;
+}
+
+.dark {
+  --color-surface: #0b0f14;
+  --color-brand-500: oklch(0.7 0.17 255);
+}

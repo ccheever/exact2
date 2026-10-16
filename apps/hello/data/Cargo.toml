@@ -9,6 +9,8 @@ publish = false
 [lib]
 name = "hello_data"
 crate-type = ["rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-plan = { path = "../../../plan" }

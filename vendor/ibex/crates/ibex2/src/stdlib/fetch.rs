@@ -252,7 +252,7 @@ pub struct Request {
     /// transport that cannot stop mid-response cannot honor this field.
     pub max_body: Option<usize>,
     /// The platform transport's own request timeout. A caller that needs the
-    /// whole exchange bounded also aborts its signal (Exact patch 7).
+    /// whole exchange bounded also aborts its signal (LLP 0068.000 §4).
     pub timeout: Option<std::time::Duration>,
 }
 
@@ -402,22 +402,7 @@ pub fn fetch_stream(
 
     loop {
         signal.check()?;
-        let origin = origin_of(&current.url)?;
-        // Through boundary::admit, not an inline permits() check: the
-        // capability name and the shape of a denial belong in one place, or
-        // "one chokepoint" is a claim about the design rather than a fact
-        // about the code.
-        crate::boundary::admit(grants, &Operation::Fetch { origin }).map_err(
-            |error| match error {
-                HostError::Denied { capability } if redirected => HostError::DeniedRedirect {
-                    capability,
-                    origin: url::Url::parse(&current.url)
-                        .map(|url| url.origin().ascii_serialization())
-                        .unwrap_or_default(),
-                },
-                error => error,
-            },
-        )?;
+        admit_hop(grants, &current.url, redirected)?;
 
         // The request guard applies here, where a header list becomes a
         // request — not in Headers::set, where the guard is "none".
@@ -428,66 +413,118 @@ pub fn fetch_stream(
         let mut response = result?;
         response.redirected = redirected;
 
-        let is_redirect = matches!(response.status, 301 | 302 | 303 | 307 | 308);
-        if !is_redirect {
-            return Ok(response);
-        }
-
-        match current.redirect {
-            RedirectMode::Manual => return Ok(response),
-            RedirectMode::Error => {
-                return Err(HostError::Failed(
-                    "TypeError: Failed to fetch — redirect not allowed".into(),
-                ))
-            }
-            RedirectMode::Follow => {}
-        }
-
-        let Some(location) = response.headers.get("location").map(str::to_string) else {
-            // A redirect status with no Location is not a redirect; the spec
-            // says return it as-is rather than inventing a destination.
-            return Ok(response);
+        let step = match redirect_step(&current, response.status, &response.headers, redirects)? {
+            Some(step) => step,
+            None => return Ok(response),
         };
-
         redirects += 1;
-        if redirects > MAX_REDIRECTS {
-            return Err(HostError::Failed(
-                "TypeError: Failed to fetch — too many redirects".into(),
-            ));
-        }
-
-        // Resolve relative Locations against the URL we just used.
-        let base = url::Url::parse(&current.url)
-            .map_err(|e| HostError::Failed(format!("TypeError: invalid URL: {e}")))?;
-        let next = base
-            .join(&location)
-            .map_err(|e| HostError::Failed(format!("TypeError: invalid redirect target: {e}")))?;
-
-        // 303, and 301/302 on POST, become GET and drop the body — the web's
-        // long-standing behaviour, which surprises people who expect the
-        // method to be preserved.
-        if response.status == 303
-            || (matches!(response.status, 301 | 302)
-                && current.method != "GET"
-                && current.method != "HEAD")
-        {
-            current.method = "GET".into();
+        step.apply(&mut current.method, &mut current.headers);
+        if step.drops_body {
             current.body = None;
         }
-        // A redirect to another origin drops the credentials this request
-        // carried, as the Fetch standard does for `Authorization`.
-        // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — a subdomain grant admits sibling hosts, which must not receive a token meant for the first
-        if origin_of(next.as_str())? != origin_of(&current.url)? {
-            for name in ["authorization", "cookie", "proxy-authorization"] {
-                current.headers.delete(name);
-            }
-        }
-        current.url = next.to_string();
+        current.url = step.url;
         redirected = true;
     }
 }
 
-fn prepare_body(mut request: Request) -> Result<Request, HostError> {
+/// The grant check for one hop to `url`, the first or one a redirect led to.
+pub(crate) fn admit_hop(grants: &GrantSet, url: &str, redirected: bool) -> Result<(), HostError> {
+    let origin = origin_of(url)?;
+    // Through boundary::admit, not an inline permits() check: the
+    // capability name and the shape of a denial belong in one place, or
+    // "one chokepoint" is a claim about the design rather than a fact
+    // about the code.
+    crate::boundary::admit(grants, &Operation::Fetch { origin }).map_err(|error| match error {
+        HostError::Denied { capability } if redirected => HostError::DeniedRedirect {
+            capability,
+            origin: url::Url::parse(url)
+                .map(|url| url.origin().ascii_serialization())
+                .unwrap_or_default(),
+        },
+        error => error,
+    })
+}
+
+/// What following one redirect does to the request, decided once for the
+/// blocking `fetch_stream` and the asynchronous `fetch_async::FetchTask`
+/// (LLP 0068.000 §2), so the two cannot disagree on a hop.
+pub(crate) struct RedirectStep {
+    /// The next hop's URL, resolved against the one just used.
+    pub(crate) url: String,
+    /// 303, and 301/302 of a non-GET/HEAD: the next hop is a GET with no body.
+    pub(crate) drops_body: bool,
+    /// The next hop is another origin: credentials are dropped.
+    drops_credentials: bool,
+}
+
+impl RedirectStep {
+    /// The method and headers the next hop sends.
+    pub(crate) fn apply(&self, method: &mut String, headers: &mut Headers) {
+        if self.drops_body {
+            *method = "GET".into();
+        }
+        if self.drops_credentials {
+            for name in ["authorization", "cookie", "proxy-authorization"] {
+                headers.delete(name);
+            }
+        }
+    }
+}
+
+/// The redirect a response with `status` and `headers` asks `current` to
+/// follow, after `redirects` already followed: `None` when the response is
+/// the answer (not a redirect, `Manual`, or a 3xx without `Location`).
+pub(crate) fn redirect_step(
+    current: &Request,
+    status: u16,
+    headers: &Headers,
+    redirects: u32,
+) -> Result<Option<RedirectStep>, HostError> {
+    if !matches!(status, 301 | 302 | 303 | 307 | 308) {
+        return Ok(None);
+    }
+    match current.redirect {
+        RedirectMode::Manual => return Ok(None),
+        RedirectMode::Error => {
+            return Err(HostError::Failed(
+                "TypeError: Failed to fetch — redirect not allowed".into(),
+            ))
+        }
+        RedirectMode::Follow => {}
+    }
+    let Some(location) = headers.get("location") else {
+        // A redirect status with no Location is not a redirect; the spec
+        // says return it as-is rather than inventing a destination.
+        return Ok(None);
+    };
+    if redirects + 1 > MAX_REDIRECTS {
+        return Err(HostError::Failed(
+            "TypeError: Failed to fetch — too many redirects".into(),
+        ));
+    }
+    // Resolve relative Locations against the URL we just used.
+    let base = url::Url::parse(&current.url)
+        .map_err(|e| HostError::Failed(format!("TypeError: invalid URL: {e}")))?;
+    let next = base
+        .join(location)
+        .map_err(|e| HostError::Failed(format!("TypeError: invalid redirect target: {e}")))?;
+    // 303, and 301/302 on POST, become GET and drop the body — the web's
+    // long-standing behaviour, which surprises people who expect the
+    // method to be preserved.
+    let drops_body = status == 303
+        || (matches!(status, 301 | 302) && current.method != "GET" && current.method != "HEAD");
+    // A redirect to another origin drops the credentials this request
+    // carried, as the Fetch standard does for `Authorization`.
+    // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — a subdomain grant admits sibling hosts, which must not receive a token meant for the first
+    let drops_credentials = origin_of(next.as_str())? != origin_of(&current.url)?;
+    Ok(Some(RedirectStep {
+        url: next.to_string(),
+        drops_body,
+        drops_credentials,
+    }))
+}
+
+pub(crate) fn prepare_body(mut request: Request) -> Result<Request, HostError> {
     let Some(form) = request.form_data.take() else {
         return Ok(request);
     };

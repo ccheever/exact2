@@ -9,7 +9,9 @@ pub const SWIPE_KNEE: f64 = 64.0;
 /// Past the knee, presentation moves this fraction of the finger.
 pub const SWIPE_RESISTANCE: f64 = 0.2;
 /// An authored swipe yields this much of the leading edge to the system's
-/// back gesture (precedence rule 1).
+/// back gesture (precedence rule 1). Android says how wide its own edges
+/// are, and its host yields those in place of this (LLP 1115.001 D7.5;
+/// `host/linux/src/presenter/window.rs`).
 pub const SWIPE_EDGE: f64 = 20.0;
 
 /// A contact moves more than this, in points or CSS px on either axis,

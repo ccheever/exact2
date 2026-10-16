@@ -1,0 +1,43 @@
+// linux: the Linux host presents no dialog (LLP 1001, LLP 1021 D2)
+// Synthetic conformance plan: `showModal(id)` and `close(id)` called from an
+// action (LLP 1101.001 P5, LLP 1115 D6) open and close a `dialog` by its id
+// on both web targets, as a button's `commandfor` does. `ask` opens a
+// confirmation, the shape of Shelf's "Remove…" (an alertdialog whose buttons
+// close it themselves); `edit` opens a dialog that its own action, `done`,
+// closes. An id no dialog has is refused in the journal and changes nothing.
+component Modal
+  state asked = 0
+  state answer = "none"
+  action ask
+    asked = asked + 1
+    showModal("confirm")
+  action yes
+    answer = "yes"
+  action edit
+    asked = asked + 1
+    showModal("editor")
+  action done
+    answer = "done"
+    close("editor")
+  action missing
+    asked = asked + 1
+    showModal("nowhere")
+  view
+    column testId="root" height="100%" box-sizing="border-box" padding=20 gap=12 background-color="#ffffff"
+      text `asked ${asked}, answered ${answer}` testId="status"
+      button press=ask testId="ask"
+        text "Ask"
+      button press=edit testId="edit"
+        text "Edit"
+      button press=missing testId="missing"
+        text "Ask nowhere"
+      dialog id="confirm" role="alertdialog" aria-label="Sure?" testId="confirm"
+        text "This cannot be undone." testId="message"
+        button press=yes commandfor="confirm" command="close" testId="yes"
+          text "Yes"
+        button commandfor="confirm" command="close" testId="no"
+          text "No"
+      dialog id="editor" aria-label="Edit" testId="editor"
+        text "A dialog an action opens and closes." testId="editor-text"
+        button press=done testId="done"
+          text "Done"

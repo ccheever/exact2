@@ -10,6 +10,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { browserMissing } from '../../../scripts/agent-playwright.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const glue = readFileSync(resolve(WEB, 'sound-glue.js'), 'utf8');
@@ -30,25 +32,40 @@ const page = session => `<!doctype html><meta charset="utf-8"><div id="exact-roo
     const out = globalThis.exact.installSound({ files: Object.keys(files), log: l => lines.push(l), origin: () => 1000, context, timestamp: stamp, now, activated: () => true, fetchFile: src => Promise.resolve(files[src]) });
     return { out, context, lines };
   };
-  // Each node's start and stop, as called.
+  // Each node's start and stop, as called. \`changed()\` resolves at the next call or finished decode, a task after
+  // the decode so the glue has counted it.
   window.calls = [];
-  const { start, stop } = AudioBufferSourceNode.prototype;
-  AudioBufferSourceNode.prototype.start = function (when = 0, ...rest) { calls.push(['start', when]); return start.call(this, when, ...rest); };
-  AudioBufferSourceNode.prototype.stop = function (when = 0) { calls.push(['stop', when]); return stop.call(this, when); };
-  window.decoded = () => new Promise(r => setTimeout(r, 300));
+  let waiting = [];
+  window.changed = () => new Promise(r => waiting.push(r));
+  const notify = () => { for (const r of waiting.splice(0)) r(); };
+  const { start, stop } = AudioBufferSourceNode.prototype, { decodeAudioData } = BaseAudioContext.prototype;
+  AudioBufferSourceNode.prototype.start = function (when = 0, ...rest) { calls.push(['start', when]); notify(); return start.call(this, when, ...rest); };
+  AudioBufferSourceNode.prototype.stop = function (when = 0) { calls.push(['stop', when]); notify(); return stop.call(this, when); };
+  BaseAudioContext.prototype.decodeAudioData = function (...args) {
+    const decoding = decodeAudioData.apply(this, args);
+    decoding.then(() => setTimeout(notify), () => setTimeout(notify));
+    return decoding;
+  };
+  // Every named output's files decoded (its state says n/n), then a task for the voices waiting on them
+  window.decoded = async (...outs) => {
+    while (!outs.every(out => { const [n, of] = out.state().decoded.split('/'); return n === of; })) await changed();
+    await new Promise(r => setTimeout(r));
+  };
   // Before any activation (Playwright's own evaluate runs as a gesture): an
   // output on the page's real AudioContext, and a voice it is handed at once.
   if (location.search.includes('playback')) {
     window.lines = [];
     window.out = globalThis.exact.installSound({ files: ['assets/a.wav'], log: l => lines.push(l), origin: () => 0, fetchFile: () => Promise.resolve(wav(4800, 0.5)) });
     window.early = { state: out.context.state, stamp: out.context.getOutputTimestamp?.() };
-    await decoded();
+    await decoded(out);
     out.ops([{ op: 'play', id: 1, sound: 0, at: performance.now() + 50, gain: 1 }]);
   }
   window.ready = true;
+  console.log('sound page ready');
 </script>`;
 
 const engines = ['chromium', 'firefox', 'webkit'];
+const engineTest = Object.fromEntries(await Promise.all(engines.map(async e => [e, need(e === 'chromium' ? 'chrome' : e, await browserMissing(e))])));
 
 async function launch(name) {
   const playwright = await import('playwright-core');
@@ -81,9 +98,9 @@ async function serve(session) {
 }
 
 for (const engine of engines) {
-  test(`${engine}: voices render at the frames runner time maps to`, async () => {
+  engineTest[engine](`${engine}: voices render at the frames runner time maps to`, async () => {
     const b = await browser(engine);
-    if (!b) return console.log(`skip: ${engine} is not installed`);
+    if (!b) throw new Error(`${engine} did not launch`);
     const server = await serve();
     try {
       const p = await b.newPage();
@@ -94,17 +111,17 @@ for (const engine of engines) {
         // A voice at 250 ms, gain 0.5, over a constant 0.5: its first frame is 12000, at 0.25.
         const a = offline(1, { 'assets/a.wav': wav(48000, 0.5) });
         a.out.ops([{ op: 'play', id: 1, sound: 0, at: 250, gain: 0.5 }]);
-        await decoded();
+        await decoded(a.out);
         const one = (await a.context.startRendering()).getChannelData(0);
         // A choke: voice 1 at 250 cut by voice 2 at 300, which sounds -0.25.
         const c = offline(1, { 'assets/a.wav': wav(48000, 0.5), 'assets/b.wav': wav(48000, -0.25) });
         c.out.ops([{ op: 'play', id: 1, sound: 0, at: 250, gain: 1 }, { op: 'play', id: 2, sound: 1, at: 300, gain: 1 }, { op: 'end', id: 1, at: 300 }]);
-        await decoded();
+        await decoded(c.out);
         const two = (await c.context.startRendering()).getChannelData(0);
         // A voice mapped 40 ms into the past starts at once, attack included, and nothing throws.
         const l = offline(1, { 'assets/a.wav': wav(4800, 0.5) });
         l.out.ops([{ op: 'play', id: 1, sound: 0, at: -40, gain: 1 }]);
-        await decoded();
+        await decoded(l.out);
         const three = (await l.context.startRendering()).getChannelData(0);
         return { first: first(one), value: one[first(one)], cutBefore: two[14399], cutAt: two[14400], cutFirst: first(two), late: first(three), lateValue: three[0], lateCount: l.out.state().late, lines: [...a.lines, ...c.lines, ...l.lines] };
       });
@@ -120,9 +137,9 @@ for (const engine of engines) {
     } finally { await b.close(); server.close(); }
   }, 60_000);
 
-  test(`${engine}: a held voice starts once, by the formula or by its own time`, async () => {
+  engineTest[engine](`${engine}: a held voice starts once, by the formula or by its own time`, async () => {
     const b = await browser(engine);
-    if (!b) return console.log(`skip: ${engine} is not installed`);
+    if (!b) throw new Error(`${engine} did not launch`);
     const server = await serve();
     try {
       const p = await b.newPage();
@@ -133,7 +150,7 @@ for (const engine of engines) {
         let liveAt = null;
         const stamp = () => liveAt == null ? { contextTime: 0, performanceTime: 0 } : { contextTime: 0, performanceTime: 1000 };
         const h = offline(1, { 'assets/a.wav': wav(48000, 0.5) }, stamp);
-        await decoded();
+        await decoded(h.out);
         calls.length = 0;
         // Due (runner time 0 at now 1000): `start(0)`. Future: held, no node.
         h.out.ops([{ op: 'play', id: 1, sound: 0, at: 0, gain: 1 }, { op: 'play', id: 2, sound: 0, at: 200, gain: 1 }]);
@@ -144,35 +161,38 @@ for (const engine of engines) {
         liveAt = 1;
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         const live = calls.slice();
-        // The timer's path: a voice 30 ms ahead while the timestamp stays `{0, 0}`.
+        // The timer's path: a voice 30 ms ahead while the timestamp stays `{0, 0}`. The output's clock stands at runner
+        // time 0, so the voices are ahead however long this takes, and the test waits for the timers' starts, not a
+        // time: voice 3, due after the cut voice 2, starting means voice 2's time has passed too
         calls.length = 0;
-        const origin = performance.now();
-        const t = offline(1, { 'assets/a.wav': wav(48000, 0.5) }, () => ({ contextTime: 0, performanceTime: 0 }), () => performance.now() - origin + 1000);
-        await decoded();
-        const at = performance.now() - origin + 30;
-        t.out.ops([{ op: 'play', id: 1, sound: 0, at, gain: 1 }, { op: 'play', id: 2, sound: 0, at: at + 5, gain: 1 }, { op: 'end', id: 2, at: at + 5 }]);
+        const t = offline(1, { 'assets/a.wav': wav(48000, 0.5) }, () => ({ contextTime: 0, performanceTime: 0 }), () => 1000);
+        await decoded(t.out);
+        t.out.ops([{ op: 'play', id: 1, sound: 0, at: 30, gain: 1 }, { op: 'play', id: 2, sound: 0, at: 35, gain: 1 }, { op: 'end', id: 2, at: 35 },
+          { op: 'play', id: 3, sound: 0, at: 40, gain: 1 }]);
         const before = calls.slice();
-        await new Promise(r => setTimeout(r, 120));
+        while (calls.length < 2) await changed();
         return { held, afterEnd, live, before, timer: calls.slice() };
       });
       expect(got.held).toEqual([['start', 0]]);
       expect(got.afterEnd).toEqual([['start', 0]]);
       expect(got.live).toEqual([['start', 0], ['start', 0.2], ['stop', 0.25]]);
-      // A voice cut at its start never starts; the other starts once, at once.
+      // A voice cut at its start never starts; the others start once each, at once.
       expect(got.before).toEqual([]);
-      expect(got.timer).toEqual([['start', 0]]);
+      expect(got.timer).toEqual([['start', 0], ['start', 0]]);
     } finally { await b.close(); server.close(); }
   }, 60_000);
 
-  test(`${engine}: the session, the press, and the drop before activation`, async () => {
+  engineTest[engine](`${engine}: the session, the press, and the drop before activation`, async () => {
     const b = await browser(engine);
-    if (!b) return console.log(`skip: ${engine} is not installed`);
+    if (!b) throw new Error(`${engine} did not launch`);
     const server = await serve();
     try {
       const p = await b.newPage();
+      // The page says it is ready on its console. Not `waitForFunction`: Playwright evaluates as a user gesture, which
+      // would activate the page
+      const ready = p.waitForEvent('console', message => message.text() === 'sound page ready');
       await p.goto(server.url + '?playback');
-      // Not `waitForFunction`: Playwright evaluates as a user gesture, which would activate the page.
-      await p.waitForTimeout(1000);
+      await ready;
       const got = await p.evaluate(() => ({ session: navigator.audioSession?.type ?? null, has: 'audioSession' in navigator, lines, ...early }));
       expect(got.lines).toEqual(['sound blocked: the page has had no user activation (assets/a.wav)']);
       if (got.has) expect(got.session).toBe('playback');
@@ -186,8 +206,8 @@ for (const engine of engines) {
         expect(pressed.state.blocked).toBe(1);
         // Started at once (the `{0, 0}` hold's due voice is start(0)), or held for its time, or scheduled ahead by the formula.
         expect(pressed.calls.length === 0 || pressed.calls[0][0] === 'start').toBe(true);
-        await p.waitForTimeout(250);
-        const later = await p.evaluate(() => calls.slice());
+        // Wait for the voice's start, held or scheduled, rather than for a time
+        const later = await p.evaluate(async () => { while (!calls.some(c => c[0] === 'start')) await changed(); return calls.slice(); });
         expect(later.filter(c => c[0] === 'start').length).toBe(1);
         // Firefox before `running`: a live performanceTime, and the formula schedules ahead.
         if (engine === 'firefox' && got.state === 'suspended' && got.stamp?.performanceTime > 0) expect(later[0][1]).toBeGreaterThan(0);

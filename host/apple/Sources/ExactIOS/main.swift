@@ -13,6 +13,9 @@
 import ExactKit
 import ExactComposition
 import UIKit
+#if !os(tvOS)
+import UserNotifications
+#endif
 
 // The process's own start (exec), from the kernel: what happened before
 // `main` — dyld, the Swift runtime, the static library's initializers.
@@ -122,8 +125,10 @@ func agentReady() {
 
 /// The one screen: the view fills the controller's view; the plan boots at
 /// the view's first layout (`ExactView.fit`).
-/// The build's launch colour (the manifest's `launch`), else white.
-let launchColor = UIColor(named: "ExactLaunch") ?? .white
+/// The build's launch colour (the manifest's `launch`); unset, the
+/// platform's background, as the system's own launch screen then is and
+/// the view under it (`ExactView`): never a fixed white (LLP 1115 D2).
+let launchColor = UIColor(named: "ExactLaunch") ?? .platformBackground
 
 final class Controller: UIViewController {
     #if os(tvOS)
@@ -162,7 +167,16 @@ func printSmoke() {
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         ExactEnv.stamp("didFinishLaunching")
+        // EXACT_PLAN naming a local bake with its module (LLP 1116.003) is the
+        // launch generation: the view's first layout boots it fresh, as a
+        // build that baked it would, nothing carried from the embedded plan.
+        if let path = environment["EXACT_PLAN"], ExactDevelopmentPlan(path).hasModule {
+            planRefusal = ExactDevelopmentPlan(path).installInitial(on: exact)
+        }
         session = exact.makeSession(delegate: adapter, label: "main")
+        #if !os(tvOS)
+        exact.installNotificationClicks()
+        #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
         session.hatchesOwnProcess = true
@@ -210,13 +224,19 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let ws = scene as? UIWindowScene else { return }
         ExactEnv.stamp("scene")
         // @ref LLP 1038 D8 — consume the launch URL before constructing the view.
-        let incoming = connectionOptions.urlContexts.first?.url
-            ?? connectionOptions.userActivities.first(where: { $0.activityType == NSUserActivityTypeBrowsingWeb })?.webpageURL
-            ?? environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
+        #if !os(tvOS)
+        let notificationResponse = connectionOptions.notificationResponse
+        if let notificationResponse { exact.openNotification(notificationResponse) }
+        #endif
+        let contexts = connectionOptions.urlContexts.map(\.url).sorted { $0.absoluteString < $1.absoluteString }
+        let activities = connectionOptions.userActivities.filter { $0.activityType == NSUserActivityTypeBrowsingWeb }
+            .compactMap(\.webpageURL).sorted { $0.absoluteString < $1.absoluteString }
+        let incoming = !contexts.isEmpty ? contexts : !activities.isEmpty ? activities
+            : environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }.map { [$0] } ?? []
         // A file is a document from Files ("Open in"), opened in place
         // (LLP 1069.010 slice 4); it lands once the session has booted.
-        if let url = incoming, url.isFileURL { ExactIOS.session.openDocument(url) }
-        else if let url = incoming, !ExactDevelopmentLink.claims(url) { ExactIOS.session.openURL(url) }
+        IncomingURLBatch.deliver(incoming, development: ExactDevelopmentLink.claims,
+            document: { ExactIOS.session.openDocument($0) }, location: { ExactIOS.session.openURL($0) })
         ExactEnv.stamp("before boot")
         let w = ExactWindow(windowScene: ws)
         // The launch screen's colour until the first frame names the canvas,
@@ -232,10 +252,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // EXACT_PLAN=<file> boots that plan instead of the one baked into the
         // library — any compiled contract, no rebuild (smokes, fixtures).
         // The view boots the session at its first layout; a file plan is
-        // booted here first, at the screen's size the view will take.
-        if let path = environment["EXACT_PLAN"], ExactDevelopmentPlan(path).hasModule {
-            DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
-        }
+        // booted here first, at the screen's size the view will take (one
+        // with its module was installed as the launch generation instead).
         if let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             planRefusal = ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size).error
         }
@@ -248,20 +266,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"])
         w.makeKeyAndVisible()
         // A cold development connection needs the mounted session and window.
-        if let url = incoming, ExactDevelopmentLink.claims(url) {
+        for url in incoming where ExactDevelopmentLink.claims(url) {
             DispatchQueue.main.async { ExactDevelopmentLink.open(url) }
         }
         ExactEnv.stamp("window")
     }
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
-        if let url = contexts.first?.url { open(url) }
+        open(contexts.map(\.url).sorted { $0.absoluteString < $1.absoluteString })
     }
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
-        if userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL { open(url) }
+        if userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL { open([url]) }
     }
-    private func open(_ url: URL) {
-        if url.isFileURL { ExactIOS.session.openDocument(url); return }
-        if !ExactDevelopmentLink.open(url) { ExactIOS.session.openURL(url) }
+    private func open(_ urls: [URL]) {
+        IncomingURLBatch.deliver(urls, development: ExactDevelopmentLink.open,
+            document: { ExactIOS.session.openDocument($0) }, location: { ExactIOS.session.openURL($0) })
     }
     /// Seen again: the canvases follow (`Canvases.visible`).
     func sceneDidBecomeActive(_ scene: UIScene) {

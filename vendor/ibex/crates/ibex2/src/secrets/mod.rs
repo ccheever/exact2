@@ -14,6 +14,8 @@
 //! @ref LLP 0069#3-the-backends — the Keychain, a file per secret, memory
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -43,7 +45,12 @@ pub trait SecretStore: Send + Sync {
 /// filesystem bounds its components. Refused at grant parse and again at
 /// the store, so a name can never spell a path.
 pub fn is_valid_name(name: &str) -> bool {
-    exact_grants::valid_name(name)
+    !name.is_empty()
+        && name.len() <= 64
+        && name.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+        })
+        && !name.bytes().all(|b| b == b'.')
 }
 
 fn check_name(name: &str) -> Result<(), HostError> {
@@ -98,6 +105,37 @@ impl SecretStore for MemoryStore {
     }
 }
 
+/// The store `Host::new()` uses off Apple when no durable base directory can
+/// be derived: every operation refuses, loudly. A temporary directory is not
+/// durable storage and may be pre-owned by another local user.
+#[derive(Debug)]
+pub struct UnavailableStore;
+
+impl UnavailableStore {
+    fn refuse<T>(&self) -> Result<T, HostError> {
+        Err(HostError::Failed(
+            "secrets: no durable base directory (neither HOME nor XDG_DATA_HOME provides \
+             an absolute path); construct FileStore::new(dir) with a directory of \
+             your own"
+                .into(),
+        ))
+    }
+}
+
+impl SecretStore for UnavailableStore {
+    fn get(&self, _name: &str) -> Result<Option<String>, HostError> {
+        self.refuse()
+    }
+
+    fn set(&self, _name: &str, _value: &str) -> Result<(), HostError> {
+        self.refuse()
+    }
+
+    fn forget(&self, _name: &str) -> Result<(), HostError> {
+        self.refuse()
+    }
+}
+
 /// A file per secret under one directory: the file `0600`, the directory
 /// `0700`, each write whole to a temporary file renamed into place. Not
 /// encrypted — the platform's own secret service arrives as a second
@@ -114,13 +152,10 @@ impl FileStore {
     }
 
     /// `$XDG_DATA_HOME/<app>/secrets` (`~/.local/share` when unset).
-    pub fn for_app(app: &str) -> Self {
-        let base = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".local/share")))
-            .unwrap_or_else(std::env::temp_dir);
-        Self::new(base.join(app).join("secrets"))
+    /// `None` when neither variable supplies an absolute durable base.
+    pub fn for_app(app: &str) -> Option<Self> {
+        durable_base(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"))
+            .map(|base| Self::new(base.join(app).join("secrets")))
     }
 
     fn path(&self, name: &str) -> Result<PathBuf, HostError> {
@@ -128,69 +163,240 @@ impl FileStore {
         Ok(self.dir.join(name))
     }
 
+    /// Refuse an existing non-directory or symlink in the store-root slot.
+    /// This is deliberately a path check, not a claim of handle-relative
+    /// protection against a same-user race in an ancestor directory.
+    fn check_dir(&self) -> Result<(), HostError> {
+        match std::fs::symlink_metadata(&self.dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(failed("stat", &self.dir, e)),
+            Ok(meta) if meta.file_type().is_symlink() || is_reparse_point(&meta) => {
+                Err(HostError::Failed(format!(
+                    "secrets: the store root {} is a link or reparse point, refusing",
+                    self.dir.display()
+                )))
+            }
+            Ok(meta) if !meta.file_type().is_dir() => Err(HostError::Failed(format!(
+                "secrets: the store root {} is not a directory, refusing",
+                self.dir.display()
+            ))),
+            Ok(_) => Ok(()),
+        }
+    }
+
     fn ensure_dir(&self) -> Result<(), HostError> {
+        self.check_dir()?;
+        // Sync every directory entry created by the first write, through the
+        // first ancestor that already existed. Directory sync is best effort
+        // because not every filesystem supports it.
+        let mut preexisting = self.dir.clone();
+        while !preexisting.exists() {
+            match preexisting.parent() {
+                Some(parent) => preexisting = parent.to_path_buf(),
+                None => break,
+            }
+        }
         std::fs::create_dir_all(&self.dir).map_err(|e| failed("create", &self.dir, e))?;
+        self.check_dir()?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&self.dir, std::fs::Permissions::from_mode(0o700));
+            std::fs::set_permissions(&self.dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| failed("secure", &self.dir, e))?;
+        }
+        if preexisting != self.dir {
+            let mut dir = self.dir.clone();
+            loop {
+                sync_dir(&dir);
+                if dir == preexisting {
+                    break;
+                }
+                match dir.parent() {
+                    Some(parent) => dir = parent.to_path_buf(),
+                    None => break,
+                }
+            }
         }
         Ok(())
     }
+}
+
+fn durable_base(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    xdg.map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            home.map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|path| path.join(".local/share"))
+        })
 }
 
 fn failed(what: &str, path: &Path, e: std::io::Error) -> HostError {
     HostError::Failed(format!("secrets: {what} {}: {e}", path.display()))
 }
 
+fn non_regular(name: &str) -> HostError {
+    HostError::Failed(format!("secrets: {name} is not a regular file, refusing"))
+}
+
+#[cfg(windows)]
+fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    meta.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_meta: &std::fs::Metadata) -> bool {
+    false
+}
+
+/// Open a secret without following a final-component symlink, validate the
+/// opened handle, and return that same handle to the reader. The store-root
+/// check remains path based; this closes the file check/open gap without
+/// claiming handle-relative traversal of the parent directory.
+fn open_secret(path: &Path, name: &str) -> Result<Option<std::fs::File>, HostError> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // O_NONBLOCK keeps a planted FIFO from hanging before the handle's
+        // file type can be checked. It does not change regular-file reads.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            if std::fs::symlink_metadata(path)
+                .map(|meta| !meta.file_type().is_file())
+                .unwrap_or(false)
+            {
+                return Err(non_regular(name));
+            }
+            return Err(failed("read", path, e));
+        }
+    };
+    let meta = file.metadata().map_err(|e| failed("stat", path, e))?;
+    if !meta.file_type().is_file() || is_reparse_point(&meta) {
+        return Err(non_regular(name));
+    }
+    Ok(Some(file))
+}
+
+fn ensure_regular_or_absent(path: &Path, name: &str) -> Result<bool, HostError> {
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(failed("stat", path, e)),
+        Ok(meta) if !meta.file_type().is_file() || is_reparse_point(&meta) => {
+            Err(non_regular(name))
+        }
+        Ok(_) => Ok(true),
+    }
+}
+
+/// Best-effort fsync of a directory after an entry is created, replaced, or
+/// removed. Some filesystems do not permit directory sync.
+#[cfg(unix)]
+fn sync_dir(dir: &Path) {
+    if let Ok(handle) = std::fs::File::open(dir) {
+        let _ = handle.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_dir: &Path) {}
+
 impl SecretStore for FileStore {
     fn get(&self, name: &str) -> Result<Option<String>, HostError> {
         let path = self.path(name)?;
-        match std::fs::read(&path) {
-            Ok(bytes) => String::from_utf8(bytes)
-                .map(Some)
-                .map_err(|_| HostError::Failed(format!("secrets: {name} is not UTF-8"))),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(failed("read", &path, e)),
-        }
+        self.check_dir()?;
+        let Some(mut file) = open_secret(&path, name)? else {
+            return Ok(None);
+        };
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|e| failed("read", &path, e))?;
+        String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|_| HostError::Failed(format!("secrets: {name} is not UTF-8")))
     }
 
     fn set(&self, name: &str, value: &str) -> Result<(), HostError> {
         let path = self.path(name)?;
         self.ensure_dir()?;
-        // Unique per call — pid and a counter — so concurrent writers of one
-        // name can never truncate each other's temporary and rename a torn
-        // value into place.
+        ensure_regular_or_absent(&path, name)?;
+        // Create a fresh temporary for this call. A colliding name belongs to
+        // another writer (or a crash) and is never ours to truncate or remove;
+        // retry under a new pid/timestamp/counter spelling instead.
         static NEXT_TMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let tmp = self.dir.join(format!(
-            ".{name}.{}.{}",
-            std::process::id(),
-            NEXT_TMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        {
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let (mut file, tmp) = {
+            let mut attempts = 0u32;
+            loop {
+                let tmp = self.dir.join(format!(
+                    ".{name}.{}.{}.{}",
+                    std::process::id(),
+                    nanos,
+                    NEXT_TMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                let mut options = std::fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                match options.open(&tmp) {
+                    Ok(file) => break (file, tmp),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempts < 16 => {
+                        attempts += 1;
+                    }
+                    Err(e) => return Err(failed("write", &tmp, e)),
+                }
             }
+        };
+        let written = {
             use std::io::Write as _;
-            let mut file = options.open(&tmp).map_err(|e| failed("write", &tmp, e))?;
             file.write_all(value.as_bytes())
                 .and_then(|()| file.sync_all())
-                .map_err(|e| failed("write", &tmp, e))?;
+        };
+        drop(file);
+        if let Err(e) = written {
+            let error = failed("write", &tmp, e);
+            let _ = std::fs::remove_file(&tmp);
+            sync_dir(&self.dir);
+            return Err(error);
         }
         std::fs::rename(&tmp, &path).map_err(|e| {
             let _ = std::fs::remove_file(&tmp);
+            sync_dir(&self.dir);
             failed("rename", &path, e)
-        })
+        })?;
+        sync_dir(&self.dir);
+        Ok(())
     }
 
     fn forget(&self, name: &str) -> Result<(), HostError> {
         let path = self.path(name)?;
+        self.check_dir()?;
+        if !ensure_regular_or_absent(&path, name)? {
+            return Ok(());
+        }
         match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                sync_dir(&self.dir);
+                Ok(())
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(failed("remove", &path, e)),
         }
@@ -221,7 +427,10 @@ pub fn default_store() -> Box<dyn SecretStore> {
     }
     #[cfg(not(target_vendor = "apple"))]
     {
-        Box::new(FileStore::for_app(&app_identity()))
+        match FileStore::for_app(&app_identity()) {
+            Some(store) => Box::new(store),
+            None => Box::new(UnavailableStore),
+        }
     }
 }
 
@@ -229,14 +438,17 @@ pub fn default_store() -> Box<dyn SecretStore> {
 mod tests {
     use super::*;
 
+    static NEXT_TEMP_DIR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "ibex2-secrets-{}-{}",
+            "ibex2-secrets-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_TEMP_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let _ = std::fs::remove_dir_all(&dir);
         dir
@@ -334,5 +546,145 @@ mod tests {
     #[test]
     fn the_app_identity_is_never_empty() {
         assert!(!app_identity().is_empty());
+    }
+
+    #[test]
+    fn only_absolute_environment_paths_select_a_default_file_store() {
+        let home = temp_dir();
+        let xdg = home.join("xdg");
+        assert_eq!(
+            durable_base(
+                Some(xdg.clone().into_os_string()),
+                Some(home.clone().into_os_string())
+            ),
+            Some(xdg)
+        );
+        assert_eq!(
+            durable_base(
+                Some(OsString::from("relative-xdg")),
+                Some(home.clone().into_os_string())
+            ),
+            Some(home.join(".local/share"))
+        );
+        assert_eq!(
+            durable_base(
+                Some(OsString::from("relative-xdg")),
+                Some(OsString::from("relative-home"))
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn the_unavailable_store_refuses_every_operation() {
+        let store = UnavailableStore;
+        assert!(store.get("castle.session").is_err());
+        assert!(store.set("castle.session", "value").is_err());
+        assert!(store.forget("castle.session").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_writers_leave_one_whole_secret_and_no_temporary() {
+        let dir = temp_dir();
+        let store = std::sync::Arc::new(FileStore::new(&dir));
+        let mut handles = Vec::new();
+        for writer in 0..8u32 {
+            let store = std::sync::Arc::clone(&store);
+            handles.push(std::thread::spawn(move || {
+                for iteration in 0..25u32 {
+                    let value = format!("writer-{writer:02}-iteration-{iteration:04}");
+                    store.set("contended", &value).unwrap();
+                    store.set(&format!("writer-{writer}"), &value).unwrap();
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        let value = store.get("contended").unwrap().unwrap();
+        assert!(
+            value.starts_with("writer-") && value.ends_with("-iteration-0024"),
+            "the last write is one writer's whole final value: {value}"
+        );
+        for writer in 0..8u32 {
+            assert_eq!(
+                store.get(&format!("writer-{writer}")).unwrap().unwrap(),
+                format!("writer-{writer:02}-iteration-0024")
+            );
+        }
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with('.'))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_or_non_file_is_never_read_replaced_or_removed_as_a_secret() {
+        let dir = temp_dir();
+        let store = FileStore::new(&dir);
+        store.set("anchor", "value").unwrap();
+
+        let outside = dir.with_extension("outside");
+        std::fs::write(&outside, b"outside").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("linked")).unwrap();
+        for result in [
+            store.get("linked").map(|_| ()),
+            store.set("linked", "replacement"),
+            store.forget("linked"),
+        ] {
+            assert!(matches!(result, Err(HostError::Failed(_))));
+        }
+        assert_eq!(std::fs::read(&outside).unwrap(), b"outside");
+
+        std::fs::create_dir(dir.join("directory")).unwrap();
+        assert!(matches!(store.get("directory"), Err(HostError::Failed(_))));
+        assert!(matches!(
+            store.set("directory", "replacement"),
+            Err(HostError::Failed(_))
+        ));
+        assert!(matches!(
+            store.forget("directory"),
+            Err(HostError::Failed(_))
+        ));
+
+        use std::os::unix::ffi::OsStrExt as _;
+        let fifo = dir.join("fifo");
+        let fifo_path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo_path` is a live, NUL-terminated path for this call.
+        assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
+        assert!(matches!(store.get("fifo"), Err(HostError::Failed(_))));
+        assert!(matches!(
+            store.set("fifo", "replacement"),
+            Err(HostError::Failed(_))
+        ));
+        assert!(matches!(store.forget("fifo"), Err(HostError::Failed(_))));
+
+        let real_root = temp_dir();
+        std::fs::create_dir_all(&real_root).unwrap();
+        let linked_root = temp_dir();
+        std::os::unix::fs::symlink(&real_root, &linked_root).unwrap();
+        let linked_store = FileStore::new(&linked_root);
+        assert!(matches!(
+            linked_store.get("secret"),
+            Err(HostError::Failed(_))
+        ));
+        assert!(matches!(
+            linked_store.set("secret", "value"),
+            Err(HostError::Failed(_))
+        ));
+        assert!(matches!(
+            linked_store.forget("secret"),
+            Err(HostError::Failed(_))
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_file(&linked_root);
+        let _ = std::fs::remove_dir_all(&real_root);
     }
 }

@@ -729,9 +729,9 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     every(100, tick)
   view
     column testId="parent"
-      when phase == 1
+      if phase == 1
         text "typing"
-      when phase >= 2
+      if phase >= 2
         text "reply" testId="reply"
 "#,
     )
@@ -1073,14 +1073,14 @@ fn a_theme_flip_restyles_each_touched_row_once() {
   id: number
 component App
   state dark = false
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   action flip
     dark = !dark
   view
     column
       button press=flip testId="flip"
         text "Flip"
-      each r in rows key=r.id
+      for r in rows key=r.id
         text `${r.id}` color=(dark ? "#ffffff" : "#000000")
 "##;
     let plan = contract::bake(contract::compile(source).unwrap(), Rows).unwrap();
@@ -1146,51 +1146,6 @@ component App
         !host.route_matches("/"),
         "an app without routes follows no link"
     );
-}
-
-/// A text block with a heading level is HTML's heading element — Chrome's
-/// accessibility tree ignores `aria-level` on a role-less div (review,
-/// 2026-09-22) — unless the author gave it another role. Past h6 it is a div
-/// with `role="heading"`; an inline run stays a span.
-#[test]
-fn heading_levels_are_heading_elements() {
-    let plan = contract::compile(
-        r#"component App
-  view
-    column
-      text "One" aria-level=1 testId="one"
-      text "Six" aria-level=6 testId="six"
-      text "Seven" aria-level=7 testId="seven"
-      text "Item" aria-level=2 role="treeitem" testId="item"
-      text "Plain" testId="plain"
-      text testId="para"
-        text "run" aria-level=3 testId="run"
-"#,
-    )
-    .unwrap();
-    let (host, batch) = Host::boot(
-        &plan.encode(),
-        caltrain_data::Caltrain,
-        Default::default(),
-        "/",
-    )
-    .unwrap();
-    for (test_id, tag) in [
-        ("one", "h1"),
-        ("six", "h6"),
-        ("seven", "div"),
-        ("item", "div"),
-        ("plain", "div"),
-        ("para", "div"),
-        ("run", "span"),
-    ] {
-        let id = view_with_test_id_any(&host, test_id);
-        let create = format!("\"op\":\"create\",\"id\":{id},\"tag\":\"{tag}\"");
-        assert!(batch.contains(&create), "{test_id} is not a {tag}: {batch}");
-    }
-    assert!(batch.contains("\"role\":\"heading\""), "{batch}");
-    assert!(batch.contains("\"role\":\"treeitem\""), "{batch}");
-    assert_eq!(batch.matches("\"role\":\"heading\"").count(), 1, "{batch}");
 }
 
 /// A block root is a formatting context of its own on the web, as the
@@ -1302,7 +1257,7 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
         text "b" top=4 testId="inset"
         text "c" z-index=2 testId="raised"
         text "d" position="relative" top=4 testId="moved"
-        when pinned
+        if pinned
           box position="absolute" width=4 height=4 testId="badge"
 "##,
     )

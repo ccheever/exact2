@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { timelineEasing } from '../motion-glue.js';
+import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const WEB = resolve(new URL('..', import.meta.url).pathname);
@@ -30,7 +31,7 @@ const hostCommitBody = `
   const root = document.getElementById('root'), listSelection = null, textflow = null, page = null, collectionOp = null;
   const collections = {commit() {}, restyled() {}}, arrange = {commit() {}, destroy() {}, binding() {}, state() {}}, presence = {hold: () => false, live: null};
   const prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {};
-  const focusAutofocus = () => {}, positionContexts = () => {}, markScrollDocument = () => {}, syncLists = () => {};
+  const focusAutofocus = () => {}, inputHandlers = null, positionContexts = () => {}, markScrollDocument = () => {}, syncLists = () => {};
   const followScroll = () => {}, settleFollow = () => {}, settleValue = () => {}, letGo = () => {}, flowBatch = () => {}, noteFit = () => {}, refitTexts = () => {};
   const navigation = {project() {}, apply() {}}, log = () => {}, inputReady = false, agentMode = false, frameSampler = null, clocks = {sync() {}};
   const viewFor = (_, id) => views.get(id), applyProps = () => {}, attach = () => {}, listView = () => {};
@@ -39,8 +40,7 @@ const hostCommitBody = `
   return applyBatch;
 `;
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // A `linear()` easing at input x (0–1): the last point at or before x, then
 // linearly on to the next; two points at one input are a jump.
@@ -341,10 +341,16 @@ check('a real commit rebinds a spring follower on the wasm and JS runtimes', asy
   try {
     writeFileSync(resolve(tmp, 'follower.contract'), FOLLOWER_SOURCE);
     run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'follower.contract'), '-o', plan]);
-    run(process.execPath, ['host/web/build.mjs', 'interaction-gallery', '--render', 'none'], { EXACT_WEB_DIST: jsDist });
-    run(process.execPath, ['host/web/build.mjs', 'interaction-gallery', '--wasm'], { EXACT_WEB_DIST: wasmDist });
-    for (const [target, dist] of [['wasm', wasmDist], ['js', jsDist]]) {
-      session = await open({ host: 'web', plan, app: 'interaction-gallery', webDist: dist });
+    // Use the lane's prepared Caltrain builds when both paths are set (the plan reads no app data), else build
+    // Interaction Gallery's
+    const { EXACT_MOTION_DIST: preparedWasm, EXACT_WEB_JS_DIST: preparedJs } = process.env;
+    const prepared = Boolean(preparedWasm && preparedJs), app = prepared ? 'caltrain' : 'interaction-gallery';
+    if (!prepared) {
+      run(process.execPath, ['host/web/build.mjs', app, '--render', 'none'], { EXACT_WEB_DIST: jsDist });
+      run(process.execPath, ['host/web/build.mjs', app, '--wasm'], { EXACT_WEB_DIST: wasmDist });
+    }
+    for (const [target, dist] of [['wasm', prepared ? resolve(preparedWasm) : wasmDist], ['js', prepared ? resolve(preparedJs) : jsDist]]) {
+      session = await open({ host: 'web', plan, app, webDist: dist });
       await session.clock('settle');
       const read = () => session.carrier.evaluate(`(() => {
         const vector = id => { const v=getComputedStyle(document.querySelector('[data-testid="'+id+'"]')).translate.trim().split(/\\s+/); return v[0]==='none'?[0,0]:[parseFloat(v[0]),parseFloat(v[1]??'0')]; };

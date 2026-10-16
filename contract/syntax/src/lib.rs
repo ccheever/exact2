@@ -6,8 +6,8 @@
 //! The grammar is indentation-structured. A file is a sequence of `shape` and
 //! `component` declarations; a component holds `props`, `state`, `derive`,
 //! `resource`, `action`, `task`, and `view` sections; a view is a tree of
-//! elements, component uses, and the three region constructs `when`/`else`,
-//! `each … in … key=…`, and `match … case some(x) / case none`. Expressions
+//! elements, component uses, and the three region constructs `if`/`else`,
+//! `for … in … key=…`, and `match … case some(x) / case none`. Expressions
 //! are closed: literals, template strings, names, member access, calls,
 //! arithmetic, comparison, boolean logic, the conditional operator, `some`,
 //! `none`, and inline `match`.
@@ -20,11 +20,14 @@
 
 pub mod ast;
 mod clock;
+mod colours;
 pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
+mod notfound;
 pub mod parser;
+mod part;
 pub mod scope;
 mod share;
 mod spans;
@@ -36,6 +39,7 @@ pub use inline::{
     Instance, Owner,
 };
 pub use lexer::{Lexer, Token, TokenKind};
+pub use notfound::implicit_notfound;
 pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
 pub use share::share_calls;
 pub use spans::VisitSpans;
@@ -101,24 +105,33 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     "reload",
+    "relaunch",
+    "removeAllRanges",
     "selectText",
-    // `el.setSelectionRange(start, end, direction)` on a text field by its
-    // `id` (x2apps codeedit #2): `setSelectionRange("editor", 4, 4)`.
+    // A field's range, or a reader text's source range (issue #274), by id.
+    // `setSelectionRange("editor", 4, 4)`.
     "setSelectionRange",
+    "setRangeText",
     "setScheme",
     // @ref LLP 1069.000 D3 — `:root { font-size }`: `setRootFontSize(px)`
     // sets the root size `rem` follows, over the host's; `"medium"` hands it
     // back. The runner's own; the web also sets it on the document.
     "setRootFontSize",
+    // @ref LLP 1121 D5 — `setMode("dark-style", "dim")`: the window's app
+    // modes, as `setScheme` is its scheme. The runner's own.
+    "setMode",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's
     // `id`, from an action; `close(id)` closes it (bare `close()` is still
     // the window's).
     "showModal",
+    "showPopover",
+    "hidePopover",
+    "togglePopover",
     "share",
     // Local notifications by the Notification API's names (rules/DEFERRED.md,
-    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=)` and
+    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
     // `closeNotification(tag)`.
     "showNotification",
     "closeNotification",
@@ -155,3 +168,14 @@ pub const HOST_COMMANDS: &[&str] = &[
     "playSounds",
     "stopSounds",
 ];
+
+/// A written type as the author writes it: `Item[]`, `option<number>`.
+impl std::fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeExpr::Named(n, _) => write!(f, "{n}"),
+            TypeExpr::Option(t, _) => write!(f, "option<{t}>"),
+            TypeExpr::List(t, _) => write!(f, "{t}[]"),
+        }
+    }
+}

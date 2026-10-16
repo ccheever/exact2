@@ -68,12 +68,7 @@ impl StickyConstraint {
 }
 
 fn length(d: Dimension, basis: f32, env: &crate::style::Env) -> Option<f32> {
-    match d.resolve(env) {
-        Dimension::Points(p) => Some(p),
-        Dimension::Percent(p) => Some(basis * p / 100.0),
-        Dimension::Calc(p, pt) => Some(basis * p / 100.0 + pt),
-        _ => None,
-    }
+    (d.resolve(env) != Dimension::Auto).then(|| d.at_basis(env, basis))
 }
 
 impl Kernel {
@@ -91,7 +86,7 @@ impl Kernel {
     pub fn sticky_constraint(&self, key: NodeKey) -> Option<StickyConstraint> {
         let arena = &self.arena;
         let slot = arena.resolve(key)?;
-        let style = arena.style(slot);
+        let style = arena.effective_style(slot);
         // @ref LLP 1093 D10.6 — in a multi-column flow, sticky is relative.
         if style.position_type != PositionType::Sticky || crate::fragment::in_flow(arena, slot) {
             return None;
@@ -99,8 +94,15 @@ impl Kernel {
         self.laid_out_frame(key)?;
         let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let parent = arena.parent(slot)?;
+        // A host's containing block is a root's (LLP 1115.002 D8.2): the
+        // scrollport when nothing inside it scrolls, and its own root's
+        // parent is in another space.
+        if arena.blocks.holds(slot) {
+            return None;
+        }
         let mut scroller = parent;
-        while !arena.is_root(scroller) && !scrolls(arena, scroller) {
+        while !arena.is_root(scroller) && !arena.blocks.holds(scroller) && !scrolls(arena, scroller)
+        {
             scroller = arena.parent(scroller)?;
         }
         let origin = arena.frame(scroller);

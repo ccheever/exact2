@@ -184,6 +184,35 @@ final class ModalDetentIOSTests: XCTestCase {
         }
     }
 
+    /// Mounted, its route in its block (LLP 1123 D2), the sheet still
+    /// follows its rows: its content is measured at the block's width,
+    /// whatever height the block has.
+    func testAMountedFitContentSheetFollowsItsRows() throws {
+        let session = try fixture("detent-mounted")
+        try countingInvalidations {
+            try tap(session, "menu")
+            until("the menu is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+            let presented = try XCTUnwrap(sheet())
+            let controller = try XCTUnwrap(presented.sheetPresentationController)
+            // Put where UIKit's transition, which this window never finishes, puts it
+            if presented.view.window == nil { window?.addSubview(presented.view) }
+            presented.view.frame = CGRect(x: 0, y: 400, width: 402, height: 474)
+            presented.view.layoutIfNeeded()
+            let route = try node(session, "route-menu")
+            let routeView = try XCTUnwrap(session.presenter.navigation.controllers[route.id]?.view)
+            until("the route has its block") { session.presenter.owners.told[route.id]?.block == .size(routeView.bounds.size) && !routeView.bounds.isEmpty }
+            let detent = { controller.detents.first?.resolvedValue(in: Context(800)) }
+            until("at its rows' height") { detent() == rows(1) }
+            var seen = UISheetPresentationController.exactTestInvalidations
+            for (press, n) in [("menu-more", 2), ("menu-more", 3), ("menu-fewer", 2)] {
+                try tap(session, press)
+                until("\(press): \(n) rows") { detent() == rows(n) }
+                until("\(press) invalidates the detents") { UISheetPresentationController.exactTestInvalidations > seen }
+                seen = UISheetPresentationController.exactTestInvalidations
+            }
+        }
+    }
+
     /// `"fit-content large"`: the sheet starts at its rows, with the grabber;
     /// a content change invalidates the detents and keeps whichever is
     /// selected.

@@ -26,7 +26,7 @@ component NavRoot
             text "open"
           button press=bump testId="bump-home"
             text "bump home"
-        when depth == 2
+        if depth == 2
           column navigationKey="2" testId="route-detail" padding=8 gap=4 background-color="#ffe4d6"
             text "detail"
             button press=bump testId="bump-detail"

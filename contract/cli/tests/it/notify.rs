@@ -1,6 +1,6 @@
-//! `showNotification(title=, body=, tag=, showTrigger=)` and
+//! `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
 //! `closeNotification(tag)` (rules/DEFERRED.md, 2026-10-04): named arguments
-//! lower as `(title, body, tag, showTrigger)`; every host's arm refuses
+//! lower as `(title, body, tag, showTrigger, navigate)`; every host's arm refuses
 //! without `device.notifications`, lists under the agent (a tag replacing
 //! its older one, `closeNotification` taking it away), or presents.
 
@@ -52,13 +52,20 @@ fn named_arguments_lower_in_the_notification_api_order() {
             Value::str("Stretch"),
             Value::str("Five minutes, at your desk"),
             Value::str("stretch"),
-            Value::Number(1.8e12)
+            Value::Number(1.8e12),
+            Value::str("/notifications")
         ]
     );
     let none = Value::Option(None);
     assert_eq!(
         press(&mut r, "now"),
-        vec![Value::str("Price alert"), none.clone(), none.clone(), none]
+        vec![
+            Value::str("Price alert"),
+            none.clone(),
+            none.clone(),
+            none.clone(),
+            none
+        ]
     );
     assert_eq!(press(&mut r, "stop"), vec![Value::str("stretch")]);
 }
@@ -93,7 +100,7 @@ fn every_host_arm_refuses_lists_or_presents_by_one_rule() {
     arm(&mut r, Notice::from_args(&now), true, false);
     let state = exact_runner::agent::state(&r);
     assert!(
-        state.contains(r#""notifications":[{"title":"Stretch","body":"Five minutes, at your desk","tag":"stretch","showTrigger":1800000000000},{"title":"Price alert","body":null,"tag":null,"showTrigger":null}]"#),
+        state.contains(r#""notifications":[{"title":"Stretch","body":"Five minutes, at your desk","tag":"stretch","showTrigger":1800000000000,"navigate":"/notifications"},{"title":"Price alert","body":null,"tag":null,"showTrigger":null,"navigate":null}]"#),
         "{state}"
     );
     assert_eq!(close(&mut r, "stretch", true), Arm::Listed);

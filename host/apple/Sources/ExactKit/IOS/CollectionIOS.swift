@@ -55,20 +55,20 @@ extension CollectionHost {
             let available = max(0, portHeight - content.minY - (node.bounds.height - content.maxY))
             let cross = measured ?? available
             guard cross.isFinite else { return nil }
+            let start = max(0, node.padding("left")), end = max(0, node.padding("right"))
             // From the first item: negative in the padding before it, down
             // to that padding (LLP 1010 §6.9).
-            return CollectionFacts(offset: Double(max(-node.number("padding_left"), at.x + insets.left - content.minX)),
+            return CollectionFacts(offset: Double(max(-start, at.x + insets.left - content.minX)),
                 portMain: Double(portWidth), portCross: Double(portHeight), cross: Double(cross),
-                measurements: [], focus: nil, interaction: nil,
-                padding: [Double(node.number("padding_left")), Double(node.number("padding_right"))])
+                measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
         }
         let available = max(0, portWidth - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        return CollectionFacts(offset: Double(max(-node.number("padding_top"), at.y + insets.top - content.minY)),
+        let start = max(0, node.padding("top")), end = max(0, node.padding("bottom"))
+        return CollectionFacts(offset: Double(max(-start, at.y + insets.top - content.minY)),
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
-            measurements: [], focus: nil, interaction: nil,
-            padding: [Double(node.number("padding_top")), Double(node.number("padding_bottom"))])
+            measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
     }
     /// The insets UIKit adjusts the list's port by, at its start edges. A
     /// safe area its frame changed reaches the scroll view in a layout
@@ -348,6 +348,18 @@ extension CollectionHost {
         }
         return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
     }
+    /// Pins the row under a finger in `port`, the viewport or a presentation's
+    /// mount (LLP 1123 D2), so a list's window keeps it for the contact.
+    @discardableResult
+    func watchContacts(in port: UIView) -> UIGestureRecognizer {
+        let recognizer = CollectionContact(target: nil, action: nil)
+        recognizer.collections = self
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        port.addGestureRecognizer(recognizer)
+        return recognizer
+    }
     func focusedView() -> UInt32? {
         presenter?.views.values.first(where: {
             $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true
@@ -355,12 +367,7 @@ extension CollectionHost {
     }
     func startTracking() {
         guard let viewport = presenter?.viewport else { return }
-        let recognizer = CollectionContact(target: nil, action: nil)
-        recognizer.collections = self
-        recognizer.cancelsTouchesInView = false
-        recognizer.delaysTouchesBegan = false
-        recognizer.delaysTouchesEnded = false
-        viewport.addGestureRecognizer(recognizer)
+        let recognizer = watchContacts(in: viewport)
         let observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in self?.releaseInteractionLater() }
         stopTracking = { [weak viewport] in
