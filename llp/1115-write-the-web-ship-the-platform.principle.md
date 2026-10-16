@@ -152,6 +152,12 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   > and runs it, and that is all; any other commits and presses the first action that is not
   > destructive, whatever its style, nothing while that action is disabled. Lowering refuses a field in any
   > other shape; Linux paints it as authored.
+  >
+  > **Amended (2026-10-16).** On iOS Return is the field delegate's, and the alert has no
+  > `preferredAction` unless its author gave one: a hand-built `UIAlertController` and React
+  > Native's `Alert.prompt` draw no action filled, so an unsaid prompt drew "Rename" as a tell. The
+  > one prominent (`buttonStyle="filled"`, `"bordered-prominent"`) action that is not destructive
+  > is the preferred action of any alert, as it is the Mac's default button (LLP 1115.000 D7.3).
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.

@@ -7,7 +7,8 @@
 // stands across batches that write nothing), its edits pass the input's own
 // checks, a keystroke is its `input`, its focus and selection are the
 // input's, and Return is the input's (its key, then its `submit` if it has
-// one, and that is all) before it is the alert's preferred action.
+// one, and that is all) before it is the prompt's first action that is not
+// destructive.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -15,9 +16,12 @@ final class PromptField: NSObject, UITextFieldDelegate {
     private(set) weak var node: NodeView?
     private weak var presenter: Presenter?
     private weak var field: UITextField?
-    /// The alert's own delegate for the field, which takes Return (the
-    /// preferred action) and anything else this does not answer.
+    /// The alert's own delegate for the field, which answers what this does
+    /// not.
     private weak var alertDelegate: UITextFieldDelegate?
+    /// What Return chooses when the input itself does not take it: the
+    /// prompt's first action that is not destructive (`MenuHost`).
+    var returned: (() -> Void)?
     init(_ node: NodeView, presenter: Presenter) { self.node = node; self.presenter = presenter }
 
     /// Give UIKit's field what the authored one says: its value, placeholder,
@@ -79,12 +83,21 @@ final class PromptField: NSObject, UITextFieldDelegate {
     /// Return, one rule on every host (docs/contract-for-agents.md): the
     /// input's `key` handlers first (prevented, nothing more); its `change`;
     /// then its `submit` if it has one, and that is all, as a hand-built
-    /// field's delegate that handles Return; else the alert's preferred action.
+    /// field's delegate that handles Return; else the prompt's first action
+    /// that is not destructive (`returned`), not UIKit's preferred action,
+    /// which is the author's to draw.
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard let node = live(), let presenter, !node.disabled else { return false }
         if presenter.keyDown(at: node, "Enter") { return false }
+        return returnHeard(textField)
+    }
+    /// Return once the input's `key` handlers have heard it unprevented (the
+    /// agent's `key Enter` delivers those itself).
+    func returnHeard(_ textField: UITextField) -> Bool {
+        guard let node = live(), let presenter, !node.disabled else { return false }
         presenter.commitEdit(node.id, textField.text ?? "", change: node.handlers.contains("change"))
         if node.handlers.contains("submit") { presenter.submit(node.id); return false }
+        if let returned { returned(); return false }
         return alertDelegate?.textFieldShouldReturn?(textField) ?? true
     }
     override func responds(to selector: Selector!) -> Bool {

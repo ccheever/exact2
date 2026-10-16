@@ -310,7 +310,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(field.text, "Untitled")
         XCTAssertEqual(field.placeholder, "Name")
         XCTAssertEqual(field.accessibilityIdentifier, "name")
-        XCTAssertEqual(alert.preferredAction?.title, "Save", "Return: the first action that is not destructive")
+        XCTAssertNil(alert.preferredAction, "no action drawn bold, as a hand-built prompt's")
 
         field.text = "Kick"
         field.sendActions(for: .editingChanged)
@@ -328,6 +328,49 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(p.views[20]).headerField, "the authored field is its own again")
     }
 
+    /// Return in a prompt's field is its delegate's: it presses the first
+    /// action that is not destructive, nothing while that one is disabled,
+    /// and draws none bold. The one prominent action its author marked is
+    /// the alert's preferred action, as the Mac's default button.
+    func testAPromptsReturnPressesItsFirstActionAndOnlyAnAuthoredOneIsPreferred() throws {
+        let (p, controller, scene) = confirmation(label: "Rename", texts: [], actions: ["Delete", "Save"], cancel: true)
+        defer { dismiss(p, controller) }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["change"], "props": ["value": "Untitled"], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [20, 3, 4, 9]],
+                           ["op": "props", "id": 4, "set": ["disabled": "true"]]]))
+        var events: [String] = []
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.onPress = { events.append("press \($0)") }
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        XCTAssertNil(alert.preferredAction, "unsaid: no action is drawn bold")
+        let field = try XCTUnwrap(alert.textFields?.first)
+        XCTAssertEqual(field.delegate?.textFieldShouldReturn?(field), false)
+        XCTAssertNotNil(p.menus.observation(), "Save is disabled: Return does nothing more")
+        p.apply(wireBatch([["op": "props", "id": 4, "clear": ["disabled"]]]))
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        settle { !p.menus.inTransition }
+        field.text = "Kick"
+        field.sendActions(for: .editingChanged)
+        XCTAssertEqual(field.delegate?.textFieldShouldReturn?(field), false)
+        settle { events.contains("press 4") }
+        XCTAssertEqual(events.filter { $0.hasPrefix("press") }, ["press 4"], "Return pressed Save: \(events)")
+        XCTAssertEqual(events.first, "change 20 Kick", "its change before the press")
+        settle { p.menus.observation() == nil && controller.presentedViewController == nil }
+
+        // Save marked `filled`: the alert's preferred action, drawn bold.
+        p.buttonFace = { id in var f = ButtonFace(); f.title = [3: "Delete", 4: "Save", 9: "Cancel"][id]; if id == 4 { f.style = "filled" }; return f }
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let marked = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        XCTAssertEqual(marked.preferredAction?.title, "Save", "the author's one prominent action")
+        let actions = [p.views[3], p.views[4]].compactMap { $0 }
+        p.buttonFace = { id in var f = ButtonFace(); f.title = [3: "Delete", 4: "Save", 9: "Cancel"][id]; f.style = "filled"; return f }
+        XCTAssertEqual(MenuHost.preferredAction(actions), 1, "a destructive one is never preferred")
+        p.apply(wireBatch([["op": "props", "id": 3, "clear": ["destructive"]]]))
+        XCTAssertNil(MenuHost.preferredAction(actions), "emphasis never picks among several")
+    }
+
     /// A prompt opens with every action disabled (Save, until a name is
     /// typed), and its field follows the authored input after each batch:
     /// the value the page now holds, its enablement, and its own checks on
@@ -342,7 +385,6 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "a prompt opens with every action disabled")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.actions.map(\.isEnabled), [false, false, true], "the field and Cancel remain")
-        XCTAssertEqual(alert.preferredAction?.title, "Save", "Return is Save while it is disabled too: it then does nothing")
         let field = try XCTUnwrap(alert.textFields?.first)
 
         p.apply(wireBatch([["op": "props", "id": 20, "set": ["value": "KICK"]]]))
@@ -362,7 +404,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
 
     /// Typing stands across batches that write nothing to the input (an
     /// input that commits on `change`, a timer's batch); Return is the
-    /// input's `change` and `submit` before the alert's preferred action;
+    /// input's `change` and `submit` before its first action that is not destructive;
     /// and an input the page swaps for another withdraws the alert, whose
     /// field is no longer the input's.
     func testAPromptsTypingStandsItsReturnSubmitsAndASwappedFieldWithdrawsIt() throws {

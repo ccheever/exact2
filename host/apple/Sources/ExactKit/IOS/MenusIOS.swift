@@ -1024,13 +1024,26 @@ final class MenuHost {
         }
         // A prompt: each field is UIKit's, standing in for the authored one,
         // and Return chooses its first action that is not destructive, as a
-        // hand-built rename's Save (`preferredAction`, drawn bold).
+        // hand-built rename's field delegate does, while it is enabled.
         if style == .alert, let presenter {
+            let lead = actions.firstIndex(where: { $0.props["destructive"] != "true" })
             owner.fields = fields.map { PromptField($0, presenter: presenter) }
-            for field in owner.fields { owner.alert.addTextField { field.attach($0) } }
-            if !fields.isEmpty, let lead = actions.firstIndex(where: { $0.props["destructive"] != "true" }) {
-                owner.alert.preferredAction = owner.buttons[lead]
+            for field in owner.fields {
+                if let lead {
+                    field.returned = { [weak self, weak owner] in
+                        guard let self, let owner, owner.buttons[lead].isEnabled else { return }
+                        self.select(owner, lead)
+                    }
+                }
+                owner.alert.addTextField { field.attach($0) }
             }
+        }
+        // The action drawn bold is the author's alone: UIKit's alert has no
+        // preferred action until one is set, as a hand-built one and React
+        // Native's `Alert.prompt` have none. The one prominent action that is
+        // not destructive is it (LLP 1115.000 D7.3, the Mac's default button).
+        if style == .alert, let preferred = Self.preferredAction(actions) {
+            owner.alert.preferredAction = owner.buttons[preferred]
         }
         #if !os(tvOS)
         if style == .popover {
@@ -1067,6 +1080,17 @@ final class MenuHost {
     /// popover, which a tap outside dismisses. An alert has no outside (LLP
     /// 1115.000 D13.4), so a `dialog` of the alert's shape whose author wrote
     /// `closedby="any"` (`outside`) is the dismissible form too.
+    /// The alert's preferred action, by its author: the one action whose
+    /// `buttonStyle` is prominent (`filled`, `bordered-prominent` or a
+    /// prominent glass), when exactly one is and it is not destructive.
+    /// Emphasis never picks among several, as on the Mac.
+    static func preferredAction(_ actions: [NodeView]) -> Int? {
+        let prominent = actions.indices.filter {
+            actions[$0].props["destructive"] != "true"
+                && ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(actions[$0].face?.style ?? "")
+        }
+        return prominent.count == 1 ? prominent[0] : nil
+    }
     private static func style(texts: Int, actions: Int, cancels: Int, compact: Bool, outside: Bool) -> Confirmation.Style {
         if !outside, ConfirmationShape.isAlert(texts: texts, actions: actions, cancels: cancels) { return .alert }
         #if os(tvOS)

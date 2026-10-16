@@ -2025,9 +2025,12 @@ its `change`, so the action's `press` reads what was typed. Return is one
 rule on every host: the input's `key` handlers hear it first (and may prevent
 it); a field with a `submit` handler then commits and runs it, and that is
 all, as a hand-built field whose delegate handles Return; any other commits
-its edit and presses the first action that is not destructive (bold on iOS),
+its edit and presses the first action that is not destructive,
 whatever `buttonStyle` says; while that action is disabled Return does nothing, so a Save with `disabled=(draft == "")`
-opens dimmed and enables as a name is typed. Only the alert's shape takes
+opens dimmed and enables as a name is typed. iOS draws no action bold, as a
+hand-built alert does not, unless one action that is not destructive says
+`buttonStyle="filled"` (or `"bordered-prominent"`): that one is the alert's
+preferred action, as it is the Mac's default button. Only the alert's shape takes
 one field at a time: with it, a cancel and at most three buttons, no `for`
 (`lower-alertdialog` says which row breaks it).
 
