@@ -109,13 +109,11 @@ mod events_tests;
 #[cfg(test)]
 mod kept_rows_tests;
 #[cfg(test)]
+mod spacing_tests;
+#[cfg(test)]
 mod swipe_tests;
-
 #[cfg(test)]
 mod visibility_tests;
-
-#[cfg(test)]
-mod spacing_tests;
 
 pub use clock::{wall_since, Wall};
 pub use device::Device;
