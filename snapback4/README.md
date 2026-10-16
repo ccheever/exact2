@@ -460,8 +460,7 @@ test "offline, a note is kept, then delivered on reconnect"
 ```
 
 The app is `bun <this checkout>/scripts/exact.mjs new app --snapback`, run in
-the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.29
-(2026-10-16): both tests pass, and pass again on the data a first run leaves.
+the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.29 (2026-10-16): both tests pass, and pass again on the data a first run leaves.
 
 ### A complete online app
 
