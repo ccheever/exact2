@@ -23,6 +23,11 @@ The final flags argument uses bit 0 for changed UI and bit 1 for a solid underla
 With bit 1 set, the below pointer holds only four premultiplied RGBA bytes;
 otherwise it holds the full pixel buffer. The above pointer always holds `len`
 bytes. A solid underlay is cleared on the GPU without a CPU pixel upload.
+The final two arguments, `above_top` and `above_bottom`, bound all nontransparent
+overlay pixels in device rows (end exclusive). Unknown bounds use the whole
+height. The uploader compares the union of current and previous bounds, so
+moving or removing UI also clears its old pixels. Rebuild both host and module
+for this signature.
 Capture reuses its render target and staging buffer until size, format or device
 changes. The Windows host follows the current monitor's refresh rate.
 

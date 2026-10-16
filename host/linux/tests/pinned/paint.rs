@@ -1167,7 +1167,7 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
             assert!((composed.round() as i32 - expected[channel] as i32).abs() <= 1);
         }
     }
-    split.recycle_window_layers(below, Some(above));
+    split.recycle_window_layers(below, Some(above), split.window_overlay_rows());
     split.begin(16., 8., 1.);
     assert!(split.split_window_canvas(rect, &[], ts));
     let below = split.take_window_underlay().unwrap().into_pixels();
@@ -1180,7 +1180,7 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
         above.data().iter().all(|&c| c == 0),
         "removed HUD ink must disappear"
     );
-    split.recycle_window_layers(below, Some(above));
+    split.recycle_window_layers(below, Some(above), split.window_overlay_rows());
     split.begin(8., 4., 1.);
     assert!(split.split_window_canvas((0., 0., 8., 4.), &[], ts));
     assert_eq!(

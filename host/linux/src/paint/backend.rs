@@ -123,9 +123,20 @@ pub trait Backend {
         false
     }
     /// Reuse storage released by the previous window picture.
-    fn recycle_window_layers(&mut self, _below: Pixmap, _above: Option<Pixmap>) {}
+    fn recycle_window_layers(
+        &mut self,
+        _below: Pixmap,
+        _above: Option<Pixmap>,
+        _rows: Option<(u32, u32)>,
+    ) {
+    }
     /// UI painted below the last successfully split window canvas.
     fn take_window_underlay(&mut self) -> Option<WindowLayer> {
+        None
+    }
+    /// Device rows that may contain nontransparent overlay pixels after finish.
+    /// `None` means unknown; an empty interval means a transparent overlay.
+    fn window_overlay_rows(&self) -> Option<(u32, u32)> {
         None
     }
     /// A platform element (`paint/native.rs`) in `shape`; `props` is JSON.

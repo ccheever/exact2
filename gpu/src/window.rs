@@ -10,7 +10,7 @@ pub(crate) struct WindowFrame {
     below: wgpu::Texture,
     above: wgpu::Texture,
     background: Background,
-    above_pixels: Vec<u8>,
+    overlay: Overlay,
     pending_ui: bool,
     group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
@@ -179,7 +179,7 @@ impl WindowFrame {
             below,
             above,
             background: Background::default(),
-            above_pixels: Vec::new(),
+            overlay: Overlay::default(),
             pending_ui: true,
             group,
             pipeline,
@@ -235,13 +235,53 @@ impl Background {
 // UI is usually unchanged, or changes in a few HUD rows. Upload only those
 // rows; do not stage two screen-sized textures on every game frame.
 fn upload(queue: &wgpu::Queue, texture: &wgpu::Texture, previous: &mut Vec<u8>, data: &[u8]) {
+    upload_rows(queue, texture, previous, data, 0..texture.height());
+}
+
+#[derive(Default)]
+struct Overlay {
+    pixels: Vec<u8>,
+    rows: std::ops::Range<u32>,
+}
+
+impl Overlay {
+    fn prepare(
+        &mut self,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        data: &[u8],
+        rows: std::ops::Range<u32>,
+    ) {
+        let affected = if self.rows.is_empty() {
+            rows.clone()
+        } else if rows.is_empty() {
+            self.rows.clone()
+        } else {
+            self.rows.start.min(rows.start)..self.rows.end.max(rows.end)
+        };
+        upload_rows(queue, texture, &mut self.pixels, data, affected);
+        self.rows = rows;
+    }
+}
+
+fn upload_rows(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    previous: &mut Vec<u8>,
+    data: &[u8],
+    rows: std::ops::Range<u32>,
+) {
     let stride = texture.width() as usize * 4;
     let first = previous.len() != data.len();
     if first {
         previous.resize(data.len(), 0);
     }
-    let mut row = 0;
-    let height = texture.height() as usize;
+    let mut row = if first { 0 } else { rows.start as usize };
+    let height = if first {
+        texture.height() as usize
+    } else {
+        rows.end as usize
+    };
     while row < height {
         if !first
             && previous[row * stride..(row + 1) * stride] == data[row * stride..(row + 1) * stride]
@@ -315,6 +355,7 @@ impl Module {
         below: &[u8],
         above: &[u8],
         changed: bool,
+        above_rows: std::ops::Range<u32>,
     ) -> Result<(), String> {
         self.check_device();
         if let Some(why) = shaders::missing(self.registry.shaders) {
@@ -338,6 +379,9 @@ impl Module {
             .ok_or("window layer extent overflow")?;
         if (below.len() != len && below.len() != 4) || above.len() != len {
             return Err("window layer extent mismatch".into());
+        }
+        if above_rows.start > above_rows.end || above_rows.end > height {
+            return Err("window overlay row extent mismatch".into());
         }
         if self
             .window
@@ -371,7 +415,9 @@ impl Module {
             window.pending_ui,
         );
         if window.pending_ui {
-            upload(&gpu.queue, &window.above, &mut window.above_pixels, above);
+            window
+                .overlay
+                .prepare(&gpu.queue, &window.above, above, above_rows);
         }
         window.pending_ui = false;
         if let Some(inst) = inst.as_mut() {
@@ -455,6 +501,38 @@ impl Module {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_overlay_uploads_clear_moved_and_removed_ink() {
+        let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+            return;
+        };
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 3,
+                height: 8,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            view_formats: &[],
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+        });
+        let mut overlay = Overlay::default();
+        for rows in [0..0, 1..3, 1..3, 5..7, 0..0, 3..4, 0..8, 0..0] {
+            let mut data = vec![0; 3 * 8 * 4];
+            for y in rows.clone() {
+                data[y as usize * 12 + 4..y as usize * 12 + 8].copy_from_slice(&[17, 31, 71, 83]);
+            }
+            overlay.prepare(&gpu.queue, &texture, &data, rows);
+            gpu.queue.submit([]);
+            assert_eq!(fixture::read(&gpu, &texture).unwrap().data, data);
+            assert_eq!(overlay.pixels, data);
+        }
+    }
 
     #[test]
     fn solid_backgrounds_match_uploads_and_restore_previously_painted_bytes() {

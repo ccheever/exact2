@@ -1,19 +1,37 @@
 //! A covering clear is resolved only when its pixels are read or drawn into.
 //! Keeping the storage private makes layer transfers resolve it too.
 use crate::paint::WindowLayer;
-use tiny_skia::{Color, Pixmap};
+use std::ops::Range;
+use tiny_skia::{Color, Path, Pixmap, Point, Transform};
 
 #[derive(Default)]
 pub(super) struct Target {
     pixels: Option<Pixmap>,
     clear: Option<Color>,
+    rows: Range<u32>,
     #[cfg(test)]
     clears: usize,
 }
 
 impl Target {
+    /// Reused overlays are transparent outside their last reported ink rows.
+    pub(super) fn overlay(mut pixels: Pixmap, rows: Range<u32>) -> Self {
+        let rows = if rows.start <= rows.end && rows.end <= pixels.height() {
+            rows
+        } else {
+            0..pixels.height()
+        };
+        let stride = pixels.width() as usize * 4;
+        pixels.data_mut()[rows.start as usize * stride..rows.end as usize * stride].fill(0);
+        Self {
+            pixels: Some(pixels),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn painted(pixels: Pixmap) -> Self {
         Self {
+            rows: 0..pixels.height(),
             pixels: Some(pixels),
             ..Self::default()
         }
@@ -21,6 +39,11 @@ impl Target {
 
     pub(super) fn cleared(pixels: Option<Pixmap>, color: Color) -> Self {
         Self {
+            rows: 0..if color.alpha() == 0. {
+                0
+            } else {
+                pixels.as_ref().map_or(0, Pixmap::height)
+            },
             pixels,
             clear: Some(color),
             #[cfg(test)]
@@ -30,9 +53,14 @@ impl Target {
 
     pub(super) fn clear(&mut self, color: Color) {
         self.clear = Some(color);
+        self.rows = 0..if color.alpha() == 0. {
+            0
+        } else {
+            self.pixels.as_ref().map_or(0, Pixmap::height)
+        };
     }
 
-    pub(super) fn pixels(&mut self) -> Option<&mut Pixmap> {
+    fn resolve(&mut self) {
         if let (Some(color), Some(pixels)) = (self.clear.take(), self.pixels.as_mut()) {
             pixels.fill(color);
             #[cfg(test)]
@@ -40,11 +68,69 @@ impl Target {
                 self.clears += 1;
             }
         }
+    }
+
+    pub(super) fn rows(&self) -> Range<u32> {
+        self.rows.clone()
+    }
+
+    fn include(&mut self, rows: Range<u32>) {
+        if rows.is_empty() {
+            return;
+        }
+        self.rows = if self.rows.is_empty() {
+            rows
+        } else {
+            self.rows.start.min(rows.start)..self.rows.end.max(rows.end)
+        };
+    }
+
+    pub(super) fn pixels(&mut self) -> Option<&mut Pixmap> {
+        self.resolve();
+        self.rows = 0..self.pixels.as_ref()?.height();
         self.pixels.as_mut()
     }
 
+    pub(super) fn path_pixels(&mut self, path: &Path, dev: Transform) -> Option<&mut Pixmap> {
+        let p = self.pixels.as_ref()?;
+        let b = path.bounds();
+        let mut corners = [
+            Point::from_xy(b.left(), b.top()),
+            Point::from_xy(b.right(), b.bottom()),
+        ];
+        dev.map_points(&mut corners);
+        if p.width() > 8191
+            || p.height() > 8191
+            || !dev.is_finite()
+            || dev.kx != 0.
+            || dev.ky != 0.
+            || dev.sx <= 0.
+            || dev.sy <= 0.
+            || corners.iter().any(|p| {
+                !p.x.is_finite() || !p.y.is_finite() || p.x.abs() > 8191. || p.y.abs() > 8191.
+            })
+        {
+            return self.pixels();
+        }
+        let height = p.height() as f32;
+        let rows = (corners[0].y.floor() - 2.).clamp(0., height) as u32
+            ..(corners[1].y.ceil() + 2.).clamp(0., height) as u32;
+        self.resolve();
+        self.include(rows);
+        self.pixels.as_mut()
+    }
+
+    /// The closure reports every device row its drawing could write.
+    pub(super) fn draw_rows(&mut self, draw: impl FnOnce(&mut Pixmap) -> Range<u32>) {
+        self.resolve();
+        if let Some(pixels) = self.pixels.as_mut() {
+            let rows = draw(pixels);
+            self.include(rows);
+        }
+    }
+
     pub(super) fn take(&mut self) -> Option<Pixmap> {
-        self.pixels();
+        self.resolve();
         self.pixels.take()
     }
 
@@ -64,6 +150,7 @@ impl Target {
 
     pub(super) fn replace(&mut self, pixels: Pixmap) -> Option<Pixmap> {
         let old = self.take();
+        self.rows = 0..pixels.height();
         self.pixels = Some(pixels);
         old
     }
@@ -72,6 +159,63 @@ impl Target {
 #[cfg(test)]
 mod tests {
     use super::super::*;
+
+    #[test]
+    fn overlay_rows_cover_ink_and_reset_for_reuse_and_unbounded_draws() {
+        for scale in [1., 1.25, 1.5, 2.] {
+            for y in [-10.25, 16.75, 210.] {
+                for rounded in [false, true] {
+                    let mut r = Raster::new();
+                    r.begin(420., 240., scale);
+                    assert!(r.split_window_canvas(
+                        (0., 0., 420., 240.),
+                        &[],
+                        Transform::identity()
+                    ));
+                    let mut shape = Shape::rect((4., y, 408., 40.));
+                    if rounded {
+                        shape.radii = [(8., 8.); 4];
+                    }
+                    r.fill(&shape, [29, 71, 183, 83], Transform::identity());
+                    let (start, end) = r.window_overlay_rows().unwrap();
+                    assert!(end - start < r.height / 2);
+                    let pixels = r.finish().unwrap();
+                    assert_eq!(r.window_overlay_rows(), Some((start, end)));
+                    for (row, bytes) in pixels
+                        .data()
+                        .chunks_exact(pixels.width() as usize * 4)
+                        .enumerate()
+                    {
+                        if !(start..end).contains(&(row as u32)) {
+                            assert!(
+                                bytes.iter().all(|&v| v == 0),
+                                "scale={scale} y={y} row={row}"
+                            );
+                        }
+                    }
+                    let below = r.take_window_underlay().unwrap().into_pixels();
+                    r.recycle_window_layers(below, Some(pixels), Some((start, end)));
+                    r.begin(420., 240., scale);
+                    assert!(r.split_window_canvas(
+                        (0., 0., 420., 240.),
+                        &[],
+                        Transform::identity()
+                    ));
+                    assert_eq!(r.window_overlay_rows(), Some((0, 0)));
+                    assert!(r
+                        .target
+                        .pixels
+                        .as_ref()
+                        .unwrap()
+                        .data()
+                        .iter()
+                        .all(|&v| v == 0));
+                    r.pointer(20., 80.);
+                    assert_eq!(r.window_overlay_rows(), Some((0, r.height)));
+                }
+            }
+        }
+    }
 
     #[test]
     fn covering_fills_replace_clears_but_reads_and_transfers_resolve_them() {
@@ -159,7 +303,7 @@ mod tests {
             assert!(above.data().iter().all(|&v| v == 0));
             let mut dirty_above = above;
             dirty_above.fill(Color::from_rgba8(255, 20, 30, 255));
-            r.recycle_window_layers(below, Some(dirty_above));
+            r.recycle_window_layers(below, Some(dirty_above), None);
         }
         r.begin(40., 24., 1.);
         r.fill(&full, [1, 2, 3, 255], identity);

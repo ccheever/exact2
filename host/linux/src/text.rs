@@ -933,10 +933,16 @@ impl TextEngine {
         transform: Transform,
         mask: Option<&Mask>,
         clip: (f32, f32, f32, f32),
-    ) {
+    ) -> std::ops::Range<u32> {
         // Glyph positions already carry device scale. The GPU stream is separate
         // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        let height = target.height();
+        let mut rows = if glyph_ts.is_identity() {
+            0..0
+        } else {
+            0..height
+        };
         paragraph.layouts();
         let mut catalog = paragraph.source.catalog.borrow_mut();
         let mut cache = paragraph.ink.borrow_mut();
@@ -967,9 +973,22 @@ impl TextEngine {
             let Some(glyph) = catalog.glyph(key, ink.color) else {
                 return;
             };
+            let gy = y - glyph.top;
+            if glyph_ts.is_identity() {
+                let start = (i64::from(gy) - 1).clamp(0, i64::from(height)) as u32;
+                let end = (i64::from(gy) + i64::from(glyph.pixmap.height()) + 1)
+                    .clamp(0, i64::from(height)) as u32;
+                if start < end {
+                    rows = if rows.is_empty() {
+                        start..end
+                    } else {
+                        rows.start.min(start)..rows.end.max(end)
+                    };
+                }
+            }
             target.draw_pixmap(
                 x + glyph.left,
-                y - glyph.top,
+                gy,
                 glyph.pixmap.as_ref(),
                 &paint,
                 glyph_ts,
@@ -996,6 +1015,7 @@ impl TextEngine {
                 draw(g, baseline, ink);
             }
         }
+        rows
     }
 }
 

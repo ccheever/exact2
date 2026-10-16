@@ -3,6 +3,39 @@
 use super::*;
 
 impl Raster {
+    pub(super) fn split_window(&mut self, dst: Rect4, clips: &[Shape], ts: Transform) -> bool {
+        if self.window_underlay.is_some()
+            || !self.layers.is_empty()
+            || !ts.is_identity()
+            || dst
+                != (
+                    0.,
+                    0.,
+                    self.width as f32 / self.scale,
+                    self.height as f32 / self.scale,
+                )
+            || clips
+                .iter()
+                .any(|c| c.rect != dst || c.radii != [(0., 0.); 4] || c.corners.is_some())
+            || self
+                .active_clip()
+                .is_some_and(|m| m.data().iter().any(|&a| a != 255))
+        {
+            return false;
+        }
+        let Some((overlay, rows)) = self
+            .window_overlay
+            .take()
+            .filter(|(p, _)| p.width() == self.width && p.height() == self.height)
+            .or_else(|| Pixmap::new(self.width, self.height).map(|p| (p, 0..0)))
+        else {
+            return false;
+        };
+        self.window_underlay = self.target.take_layer();
+        self.target = Target::overlay(overlay, rows);
+        self.window_underlay.is_some()
+    }
+
     // The target already clips at these exact integer device edges. Preserve
     // stack depth and any parent mask without allocating or scanning a mask
     // whose every coverage byte would be 255.

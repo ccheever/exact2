@@ -104,7 +104,7 @@ fn compare(
     actual.fill(Color::WHITE);
     engine.ink_visits = 0;
     engine.ink_nodes = 0;
-    engine.paint(
+    let rows = engine.paint_clipped(
         &mut actual,
         paragraph,
         palette,
@@ -112,7 +112,16 @@ fn compare(
         view.scale,
         view.transform,
         mask,
+        (0., 0., 320., 128.),
     );
+    for (y, row) in actual.data().chunks_exact(320 * 4).enumerate() {
+        if !rows.contains(&(y as u32)) {
+            assert!(
+                row.iter().all(|&v| v == 255),
+                "ink escaped rows {rows:?} at {y}"
+            );
+        }
+    }
     assert_eq!(
         actual.data(),
         expected.data(),

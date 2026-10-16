@@ -18,12 +18,15 @@ type Present = unsafe extern "C" fn(
     *const u8,
     usize,
     u32,
+    u32,
+    u32,
 ) -> u32;
 
 pub(super) struct Layers {
     view: u32,
     below: WindowLayer,
     above: Arc<Pixmap>,
+    above_rows: (u32, u32),
 }
 
 impl Surfaces {
@@ -76,8 +79,11 @@ impl<D: DataSource> Presenter<D> {
                     .is_some_and(|l| l.view == view);
             if !cached {
                 if let Some(layers) = self.surfaces.window_layers.take() {
-                    self.brush
-                        .recycle_window_layers(layers.below.storage(), layers.above);
+                    self.brush.recycle_window_layers(
+                        layers.below.storage(),
+                        layers.above,
+                        layers.above_rows,
+                    );
                 }
                 self.brush.window_canvas = Some(view);
                 let above = self.frame();
@@ -87,10 +93,25 @@ impl<D: DataSource> Presenter<D> {
                     .take_window_underlay()
                     .filter(|_| self.last_frame_succeeded)
                 {
-                    self.surfaces.window_layers = Some(Layers { view, below, above });
+                    let above_rows = self
+                        .brush
+                        .window_overlay_rows()
+                        .unwrap_or((0, above.height()));
+                    self.surfaces.window_layers = Some(Layers {
+                        view,
+                        below,
+                        above,
+                        above_rows,
+                    });
                 }
             }
-            if let Some(Layers { below, above, .. }) = &self.surfaces.window_layers {
+            if let Some(Layers {
+                below,
+                above,
+                above_rows,
+                ..
+            }) = &self.surfaces.window_layers
+            {
                 let canvas = &self.surfaces.canvases[&view];
                 let abi = &self.surfaces.abis[&canvas.artifact];
                 let present = unsafe { abi.symbol::<Present>(b"gpu_window_frame") };
@@ -108,6 +129,8 @@ impl<D: DataSource> Presenter<D> {
                         above.data().len(),
                         u32::from(!cached)
                             | (u32::from(matches!(below, WindowLayer::Solid { .. })) << 1),
+                        above_rows.0,
+                        above_rows.1,
                     )
                 };
                 if result == 0 {
@@ -142,6 +165,8 @@ impl<D: DataSource> Presenter<D> {
                     frame.data().as_ptr(),
                     frame.data().len(),
                     1,
+                    0,
+                    frame.height(),
                 )
             };
             if result == 0 {

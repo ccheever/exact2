@@ -43,7 +43,7 @@ pub struct Raster {
     target: Target,
     window_underlay: Option<WindowLayer>,
     window_background: Option<Pixmap>,
-    window_overlay: Option<Pixmap>,
+    window_overlay: Option<(Pixmap, std::ops::Range<u32>)>,
     transparent: bool,
     /// The page's colour ([`Backend::page`]); white until one is told.
     page: Option<[u8; 4]>,
@@ -639,7 +639,7 @@ impl Backend for Raster {
             }
         }
         let mask = self.active_clip().cloned();
-        if let Some(t) = self.target.pixels() {
+        if let Some(t) = self.target.path_pixels(&path, dev) {
             t.fill_path(
                 &path,
                 &solid(color),
@@ -837,7 +837,7 @@ impl Backend for Raster {
         };
         let dev = self.device(ts);
         let mask = self.active_clip().cloned();
-        if let Some(t) = self.target.pixels() {
+        if let Some(t) = self.target.path_pixels(&path, dev) {
             t.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
         }
     }
@@ -882,7 +882,7 @@ impl Backend for Raster {
         } else {
             mask
         };
-        if let Some(t) = self.target.pixels() {
+        if let Some(t) = self.target.path_pixels(&region, dev) {
             t.fill_path(
                 &region,
                 &solid(part.color),
@@ -989,41 +989,25 @@ impl Backend for Raster {
     }
 
     fn split_window_canvas(&mut self, dst: Rect4, clips: &[Shape], ts: Transform) -> bool {
-        if self.window_underlay.is_some()
-            || !self.layers.is_empty()
-            || !ts.is_identity()
-            || dst
-                != (
-                    0.,
-                    0.,
-                    self.width as f32 / self.scale,
-                    self.height as f32 / self.scale,
-                )
-            || clips
-                .iter()
-                .any(|c| c.rect != dst || c.radii != [(0., 0.); 4] || c.corners.is_some())
-            || self
-                .active_clip()
-                .is_some_and(|m| m.data().iter().any(|&a| a != 255))
-        {
-            return false;
-        }
-        let Some(overlay) = self
-            .window_overlay
-            .take()
-            .filter(|p| p.width() == self.width && p.height() == self.height)
-            .or_else(|| Pixmap::new(self.width, self.height))
-        else {
-            return false;
-        };
-        self.window_underlay = self.target.take_layer();
-        self.target = Target::cleared(Some(overlay), Color::TRANSPARENT);
-        self.window_underlay.is_some()
+        self.split_window(dst, clips, ts)
     }
 
-    fn recycle_window_layers(&mut self, below: Pixmap, above: Option<Pixmap>) {
+    fn window_overlay_rows(&self) -> Option<(u32, u32)> {
+        let rows = self.target.rows();
+        Some((rows.start, rows.end))
+    }
+
+    fn recycle_window_layers(
+        &mut self,
+        below: Pixmap,
+        above: Option<Pixmap>,
+        rows: Option<(u32, u32)>,
+    ) {
         self.window_background = Some(below);
-        self.window_overlay = above;
+        self.window_overlay = above.map(|p| {
+            let (start, end) = rows.unwrap_or((0, p.height()));
+            (p, start..end)
+        });
     }
 
     fn take_window_underlay(&mut self) -> Option<WindowLayer> {
@@ -1047,7 +1031,7 @@ impl Backend for Raster {
             self.width as f32,
             self.height as f32,
         ));
-        if let Some(t) = self.target.pixels() {
+        self.target.draw_rows(|t| {
             text.paint_clipped(
                 t,
                 paragraph,
@@ -1057,8 +1041,8 @@ impl Backend for Raster {
                 dev,
                 mask.as_deref(),
                 clip,
-            );
-        }
+            )
+        });
     }
 
     fn backdrop_filter(
