@@ -5,7 +5,7 @@
 //! delivered, and clock out's ticks. Only for a plan that keeps a MIDI queue
 //! (`crate::uses::keeps_midi`); the JS target's midi.js writes the same.
 
-use super::{field_str, num, quote};
+use crate::agent::{field_str, num, quote};
 use crate::midi::{hex, Port};
 use crate::{DataSource, Runner};
 use std::fmt::Write as _;

@@ -5,6 +5,10 @@
 //! Only for a plan that declares a sequence.
 
 use super::{num, quote};
+
+// `state.midi` (LLP 1125 D5–D8), written after the transport's.
+#[path = "midi.rs"]
+mod midi;
 use crate::{DataSource, Runner};
 use std::fmt::Write as _;
 
@@ -14,7 +18,13 @@ const SEGMENTS: usize = 16;
 const HAPTICS: usize = 64;
 
 /// `,"transport":{…}`, for a plan that declares a sequence.
-pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
+/// Then `,"midi":{…}`, for a plan that uses MIDI.
+pub(super) fn state<D: DataSource>(runner: &Runner<D>, request: &str, s: &mut String) {
+    transport(runner, s);
+    midi::state(runner, request, s);
+}
+
+fn transport<D: DataSource>(runner: &Runner<D>, s: &mut String) {
     let plan = runner.plan();
     if plan.sequences.is_empty() {
         return;
