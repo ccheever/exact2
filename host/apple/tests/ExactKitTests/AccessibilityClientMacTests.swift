@@ -771,6 +771,74 @@ final class AccessibilityClientMacTests: XCTestCase {
         XCTAssertEqual(tree.first { $0["testId"] as? String == "zoom" }?["role"] as? String, "region")
     }
 
+    /// An `aria-modal` box with no role (a row that records a shortcut,
+    /// mounted around the field the focus went to) is served by its
+    /// elements: the page's scroll view holds its field, whose parent is the
+    /// scroll view, and VoiceOver is sent to the field from the scroll view.
+    /// Served as itself it was an `AXUnknown` holding a field whose parent
+    /// named the scroll view, the layout change posted on it reached no
+    /// client, and VoiceOver's cursor stayed on the scroll area while the
+    /// keyboard was in the field (realinput-1017k FN15), then lost the field
+    /// to the window (F-2).
+    func testARoleLessModalIsServedByItsElements() throws {
+        let p = try fixture([
+            ["op": "create", "id": 5, "kind": "view", "props": ["accessibilityRole": "group", "accessibilityLabel": "Keybindings", "testId": "list"]],
+            ["op": "create", "id": 6, "kind": "view", "handlers": ["focusin"], "props": ["testId": "idle-row"]],
+            ["op": "create", "id": 7, "kind": "input", "handlers": ["keycapture", "blur"],
+             "props": ["value": "", "accessibilityLabel": "Keybinding for new keybinding", "placeholder": "Unassigned", "testId": "idle"]],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 5, "ids": [6]],
+            ["op": "children", "id": 1, "ids": [2, 5]],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 40.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 10.0, "w": 300.0, "h": 30.0],
+            ["op": "frame", "id": 7, "x": 0.0, "y": 0.0, "w": 280.0, "h": 24.0],
+        ])
+        XCTAssertTrue(window.makeFirstResponder(p.keyView(of: try XCTUnwrap(p.views[7]))))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let client = AXClient()
+        try client.listen(["AXLayoutChanged", "AXFocusedUIElementChanged"])
+        // The focus in the idle field starts recording: the app swaps in the recorder, modal, its field autofocused.
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "handlers": ["focusin"], "props": ["accessibilityModal": "true", "testId": "recording-row"]],
+            ["op": "create", "id": 11, "kind": "input", "handlers": ["keycapture", "blur"],
+             "props": ["value": "", "accessibilityLabel": "Keybinding for new keybinding", "placeholder": "Press shortcut", "testId": "recorder", "autofocus": "true"]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 5, "ids": [10]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 10.0, "w": 300.0, "h": 30.0],
+            ["op": "frame", "id": 11, "x": 0.0, "y": 0.0, "w": 280.0, "h": 24.0],
+        ]))
+        p.syncAccessibility()
+        XCTAssertTrue(p.macAccessibilityModal === p.views[10], "the row is the modal")
+        XCTAssertTrue(p.focusedNode === p.views[11], "the recorder took the focus")
+        let heard = client.notifications().map { note in
+            let named = (note.info["AXUIElementsKey"] as? [AXUIElement])?.compactMap { AXClient.value($0, "AXDescription") as? String } ?? []
+            return ([note.name, client.value(of: note.element, "AXRole") ?? "", client.value(of: note.element, "AXDescription") ?? ""] + named)
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        XCTAssertEqual(heard, ["AXLayoutChanged AXScrollArea Keybinding for new keybinding",
+                               "AXFocusedUIElementChanged AXTextField Keybinding for new keybinding"])
+        // What a client walks: the scroll view's one child is the field, and the field's parent is the scroll view.
+        let app = AXUIElementCreateApplication(getpid())
+        let served: [String] = { () -> [String] in
+            let done = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var out: [String] = []
+            DispatchQueue.global().async {
+                func role(_ e: AXUIElement) -> String { AXClient.value(e, "AXRole") as? String ?? "?" }
+                let window = (AXClient.value(app, "AXChildren") as? [AXUIElement])?.first { role($0) == "AXWindow" }
+                let scroll = (window.flatMap { AXClient.value($0, "AXChildren") as? [AXUIElement] } ?? []).first { role($0) == "AXScrollArea" }
+                for child in scroll.flatMap({ AXClient.value($0, "AXChildren") as? [AXUIElement] }) ?? [] {
+                    let parent = AXClient.value(child, "AXParent").map { role($0 as! AXUIElement) } ?? "none"
+                    out.append("\(role(child)) \(AXClient.value(child, "AXDescription") as? String ?? "") in \(parent)")
+                }
+                done.signal()
+            }
+            while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005)) }
+            return out
+        }()
+        XCTAssertEqual(served, ["AXTextField Keybinding for new keybinding in AXScrollArea"])
+        XCTAssertFalse(client.identifiers().contains("recording-row"), "the role-less row is no element")
+    }
+
     private func escape(_ window: NSWindow, up: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!

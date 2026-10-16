@@ -26,15 +26,25 @@ package final class PageScrollView: NSScrollView {
     private var keyObserver: NSObjectProtocol?
     deinit { if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) } }
     var modalAccessibilityChildren: (() -> [NSView]?)?
+    /// The modal's elements, served as this view's children. A modal that
+    /// is no element itself (an `aria-modal` box with no role) is served by
+    /// its elements, as AppKit serves any view's ignored children: its
+    /// field's parent is this view (the walk up passes the ignored box,
+    /// whose parent is this view), so a client finds the field among this
+    /// view's children. Served as itself, it was an `AXUnknown` holding the
+    /// field whose parent named the scroll area, and VoiceOver's cursor
+    /// stayed on the scroll area while the keyboard was in the field
+    /// (realinput-1017k F-2, FN15).
+    private var modalProjection: [Any]? { modalAccessibilityChildren?().map { NSAccessibility.unignoredChildren(from: $0) } }
     package override func accessibilityChildren() -> [Any]? {
-        modalAccessibilityChildren?() ?? exposed(super.accessibilityChildren())
+        modalProjection ?? exposed(super.accessibilityChildren())
     }
     package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     package override func accessibilityContents() -> [Any]? {
-        modalAccessibilityChildren?() ?? exposed(super.accessibilityContents())
+        modalProjection ?? exposed(super.accessibilityContents())
     }
     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        if attribute == .children || attribute == .contents, let projected = modalAccessibilityChildren?() { return projected }
+        if attribute == .children || attribute == .contents, let projected = modalProjection { return projected }
         return super.accessibilityAttributeValue(attribute)
     }
     private var pointerArea: NSTrackingArea?

@@ -1,9 +1,9 @@
 // LLP 1021 D2–D4: button menus project to NSMenu, and so does an
 // alertdialog popover of the chooser's shape ("The chooser": actions, at most
 // one hide-only cancel, text rows as its message), popped up against its
-// invoker by its `position-area` (ChooserMac.swift); a picked item presses on
-// the next turn, once. One in the alert shape (text, a cancel, at most three
-// buttons) is `NSAlert` instead, under the agent too (LLP 1115.000 D7.6,
+// invoker by its `position-area` (ChooserMac.swift); a picked item presses
+// once, as the menu closes. One in the alert shape (text, a cancel, at most
+// three buttons) is `NSAlert` instead, under the agent too (LLP 1115.000 D7.6,
 // AlertsMac.swift). Any other popover is an `NSPopover` holding its actual
 // subtree, native editors included (LLP 1115.002 D7.3, PopoversMac.swift).
 // The driver's own chrome paints it in the session's top layer instead, as
@@ -69,18 +69,24 @@ final class MenuHost: NSObject {
     private var nativeTracking = 0
     private var afterTracking: [() -> Void] = []
     /// Main-queue work continues during native tracking; only the chosen
-    /// item's action waits until popUp has unwound, then runs next turn.
+    /// item's action waits until popUp has unwound and the menu's popover
+    /// has closed (`closed`), then runs in that same turn, as AppKit sends a
+    /// menu item's action before `popUp` returns. A next turn let VoiceOver
+    /// ask where the focus was between the menu's close and the action: it
+    /// re-read the page's focused field, at length, and never named the
+    /// dialog the action opened (realinput-1017k H-9).
     func afterNativeTracking(_ work: @escaping () -> Void) {
         if nativeTracking > 0 { afterTracking.append(work) }
         else { DispatchQueue.main.async(execute: work) }
     }
-    private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView) {
+    private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView, closed: () -> Void) {
         nativeTracking += 1
         menu.popUp(positioning: item, at: point, in: source)
         nativeTracking -= 1
+        closed()
         if nativeTracking == 0 {
             let work = afterTracking; afterTracking.removeAll()
-            for action in work { DispatchQueue.main.async(execute: action) }
+            for action in work { action() }
         }
     }
     /// Each popover's presentation count: a choice made in one presentation
@@ -297,12 +303,13 @@ final class MenuHost: NSObject {
                       !source.inert, !source.disabled, entry.confirmation.map(self.valid) ?? true
                 else { self.close(entry.popover); return }
                 entry.tracking = true
-                self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
-                entry.tracking = false
                 // Escape or a click outside chose nothing. A chosen item has
-                // only been recorded: it presses on the next turn, after this
-                // stack and AppKit's tracking of `source` have unwound.
-                self.close(entry.popover, cancelling: false)
+                // only been recorded: it presses once AppKit's tracking of
+                // `source` has unwound and the menu has closed.
+                self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source) {
+                    entry.tracking = false
+                    self.close(entry.popover, cancelling: false)
+                }
                 if let owner = entry.confirmation { DispatchQueue.main.async { owner.finished = true } }
             }
         } else if windowed, let source, present(entry, from: source, in: window) {
@@ -345,9 +352,10 @@ final class MenuHost: NSObject {
             entry.menu = menu; entry.tracking = true
             self.entries.append(entry)
             presenter.popoverEvents.changed(pop, open: true)
-            self.track(menu, at: point, in: source)
-            entry.tracking = false
-            if self.entries.contains(where: { $0 === entry }) { self.close(pop, cancelling: false) }
+            self.track(menu, at: point, in: source) {
+                entry.tracking = false
+                if self.entries.contains(where: { $0 === entry }) { self.close(pop, cancelling: false) }
+            }
         }
     }
     /// The popover `source`'s context menu shows, or its run `run`'s.
@@ -776,10 +784,10 @@ final class MenuHost: NSObject {
         guard pick.invoked else { return true }
         return pick.source.map { invokes($0, root) } ?? false
     }
-    /// An item picked: recorded now, its row pressed on the next main-queue
-    /// turn, once, as a chooser's is (ChooserMac.swift): AppKit sends the
-    /// action inside `popUp`, still tracking the menu in the invoker, and
-    /// the press's batch may unmount that invoker.
+    /// An item picked: recorded now, its row pressed once `popUp` has
+    /// returned and the menu closed, once, as a chooser's is (ChooserMac.swift):
+    /// AppKit sends the action inside `popUp`, still tracking the menu in the
+    /// invoker, and the press's batch may unmount that invoker.
     @objc private func pick(_ sender: NSMenuItem) {
         guard let pick = sender.representedObject as? Pick, !pick.once.taken else { return }
         pick.once.taken = true
