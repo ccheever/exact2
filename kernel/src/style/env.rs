@@ -531,6 +531,8 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
         return Err(EnvRefusal::IndexCount);
     }
     let index = |s: &str| -> Result<u8, EnvRefusal> {
+        // CSS's integer: digits, a `+` before them allowed
+        let s = s.strip_prefix('+').unwrap_or(s);
         if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
             return Err(EnvRefusal::IndexForm);
         }
@@ -573,27 +575,31 @@ pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
         .trim();
     let mut words = body.split_whitespace();
     let name = words.next().ok_or(EnvRefusal::UnknownVariable)?;
+    named(name, &words.collect::<Vec<_>>())
+}
+
+/// A variable by its name, as CSS decodes it, and its indices' text.
+pub(super) fn named(name: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
     if let Some(edge) = name.strip_prefix(ENV_NAMES[0].0) {
         let edge = Edge::from_name(edge).ok_or(EnvRefusal::UnknownVariable)?;
-        return if words.next().is_some() {
-            Err(EnvRefusal::UnknownVariable)
-        } else {
+        return if indices.is_empty() {
             Ok(Dimension::Env(edge, 0.0))
+        } else {
+            Err(EnvRefusal::UnknownVariable)
         };
     }
     if let Some((region, edge)) = Region::from_name(name) {
-        return if words.next().is_some() {
-            Err(EnvRefusal::UnknownVariable)
-        } else {
+        return if indices.is_empty() {
             Ok(Dimension::Region(region, edge, 0.0))
+        } else {
+            Err(EnvRefusal::UnknownVariable)
         };
     }
     let tail = name
         .strip_prefix(ENV_NAMES[1].0)
         .ok_or(EnvRefusal::UnknownVariable)?;
     let hooks = LINKED.get().ok_or(EnvRefusal::Unlinked)?;
-    let indices: Vec<&str> = words.collect();
-    (hooks.term)(tail, &indices)
+    (hooks.term)(tail, indices)
 }
 
 /// A bare `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,
