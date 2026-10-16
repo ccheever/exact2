@@ -143,16 +143,18 @@ extension Presenter {
         var next: KeyPlatformView? = target
         while let view = next {
             // An event out of a presentation still reaches the document's
-            // ancestors, which only an authored `inert` silences
-            #if os(iOS) || os(tvOS)
+            // ancestors, which only an authored `inert` silences.
             let silenced = (view as? NodeView)?.authoredInert == true
-            #else
-            let silenced = (view as? NodeView)?.inert == true
-            #endif
             if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !silenced {
                 path.append((node.id, node.handlers))
             }
+            #if os(iOS) || os(tvOS)
+            // Keys leave the sheet; eventParent's inertness walks stay inside it.
+            if let node = view as? NodeView, let parent = menus.sheets.authoredParent(of: node) { next = parent }
+            else { next = menus.logicalParent(of: view) ?? eventParent(of: view) }
+            #else
             next = eventParent(of: view)
+            #endif
         }
         var prevented = false
         func deliver(_ node: (id: UInt32, handlers: Set<String>), _ press: KeyPress) -> Bool {

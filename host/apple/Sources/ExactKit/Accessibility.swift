@@ -406,7 +406,7 @@ extension NodeView {
     /// answers (`contextTarget`; the event bubbles), at this one's drawn middle.
     package override func accessibilityPerformShowMenu() -> Bool {
         guard let target = showMenuTarget, let presenter, let point = presenter.contextPoint(self) else { return false }
-        return presenter.contextMenu(target, at: point)
+        return presenter.contextMenu(target, at: point, from: self)
     }
     /// AppKit offers every action whose method the class implements; show
     /// menu only where something answers it, as AppKit offers it only on a
@@ -428,7 +428,7 @@ extension NodeView {
     }
     private var showMenuTarget: NodeView? {
         guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
-              let target = presenter.contextTarget(self), !target.disabled, !target.inert else { return nil }
+              let target = presenter.contextTarget(self), !target.disabled, !target.authoredInert else { return nil }
         return target
     }
     /// The host's own record of the flag, for code that serves an

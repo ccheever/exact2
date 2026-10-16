@@ -126,6 +126,26 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertEqual(presses, [], "no page ancestor or focused page control is activated")
         XCTAssertTrue(p.menus.isOpen(pop))
     }
+
+    /// A right click in an open painted popover reaches its authored
+    /// parent's `contextmenu` once, though its view is in the top layer.
+    func testRightClickInAPaintedPopoverReachesItsAuthoredParentOnce() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[5])
+        let window = try XCTUnwrap(p.viewport.window)
+        defer { p.menus.reset() }
+        root.handlers = ["contextmenu"]
+        var heard: [UInt32] = []
+        p.onClipboard = { id, kind, _ in XCTAssertEqual(kind, 10); heard.append(id) }
+        p.press(2)
+        XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[3])))
+        XCTAssertFalse(button.isDescendant(of: root))
+        let event = mouse(p, .rightMouseDown, button)
+        let hit = try XCTUnwrap(window.contentView?.hitTest(event.locationInWindow))
+        XCTAssertTrue(hit === button || hit.isDescendant(of: button))
+        hit.rightMouseDown(with: event)
+        hit.rightMouseUp(with: mouse(p, .rightMouseUp, button))
+        XCTAssertEqual(heard, [1])
+    }
     func testAuthoredFlipOrderPlacesTheOpenPopoverAndTracksItsInvoker() throws {
         let p = fixture(), source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
         let window = try XCTUnwrap(p.viewport.window)

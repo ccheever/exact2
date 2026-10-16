@@ -1483,7 +1483,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
         if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
-        if !canvas { super.rightMouseDown(with: event) }
+        if !canvas, !bubbleContextMenu(event) { super.rightMouseDown(with: event) }
     }
     package override func scrollWheel(with event: NSEvent) {
         // A canvas that wants input scrolls itself; the nodes' `wheel` is
