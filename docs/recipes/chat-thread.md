@@ -24,6 +24,7 @@ component Chat
   action post
     if draft.trim() != "" and not pending(sent)
       send sent = sendMessage(draft.trim())
+    focus("composer")
   action afterSend
     if sendError == ""
       draft = ""
@@ -33,7 +34,7 @@ component Chat
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
           header
-            text "Ada" role="heading" aria-level=2
+            h2 "Ada"
           list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
             for m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
@@ -42,9 +43,10 @@ component Chat
                     background-color=(m.mine ? "AccentColor" : "-exact-fill")
                   text m.body padding="8px 12px" position="relative" overflow-wrap="anywhere" testId=`message-${m.id}`
           row gap=8 padding="8px 12px" align-items="center"
-            input value=draft input=edit submit=post placeholder="Message"
+            input id="composer" value=draft input=edit submit=post placeholder="Message"
               enterkeyhint="send" testId="composer" flex=1 min-width=0
-            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled" aria-label="Send" testId="send"
+            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled" retainFocus=true
+              aria-label="Send" testId="send"
               image "symbol:send"
 ```
 
@@ -55,7 +57,6 @@ export const appId = 'com.example.chat';
 export const grants = '';
 
 const messages: Result<'loadThread'> = [];
-
 const sources: Sources = {
   loadThread: () => messages,
   sendMessage: ([body]) => {
@@ -67,7 +68,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 ```
 
 ```contract-test
-test "a sent message lands, and the composer clears"
+test "a sent message lands; the composer clears"
   type "composer" "Yes, at noon"
   tap "send"
   clock data
@@ -75,7 +76,7 @@ test "a sent message lands, and the composer clears"
   expect text "message-1" == "Yes, at noon"
 ```
 
-- `appearance="none"`: bubbles are not cells. `scroll-start="end"` opens at the newest row,
-  `scrollFollowEnd=true` follows new ones, `interactive-widget="resizes-content"` keeps the
-  composer above the keyboard. A refusal keeps the draft ([after-a-write](after-a-write.md)).
-- The sent bubble is the accent at 0.35 under the label's ink; solid, `check` fails it.
+- Bubbles are not cells (`appearance="none"`). `scroll-start="end"` opens at the newest,
+  `scrollFollowEnd=true` follows; `interactive-widget="resizes-content"` keeps the composer
+  over the keyboard, and Send keeps it up (`retainFocus`, `focus`).
+- A sent bubble: the accent at 0.35 under the label's ink (solid fails `check`).
