@@ -59,7 +59,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces'], webBuild],
       [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state', '--chrome', 'platform', '--scale', '1'], ios],
       [['agent', 'ios', '--sim', 'lane', '--scale', '3', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', '--scale', '3', 'tree', '--chrome', 'platform'], [...ios, '--sim', 'lane']],
-      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree']],
+      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree', '--chrome', 'platform', '--scale', '1']],
       [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });

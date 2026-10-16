@@ -121,9 +121,11 @@ export async function run({ dir, name, game = false, exact2, args }) {
   if (own[verb]) { const [command, ...args] = own[verb]; return log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', dir)); }
   // A drive on iOS shows UIKit's bars, as the app and verify do (`--chrome agent` paints the authored header and
   // tablist instead), and an Apple drive's screenshots are a pixel a point: a third of an iPhone's pixels each
-  // way, about a third of the tokens an agent reads a picture for (`--scale 3`: the device's).
-  if (drivesNative && !rest.includes('--chrome') && host === 'ios') rest.push('--chrome', 'platform');
-  if (drivesNative && verb === 'agent' && !rest.includes('--scale')) rest.push('--scale', '1');
+  // way, about a third of the tokens an agent reads a picture for (`--scale 3`: the device's). A phone's drive too,
+  // which drivesNative leaves out only because its build is explicit.
+  const drivesApple = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host);
+  if (drivesApple && !rest.includes('--chrome') && host === 'ios') rest.push('--chrome', 'platform');
+  if (drivesApple && verb === 'agent' && !rest.includes('--scale')) rest.push('--scale', '1');
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
   // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).
