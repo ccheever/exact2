@@ -19,6 +19,7 @@ function terminal() {
     if (keyCode === 229) return;
     if (key === "Enter") shell.push("\r");
     if (key === "Backspace") shell.push("\u007f");
+    if ([...key].length === 1) shell.push(key);
   });
   input.addEventListener("compositionend", (event) => {
     const text = input.value || (event as CompositionEvent).data;
@@ -39,6 +40,16 @@ function terminal() {
 }
 
 describe("Hangul the input method edits in place", () => {
+  test("with no input method behind the input each key goes out as the layout's jamo, and the hold stays out of it", () => {
+    // Real 2-Set keys g k s Space after another process selected 2-Set and left WebKit's input context with
+    // no input method (VoiceOver on): keydowns that are not "Process", with the layout's characters, and no input.
+    const t = terminal();
+    for (const [key, keyCode] of [["ㅎ", 71], ["ㅏ", 75], ["ㄴ", 83], [" ", 32]] as const) t.key(key, keyCode);
+    expect(t.shell).toEqual(["ㅎ", "ㅏ", "ㄴ", " "]);
+    expect(t.states).toEqual([]);
+    expect(t.input.value).toBe("");
+  });
+
   test("the first syllable in an app the input method has not met goes out whole, not as jamo", () => {
     // Real 2-Set keys g k s g k s Space in a WKWebView, as the input method sent them (unmarked).
     const t = terminal();

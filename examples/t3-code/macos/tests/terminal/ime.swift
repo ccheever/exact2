@@ -25,6 +25,10 @@ import XCTest
 ///   client calls (answered by the page), and, when that text is the syllable, replaces it with its first
 ///   candidate, marked while the list is open, and consumes the key. Finding no text, it declines the key.
 ///   Return picks the candidate.
+/// - Disconnected (`connected` false): after another process selects the input source, WebKit's input
+///   context can be left with no input method, which declines every key until the context is activated
+///   again (T3TerminalInputSource). `source` stands in for the selected source and the view's context
+///   for the current one.
 final class FakeHangulInputMethod {
     enum Answer { case commitsAndDeclines, keepsAndDeclines, consumes, convertsToHanja }
     var control = Answer.commitsAndDeclines
@@ -34,6 +38,9 @@ final class FakeHangulInputMethod {
     /// Key-down codes offered to the input method, and the times the view asked the input context itself.
     private(set) var offered: [UInt16] = []
     private(set) var synchronousAsks = 0
+    var connected = true
+    var source = "com.apple.inputmethod.Korean.2SetKorean"
+    private(set) var activations = 0
     private var restore: [(Method, IMP)] = []
     private static let jamo: [UInt16: String] = [5: "ㅎ", 40: "ㅏ", 1: "ㄴ", 15: "ㄱ", 46: "ㅡ", 3: "ㄹ", 49: " "]
 
@@ -51,7 +58,7 @@ final class FakeHangulInputMethod {
 
     /// The input method's answer to one key, with the client calls it makes before answering.
     private func answer(_ event: NSEvent, _ client: NSTextInputClient, _ done: @escaping (Bool) -> Void) {
-        guard event.type == .keyDown else { return done(false) }
+        guard event.type == .keyDown, connected else { return done(false) }
         offered.append(event.keyCode)
         let none = NSRange(location: NSNotFound, length: 0)
         let flags = event.modifierFlags.intersection([.command, .control, .option])
@@ -140,6 +147,23 @@ final class FakeHangulInputMethod {
             discardOriginal?(context, NSSelectorFromString("discardMarkedText"))
         }
         discardOriginal = unsafeBitCast(replace("discardMarkedText", discard), to: Discard.self)
+        let selected: @convention(block) (NSTextInputContext) -> String? = { [unowned self] _ in source }
+        _ = replace("selectedKeyboardInputSource", selected)
+        typealias Activate = @convention(c) (AnyObject, Selector) -> Void
+        var activateOriginal: Activate?
+        let activate: @convention(block) (NSTextInputContext) -> Void = { [unowned self] context in
+            activations += 1
+            connected = true
+            activateOriginal?(context, NSSelectorFromString("activate"))
+        }
+        activateOriginal = unsafeBitCast(replace("activate", activate), to: Activate.self)
+    }
+
+    /// `NSTextInputContext.current` answers `context` (the test app is never active, so AppKit's is nil).
+    func makeCurrent(_ context: @escaping () -> NSTextInputContext?) {
+        let method = class_getClassMethod(NSTextInputContext.self, NSSelectorFromString("currentInputContext"))!
+        let current: @convention(block) (AnyObject) -> NSTextInputContext? = { _ in context() }
+        restore.append((method, method_setImplementation(method, imp_implementationWithBlock(current))))
     }
 
     func uninstall() {
@@ -350,5 +374,46 @@ final class TerminalInputMethodTests: XCTestCase {
         XCTAssertTrue(view.composing, "a consumed conversion key must not commit the composition")
         XCTAssertEqual(typed, "")
         XCTAssertEqual(method.offered.filter { $0 == 40 }.count, 2, "g k, then ⌃K once")
+    }
+
+    /// Another process selects 2-Set while the terminal is first responder and leaves its input context with
+    /// no input method, in the order measured with VoiceOver on (macOS 26): each keydown reaches the page as
+    /// the key itself, not "Process", with the 2-Set layout's character, and the surface encodes it, so ㅎ
+    /// and ㅏ go out apart. The input source notification reconnects the context once, and 한 composes.
+    func testAnInputSourceChosenElsewhereComposesAgain() {
+        method.makeCurrent { [unowned self] in view.web.inputContext }
+        method.connected = false
+        press(5, "ㅎ"); press(40, "ㅏ")
+        settle()
+        print("terminal 2-Set, input method disconnected: typed \(hex(typed))")
+        XCTAssertEqual(typed, "ㅎㅏ")
+        XCTAssertEqual(method.offered, [], "a disconnected input method saw a key")
+
+        method.source = "com.apple.keylayout.ABC"
+        NotificationCenter.default.post(name: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil)
+        method.source = "com.apple.inputmethod.Korean.2SetKorean"
+        NotificationCenter.default.post(name: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil)
+        XCTAssertEqual(method.activations, 2, "the context is reconnected once per change of source")
+        NotificationCenter.default.post(name: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil)
+        XCTAssertEqual(method.activations, 2, "the same source again reconnected the context")
+
+        for (code, key) in [(5, "g"), (40, "k"), (1, "s"), (49, " ")] as [(UInt16, String)] { press(code, key) }
+        settle()
+        XCTAssertEqual(typed, "ㅎㅏ한 ")
+    }
+
+    /// A change of source while another view has the focus leaves the context alone: activating it would take
+    /// the input method from that view.
+    func testAnInputSourceChangeAwayFromTheTerminalLeavesItsContext() {
+        method.makeCurrent { [unowned self] in view.web.inputContext }
+        window.makeFirstResponder(nil)
+        method.source = "com.apple.keylayout.ABC"
+        NotificationCenter.default.post(name: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil)
+        XCTAssertEqual(method.activations, 0)
+        method.makeCurrent { nil }
+        window.makeFirstResponder(view.web)
+        method.source = "com.apple.inputmethod.Korean.2SetKorean"
+        NotificationCenter.default.post(name: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil)
+        XCTAssertEqual(method.activations, 0, "the context was not the current one")
     }
 }

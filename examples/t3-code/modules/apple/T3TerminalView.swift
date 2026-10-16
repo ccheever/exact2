@@ -128,6 +128,8 @@ final class T3TerminalView: ExactNativeInstance {
     private var mountedOnce = false
     private var focusPublication: UInt64 = 0
     private var bindings: [T3TerminalKeys.Binding] = []
+    private let inputSource = T3TerminalInputSource()
+    private var inputSourceObserver: NSObjectProtocol?
     private var suppressedKeys: Set<UInt16> = []
     private var authWritten = 0
     private var authFlow = ""
@@ -187,6 +189,8 @@ final class T3TerminalView: ExactNativeInstance {
         // WebKit's own occlusion handling, as a background tab does).
         let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
         if agent, web.responds(to: occlusion) { web.perform(occlusion, with: false) }
+        inputSourceObserver = NotificationCenter.default.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification,
+                                                                     object: nil, queue: .main) { [weak self] _ in self?.inputSourceChanged() }
         T3Terminals.shared.add(self)
         web.load(URLRequest(url: T3TerminalAssets.pageURL))
         bindSession()
@@ -226,6 +230,7 @@ final class T3TerminalView: ExactNativeInstance {
     private func focusChanged(_ value: Bool, republish: Bool = false) {
         guard !disposed, focused != value || republish else { return }
         focused = value
+        if value { inputSource.focused(web.inputContext?.selectedKeyboardInputSource) }
         // Mount can give this view the responder before Contract installs its message handler.
         // Publish after the mount batch, without delaying or replaying the actual focus request.
         focusPublication &+= 1
@@ -290,6 +295,15 @@ final class T3TerminalView: ExactNativeInstance {
         let flags = event.modifierFlags
         send(["type": "compositionKey", "metaKey": flags.contains(.command), "ctrlKey": flags.contains(.control),
               "altKey": flags.contains(.option), "shiftKey": flags.contains(.shift), "code": R7DeviceKeys.codes[event.keyCode] ?? ""])
+    }
+
+    /// Reconnects the input context to an input method another process selected (T3TerminalInputSource).
+    private func inputSourceChanged() {
+        guard !disposed, let context = web.inputContext else { return }
+        let active = ownsNativeFocus && NSTextInputContext.current === context
+        guard inputSource.changed(to: context.selectedKeyboardInputSource, active: active) else { return }
+        context.deactivate()
+        context.activate()
     }
 
     /// Commits the marked text as it stands, as WebKit does when a page ends a composition: confirm
@@ -707,6 +721,7 @@ final class T3TerminalView: ExactNativeInstance {
         focusChanged(false)
         responderObservation = nil
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor); self.keyboardMonitor = nil }
+        if let inputSourceObserver { NotificationCenter.default.removeObserver(inputSourceObserver); self.inputSourceObserver = nil }
         send(["type": "dispose"])
         disposed = true
         T3TerminalFixtures.stop(self)
