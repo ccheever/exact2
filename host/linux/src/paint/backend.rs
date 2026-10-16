@@ -71,6 +71,15 @@ pub trait Backend {
     fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
     /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
     fn canvas(&mut self, _pixels: &Arc<Pixmap>, _dst: Rect4, _clips: &[Shape], _ts: Transform) {}
+    /// Split an untransformed full-window canvas from the UI, if supported.
+    /// A refusal leaves the painter unchanged.
+    fn split_window_canvas(&mut self, _dst: Rect4, _clips: &[Shape], _ts: Transform) -> bool {
+        false
+    }
+    /// UI painted below the last successfully split window canvas.
+    fn take_window_underlay(&mut self) -> Option<Pixmap> {
+        None
+    }
     /// A platform element (`paint/native.rs`) in `shape`; `props` is JSON.
     fn native(
         &mut self,

@@ -1127,3 +1127,59 @@ fn disabled_fields_keep_authored_placeholder_ink() {
         );
     }
 }
+
+#[test]
+fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::Raster;
+    use std::sync::Arc;
+    use tiny_skia::Transform;
+    let rect = (0., 0., 16., 8.);
+    let shape = Shape::rect(rect);
+    let ts = Transform::identity();
+    let mut game = Pixmap::new(16, 8).unwrap();
+    game.fill(tiny_skia::Color::from_rgba8(200, 40, 80, 128));
+    let game = Arc::new(game);
+    let mut reference = Raster::new();
+    reference.begin(16., 8., 1.);
+    reference.fill(&shape, [30, 60, 90, 255], ts);
+    reference.canvas(&game, rect, &[shape.clone()], ts);
+    reference.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
+    let expected = reference.finish().unwrap();
+    let mut split = Raster::new();
+    split.begin(16., 8., 1.);
+    split.fill(&shape, [30, 60, 90, 255], ts);
+    assert!(split.split_window_canvas(rect, &[shape.clone()], ts));
+    split.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
+    let below = split.take_window_underlay().unwrap();
+    let above = split.finish().unwrap();
+    for (((b, g), a), expected) in below
+        .data()
+        .chunks_exact(4)
+        .zip(game.data().chunks_exact(4))
+        .zip(above.data().chunks_exact(4))
+        .zip(expected.data().chunks_exact(4))
+    {
+        for channel in 0..4 {
+            let composed = a[channel] as f32
+                + (g[channel] as f32 + b[channel] as f32 * (1. - g[3] as f32 / 255.))
+                    * (1. - a[3] as f32 / 255.);
+            assert!((composed.round() as i32 - expected[channel] as i32).abs() <= 1);
+        }
+    }
+    split.begin(16., 8., 1.);
+    split.push_clip(&Shape::rect((0., 0., 8., 8.)), ts);
+    assert!(!split.split_window_canvas(rect, &[shape], ts));
+    assert!(split.take_window_underlay().is_none());
+    split.pop_clip();
+    assert!(split.split_window_canvas(rect, &[], ts));
+    split.backdrop_filter(
+        &Shape::rect((0., 0., 4., 4.)),
+        &exact_kernel::style::BackdropFilter(vec![exact_kernel::style::BackdropOp::Blur(2.)]),
+        ts,
+    );
+    assert!(
+        split.take_window_underlay().is_none(),
+        "backdrop effects require ordinary capture"
+    );
+}

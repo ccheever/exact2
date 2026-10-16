@@ -487,6 +487,7 @@ pub use backend::Backend;
 
 /// The painter: the walk over one backend.
 pub struct Painter {
+    pub(crate) window_canvas: Option<ViewId>,
     /// The text engine, shared with the kernel's measurer.
     pub text: Shared,
     /// Device pixels per point.
@@ -608,6 +609,7 @@ impl Painter {
     /// A painter over a backend.
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
+            window_canvas: None,
             text,
             scale,
             dark: false,
@@ -643,6 +645,10 @@ impl Painter {
     /// The backend's name.
     pub fn backend(&self) -> &'static str {
         self.backend.name()
+    }
+
+    pub(crate) fn take_window_underlay(&mut self) -> Option<Pixmap> {
+        self.backend.take_window_underlay()
     }
 
     /// Another backend from here on (the CPU's, once the GPU's failed a
@@ -1040,7 +1046,10 @@ impl Painter {
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
                 self.row_refuse();
-                if let Some(c) = self.canvases.get(&node.id) {
+                if self.window_canvas == Some(node.id) {
+                    self.backend
+                        .split_window_canvas(content, &[Shape::rect(content), outer], ts);
+                } else if let Some(c) = self.canvases.get(&node.id) {
                     let clips = [Shape::rect(content), outer];
                     self.backend.canvas(&c.pixels, content, &clips, ts);
                 } else {

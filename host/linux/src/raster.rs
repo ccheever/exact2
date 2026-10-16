@@ -37,6 +37,7 @@ struct ClipKey {
 #[derive(Default)]
 pub struct Raster {
     target: Option<Pixmap>,
+    window_underlay: Option<Pixmap>,
     transparent: bool,
     /// The page's colour ([`Backend::page`]); white until one is told.
     page: Option<[u8; 4]>,
@@ -75,6 +76,7 @@ impl Raster {
     }
 
     fn reset(&mut self, width: f32, height: f32, scale: f32) {
+        self.window_underlay = None;
         self.scale = scale;
         self.width = ((width * scale).round() as u32).max(1);
         self.height = ((height * scale).round() as u32).max(1);
@@ -904,6 +906,9 @@ impl Backend for Raster {
 
     // @ref LLP 1055.000 D14 — an island in its element's user space.
     fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
+        if mode != 0 {
+            self.window_underlay = None;
+        }
         let (nw, nh) = (image.width() as f32, image.height() as f32);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
@@ -952,6 +957,38 @@ impl Backend for Raster {
         }
     }
 
+    fn split_window_canvas(&mut self, dst: Rect4, clips: &[Shape], ts: Transform) -> bool {
+        if self.window_underlay.is_some()
+            || !self.layers.is_empty()
+            || !ts.is_identity()
+            || dst
+                != (
+                    0.,
+                    0.,
+                    self.width as f32 / self.scale,
+                    self.height as f32 / self.scale,
+                )
+            || clips
+                .iter()
+                .any(|c| c.rect != dst || c.radii != [(0., 0.); 4] || c.corners.is_some())
+            || self
+                .clips
+                .last()
+                .is_some_and(|m| m.data().iter().any(|&a| a != 255))
+        {
+            return false;
+        }
+        let Some(overlay) = Pixmap::new(self.width, self.height) else {
+            return false;
+        };
+        self.window_underlay = self.target.replace(overlay);
+        self.window_underlay.is_some()
+    }
+
+    fn take_window_underlay(&mut self) -> Option<Pixmap> {
+        self.window_underlay.take()
+    }
+
     fn text(
         &mut self,
         text: &mut TextEngine,
@@ -989,6 +1026,7 @@ impl Backend for Raster {
         filter: &exact_kernel::style::BackdropFilter,
         ts: Transform,
     ) {
+        self.window_underlay = None;
         self.filter_backdrop(shape, filter, ts);
     }
 
