@@ -2463,3 +2463,22 @@ TypeScript producer's alone.
 - the JS loop takes about 10 s per value edit, against about 1 s on the wasm loop.
 
 **Stage 4 is closed.** LLP 1122 T2 is under way on it.
+
+### After stage 4's gate: the JS loop's speed and iOS reconnecting (`c5bbaf311`..`328b26e78`; `90e778787`..`b260e1486`)
+
+- **The JS loop's value edit, about 10.5 s → about 0.4 s** on the clone.
+  - A design-only edit to the app's own design now reads the edited design straight from the
+    compiler (`exact-web-js design <app.contract> -`) and sends the batch at once. It qualifies only
+    while the design's shape, the plan structure and the accent flags hold, and the reader is
+    fresh against its depfile.
+  - The full development build follows in the background as a check, and reloads or shows an
+    error exactly when the old path would, one build later.
+  - Scrub previews use the same reader (they took about 2.2 s each before).
+- **An Apple host whose native code the server rebuilt stays on the live table.** A restarted loop
+  that rebuilt the native code used to make `PlanURL` terminal, which cancelled its stream and
+  dropped it off the build channel.
+  - It now refuses that program's generations and still says "rebuild and relaunch", but it keeps
+    its stream, stays registered, applies value batches, reconnects across restarts, and takes
+    the next generation of its own program.
+  - A stub-server test of drop, restart and re-register is a follow-up; the path was driven on
+    the clone.
