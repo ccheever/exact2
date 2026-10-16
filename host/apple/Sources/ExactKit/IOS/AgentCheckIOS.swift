@@ -243,6 +243,11 @@ extension Agent {
                     // pixels there are the page's (LLP 1116.010 D2: trivia's Badge below the viewport was "a card that does not show").
                     if item["text"] != nil || item["control"] != nil || item["fill"] != nil { presented(n, b, into: &item) }
                     if item.keys.contains(where: { ["text", "control", "fill", "outX", "padded"].contains($0) }) { items.append(item) }
+                } else if n.isParagraph, b.width < 1, b.height > 0, b.minX >= port.minX - 1, b.minX <= port.maxX + 1, b.maxY > port.minY, b.minY < port.maxY {
+                    // Text squeezed to no width (a flex item that may shrink to nothing beside siblings that will not): none of it shows.
+                    var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }
+                    paragraph(n, b, alpha: a, into: &item)
+                    if item["text"] != nil { item["squeezed"] = true; items.append(item) }
                 } else if b.width > 0, b.height > 0, b.maxX > port.minX, b.minX < port.maxX {
                     // Off the screen: only a control out of reach (past its top or bottom, and nothing scrolls to it) is anything.
                     var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }

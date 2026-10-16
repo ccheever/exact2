@@ -833,7 +833,7 @@
             "additionalProperties": false,
             "required": ["finding", "node", "why"],
             "properties": {
-              "finding": { "type": "string", "enum": ["covered", "clipped", "overflow", "overlap", "contrast", "card", "target"] },
+              "finding": { "type": "string", "enum": ["covered", "squeezed", "clipped", "overflow", "overlap", "contrast", "card", "target"] },
               "node": { "type": "string", "pattern": "^[^*]+\\*?$", "description": "A testId, or a non-empty prefix of one and a single trailing *: a bare * would accept the finding on every node." },
               "why": { "type": "string", "minLength": 1 }
             }

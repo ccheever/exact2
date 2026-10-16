@@ -179,6 +179,9 @@ built or not), the tests, check's findings (each once, naming the screens it was
 relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. One
 screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
 each test's named by the test, the relaunch's): look at them when the features work.
+Large    each of those screens again at the largest text size (ios: the simulator's, put back
+         after; web: a 53 px root, iOS's body there, at 390x844): what spills (past the edge,
+         squeezed, overlapping), each with a remedy that keeps the text's size; not counted.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's) and the compiler's warnings are counted, never
          fail it. A screen no test ends on is not checked: end a test there.

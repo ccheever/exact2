@@ -25,6 +25,9 @@
 // are what a person sees. An app with a server of its own (the `rest` pattern's) has it run by verify, where the
 // app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`); a server
 // entry that does not read DB is refused before the build, in one line naming it and the fix (LLP 1116.008 D1).
+// Each of those screens is read again at the largest text size (iOS: the simulator's; the web: iOS's body as the root font
+// size, at the phone's width), and what spills there (past the screen's edge, squeezed to no width, overlapping) is reported
+// with a remedy that keeps the text's size, and not counted (LLP 1116.019 D2, `largestText`).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
@@ -477,6 +480,66 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
   return runs;
 }
 
+// LLP 1116.019 D2: each screen verify visits is read again at the largest text size, and what spills is reported, never
+// counted: the layout is the builder's (LLP 1115.000 D12.1), and a failure would invite `overflow: hidden`. iOS sets the
+// simulator's own size, which UIKit's controls and Exact's text both follow; the web, where a builder iterates, sets the root
+// font size to iOS's body at that size on the phone's width. Only the kinds of finding a larger text makes are kept, each with
+// a remedy that keeps the text's size: a smaller font is the platform tell this pass exists to prevent.
+export const LARGEST = 'accessibility-extra-extra-extra-large', LARGEST_PX = 53;
+const LARGE_KINDS = new Set(['overflow', 'clipped', 'overlap', 'squeezed']), PAGES = 6;
+const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
+/** The remedy for a finding at the largest size: never a smaller or fixed font. */
+export function largeRemedy(f) {
+  if (f.kind === 'clipped') return f.detail?.edge ? 'let the page scroll there (a scroll with flex=1 min-height=0)'
+    : f.detail?.need ? 'let its box grow with its text: no px width or height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
+  if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
+  return WRAP;
+}
+const contentSize = (udid, size) => spawnSync('xcrun', ['simctl', 'ui', udid, 'content_size', ...(size ? [size] : [])], { encoding: 'utf8' });
+
+/** The screen `s` shows, again at the largest text size: its findings of LARGE_KINDS as check words them with their remedy,
+ * the app's `verify.accept` taken out, `{ screen, size, rootFontSize, lines, ms }`; or `{ screen, error }`. The simulator's
+ * own size is put back after, and when the process ends first. Null on iOS with no simulator to set. */
+async function largestText(s, screen) {
+  const web = s.host === 'web', udid = s.carrier?.udid, was = web ? null : udid && contentSize(udid).stdout?.trim();
+  if (!web && !was) return null;
+  const started = Date.now(), body = async () => (await s.prefer({})).page?.['root-font-size'];
+  const before = web ? null : await body();
+  const restore = () => { if (!web && was !== LARGEST) contentSize(udid, was); }, forget = web ? () => {} : whenEnded(restore);
+  try {
+    if (web) {
+      // Each session it reads closes after it, so the page's own size is not put back.
+      await s.resize(...WEB_SIZES[0]);
+      await s.prefer({ 'root-font-size': LARGEST_PX });
+    } else if (was !== LARGEST) {
+      const set = contentSize(udid, LARGEST);
+      if (set.status !== 0) return { screen, error: `simctl ui content_size: ${firstLine(set.stderr)}` };
+      // The app hears the change as a notification of its own: until then its body size is the one it had.
+      for (const end = Date.now() + 3000; (await body()) === before && Date.now() < end;) await new Promise((r) => setTimeout(r, 50));
+    }
+    await s.clock('settle');
+    const [{ judge, line, accepts }, tree] = await Promise.all([import('./agent-check.mjs'), s.op({ op: 'tree' })]);
+    const nodes = new Map((tree.nodes ?? []).map((n) => [n.id, n])), looked = new Set(), found = new Map();
+    let obs;
+    // A screen at a time, as check reads one: the page is scrolled to the first node with a testId that no reading has
+    // held yet, at most PAGES times (a list's rows off the screen have no cells to read).
+    for (let page = 0; page < PAGES; page++) {
+      obs = await s.op({ op: 'check' });
+      for (const it of obs.items ?? []) looked.add(it.id).add(it.of);
+      for (const f of judge(obs, null, { host: web ? 'web' : 'ios' })) if (LARGE_KINDS.has(f.kind) && !accepts(ACCEPT, f, nodes) && !found.has(`${f.kind} ${f.id}`)) found.set(`${f.kind} ${f.id}`, f);
+      let moved = false;
+      for (const n of tree.nodes ?? []) {
+        if (n.inactive || n.props?.testId == null || looked.has(n.id)) continue;
+        looked.add(n.id);
+        if ((await s.carrier.reveal(n.id).catch(() => null))?.scrolled) { moved = true; break; }
+      }
+      if (!moved) break;
+    }
+    return { screen, size: [obs.viewport.w, obs.viewport.h], rootFontSize: web ? LARGEST_PX : await body(), lines: [...found.values()].map((f) => line({ ...f, hint: largeRemedy(f) }, nodes)), ms: Date.now() - started };
+  } catch (e) { return { screen, error: e.message }; }
+  finally { restore(); forget(); }
+}
+
 /** runTests' `atEnd`: a test's last screen once its transitions end, checked in both schemes (the web: at both widths,
  * one capture kept at the width nearer the test's own; iOS: the simulator's), and what the relaunch chooses by. */
 const testEnd = (host, shots, persisted) => async (s, t) => {
@@ -490,7 +553,8 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
   const refusals = await refusalsIn(s);
   const reloaded = await reloadEnd(s, t, persisted);
-  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded };
+  const large = await largestText(s, t.name);
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded, large };
 };
 
 /** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
@@ -522,6 +586,7 @@ async function checkAt(host, app, size, store, shots) {
     const runs = await checkHere(s, { screen: FIRST, shot: (vp, scheme) => resolve(shots, `${host}-${vp.w}x${vp.h}-${scheme}.png`), state });
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
     Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
+    if (host === 'ios' || size === WEB_SIZES[0]) Object.defineProperty(runs, 'large', { value: await largestText(s, FIRST) });
     return runs;
   } finally {
     await s.close();
@@ -613,7 +678,8 @@ async function relaunch(host, app, test, fresh, shots) {
     const after = await seen(s, state);
     const path = resolve(shots, `${host}-relaunch.png`);
     const runs = await checkHere(s, { screen: RELAUNCH, sizes: host === 'web' ? [null, WEB_SIZES[1]] : [null], shot: (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === WEB_SIZES[0][0]) ? path : undefined) });
-    return { test: test.name, ms, shot: path, runs, refusals: await refusalsIn(s), ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
+    const refusals = await refusalsIn(s), large = await largestText(s, RELAUNCH);
+    return { test: test.name, ms, shot: path, runs, refusals, large, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, test.store).profile).catch(() => {});
@@ -659,7 +725,7 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], shots, copied, own = [], accept = [], ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], shots, copied, own = [], accept = [], ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
@@ -737,6 +803,15 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
       if (notes.length > SHOWN) out.push(`  … and ${notes.length - SHOWN} more (verify --json lists them all)`);
       out.push(NOTE_ADVICE);
     }
+  }
+  // The same screens at the largest text size (LLP 1116.019 D2): each finding once, said where unless everywhere; never counted.
+  if (large.length) {
+    const read = large.filter((l) => !l.error), shown = distinctFindings(read.map((l) => ({ ...l, scheme: 'light' })));
+    const root = [...new Set(read.map((l) => l.rootFontSize).filter(Boolean))].join(', ');
+    const size = host === 'ios' ? `${LARGEST}${root ? `, body ${root} pt` : ''}` : `root font size ${root || LARGEST_PX} px at ${WEB_SIZES[0].join('x')}, iOS's body at its largest`;
+    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (not counted; keep the text's size and give it room)` : 'nothing spills'}`, ...shown.slice(0, SHOWN));
+    if (shown.length > SHOWN) out.push(`  … and ${shown.length - SHOWN} more (verify --json lists them all)`);
+    for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
   }
   // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
   if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
@@ -864,11 +939,12 @@ async function main(argv) {
   refusedAt(RELAUNCH, relaunched?.refusals);
   const refusedList = [...refused].map(([line, where]) => ({ line, where }));
   const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
+  const large = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
-    const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
   return r.exit;
 }

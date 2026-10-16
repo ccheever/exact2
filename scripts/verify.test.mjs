@@ -579,7 +579,8 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.deepEqual([warned(quiet.stderr), warned(quiet.stdout)], [[], []]);
     const clean = verify('--shots', 'out/shots');
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
-    assert.ok(clean.lines.length <= 8, clean.stdout);
+    assert.ok(clean.lines.length <= 9, clean.stdout);
+    assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 4 screens: nothing spills"), clean.stdout);
     assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
     assert.ok(clean.lines.includes('tests: 2 passed, 0 failed'), clean.stdout);
     assert.ok(clean.lines.includes('check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
@@ -700,3 +701,43 @@ test('a finding on a view only one scheme shows is accepted by the testId that s
   assert.equal(r.check[1].accepted[0].node, 'night-badge');
   assert.match(r.text, /check ios · dark \(1 accepted\): no findings/);
 });
+
+// LLP 1116.019 D2: each screen again at the largest text size; what spills is said once, where, with a remedy that keeps the
+// text's size, and never counted.
+test('the largest text size: its findings once each with the screens they were on and a remedy, not counted; a screen it could not read is named', async () => {
+  const { judge, line } = await import('./agent-check.mjs');
+  const { largeRemedy } = await import('./verify.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 4, x: 16, y: 300, w: 0, h: 120, text: 'Party size', squeezed: true },
+    { id: 5, x: 220, y: 300, w: 240, h: 64, control: 'press', sized: 'author', outX: 58 },
+    { id: 6, x: 16, y: 500, w: 200, h: 20, text: 'Fine' },
+    { id: 7, x: 16, y: 600, w: 100, h: 20, text: 'Total due', over: [40, 0] },
+  ] };
+  const nodes = new Map([[4, { id: 4, type: 'Text', props: { text: 'Party size' } }], [5, { id: 5, type: 'View', props: { testId: 'rsvp-maybe' } }]]);
+  const found = judge(obs, null, { host: 'ios' });
+  assert.deepEqual(found.map((f) => f.kind), ['squeezed', 'clipped', 'overflow']);
+  const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
+  const wrap = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
+  assert.equal(lines[0], `  squeezed Text "Party size"#4 [16,300 0×120]: its box is squeezed to no width, so none of its text shows; let it keep its words (no min-width: 0 or px width beside it), or ${wrap}`);
+  assert.match(lines[1], /: its text is 40 pt wider than its box, and spills; let its box grow with its text: no px width or height on it \(a rem size, or none\)$/);
+  assert.equal(lines[2], `  overflow rsvp-maybe [220,300 240×64]: runs 58 pt past the 402-wide viewport's side, and nothing scrolls it; ${wrap}`);
+  for (const l of lines) assert.doesNotMatch(l, /shrink|smaller|font-size/, 'a remedy never asks for a smaller text');
+  const large = [
+    { screen: 'first screen', size: [402, 874], rootFontSize: 53, lines },
+    { screen: 'reply', size: [402, 874], rootFontSize: 53, lines: [lines[2]] },
+    { screen: 'relaunch', error: 'check did not answer\nstack' },
+  ];
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
+  assert.deepEqual(r.lines.slice(1, 6), [
+    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (not counted; keep the text\'s size and give it room)',
+    `  (first screen only) ${lines[0].trim()}`,
+    `  (first screen only) ${lines[1].trim()}`,
+    lines[2],
+    '  could not read relaunch: check did not answer',
+  ]);
+  assert.equal(r.lines.at(-1), 'verify: clean in 2.0 s');
+  assert.equal(r.exit, 0);
+  const web = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ screen: 'first screen', size: [390, 844], rootFontSize: 53, lines: [] }], shots: [], ms: 2000 });
+  assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
+});
+

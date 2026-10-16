@@ -86,6 +86,8 @@ export function judge(obs, png, { host = 'web' } = {}) {
   const add = (kind, it, detail, hint) => found.push({ kind, id: it.id ?? null, ...(it.of != null ? { of: it.of } : {}), name: it.name, text: it.text, box: [r0(it.x), r0(it.y), r0(it.w), r0(it.h)], detail, ...(hint ? { hint } : {}) });
   const unit = host === 'web' ? 'px' : 'pt';
   for (const it of items) {
+    // Text squeezed to no width (iOS reports it): nothing of it shows, and nothing else of it can be judged.
+    if (it.squeezed) { add('squeezed', it, {}, 'let it keep its words (drop `min-width: 0` or a fixed width beside it), or let the row wrap (`flex-wrap="wrap"`)'); continue; }
     // Covered: something else is over its middle at rest, and no scroller moves it clear.
     if (it.cover && !it.disabled) {
       const what = it.cover.kind === 'keyboard' ? 'the software keyboard' : it.cover.kind === 'sheet' ? 'a sheet' : it.cover.by != null ? { ref: it.cover.by } : it.cover.name;
@@ -146,7 +148,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // A control's own text covered with it is one finding: the control's.
   const coveredControls = found.filter((f) => f.kind === 'covered' && items.find((it) => it.id === f.id)?.control);
   const kept = found.filter((f) => !(f.kind === 'covered' && f.text != null && coveredControls.some((c) => c !== f && holds({ x: c.box[0], y: c.box[1], w: c.box[2], h: c.box[3] }, { x: f.box[0], y: f.box[1], w: f.box[2], h: f.box[3] }))));
-  const order = ['covered', 'clipped', 'overflow', 'overlap', 'contrast', 'card', 'target'];
+  const order = ['covered', 'squeezed', 'clipped', 'overflow', 'overlap', 'contrast', 'card', 'target'];
   return kept.sort((p, q) => order.indexOf(p.kind) - order.indexOf(q.kind) || p.box[1] - q.box[1] || p.box[0] - q.box[0]);
 }
 function parseHex(h) { const n = parseInt(String(h).slice(1, 7), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
@@ -173,7 +175,7 @@ export function accepts(entries, f, nodes) {
 }
 
 /** One line a finding. */
-function line(f, nodes) {
+export function line(f, nodes) {
   const box = `[${f.box[0]},${f.box[1]} ${f.box[2]}×${f.box[3]}]`, d = f.detail;
   const under = (u) => typeof u === 'object' && u ? named(u.ref, nodes) : u;
   const what = {
@@ -184,6 +186,7 @@ function line(f, nodes) {
     contrast: () => `${d.got}:1 (${d.fg} on ${d.bg}${d.on == null ? '' : d.on === 'own' ? ', its own fill' : d.on === 'page' ? ', the page' : `, ${named(d.on, nodes)}'s fill`}), needs ${d.need}:1`,
     card: () => `its fill ${d.fill} is what lies behind it (${d.behind}): it does not show`,
     overlap: () => `overlaps ${named(d.with, nodes)} by ${d.by[0]}×${d.by[1]}`,
+    squeezed: () => 'its box is squeezed to no width, so none of its text shows',
   }[f.kind]();
   return `  ${f.kind.padEnd(8)} ${who(f, nodes)} ${box}: ${what}${f.hint ? `; ${f.hint}` : ''}`;
 }
