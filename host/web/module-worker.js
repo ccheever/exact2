@@ -3,7 +3,7 @@
 // in module-glue.js, off the page's main thread. Trusted app code, NOT a
 // security sandbox. Values cross as messages; the page's runner commits.
 // Loaded only after the page's first pixel, by module-glue.js.
-import { createStorage, finishLetGo } from './storage.js';
+import { bindAnswerStorage, createStorage, finishLetGo } from './storage.js';
 import { agentStream, keyStore } from './storage-environment.js';
 import { sameGrantDeclaration } from './grant-admission.js';
 
@@ -68,6 +68,10 @@ function init(message) {
     Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
   storage = createStorage(self, admitted, () => context.owner, message.storage);
+  // A cell belongs to the answer that accepted the call, though its operation
+  // may be issued in another answer's turn (one queued behind it), as in the
+  // page realm.
+  bindAnswerStorage(self, storage, () => context.owner);
   // The page reads the drive's seed; this realm's stream starts here (D2b).
   if (message.seed !== null && message.seed !== undefined) stream = agentStream(message.seed, 'typescript');
   // A LAN dev page has no `crypto.subtle`: SHA-256 is the dev protocol's,
@@ -128,26 +132,63 @@ async function forget(inFlight) {
     deliver: async owner => {
       const prev = context;
       context = scratch(owner);
-      try { await storage.deliver(owner); await checkpoint(); }
+      try { await storage.deliver(owner); deliveries++; await checkpoint(); }
       finally { context = prev; }
     },
   });
 }
 
-// One turn: begin or resume; stay here through every storage wait; end at
-// an answer or at a `fetch`, which the page's host runs (LLP 1027.002 D3).
-async function turn(request) {
+// An answer whose storage operation is queued behind another answer's waits
+// with the module (prelude.js `settle`'s `waiting`): it parks and lets the
+// turn go, so the answer whose operation is in flight can be resumed and
+// deliver it, and is asked again after each delivery, until a pass delivers
+// nothing (LLP 1097 D3), as the page realm does (module-glue.js). Held in
+// the turn instead, it waited on an operation only that other answer's turn
+// could deliver.
+let parked = [], deliveries = 0;
+async function proceed(answer, request, done) {
+  for (;;) {
+    if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
+      await storage.deliver(context.owner);
+      deliveries++;
+      await checkpoint();
+      answer = JSON.parse(self.__exact_settle(String(answer.call)));
+      continue;
+    }
+    if (answer.tag === 1 && answer.waiting) {
+      parked.push({ answer, request, context, done });
+      context = null;
+      return;
+    }
+    done.resolve(finish(answer, request));
+    return;
+  }
+}
+async function resettle() {
+  for (;;) {
+    const before = deliveries;
+    const waiting = parked; parked = [];
+    for (const p of waiting) {
+      context = p.context;
+      try { await proceed(JSON.parse(self.__exact_settle(String(p.answer.call))), p.request, p.done); }
+      catch (error) { storage.retire(context?.owner); context = null; p.done.reject(error); }
+    }
+    if (deliveries === before || !parked.length) break;
+  }
+}
+const deferred = () => { const d = {}; d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject; }); return d; };
+
+// One turn: begin or resume; stay here through its own storage; end at an
+// answer, at a `fetch`, which the page's host runs (LLP 1027.002 D3), or
+// parked behind another answer's storage. Its result comes when its `done`
+// does, perhaps after later turns.
+async function turn(request, done) {
   let answer = begin(request);
   if (answer.tag === 3) {
     await checkpoint();
     answer = JSON.parse(self.__exact_settle(String(answer.call)));
   }
-  while (answer.tag === 1 && answer.ticket === 0) {
-    await storage.deliver(context.owner);
-    await checkpoint();
-    answer = JSON.parse(self.__exact_settle(String(answer.call)));
-  }
-  return finish(answer, request);
+  await proceed(answer, request, done);
 }
 
 self.onmessage = ({ data }) => {
@@ -162,12 +203,17 @@ self.onmessage = ({ data }) => {
     return;
   }
   // After the turns before it, so a call they park is dropped too.
-  if (data.op === 'forget') { tail = tail.then(() => forget(data.inFlight)).catch(() => {}); return; }
+  if (data.op === 'forget') { tail = tail.then(() => forget(data.inFlight)).then(() => { if (parked.length) return resettle(); }).catch(() => {}); return; }
   if (data.op !== 'turn') return;
+  const done = deferred();
   const run = tail.then(async () => {
-    try { return await turn(data.request); }
-    catch (error) { storage?.retire(context?.owner); context = null; throw error; }
+    const before = deliveries;
+    try { await turn(data.request, done); }
+    catch (error) { storage?.retire(context?.owner); context = null; done.reject(error); }
+    // Its delivery may have put a parked answer's operation in flight:
+    // asked again in a turn of its own, after this one.
+    if (deliveries !== before && parked.length) { const again = tail.then(resettle); tail = again.catch(() => {}); }
   });
   tail = run.catch(() => {});
-  run.then(result => postMessage({ token: data.token, result }), error => postMessage({ token: data.token, error: String(error?.message ?? error) }));
+  done.promise.then(result => postMessage({ token: data.token, result }), error => postMessage({ token: data.token, error: String(error?.message ?? error) }));
 };

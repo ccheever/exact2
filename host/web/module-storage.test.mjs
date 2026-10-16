@@ -1,5 +1,6 @@
 // The page's module realm (module-glue.js) over the real prelude, in a vm
-// context standing in for its iframe, with a scripted file store.
+// context standing in for its iframe, and its worker placement on a Worker,
+// each with a scripted file store.
 import { expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -71,3 +72,45 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// The worker placement (module-worker.js), on a Bun Worker: the same
+// sequence. An answer waiting there held the worker's turn on an operation
+// only the other answer's turn could deliver, and both waited forever; and
+// an operation issued in another answer's turn was charged to that answer.
+test('a worker-placed answer queued behind another answer\'s storage parks and answers', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-worker-storage-'));
+  for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
+export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentSeed = () => null;
+export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;`);
+  writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({ readFile: async path => new TextEncoder().encode(path), dispose() {} });`);
+  const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
+  const script = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
+  const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
+  if (source === 'feed') { const file = read('app:/data/feed'); return fetch('https://api.castle.test/feed').then(r => r.text()).then(async text => text + ' ' + await file); }
+  return read('app:/data/device');
+} };`);
+  const sha = new Bun.CryptoHasher('sha256').update(script).digest('hex');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; };
+  globalThis.location = { href: 'http://127.0.0.1/', origin: 'http://127.0.0.1' };
+  globalThis.exact = {};
+  const { createGrantSet } = await import(resolve(dir, 'grant-admission.js'));
+  const glue = await import(resolve(dir, 'module-glue.js'));
+  const grants = 'net.fetch https://api.castle.test';
+  const receipt = new TextEncoder().encode(JSON.stringify({ version: 1, abi: 1, appId: 'test.storage', grants, web: { file: 'app.js', bytes: script.length, sha256: sha }, module: { sha256: 'b'.repeat(64) } }));
+  const realm = await glue.prepare({ receipt, script }, { appId: 'test.storage', grants, grantSet: createGrantSet(GRANTS), placement: 'worker' });
+  globalThis.fetch = realFetch;
+  const ask = (source, extra = {}) => glue.run(glue.call({ op: 'answer', id: realm.id, target: source, source, args: [], store: [], grants: [], ...extra }).continuation);
+  const fetched = await ask('feed');
+  expect(fetched.tag).toBe(1);
+  const device = ask('device');
+  await new Promise(r => setTimeout(r, 50));
+  const resumed = glue.run(glue.call({ op: 'resume', id: realm.id, target: 'feed', source: 'feed', args: [], store: [], grants: [], outcome: { response: { status: 200, headers: [], body: 'fresh' } } }).continuation);
+  const race = p => Promise.race([p, new Promise(r => setTimeout(() => r('STILL WAITING'), 1500))]);
+  expect((await race(resumed)).value).toBe('fresh app:/data/feed');
+  expect((await race(device)).value).toBe('app:/data/device');
+  realm.dispose();
+  delete globalThis.exact; delete globalThis.location;
+  rmSync(dir, { recursive: true, force: true });
+}, 20000);
