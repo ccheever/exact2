@@ -181,6 +181,8 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    /// UIKit's field standing in for this one while it shows: the bar's
+    /// search field (`HeaderSearch`), a prompt's (`PromptField`).
     var headerField: UITextField? { get { extras?.headerField } set { if newValue != nil || extras != nil { more.headerField = newValue } } }
     var selectionField: UITextField? { headerField ?? field }
     /// The editor's text as the app was last told it; nil once the app has set the value since (`FieldComposition.swift`).

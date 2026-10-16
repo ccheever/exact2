@@ -31,6 +31,14 @@
 //   host's pixels a point), so a hairline is the same device pixel on each
 //   (LLP 1115.000 D10.3, D14.2); with none every host is at the scale its
 //   environment names, 1 unless EXACT_SCALE says.
+//   A plan's .steps file lists agent operations, one per line; # lines
+//   are comments. A scripted step other than `clock` that the reference
+//   refuses fails, unless it is written `refused <op>`: then both pages
+//   must refuse it with the same first line of message, and the Linux
+//   host, when the operation is one Linux performs, must refuse it too (its wording is
+//   not compared). Unknown, incomplete or extra words, and input labelled
+//   malformed by any driver or host, fail as "not a step", even if written `refused`.
+//   Under --browser drag, down, move, up and pinch are skipped, marked or not.
 //   Every page freezes media time (`mediaClock: 'frozen'`: rate 0 from a
 //   media element's first load): a playing video would otherwise follow the
 //   wall clock, so two pages read different positions; play, pause and seeks
@@ -77,6 +85,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSy
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { conformArgs } from './conform-args.mjs';
+import { parseStep } from './conform-steps.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
 import { poolBrowsers, probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
@@ -484,8 +493,9 @@ async function drive(t, report, fail, dir, ws, js) {
     // later compares would report its consequences, not new differences.
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
-      const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'resize' ? s.resize(...target.split('x').map(Number)) : op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0], ...(rest[1] === 'for' ? { for: Number(rest[2]) } : rest[1] ? { phase: rest[1] } : {}) }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'move' ? s.pointer('move', { dx: Number(target), dy: Number(rest[0]), ms: Number(rest[1] ?? 200) }) : op === 'drag' && rest[0] === 'to' ? s.tap(target, { drag: { to: rest[1], over: Number(rest[2] ?? 200) } }) : op === 'drag' && rest[3] === 'hold' ? s.tap(target, { drag: { dx: Number(rest[0]), dy: Number(rest[1]), over: Number(rest[2]), hold: Number(rest[4]) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'mediasession' ? s.tap(target, { mediaSession: rest[0], ...(rest[1] != null ? { seconds: Number(rest[1]) } : {}) }) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
+      let step;
+      try { step = parseStep(line); } catch (e) { fail(line, e.message); continue; }
+      const { op, mustRefuse, run } = step;
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
       // named, side-effect-free refusals are exercised by agent.test.mjs.
@@ -496,17 +506,22 @@ async function drive(t, report, fail, dir, ws, js) {
       // A clock step the wasm runner refuses (a timer's or a `then`'s refusal
       // stops the advance at its time) is refused by the others too, then compared.
       let refused = null;
-      // A scripted step is one the reference must take: one it cannot take is a failure, not a skip.
-      try { await run(W); } catch (e) { if (op !== 'clock') { fail(line, `${reference}: ${e.message.split('\n')[0]}`); continue; } refused = e.message.split('\n')[0]; }
-      const answered = who => { if (refused) fail(line, `${who}: answered where ${reference} refused (${refused})`); };
+      // An unmarked scripted step other than `clock` that the reference cannot take is a failure, not a skip.
+      try { await run(W); } catch (e) { if (e.malformed === true) { fail(line, e.message); continue; } if (!mustRefuse && op !== 'clock') { fail(line, `${reference}: ${e.message.split('\n')[0]}`); continue; } refused = e.message.split('\n')[0]; }
+      const answered = who => { if (mustRefuse) fail(line, `${who}: answered where refusal was required`); else if (refused !== null) fail(line, `${who}: answered where ${reference} refused (${refused})`); };
+      if (mustRefuse && refused === null) answered(reference);
       let jsRefused = null;
-      try { await run(J); } catch (e) { jsRefused = e.message.split('\n')[0]; }
-      if (jsRefused && !refused) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
-      if (!jsRefused) answered(other);
-      if (refused && !jsRefused) { diverged = true; break; }
-      // A step Linux does not take ends its comparison: the page moved (a wheel, a
-      // list's `into`, history) and Linux did not, so every later step would differ.
-      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
+      try { await run(J); } catch (e) { if (e.malformed === true) { fail(line, e.message); diverged = true; break; } jsRefused = e.message.split('\n')[0]; }
+      if (!mustRefuse && jsRefused !== null && refused === null) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
+      if (jsRefused === null) answered(other);
+      if ((refused === null) !== (jsRefused === null)) { diverged = true; break; }
+      if (mustRefuse && refused !== null && jsRefused !== null && refused !== jsRefused) fail(line, `refusal: ${reference} «${refused}» ${other} «${jsRefused}»`);
+      // A page-only operation a page took ends the Linux comparison. If both
+      // pages refused, neither moved: Linux skips a page-only operation and
+      // comparison continues. If Linux takes a step both pages refused as marked,
+      // it fails the step and ends the comparison.
+      await onLinux(line, L => !LINUX_OPS.includes(op) ? (refused === null ? Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)) : undefined)
+        : run(L).then(() => { answered('linux'); if (refused !== null) throw new Error('took a step marked refused'); }, e => { if (e.malformed === true) { fail(line, e.message); throw e; } if (refused === null) throw e; }));
       await settle();
       await bounds(line);
       tree = await compare(line);
@@ -727,12 +742,10 @@ const LINUX_APART = {
   messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
   // Pointer phases and drags reach Linux since LLP 1094 D12; where its delivery
   // still differs from the page's, the comparison stops there (QUEUE, batch 6).
-  'synthetic-press': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
-  'synthetic-rowsmore': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
   'synthetic-reorder': ['drag grip-5 0 -300 500', "a drag past the list's top autoscrolls on the page and not on the Linux host, so the row lands elsewhere"],
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "a height drag ends 3 px apart (518 on the page, 521 on the Linux host)"],
   'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
-  textflow: ['drag orb-1 60 40 300', "a drag advances the scene's elapsed time on the Linux host and not on the page"],
+  textflow: ['tap scene-orbs', "the orbs' positions are its data crate's sines and collisions, which the page runs as wasm (Rust's libm) and the Linux host natively (the system's libm), so their last digits differ"],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
 function linuxFor(t) {

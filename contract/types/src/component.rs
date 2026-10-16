@@ -3,7 +3,7 @@
 //! handler call sites, action bodies, then the view.
 
 use super::{
-    checks::{check_view, infer_owned_state_initializers},
+    checks::{self, check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use crate::calls::CAPTURE;
@@ -643,6 +643,27 @@ fn refine_params_from_view(
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
                                     let t = infer(arg, scope, shapes)?;
+                                    if ct.actions[ai][i].contains_enum()
+                                        && !checks::accepts_expr(
+                                            &ct.actions[ai][i],
+                                            arg,
+                                            &t,
+                                            scope,
+                                            shapes,
+                                        )
+                                    {
+                                        return err(
+                                            "type-argument",
+                                            format!(
+                                                "`{name}` expects `{}`, given `{t}`",
+                                                ct.actions[ai][i]
+                                            ),
+                                            arg.span(),
+                                        );
+                                    }
+                                    if ct.actions[ai][i].contains_enum() {
+                                        continue;
+                                    }
                                     if let Some(u) = ct.actions[ai][i].unify(&t) {
                                         ct.actions[ai][i] = u;
                                     }
@@ -756,7 +777,10 @@ fn refine_params_from_view(
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty) else {
+                                    let Some(unified) = declared.unify(&ty).filter(|_| {
+                                        !declared.contains_enum()
+                                            || checks::can_unify(&declared, &ty)
+                                    }) else {
                                         if !counted {
                                             continue;
                                         }

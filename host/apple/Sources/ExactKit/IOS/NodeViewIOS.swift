@@ -291,7 +291,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     /// Off the accessibility tree: projected away, inert, or `aria-hidden`.
-    private var hidesAccessibility: Bool {
+    var hidesAccessibility: Bool {
         placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
     /// An image node's picture, once loaded (decoded off the main thread),
@@ -719,6 +719,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
+        #if os(iOS)
+        if swipeOwner { presenter?.swipeActions.painted.began(self) }
+        #endif
     }
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
@@ -731,6 +734,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let room = extras?.nativeScrollContentInsets ?? .zero
         presenter?.onScrolled?(id, Double(scrollView.contentOffset.x + room.left), Double(scrollView.contentOffset.y + room.top))
         presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
+        #if os(iOS)
+        if swipeOwner, scrollView.isTracking { presenter?.swipeActions.painted.scrolled(self) }
+        #endif
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         presenter?.reaimFixedGradients()
@@ -1107,6 +1113,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             default: f.returnKeyType = type == "search" ? .search : .default
             }
             f.isEnabled = !disabled
+            if headerField != nil { presenter?.menus.promptInputChanged(self) } // a prompt's field stands in for it (PromptFieldIOS.swift)
             if isNativeTextControl { styleNativeField() }
             updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }

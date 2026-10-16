@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
@@ -51,11 +51,13 @@ export function createGame(destination, directory = import.meta.dir, options = {
   // Identity derives from the directory and Game::ID; app.json holds authored keys only.
   if (!gameDefaults(destination)) throw new Error(`${destination}/logic/src/lib.rs: the template's Game declaration was not found`);
   const manifest = {game:{...(options.assets === true ? {assets:true} : {})}};
+  // A game outside this checkout gets exact.mjs, AGENTS.md and the diary (below).
+  const outside = local && !`${destination}/`.startsWith(`${dirname(directory)}/`);
   if (options.render === true) {
     // The GPU-only hooks crate (LLP 1046.008, game.render): an empty pass set and
     // an explicitly declared shader root, reflected at build.
     const files = {
-      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n# Its workspace, ../.shells, is generated: \`bun exact.mjs test-rust\` (or any build) writes it.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
+      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n# ../.shells is generated: \`${outside ? 'bun exact.mjs shells' : `bun ${script('app/shells.mjs', destination)} .`}\` writes it, as any bake does.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
       'render/build.rs': `//! Reflect the shader inventory the game bake assembles (gpu.shaderRoots, each\n//! after its gpu.shaderPreludes) in EXACT_GAME_SHADERS: \`shaders::SHADERS\`\n//! names the interfaces the hosts register.\nfn main() {\n    println!("cargo:rerun-if-env-changed=EXACT_GAME_SHADERS");\n    let dir = std::path::PathBuf::from(std::env::var_os("EXACT_GAME_SHADERS").expect("build through the game bake"));\n    println!("cargo:rerun-if-changed={}", dir.display());\n    let generated = exact_gpu_reflect::generate(&dir).unwrap_or_else(|e| panic!("{e}"));\n    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("shaders.rs");\n    std::fs::write(out, generated.rust).unwrap();\n}\n`,
       'render/src/lib.rs': `//! ${title}'s render hooks: implement exact_game_render::Hooks stages here.\n\n/// The reflected shader registry of render/shaders.\npub mod shaders {\n    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));\n}\n\n/// The game's passes; every stage defaults to drawing nothing.\n#[derive(Default)]\npub struct Passes;\nimpl exact_game_render::Hooks for Passes {}\n`,
     };
@@ -73,7 +75,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
   // A game outside this checkout gets what an app does (LLP 1086; the
   // platformer's diary, R1): its exact.mjs verbs, AGENTS.md and the diary.
-  if (local && !`${destination}/`.startsWith(`${dirname(directory)}/`)) {
+  if (outside) {
     writeFileSync(resolve(destination, 'exact.mjs'), commandsFor(destination, name, {game:true}));
     writeFileSync(resolve(destination, 'AGENTS.md'), agentNotes(destination, name, {game:true}));
     linkClaude(destination);
@@ -111,16 +113,416 @@ export function createApp(destination, options = {}) {
   const dir = resolve(destination ?? '');
   const name = basename(dir);
   if (!destination || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || /-(web|apple|linux|gpu)$/.test(name)) {
-    throw new Error('Usage: exact new <path> [--update] (the last part names the app: lowercase-hyphenated, no host suffix)');
+    throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
   if (options.update) return updateApp(dir, name);
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
+  const port = options.snapback ? snapbackPort(options.snapback.port) : null;
+  if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
   mkdirSync(dir, { recursive: true });
-  try { return writeApp(dir, name); }
-  catch (error) {
+  let created;
+  const existingBackend = options.snapback && existsSync(resolve(dir, '..', 'snapback/schema.q'));
+  try {
+    created = writeApp(dir, name);
+    if (!options.snapback) return created;
+    if (!existingBackend) snapbackStarter(dir, name, port, JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app.id);
+    else {
+      const source = resolve(dir, 'app.ts');
+      const ts = readFileSync(source, 'utf8');
+      writeFileSync(source, ts.replace("export const grants = '';", `const origin = 'http://127.0.0.1:${port}';\nexport const grants = \`net.fetch \${origin}${options.snapback.online ? '' : '\\nsqlite.open app:/data'}\`;`));
+    }
+  } catch (error) {
     rmSync(dir, { recursive: true, force: true });
     throw error;
   }
+  // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
+  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wireSnapback(dir, { build: options.snapback.build ?? true, port, online: options.snapback.online ?? false })}`;
+}
+
+/** The Snapback origin's port `--port` names (`snapback4 dev`'s default, 4400, else). */
+function snapbackPort(port = 4400, command = 'exact new --snapback --port') {
+  const n = Number(port);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`${command}: ${port} is not a port (1-65535)`);
+  return n;
+}
+
+// @ref LLP 1086 — `exact new --snapback` and `bun exact.mjs snapback` (the author's ruling of 2026-10-12, via the
+// sb4 app farm): what the README's pasted setup block did, as a verb. The backend is the directory above the app.
+const SNAPBACK_SCHEMA = `use personas alice, bob
+
+table notes:
+  author: principal
+  body: text 1..200
+  at: time
+  by byTime: at, id
+  public 'notes are public'
+  insert <- .author = viewer
+  update <- deny
+  delete <- .author = viewer
+  sync public last 100 by byTime
+
+query recent():
+  return notes last 50 by byTime
+
+mutation post(body: text 1..200):
+  row = insert notes { author: viewer, body, at: now }
+  return { id: row.id }
+`;
+
+/** The snapback4 server version this checkout's driver is pinned to (its root package.json). */
+export function snapbackVersion() {
+  return JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies?.snapback4 ?? 'latest';
+}
+
+/** A guestbook on Snapback in place of the greeting (snapback4/README.md's complete app): the view, the data module
+ * at the origin `port` names, its tests, and the backend's schema when the directory above has none. */
+function snapbackStarter(dir, name, port, id) {
+  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  const origin = `http://127.0.0.1:${port}`;
+  const files = {
+    'app.contract': `// ${title}: the view. app.ts answers it through Snapback4 (a guestbook to start from).
+shape Clock
+  epochAtZero: number
+shape Note
+  id: string
+  author: string
+  body: string
+  pending: bool
+shape Board
+  online: bool
+  message: string
+  latest: string
+  sending: number
+  notes: Note[]
+shape Ack
+  ok: bool
+  message: string
+  id: string
+
+component ${title.replaceAll(' ', '')}
+  state persona = "alice"
+  state draft = ""
+  state notice = ""
+  state sampledAt = 0
+  resource time = exactTime() as shape Clock
+  resource board = notes(persona, time.epochAtZero + sampledAt) as shape Board else empty(message="Connecting…")
+  mutation posted as shape Ack queue refreshes board then afterPost
+  derive banner = match failure(board) {
+    case some(f) => (f.code == "offline" || f.code == "E_OFFLINE") ? "You're offline" : f.reason != "" ? \`Couldn't load notes (\${f.reason})\` : \`Couldn't load notes (\${f.message})\`,
+    case none => ""
+  }
+  task live mount
+    every(5000, refreshBoard)
+  action refreshBoard
+    sampledAt = performanceNow()
+    refresh board
+  action choosePersona(value: string)
+    persona = value
+  action editDraft(value: string)
+    draft = value
+  action postNote
+    send posted = post(persona, draft.trim(), time.epochAtZero + performanceNow())
+  action afterPost
+    match posted
+      case some(result)
+        notice = result.message
+        draft = ""
+      case none
+        notice = ""
+  view
+    main testId="root" padding=24
+      column gap=12 max-width=600
+        text "${title}" role="heading" aria-level=1
+        select value=persona change=choosePersona appearance="auto" testId="persona" aria-label="Signed in as"
+          option value="alice"
+            text "Alice"
+          option value="bob"
+            text "Bob"
+        if banner != ""
+          text banner testId="banner"
+        text (board.online ? "Synced" : board.message) testId="status"
+        text \`\${board.sending} sending\` testId="sending"
+        row gap=8
+          input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
+          button appearance="auto" press=postNote disabled=(draft.trim() == "") testId="post"
+            text "Post"
+        text notice testId="notice"
+        text board.latest testId="latest"
+        for note, i in board.notes key=note.id
+          text \`\${note.author}: \${note.body}\${note.pending ? " (sending)" : ""}\` testId=\`note-\${i}\`
+`,
+    'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
+import { Snapback, refused } from './snapback4/snapback.ts';
+import { api } from './backend/api.ts';                 // the backend's generated operations (app.json mounts ../snapback/generated)
+
+export const appId = '${id}';            // app.json's "app": { "id" }: change the two together
+// The Snapback origin: \`snapback4 dev --port ${port}\` in the directory above, and the tests' fetch prefixes.
+const origin = '${origin}';
+export const grants = \`net.fetch \${origin}\\nsqlite.open app:/data\`;
+
+// One partition open at a time: switching persona waits for the other's work in flight, then closes its partition.
+const personas = Snapback.switcher((persona: string) => ({ app: appId, name: \`${name}-\${persona}\`, origin,
+  viewer: \`dev:\${persona}\`, headers: () => ({ 'x-snapback-persona': persona }) }));
+
+const sources: Sources = {
+  notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
+    const round = await db.sync();                      // offline is fine once synced
+    const read = await db.read(api.recent, {}, now);
+    if (read.denied) throw refused(read.denied);        // failure(board): \`offline\`, or \`error\` with the refusal's code as \`reason\`
+    // Project each row onto the shape: an answer's extra fields are refused.
+    const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+    return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
+      latest: notes.length ? \`\${notes[0].author}: \${notes[0].body}\` : '',
+      sending: notes.filter(note => note.pending).length, notes };
+  }),
+  post: ([persona, body, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'post'>> => {
+    // Write, sync and the write's fate in one call: \`sent\`, \`failed\` with the refusal's code, or \`pending\` (kept; sent later).
+    const fate = await db.send(api.post, { body }, now);
+    if (fate.state === 'failed') return { ok: false, message: \`Refused: \${fate.why?.code}\`, id: '' };
+    if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
+    return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
+  }),
+};
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+`,
+    'app.test.contract': `// Run \`snapback4 dev --port ${port}\` above; fresh isolates its rows, epoch now dates the tests as the server does.
+fresh
+epoch now
+
+test "a note posts, and another persona sees it"
+  clock data
+  expect text "status" == "Synced"
+  expect tree missing "banner"
+  type "draft" "hello from alice"
+  tap "post"
+  clock data
+  expect text "notice" == "Posted."
+  type "persona" "bob"
+  clock data
+  expect text "latest" == "dev:alice: hello from alice"
+
+test "offline, a note is kept, then delivered on reconnect"
+  clock data
+  fail fetch "backend"
+  type "draft" "from the tunnel"
+  tap "post"
+  clock data
+  expect text "notice" == "Saved on this device; it sends when online."
+  expect text "sending" == "1 sending"
+  pass fetch "backend"
+  clock +5000
+  clock data
+  expect text "sending" == "0 sending"
+`,
+  };
+  for (const [path, text] of Object.entries(files)) writeFileSync(resolve(dir, path), text);
+  const ignore = resolve(dir, '.gitignore');
+  writeFileSync(ignore, `${readFileSync(ignore, 'utf8')}/assets/snapback4.wasm\n`);
+  const schema = resolve(dir, '..', 'snapback/schema.q');
+  if (!existsSync(schema)) { mkdirSync(dirname(schema), { recursive: true }); writeFileSync(schema, SNAPBACK_SCHEMA); }
+}
+
+/** The driver's mount, from the app to this checkout: relative always, since the native bake refuses an absolute one. */
+function driverMount(dir, online = false) {
+  return relative(realpathSync(dir), realpathSync(resolve(ROOT, online ? 'snapback4/online' : 'snapback4/ts'))).replaceAll('\\', '/');
+}
+
+/** Replace only the untouched greeting; arbitrary schemas get typed calls, never invented columns. */
+function onlineStarter(dir, generated, port) {
+  const source = resolve(dir, 'app.ts'), view = resolve(dir, 'app.contract');
+  if (!existsSync(generated)) return false;
+  const name = basename(dir), manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+  const pristine = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), manifest.app.id);
+  const normalized = readFileSync(source, 'utf8')
+    .replace(/^const origin = ['"`][^'"`]+['"`];\n/m, '')
+    .replace('export const grants = `net.fetch ${origin}`;', "export const grants = '';")
+    .replace("export const grants = '' + `\\nnet.fetch ${origin}`;", "export const grants = '';");
+  if (normalized !== pristine['app.ts'] || readFileSync(view, 'utf8') !== pristine['app.contract'] || readFileSync(resolve(dir, 'app.test.contract'), 'utf8') !== pristine['app.test.contract']) return false;
+  const handles = readFileSync(generated, 'utf8').split(/export const api[^=]*=/)[1] ?? '';
+  const operations = [...handles.matchAll(/^\s*([\w$]+):\s*\{\s*kind:\s*["'](query|mutation)["']/gm)];
+  const query = operations.find(m => m[2] === 'query')?.[1], mutation = operations.find(m => m[2] === 'mutation')?.[1];
+  if (!query || !mutation) return false;
+  const appId = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app.id;
+  const old = readFileSync(source, 'utf8');
+  const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(old)?.[1] ?? `http://127.0.0.1:${port ?? 4400}`;
+  const schema = readFileSync(resolve(dir, '../snapback/schema.q'), 'utf8');
+  const persona = /^use personas\s+([\w-]+)/m.exec(schema)?.[1];
+  writeFileSync(source, `import type { Answer, Result, Sources, ArgsOf } from './app.contract.d.ts';
+import { Snapback, refused } from './snapback4/snapback.ts';
+import { api } from './backend/api.ts';
+export const appId = ${JSON.stringify(appId)};
+// One origin for requests, grants, backend launcher and test fetch "backend".
+const origin = ${JSON.stringify(origin)};
+export const grants = \`net.fetch \${origin}\`;
+const db = new Snapback({origin${persona ? `, headers: () => ({'x-snapback-persona': ${JSON.stringify(persona)}})` : ''}});
+// The server validates JSON arguments. Replace these editors with your app's typed fields.
+const sources: Sources = {
+  queryBackend: async ([json]): Promise<Result<'queryBackend'>> => {
+    const args: ArgsOf<typeof api.${query}> = JSON.parse(json);
+    const read = await db.read(api.${query}, args);
+    if (read.denied) throw refused(read.denied);
+    return {text: JSON.stringify(read.data), complete: read.complete === true};
+  },
+  mutateBackend: async ([json]): Promise<Result<'mutateBackend'>> => {
+    const args: ArgsOf<typeof api.${mutation}> = JSON.parse(json);
+    const sent = await db.send(api.${mutation}, args);
+    if (sent.state === 'failed') throw refused(sent.why);
+    return {text: JSON.stringify(sent.result)};
+  },
+};
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
+`);
+  writeFileSync(view, `shape QueryReply
+  text: string
+  complete: bool
+shape MutationReply
+  text: string
+component App
+  state queryArgs = "{}"
+  state mutationArgs = "{}"
+  resource result = queryBackend(queryArgs) as shape QueryReply else empty()
+  mutation changed as shape MutationReply refreshes result
+  action editQuery(value: string)
+    queryArgs = value
+  action editMutation(value: string)
+    mutationArgs = value
+  action runMutation
+    send changed = mutateBackend(mutationArgs)
+  action reloadQuery
+    refresh result
+  view
+    column gap=8 padding=16 testId="backend"
+      text "Query: ${query}" role="heading" aria-level=1
+      textarea value=queryArgs input=editQuery testId="query-args" aria-label="Query arguments as JSON"
+      button "Refresh" press=reloadQuery testId="refresh"
+      if failed(result)
+        text (match failure(result) { case some(f) => f.code, case none => "" }) testId="query-error"
+      else
+        text result.text testId="query-result"
+        if not result.complete
+          text "Partial answer; more rows may exist." testId="partial"
+      text "Mutation: ${mutation}" role="heading" aria-level=2
+      textarea value=mutationArgs input=editMutation testId="mutation-args" aria-label="Mutation arguments as JSON"
+      button "Send" press=runMutation disabled=pending(changed) testId="send"
+      text (match changed { case some(r) => r.text, case none => "" }) testId="mutation-result"
+      text (match failure(changed) { case some(f) => f.code, case none => "" }) testId="mutation-error"
+`);
+  writeFileSync(resolve(dir, 'app.test.contract'), `epoch now
+
+test "the backend operations open"
+  expect tree has "query-args"
+  expect tree has "mutation-args"
+`);
+  return true;
+}
+
+const onlineMount = path => /(?:^|\/)snapback4\/online\/?$/.test((path ?? '').replaceAll('\\', '/'));
+
+/** `bun exact.mjs snapback` (and the end of \`exact new --snapback\`): what the README's setup block did. Generates the backend's
+ * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
+ * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
+export function wireSnapback(dir, { build = true, port = null, online = null, artifactOnly = false } = {}) {
+  dir = resolve(dir);
+  const manifestPath = resolve(dir, 'app.json');
+  if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
+  if (artifactOnly) {
+    if (port !== null || online !== null) throw new Error('exact snapback --artifact-only: cannot also change --port or --online');
+    if (build) buildSnapbackDevice(dir);
+    return 'assets/snapback4.wasm: rebuilt; app sources and mounts kept unchanged.';
+  }
+  const parent = dirname(dir), said = [], version = snapbackVersion();
+  const existing = JSON.parse(readFileSync(manifestPath, 'utf8')).typescript?.sources ?? {};
+  online ??= onlineMount(existing.snapback4);
+  const expected = { snapback4: driverMount(dir, online), backend: '../snapback/generated' };
+  for (const [name, path] of Object.entries(expected)) {
+    if (existing[name] !== undefined && resolve(dir, existing[name]) !== resolve(dir, path))
+      throw new Error(`exact snapback: refusing to rewrite an edited mount in app.json:\n- ${name}: ${JSON.stringify(existing[name])}\n+ ${name}: ${JSON.stringify(path)}\nKeep your mount, or explicitly edit app.json to the proposed path before running again.`);
+  }
+  if (port !== null) {
+    port = snapbackPort(port, 'exact snapback --port');
+    const source = resolve(dir, 'app.ts');
+    let ts = existsSync(source) ? readFileSync(source, 'utf8') : '';
+    let origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
+    if (!origin) {
+      // A plain `exact new` app has no backend yet. Only add a declaration
+      // where no differently expressed origin could be silently shadowed.
+      if (/\b(?:const|let|var)\s+origin\b/.test(ts)) throw new Error('exact snapback --port: origin is not a literal URL; edit its declaration explicitly');
+      const grants = /export const grants\s*=\s*(['"`])([\s\S]*?)\1\s*;/;
+      if (!grants.test(ts)) throw new Error('exact snapback --port: app.ts needs a literal export const grants; write its net.fetch grant explicitly');
+      origin = `http://127.0.0.1:${port}`;
+      ts = `const origin = '${origin}';\n` + ts.replace(grants, (_, quote, value) =>
+        `export const grants = ${quote}${value}${quote} + \`\\nnet.fetch \${origin}${online ? '' : '\\nsqlite.open app:/data'}\`;`);
+      writeFileSync(source, ts);
+      said.push(`Snapback origin: added ${origin} and its ${online ? 'net.fetch' : 'net.fetch/sqlite.open'} grants to app.ts.`);
+    }
+    const next = new URL(origin);
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(next.hostname)) throw new Error(`exact snapback --port: ${origin} is not a loopback backend`);
+    next.port = String(port);
+    const currentPort = new URL(origin).port || (next.protocol === 'https:' ? '443' : '80');
+    const moved = currentPort === String(port) ? origin
+      : origin.replace(/^(https?:\/\/(?:\[[^\]]+\]|[^/:]+))(?::\d+)?/, (_, authority) => `${authority}:${port}`);
+    const fromPrefix = origin.replace(/\/+$/, ''), toPrefix = moved.replace(/\/+$/, '');
+    const files = [source];
+    const tests = (path, nested = false) => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith('.test.contract')) files.push(resolve(path, entry.name));
+        else if (entry.isDirectory() && (nested || entry.name === 'tests') && !entry.name.startsWith('.') && entry.name !== 'node_modules') tests(resolve(path, entry.name), true);
+      }
+    };
+    tests(dir);
+    for (const file of files) {
+      const before = readFileSync(file, 'utf8');
+      const after = before.replaceAll(fromPrefix, (match, at) => {
+        const next = before[at + match.length];
+        return next === undefined || /[\s\\/?#'"`]/.test(next) ? toPrefix : match;
+      });
+      if (after !== before) writeFileSync(file, after);
+    }
+    said.push(`Snapback origin: ${origin} → ${moved}; updated app.ts (origin and matching grants) and test fetch prefixes.`);
+  }
+  const cli = resolve(parent, 'node_modules/.bin/snapback4'), generated = resolve(parent, 'snapback/generated/api.ts');
+  if (!existsSync(resolve(parent, 'snapback/schema.q'))) said.push(`No backend above: ${parent}/snapback/schema.q is missing. Write one there (snapback4/README.md's guestbook is a start), then run this again.`);
+  else if (!existsSync(cli)) said.push(`The backend's server is not installed in ${parent}: \`npm i snapback4@${version}\` there (or \`bun add\`), then \`bun exact.mjs snapback\` here.`);
+  else if (!existsSync(generated)) {
+    const check = spawnSync(process.execPath, [resolve(parent, 'node_modules/snapback4/bin/snapback4.js'), 'check'], { cwd: parent, encoding: 'utf8' });
+    said.push(check.status === 0 && existsSync(generated) ? `snapback4 check: wrote ${parent}/snapback/generated/`
+      : `snapback4 check in ${parent} failed; fix the schema, then run this again:\n${(check.stderr || check.stdout || '').trim()}`);
+  }
+  if (online && onlineStarter(dir, generated, port)) said.push('app.ts and app.contract: one generated query and mutation, with JSON argument editors. Replace them with your app fields; password sessions are in snapback4/README.md.');
+  const text = readFileSync(manifestPath, 'utf8'), app = JSON.parse(text);
+  const beforeSources = JSON.stringify(app.typescript);
+  const sources = ((app.typescript ??= {}).sources ??= {});
+  sources.snapback4 = driverMount(dir, online);
+  if (existsSync(generated)) sources.backend = '../snapback/generated';
+  const next = JSON.stringify(app, null, 2) + '\n';
+  if (JSON.stringify(app.typescript) !== beforeSources) writeFileSync(manifestPath, next);
+  const ignore = resolve(dir, '.gitignore');
+  const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
+  const deviceIgnores = ['/assets/snapback4.wasm', '/assets/snapback4.wasm.json'].filter(path => !ignored.split('\n').includes(path));
+  if (deviceIgnores.length) writeFileSync(ignore, `${ignored}${ignored.endsWith('\n') || !ignored ? '' : '\n'}${deviceIgnores.join('\n')}\n`);
+  said.unshift(`app.json: ${JSON.stringify({ typescript: app.typescript })}`);
+  if (!sources.backend) said.push('app.json mounts no `backend` yet: app.ts imports ./backend/api.ts once ../snapback/generated exists.');
+  const ts = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';
+  const appId = /export const appId\s*=\s*['"`]([^'"`]*)['"`]/.exec(ts)?.[1];
+  if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
+  if (build && !online) {
+    buildSnapbackDevice(dir);
+    said.push('assets/snapback4.wasm: built with assets/snapback4.wasm.json (the device the page loads)');
+  }
+  if (online) said.push('Online-only adapter: no wasm or SQLite partition; mutations go to the server, with no outbox or automatic retry.');
+  const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
+  const at = port ?? (origin ? new URL(origin).port || 80 : 4400);
+  said.push(`Before \`bun exact.mjs test web\`: \`bunx snapback4 dev --port ${at}\` in ${parent} (snapback4@${version}).`);
+  // The notes' backend paragraph now describes a wired app.
+  if (existsSync(resolve(dir, 'AGENTS.md'))) updateNotes(dir, basename(dir));
+  return said.join('\n');
+}
+
+function buildSnapbackDevice(dir) {
+  const built = spawnSync(process.execPath, [resolve(ROOT, 'snapback4/web/build.mjs'), 'assets/snapback4.wasm'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] });
+  if (built.error) throw built.error;
+  if (built.status !== 0) throw new Error('the device did not build (above); bun exact.mjs snapback --rebuild builds it again');
 }
 
 /** The app's Linux host crate (LLP 1086): one executable with the runner, the kernel, the
@@ -224,6 +626,7 @@ test "the header's button likes it"
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
+// app.json’s app.id: change the two together.
 export const appId = '${id}';
 export const grants = '';
 
@@ -467,6 +870,7 @@ exact_web::host!(
     mkdirSync(dirname(resolve(dir, path)), { recursive: true });
     writeFileSync(resolve(dir, path), text);
   }
+  chmodSync(resolve(dir, 'exact.mjs'), 0o755);
   linkClaude(dir);
   editorTasks(dir);
   writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock')));
@@ -488,6 +892,27 @@ first build resolves it, fetching them once (it needs the network then, not now)
 }
 
 const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
+
+/** The notes' backend paragraph: an app `bun exact.mjs snapback` wired (app.json mounts `snapback4`), or how to wire one. */
+function snapbackNotes(dir) {
+  const readme = pathFrom(dir, resolve(ROOT, 'snapback4/README.md'));
+  let wired = false, online = false;
+  try { const mount = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).typescript?.sources?.snapback4; wired = Boolean(mount); online = onlineMount(mount); } catch {}
+  if (online) return `A backend: this app uses the server-only Snapback adapter; read ${readme} before changing data code.
+\`app.json\` mounts \`snapback4/online\` as \`snapback4\`, and the generated operations as \`backend\`.
+Use \`new Snapback({origin, headers})\`, \`read(api.query, args)\` and \`send(api.mutation, args)\`.
+There is no wasm device, SQLite partition or offline outbox. Start the server with \`bun exact.mjs backend\`.
+\`snapback\` and \`update\` preserve this adapter selection. \`failure(x).code\` preserves a domain refusal code.`;
+  if (wired) return `A backend: this app's data is Snapback 4's (${readme}). The backend is above it:
+\`../snapback/schema.q\`, with \`snapback4@${snapbackVersion()}\` installed. \`app.json\` mounts the driver and
+\`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback --rebuild\` generates operations
+and rebuilds the device, including after exact2 moves; \`snapback --port <n>\` moves the origin. Start
+\`bunx snapback4 dev --port <the origin's port>\` above before \`test web\`. \`fresh\` resets it per test
+(Snapback4 ${snapbackVersion()}, dev only). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
+the write's fate. \`failure(x).reason\` carries a refusal's code. Read the guide before data code.`;
+  return `Shared data: \`exact new <path> --snapback\`, or \`bun exact.mjs snapback\` here.
+Install \`snapback4@${snapbackVersion()}\` above; ${readme} has setup and server commands.`;
+}
 
 /** What an agent in the app's directory can't discover (LLP 1086 D1): what
  * its files are, where to start and the one guide, at most 1.5 KB because every step
@@ -515,6 +940,8 @@ vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too)
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
+${snapbackNotes(dir)}
+
 Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
 \`Cargo.toml\`'s \`[patch.crates-io]\` and this block.
 ${END}
@@ -547,7 +974,8 @@ Read before writing code:
 - ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
 - ${doc('contract-grammar.md')}: exact forms, built-in functions, events (keys at a game's canvas too).
 
-Commands, from this directory:
+Commands, from this directory (\`exact.mjs\` runs from any other too, and finds a file
+you name where you are, else here):
 
 | | |
 |---|---|
@@ -563,6 +991,7 @@ Commands, from this directory:
 | \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
 | \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block, and says when \`Cargo.lock\` needs \`lock\` |
 | \`bun exact.mjs lock\` | when a build says exact2 moved since the game's \`Cargo.lock\` was captured, or after adding a dependency: fetches (the network), resolves again and prints what changed; builds never change the lock |
+| \`bun exact.mjs shells\` | write \`.shells/\`, the generated workspace a crate here names, without a build (\`cargo run --example\` in \`render/\` needs it) |
 | app.json \`"commands": {"replay": ["bun", "tools/replay.mjs"]}\` | the game's own verbs: \`bun exact.mjs replay web\` runs \`bun tools/replay.mjs web\` here |
 
 The loop: \`test-rust\` while tuning gameplay, \`contract build --json\` until it prints
@@ -639,7 +1068,8 @@ function updateNotes(dir, name, options = {}) {
  * is the one that created the app, so a sibling checkout needs nothing) and hands the verb to its
  * scripts/app-cli.mjs, which holds the verbs (LLP 1116.006 D7), so a builder reading it reads a few lines. */
 function commandsFor(dir, name, {game = false} = {}) {
-  return `#!/usr/bin/env bun
+  return `#!/bin/sh
+':' //; if [ -n "$BUN" ]; then exec "$BUN" "$0" "$@"; elif [ -x "$HOME/.bun-${JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.replace('bun@', '')}/bin/bun" ]; then exec "$HOME/.bun-${JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.replace('bun@', '')}/bin/bun" "$0" "$@"; else exec ${"'" + process.execPath.replaceAll("'", "'\\''") + "'"} "$0" "$@"; fi
 // ${name}'s commands: \`bun exact.mjs --help\` lists the verbs, \`bun exact.mjs <verb> --help\` a verb's flags.
 // They live in the exact2 checkout named by EXACT2 (default ${pathFrom(dir, ROOT)}), in its
 // scripts/app-cli.mjs. Generated by \`exact new\`; \`bun exact.mjs update\` rewrites this file, the crates.io
@@ -653,6 +1083,8 @@ if (!existsSync(cli)) {
   console.error(\`no exact2 at \${EXACT2} (no scripts/app-cli.mjs): EXACT2 names the checkout\`);
   process.exit(1);
 }
+const { ensureBun } = await import(resolve(EXACT2, 'scripts/bun.mjs'));
+ensureBun(${JSON.stringify(JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.replace('bun@', ''))});
 const { run } = await import(cli);
 process.exit(await run({ dir: import.meta.dir, name: ${JSON.stringify(name)},${game ? ' game: true,' : ''} exact2: EXACT2, args: process.argv.slice(2) }));
 `;
@@ -701,6 +1133,7 @@ function updateApp(dir, name) {
   mkdirSync(resolve(dir, '.cargo'), { recursive: true });
   writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
+  chmodSync(resolve(dir, 'exact.mjs'), 0o755);
   // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own.
   const addedLinux = !existsSync(resolve(dir, 'linux'));
   if (addedLinux) {
@@ -719,7 +1152,9 @@ function updateApp(dir, name) {
   const manifestPath = resolve(dir, 'app.json');
   if (existsSync(manifestPath)) {
     const text = readFileSync(manifestPath, 'utf8');
-    const next = text.replace(/("\$schema"\s*:\s*)"[^"]*"/, (_, head) => head + JSON.stringify(pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json'))));
+    let next = text.replace(/("\$schema"\s*:\s*)"[^"]*"/, (_, head) => head + JSON.stringify(pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json'))));
+    // A Snapback app's driver mount follows the checkout, as the Cargo paths below do (`bun exact.mjs snapback` wrote it).
+    next = next.replace(/("snapback4"\s*:\s*)"[^"]*"/, (line, head) => JSON.parse(next).typescript?.sources?.snapback4 ? head + JSON.stringify(driverMount(dir, onlineMount(JSON.parse(next).typescript.sources.snapback4))) : line);
     if (next !== text) writeFileSync(manifestPath, next);
   }
   // An older app may predate the generated test command. Preserve authored

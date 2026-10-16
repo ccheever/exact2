@@ -5,6 +5,7 @@
 **Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites, `.vscode/tasks.json` among them), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
+**Revised:** 2026-10-14
 **Related:** LLP 1036.001 (apps outside the repository: what `exact new` writes); LLP 1035.005 (Contract authoring ergonomics: `fmt`, `symbols`, maps); LLP 1081 (moves the style-name table out of `tags.rs`, which would make D3's enumeration direct); `docs/agent-pitfalls.md` (its rule: an entry is deleted by the change that fixes the footgun); the authoring diaries: `signal-exact2/DIARY.md` (2026-10-02 to 10-03), `bluesky-exact2/DIARY.md`, the dice-tray diary (2026-10-04, fixes on `origin/tuft/diary-fixes`)
 
 ## Summary
@@ -417,6 +418,162 @@ prompt in a fresh session soon after. They record the elapsed time and the
 machine's provisioning state (warm Cargo cache, Hermes present). The README
 tip is updated to match, and anything rough goes in `docs/agent-pitfalls.md`
 or `issues/`. A storage-backed task (D2's example) is a good second prompt.
+
+### D12. `exact new --snapback`: an app wired to its backend in one step
+
+**Author ruling 2026-10-12, via the sb4 app farm** (waves 1–6: eleven builds
+in wave 6 pasted the snapback4 README's setup block; the ruling is the
+approval RULES asks for a new flag and verb). `exact new <path> --snapback
+[--port <n>]`, run in the backend's directory, writes the app with a
+guestbook when there is no backend schema yet: `app.contract`, `app.ts` (its `appId`
+the manifest's, the origin `http://127.0.0.1:<port>`, 4400 by default, and
+the grants for it and for the partition), `app.test.contract` (`epoch now`,
+the fetch prefixes at that origin), `/assets/snapback4.wasm` in
+`.gitignore`, and `../snapback/schema.q` only when there is none. It then
+does what the pasted block did, as the app's new verb `bun exact.mjs
+snapback` (`scripts/exact.mjs snapback <app>`, `game/new.mjs`
+`wireSnapback`): `snapback4 check` above when nothing is generated and the
+server is installed there; the `snapback4` mount (always relative) and the
+`backend` mount of `../snapback/generated` when present; the device build
+(`snapback4/web/build.mjs assets/snapback4.wasm`); and lines naming what is
+left (the server to install or start, an `appId` that disagrees). The
+notes' backend paragraph describes a wired app, else how to wire one.
+`update` rewrites the `snapback4` mount after the checkout moves, as it does
+the Cargo paths. Not done: native linking of `exact_snapback4::Module` (the
+farm's apps are driven on the web).
+
+**Wave 8 correction (Charlie’s EX3 task, 2026-10-12):** when the backend
+already has a schema, `new --snapback` keeps the greeting app and wires its
+generated operations; it does not write the guestbook for a different
+schema. `snapback --port N` updates an identifiable loopback `const origin`,
+matching literal grants and test fetch prefixes, and prints `dev --port N`.
+A grant written as `net.fetch ${origin}` follows the constant. An origin it
+cannot identify or a production origin is refused for this port edit.
+
+**Wave 9 correction (Charlie’s EX4 task, 2026-10-12):** a plain scaffold
+with no origin gets a literal origin and fetch/SQLite grants from `snapback
+--port N`; an existing computed declaration requires an explicit edit.
+The device build validates bindgen and optimizer wasm and uses private output directories.
+
+**HS correction (2026-10-13):** HAND and EX4 were developed against different contracts. The `snapback4-device` crate now owns a `snapback4.engine` custom section containing `{format:1, version, capabilities}`. The section is canonical compact UTF-8 JSON with exactly those fields in that order; both readers reject lexical alternatives, duplicates and invalid UTF-8. Exact's build preserves it, derives the diagnostic `assets/snapback4.wasm.json` from it, and never infers identity from Cargo.lock. Preflight and Snapback `check` read only this embedded identity. Preflight compares the server's `device_compatibility` floor and required capabilities at `GET /` on dev and serve, allowing compatible version skew. Offline preflight still validates the embedded identity. Web/native hosts answer `engine_info` and `engine_headers` before partition open; the Rust client's Fetch constructors use the device crate's header helper and both transport drivers forward `x-snapback-device` after caller credentials. No app needs a stamp script or headers callback for device identity. A fresh guestbook regression imports generated backend operations and runs offline write/reconnect against both server modes, including a positive server-side delivered-write assertion. HS round 4 returned READY from both independent Muse and fresh Codex reviewers; verbatim provenance-tracked records are under `llp/reviews/3000.001.000-hs-r4.{muse,codex}.md`.
+
+**EX5 amendment (Charlie’s wave-10 task, 2026-10-13; implementer Codex):** default
+`snapback` rebuilds through Cargo before preflight, so a missing/stale stamp repairs
+without `--rebuild`. An existing divergent mount refuses with a diff before any edit.
+The release regression packs the local npm snapshot with `npm pack --ignore-scripts`,
+installs the tarball, scaffolds, checks and writes through the browser against dev and
+serve. `--online` mounts the separate `snapback4/online` HTTP adapter, without wasm,
+SQLite, prediction or retries. Interrupted writes have unknown server fate and throw.
+The Snapback checker must gate actual device consumers, not generated operations
+mounts; this upstream gate is fixed in Snapback 0.4.27. `snapback --port N` is the setting
+that updates the constant, grants and generated test prefixes; `backend [dev|serve
+<release>]` derives its port from that same constant. Temporary test pages bind port
+zero, unless the author explicitly selects a page port. Native bakes resolve the
+versioned Bun home installation before PATH; an explicit BUN is version-checked.
+Staged declaration internals use skipLibCheck, while application sources stay strict.
+
+**EX6 amendment (Charlie’s wave-11 E1–E7 task, 2026-10-14; implementer Codex):**
+`bun exact.mjs snapback --rebuild --artifact-only` builds only the wasm and its
+identity diagnostics, without inspecting or rewriting mounts or app sources;
+`--port` and `--online` are refused in that mode. Preflight names an obsolete
+`x-snapback-device` shim in app.ts. Device identity is sent on the device-to-server
+leg, after caller credentials; the app-to-host leg supplies no engine identity.
+Production `serve` requires authentication even for `GET /` (401 E_AUTH without it),
+so offline/unauthenticated preflight validates only the artifact; the first
+credentialed device exchange and backend `check` enforce the server floor.
+Online reads expose the server envelope (`complete`, `cut`, branded cursor,
+`denied`); both adapters' media methods use the server asset routes. Online mode
+adds no SQLite grant, upload outbox or durable intent: those intents belong to
+the device. Generated app declarations export structural `ArgsOf` for backend
+handles, without adding a Snapback dependency to a plain app's declaration.
+`contract build` refreshes an existing `<input>.d.ts` from a successful compile,
+only when bytes differ; it creates none and retains the last declaration on
+compile failure. `--json` stays a single diagnostic array.
+Automatic page and resident ports stay within inclusive `PORT_LO`/`PORT_HI` when
+both are set; named `--port`/`EXACT_PORT` still wins. Exhaustion or a malformed
+range refuses. `snapback --port` preserves the origin's quotes, slash and other
+source bytes, and writes nothing when the port and mounts already agree. Matching
+grants and test prefixes migrate with or without that slash; transport boundaries
+remove trailing slashes before joining device request and asset paths.
+A literal `showPicker` target with no declared file input id is diagnosed at
+compile time; a dynamic id or target retains runtime resolution. TestId remains
+the driver's identifier. The author guide shows form values, held pickers,
+optional failures/results, shared state/action names and sampled resource clocks.
+
+**EX7 amendment (Charlie’s wave-12 E1–E5/H2 task, 2026-10-14; implementer Codex):**
+The online adapter adds `signup`, `login`, `logout`, `restore(now)` and explicit
+`refreshSession(now)`, using Exact's `secret.keep` store and Contract epoch time.
+Auth operations sharing an origin/key serialize across per-answer secret facades; requests fenced by the stored session
+reject after identity changes. A refused current token is forgotten after pending auth settles, so an old-token
+refusal cannot discard an in-flight successful rotation. A later clock sample
+never exposes an expired session, but leaves the matching secret in place while
+that rotation is in flight, so expiry cleanup cannot destroy its replacement; offline logout
+still forgets locally. `readAll` follows opaque cursors, preserves every page's
+completeness/cut, and throws on any page refusal, non-list data, repeated cursors or
+row-limit overflow. Online `Read` and device `Outcome` narrow by their discriminants;
+`hasData` narrows a device read without treating unavailable data as a successful page.
+The README's complete online password example proves reload, logout and login, and
+uses one Contract poll with sampled time and principal-matched rendering of kept rows.
+Durable upload intents remain device-owned; no second app outbox is introduced.
+
+Online wiring beside a schema replaces only an untouched greeting, after generated
+operations exist, with one typed query and mutation and JSON argument editors. It
+preserves authored code and never invents schema fields or credentials. The origin
+constant in `app.ts` feeds both the adapter and `net.fetch`; `test web` resolves
+`fail fetch "backend"` / `pass fetch "backend"` from that built grant at runtime,
+refusing ambiguity. Literal URLs retain their meaning; `snapback --port` still
+migrates older literal prefixes and `backend` derives its launch port from the constant.
+`analyze-resource-clock` warns on live clock resource arguments (including `with` context), derives
+and functions, while sampled state stops the dependency. Advice stays on stderr;
+`contract build --json` keeps one diagnostic array and a successful exit.
+
+The root and generated launchers start through a shell header using `BUN`, then the
+versioned home install, independently of PATH; the app also captures the generating
+Bun's absolute path as fallback. The shared resolver validates the selected version,
+relaunches an old Bun, and exports the selected binary and its PATH to descendants,
+including backend checks and the app's own commands. No new blocking check is added.
+
+Guestbook tests
+now begin with `fresh` so the default dev suite can run repeatedly.
+
+### D13. `fresh`: a test file empties the backend before each test
+
+**Author ruling 2026-10-12, via the sb4 app farm** (wave 4: 091; wave 7:
+E1, six builds, 49 minutes, the largest Exact item: a run's tests share one
+`snapback4 dev` and every write before it). `fresh` is a launch line of the
+test grammar (`contract/syntax` `Step::Fresh`; the JSON step `{op: "fresh",
+seed}`): at a file's top level it applies to every test, leading a test to
+that test, and `fresh "seed.json"` names a seed file from the test file's
+directory. Before each such test opens, `scripts/agent-test.mjs`
+`resetBackends` asks each loopback origin the app's web build fetches (its
+`net.fetch` grants) for `/dev/status`; each that is a `snapback4 dev`
+server (a `storeId`) gets `POST /dev/reset`, with the file's
+`[{table, row}]` as the body when one is named. The door is snapback4's
+(dev only: the app's tables and derived data emptied, then seeded; it
+answers `{reset: true, seeded, generation}`); 0.4.23 has it. A 404
+fails the test naming the older server and the pinned version to install.
+No `test web --fresh` flag: the line says it in the file, as `epoch now`
+does. Verified against the published 0.4.23 door and a scratch app's two
+tests that each start empty (2026-10-12); the README's per-file
+`test-fresh.mjs` workaround is removed. `serve` has no development reset.
+
+**Wave 9 browser-store correction (EX4):** a Chrome CLI `agent web --storage NAME`
+starts empty; `--keep-storage` preserves a named profile, and
+`--reset-storage` explicitly resets it. An OS lock owns the profile before
+any deletion, through browser shutdown, across different page ports. These
+flags do not alter `open()`'s programmatic persistence or authored tests:
+tests already use unique per-run/per-test stores and `reload` preserves that
+test's data. Backend rows remain server-owned; `fresh` is dev-only and a
+serve proof provisions uniquely keyed fixtures or logs in to an existing
+test account. Existing managed-auth `E_AUTH` handling forgets the refused
+current token, preserving a newer token after a late old-token refusal.
+
+
+**EX7 visibility (2026-10-14):** before opening any test browser, `test web` prints
+`fresh: reseeding before each of N tests`, counting the compiled tests that actually
+request reset, including per-test overrides. Every selected test still receives its
+own reset and browser store; a repeated password suite proves those boundaries.
+
 
 ## 3. Implementation order
 

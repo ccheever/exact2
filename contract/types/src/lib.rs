@@ -22,6 +22,7 @@ mod bounds;
 mod calls;
 mod checks;
 mod component;
+mod enums;
 mod failure;
 mod geometry;
 mod injects;
@@ -44,16 +45,17 @@ pub use selection::event_record;
 pub mod strings;
 mod uses;
 
+use checks::check_shape_cycles;
 use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
-use std::{collections::BTreeMap, sync::Arc};
-
-use checks::check_shape_cycles;
 use injects::check_injects;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ty {
+    /// A finite vocabulary of strings.
+    Enum(Vec<String>),
     /// `number`
     Number,
     /// `string`
@@ -80,6 +82,15 @@ impl std::fmt::Display for Ty {
         match self {
             Ty::Number => write!(f, "number"),
             Ty::String => write!(f, "string"),
+            Ty::Enum(values) => write!(
+                f,
+                "enum<{}>",
+                values
+                    .iter()
+                    .map(|s| format!("{s:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Ty::Bool => write!(f, "bool"),
             Ty::Unit => write!(f, "unit"),
             Ty::Option(t) => write!(f, "option<{t}>"),
@@ -99,6 +110,14 @@ impl std::fmt::Display for Ty {
 }
 
 impl Ty {
+    /// Whether a finite vocabulary is present, including under option/list/action.
+    pub fn contains_enum(&self) -> bool {
+        enums::contains(self)
+    }
+    /// An ordinary string, including a finite string vocabulary.
+    pub fn is_string(&self) -> bool {
+        matches!(self, Ty::String | Ty::Enum(_))
+    }
     /// Whether any `?` remains.
     pub fn is_complete(&self) -> bool {
         match self {
@@ -108,10 +127,19 @@ impl Ty {
             _ => true,
         }
     }
-
     /// The most specific type both agree on, or `None` when they conflict.
     pub fn unify(&self, other: &Ty) -> Option<Ty> {
         match (self, other) {
+            (Ty::String, Ty::Enum(_)) | (Ty::Enum(_), Ty::String) => Some(Ty::String),
+            (Ty::Enum(a), Ty::Enum(b)) => {
+                let mut values = a.clone();
+                for value in b {
+                    if !values.contains(value) {
+                        values.push(value.clone());
+                    }
+                }
+                Some(Ty::Enum(values))
+            }
             (Ty::Unknown, t) | (t, Ty::Unknown) => Some(t.clone()),
             (Ty::Option(a), Ty::Option(b)) => a.unify(b).map(|t| Ty::Option(Box::new(t))),
             (Ty::List(a), Ty::List(b)) => a.unify(b).map(|t| Ty::List(Box::new(t))),
@@ -128,18 +156,19 @@ impl Ty {
             _ => None,
         }
     }
-
     /// Whether a value of this type may be passed where the roster spells `spec`.
     pub fn matches_roster(&self, spec: &str) -> bool {
         match spec {
             "number" => *self == Ty::Number,
-            "string" => *self == Ty::String,
+            "string" => matches!(self, Ty::String | Ty::Enum(_)),
             "bool" => *self == Ty::Bool,
-            "any" => matches!(self, Ty::Number | Ty::String | Ty::Bool | Ty::List(_)),
+            "any" => matches!(
+                self,
+                Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool | Ty::List(_)
+            ),
             _ => *self == Self::from_roster(spec) && *self != Ty::Unknown,
         }
     }
-
     /// The roster's return spelling as a type.
     pub fn from_roster(spec: &str) -> Ty {
         match spec {
@@ -161,8 +190,10 @@ impl Ty {
 /// call that would fail at runtime (`length(5)`) is refused here instead.
 fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
     match (f, spec) {
-        (Stdlib::Length | Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::List(_)),
-        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Bool),
+        (Stdlib::Length | Stdlib::IsEmpty, "any") => {
+            matches!(t, Ty::String | Ty::Enum(_) | Ty::List(_))
+        }
+        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool),
         (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
         _ => t.matches_roster(spec),
     }
@@ -297,6 +328,7 @@ impl Shapes {
 
     fn resolve_unbounded(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
         Ok(match t {
+            TypeExpr::Enum(values, _) => Ty::Enum(values.clone()),
             TypeExpr::Named(n, span) => match n.as_str() {
                 "number" => Ty::Number,
                 "string" => Ty::String,
@@ -650,11 +682,22 @@ pub(crate) fn source_argument(
 
 /// `t`, a use's argument, as the declared type of the prop it fills
 /// ([`Expr::Typed`]): `none`'s `option<?>` becomes the declared option.
-pub fn ascribe(t: &Ty, declared: &TypeExpr, shapes: &Shapes, span: Span) -> Result<Ty, TypeError> {
+pub fn ascribe(
+    t: &Ty,
+    expr: &Expr,
+    declared: &TypeExpr,
+    shapes: &Shapes,
+    span: Span,
+    scope: &Scope,
+) -> Result<Ty, TypeError> {
     let declared = shapes.resolve(declared)?;
-    match declared.unify(t) {
-        Some(u) => Ok(u),
-        None => err(
+    match checks::accepts_expr(&declared, expr, t, scope, shapes) {
+        true => Ok(if declared.contains_enum() {
+            declared
+        } else {
+            declared.unify(t).expect("accepted types unify")
+        }),
+        false => err(
             "type-prop",
             format!("this argument is `{t}`, where the prop is declared `{declared}`"),
             span,
@@ -680,7 +723,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
                     let t = infer(x, scope, shapes)?;
-                    if !matches!(t, Ty::Number | Ty::String | Ty::Bool) {
+                    if !matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool) {
                         return err(
                             "type-template-part",
                             format!("a template part must be a number, string, or bool, not `{t}`"),
@@ -812,7 +855,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 }
                 for (i, (arg, want)) in args.iter().zip(params).enumerate() {
                     let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(want, &t) {
+                    if !checks::accepts_expr(want, arg, &t, scope, shapes) {
                         return err(
                             "type-argument",
                             format!(
@@ -845,7 +888,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 }
                 for (arg, pt) in args.iter().zip(params.iter()) {
                     let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(&t, pt) {
+                    if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
                         return err(
                             "type-argument",
                             format!("`{name}` expects `{pt}`, given `{t}`"),
@@ -892,10 +935,16 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     let t = infer(arg, scope, shapes)?;
                     given.push(t.clone());
                     if !roster_accepts(f, spec, &t) {
+                        // @ref LLP 1116.016 D5 — the web's `String.prototype.at`.
+                        let text = if f == Stdlib::At && i == 0 && t.is_string() {
+                            ": for text, `s.slice(i, i + 1)`, `\"\"` past the end"
+                        } else {
+                            ""
+                        };
                         return err(
                             "type-argument",
                             format!(
-                                "{} expects `{}`, given `{t}`",
+                                "{} expects `{}`, given `{t}`{text}",
                                 contract_syntax::idioms::argument(name, i),
                                 roster_spelling(f, spec)
                             ),
@@ -949,7 +998,18 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             match op {
                 BinOp::Add => match (&ta, &tb) {
                     (Ty::Number, Ty::Number) => Ty::Number,
-                    (Ty::String, Ty::String) => Ty::String,
+                    (a, b) if a.is_string() && b.is_string() => Ty::String,
+                    // @ref LLP 1116.016 D5 — `"Total: " + n` is a template.
+                    (a, b)
+                        if (a.is_string() && matches!(b, Ty::Number | Ty::Bool))
+                            || (b.is_string() && matches!(a, Ty::Number | Ty::Bool)) =>
+                    {
+                        return err(
+                            "type-operand",
+                            format!("`+` joins two strings, given `{ta}` and `{tb}`: write a template, `` `Total: ${{n}}` `` for `\"Total: \" + n`"),
+                            *span,
+                        )
+                    }
                     _ => {
                         return err(
                             "type-operand",
@@ -973,7 +1033,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 // Two strings compare as JavaScript's `IsLessThan` does: in
                 // UTF-16 code-unit order (LLP 1088 D1).
                 BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                    if !matches!((&ta, &tb), (Ty::Number, Ty::Number) | (Ty::String, Ty::String)) {
+                    if !(ta == Ty::Number && tb == Ty::Number || ta.is_string() && tb.is_string()) {
                         return err(
                             "type-operand",
                             format!(
@@ -985,7 +1045,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     Ty::Bool
                 }
                 BinOp::Eq | BinOp::Ne => {
-                    if !checks::can_unify(&ta, &tb) {
+                    if ta.unify(&tb).is_none() {
                         return err(
                             "type-operand",
                             format!("cannot compare `{ta}` with `{tb}`"),
@@ -1020,7 +1080,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         }
         Expr::Typed(value, ty, span) => {
             let t = infer(value, scope, shapes)?;
-            ascribe(&t, ty, shapes, *span)?
+            ascribe(&t, value, ty, shapes, *span, scope)?
         }
         Expr::Arrow { span, .. } => {
             return err(
@@ -1194,7 +1254,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .collect(),
         );
         let t = infer(&f.body, &scope, &shapes)?;
-        if !checks::can_unify(ret, &t) {
+        if !checks::accepts_expr(ret, &f.body, &t, &scope, &shapes) {
             return err(
                 "type-fn-return",
                 format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),

@@ -2336,7 +2336,7 @@ everywhere.
   generated JS and CSS (`.gen/app.css`, `.gen/app.js`, `paint.js`, `names.js`, `pages.json`) are
   identical, and the plans differ only in string pool order, so the plan digest moves. The one
   code difference is `.gen/modes.js`: it carries the live-table runtime, inert in release because
-  no development design is passed. A follow-up leaves it out of release builds.
+  no development design is passed. `8a4f25b53` leaves it out of release builds.
 - **The server:** `hello.live`, writes held until answered (never a 504 and then applied), and a
   held propose checks the `requires` its client names.
 
@@ -2377,5 +2377,52 @@ everywhere.
   `unsupported`, since a page can't override the browser's `prefers-contrast`.
 - **Release builds.** The native hosts run no channel under a production compat; that is a runtime
   gate, not compiled out. The release JS target's `modes.js` still carried the inert live-table
-  runtime here; a follow-up removes it.
+  runtime here; `8a4f25b53` strips it (`// dev-only` regions, dropped from a build without `--dev`), with a test.
 - **`tamber/1.2`**, with `docs/tamber-protocol.md` listing what 1.2 added.
+
+### D3's `pair=` (`ae6dc3d78`, `cca68e081`; built by LLP 1122's implementer)
+
+- `pair=<token>[,…]` names colour tokens or roles a token is drawn on. Naming itself, nothing of
+  the design, or an empty name is refused (`tamber-pair`).
+- **`tamber-contrast`** warns once per pair, at its lowest tuple and scheme below 4.5:1, naming the
+  tuple, the scheme and the ratio.
+  - The ratio is cut to two places, never rounded up past 4.5.
+  - A residual side is read at its fallback, and the warning says so.
+  - A background that isn't opaque is passed over, since it has no single ratio.
+  - It is a warning, never a refusal.
+- **A rename** rewrites the name inside `pair=` lists, and undo restores the bytes.
+- `describe` gives each token's `pairs` and the design's `warnings`, and the design tool badges
+  each declared pair's ratio per cell.
+- **Importers** proposing pairs (shadcn's `x-foreground`, Astryx's `on-`) are left for later.
+
+### Stage 4, commit 6: `uses`, `resolve` and scrub sessions (`ddaa887e1`..`6d904f998`, records `01ed90b6f`, wording `393a1e9c0`)
+
+- **`uses`** is answered statically, from the plan compiled from the sources and its source map.
+  - Each site is `{site, row, file, line, col, end_col, component, via?}`, where `via` names a
+    token, a synthetic token, a slot or a derive the read goes through.
+  - Only colour rows count. A value that is only compared, and an `#id` reference, is no read.
+  - The JS target's plan and a native bake of the same sources give the same sites (tested), so
+    one answer serves both of the JS loop's plans.
+  - There is no mounted-instance count; that needs a report the channel doesn't carry (a §9
+    candidate).
+  - The clone's `primary_500` has 587 sites, all direct.
+- **`resolve`** is unchanged: the stored form or residual with its fallback, labelled.
+  `resolve-on` comes with LLP 1122 T2b, from a build's `selected` report.
+- **Scrub sessions** (`scrub`, `scrub-release`, `scrub-cancel`, the `scrub` event):
+  - Each update is planned on the scrub's opening files (`propose` with `texts`). The dev loop
+    that mounts the wire compiles the texts as an in-memory overlay of the design, through its
+    own compiler for each target, because the JS target's CSS and profile colours need the real
+    compile. It sends every build the batch from its running design, and JS-loop natives get it
+    by relay.
+  - Updates are coalesced: one preview in flight, and the latest wins.
+  - Opening needs write scope and a present client. A second scrub is 409, naming the opener. A
+    rebuild-class edit has no scrub (409).
+  - Release writes once against the opening digests; a conflict names who moved the file and
+    restores.
+  - A scrub ends without a write on a cancel, any other write or a hand edit (which ends it
+    before it lands), its client no longer present, the server's loss, or 30 s with no update.
+    Each end sends every build the latest committed design. A value-only build landing while a
+    preview still shows is only an ordering case, and it changes only what the end restores.
+- `scopeOf()` grants write to the local token, until pairing (stage 10).
+
+**Stage 4's commits are complete.** The gate run follows.

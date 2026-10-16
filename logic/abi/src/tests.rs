@@ -466,3 +466,86 @@ fn a_draw_crosses_the_seam_and_its_recorder_lives_for_its_generation() {
     assert_eq!(thrown.error.as_deref(), Some("no such surface"));
     assert!(!thrown.wants_frame);
 }
+
+/// Exercise the browser's actual encoder against a native Rust session,
+/// including finite strings containing the source descriptor separator.
+#[test]
+#[ignore = "async lane: launches Bun for the JS-to-Rust data seam"]
+fn web_wire_enum_strings_cross_calls_and_nested_overlay_replies() {
+    fn nested() -> Value {
+        Value::record(vec![
+            Value::str("a|b"),
+            Value::some(Value::str("n🥳")),
+            Value::list(vec![Value::str("a|b")]),
+        ])
+    }
+    struct Echo;
+    impl DataSource for Echo {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            assert_eq!(source, "echo");
+            assert_eq!(args, [Value::str("a|b"), nested()]);
+            Ok(nested())
+        }
+        fn overlay(
+            &mut self,
+            source: &str,
+            args: &[Value],
+            answer: &Value,
+            writes: &[Write<'_>],
+        ) -> Result<Option<Overlaid>, DataError> {
+            self.query(source, args)?;
+            assert_eq!(answer, &nested());
+            assert_eq!(writes.len(), 1);
+            assert_eq!(writes[0].reply, Some(&nested()));
+            assert_eq!(writes[0].args, [Value::str("a|b")]);
+            assert!(writes[0].answered);
+            Ok(Some(Overlaid {
+                value: nested(),
+                keep: vec![7],
+            }))
+        }
+    }
+    let bridge =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host/web-js/rust-data.js");
+    for overlay in [false, true] {
+        let js = r#"
+const src = await Bun.file(process.argv[1]).text();
+const api = new Function(src.replace(/^import .*;$/gm, '').replace(/^export /gm, '') + ';return {writer,encode};')();
+const w = api.writer(), value = ['a|b', 'n🥳', ['a|b']];
+w.u32(3); w.u8(process.argv[2] === 'true' ? 5 : 3); w.str('echo');
+w.u8(6); w.u32(2); api.encode(w, 'a|b', 's'); api.encode(w, value, '{s?s[s}');
+if (process.argv[2] === 'true') {
+  api.encode(w, value, '{s?s[s}'); w.u32(1); w.u64(7); w.str('save'); w.str('save');
+  w.u8(6); w.u32(1); api.encode(w, 'a|b', 's'); w.u8(1); api.encode(w, value, '{s?s[s}'); w.u8(1);
+} else w.u32(0);
+process.stdout.write(w.done());
+"#;
+        let out = std::process::Command::new("bun")
+            .args(["--eval", js])
+            .arg(&bridge)
+            .arg(overlay.to_string())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let mut module = Session::new(Echo);
+        module.dispatch(&out.stdout).unwrap();
+        if overlay {
+            assert_eq!(
+                overlay_reply(module.output()).unwrap(),
+                Some(Overlaid {
+                    value: nested(),
+                    keep: vec![7]
+                })
+            );
+        } else {
+            assert_eq!(
+                call_reply(module.output(), &mut Store::new("", [])).unwrap(),
+                Answer::Now(nested())
+            );
+        }
+    }
+}

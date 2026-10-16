@@ -1,9 +1,9 @@
    Compiling indexmap v2.14.1
-   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu)
+   Compiling exact-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/gpu)
    Compiling naga v29.0.4
    Compiling vello_shaders v0.10.0
    Compiling vello v0.10.0
-   Compiling exact-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux)
+   Compiling exact-linux v0.1.0 ($HOME/lanes/game/exact2-wt-game/host/linux)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 9.41s
      Running unittests src/lib.rs (target/debug/deps/exact_gpu-cfb7df385a6fd0b6)
 

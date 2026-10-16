@@ -566,6 +566,7 @@ impl<'a> Lowerer<'a> {
         Ok(match t {
             Ty::Number => self.b.primitive(TypeKind::Number),
             Ty::String => self.b.primitive(TypeKind::String),
+            Ty::Enum(values) => self.b.string_enum(values),
             Ty::Bool => self.b.primitive(TypeKind::Bool),
             Ty::Unit => self.b.primitive(TypeKind::Unit),
             Ty::Option(inner) => {
@@ -955,7 +956,7 @@ impl<'a> Lowerer<'a> {
                     let value = values::flex_component(&a.value, index)?;
                     let component = Attr { value, ..a.clone() };
                     let (code, ty) = self.typed_code(&component.value, scope, locals)?;
-                    if index < 2 && matches!(ty, Ty::String) {
+                    if index < 2 && ty.is_string() {
                         return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
                     self.check_style(&component, &[row], &ty, font, scope)?;

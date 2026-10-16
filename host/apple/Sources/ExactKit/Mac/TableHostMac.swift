@@ -18,10 +18,13 @@ import AppKit
 final class TableHost {
     private weak var presenter: Presenter?
     private(set) var feeds: [UInt32: TableFeed] = [:]
+    private var rowChildren: [UInt32: [UInt32]] = [:]
+    private var nextRow: [UInt32: [UInt32: UInt32]] = [:]
+    private var lines: [UInt32: CALayer] = [:]
     /// Painted rows, not AppKit's table: the driver's own chrome
     /// (`--chrome agent`), as it paints the header and the tablist. A test
     /// of the painted list says so.
-    var painted = ExactEnv.authoredChrome { didSet { if painted != oldValue { decide() } } }
+    var painted = ExactEnv.authoredChrome { didSet { if painted != oldValue { decide(); syncPainted() } } }
     /// Why each list that is no table is none, as last said in the log.
     private var said: [UInt32: String] = [:]
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -76,9 +79,118 @@ final class TableHost {
         if node.superview == nil { feed.arrivals += 1 }
         return true
     }
-    /// The `children` op of a list: the rows of one the runner does not window.
+    /// The list's logical children, including a windowed list's spacers.
     func children(_ list: UInt32, _ want: [NodeView]) {
+        if presenter?.listViews[list] != nil {
+            rowChildren[list] = want.map(\.id)
+            var next: [UInt32: UInt32] = [:]
+            for (row, after) in zip(want, want.dropFirst()) { next[row.id] = after.id }
+            nextRow[list] = next
+        }
         if let feed = feeds[list], feed.children != nil { feed.children = want }
+    }
+
+    /// A windowed row's authored first root. The wrapper remains the row for
+    /// geometry and shadow intent.
+    func authoredRow(of row: NodeView) -> NodeView? {
+        guard row.props["listItemKey"] != nil else { return row }
+        guard let presenter else { return nil }
+        // An exiting child stays in the hierarchy as a paint ghost after it
+        // leaves `views`. It is no longer the wrapper's authored row.
+        for case let child as NodeView in row.container.subviews where presenter.views[child.id] === child {
+            return child
+        }
+        return nil
+    }
+
+    /// The Swift projection of `Kernel.row_separator` (LLP 1115.000 D16).
+    /// The wrapper is the row; only its authored child's edge intent is read.
+    /// Logical siblings include the children AppKit does not make table rows.
+    func separates(_ row: NodeView, in list: UInt32) -> Bool {
+        guard let nextID = nextRow[list]?[row.id], let next = presenter?.views[nextID],
+              row.props["accessibilityElementsHidden"] != "true", !row.wrote("box_shadow") else { return false }
+        func owns(_ node: NodeView?, _ edge: String) -> Bool {
+            node.map { $0.wrote("border_width_" + edge) || $0.wrote("border_style_" + edge) } ?? false
+        }
+        return !owns(authoredRow(of: row), "bottom") && !owns(authoredRow(of: next), "top")
+    }
+
+    /// The native cell and the painted row use the same leading paragraph.
+    static func textStart(of node: NodeView) -> NodeView? {
+        if node.kind == "text" { return node }
+        for case let child as NodeView in node.container.subviews where !child.isHidden {
+            if let found = textStart(of: child) { return found }
+        }
+        return nil
+    }
+
+    /// A layer on the row follows its transform and opacity and takes no hit.
+    /// Ownership is read after every batch, including a written-bit-only one.
+    private func syncPainted() {
+        guard let presenter else { return }
+        for list in rowChildren.keys where presenter.listViews[list] == nil {
+            nextRow[list] = nil
+            rowChildren[list] = nil
+        }
+        var needed = Set<UInt32>()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        for (id, list) in presenter.listViews where list.props["listRows"] == "true" && feeds[id] == nil {
+            // Keep logical sibling order; paint rank does not change whose top
+            // edge owns the preceding separator. Spacers stay in this order.
+            let rows = (rowChildren[id] ?? []).compactMap { presenter.views[$0] }
+            for row in rows {
+                guard separates(row, in: id) else { continue }
+                let lead = Self.textStart(of: row).map { row.convert(NSPoint(x: $0.bounds.minX, y: 0), from: $0).x } ?? 0
+                let end = min(row.bounds.maxX, row.convert(NSPoint(x: list.bounds.maxX - 16, y: 0), from: list).x)
+                let from = max(row.bounds.minX, lead)
+                guard end > from, row.bounds.height >= 1 else { continue }
+                row.wantsLayer = true
+                guard let layer = row.layer else { continue }
+                let line = lines[row.id] ?? CALayer()
+                lines[row.id] = line
+                needed.insert(row.id)
+                if line.superlayer !== layer { layer.addSublayer(line) }
+                let scale = row.window?.backingScaleFactor ?? 1
+                let bottom = (row.bounds.maxY * scale).rounded() / scale
+                // The measured AppKit line is one point, ending at the row's
+                // bottom; the trailing cell inset is sixteen points.
+                let frame = NSRect(x: from, y: bottom - 1, width: end - from, height: 1)
+                if line.frame != frame { line.frame = frame }
+                applySeparatorAppearance(line, from: authoredRow(of: row) ?? row)
+            }
+        }
+        for (id, line) in lines where !needed.contains(id) { line.removeFromSuperlayer(); lines[id] = nil }
+    }
+    private func applySeparatorAppearance(_ line: CALayer, from source: NodeView) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        source.effectiveAppearance.performAsCurrentDrawingAppearance {
+            let color = NSColor.separatorColor.cgColor
+            if line.backgroundColor != color { line.backgroundColor = color }
+        }
+    }
+    /// A separator belongs to its authored row's appearance. AppKit can tell
+    /// the wrapper about a window change before it has updated its child; the
+    /// child's own callback is the point at which its effective appearance is
+    /// current, including an authored `color-scheme` override.
+    func appearanceChanged(_ source: NodeView) {
+        var ancestor: NSView? = source
+        while let view = ancestor {
+            if let cell = view as? TableRowCell {
+                cell.separatorAppearanceChanged(source)
+                break
+            }
+            ancestor = view.superview
+        }
+        ancestor = source
+        while let view = ancestor {
+            if let row = view as? NodeView, let line = lines[row.id], authoredRow(of: row) === source {
+                applySeparatorAppearance(line, from: source)
+                return
+            }
+            ancestor = view.superview
+        }
     }
     /// A row in a cell takes layout's frame in the cell's space. Any other
     /// frame while a table shows may be a row's in the document, a new
@@ -134,11 +246,16 @@ final class TableHost {
     func sync(_ batch: Batch) {
         if !painted || !feeds.isEmpty, batch.ops.contains(where: { Self.deciding.contains($0.op) }) { decide() }
         for feed in feeds.values { feed.sync() }
+        syncPainted()
     }
     func reset() {
         feeds.values.forEach { $0.remove() }
         feeds.removeAll()
         said.removeAll()
+        rowChildren.removeAll()
+        nextRow.removeAll()
+        lines.values.forEach { $0.removeFromSuperlayer() }
+        lines.removeAll()
     }
 }
 #endif

@@ -48,6 +48,7 @@ pub mod corner;
 #[cfg(target_vendor = "apple")]
 mod defaults;
 pub mod delivery;
+mod doc_watch;
 pub mod executor;
 pub mod geometry;
 pub mod gradient;

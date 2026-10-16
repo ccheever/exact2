@@ -126,6 +126,8 @@ pub struct Env<'a> {
     pub failed_why: &'a [Option<crate::failure::Failure>],
     /// Whether each mutation has a request in flight.
     pub pending_mutations: &'a [bool],
+    /// Latest mutation failure; cleared by a new send or assignment.
+    pub failed_mutations: &'a [Option<crate::failure::Failure>],
     /// Store dependence of settled derives, for bake provenance propagation.
     pub store_dependent_derives: &'a [bool],
     /// Store dependence of settled resources, for bake provenance propagation.
@@ -824,15 +826,17 @@ impl Host<Value> for Run<'_, '_> {
     }
 
     // @ref LLP 1109 D3 — `failure(x)`: known once settled, as `failed(x)`;
-    // the `Failure` record is `{ code, message }` by position.
+    // the `Failure` record is `{ code, message, reason }` by position.
     fn resource_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
         if !self.resource_flag(Opcode::FailedResource, i, pc)? {
             return Ok(Value::Option(None));
         }
         let why = self.env.failed_why.get(i as usize).and_then(Option::as_ref);
-        let (code, message) = why.map_or(("error", "it failed"), |w| (w.code.name(), &w.message));
+        let (code, message, reason) = why.map_or(("error", "it failed", ""), |w| {
+            (w.exposed_code(), w.message.as_str(), w.reason.as_str())
+        });
         let record = Value::Record(
-            [Value::str(code), Value::str(message)]
+            [Value::str(code), Value::str(message), Value::str(reason)]
                 .into_iter()
                 .collect(),
         );
@@ -840,6 +844,36 @@ impl Host<Value> for Run<'_, '_> {
     }
 
     #[inline]
+    fn mutation_failed(&self, i: u64) -> bool {
+        self.env
+            .failed_mutations
+            .get(i as usize)
+            .is_some_and(Option::is_some)
+    }
+
+    fn mutation_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
+        let Some(why) = self
+            .env
+            .failed_mutations
+            .get(i as usize)
+            .and_then(Option::as_ref)
+        else {
+            return Ok(Value::Option(None));
+        };
+        self.some(
+            Value::Record(
+                [
+                    Value::str(why.exposed_code()),
+                    Value::str(&why.message),
+                    Value::str(&why.reason),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            pc,
+        )
+    }
+
     fn pending_mutation(&self, i: u64) -> bool {
         self.env
             .pending_mutations
@@ -1045,6 +1079,7 @@ mod tests {
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
+            failed_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         };
@@ -1192,6 +1227,7 @@ mod tests {
             failed_resources: &[],
             failed_why: &[],
             pending_mutations: &[],
+            failed_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         };
@@ -1414,6 +1450,7 @@ mod tests {
                 failed_resources: &[],
                 failed_why: &[],
                 pending_mutations: &[],
+                failed_mutations: &[],
                 store_dependent_derives: &[],
                 store_dependent_resources: &[],
             };

@@ -94,6 +94,7 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    doc_watch: Option<crate::doc_watch::DocWatch>,
     font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
     keys: BTreeMap<NodeKey, ViewId>,
@@ -273,6 +274,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            doc_watch: None,
             font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
             keys: BTreeMap::new(),
@@ -324,9 +326,9 @@ impl<D: DataSource> Host<D> {
         host.discover_transform_handles();
         for id in host.preorder() {
             if let Some(node) = host.runner.kernel().node(id) {
-                let key = node.key;
-                host.keys.insert(key, id);
-                host.runner.kernel().motion_sync_node(key, &mut sync);
+                host.keys.insert(node.key, id);
+                host.values.field(&node);
+                host.runner.kernel().motion_sync_node(node.key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
@@ -755,6 +757,7 @@ impl<D: DataSource> Host<D> {
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         self.runner.set_socket_reader(executor.socket_reader());
+        self.doc_watch = Some(crate::doc_watch::DocWatch::new(0, &mut self.runner)); // one session (LLP 1069.010 slice 3)
         executor
     }
 
@@ -1244,7 +1247,9 @@ impl<D: DataSource> Host<D> {
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
-        crate::traced(c"exact commit", || self.commit_effects(receipts, error).0)
+        let error = crate::traced(c"exact commit", || self.commit_effects(receipts, error).0);
+        crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
+        error
     }
 
     fn commit_effects(
@@ -1258,6 +1263,7 @@ impl<D: DataSource> Host<D> {
             let r = &t.receipt;
             self.flow_damage.commit(self.runner.kernel(), r);
             self.row_dirty.commit(r);
+            self.values.fields_committed(self.runner.kernel(), r);
             paint |= r.layout_invalidated
                 || !r.created.is_empty()
                 || !r.destroyed.is_empty()

@@ -44,6 +44,7 @@ import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv,
 import { developmentLinks } from '../apple/build.mjs';
 import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
+import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
 import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
@@ -59,16 +60,20 @@ const lan = argv.includes('--lan');
 /** The first of 100 ports from `from` up that `host` can listen on: another app's loop holding 8765 is common.
  * A probe does not reserve it; a loop started at the same moment can still take it, and its listen error says so. */
 async function freePort(from, host) {
-  for (let p = from; p < from + 100; p++) {
+  const range = webPortRange() ?? [from, Math.min(from + 99, 65535)];
+  for (let p = range[0]; p <= range[1]; p++) {
     const free = await new Promise((ok) => { const t = createServer(); t.once('error', () => ok(false)); t.listen(p, host, () => t.close(() => ok(true))); });
     if (free) return p;
   }
-  console.error(`ports ${from}–${from + 99} are all in use; --port <n> picks another`);
+  console.error(`ports ${range[0]}–${range[1]} are all in use; --port <n> picks another`);
   process.exit(1);
 }
-// An explicit --port is kept (and fails loudly if taken); the default moves to a free one.
-const port = argv.includes('--port') || argv.includes('--serve-as') ? Number(arg('--port', 8765)) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
-if (port !== 8765 && !argv.includes('--port') && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port picks one)`);
+// An explicit --port (or EXACT_PORT: one variable for every listener the app's commands start) is kept, and fails
+// loudly if taken; the default moves to a free one.
+const named = argv.includes('--port') ? arg('--port') : process.env.EXACT_PORT || null;
+if (named != null && !(Number.isInteger(Number(named)) && Number(named) >= 1 && Number(named) <= 65535)) { console.error(`${argv.includes('--port') ? '--port' : 'EXACT_PORT'} ${named}: a port number, 1–65535`); process.exit(2); }
+const port = named != null || argv.includes('--serve-as') ? Number(named ?? 8765) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
+if (port !== 8765 && named == null && !webPortRange() && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port <n> or EXACT_PORT picks one)`);
 // `--serve-as <port>` (internal): the resident loop's producers behind the
 // JS loop on that port (host/web-js/dev.mjs forwards a native client's
 // requests here): its names are that port's, and it listens on loopback.
@@ -86,7 +91,7 @@ const source = resolve(app.dir, 'app.contract');
 // A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
 // native client opening the dev URL reads), run the resident wasm loop below.
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
-  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts });
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, residentPort: named != null && !webPortRange() ? port + 1 : 0 });
 }
 // Behind the JS loop (`--serve-as`) an app's resident loop is its producers
 // alone: nothing loads its page, so its builds are the web crate's bake
@@ -268,6 +273,78 @@ function pushDesign({ batch, snapshot }) {
   for (const res of clients) res.write(`data: ${frame}\n\n`);
   tamber?.channel.broadcast(JSON.parse(frame));
 }
+/** A scrub's batch and snapshot from design `from` to `to` (LLP 1121 stage
+ * 4, commit 6): by the design's shape, since the TypeScript producer's scrub
+ * design is unbaked and its plan structure is not the generation's. */
+function scrubBatch(from, to) {
+  if (from.shape !== to.shape || from.tokens.length !== to.tokens.length
+    || from.tokens.some((t, i) => t.name !== to.tokens[i].name)) return null;
+  return designBatch({ ...from, structure: to.structure }, to);
+}
+// A scrub's previews and its end, asked of the resident compiler (dev.rs's
+// `scrub`/`restore` lines, the TypeScript producer's `{scrub}` request).
+// Each answer is applied (`apply`) as its line is read, in order with the
+// compiler's other lines, so a later edit's batch never goes out before it.
+// The compiler answers each in turn; one stopped answers those it had not
+// (`unasked`), and its next starts with no preview.
+const scrubAsks = new Map();
+let scrubAskId = 0;
+const scrubAsk = (line, apply) => new Promise((done) => {
+  const child = dev;
+  if (!child?.stdin?.writable) return done({ error: 'no resident compiler runs' });
+  const id = `scrub-${++scrubAskId}`;
+  scrubAsks.set(id, (v) => { scrubAsks.delete(id); done(v.error && v.stopped ? v : apply(v)); });
+  child.stdin.write(`${line(id)}\n`);
+});
+const unasked = () => { for (const answer of [...scrubAsks.values()]) answer({ error: 'the compiler stopped', stopped: true }); moduleScrubbed = null; moduleReleased = false; };
+// The design the builds run while a TypeScript app's scrub previews.
+let moduleScrubbed = null, moduleReleased = false;
+/** Preview a scrub's texts on every build: the batch from the design they
+ * run; nothing written. */
+async function scrubPreview(texts) {
+  if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
+  const file = relative(app.dir, designPath(app.dir));
+  // Texts that leave the design file as it is: the committed design.
+  if (!(file in texts)) { await scrubRestore(); return {}; }
+  if (typescript) {
+    return scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }), (reply) => {
+      if (!reply.ok) return { error: reply.error ?? 'the producer refused it' };
+      const from = moduleScrubbed ?? moduleDesign;
+      const live = from && scrubBatch(from, reply.design);
+      if (!live) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+      // A new preview is no released scrub's.
+      moduleScrubbed = reply.design;
+      moduleReleased = false;
+      if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
+      return {};
+    });
+  }
+  return scrubAsk((id) => `scrub ${id} ${JSON.stringify(texts[file])}`, (reply) => {
+    if (reply.error) return { error: reply.error };
+    if (reply.batch) pushDesign(reply); else designSnapshot = reply.snapshot;
+    return {};
+  });
+}
+/** A scrub ended without its write: every build back on the committed design. */
+/** A scrub being written: the build of what it writes goes from it. */
+async function scrubReleased() {
+  if (typescript) { moduleReleased = moduleScrubbed != null; return; }
+  if (portableRust) return;
+  await scrubAsk((id) => `release ${id}`, () => {});
+}
+async function scrubRestore() {
+  if (typescript) {
+    const live = moduleScrubbed && moduleDesign && scrubBatch(moduleScrubbed, moduleDesign);
+    moduleScrubbed = null;
+    moduleReleased = false;
+    if (live?.batch.tokens.length) pushDesign(live); else if (live) designSnapshot = live.snapshot;
+    return;
+  }
+  if (portableRust) return;
+  await scrubAsk((id) => `restore ${id}`, (reply) => {
+    if (reply.batch) pushDesign(reply); else if (reply.snapshot) designSnapshot = reply.snapshot;
+  });
+}
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
@@ -277,7 +354,7 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // Live while a value-only edit has its path here: the resident compiler's or
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust }) : null;
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased } }) : null;
 // A polled stream (Linux) is told the design to run when it opens.
 tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
@@ -397,7 +474,8 @@ function startCompiler() {
   // web crate without one bakes through the generic compiler.
   const web = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'));
   const devBin = web?.targets.find(t=>t.kind.includes('bin')&&(t.name==='dev'||t.name.endsWith('-dev')))?.name;
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', devBin ? app.crate('web') : 'exact-web', '--bin', devBin ?? 'exact-dev', '--', source, plan], { cwd: devBin ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  dev = spawn('cargo', ['run', '-q', '--release', '-p', devBin ? app.crate('web') : 'exact-web', '--bin', devBin ?? 'exact-dev', '--', source, plan], { cwd: devBin ? app.workspace : root, env: buildEnv, stdio: ['pipe', 'pipe', 'inherit'], detached: true });
+  dev.stdin.on('error', () => {});
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -409,7 +487,11 @@ function startCompiler() {
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
-      if (kind === 'design') {
+      if (kind === 'scrubbed') {
+        let reply;
+        try { reply = JSON.parse(rest.slice(1).join(' ')); } catch { reply = { error: 'an unreadable scrub reply' }; }
+        scrubAsks.get(rest[0])?.(reply);
+      } else if (kind === 'design') {
         const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
         let live;
         try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
@@ -587,6 +669,9 @@ function startModuleCompiler() {
     }
     const lines = buffered.split('\n'); buffered = lines.pop();
     for (const line of lines) {
+      let early = null;
+      try { early = JSON.parse(line); } catch { /* answered below */ }
+      if (typeof early?.id === 'string' && scrubAsks.has(early.id)) { scrubAsks.get(early.id)(early); continue; }
       const request = active, produced = Date.now();
       try {
         const reply = JSON.parse(line);
@@ -600,7 +685,13 @@ function startModuleCompiler() {
         // The executables, not the receipt, which names the plan's digest.
         const sameModule = currentModule && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
         const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
+        // While a scrub previews, the builds stay on it: a value-only edit
+        // changes only what its end restores; a generation ends it. A
+        // released scrub's edit (what it wrote) goes from it, and ends it.
+        if (live && moduleScrubbed && moduleReleased) live.batch = scrubBatch(moduleScrubbed, reply.design)?.batch ?? live.batch;
+        if (!live || moduleReleased) { moduleScrubbed = null; moduleReleased = false; }
         if (reply.design) moduleDesign = reply.design;
+        if (live && moduleScrubbed) continue;
         if (live) {
           if (live.batch.tokens.length) {
             console.log(`edit → batch ready ${Date.now() - request.saved} ms · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no generation`);
@@ -792,6 +883,7 @@ const killCompiler = () => {
 
   moduleWatch?.close(); moduleWatch = null; clearImmediate(moduleTimer); moduleRun++;
   const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} }
+  unasked();
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();

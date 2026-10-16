@@ -4,7 +4,7 @@
 import { streamed } from './http-body.js';
 import { answering, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { clock, journal } from './rt.js';
-import { failureCode } from './shape.js';
+import { failureCode, failureReason } from './shape.js';
 import { bodyFromRefusal, methodOf, readBodyFile } from './ts-body-from.js';
 
 const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted', , , , , , 'Timeout'], said = new TextDecoder();
@@ -81,7 +81,7 @@ function handle(transport, owner) {
 }
 export function open({ input, init, redirect }, conv, grantSet, deliver, controller) {
   let req;
-  try { req = request(input, init, redirect); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e) }); }
+  try { req = request(input, init, redirect); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }); }
   // The caller's signal, as Fetch picks it (`init.signal` over the Request's),
   // ends the stream too, before a body is read from a file or after.
   const own = init.signal !== undefined ? init.signal : typeof Request === 'function' && input instanceof Request ? input.signal : null;
@@ -96,7 +96,7 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       const v = map(event, socket);
       if (v && typeof v.then === 'function') throw new Error('exactStream answers each event now; it cannot await');
       return { v: conv(v) };
-    } catch (e) { return { error: String(e?.message ?? e), code: failureCode(e) }; }
+    } catch (e) { return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }; }
   };
   return streamed(req, grantSet, m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }), coalesced: m.coalesced }), controller, readBodyFile, protocol)
     .then(o => {

@@ -1382,7 +1382,11 @@ uses app-scoped IndexedDB files and pinned official SQLite WASM in a dedicated
 worker. Each file operation is transactional; SQLite holds a Web Lock on its
 file and shared ancestor locks until close, preventing another connection or a
 filesystem mutation from losing committed data. Same-tab filesystem mutations
-serialize; conflicts with other tabs or live databases return `Unavailable`.
+serialize; conflicts with other tabs or live databases wait for Web Locks,
+bounded by 10 seconds for the whole acquisition (EX4, Charlie, 2026-10-12).
+A timeout aborts the pending request, releases all acquired ancestors and
+returns `Unavailable`/`EBUSY` naming the path and wait. A database still owns
+its file until close; waiting never grants two handles the same image.
 Database bytes are ordinary SQLite files in the same namespace. Single-file reads
 fetch only the requested IndexedDB record; directory listing reads its directory
 record and descendant keys in the same transaction, without file contents. Read

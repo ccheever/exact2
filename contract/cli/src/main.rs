@@ -205,6 +205,11 @@ fn types(
     if let Ok(surfaces) = contract::surface_findings(path) {
         surface_warnings(&surfaces);
     }
+    if let Ok(warnings) = contract::resource_clock_warnings(path) {
+        for finding in warnings {
+            eprintln!("warning: {finding}");
+        }
+    }
     let result = contract::compile_path_all_unchecked(path, false)
         .map_err(|mut all| all.swap_remove(0).to_string())
         .and_then(|(plan, _)| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
@@ -215,6 +220,8 @@ fn types(
                     eprintln!("{output}: {error}");
                     return ExitCode::from(1);
                 }
+                // Silence read as "did it run?" (app farm wave 2: 100); stdout stays empty.
+                eprintln!("{command}: wrote {output}");
             } else {
                 print!("{declarations}");
             }

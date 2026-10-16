@@ -3,6 +3,7 @@
 // on the wire as `media`, `page` and `fold`; and the web carrier's own path
 // for them — the browser's emulation through CDP where it has one, the
 // glue's substitute where it does not. agent.mjs re-exports the tables.
+import { MalformedOperation } from './agent-keys.mjs';
 
 /** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference', 'color-gamut': 'srgb', 'dynamic-range': 'standard' };
@@ -20,16 +21,20 @@ export function preferGroups(facts) {
   const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
   for (const [given, value] of Object.entries(facts ?? {})) {
     const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
-    if ((PREFERENCES[name] ?? []).includes(value)) media[name] = value;
-    else if ((PAGE_FACTS[name] ?? []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
+    if ((Object.hasOwn(PREFERENCES, name) ? PREFERENCES[name] : []).includes(value)) media[name] = value;
+    else if ((Object.hasOwn(PAGE_FACTS, name) ? PAGE_FACTS[name] : []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
     else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number(value) <= 3.4028234663852886e38) page[name] = Number(value); // a size the kernel stores, as an f32
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
-    else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) { const [c, r] = String(value).split('x').map(Number); fold.cols = c; fold.rows = r; }
+    else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) {
+      const [c, r] = String(value).split('x').map(Number);
+      if (![c, r].every(n => Number.isInteger(n) && n >= 1)) throw new MalformedOperation(`prefer: segments ${value}: each count is an integer at least 1`);
+      fold.cols = c; fold.rows = r;
+    }
     else if (name === 'gap' && Number(value) >= 0 && Number.isFinite(Number(value))) fold.gap = Number(value);
     else if (name === 'mode' && /^[\w.-]+=[\w.-]+([ ,]+[\w.-]+=[\w.-]+)*$/.test(String(value))) for (const pin of String(value).split(/[ ,]+/)) { const [axis, v] = pin.split('='); mode[axis] = v; }
-    else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
+    else throw new MalformedOperation(`prefer: ${name} ${value}: expected ${expected()}`);
   }
-  if (fold.gap != null && fold.cols == null) throw new Error('prefer: gap needs segments <cols>x<rows>');
+  if (fold.gap != null && fold.cols == null) throw new MalformedOperation('prefer: gap needs segments <cols>x<rows>');
   return { media, page, fold, mode };
 }
 
@@ -62,7 +67,7 @@ export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, c
   if (Object.keys(fold).length) {
     const v = await evaluate('({ w: innerWidth, h: innerHeight })'), grid = fold.cols != null || fold.rows != null || fold.gap != null;
     const cols = fold.cols ?? 1, rows = fold.rows ?? 1, gap = fold.gap ?? 0;
-    if (grid && !(cols >= 1 && rows >= 1)) throw new Error(`prefer: segments ${cols}x${rows}: each count is at least 1`);
+    if (grid && !(cols >= 1 && rows >= 1)) throw new MalformedOperation(`prefer: segments ${cols}x${rows}: each count is at least 1`);
     if (grid && ((cols - 1) * gap >= v.w || (rows - 1) * gap >= v.h)) throw new Error(`prefer: segments ${cols}x${rows} gap ${gap}: the gap is wider than the viewport (${v.w} × ${v.h})`);
     try {
       if (fold.posture) await call(fold.posture === 'continuous' ? 'Emulation.clearDevicePostureOverride' : 'Emulation.setDevicePostureOverride', fold.posture === 'continuous' ? {} : { posture: { type: fold.posture } });
@@ -84,4 +89,13 @@ export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, c
   if (pageReply?.error) throw new Error(pageReply.error);
   if (pageReply) await frame();
   return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, values]) => [name, values.find(v => matchMedia('(' + name + ': ' + v + ')').matches) ?? values.at(-1)]))`), ...(pageReply ? { page: pageReply.page, fold: pageReply.fold, ...(hasMode ? { mode: pageReply.mode } : {}) } : {}) };
+}
+
+export function faultRequest(op, args) {
+  if (args[0] !== 'fetch' || !args[1]) throw new MalformedOperation(`${op} fetch <url-prefix>${op === 'fail' ? ' [times <n>]' : ''}: what a matching fetch's URL starts with`);
+  if (op === 'pass') { if (args.length > 2) throw new MalformedOperation('pass fetch <url-prefix> takes nothing after the prefix'); return { op: 'prefer', faults: { pass: args[1] } }; }
+  if (args.length === 2) return { op: 'prefer', faults: { fail: args[1] } };
+  const times = Number(args[3]);
+  if (args[2] !== 'times' || args.length !== 4 || !Number.isInteger(times) || times < 1) throw new MalformedOperation('fail fetch <url-prefix> times <n>: n a positive integer');
+  return { op: 'prefer', faults: { fail: args[1], times } };
 }

@@ -756,6 +756,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.cancel_removed_controls();
         self.forget_replaced_choices();
+        self.sync_field_values();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
             // A deadline the surface and auth paths can't keep: the executor

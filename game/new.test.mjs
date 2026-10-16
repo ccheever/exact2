@@ -95,7 +95,7 @@ test('generated commands run from an external author directory with quoted paths
     assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
     const usage=spawnSync(process.execPath,['exact.mjs','nope'],{cwd:app,encoding:'utf8'}).stderr;
     const runnerVerbs=new Set(/Usage: bun exact\.mjs <([^>]*)>/.exec(usage)[1].split('|'));
-    for (const verb of verbs) assert.ok(runnerVerbs.has(verb),verb);
+    for (const verb of [...verbs, 'lock', 'shells']) assert.ok(runnerVerbs.has(verb),verb);
     assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*feedback status[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
@@ -112,7 +112,7 @@ test('generated commands run from an external author directory with quoted paths
     const sdk=resolve(directory,'recording SDK');
     mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
     mkdirSync(resolve(sdk,'scripts'),{recursive:true});
-    cpSync(resolve(import.meta.dir,'../scripts/app-cli.mjs'),resolve(sdk,'scripts/app-cli.mjs'));
+    for (const file of ['app-cli.mjs', 'bun.mjs']) cpSync(resolve(import.meta.dir, '../scripts', file), resolve(sdk, 'scripts', file));
     writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
     const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});
     assert.equal(windows.status,0,windows.stderr);

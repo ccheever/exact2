@@ -30,7 +30,7 @@ pub(crate) fn check_tasks(c: &Component, scope: &Scope, shapes: &Shapes, sink: &
         }
         if let Some(key) = &t.key {
             match infer(key, scope, shapes) {
-                Ok(Ty::String | Ty::Number | Ty::Bool | Ty::Unknown) => {}
+                Ok(Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown) => {}
                 Ok(ty) => sink.push(TypeError {
                     id: "type-task-key",
                     message: format!(
@@ -50,7 +50,7 @@ fn gate_message(gate: &Expr, ty: &Ty) -> String {
         Expr::Ident(name, _) => (
             format!("`{name}` is a {ty}"),
             match ty {
-                Ty::String => format!("; write `{name} != \"\"`"),
+                Ty::String | Ty::Enum(_) => format!("; write `{name} != \"\"`"),
                 Ty::Number => format!("; write `{name} != 0`"),
                 Ty::List(_) => format!("; write `{name}.length > 0`"),
                 _ => String::new(),

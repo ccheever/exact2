@@ -708,6 +708,7 @@ impl Module {
                 return Step::Done(Err(DataError::Failed(
                     FailureCode::Shape,
                     format!("`{source}` answered outside its shape: {error}"),
+                    String::new(),
                 )));
             }
             value = from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result);
@@ -716,7 +717,7 @@ impl Module {
         match num("tag") {
             Some(0) => Step::Done(value.map_err(|e| {
                 let why = format!("`{source}` answered outside its shape: {e}");
-                DataError::Failed(FailureCode::Shape, why)
+                DataError::Failed(FailureCode::Shape, why, String::new())
             })),
             Some(1) => match (num("call"), num("ticket")) {
                 (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
@@ -748,6 +749,7 @@ impl Module {
                     _ => FailureCode::seam_error(
                         reply.get("failure").and_then(Json::as_str),
                         message,
+                        reply.get("reason").and_then(Json::as_str),
                     ),
                 }))
             }
@@ -855,7 +857,11 @@ impl Module {
             (Ok(Step::Done(Ok(v))), Some(store)) if !socket_ops.is_empty() => {
                 match self.stage_sockets(store, socket_ops) {
                     Ok(()) => Ok(Step::Done(Ok(v))),
-                    Err(why) => Ok(Step::Done(Err(DataError::Failed(FailureCode::Error, why)))),
+                    Err(why) => Ok(Step::Done(Err(DataError::Failed(
+                        FailureCode::Error,
+                        why,
+                        String::new(),
+                    )))),
                 }
             }
             (result, _) => result,
@@ -882,9 +888,9 @@ impl Module {
             // answers fail the same target (LLP 1027.000 D3).
             Ok(Step::Done(r)) => r.map(Answer::Now).map_err(|e| match e {
                 DataError::Unavailable(m) | DataError::BadArguments(m) if session => {
-                    DataError::Failed(FailureCode::Error, m)
+                    DataError::Failed(FailureCode::Error, m, String::new())
                 }
-                DataError::Failed(_, m) if refuses => DataError::Unavailable(m),
+                DataError::Failed(_, m, _) if refuses => DataError::Unavailable(m),
                 e => e,
             }),
             Ok(Step::Pending { call, ticket }) => {
@@ -1018,6 +1024,7 @@ impl Module {
                     DataError::Failed(
                         FailureCode::Shape,
                         format!("`{source}`'s overlay is outside its shape: {e}"),
+                        String::new(),
                     )
                 }),
             Some(4) => Ok(None),

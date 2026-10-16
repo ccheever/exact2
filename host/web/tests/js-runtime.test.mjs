@@ -250,6 +250,24 @@ test('a stand-in whose ask is refused at ready fails its resource', async () => 
   } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
+// `failure(x).reason` (LLP 1109 D3, amended by the author's ruling of 2026-10-12): a thrown error's string `reason` (the
+// snapback4 driver's refusal code), synchronous or after a request. A domain reason is also the failure code.
+test('a failure keeps the reason its error named', async () => {
+  const page = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  try {
+    const { res, data, commit } = await import(resolve(dir, 'rt.js'));
+    const refusal = () => Object.assign(new Error('SLOT_FULL: the slot is taken'), { code: 'SLOT_FULL', reason: 'SLOT_FULL' });
+    data.answer = source => { if (source === 'now') throw refusal(); if (source === 'plain') throw new Error('plain'); return Promise.reject(refusal()); };
+    let now, plain, later;
+    commit(() => { now = res('nowSlot', 'now', () => [], 0, undefined, 'n', 0); plain = res('plainSlot', 'plain', () => [], 0, undefined, 'n', 0); later = res('laterSlot', 'later', () => [1], 0, undefined, 'n', 0); now(); plain(); later(); });
+    expect(now.e()).toEqual(['SLOT_FULL', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
+    expect(plain.e()).toEqual(['error', 'plain', '']);
+    for (let i = 0; i < 5 && !later.f(); i++) await new Promise(ok => setTimeout(ok, 1));
+    expect(later.e()).toEqual(['SLOT_FULL', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
+  } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
+});
+
 // A `ready` commit refused for a reason no answer gave (a gate, a derive) is followed by one in which the stand-in fails, not
 // pending, so it does not stand in for good (runner kept.rs `fail_stand_ins`).
 test('a stand-in whose ready commit is refused otherwise fails in the next', async () => {
@@ -516,7 +534,7 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
   const replies = [], asked = [];
   data.answer = (source, [value]) => {
     asked.push(value);
-    if (value === 'refuse') throw new Error('setTimeout() is unavailable in data sources');
+    if (value === 'refuse') throw Object.assign(new Error('no seats left'), { reason: 'FULL' });
     if (value === 'later') return { promise: new Promise(resolve => replies.push(resolve)) };
     return { v: value };
   };
@@ -529,15 +547,21 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
     send('later'); send('refuse');
     expect(edits()).toBe(2);
     if (queued) {
-      send('ok'); replies[0]('first');
+      replies[0]('first');
       for (let i = 0; i < 50 && m.ticket; i++) await new Promise(r => setTimeout(r, 10));
       advance(clock.now + 1);
+      expect([m.f(), m.e()]).toEqual([true, ['FULL', 'no seats left', 'FULL']]);
+      send('ok');
+      expect([m.f(), m.e()]).toEqual([false, null]);
       expect([asked, slot(), m.wait.length]).toEqual([['later', 'refuse', 'ok'], 'ok', 0]);
     } else {
       expect(slot()).toBe(null);
       replies[0]('stale');
       await new Promise(r => setTimeout(r, 0));
       expect(slot()).toBe(null);
+      expect([m.f(), m.e()]).toEqual([true, ['FULL', 'no seats left', 'FULL']]);
+      send('ok');
+      expect([m.f(), m.e(), slot()]).toEqual([false, null, 'ok']);
     }
     expect(m.p()).toBe(false);
     expect(journal.some(line => line.includes('send refused-send failed:') && line.endsWith('it ends unsent'))).toBe(true);

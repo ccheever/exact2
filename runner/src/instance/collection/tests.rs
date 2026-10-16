@@ -162,6 +162,7 @@ fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a [Value]) -> Env
         failed_resources: &[],
         failed_why: &[],
         pending_mutations: &[],
+        failed_mutations: &[],
         store_dependent_derives: &[],
         store_dependent_resources: &[],
     }

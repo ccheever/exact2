@@ -118,6 +118,7 @@ impl<D: DataSource> Presenter<D> {
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
+        // Selection events are queued tasks: the input's commands run first.
         self.drain_field_select_tasks();
         self.dispatch_toggles();
         if self.pending_update {

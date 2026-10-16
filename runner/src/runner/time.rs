@@ -146,6 +146,16 @@ impl<D: DataSource> Runner<D> {
         })));
     }
 
+    /// Every topic a current answer watches, once each, sorted: what a host
+    /// that announces on its own behalf (a document watch, LLP 1069.010.000
+    /// D1) must listen for after a commit.
+    pub fn watched_topics(&self) -> Vec<String> {
+        let mut topics: Vec<String> = self.watching.iter().flatten().cloned().collect();
+        topics.sort();
+        topics.dedup();
+        topics
+    }
+
     /// Whether a topic was announced since the last [`Runner::apply_announced`].
     pub fn has_announced(&self) -> bool {
         !self

@@ -207,9 +207,9 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
           (if (isResource p x || isMutation p x) && (lookupTy x Γ).isNone && (lookupTy x G).isSome
            then .some .bool else .none)
         else if name = "failed" then
-          (if isResource p x && (lookupTy x Γ).isNone && (lookupTy x G).isSome then .some .bool else .none)
+          (if (isResource p x || isMutation p x) && (lookupTy x Γ).isNone && (lookupTy x G).isSome then .some .bool else .none)
         else if name = "failure" then
-          (if isResource p x && (lookupTy x Γ).isNone && (lookupTy x G).isSome
+          (if (isResource p x || isMutation p x) && (lookupTy x Γ).isNone && (lookupTy x G).isSome
            then .some (.option (.record "Failure")) else .none)
         else
           match ts? with

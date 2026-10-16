@@ -96,8 +96,14 @@ impl Module {
     }
 
     /// Dispatch after first pixel; the host is responsible for this ordering.
-    /// Every call requires configured storage, including an offline reopen.
+    /// Identity probes need no storage; partition operations require configured roots.
     pub fn call(&mut self, request: &Json) -> Result<Json, String> {
+        if matches!(
+            request["op"].as_str(),
+            Some("engine_info" | "engine_headers")
+        ) {
+            return self.host.call(request.clone());
+        }
         if self.validation {
             return Err("Snapback4 storage is withheld during validation".into());
         }
@@ -111,6 +117,8 @@ impl Module {
 impl Core for Host {
     fn call(&mut self, request: Json) -> Result<Json, String> {
         match text(&request, "op")? {
+            "engine_info" => Ok(json!({"ok": snapback4_device::engine::info()})),
+            "engine_headers" => Ok(json!({"ok": snapback4_device::engine::headers()})),
             "open" => self.open(&request),
             "close" => {
                 self.partition = None;
@@ -135,7 +143,7 @@ impl Host {
         }
         let path = text(request, "path")?;
         if !partition::valid_path(path) {
-            return Err("Snapback4 needs app:/data/<safe filename>.sqlite".into());
+            return Err(format!("Snapback4 needs app:/data/<safe filename>.sqlite; received {path:?}. Use Snapback.partitionName(principal) in TypeScript."));
         }
         // Admit before creating even the host-selected roots.
         admit(&self.grants, &Operation::SqliteOpen { path: path.into() }).map_err(|e| match e {
@@ -204,7 +212,25 @@ pub fn host_request(
         None => exact_runner::Request::get(&url),
     };
     request.method = fetch.method.into();
-    request.headers.extend(headers.iter().cloned());
+    request.headers.extend(
+        headers
+            .iter()
+            .filter(|(key, _)| !key.eq_ignore_ascii_case("x-snapback-device"))
+            .cloned(),
+    );
+    request.headers.extend(
+        fetch
+            .headers
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
+    request
+        .headers
+        .retain(|(name, _)| !name.eq_ignore_ascii_case("x-snapback-device"));
+    request.headers.push((
+        "x-snapback-device".into(),
+        exact_snapback4_client::engine_info().to_string(),
+    ));
     request
 }
 

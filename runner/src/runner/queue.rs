@@ -253,6 +253,8 @@ impl<D: DataSource> Runner<D> {
         };
         let waiting = self.queues.waiting[m].len();
         self.log(format!("{name} next ({waiting} waiting)"));
+        // Inside next's checkpoint: a refused settlement restores the old failure.
+        self.failed_mut[m] = None;
         let later = match self.ask_send(m, &head.source, &head.args) {
             Ok(Asked::Now(slot, value)) => {
                 self.slots[slot] = value;
@@ -360,7 +362,12 @@ impl<D: DataSource> Runner<D> {
         for line in self.data.take_logs() {
             self.log(line);
         }
-        if let Err(DataError::Failed(_, why)) = &answer {
+        if let Err(DataError::Failed(code, why, reason)) = &answer {
+            self.failed_mut[m] = Some(crate::failure::Failure {
+                code: *code,
+                message: why.clone(),
+                reason: reason.clone(),
+            });
             self.log(super::lines::send_failed_now(&name(&self.plan), why));
             self.end_write(m, None);
             return Ok(Asked::Failed);

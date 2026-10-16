@@ -76,6 +76,22 @@ fn serve(app: &Path) -> ExitCode {
             .and_then(|r| r.get("id"))
             .cloned()
             .unwrap_or_default();
+        // A scrub's preview (LLP 1121 stage 4, commit 6): `{id, scrub: text}`,
+        // the design text compiled in place of the file's; its design only,
+        // nothing written, no module produced.
+        if let Some(text) = request.as_ref().ok().and_then(|r| r["scrub"].as_str()) {
+            let reply = match scrub(app, text.to_string()) {
+                Ok(design) => serde_json::json!({"id":id,"ok":true,"design":design}),
+                Err(error) => serde_json::json!({"id":id,"ok":false,"error":error}),
+            };
+            if writeln!(output, "{reply}")
+                .and_then(|_| output.flush())
+                .is_err()
+            {
+                return ExitCode::from(1);
+            }
+            continue;
+        }
         let result = request.map_err(|e| e.to_string()).and_then(|request| {
             let destination = request["out"]
                 .as_str()
@@ -108,6 +124,23 @@ fn serve(app: &Path) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// A scrub's design: the app's Contract compiled with `text` as its design
+/// (unbaked: the theme is the compiler's; the structure is not compared).
+fn scrub(app: &Path, text: String) -> Result<serde_json::Value, String> {
+    let root = app.join("app.contract");
+    let path = contract::design_path(&root).ok_or("the app has no design")?;
+    let (plan, _) =
+        contract::with_design_text(&path, text, || contract::compile_path_all(&root, false))
+            .map_err(|errors| {
+                errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })?;
+    design(&plan.encode())
 }
 
 /// The plan's structure digest and design (LLP 1121 stage 4), for the dev

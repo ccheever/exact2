@@ -1,11 +1,11 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle } from "./navigation.js";
+import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
 // An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`, and an element with none gets none (an empty media `src` is a failed load). A media element plays it (podcast F19): the glue hears the URL as its source, and a path with no file is handed to it as written, which it refuses (`src-not-supported`) as HTML refuses a source it cannot fetch. `then` runs once it lands (a `load` command's). A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
-function appFrameSource(el, value) { if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/")) return false; const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el)))); return true; }
+function appFrameSource(el, value) { el.exactSource = value; if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/")) return false; const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el)))); return true; }
 const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -457,9 +457,9 @@ function applyProps(el, set, clear) {
       if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement && el.matches(":disabled")) el.blur(); } else el.removeAttribute(name); // a focused control that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup); a box keeps it, as `disabled` means nothing on a div
     } else if (el instanceof HTMLIFrameElement && name === "src" && appFrameSource(el, value)) {
     } else {
-      const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
-      if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
-      if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value); else if (!same && v !== null) el.setAttribute(name, v);
+      const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && !(el instanceof HTMLIFrameElement) && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
+      if (el instanceof HTMLIFrameElement && name === "src") { el.exactSource = value; if (!same) iframeLoading.set(el, true); } // kept: the sandbox decides a `data:` one
+      if (navigates(el, name) && !(name === "src" ? frameURL(value, "sandbox" in set ? set.sandbox : el.getAttribute("sandbox")) : navigableURL(value))) refuseURL(el, name, value); else if (!same && v !== null) el.setAttribute(name, v);
     }
   }
   if (!inputReady && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement)) {
@@ -470,7 +470,7 @@ function applyProps(el, set, clear) {
   }
   if (el instanceof HTMLIFrameElement && sandboxChanged) {
     iframeLoading.set(el, true);
-    const source = el.getAttribute("src");
+    const source = dataURL(el.exactSource) ? (frameURL(el.exactSource, el.getAttribute("sandbox")) ? el.exactSource : "about:blank") : el.getAttribute("src"); // the new sandbox decides a `data:` source again
     el.setAttribute("src", source ?? "about:blank");
     if (source === null) el.removeAttribute("src");
   }
@@ -1146,7 +1146,7 @@ function agentReply(request) {
       }
       case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); // LLP 1103 D3: a fetch fault, a form of `prefer`
         // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
-        if (Object.entries(request.mode ?? {}).some(p => p.some(x => /[,=]/.test(String(x))))) return { error: 'prefer mode: an axis or value holds no `,` or `=`' }; const pins = Object.entries(request.mode ?? {}).map(([a, v]) => `${a}=${v}`).join(","), checked = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(`?${pins}`)))) : null; if (checked?.error) return { error: `prefer mode: ${checked.error}` }; try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message }; }
+        if (Object.entries(request.mode ?? {}).some(p => p.some(x => /[,=]/.test(String(x))))) return { malformed: true, error: 'prefer mode: an axis or value holds no `,` or `=`' }; const pins = Object.entries(request.mode ?? {}).map(([a, v]) => `${a}=${v}`).join(","), checked = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(`?${pins}`)))) : null; if (checked?.error) return { error: `prefer mode: ${checked.error}` }; try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
         pageChanged(); foldChanged(); const modes = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(pins || "?")))) : null; if (pins) applyBatch(modes); if (modes?.error) return { error: `prefer mode: ${modes.error}` }; // @ref LLP 1121 D13 — the mode group: checked before any fact is set, the runner's `setMode`s in one commit after the rest
         return tagged({ page: { ...pageFacts.read() }, fold: foldEnv(), ...(modes ? { mode: modes.modes } : {}) });
       }
@@ -1186,7 +1186,7 @@ function agentReply(request) {
         return ask(request);
     }
   } catch (e) {
-    return { error: String(e) };
+    return { error: String(e), ...(e.malformed === true ? { malformed: true } : {}) };
   }
 }
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).

@@ -410,6 +410,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^32 - 1 *)
+              | "fresh" [ STRING ] NL                (* the Snapback dev server emptied first, seeded from the file *)
               | "before" "data" NL                   (* the first step does not wait for data *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
@@ -462,7 +463,13 @@ name its own; either way they override the drive's flags. A file whose
 assertions depend on the date says so in the file. `epoch now` is the machine's
 clock, read once as each test launches, for a test whose app talks to a live
 backend on real time (`snapback4 dev`); its dates differ run to run, so its
-expects do not name them. Before the first step, and
+expects do not name them. `fresh` empties each `snapback4 dev` server the app
+fetches (a loopback `net.fetch` grant) before the test opens, through the
+server's development door `POST /dev/reset`; `fresh "seed.json"` then seeds it
+with that file's `[{"table": …, "row": {…}}]` (a path from the test file). At
+the top of the file it runs before every test. A server without the door (a
+snapback4 older than the release that adds it answers 404) fails the test,
+saying so. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
 landed, the clock unmoved); `before data` skips the wait. `fail fetch "<prefix>"`
@@ -690,15 +697,17 @@ Compiler intrinsics and special forms additionally include:
 | Form | Meaning | Example |
 | --- | --- | --- |
 | `pending(resourceOrMutationName)` | Boolean; request is in flight | `pending(saved)` is `true` from `send saved = …` until its reply |
-| `failed(resourceName)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
-| `failure(resourceName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message })` (LLP 1109 D3); `code` is one of the closed vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
+| `failed(resourceOrMutationName)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
+| `failure(resourceOrMutationName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message, reason })` (LLP 1109 D3); `code` is the nonempty source `reason` when supplied, otherwise the infrastructure vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host; `reason` is the source error’s string `reason` (a Snapback refusal’s code such as `SLOT_FULL` or `E_RULE`), else `""`, on every host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
 | `path("routeName", args…)` | Checked encoded route location | `path("item", "7")` is `"/item/7"` |
 | `empty(field=constant, …)` | Resource placeholder's zero record with overrides | `resource days = loadDays() as shape Days else empty()` shows `Days`' zero until the answer |
 | `some(expr)` | Construct an option | `some(3)` is an `option<number>` holding 3 |
 | `DeclaredShape(field=value, …)` | Construct a record | `Day(key="mon", ml=0)` is a `Day` |
 | `DeclaredShape(base, field=value, …)` | Copy a record | `Day(d, ml=d.ml + 250)` is `d` with `ml` changed |
 
-`failure(x).code` is exactly one of six words, by what reached the runner
+`failure(x).code` preserves a domain refusal code (`SLOT_FULL`, `E_RULE`, `E_OFFLINE`)
+when the source throws an error carrying that string as `reason`. Otherwise it uses
+one of six infrastructure words, by what reached the runner
 (`runner/src/failure.rs`):
 
 | Code | When |
@@ -721,9 +730,22 @@ server answered, and the host will not take more than the app said it would;
 asking again gets the same answer, which `offline` would not imply. A
 new code is a breaking change; branch with a default case.
 
+`failure(x).reason` retains the domain string as well, empty when none was supplied.
+For a mutation, failure belongs to its latest send: a new send, a successful answer,
+or an explicit assignment clears it. A failed request retains its previous value,
+does not retry, and does not run `then`. A synchronous throw that refuses the sending
+action still rolls that action back; only an admitted request's failure persists.
+
+Finite string parameters are written `enum<"draft", "published">`. Members must be
+quoted, distinct strings, with at least one member. A literal call argument must be a
+member; a dynamic argument must have a compatible declared enum type. Shapes may
+use enums too; a source answer outside the declared vocabulary fails its shape check.
+Generated TypeScript uses the corresponding string literal union. An enum's placeholder
+is its first member. Enums use ordinary string values at the data seam.
+
 `Router`, `Tab`, `Entry`, and `Params` are introduced by routes. The compiler
 also declares `Geometry` (geometry reads), `Failure` (`failure(x)`'s
-`{ code: string, message: string }`), `MarkdownSelection` (the `select`
+`{ code: string, message: string, reason: string }`), `MarkdownSelection` (the `select`
 payload) and `Picked` (a file input's `change` payload). None of these is
 constructible. The actual sources are [`format.json`](../plan/tables/format.json),
 [`runner/src/stdlib.rs`](../runner/src/stdlib.rs), and the compiler's type/lowering

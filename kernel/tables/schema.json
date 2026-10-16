@@ -1542,6 +1542,12 @@
       "name": "disabledStyled",
       "kind": "bool",
       "_comment": "@ref LLP 1115.000 D6 (2026-10-13, Charlie's ruling): the node styles its own disabled state, so no host lays the default disabled dim over it. Set by Contract, never written by an author (`contract/lower/src/disabled_look.rs` is the rule): a node with `disabled` that writes `opacity`, or a colour, background, border colour or filter whose expression reads a name its `disabled` reads."
+    },
+    {
+      "id": 266,
+      "name": "navigationGrabber",
+      "kind": "str",
+      "_comment": "@ref LLP 1115 §2 (what the author writes wins): a sheet route's grabber, `visible`, `hidden` or `auto` (the default: the platform's, shown on a sheet with several detents, as the HIG puts one on a resizable sheet). UIKit's `prefersGrabberVisible`, SwiftUI's `presentationDragIndicator`; iOS reads it, hosts whose sheets have no grabber ignore it."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -4381,6 +4387,11 @@
       "sparkles",
       "sparkles",
       "M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8ZM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z"
+    ],
+    [
+      "refresh",
+      "arrow.clockwise",
+      "M20 12a8 8 0 1 1-8-8c2.2 0 4.2.9 5.7 2.3L20 8.5M20 3.5v5h-5"
     ]
   ],
   "symbolAliases": [

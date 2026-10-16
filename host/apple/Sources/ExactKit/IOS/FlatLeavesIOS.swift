@@ -53,6 +53,8 @@ final class FlatLeaves {
     /// Whether `parent` holds a flat leaf: an authored child that is a
     /// layer, not a view.
     func holdsLeaves(_ parent: UInt32) -> Bool { order[parent]?.isEmpty == false }
+    /// `parent`'s children in order, its flat leaves among them, when it holds one.
+    func children(of parent: UInt32) -> [UInt32]? { order[parent] }
     /// Since launch: made flat, and promoted to views (`state`).
     private(set) var made = 0, promoted = 0
     private(set) var placements = 0

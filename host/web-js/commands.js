@@ -3,6 +3,7 @@
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
 import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
+import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.

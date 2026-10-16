@@ -155,6 +155,15 @@ fn a_mounted_directory_is_captured_beside_app_ts_and_nothing_else_of_it() {
             "{bad}"
         );
     }
+    // A missing one says where it was resolved from.
+    std::fs::write(
+        app.join("app.json"),
+        r#"{"typescript":{"sources":{"core":"../missing"}}}"#,
+    )
+    .unwrap();
+    assert!(sources(&app)
+        .unwrap_err()
+        .contains("../missing, resolved from the app's directory"));
 }
 
 #[test]

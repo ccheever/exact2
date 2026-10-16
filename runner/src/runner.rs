@@ -1,7 +1,6 @@
 //! The runner: boot, actions, events, resources, timers, the clock.
 //!
 //! @ref LLP 1004 D3 (the refusal tuple) / D4 (the data seam) / D5 (restart)
-//!
 //! Each event settles derives and changed resource arguments, evaluates all
 //! sites, and applies one atomic kernel batch; hosts then lay out and paint.
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
@@ -407,6 +406,7 @@ pub struct Runner<D: DataSource> {
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
+    failed_mut: Vec<Option<crate::failure::Failure>>,
     /// Mutations whose answer landed in the commit being made; their `then` actions are armed once it stands (LLP 1016.001).
     landed: Vec<usize>,
     /// Sends made before the data source was ready, by mutation, sent at
@@ -535,11 +535,9 @@ pub struct Runner<D: DataSource> {
     /// is checked where it changed (LLP 1053 §0 G8).
     conformed: std::cell::RefCell<crate::conform::Conformed>,
 }
-
 /// How many journal lines the runner retains (about an hour of a one-second
 /// timer); older ones are dropped, and `logs` reports where its window starts.
 pub const JOURNAL_RING: usize = 4096;
-
 /// Largest accepted clock value: JavaScript's exact integer domain in ms.
 pub const MAX_CLOCK_MS: f64 = 9_007_199_254_740_991.0;
 
@@ -810,6 +808,7 @@ impl<D: DataSource> Runner<D> {
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
+            failed_mut: vec![None; plan.mutations.len()],
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
@@ -1484,6 +1483,7 @@ impl<D: DataSource> Runner<D> {
             failed_resources: &self.failed_args,
             failed_why: &self.failed_why,
             pending_mutations: &self.pending_mut,
+            failed_mutations: &self.failed_mut,
             store_dependent_derives: &[],
             store_dependent_resources: &[],
         }
