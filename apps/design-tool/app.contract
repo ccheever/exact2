@@ -122,6 +122,12 @@ shape Column
   id: string
   label: string
 
+// A declared pair's contrast in one cell (LLP 1121 D3, `pair=`).
+shape PairBadge
+  name: string
+  ratio: string
+  low: bool
+
 shape Cell
   column: string
   label: string
@@ -129,6 +135,7 @@ shape Cell
   swatch: string
   residual: bool
   note: string
+  pairs: PairBadge[]
 
 shape TokenRow
   name: string
@@ -621,6 +628,8 @@ component DesignTool
                               if cell.residual
                                 text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
                               text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
+                              for b in cell.pairs key=b.name
+                                text `${b.ratio} on ${b.name}` font="-exact-caption2" color=(b.low ? "-exact-system-red" : "-exact-secondary-label") line-clamp=1 testId=`pair-${t.name}-${cell.column}-${b.name}`
               // The branch of the cell chosen, read of the grid shown.
               if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch)
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"

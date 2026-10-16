@@ -299,8 +299,8 @@ test('a dial edit and a Dim cell edit each write one line, undo gives the bytes 
 test('expressions are kept unless pinned, "only this mode" adds a when, redo writes it again, and tokens are added, renamed and removed; undo restores an unformatted line', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-ops-'));
   // Not in fmt's layout: undo must give these bytes back, not fmt's.
-  const primary = '  text.primary   =   light-dark(#0f1419, #e7e9ea)';
-  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').replace('  text.primary = light-dark(#0f1419, #e7e9ea)', primary);
+  const primary = '  text.primary   =   light-dark(#0f1419, #e7e9ea)  pair=surface.page';
+  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').replace('  text.primary = light-dark(#0f1419, #e7e9ea)  pair=surface.page', primary);
   expect(original).toContain(primary);
   writeFileSync(join(app, 'app.tamber'), original);
   writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');

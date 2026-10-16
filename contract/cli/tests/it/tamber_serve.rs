@@ -312,6 +312,39 @@ fn reads_name_the_chain_the_checker_resolved_and_a_residuals_fallback() {
 }
 
 #[test]
+fn describe_names_each_tokens_pairs_and_the_contrast_warnings() {
+    let dir = app(
+        "pairs",
+        "tamber t\n\ntheme\n  ground = #ffffff\n  ink = #767676  pair=ground,Canvas\n  faint = #eeeeee  pair=ground\n",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    let (describe, _) = s.ask(json!({"method": "describe"}));
+    let pairs = &describe["ok"]["pairs"];
+    assert_eq!(
+        pairs["ink"][0],
+        json!({"name": "ground", "token": true, "fallback": null}),
+        "{describe}"
+    );
+    assert_eq!(pairs["ink"][1]["name"], "Canvas");
+    assert!(
+        pairs["ink"][1]["fallback"]["light"].is_string(),
+        "{describe}"
+    );
+    // #767676 on white is 4.54:1, above; #eeeeee on white is not.
+    let warnings = describe["ok"]["warnings"].as_array().unwrap();
+    assert_eq!(warnings.len(), 1, "{describe}");
+    assert_eq!(warnings[0]["id"], "tamber-contrast");
+    assert!(
+        warnings[0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("`faint` on `ground`"),
+        "{describe}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn requests_are_typed_bounded_and_attributed() {
     let dir = app("strict", SMALL);
     let file = dir.join("app.tamber");

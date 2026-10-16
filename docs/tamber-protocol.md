@@ -140,6 +140,11 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
   keyed by IR names, so a role is keyed by its row spelling.
+- `pairs`: `{token: [{name, token, fallback}]}`, what each token says it is drawn on (`pair=`,
+  LLP 1121 D3): `token` is whether `name` is a token of the design; a role no token overrides
+  has its `fallback` `{light, dark}` (*1.1*).
+- `warnings`: `[{file, line, col, id, message}]`, the design's `tamber-contrast` warnings, a pair
+  below 4.5:1 at its lowest tuple and scheme. They never refuse the design (*1.1*).
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:

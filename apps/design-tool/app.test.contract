@@ -106,6 +106,9 @@ test "the token grid: every mode tuple light and dark, swatches, residuals, what
   expect tree has "cell-fallback-text.system-0-light"
   expect tree missing "cell-fallback-surface.page-0-light"
   expect text "follows-accent.soft" == "follows accent, lift"
+  // A declared pair's contrast in each cell, a low one marked.
+  expect text "pair-text.primary-0-light-surface.page" == "18.51:1 on surface.page"
+  expect text "pair-tone.warm-0-light-surface.page" == "2.78:1 on surface.page"
   expect tree missing "follows-surface.page"
   expect tree has "token-group-roles"
 

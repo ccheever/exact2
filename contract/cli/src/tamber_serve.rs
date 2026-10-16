@@ -42,7 +42,9 @@
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
 //!   design or of the `file` it names. `resolve`'s tuples carry `srgb
 //!   {light, dark}`, each side's 8-bit clip, and `resolve` and `explain`
-//!   the `files` digests they read (`tamber/1.1`).
+//!   the `files` digests they read (`tamber/1.1`); `describe` each token's
+//!   declared `pairs` (a role's with its fallback) and the design's
+//!   contrast `warnings`.
 //! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
 //!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
 //!   and `import-plan` plans an import from a source's text against the
@@ -693,8 +695,31 @@ impl Server {
             .zip(&folding.design.tokens)
             .map(|(t, declared)| (t.name.clone(), json!(meta(&declared.meta))))
             .collect();
+        // What each token is drawn on (`pair=`): a token by its name, a role
+        // no token overrides with its fallback; and the contrast warnings.
+        let pairs: serde_json::Map<String, Value> = folding
+            .tokens
+            .iter()
+            .filter(|t| !t.pairs.is_empty())
+            .map(|t| {
+                let named = t.pairs.iter().map(|p| {
+                    let token = folding.tokens.iter().any(|u| &u.name == p);
+                    let fallback = (!token)
+                        .then(|| exact_tamber::fallback(&exact_tamber::Folded::Host(exact_tamber::Host::Role(p.clone())), &self.vocab))
+                        .flatten();
+                    json!({"name": p, "token": token, "fallback": fallback.map(|[l, d]| json!({"light": l, "dark": d}))})
+                });
+                (t.name.clone(), json!(named.collect::<Vec<_>>()))
+            })
+            .collect();
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        let warnings: Vec<Value> = folding
+            .warnings
+            .iter()
+            .map(|d| diagnostic(&file, d))
+            .collect();
         Ok(
-            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}}),
+            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
         )
     }
 

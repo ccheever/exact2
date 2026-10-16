@@ -2875,7 +2875,10 @@ rule: a role if the platform has one, a token if it is the brand. A token one
 colour in every scheme by design (white ink on a brand fill, a black ground
 under media) says so with `scheme=fixed` after its value (`white_100 = #ffffff
 scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
-is reported once, at its line in the design. Recipe:
+is reported once, at its line in the design. `pair=surface.page` after a
+foreground's value names what it is drawn on (a token or a role);
+`contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is

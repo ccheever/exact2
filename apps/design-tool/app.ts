@@ -335,12 +335,12 @@ let liveTable = false;
 /** One consistent read of a design: `describe`, each token's `resolve`, and
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. */
-async function readDesign(file: string): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string> }> {
+async function readDesign(file: string): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string>; pairs?: unknown }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3; attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which });
     if (described.error) return { error: described.error };
-    const ir = described.reply.ok?.ir;
+    const ir = described.reply.ok?.ir, pairs = described.reply.ok?.pairs;
     if (!ir || !Array.isArray(ir.tokens) || !Array.isArray(ir.axes) || ir.axes.some((a: Axis) => !Array.isArray(a.values))) return { error: 'The design server answered describe with no design in it.' };
     const resolved = await Promise.all(ir.tokens.map((t: { name: string }) => call('/__tamber', { method: 'resolve', token: t.name, ...which })));
     const failed = resolved.find(r => r.error);
@@ -359,7 +359,7 @@ async function readDesign(file: string): Promise<{ error: string; ir?: any; reso
       const col = tuples.find(c => c.tuple === i);
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
-    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before };
+    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before, pairs };
   }
   return { error: 'The design kept changing while it was read. Try again.' };
 }
@@ -609,10 +609,28 @@ const sources: Sources = {
         stored.set(t.name, sides);
         const cells = columns.map(c => {
           const v = sides[c.tuple]?.[c.dark ? 1 : 0] ?? { css: '', srgb: '', residual: false, note: '', value: '' };
-          return { column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note };
+          return { column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note, pairs: [] as { name: string; ratio: string; low: boolean }[] };
         });
         return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells };
       });
+      // Each declared pair's contrast per cell (LLP 1121 D3, `pair=`): the
+      // token over what it is drawn on, a token's stored value or a role's
+      // fallback; below 4.5:1, WCAG's for text, it is marked low.
+      const declared = (read.pairs ?? {}) as Record<string, { name: string; token: boolean; fallback: { light: string; dark: string } | null }[]>;
+      for (const row of tokens) {
+        for (const pair of declared[row.name] ?? []) {
+          const under = stored.get(pair.name), mine = stored.get(row.name)!;
+          for (const [k, c] of columns.entries()) {
+            const fg = mine[c.tuple]?.[c.dark ? 1 : 0];
+            const bg = under ? under[c.tuple]?.[c.dark ? 1 : 0]?.srgb : pair.fallback?.[c.dark ? 'dark' : 'light'];
+            const r = fg && bg ? contrast(fg.srgb, bg) : 'not a colour';
+            const residual = fg?.residual || (under ? under[c.tuple]?.[c.dark ? 1 : 0]?.residual : true);
+            row.cells[k].pairs.push(typeof r === 'string'
+              ? { name: pair.name, ratio: r, low: false }
+              : { name: pair.name, ratio: `${r.toFixed(2)}:1${residual ? ' (fallback)' : ''}`, low: r < 4.5 });
+          }
+        }
+      }
       // Rows grouped by their dotted prefix (an undotted name's before its
       // first `_`, as `contrast_0`'s); a role override among the roles.
       const groups = new Map<string, typeof tokens>();
