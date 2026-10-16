@@ -59,9 +59,9 @@ component ThreadDetailsPanel
     still: bool
   view
     box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"
-      // A git dialog or the Merge confirmation the card opened stands over it and takes Escape (Base UI closes the topmost
-      // popup); the first declared Escape would otherwise close the card under it.
-      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open ? "" : "Escape") testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
+      // A git dialog, the Merge confirmation or the "Open in" menu the card opened stands over it and takes Escape (Base UI
+      // closes the topmost popup); the first declared Escape would otherwise close the card under it.
+      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open or editorsOpen ? "" : "Escape") testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
         DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
 
@@ -120,6 +120,16 @@ component DetailsBody
   action toggleEditors
     if not editorsOpen
       blur()
+    act("editors", "", "")
+  // Escape closes the menu wherever the focus is (Base UI Menu's dismiss listens on the document), and gives the
+  // focus back to the chevron when the menu held it (its finalFocus); one held elsewhere stays there.
+  state editorsFocused = false
+  action editorsFocus(on: bool)
+    editorsFocused = on
+  action closeEditors
+    if editorsFocused
+      editorsFocused = false
+      focus("details-choose-editor")
     act("editors", "", "")
   view
     scroll width="100%" min-height=0 max-height=(maxHeight - 2)
@@ -180,7 +190,7 @@ component DetailsBody
                   box width="1rem" height="1rem" flex-shrink=0
                 text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
               box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
-              button press=toggleEditors key=editorsKey focus=clearEditorsEnd hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+              button press=toggleEditors key=editorsKey focus=clearEditorsEnd hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen id="details-choose-editor" testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
                 ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
           // A project with scripts shows its primary script as a split row (r6-polish.contract).
           if details.scriptName != ""
@@ -209,8 +219,8 @@ component DetailsBody
         // OpenInPicker's menu, 4pt under its row and as wide: drawn over the card (it paints last) with a
         // click-away layer under it, since a popover would anchor at the chevron rather than the row.
         if editorsOpen and density != "essential"
-          button press=act("editors", "", "") aria-label="Close editor menu" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop" title=""
-          column position="absolute" left="0.5rem" right="0.5rem" top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem") padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
+          button press=closeEditors aria-label="Close editor menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop" title=""
+          column focusin=editorsFocus(true) focusout=editorsFocus(false) position="absolute" left="0.5rem" right="0.5rem" top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem") padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
             if details.editorUnavailable != ""
               DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
             if details.editorEmpty
