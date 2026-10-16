@@ -164,6 +164,17 @@ fn what_the_handle_refuses_sends_nothing_it_refused() {
 }
 
 #[test]
+fn the_caller_s_abort_makes_the_handle_stale() {
+    let (mut r, ticket) = boot();
+    open(&mut r, ticket);
+    assert_eq!(
+        say(&mut r, "abort"),
+        ("InvalidStateError: the socket is not open".into(), vec![])
+    );
+    assert_eq!(say(&mut r, "x").1, vec![]);
+}
+
+#[test]
 fn new_arguments_make_the_old_handle_stale() {
     let (mut r, ticket) = boot();
     open(&mut r, ticket);

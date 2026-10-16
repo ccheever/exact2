@@ -750,13 +750,15 @@
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    if (socket) call.socket = socketOwner(ticket);
+    var owner = socket ? (call.socket = socketOwner(ticket)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
       var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending" };
       pending.set(ticket, p);
-      if (signal) p.release = watchAbort(signal, function () { if (settled(ticket)) reject(signal.reason); });
+      // The caller's abort also makes its socket handle stale (D7); the
+      // stream itself runs until the runner lets its ticket go.
+      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) reject(signal.reason); });
     });
   };
 

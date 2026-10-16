@@ -28,6 +28,7 @@ struct Peer {
     feeds: Mutex<Vec<Feed>>,
     sent: Mutex<Vec<String>>,
     buffered: AtomicUsize,
+    frames: AtomicUsize,
 }
 
 struct Scripted(Arc<Peer>);
@@ -103,6 +104,9 @@ impl MessageSender for Sender_ {
     }
     fn buffered_amount(&self) -> usize {
         self.0.buffered.load(Ordering::Relaxed)
+    }
+    fn buffered_messages(&self) -> usize {
+        self.0.frames.load(Ordering::Relaxed)
     }
 }
 
@@ -266,6 +270,14 @@ fn a_batch_is_refused_whole_past_the_buffer_or_after_a_close() {
         "nothing of it was sent"
     );
     peer.buffered.store(0, Ordering::Relaxed);
+    // The transport would close rather than queue a 257th frame.
+    peer.frames.store(255, Ordering::Relaxed);
+    assert_eq!(
+        core.socket(&two),
+        Err("QuotaExceededError: socket buffer exceeds 256 frames".into())
+    );
+    assert!(peer.sent.lock().unwrap().is_empty());
+    peer.frames.store(0, Ordering::Relaxed);
     let close = SocketOp::Close {
         code: 1000,
         reason: String::new(),

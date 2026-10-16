@@ -13,9 +13,13 @@ type Event = {
 };
 
 const sockets = new Map<string, Socket>();
+const controllers = new Map<string, AbortController>();
 
 function feed(id: string): unknown {
+  const controller = new AbortController();
+  controllers.set(id, controller);
   return fetch("wss://echo.test/" + id, {
+    signal: controller.signal,
     exactStream(e: Event, socket?: Socket) {
       if (socket) sockets.set(id, socket);
       if (e.type === "close") return `close ${e.code} ${e.reason} ${e.wasClean}`;
@@ -40,6 +44,7 @@ function say(id: string, what: string): unknown {
         return "sent";
       }
       case "close": socket.close(4001, "finished"); return "closed";
+      case "abort": controllers.get(id)!.abort(); socket.send("x"); return "sent";
       case "after close": socket.close(); socket.send("x"); return "sent";
       case "bad code": socket.close(1001); return "closed";
       case "too many": for (let i = 0; i <= 256; i++) socket.send("x"); return "sent";

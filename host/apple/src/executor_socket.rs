@@ -17,8 +17,11 @@ use std::sync::Arc;
 /// Undelivered frames a socket may hold, by count and by bytes (D7).
 const RECEIVE_FRAMES: usize = 256;
 const RECEIVE_BYTES: usize = 1 << 20;
-/// What a mutation's batch and the transport's buffer may hold together.
+/// What a mutation's batch and the transport's buffer may hold together:
+/// bytes (D7), and frames, the bound past which both ibex2 transports close
+/// the connection rather than queue (WHATWG's "full").
 const SEND_BYTES: usize = 1 << 20;
+const SEND_FRAMES: usize = 256;
 
 /// An open socket's sending half, while its reader runs.
 pub(crate) struct Socket {
@@ -29,14 +32,51 @@ pub(crate) struct Socket {
 
 /// Close the sockets of `tickets` (every one, for `None`) with 1000 before
 /// their streams are aborted, as the web JS target's release does: the far
-/// side sees a closing handshake, not a dropped connection.
-pub(crate) fn close(shared: &Shared, tickets: Option<&[u64]>) {
+/// side sees a closing handshake, not a dropped connection. The tickets of
+/// the sockets it closed.
+pub(crate) fn close(shared: &Shared, tickets: Option<&[u64]>) -> Vec<u64> {
     let mut sockets = shared.sockets.lock().unwrap();
+    let mut closed = Vec::new();
     for (ticket, socket) in sockets.iter_mut() {
         if !socket.closing && tickets.is_none_or(|t| t.contains(ticket)) {
             socket.closing = true;
             let _ = socket.sender.close(Some(1000), "");
+            closed.push(*ticket);
         }
+    }
+    closed
+}
+
+/// How long a released socket's close frame has to reach the wire before
+/// its stream is aborted: the portable transport queues it, and an abort
+/// shuts the connection at once.
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Abort the work let go, each with its stream's ticket when it is one: a
+/// socket is closed with 1000 first, and aborted after [`CLOSE_GRACE`] (the
+/// reader ends sooner when the far side answers the close).
+pub(crate) fn release(shared: &Shared, aborts: Vec<(Option<u64>, AbortController)>) {
+    let streams: Vec<u64> = aborts.iter().filter_map(|(t, _)| *t).collect();
+    let closed = close(shared, Some(&streams));
+    let (later, now): (Vec<_>, Vec<_>) =
+        (aborts.into_iter()).partition(|(t, _)| t.is_some_and(|t| closed.contains(&t)));
+    for (_, abort) in now {
+        abort.abort();
+    }
+    if later.is_empty() {
+        return;
+    }
+    let aborts: Vec<AbortController> = later.into_iter().map(|(_, abort)| abort).collect();
+    let deferred = aborts.clone();
+    let spawned = std::thread::Builder::new()
+        .name("exact-socket-close".into())
+        .spawn(move || {
+            std::thread::sleep(CLOSE_GRACE);
+            deferred.iter().for_each(AbortController::abort);
+        });
+    // No thread: abort now rather than never.
+    if spawned.is_err() {
+        aborts.iter().for_each(AbortController::abort);
     }
 }
 
@@ -177,7 +217,8 @@ fn frame(shared: &Shared, ticket: u64, message: Message) -> Frame {
 impl Core {
     /// Send one mutation's socket batch, whose commit stood: every socket
     /// it names must still be open and wanted, and each must take its
-    /// share without its buffer passing 1 MiB, or nothing is sent. For each
+    /// share without its buffer passing 1 MiB or 256 frames, or nothing is
+    /// sent. For each
     /// socket, the frames it accepted and the bytes it now buffers.
     pub(crate) fn socket(&self, batch: &SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
         let not_open = || "InvalidStateError: the socket is not open".to_string();
@@ -200,8 +241,15 @@ impl Core {
             }
         }
         for (ticket, bytes, _) in &totals {
-            if sockets[ticket].sender.buffered_amount() + bytes > SEND_BYTES {
+            let sender = &sockets[ticket].sender;
+            if sender.buffered_amount() + bytes > SEND_BYTES {
                 return Err("QuotaExceededError: socket buffer exceeds 1 MiB".into());
+            }
+            let frames = (batch.ops.iter())
+                .filter(|(t, _, op)| t == ticket && !matches!(op, SocketOp::Close { .. }))
+                .count();
+            if sender.buffered_messages() + frames > SEND_FRAMES {
+                return Err("QuotaExceededError: socket buffer exceeds 256 frames".into());
             }
         }
         for (ticket, _, op) in &batch.ops {
