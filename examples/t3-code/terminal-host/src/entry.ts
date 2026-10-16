@@ -18,6 +18,7 @@ import {
   type GhosttyTerminalFont,
 } from "../vendor/ghostty/surface";
 import { observeSelectionActions, resolveSelectionActionPosition } from "../vendor/lib/selectionActions";
+import { holdInlineHangul } from "./inlineHangul";
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
 type Outbound = Record<string, unknown> & { readonly type: string };
@@ -310,6 +311,7 @@ class TerminalPage {
   private readOnly = false;
   private closePending = false;
   private selectionActions: ReturnType<typeof observeSelectionActions> | null = null;
+  private stopInlineHangul: (() => void) | null = null;
   private visible = true;
   private lastError = "";
   private disposed = false;
@@ -366,6 +368,8 @@ class TerminalPage {
       surface.input.addEventListener("blur", () => post({ type: "focus", focused: false }));
       // After the surface's own listeners, so a commit's data goes out before the state ends.
       observeComposition(surface.input, (composing) => post({ type: "composition", composing }));
+      this.stopInlineHangul = holdInlineHangul(document, surface.input, (data) => { if (!this.readOnly) post({ type: "data", data }); },
+        (composing) => post({ type: "composition", composing }));
       keepConversionContext(surface.input, () => this.compositionKeys.awaitsOptionReturn());
       for (const message of this.pending.splice(0)) this.receive(message);
       post({ type: "ready", cols: surface.cols, rows: surface.rows });
@@ -458,6 +462,7 @@ class TerminalPage {
     if (message.type === "dispose") {
       this.disposed = true;
       this.selectionActions?.dispose();
+      this.stopInlineHangul?.();
       surface?.dispose();
       this.surface = null;
       return null;
