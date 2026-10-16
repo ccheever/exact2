@@ -28,127 +28,173 @@ fn picture(p: &mut Presenter<()>, out: Option<&Path>, name: &str) -> Option<Valu
     })
 }
 
-#[test]
-fn a_desktop_clear_confirmation_opens_by_invoker_and_action() {
-    exact_linux::app::show_neutral_look();
-    std::env::set_var(
-        "EXACT_FONTS",
-        concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/fixtures/fonts/assets"
-        ),
-    );
-    std::env::set_var("EXACT_FONT", "DejaVu Sans");
-    let source = APP
-        .replace(
-            "button press=bump",
-            "button press=bump aria-keyshortcuts=\"Control+b\"",
-        )
-        .replace(
-            "      text `Count",
-            "      input value=\"Outside\" testId=\"field\"\n      text `Count",
+// This integration binary has one look and font environment. Initialize them
+// once before any case compiles a plan or creates a text engine.
+fn setup() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        exact_linux::app::show_neutral_look();
+        std::env::set_var(
+            "EXACT_FONTS",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            ),
         );
-    let plan = contract::compile(&source).unwrap().encode();
+        std::env::set_var("EXACT_FONT", "DejaVu Sans");
+    });
+}
+
+fn confirmation_plan() -> &'static [u8] {
+    static PLAN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    PLAN.get_or_init(|| {
+        let source = APP
+            .replace(
+                "button press=bump",
+                "button press=bump aria-keyshortcuts=\"Control+b\"",
+            )
+            .replace(
+                "      text `Count",
+                "      input value=\"Outside\" testId=\"field\"\n      text `Count",
+            );
+        contract::compile(&source).unwrap().encode()
+    })
+}
+
+#[test]
+fn desktop_confirmation_light_320_by_invoker() {
+    confirmation("light", 320., "ask-clear");
+}
+
+#[test]
+fn desktop_confirmation_light_320_by_action() {
+    confirmation("light", 320., "ask-action");
+}
+
+#[test]
+fn desktop_confirmation_light_640_by_invoker() {
+    confirmation("light", 640., "ask-clear");
+}
+
+#[test]
+fn desktop_confirmation_light_640_by_action() {
+    confirmation("light", 640., "ask-action");
+}
+
+#[test]
+fn desktop_confirmation_dark_320_by_invoker() {
+    confirmation("dark", 320., "ask-clear");
+}
+
+#[test]
+fn desktop_confirmation_dark_320_by_action() {
+    confirmation("dark", 320., "ask-action");
+}
+
+#[test]
+fn desktop_confirmation_dark_640_by_invoker() {
+    confirmation("dark", 640., "ask-clear");
+}
+
+#[test]
+fn desktop_confirmation_dark_640_by_action() {
+    confirmation("dark", 640., "ask-action");
+}
+
+fn confirmation(scheme: &str, width: f32, opener: &str) {
+    setup();
+    let plan = confirmation_plan();
     // Optional evidence for the proof lane, never an input to the assertion.
     let out = std::env::var_os("EXACT_ALERT_PROOF_OUT").map(PathBuf::from);
 
-    for scheme in ["light", "dark"] {
-        for width in [320., 640.] {
-            for opener in ["ask-clear", "ask-action"] {
-                let (mut p, error) = Presenter::boot_with(
-                    &plan,
-                    (),
-                    (width, 640.),
-                    1.,
-                    PathBuf::new(),
-                    PainterChoice::Cpu,
-                )
-                .unwrap();
-                assert!(error.is_none(), "{error:?}");
-                let prefer = exact_linux::agent::handle(
-                    &mut p,
-                    &json!({"op":"prefer", "media":{"prefers-color-scheme":scheme},
-                        "page":{"root-font-size":16}})
-                    .to_string(),
-                );
-                let prefer: Value = serde_json::from_str(&prefer).unwrap();
-                assert!(prefer.get("error").is_none(), "{prefer}");
-                let clear = id(&p, "clear-confirm-clear");
-                let cancel = id(&p, "clear-confirm-cancel");
-                assert!(p.rect_of(clear).is_none() && p.rect_of(cancel).is_none());
-                let name = format!("{scheme}-{width}-{opener}");
-                let before = picture(&mut p, out.as_deref(), &format!("{name}-closed"));
-                let trigger = id(&p, opener);
-                let tap = p.tap(trigger);
-                p.run_commands(|| ());
-                let state = read(&mut p, "state");
-                let layout = read(&mut p, "layout");
-                let clear_rect = p.rect_of(clear);
-                let cancel_rect = p.rect_of(cancel);
-                let after = picture(&mut p, out.as_deref(), &format!("{name}-opened"));
-                let logs = read(&mut p, "logs");
-                println!(
-                    "ALERT_PROOF {}",
-                    json!({"case":name,"preferences":prefer,"tap":tap,
-                        "clearNode":clear,"cancelNode":cancel,"clearRect":clear_rect,
-                        "cancelRect":cancel_rect,"before":before,"after":after,
-                        "state":state,"layout":layout,"logs":logs})
-                );
-                assert!(tap.is_ok(), "{tap:?}");
-                let clear_rect = visible(clear_rect, width, 640.);
-                let cancel_rect = visible(cancel_rect, width, 640.);
-                assert!(clear_rect.0 < cancel_rect.0, "authored action order");
-                assert_eq!(clear_rect.1, cancel_rect.1);
-                let dialog = p
-                    .host()
-                    .kernel()
-                    .node_by_key(p.host().kernel().find_by_id("clear-confirm")[0])
-                    .unwrap()
-                    .id;
-                let rect = visible(p.rect_of(dialog), width, 640.);
-                assert_eq!(rect.2, if width == 320. { 282. } else { 416. });
-                let title = &state["surface"]["title"];
-                assert_eq!(title["text"], "Clear the count?");
-                let y = title["rect"][1].as_f64().unwrap() as f32;
-                assert!(y > rect.1 && y < clear_rect.1);
-                assert!(title["rect"][2].as_f64().unwrap() > 0.);
-                assert_eq!(p.focus(), Some(clear));
-                assert!(p.tap(id(&p, "bump")).is_err());
-                assert!(p.type_text(id(&p, "field"), "leak").is_err());
-                assert!(p
-                    .type_key(id(&p, "field"), "KeyL", "l", true, false)
-                    .is_err());
-                assert!(p.wheel(id(&p, "bump"), 0., 100.).is_err());
-                let old_page = p.page();
-                p.wheel_at(1., 1., 0., 100.);
-                assert_eq!(p.page(), old_page);
-                let chord = key(&mut p, "Control+b");
-                assert!(chord.get("error").is_none(), "{chord}");
-                assert_eq!(words(&p, "counts"), "Count 7");
-                p.tap(cancel).unwrap();
-                p.run_commands(|| ());
-                assert!(p.rect_of(clear).is_none());
-                assert_eq!(p.focus(), Some(trigger));
-                assert_eq!(words(&p, "counts"), "Count 7");
-                p.tap(trigger).unwrap();
-                p.run_commands(|| ());
-                let reply = key(&mut p, "Escape");
-                assert!(reply.get("error").is_none(), "{reply}");
-                assert!(p.rect_of(clear).is_none());
-                assert_eq!(words(&p, "counts"), "Count 7");
-                p.tap(trigger).unwrap();
-                p.run_commands(|| ());
-                p.tap(clear).unwrap();
-                p.run_commands(|| ());
-                assert!(p.rect_of(clear).is_none());
-                assert_eq!(words(&p, "counts"), "Count 0");
-                assert!(p.host().kernel().host_block(dialog).is_none());
-            }
-        }
-    }
-    lifetime_and_authored_rows();
-    defaults_fonts_and_visibility();
-    coordinate_and_keyboard_modal_input();
+    let (mut p, error) = Presenter::boot_with(
+        plan,
+        (),
+        (width, 640.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let prefer = exact_linux::agent::handle(
+        &mut p,
+        &json!({"op":"prefer", "media":{"prefers-color-scheme":scheme},
+            "page":{"root-font-size":16}})
+        .to_string(),
+    );
+    let prefer: Value = serde_json::from_str(&prefer).unwrap();
+    assert!(prefer.get("error").is_none(), "{prefer}");
+    let clear = id(&p, "clear-confirm-clear");
+    let cancel = id(&p, "clear-confirm-cancel");
+    assert!(p.rect_of(clear).is_none() && p.rect_of(cancel).is_none());
+    let name = format!("{scheme}-{width}-{opener}");
+    let before = picture(&mut p, out.as_deref(), &format!("{name}-closed"));
+    let trigger = id(&p, opener);
+    let tap = p.tap(trigger);
+    p.run_commands(|| ());
+    let state = read(&mut p, "state");
+    let layout = read(&mut p, "layout");
+    let clear_rect = p.rect_of(clear);
+    let cancel_rect = p.rect_of(cancel);
+    let after = picture(&mut p, out.as_deref(), &format!("{name}-opened"));
+    let logs = read(&mut p, "logs");
+    println!(
+        "ALERT_PROOF {}",
+        json!({"case":name,"preferences":prefer,"tap":tap,
+            "clearNode":clear,"cancelNode":cancel,"clearRect":clear_rect,
+            "cancelRect":cancel_rect,"before":before,"after":after,
+            "state":state,"layout":layout,"logs":logs})
+    );
+    assert!(tap.is_ok(), "{tap:?}");
+    let clear_rect = visible(clear_rect, width, 640.);
+    let cancel_rect = visible(cancel_rect, width, 640.);
+    assert!(clear_rect.0 < cancel_rect.0, "authored action order");
+    assert_eq!(clear_rect.1, cancel_rect.1);
+    let dialog = p
+        .host()
+        .kernel()
+        .node_by_key(p.host().kernel().find_by_id("clear-confirm")[0])
+        .unwrap()
+        .id;
+    let rect = visible(p.rect_of(dialog), width, 640.);
+    assert_eq!(rect.2, if width == 320. { 282. } else { 416. });
+    let title = &state["surface"]["title"];
+    assert_eq!(title["text"], "Clear the count?");
+    let y = title["rect"][1].as_f64().unwrap() as f32;
+    assert!(y > rect.1 && y < clear_rect.1);
+    assert!(title["rect"][2].as_f64().unwrap() > 0.);
+    assert_eq!(p.focus(), Some(clear));
+    assert!(p.tap(id(&p, "bump")).is_err());
+    assert!(p.type_text(id(&p, "field"), "leak").is_err());
+    assert!(p
+        .type_key(id(&p, "field"), "KeyL", "l", true, false)
+        .is_err());
+    assert!(p.wheel(id(&p, "bump"), 0., 100.).is_err());
+    let old_page = p.page();
+    p.wheel_at(1., 1., 0., 100.);
+    assert_eq!(p.page(), old_page);
+    let chord = key(&mut p, "Control+b");
+    assert!(chord.get("error").is_none(), "{chord}");
+    assert_eq!(words(&p, "counts"), "Count 7");
+    p.tap(cancel).unwrap();
+    p.run_commands(|| ());
+    assert!(p.rect_of(clear).is_none());
+    assert_eq!(p.focus(), Some(trigger));
+    assert_eq!(words(&p, "counts"), "Count 7");
+    p.tap(trigger).unwrap();
+    p.run_commands(|| ());
+    let reply = key(&mut p, "Escape");
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(p.rect_of(clear).is_none());
+    assert_eq!(words(&p, "counts"), "Count 7");
+    p.tap(trigger).unwrap();
+    p.run_commands(|| ());
+    p.tap(clear).unwrap();
+    p.run_commands(|| ());
+    assert!(p.rect_of(clear).is_none());
+    assert_eq!(words(&p, "counts"), "Count 0");
+    assert!(p.host().kernel().host_block(dialog).is_none());
 }
 
 fn visible(rect: Option<(f32, f32, f32, f32)>, w: f32, h: f32) -> (f32, f32, f32, f32) {
@@ -187,8 +233,10 @@ fn ops(p: &mut Presenter<()>, ops: &[exact_kernel::Op]) {
     assert!(p.resize(p.viewport().0, p.viewport().1).is_none());
     p.frame();
 }
+#[test]
 fn lifetime_and_authored_rows() {
     use exact_kernel::{Op, PropId, PropValue, StyleId, StyleMask, StyleProps, StyleValue};
+    setup();
     let source = APP
         .replace("state count = 7", "state count = 7\n  state clears = 0")
         .replace("count = 0", "count = 0\n    clears = clears + 1")
@@ -368,8 +416,10 @@ fn style(p: &mut Presenter<()>, id: ViewId, row: exact_kernel::StyleId, value: &
         }],
     );
 }
+#[test]
 fn defaults_fonts_and_visibility() {
     use exact_kernel::{Op, PropId, StyleId, StyleMask};
+    setup();
     let source = APP
         .replace(
             "aria-label=\"Clear the count?\" padding=16",
@@ -473,60 +523,69 @@ fn click(p: &mut Presenter<()>, x: f32, y: f32) {
     p.pointer_up(x, y, now + 1.).unwrap();
     p.run_commands(|| ());
 }
-fn coordinate_and_keyboard_modal_input() {
+#[test]
+fn coordinate_and_keyboard_modal_input_any() {
+    coordinate_and_keyboard_modal_input("any");
+}
+
+#[test]
+fn coordinate_and_keyboard_modal_input_closerequest() {
+    coordinate_and_keyboard_modal_input("closerequest");
+}
+
+fn coordinate_and_keyboard_modal_input(closedby: &str) {
+    setup();
     let source = APP
         .replace("state count = 7", "state count = 7\n  state clears = 0")
         .replace("count = 0", "count = 0\n    clears = clears + 1")
         .replace("Count ${count}", "Count ${count} clear ${clears}");
-    for closedby in ["any", "closerequest"] {
-        let source = source.replace(
-            "role=\"alertdialog\"",
-            &format!("role=\"alertdialog\" closedby=\"{closedby}\""),
-        );
-        let mut p = boot(&source, 640.);
-        let trigger = id(&p, "ask-clear");
-        let clear = id(&p, "clear-confirm-clear");
-        let cancel = id(&p, "clear-confirm-cancel");
-        let bump = p.rect_of(id(&p, "bump")).unwrap();
-        p.tap(trigger).unwrap();
-        p.run_commands(|| ());
-        click(&mut p, bump.0 + bump.2 / 2., bump.1 + bump.3 / 2.);
-        assert_eq!(
-            words(&p, "counts"),
-            "Count 7 clear 0",
-            "outside input never reaches Bump"
-        );
-        assert_eq!(p.rect_of(clear).is_none(), closedby == "any");
-        if closedby == "any" {
-            assert_eq!(p.focus(), Some(trigger));
-            p.tap(trigger).unwrap();
-            p.run_commands(|| ());
-        }
-        let reply = key(&mut p, "Escape");
-        assert!(reply.get("error").is_none(), "{reply}");
-        assert!(p.rect_of(clear).is_none());
-        assert_eq!(words(&p, "counts"), "Count 7 clear 0");
-        p.tap(trigger).unwrap();
-        p.run_commands(|| ());
-        // Coordinate Cancel hits the authored action in the translated overlay.
-        let r = visible(p.rect_of(cancel), 640., 640.);
-        click(&mut p, r.0 + r.2 / 2., r.1 + r.3 / 2.);
-        assert!(p.rect_of(clear).is_none());
+    let source = source.replace(
+        "role=\"alertdialog\"",
+        &format!("role=\"alertdialog\" closedby=\"{closedby}\""),
+    );
+    let mut p = boot(&source, 640.);
+    let trigger = id(&p, "ask-clear");
+    let clear = id(&p, "clear-confirm-clear");
+    let cancel = id(&p, "clear-confirm-cancel");
+    let bump = p.rect_of(id(&p, "bump")).unwrap();
+    p.tap(trigger).unwrap();
+    p.run_commands(|| ());
+    click(&mut p, bump.0 + bump.2 / 2., bump.1 + bump.3 / 2.);
+    assert_eq!(
+        words(&p, "counts"),
+        "Count 7 clear 0",
+        "outside input never reaches Bump"
+    );
+    assert_eq!(p.rect_of(clear).is_none(), closedby == "any");
+    if closedby == "any" {
         assert_eq!(p.focus(), Some(trigger));
-        assert_eq!(words(&p, "counts"), "Count 7 clear 0");
         p.tap(trigger).unwrap();
         p.run_commands(|| ());
-        assert_eq!(p.focus(), Some(clear));
-        for expected in [cancel, clear, cancel, clear] {
-            let reply = key(&mut p, "Tab");
-            assert!(reply.get("error").is_none(), "{reply}");
-            assert_eq!(p.focus(), Some(expected));
-        }
-        let reply = key(&mut p, "Enter");
-        assert!(reply.get("error").is_none(), "{reply}");
-        p.run_commands(|| ());
-        assert_eq!(words(&p, "counts"), "Count 0 clear 1");
-        assert!(p.rect_of(clear).is_none());
-        assert_eq!(p.focus(), Some(trigger));
     }
+    let reply = key(&mut p, "Escape");
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(p.rect_of(clear).is_none());
+    assert_eq!(words(&p, "counts"), "Count 7 clear 0");
+    p.tap(trigger).unwrap();
+    p.run_commands(|| ());
+    // Coordinate Cancel hits the authored action in the translated overlay.
+    let r = visible(p.rect_of(cancel), 640., 640.);
+    click(&mut p, r.0 + r.2 / 2., r.1 + r.3 / 2.);
+    assert!(p.rect_of(clear).is_none());
+    assert_eq!(p.focus(), Some(trigger));
+    assert_eq!(words(&p, "counts"), "Count 7 clear 0");
+    p.tap(trigger).unwrap();
+    p.run_commands(|| ());
+    assert_eq!(p.focus(), Some(clear));
+    for expected in [cancel, clear, cancel, clear] {
+        let reply = key(&mut p, "Tab");
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(p.focus(), Some(expected));
+    }
+    let reply = key(&mut p, "Enter");
+    assert!(reply.get("error").is_none(), "{reply}");
+    p.run_commands(|| ());
+    assert_eq!(words(&p, "counts"), "Count 0 clear 1");
+    assert!(p.rect_of(clear).is_none());
+    assert_eq!(p.focus(), Some(trigger));
 }
