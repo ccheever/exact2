@@ -634,7 +634,7 @@ fn defaults_fonts_and_visibility() {
         &[Op::SetProp {
             id: dialog,
             prop: PropId::AccessibilityLabel,
-            value: PropValue::Str(String::new()),
+            value: PropValue::Str(Default::default()),
         }],
     );
     assert!(read(&mut p, "state")["surface"]["title"].is_null());
