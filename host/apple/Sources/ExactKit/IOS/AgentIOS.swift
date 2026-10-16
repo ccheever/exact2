@@ -482,7 +482,7 @@ extension Agent {
         if let reply = touchForm(req) { return reply }
         // One finger at a time: a press while the held contact is down would
         // nest a second gesture on its pointer, as a second `down` would.
-        if req["phase"] == nil, req["lift"] == nil, req["wheel"] == nil, req["hover"] == nil, panContact != nil {
+        if req["phase"] == nil, req["wheel"] == nil, req["hover"] == nil, panContact != nil {
             return ["error": "a contact is already down; use `tap up` or `tap cancel` first"]
         }
         settleForPress()
@@ -699,62 +699,20 @@ extension Agent {
         // A finger on a number input's stepper steps it (LLP 1116.007 D4).
         if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return stepped }
         #endif
-        var n: UIView? = hit
-        while let cur = n, !(cur is NodeView) { n = cur.superview }
-        // What the finger reaches, taken where it lands: what the pointer
-        // events below do to the tree never sends the press elsewhere, as a
-        // real contact keeps its target. An SVG element under the finger
-        // takes the press (LLP 1055.000 D17); an inline run with its own
-        // press, or a Markdown run's link, is the press as `touchesEnded`
-        // makes it (`tap <paragraph> at <x> <y>` on a run).
-        let node = n as? NodeView
-        let element = node.flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
-        let run = element == nil ? node.flatMap { !$0.disabled && !$0.inert ? $0.inlineActivationTarget(at: $0.local(p)) : nil } : nil
-        let href = element == nil && run == nil ? node.flatMap { $0.inlineActivationTarget(at: $0.local(p)) == nil ? $0.inlineLink(at: $0.local(p)) : nil } : nil
-        let action = element == nil ? node?.activationTarget(at: p) : nil
-        let reached = node.map(HeldNode.init)
+        // What the finger reaches, taken where it lands (`fingerReach`):
+        // what the pointer events below do to the tree never sends the press
+        // elsewhere, as a real contact keeps its target.
+        let reach = fingerReach(hit, at: p)
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = Agent.heldPrefix(req)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
         // before what the lift does (DOM's order), as `PointerRecognizer`
         // hears a real touch before the node does; a held contact's lift
-        // has sent its own (`fingerPhase`).
-        let fingers = req["lift"] == nil ? Agent.fingerPath(from: hit) : []
+        // sends its own (`fingerPhase`).
+        let fingers = Agent.fingerPath(from: hit)
         fingerPointer(.down, fingers, at: p, held: held)
         fingerPointer(.up, fingers, at: p, held: held)
-        // A node the pointer events took away presses nothing.
-        let landed = fingers.isEmpty || reached?.live(in: presenter) != nil
-        if landed, let node, let run, node.activateInline(run.id) {
-            return ["tapped": Int(v.id), "at": at, "pressed": Int(run.id)]
-        }
-        if landed, let href {
-            presenter.session?.follow(href)
-            return ["tapped": Int(v.id), "at": at, "followed": href]
-        }
-        // What a touch up does first (`NodeView.touchesEnded`, up the
-        // responder chain): the nearest node that takes the focus takes it
-        // — an input's field, a node with a focus/blur/key handler — and
-        // whatever had it (a field, and the keyboard with it) lets go.
-        var f: UIView? = n
-        var took = false
-        while let cur = f {
-            if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
-            // A node settles the press's focus as a finger's does
-            if let node = cur as? NodeView { node.focusForPress(target: action); took = true; break }
-            // A native module's responder takes it, unless under `retainFocus`
-            if cur.canBecomeFirstResponder {
-                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
-                break
-            }
-            f = cur.superview
-        }
-        // Nothing settled the focus, as in `focusForPress`: the text being
-        // edited loses it, and any other focus stays.
-        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.endEditing() }
-        var pressed: Any = NSNull()
-        if landed, let element { presenter.press(element, held: held); pressed = Int(element) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); pressed = Int(action.id) }
-        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
         // Its middle reaches a control inside it: the tap landed beside it.
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
         return reply
