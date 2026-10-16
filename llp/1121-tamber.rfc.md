@@ -2480,8 +2480,9 @@ TypeScript producer's alone.
   - It now refuses that program's generations and still says "rebuild and relaunch", but it keeps
     its stream, stays registered, applies value batches, reconnects across restarts, and takes
     the next generation of its own program.
-  - A stub-server test of drop, restart and re-register is a follow-up; the path was driven on
-    the clone.
+  - A stub-server test (`ddd0c1dbb`) covers a dropped stream and a restarted server
+    (re-subscribed and re-registered under the same id, the held pin re-asserted), and a
+    rebuilt-program frame keeping the host registered.
 
 ### Stage 5, commit 1: per-session role tables (`de05c0b2b`..`2ccbc448a`)
 
