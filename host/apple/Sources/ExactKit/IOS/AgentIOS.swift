@@ -488,6 +488,7 @@ extension Agent {
             return ["error": "a contact is already down; use `tap up` or `tap cancel` first"]
         }
         settleForPress()
+        if req["phase"] == nil, req["wheel"] == nil, let v = view(req) { awaitAppOverlay(over: v) }
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -821,7 +822,8 @@ extension Agent {
         let cls: AnyClass = Swift.type(of: hit), name = String(describing: cls)
         let held = (up as? NodeView).map { "\(name), in node #\($0.id)," } ?? name
         // build.mjs compiles an app's native modules as one Swift module of this name.
-        return "\(held) covers its middle" + (String(reflecting: cls).hasPrefix("ExactAppModules.") ?"; it is the app's own view: one animating away on real time (UIView.animate, a display link) goes only with `clock +N real`, while one drawn from the module's `frames` or `after` follows `clock +N`" : "")
+        let own = String(reflecting: cls).hasPrefix("ExactAppModules.") || appOverlay(hit)
+        return "\(held) covers its middle" + (own ? "; it is the app's own view, on the wall's time: the tap waited 3 s for an overlay over the screen to go, `clock settle` waits out its UIView.animate, `clock +N real` lets a display link's motion run, and one drawn from the module's `frames` or `after` follows `clock +N`" : "")
     }
 
     /// The web's rule for a phase-less wheel tick (LLP 1070 G2, Chrome's,

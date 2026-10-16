@@ -73,6 +73,37 @@ final class AgentMotionIOSTests: XCTestCase {
         moving.removeFromSuperview()
     }
 
+    /// A native module's motion on the wall clock (the euxy port's boot
+    /// splash, a view on the window faded with `UIView.animate`): `clock`
+    /// waits it out and its completion runs, and a tap waits for the
+    /// overlay to go.
+    func testTheAppsOwnMotionOnTheWallEndsUnderTheAgentsClock() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+        ])
+        let window = try XCTUnwrap(self.window)
+        let node = try XCTUnwrap(agent.session.presenter.views[1])
+        let overlay = UIView(frame: window.bounds)
+        window.addSubview(overlay)
+        XCTAssertTrue(Agent.appOverlay(try XCTUnwrap(window.hitTest(CGPoint(x: 200, y: 400), with: nil))), "the app's view over the screen")
+        XCTAssertFalse(Agent.appOverlay(node), "a node is the session's")
+        var finished = false
+        UIView.animate(withDuration: 0.3) { overlay.alpha = 0 } completion: { _ in overlay.removeFromSuperview(); finished = true }
+        XCTAssertTrue(agent.awaitWallMotion(bound: 1.5), "it ends within the bound")
+        XCTAssertTrue(finished, "and its completion has run")
+        XCTAssertNil(overlay.superview)
+        // An overlay still up when a tap comes: the tap waits for it to go.
+        let cover = UIView(frame: window.bounds)
+        window.addSubview(cover)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { cover.removeFromSuperview() }
+        let tapped = Date()
+        agent.awaitAppOverlay(over: node)
+        XCTAssertNil(cover.superview)
+        XCTAssertLessThan(Date().timeIntervalSince(tapped), 1, "no longer than the overlay stayed")
+    }
+
     /// Contract motion held at speed 0 (a lowered `@keyframes`, filled both
     /// ways and kept) is the agent clock's to seek: never motion in flight.
     func testContractMotionHeldAtSpeedZeroIsNotInFlight() throws {

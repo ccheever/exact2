@@ -794,6 +794,23 @@ name, since UIKit's pull-down from the bar has no public way to open it.
 The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
 `simctl io screenshot` because the agent could not finish its native work.
 
+- **The app's own motion ends as a person sees it.** Core Animation runs on
+  the wall's time, which the agent's clock cannot seek: a native module's
+  `UIView.animate` (euxy's boot overlay, a view added to the window and
+  faded out) ran on, but `clock +N` took no real time and a tap came while
+  the overlay still covered the app ("UIView covers its middle"). Now
+  `clock +N` lets a finite Core Animation animation in flight on a running
+  layer of the app's window run, up to N ms and at most 1.5 s, and `clock
+  settle` waits up to 1.5 s for one, its completion's work then checked as
+  any native completion's (`awaitWallMotion`, `AgentMotionIOS.swift`). A
+  tap waits up to 3 s while a view the app laid on the window outside every
+  session and every UIKit presentation is over its target, or is fading,
+  and then refuses what still covers it, naming it. Motion a display link
+  draws frame by frame has no animation to see: `clock +N real` lets it run.
+  Driving the window layer's time from the agent's clock (`speed` 0, a
+  `timeOffset`) was not chosen: it would hold UIKit's own animations as
+  well, transitions whose completions UIKit waits on among them, and a
+  display link reads `CACurrentMediaTime` regardless.
 - **Contract motion held at speed 0 is the clock's.** A lowered `@keyframes`
   animation stays on its layer at speed 0 for the clock to seek; it had
   counted as native geometry in flight, so every `clock settle` while one

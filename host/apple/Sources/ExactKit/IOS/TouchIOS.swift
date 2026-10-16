@@ -142,6 +142,7 @@ extension Agent {
     func aim(_ req: [String: Any]) -> [String: Any] {
         settleForPress()
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        awaitAppOverlay(over: v)
         if v.placedAncestor?.placementHidden == true { return ["error": "tap #\(v.id): placed child is hidden"] }
         // Said before where it sits: until a swipe reveals it, its node is
         // past the row's edge (splitter rough 12).

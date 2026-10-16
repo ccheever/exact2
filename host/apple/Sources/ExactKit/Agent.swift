@@ -678,6 +678,10 @@ public final class Agent {
             // (a store's, a worker's, the network's): the reply names how much,
             // as the web hosts' do (calendar F10, workout F6).
             guard settle else {
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock has as long as the jump, up to 1.5 s.
+                awaitWallMotion(bound: min(1.5, (landed - from) / 1000))
+                #endif
                 var out = reply(landed)
                 let inflight = pendingCount()
                 if inflight > 0 { out["inflight"] = inflight }
@@ -703,6 +707,11 @@ public final class Agent {
                 continue
             }
             if next <= landed && !world.pending {
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock ends first;
+                // what its completion starts is checked below.
+                awaitWallMotion(bound: 1.5)
+                #endif
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
                 // after work finishes, including work created by that completion.

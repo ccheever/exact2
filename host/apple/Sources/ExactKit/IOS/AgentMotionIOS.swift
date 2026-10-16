@@ -1,9 +1,11 @@
 // A picture at rest on UIKit (LLP 1116.003 D8): before a screenshot (and a
 // `check`), UIKit's own motion on the wall clock runs to its end — the
-// agent's clock holds the app's own, but not a segment's thumb or a switch's
+// agent's clock holds the app's Contract motion, but not a segment's thumb or a switch's
 // knob, which a screenshot right after a tap caught on its old side (round
 // 5's polls). A film's frames (`screenshot … over … every …`) are taken as
-// they stand.
+// they stand. A native module's motion on the wall clock goes on under the
+// agent's: `clock` waits for its animations to end, and a tap for an overlay
+// the app laid over the screen to go.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -31,6 +33,57 @@ extension Agent {
             let now = print()
             guard now == last, !Agent.wallMotion(under: window.layer) else { still = nil; last = now; continue }
             if let since = still { if Date().timeIntervalSince(since) >= quiet { return true } } else { still = Date() }
+        }
+    }
+
+    /// The app's own motion on the wall clock — a `UIView.animate` or a
+    /// Core Animation animation on a running layer of its window, a native
+    /// module's included — runs to its end, for at most `bound` seconds,
+    /// and then its completion: `clock` waits for it (LLP 1012 §2), so an
+    /// overlay a module fades away is gone after `clock settle`, as it is
+    /// for a person. Core Animation's time is the wall's, which the
+    /// agent's clock cannot seek. Whether it came to rest.
+    @discardableResult func awaitWallMotion(bound: TimeInterval) -> Bool {
+        guard bound > 0, let window = presenter.viewport.window, Agent.wallMotion(under: window.layer) else { return true }
+        let deadline = Date(timeIntervalSinceNow: bound)
+        repeat {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+        } while Agent.wallMotion(under: window.layer)
+        // An animation's completion runs on a turn after its last frame.
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+        return true
+    }
+
+    /// Whether `hit` is a view the app's native code laid over the screen:
+    /// outside every session and every UIKit presentation, as a module's
+    /// boot splash added to the window is.
+    static func appOverlay(_ hit: UIView) -> Bool {
+        guard let win = hit.window, win.rootViewController?.presentedViewController == nil,
+              !routes.contains(where: { shows($0.1, hit) || $0.1.view?.isDescendant(of: hit) == true }) else { return false }
+        var at: UIView? = hit
+        while let v = at, v !== win {
+            // UIKit's own containers (a menu's, a transition's) are not the app's.
+            if v is NodeView || NSStringFromClass(Swift.type(of: v)).hasPrefix("_UI") { return false }
+            at = v.superview
+        }
+        return true
+    }
+
+    /// A tap waits, for at most `bound` seconds, while such an overlay is
+    /// over `v`'s middle, as a person waits for a splash to go: it goes on
+    /// the wall's time (a `UIView.animate`, a display link), which the
+    /// agent's clock does not move. The tap's own check then refuses what
+    /// still covers it.
+    func awaitAppOverlay(over v: NodeView, bound: TimeInterval = 3) {
+        guard let win = v.window else { return }
+        let p = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+        let deadline = Date(timeIntervalSinceNow: bound)
+        // One fading out is no longer hit-tested (its alpha is already 0)
+        // but still takes a touch's place until its animation ends.
+        let fading = { win.subviews.contains { Agent.appOverlay($0) && Agent.wallMotion(under: $0.layer) } }
+        while Date() < deadline, win.hitTest(p, with: nil).map(Agent.appOverlay) == true || fading() {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
         }
     }
 
