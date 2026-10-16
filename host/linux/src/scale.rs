@@ -11,27 +11,37 @@ impl<D: DataSource> Host<D> {
     /// A live design batch or snapshot frame from the dev server (LLP 1121
     /// D13, stage 4), set in place in one commit: `None` when applied or
     /// already this build's design, else why not (`stale`: fetch the
-    /// snapshot); and whether the wide colour table refused a colour, which
-    /// the presenter reports `unsupported` (LLP 1122 D4).
-    pub fn apply_live(&mut self, frame: &str) -> (Option<String>, bool) {
+    /// snapshot); whether the wide colour table refused a colour, which
+    /// the presenter reports `unsupported` (LLP 1122 D4); and whether the
+    /// session's role overrides moved (LLP 1121 stage 5): what was painted
+    /// from them re-targets and is painted again.
+    pub fn apply_live(&mut self, frame: &str) -> (Option<String>, bool, bool) {
         let Some(edit) = exact_runner::design::Edit::parse(frame) else {
-            return (Some("live: not a tamber batch or snapshot".into()), false);
+            return (
+                Some("live: not a tamber batch or snapshot".into()),
+                false,
+                false,
+            );
         };
         match self.runner.apply_live(&edit) {
-            Ok(applied) => (
-                self.commit(
+            Ok(applied) => {
+                let error = self.commit(
                     &[Timed {
                         at_ms: self.now_ms,
                         receipt: applied.receipt,
                     }],
                     None,
-                ),
-                applied.full,
-            ),
-            Err(exact_runner::LiveRefusal::Stale) => (Some("stale".into()), false),
-            Err(exact_runner::LiveRefusal::Structure) => (Some("structure".into()), false),
+                );
+                if applied.roles {
+                    let _roles = self.runner.bind_roles();
+                    self.colors_changed(false);
+                }
+                (error, applied.full, applied.roles)
+            }
+            Err(exact_runner::LiveRefusal::Stale) => (Some("stale".into()), false, false),
+            Err(exact_runner::LiveRefusal::Structure) => (Some("structure".into()), false, false),
             Err(exact_runner::LiveRefusal::Refused(why)) => {
-                (Some(format!("refused: {why}")), false)
+                (Some(format!("refused: {why}")), false, false)
             }
         }
     }

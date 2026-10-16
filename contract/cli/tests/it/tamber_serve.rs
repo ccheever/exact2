@@ -642,12 +642,18 @@ fn propose_judges_live_or_rebuild_by_the_closure() {
         synthetic[0]["values"],
         json!([folded.tokens[1].values[0].css()])
     );
-    // A role override, and a token a role override names: the hosts take
-    // their role tables at boot.
+    // A role override's value, and a token one names: live (LLP 1121
+    // stage 5), each build re-presenting its session's overrides.
     let (role, _) = s.ask(set("CanvasText", "#101010"));
-    assert_eq!(role["ok"]["class"], "rebuild", "{role}");
+    assert_eq!(role["ok"]["class"], "live", "{role}");
     let (through, _) = s.ask(set("ink", "#222222"));
-    assert_eq!(through["ok"]["class"], "rebuild", "{through}");
+    assert_eq!(through["ok"]["class"], "live", "{through}");
+    // An override gained or lost is structure.
+    let (gained, _) = s.ask(json!({"method": "propose", "ops": [{"op": "add-token", "name": "AccentColor", "value": "#0a7aff"}]}));
+    assert_eq!(gained["ok"]["class"], "rebuild", "{gained}");
+    let (lost, _) =
+        s.ask(json!({"method": "propose", "ops": [{"op": "remove-token", "name": "CanvasText"}]}));
+    assert_eq!(lost["ok"]["class"], "rebuild", "{lost}");
     // Structure.
     let (added, _) = s.ask(json!({"method": "propose", "ops": [{"op": "add-token", "name": "fresh", "value": "#123456"}]}));
     assert_eq!(added["ok"]["class"], "rebuild", "{added}");

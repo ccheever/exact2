@@ -81,13 +81,22 @@ pub fn active(plan: &Plan) -> bool {
 /// Each token that varies by an app axis, by its theme row's name, and its
 /// custom property: its name with each character no identifier takes as
 /// `-`, or `s<n>` for a synthetic token, `-<n>` added until it is unique.
+/// In a development build every token, and a role override (not the tint's,
+/// which rows keep as the role) as its role's sheet property (LLP 1121
+/// stage 5), so a row naming the role reads the property a live edit sets.
 pub fn properties(plan: &Plan) -> Vec<(String, String)> {
+    use exact_kernel::style::roles;
     let mut out: Vec<(String, String)> = Vec::new();
     for (i, row) in plan.theme.iter().enumerate() {
-        if row.slices.len == 0 && !(every_token() && plan.str(row.role).is_empty()) {
+        let role = roles::role(plan.str(row.role));
+        if row.slices.len == 0 && !every_token() || role.is_some_and(roles::tint) {
             continue;
         }
         let name = plan.str(row.name);
+        if let Some(role) = role.and_then(roles::role_of) {
+            out.push((name.to_string(), roles::theme_property(role)));
+            continue;
+        }
         let mut prop = match name.contains('(') {
             true => format!("--x-s{i}"),
             false => format!(
@@ -475,6 +484,13 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                 row["prop"] = prop.clone().into();
                 row["css"] = css.into();
                 row["accent"] = accent.into();
+            } else if let Some(prop) = tint_property(plan, &t.name) {
+                // The tint's override: its sheet property in every tuple's
+                // rule (the first's is the root's), which rows read as the
+                // role (LLP 1121 stage 5).
+                row["prop"] = prop.into();
+                row["css"] = vec![css_of(&t.value); tables.len()].into();
+                row["accent"] = vec![false; tables.len()].into();
             }
             row
         })
@@ -485,6 +501,15 @@ pub fn design(plan: &Plan) -> serde_json::Value {
         "digest": design::digest(&tokens),
         "tokens": rows,
     })
+}
+
+/// The sheet property of the tint's override `name` (`AccentColor`), if it
+/// is one: [`properties`] leaves it out, as rows keep the tint as the role.
+fn tint_property(plan: &Plan, name: &str) -> Option<String> {
+    use exact_kernel::style::roles;
+    let row = plan.theme.iter().find(|r| plan.str(r.name) == name)?;
+    let id = roles::role(plan.str(row.role)).filter(|id| roles::tint(*id))?;
+    roles::role_of(id).map(roles::theme_property)
 }
 
 /// The varying tokens whose value names the accent in some tuple, by

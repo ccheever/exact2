@@ -429,13 +429,15 @@ pub fn role_overrides(plan: &exact_plan::Plan) -> Vec<(u8, exact_kernel::ColorVa
         .iter()
         .filter_map(|row| {
             let id = exact_kernel::style::roles::role(plan.str(row.role))?;
-            let value = plan.str(row.value);
-            let colour = exact_kernel::ColorValue::parse_light_dark(value).or_else(|| {
-                exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed)
-            })?;
-            Some((id, colour))
+            Some((id, role_colour(plan.str(row.value))?))
         })
         .collect()
+}
+
+/// A role override's colour from its row's value text (a pair, or one).
+pub fn role_colour(value: &str) -> Option<exact_kernel::ColorValue> {
+    exact_kernel::ColorValue::parse_light_dark(value)
+        .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed))
 }
 
 /// [`set_plan_style`] for one of `plan`'s style bindings, with what the

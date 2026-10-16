@@ -223,7 +223,12 @@ fn the_colour_behind_the_page_is_the_roots_or_the_platforms_surface() {
     let mut q = boot(&page(""));
     assert_eq!(q.chrome().background, [255; 4]);
     q.set_system_scheme(true);
-    assert_eq!(q.chrome().background, crate::paint::page_color(true));
+    // The platform's, read under no session's roles (two live here).
+    let platform = {
+        let _none = exact_kernel::style::roles::bind(&Default::default());
+        crate::paint::page_color(true)
+    };
+    assert_eq!(q.chrome().background, platform);
     assert_ne!(q.chrome().background, [255; 4]);
     assert!(q.chrome().dark);
     // The app's own scheme decides what the bars' icons are drawn over.

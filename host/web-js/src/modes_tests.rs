@@ -365,3 +365,76 @@ fn a_development_build_makes_every_token_a_property() {
         .unwrap();
     assert_eq!(card["css"][1], "light-dark(#ffffffff, #15202bff)");
 }
+
+/// LLP 1121 stage 5, commit 2: a development build makes each role
+/// override live. A row naming an overridden role reads its sheet property
+/// (`--exact-canvas-text`), declared in the root's tuple rule after the
+/// theme's sheet; a role the kernel crosses reads it over its value; the
+/// tint's override is its `--exact-accent` in the design. A release build
+/// crosses the values, as before.
+#[test]
+fn a_development_build_makes_every_role_override_a_property() {
+    let view = "component App\n  view\n    column\n      text \"a\" color=\"CanvasText\"\n      text \"b\" color=\"-exact-label\"\n";
+    let dir = std::env::temp_dir().join(format!("exact-web-js-modes-roles-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  CanvasText = ink\n  -exact-label = #222222\n  AccentColor = #0a7aff\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), view).unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let release = crate::emit::emit(&plan, false, false).unwrap();
+    let dev = crate::emit::emit(&plan, false, true).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        release.css.contains("color:rgba(17,17,17,1);"),
+        "{}",
+        release.css
+    );
+    let root = dev.css.find(":root,[data-x-modes=\"\"]{").expect(&dev.css);
+    let theme = dev
+        .css
+        .find("--exact-canvas-text:#111111ff")
+        .expect(&dev.css);
+    assert!(
+        theme < root,
+        "the tuple rule follows the theme's sheet: {}",
+        dev.css
+    );
+    assert!(
+        dev.css[root..].contains("--exact-canvas-text:#111111ff;"),
+        "{}",
+        dev.css
+    );
+    assert!(
+        dev.css.contains("color:var(--exact-canvas-text)"),
+        "{}",
+        dev.css
+    );
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    let row = |name: &str| {
+        design["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row("CanvasText")["prop"], "--exact-canvas-text");
+    assert_eq!(row("CanvasText")["css"], serde_json::json!(["#111111ff"]));
+    assert_eq!(row("AccentColor")["prop"], "--exact-accent");
+    assert_eq!(row("AccentColor")["css"], serde_json::json!(["#0a7affff"]));
+    assert_eq!(row("-exact-label")["prop"], "--exact-label");
+    assert!(dev.css.contains("color:var(--exact-label);"), "{}", dev.css);
+    assert!(
+        release.css.contains("color:rgba(34,34,34,1);"),
+        "{}",
+        release.css
+    );
+}

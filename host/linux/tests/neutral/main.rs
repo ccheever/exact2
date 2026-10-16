@@ -131,6 +131,8 @@ fn route_headers_keep_the_page_tree_and_take_the_neutral_defaults() {
                 PainterChoice::Cpu,
             )
             .unwrap();
+            // Read under its own roles: the test's other sessions live too.
+            let _roles = p.host().runner().bind_roles();
             assert!(error.is_none(), "{error:?}");
             // The CSS border occupies room, unlike a list's painted divider.
             assert_eq!(size(&mut p, "twin"), (width, 41.0), "{scheme}");
@@ -194,6 +196,8 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
         PainterChoice::Cpu,
     )
     .unwrap();
+    // Read under its own roles: the test's other sessions live too.
+    let _roles = p.host().runner().bind_roles();
     assert!(error.is_none(), "{error:?}");
 
     // The kernel sizes what the author left unsaid as the page's sheet
@@ -347,6 +351,8 @@ component Header
         PainterChoice::Cpu,
     )
     .unwrap();
+    // Read under its own roles: the test's other sessions live too.
+    let _roles = p.host().runner().bind_roles();
     assert!(error.is_none(), "{error:?}");
     for authored in [false, true, false, true, false] {
         assert_eq!(size(&mut p, "head").1, if authored { 22.0 } else { 21.0 });
@@ -969,6 +975,8 @@ fn route_header_geometry_matches_the_browser() {
                 PainterChoice::Cpu,
             )
             .unwrap();
+            // Read under its own roles: the test's other sessions live too.
+            let _roles = p.host().runner().bind_roles();
             assert!(error.is_none(), "{error:?}");
             for authored in [false, true, false] {
                 for (name, height) in [
@@ -1068,6 +1076,8 @@ fn route_header_sticky_geometry_and_hits_follow_the_browser() {
                 PainterChoice::Cpu,
             )
             .unwrap();
+            // Read under its own roles: the test's other sessions live too.
+            let _roles = p.host().runner().bind_roles();
             assert!(error.is_none(), "{error:?}");
             let (port, head, pinned) = (id(&p, "port"), id(&p, "sticky"), id(&p, "pinned"));
             let mut taps = 0;
@@ -1183,6 +1193,8 @@ fn route_header_padding_is_the_containing_width_of_a_windowed_list() {
             PainterChoice::Cpu,
         )
         .unwrap();
+        // Read under its own roles: the test's other sessions live too.
+        let _roles = p.host().runner().bind_roles();
         assert!(error.is_none(), "{error:?}");
         let feed = id(&p, "feed");
         for end in [false, true] {

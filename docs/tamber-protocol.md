@@ -254,11 +254,11 @@ design.
   dial included, plus tokens added or removed;
 - `class`, `"live"` or `"rebuild"`: what the edit would do to running development builds (LLP
   1121 D13), judged by the edit's whole closure (stage 4, commit 2). It is `live` when the
-  design's shape is unchanged, no role override or anything one reads changes, and the app's
-  synthetic tokens (its Contract rows' expressions over tokens) fold on both sides. It is
-  `rebuild` for structure, a role override (hosts take role tables at boot), a synthetic token
-  gained, lost or left unfoldable, a profile colour, or an unknown closure (the app's build
-  stops before its design). A `live` edit reaches running development builds as a batch, with
+  design's shape is unchanged and the app's synthetic tokens (its Contract rows' expressions over
+  tokens) fold on both sides; a role override's value, or a token one reads, is a value like any
+  other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
+  synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
+  app's build stops before its design). A `live` edit reaches running development builds as a batch, with
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
@@ -530,25 +530,39 @@ A write reaches every running development build at once. Release builds take non
   same case. The plan file is still written, for a host that watches the file instead of the
   stream.
   - **The structure** is the plan without its design values: every `theme` row's `value` and
-    every slice's, except a role override's or a profile colour's, which hosts take at boot. The
-    dev loop compares it; it does not go on the wire.
+    every slice's, a role override's included (stage 5), except a profile colour's, which hosts
+    take at boot. The dev loop compares it; it does not go on the wire.
   - **Anything else** still publishes a plan and reloads: a Contract edit, a token added, gone or
-    starting to vary, a role override's value, a synthetic token gained or lost.
+    starting to vary, a role override gained or lost, a synthetic token gained or lost.
 - **The batch** is an event on the dev stream the builds already hold (`/__dev`; the JS target's
   `/__dev/page`): `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
   slices}]}`.
   - `structure` is the digest of the design's **shape** (`design::shape`): the axes, and each
-    token's name, role, role override value and slice count. The JS target's build and a wasm or
-    native build of the same sources share it, though their plans differ.
+    token's name, role and slice count (which tokens override which role, not with what). The JS
+    target's build and a wasm or native build of the same sources share it, though their plans
+    differ.
   - `value` is the default tuple's wire text (a colour as CSS text), and `slices` one text per full
     app tuple where the token varies. A synthetic token's name is its expression, and its new value
     rides along.
+  - **A role override** (stage 5) rides in `tokens` too, as the entry named by its role
+    (`AccentColor`, `-exact-label`, `CanvasText`): its `value` is the colour the role now takes,
+    one for every tuple (a role does not vary by an app axis, so it has no `slices`). There is no
+    second field: the role is the entry's name, and a host knows which entries are roles from the
+    plan it runs. A build sets its session's overrides from those entries, and re-presents what
+    it resolved from the role: Apple sends the presenter its role table again (`{"op": "roles"}`;
+    `AccentColor` is the app's tint) and each node's rows; the web rewrites its role sheet
+    (`{"op": "theme"}`) in the batch's one style update; Linux re-targets its paint and paints
+    again; the JS target's development build sets the role's sheet property (below).
   - `base` is the design digest it applies to, and `design` the new one. The JS target's batches
-    add each token's custom property and its CSS per tuple (`prop`, `css`).
+    add each token's custom property and its CSS per tuple (`prop`, `css`). A role override's
+    `prop` is its role's property in the theme's sheet (`--exact-accent`, `--exact-canvas-text`,
+    `--exact-label`), which a development build's rows and the kernel's own role colours read
+    (`var(--exact-label, #…)`); a release build writes the values.
 - **Applied only on its base.** A build applies a batch whose `base` is the design it runs, in one
   commit with no layout for colours. A build on another design answers stale and fetches the
   **snapshot**: `GET /__dev/design` answers `{kind: "tamber-snapshot", structure, base: null,
-  design, tokens}` with every token, or 204 when no value-only edit came after the published plan.
+  design, tokens}` with every token, the role overrides among them, or 204 when no value-only
+  edit came after the published plan. A build re-presents roles only where an override moved.
   A build applies a batch or a snapshot only when its `structure` equals the shape of the plan it
   runs (`design::shape`); on another it answers `structure`, as a new plan is on its way.
 - **A notice** is a batch with no tokens whose `base` and `design` are the current design. A build
@@ -628,10 +642,10 @@ The tool drives no input into an app; a command changes only what `prefer` would
     restart) is kept with `revision` null: it acknowledges nothing. A pin to no build sends
     nothing and leaves the revision as it is.
   - Its `unsupported` `{what, detail}` is the last command it could not apply, the frame's whose
-    `revision` the report names (the web hosts name it), or, from a host that names none, the
-    one whose status it reports next (a host answers a frame before its status for it). It is
-    kept while the status stays at that revision and null once it moves to another (or the build
-    registers again); one for a revision the status has passed is dropped.
+    `revision` the report names (the web, Apple and Linux hosts name a refused pin's), or, from a
+    host that names none, the one whose status it reports next (a host answers a frame before its
+    status for it). It is kept while the status stays at that revision and null once it moves to
+    another (or the build registers again); one for a revision the status has passed is dropped.
   - **Ownership.** A pin is its client's while the client is present: it holds an open
     subscription naming it, or a long poll naming it is open or was answered in the last 35
     seconds (a client whose fetch reads a body whole holds the wire by the long poll). A pin from

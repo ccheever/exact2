@@ -95,7 +95,12 @@ impl<D: DataSource> Presenter<D> {
     /// a colour the full wide table refused is reported on the build
     /// channel (LLP 1122 D4), or to stderr with none.
     pub fn apply_live(&mut self, frame: &str) -> Option<String> {
-        let (error, full) = self.host.apply_live(frame);
+        let (error, full, roles) = self.host.apply_live(frame);
+        // Nothing kept from a paint under the old overrides stands (LLP 1121 stage 5).
+        if roles {
+            self.brush.colors_changed();
+            self.dirty = true;
+        }
         if full {
             self.report_unsupported(
                 "batch",

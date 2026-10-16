@@ -33,8 +33,8 @@
 //! - **`propose`** plans without writing: the diff, the tokens it changes
 //!   (by file), `live` or `rebuild`, and the digests it planned against; a
 //!   digest it carries is checked as a transaction's is. `live` is the
-//!   edit's closure (LLP 1121 D13, stage 4): no structure, no role override
-//!   reached, and the app's synthetic tokens (its rows' expressions over
+//!   edit's closure (LLP 1121 D13, stage 4): no structure (a role override's
+//!   value is not structure, stage 5), and the app's synthetic tokens (its rows' expressions over
 //!   tokens, read from the plan the compiler builds) re-folded, those that
 //!   change listed in `synthetic` with their new value per app tuple.
 //!   A propose with `texts: true` also answers the texts it would write,

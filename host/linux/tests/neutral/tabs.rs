@@ -92,6 +92,8 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
             PainterChoice::Cpu,
         )
         .unwrap();
+        // Read under its own roles: the test's other sessions live too.
+        let _roles = p.host().runner().bind_roles();
         assert!(error.is_none(), "{error:?}");
         assert!(p
             .set_preferences(exact_runner::Preferences {
@@ -412,6 +414,8 @@ fn route_header_tab_bar_defaults_compose() {
         PainterChoice::Cpu,
     )
     .unwrap();
+    // Read under its own roles: the test's other sessions live too.
+    let _roles = p.host().runner().bind_roles();
     assert!(error.is_none(), "{error:?}");
     assert_eq!(size(&mut p, "both"), (320.0, 42.0));
     let node = p.host().kernel().node(id(&p, "both")).unwrap();
@@ -724,6 +728,8 @@ pub(super) fn narrow_tab_geometry_follows_root_metrics_and_authored_rows() {
                 PainterChoice::Cpu,
             )
             .unwrap();
+            // Read under its own roles: the test's other sessions live too.
+            let _roles = p.host().runner().bind_roles();
             assert!(error.is_none(), "{error:?}");
             assert!(p
                 .set_preferences(exact_runner::Preferences {

@@ -690,7 +690,7 @@ fn an_unset_colour_passes_the_token_around_it_to_a_boundary() {
 }
 
 #[test]
-fn a_token_edit_skips_retired_rows_refuses_roles_and_stays_its_plans() {
+fn a_token_edit_skips_retired_rows_sets_roles_and_stays_its_plans() {
     let path = app(
         "edit-retired",
         &[
@@ -704,14 +704,23 @@ fn a_token_edit_skips_retired_rows_refuses_roles_and_stays_its_plans() {
     let (_, set) = r.set_token("ink", "#ff0000", &[]).unwrap();
     assert_eq!(set, 1, "the retired row is not set");
     assert_eq!(row(&r, "kept", StyleId::TextColor), parsed("#ff0000"));
-    assert!(
-        r.set_token("Canvas", "#000000", &[]).is_err(),
-        "a role's edit is refused"
-    );
+    // A role's edit sets the session's overrides (LLP 1121 stage 5).
+    let canvas = exact_kernel::style::roles::role("Canvas").unwrap();
+    let overridden = |r: &Runner<NoData>| {
+        let _roles = r.bind_roles();
+        exact_kernel::style::roles::overridden(canvas)
+    };
+    let before = r.roles().clone();
+    r.set_token("Canvas", "#000000", &[]).unwrap();
+    assert_eq!(overridden(&r), Some(parsed("#000000")));
+    assert!(!std::rc::Rc::ptr_eq(&before, r.roles()), "a new table");
+    assert!(r.set_token("Canvas", "nonesuch", &[]).is_err());
     assert!(r.set_token("nonesuch", "#000000", &[]).is_err());
-    // Another runner of the same app starts from the plan's own value.
+    // Another runner of the same app starts from the plan's own values.
     let other = booted(plan);
     assert_eq!(row(&other, "kept", StyleId::TextColor), parsed("#111111"));
+    assert_eq!(overridden(&other), Some(parsed("#fafafa")));
+    assert_eq!(overridden(&r), Some(parsed("#000000")));
 }
 
 #[test]
@@ -1053,9 +1062,15 @@ fn a_value_only_edit_keeps_the_plans_structure() {
         structure("structure-code-c", &with("#222222"), &literal("#111111ff")),
         shared_code
     );
-    // A role override's value: the hosts take role tables at boot.
+    // A role override's value is a value (LLP 1121 stage 5); an override
+    // gained is structure.
     let role = design.replace("Canvas = #fafafa", "Canvas = #f0f0f0");
-    assert_ne!(structure("structure-role", &role, view), base);
+    assert_eq!(structure("structure-role", &role, view), base);
+    let gained = design.replace(
+        "Canvas = #fafafa",
+        "Canvas = #fafafa\n  CanvasText = #101010",
+    );
+    assert_ne!(structure("structure-gained", &gained, view), base);
     // A token that stops varying by an axis (its slices go), and a view
     // changed. (A token no view names is in no plan.)
     let flat = design.replace(
@@ -1154,4 +1169,57 @@ fn an_empty_pin_declares_nothing() {
         black
     );
     assert_eq!(colour(plan, "arm", StyleId::BackgroundColor), black);
+}
+
+/// LLP 1121 stage 5, commit 2: a role override's value edit is a batch, not
+/// a plan. The build sets its session's overrides (a new table its host
+/// re-presents) and the rows that name the role; a snapshot of the same
+/// overrides moves nothing.
+#[test]
+fn a_batch_sets_a_role_override_without_a_plan() {
+    use exact_runner::design;
+    let view = "component App\n  view\n    column background-color=\"Canvas\" testId=\"page\"\n      text \"a\" color=\"ink\" testId=\"ink\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    let modes = format!("{MODES}  Canvas = #fafafa\n  AccentColor = #0a7aff\n");
+    let a = plan("role-a", &modes);
+    let b = plan(
+        "role-b",
+        &modes
+            .replace("#fafafa", "#101010")
+            .replace("#0a7aff", "#ff0000"),
+    );
+    assert_eq!(design::structure(&b), design::structure(&a));
+    let shape = design::shape(&a);
+    assert_eq!(design::shape(&b), shape);
+    let batch = design::batch(&shape, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let names: Vec<&str> = batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["Canvas", "AccentColor"]);
+    let mut r = booted(a.clone());
+    r.admit_live(None);
+    let (canvas, accent) = (
+        exact_kernel::style::roles::role("Canvas").unwrap(),
+        exact_kernel::style::roles::role("AccentColor").unwrap(),
+    );
+    let overridden = |r: &Runner<NoData>, id| {
+        let _roles = r.bind_roles();
+        exact_kernel::style::roles::overridden(id)
+    };
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("#fafafa"));
+    let applied = r.apply_live(&batch).unwrap();
+    assert!(applied.roles, "the host re-presents");
+    assert!(!applied.receipt.layout_invalidated);
+    assert_eq!(overridden(&r, canvas), Some(parsed("#101010")));
+    assert_eq!(overridden(&r, accent), Some(parsed("#ff0000")));
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("#101010"));
+    // The same design again, as a snapshot: nothing moves.
+    let again = design::snapshot(&shape, &design::tokens(&b));
+    assert!(!r.apply_live(&again).unwrap().roles);
+    // Back, as a snapshot: the plan's own.
+    let back = design::snapshot(&shape, &design::tokens(&a));
+    assert!(r.apply_live(&back).unwrap().roles);
+    assert_eq!(overridden(&r, canvas), Some(parsed("#fafafa")));
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), parsed("#fafafa"));
 }

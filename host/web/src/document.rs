@@ -245,6 +245,7 @@ fn walk<D: DataSource>(
     runner: &Runner<D>,
     computed: Option<Computed>,
 ) -> Result<(Document, Option<Computed>), DocumentError> {
+    let _roles = runner.bind_roles(); // Its own (LLP 1121 stage 5).
     let src = KernelSource(runner.kernel());
     let roots = runner.roots();
     let handlers = runner.handlers();

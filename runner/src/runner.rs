@@ -1383,7 +1383,8 @@ impl<D: DataSource> Runner<D> {
         self.poisoned
     }
     fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
-        // The queued patches' colours stay kept until this commit marks them.
+        let _roles = self.bind_roles(); // Its own (LLP 1121 stage 5).
+                                        // The queued patches' colours stay kept until this commit marks them.
         let (mut prefix, _queued) = self.take_reorder_ops();
         if !prefix.is_empty() {
             prefix.append(&mut ops);

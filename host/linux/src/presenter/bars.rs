@@ -295,6 +295,7 @@ impl<D: DataSource> Presenter<D> {
         if self.bars.painter.is_none() {
             return;
         }
+        let _roles = self.host.runner().bind_roles(); // The bars' look resolves them.
         let (window, safe, _) = self.bar_window();
         let (dark, font_scale) = (self.dark(), self.bar_font_scale());
         let epoch = self.host.kernel().epoch();

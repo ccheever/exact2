@@ -458,6 +458,7 @@ impl<D: DataSource> Host<D> {
         computed: document::Computed,
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
+        let _roles = runner.bind_roles(); // Its own while it opens (LLP 1121 stage 5).
         runner.set_device_links(links.device);
         // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
         // new runner's page drops the last one's, glue.js).

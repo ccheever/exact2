@@ -65,6 +65,12 @@ package enum ThemeRoles {
         own(view, table)
     }
 
+    /// The surfaces the presenter at `root` adopted (its sheets), alive.
+    static func adopted(by root: PlatformView) -> [PlatformView] {
+        guard let owner = owners[ObjectIdentifier(root)], owner.view === root else { return [] }
+        return owners.values.compactMap { $0.table === owner.table && $0.view !== root ? $0.view : nil }
+    }
+
     /// The table `view` resolves by: its presenter's, the nearest owner
     /// above it; else the applying presenter's; else the last to apply.
     private static func style(in view: PlatformView?) -> NodeStyle {
@@ -113,6 +119,8 @@ extension Presenter {
     func applyThemeTint() {
         #if os(iOS) || os(tvOS)
         root.tintColor = ThemeRoles.color("AccentColor", in: root)
+        // Its sheets sit outside the root: a live edit re-tints them too (LLP 1121 stage 5).
+        for sheet in ThemeRoles.adopted(by: root) { sheet.tintColor = root.tintColor }
         #else
         // The page's ground where the app sets none (LLP 1115 D2).
         viewport.backgroundColor = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
