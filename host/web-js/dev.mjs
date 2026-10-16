@@ -115,6 +115,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // event came (a deleted asset) is an edit.
     const designs = [...edited].filter((path) => path.endsWith('.tamber'));
     const designOnly = designs.length > 0 && [...edited].every((path) => path.endsWith('.tamber') || (!existsSync(path) && appeared.has(path)));
+    // Kept until a build lands: a failed one's edits are the next build's too.
+    const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
@@ -122,7 +124,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const from = design;
     built = await build(app, dist, keep); error = built.error;
     watchPackages(built.packages);
-    if (error) { console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error }); }
+    if (error) {
+      for (const p of pendingEdits) edited.add(p);
+      for (const p of pendingAppeared) appeared.add(p);
+      console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error });
+    }
     else if (built.kept) {
       const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
       const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));

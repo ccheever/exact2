@@ -264,12 +264,15 @@ if (es) {
   let designing = Promise.resolve();
   // Applied in place (the wasm's `exact_design_rows`): its batch is the
   // page's only when `live` says applied.
-  const apply = async (frame) => {
+  // `still()`, after every wait, says whether the frame is still this page's.
+  const apply = async (frame, still = () => true) => {
     const x = globalThis.exact;
     await x.ready;
+    if (!still()) return { live: "structure" };
     if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
     if (out.live === "applied") x.send(n);
+    if (out.unsupported) console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value");
     return out;
   };
   // One at a time, in the stream's order: a snapshot fetched is never older
@@ -278,8 +281,10 @@ if (es) {
   // that lands after the next is dropped (that one asks again).
   let generations = 0;
   const snapshot = async () => {
-    const asked = generations, response = await fetch("/__dev/design", { cache: "no-store" });
-    if (response.status === 200 && asked === generations) await apply(await response.json());
+    const asked = generations, still = () => asked === generations, response = await fetch("/__dev/design", { cache: "no-store" });
+    if (response.status !== 200 || !still()) return;
+    const frame = await response.json();
+    if (still()) await apply(frame, still);
   };
   const syncDesign = () => { designing = designing.then(snapshot).catch((error) => console.error("exact dev:", String(error))); };
   const design = (frame) => {
