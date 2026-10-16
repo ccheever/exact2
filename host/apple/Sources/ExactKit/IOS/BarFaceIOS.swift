@@ -3,10 +3,14 @@
 // font, which is the platform's answer when the author said nothing more. A
 // button whose face says more, a status dot beside its label or a label in a
 // font of the author's (a "● Clock" chip in 12-point monospace), keeps that
-// face: its parts drawn in a row, in their own fonts, colours and corners,
+// face: its parts drawn in a row, in their own fonts, sizes, gap and corners,
 // in the page's scheme, as the item's image (`.alwaysOriginal`), as a hand-built
-// bar's custom view would draw them. The header a bar replaces is laid out as
-// `display: none`, so the parts are read from their styles, not their frames.
+// bar's custom view would draw them. Ink its author did not write (a colour
+// only inherited from the page) is the bar's own, as a title's is (LLP 1115
+// D4). The header a bar replaces is laid out as `display: none`, so the parts
+// are read from their styles, not their frames: the host sends the authored
+// size of a childless box and an authored gap for this (`kept_geometry`,
+// host/apple/src/style.rs).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -14,10 +18,12 @@ struct ChipFace: Equatable {
     enum Part: Equatable {
         /// A childless filled box: its size, its fill (light, dark) and corners.
         case dot(CGSize, [[Double]], [CGSize])
-        /// A system symbol at a point size, in its tint (light, dark).
-        case symbol(String, CGFloat, [[Double]])
-        /// A line of text in its font, in its colour (light, dark).
-        case text(String, UIFont, [[Double]])
+        /// A system symbol at a point size, in its tint (light, dark), nil
+        /// when its author wrote none.
+        case symbol(String, CGFloat, [[Double]]?)
+        /// A line of text in its font, in its colour (light, dark), nil when
+        /// its author wrote none.
+        case text(String, UIFont, [[Double]]?)
     }
     let parts: [Part]
     let gap: CGFloat
@@ -26,6 +32,9 @@ struct ChipFace: Equatable {
     /// three times the face's width, iOS 27), so the face is drawn for the
     /// scheme the page is in and drawn again when that changes.
     let dark: Bool
+    /// Bold Text, which weights the system font, an authored weight included,
+    /// as it does the titles beside it (LLP 1115.000 D12.3).
+    let bold: Bool
 
     /// The face of `button`, or nil when what it shows is one symbol or one
     /// line of text in the platform's type: the bar's own title or image.
@@ -33,25 +42,24 @@ struct ChipFace: Equatable {
 
     init?(_ button: NodeView, engine: TextEngine? = nil) {
         guard !button.isNativeButton, let engine = engine ?? button.text else { return nil }
+        let bold = button.traitCollection.legibilityWeight == .bold
         var parts: [Part] = [], dotted = false, typed = false, gap: CGFloat?
         func pair(_ node: NodeView, _ key: String) -> [[Double]] {
             [node.channels(key, dark: false) ?? [0, 0, 0, 1], node.channels(key, dark: true) ?? [1, 1, 1, 1]]
         }
-        // A childless box is a flat leaf, a layer and no view (FlatLeavesIOS),
-        // which is sent its paint and not its size: a round dot is as wide as
-        // its corners say, any other 8 points.
+        // A childless box (often a flat leaf, a layer and no view,
+        // FlatLeavesIOS) with no authored size in points has none to draw.
         func dot(_ style: NodeStyle) {
-            let corners = ["top_left", "top_right", "bottom_right", "bottom_left"].compactMap { style["border_radius_\($0)"]?.number }
-            let round = corners.count == 4 && Set(corners).count == 1 ? CGFloat(corners[0]) * 2 : nil
-            let number = { (key: String) in style[key]?.number.map { CGFloat($0) } ?? round ?? 8 }
-            let size = CGSize(width: number("width"), height: number("height"))
-            guard size.width > 0, size.height > 0, let fill = style["background_color"] else { return }
+            guard let width = style["width"]?.number, let height = style["height"]?.number, width > 0, height > 0,
+                  let fill = style["background_color"] else { return }
+            let size = CGSize(width: width, height: height)
             dotted = true
             let rect = CGRect(origin: .zero, size: size)
             parts.append(.dot(size, [fill.channels(dark: false) ?? [0, 0, 0, 0], fill.channels(dark: true) ?? [0, 0, 0, 0]],
                               BorderPaint.reduced(BorderPaint.radii(style, in: rect), in: rect)))
         }
-        func walk(_ node: NodeView, fonted: Bool) {
+        // `inked`: an ancestor up to the button wrote the colour its text inherits.
+        func walk(_ node: NodeView, fonted: Bool, inked: Bool) {
             let presenter = node.presenter
             let ids = presenter?.flats.children(of: node.id) ?? node.container.subviews.compactMap { ($0 as? NodeView)?.id }
             let kids: [Either] = ids.compactMap { id in
@@ -66,27 +74,34 @@ struct ChipFace: Equatable {
                     continue
                 }
                 let fonted = fonted || ["font_family", "font_size", "font_weight"].contains(where: child.wrote)
+                let inked = inked || child.wrote("text_color")
                 if child.isParagraph {
                     let text = child.accessibleText
                     guard !text.isEmpty else { continue }
                     typed = typed || fonted
-                    let font = engine.font(size: child.number("font_size", PageFacts.defaultRootFontSize), weight: Int(child.number("font_weight", 400)),
-                                           family: Int(child.number("font_family")), italic: child.style["font_style"]?.string == "italic")
-                    parts.append(.text(text, font, pair(child, "text_color")))
+                    // A font file the author ships is left alone; the system
+                    // font takes UIKit's step for Bold Text, regular to semibold.
+                    let family = Int(child.number("font_family")), shipped = engine.catalog[family]?.isEmpty == false
+                    let weight = Int(child.number("font_weight", 400)) + (bold && !shipped ? 200 : 0)
+                    let font = engine.font(size: child.number("font_size", PageFacts.defaultRootFontSize), weight: min(900, weight),
+                                           family: family, italic: child.style["font_style"]?.string == "italic")
+                    parts.append(.text(text, font, inked ? pair(child, "text_color") : nil))
                 } else if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
-                    parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), pair(child, "tint_color")))
+                    let tinted = inked || child.wrote("tint_color")
+                    parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), tinted ? pair(child, "tint_color") : nil))
                 } else if child.container.subviews.isEmpty, child.style["background_color"] != nil {
                     dot(child.style)
                 } else {
-                    walk(child, fonted: fonted)
+                    walk(child, fonted: fonted, inked: inked)
                 }
             }
         }
-        walk(button, fonted: ["font_family", "font_size", "font_weight"].contains(where: button.wrote))
+        walk(button, fonted: ["font_family", "font_size", "font_weight"].contains(where: button.wrote), inked: button.wrote("text_color"))
         guard !parts.isEmpty, dotted || typed else { return nil }
         self.parts = parts
-        self.gap = gap ?? 6
+        self.gap = gap ?? 0
         dark = button.drawsDark
+        self.bold = bold
     }
 
     /// Everything the face is drawn from (a font by its name and size).
@@ -97,13 +112,19 @@ struct ChipFace: Equatable {
             case .symbol(let name, let points, let tint): return "s\(name)\(points)\(tint)"
             case .text(let text, let font, let color): return "t\(text)\(font.fontName)\(font.pointSize)\(color)"
             }
-        }.joined(separator: "|") + "|\(gap)|\(dark)"
+        }.joined(separator: "|") + "|\(gap)|\(dark)|\(bold)"
     }
 
-    var image: UIImage { draw(dark: dark).withRenderingMode(.alwaysOriginal) }
+    /// The face drawn, its unwritten ink the bar's (`tint`, what a plain
+    /// item's title is drawn in before iOS 26; the label colour after).
+    func image(tint: UIColor) -> UIImage {
+        var bar = tint
+        if #available(iOS 26.0, tvOS 26.0, *) { bar = .label }
+        return draw(bar: bar.resolvedColor(with: UITraitCollection(userInterfaceStyle: dark ? .dark : .light))).withRenderingMode(.alwaysOriginal)
+    }
 
-    private func draw(dark: Bool) -> UIImage {
-        let ink = { (c: [[Double]]) in TextEngine.color(c[dark ? 1 : 0]) }
+    private func draw(bar: UIColor) -> UIImage {
+        let ink = { (c: [[Double]]?) in c.map { TextEngine.color($0[dark ? 1 : 0]) } ?? bar }
         let drawn: [(CGSize, (CGRect) -> Void)] = parts.map { part in
             switch part {
             case .dot(let size, let fill, let corners):

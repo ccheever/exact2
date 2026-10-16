@@ -25,6 +25,9 @@ use exact_kernel::{
 use exact_motion::Property;
 use std::fmt::Write as _;
 
+mod kept;
+use kept::kept_geometry;
+
 /// A row this host does not lower (and why).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skipped {
@@ -37,7 +40,7 @@ pub struct Skipped {
 /// The style dictionary for a node's set rows, as a JSON object, plus what
 /// was skipped.
 pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
-    style_json_sized(style, env, false)
+    style_json_sized(style, env, StyleMask::EMPTY)
 }
 
 /// Layout rows no Apple presenter reads: the kernel sized and placed the
@@ -86,23 +89,24 @@ fn presenter_ignores(name: &str) -> bool {
     )
 }
 
-/// [`style_json`], with `width` and `height` kept when `keep_size`.
-pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (String, Vec<Skipped>) {
+/// [`style_json`], with the rows in `keep` sent though the presenter
+/// otherwise reads them from the frame (`width`, `height`, a gap).
+pub fn style_json_sized(style: &StyleProps, env: &Env, keep: StyleMask) -> (String, Vec<Skipped>) {
     // An undefined segment length is its row's initial value (LLP 1078 D3).
     let resolved = style.env_resolved(env);
-    style_json_rows(&resolved, Some(env), keep_size)
+    style_json_rows(&resolved, Some(env), keep)
 }
 
 /// Native button face geometry was resolved by the kernel against its live
 /// environment. Serialise the same points for fitting and presentation.
 pub(crate) fn style_json_resolved(style: &StyleProps) -> (String, Vec<Skipped>) {
-    style_json_rows(style, None, false)
+    style_json_rows(style, None, StyleMask::EMPTY)
 }
 
 fn style_json_rows(
     style: &StyleProps,
     env: Option<&Env>,
-    keep_size: bool,
+    keep: StyleMask,
 ) -> (String, Vec<Skipped>) {
     // Written in place: a list row's mount builds one of these per node,
     // and a `String` per value (`format!`) was most of its cost.
@@ -120,10 +124,9 @@ fn style_json_rows(
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
             continue;
         }
-        if matches!(name, "translate" | "scale" | "rotate" | "opacity") || presenter_ignores(name) {
-            continue;
-        }
-        if !keep_size && matches!(name, "width" | "height") {
+        if matches!(name, "translate" | "scale" | "rotate" | "opacity")
+            || !keep.has(id) && (presenter_ignores(name) || matches!(name, "width" | "height"))
+        {
             continue;
         }
         if !style.mask.has(id) {
@@ -984,7 +987,7 @@ pub fn style_json_presented(
     let current = computed.text_color;
     computed.background_color = Some(computed.background_color.unwrap_or(current));
     computed.tint_color = Some(computed.tint_color.unwrap_or(current));
-    let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
+    let (mut json, skipped) = style_json_sized(&computed, env, kept_geometry(node));
     // A modal's top layer is positioned in the viewport by AppKit, outside
     // its authored parent. Keep only the existing inset rows for dialogs.
     // A popover placed by `position-area` (LLP 1021, "Placement") is placed
