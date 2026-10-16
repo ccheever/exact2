@@ -547,6 +547,22 @@ The existing device outbox owns durable upload bytes and placement dependencies.
 No app-local durable queue is introduced. Driver mutations advance the UI virtual
 clock one millisecond; the backend's clock remains its own.
 
+**EX9 amendment (Charlie’s wave-14 E1–E11/H10 task, 2026-10-16; implementer Codex):**
+Both adapters expose stored, fenced guest sessions and public auth configuration.
+The mixed identity recipe tests guest admission, optional send arguments, persona
+selection resetting to signed out on reload, and password-session restoration.
+Mutation sources throw `refused(why)`; a literal `{ok:false}` returned along a
+Snapback mutation source path is refused at bake with that rewrite. The refusal’s
+code and message remain separate, including in the web agent’s mutation failures.
+Roster scaffolds write explicit-id seed rows for `insert <- deny` tables and use
+`fresh "seed.json"`; unsupported field types require an authored backend seed.
+A failed unseeded test with authorization refusals names that repair. The driver
+warns when its epoch and a development backend’s clock differ by more than a day.
+Healthy rebuilds name resolved virtual mounts on one line. The README retest
+command runs every complete documented app twice against a selected registry;
+only a successful run publishes the pin, dated claims and input-hashed receipt.
+The checker refuses a version edit or changed tested source without that rerun.
+
 ### D13. `fresh`: a test file empties the backend before each test
 
 **Author ruling 2026-10-12, via the sb4 app farm** (wave 4: 091; wave 7:
