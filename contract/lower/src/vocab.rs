@@ -378,7 +378,7 @@ mod tests {
             assert!(listed.contains(&name), "attribute `{name}` missed");
         }
         assert!(RENAMED_CANDIDATES.contains(&"keyboardAvoiding"));
-        assert!(HTML_CANDIDATES.contains(&"h6"));
+        assert!(HTML_CANDIDATES.contains(&"label"));
         assert_eq!(default(StyleId::PaddingTop), Some("0"));
         assert_eq!(default(StyleId::FlexDirection), Some("row"));
     }

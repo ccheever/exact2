@@ -261,6 +261,15 @@ fn one_json(name: &str) -> (Value, bool) {
 /// One name as text, printed (a refusal on stderr), and whether it was
 /// known; a concept already in `shown` is named, not printed again.
 fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
+    // LLP 1116.017 D1: the parser reads `h1`-`h6` as headings, so no table has them.
+    if let Some(level) = name
+        .strip_prefix('h')
+        .and_then(|n| n.parse::<u8>().ok())
+        .filter(|n| (1..=6).contains(n))
+    {
+        println!("{name}: a heading of level {level}: `{name} \"Title\"` is `text \"Title\" role=\"heading\" aria-level={level}`; a level the app computes is written that way");
+        return true;
+    }
     let Some(Entry {
         tag,
         attr,
