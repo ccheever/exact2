@@ -47,6 +47,7 @@ pub mod commands;
 pub mod compare;
 mod conform;
 pub mod delivery;
+pub mod design;
 pub mod device;
 pub mod failure;
 pub mod file_pickers;
@@ -112,6 +113,7 @@ pub use runner::{
     JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT,
     VIRTUAL_FRAME_MS,
 };
+pub use runner::{LiveApplied, LiveRefusal};
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};

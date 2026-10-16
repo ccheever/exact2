@@ -15,6 +15,9 @@ const CH = ["color", "caret-color", "fill", "stroke", "accent-color", "text-shad
 // A value that sets no row: the row is the one around (`StyleValue::text_unsets`).
 const UNSETS = /^\s*(unset|inherit)\s*$/i;
 let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Names = {}, Win = [], Pending = false;
+// A development build's design digest (LLP 1121 stage 4): the base a live
+// batch applies to. Null in a release build, which takes none.
+let Design = null, Rules = null;
 const key = d => Axes.map(([a, values], i) => `${a}=${values[d[i]]}`).join(",");
 const rendering = () => typeof document === "undefined" || !!globalThis.__exactRender;
 
@@ -159,13 +162,51 @@ const refused = pins => {
   return null;
 };
 
+/** The page's rule for each full tuple, by its key. */
+function tupleRules() {
+  if (Rules) return Rules;
+  Rules = new Map();
+  for (const sheet of document.styleSheets ?? []) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const r of rules) {
+      const m = /\[data-x-modes="([^"]*)"\]/.exec(r.selectorText ?? "");
+      if (m && !r.selectorText.includes("data-x-accent")) Rules.set(m[1], r);
+    }
+  }
+  return Rules;
+}
+/** Full tuple `t`'s key (mixed radix over the axes, the first most
+ * significant), as modes.rs `key` writes it. */
+const tupleKey = t => {
+  const pins = [];
+  for (let i = Axes.length - 1; i >= 0; i--) { const [a, values] = Axes[i]; pins.unshift(`${a}=${values[t % values.length]}`); t = Math.floor(t / values.length); }
+  return pins.join(",");
+};
+/** A live batch or snapshot (LLP 1121 stage 4): each changed token's
+ * property set again in every tuple's rule, in one style update. Stale when
+ * its base is not this page's design. */
+function design(frame) {
+  if (frame.base != null && frame.base !== Design) return { live: "stale" };
+  if (frame.design === Design || !frame.tokens?.length) return { live: "applied" };
+  const rules = tupleRules();
+  for (const t of frame.tokens) {
+    if (!t.prop || !Array.isArray(t.css)) continue;
+    t.css.forEach((css, i) => rules.get(tupleKey(i))?.style.setProperty(t.prop, css));
+  }
+  Design = frame.design;
+  return { live: "applied" };
+}
+
 /** `axes`: [name, values] as declared, the first value the default;
  * `classes`: each class's rows by bit, the text's index or -1; `texts`,
  * each `property:value`; `vars`: each class's properties that name a
  * varying token; `accent`: the properties of those that name the accent;
- * `names`: each varying token's name by its property. */
-export function modes(axes, classes, texts, vars, accent, names) {
+ * `names`: each varying token's name by its property; `devDesign`: a
+ * development build's design digest, which installs `exact.design`. */
+export function modes(axes, classes, texts, vars, accent, names, devDesign) {
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
+  if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Rules = null; (globalThis.exact ??= {}).design = design; }
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {

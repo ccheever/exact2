@@ -89,13 +89,29 @@ pub struct Generation {
 
 type FetchOutcome = Result<Option<Generation>, String>;
 
+/// The design the dev server's builds run when it is not the plan's own
+/// (LLP 1121 stage 4): `/__dev/design`'s snapshot, or `None` (204, or no
+/// server that keeps one).
+pub fn fetch_design(page: &str) -> Option<String> {
+    let url = join(page, "/__dev/design").ok()?;
+    let mut req = ibex2::stdlib::fetch::Request::get(&url);
+    req.headers.set("accept", "application/json");
+    req.headers.set("cache-control", "no-cache");
+    req.max_body = Some(MAX_PLAN_BYTES);
+    let r = ibex2::transport::default_transport().send(&req).ok()?;
+    (r.status == 200).then(|| String::from_utf8(r.body).ok())?
+}
+
 /// One in-flight URL poll owned by the presenter, shared by display and agent loops.
 pub(crate) struct Poller {
     url: String,
     compat: String,
     pub identity: Option<String>,
     due: std::time::Instant,
-    worker: Option<std::sync::mpsc::Receiver<FetchOutcome>>,
+    worker: Option<std::sync::mpsc::Receiver<(FetchOutcome, Option<String>)>>,
+    /// The dev server's design snapshot, as last polled, for the presenter
+    /// to apply (a build on it already applies nothing).
+    pub design: Option<String>,
 }
 
 impl Poller {
@@ -106,14 +122,18 @@ impl Poller {
             identity,
             due: std::time::Instant::now(),
             worker: None,
+            design: None,
         }
     }
 
     pub fn poll(&mut self) -> FetchOutcome {
         if let Some(worker) = &self.worker {
             match worker.try_recv() {
-                Ok(outcome) => {
+                Ok((outcome, design)) => {
                     self.worker = None;
+                    if design.is_some() {
+                        self.design = design;
+                    }
                     self.due = std::time::Instant::now() + std::time::Duration::from_millis(500);
                     return outcome;
                 }
@@ -130,7 +150,8 @@ impl Poller {
             let (send, receive) = std::sync::mpsc::channel();
             self.worker = Some(receive);
             std::thread::spawn(move || {
-                let _ = send.send(fetch_changed(&url, &compat, previous.as_deref()));
+                let changed = fetch_changed(&url, &compat, previous.as_deref());
+                let _ = send.send((changed, fetch_design(&url)));
             });
         }
         Ok(None)

@@ -136,7 +136,7 @@ function spawnContract(appDir) {
 /** The wire for one app: `handle(req, res, url, access)` answers the
  * `/__tamber` paths (true when it did); `close()` stops the server and
  * resolves once it has let go of the design's lock. */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST }) {
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -206,7 +206,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** One request's reply. `done`, when given, sees the server's own reply
    * even after the client was told it timed out (`wait` ms; none for the
    * first read, which may wait on a cold build of the compiler). */
-  const ask = (request, { wait = ANSWER_MS, done = () => {} } = {}) => new Promise(reply => {
+  const ask = (request, { wait = answerMs, done = () => {} } = {}) => new Promise(reply => {
     if (down) { done(null); return reply({ error: { message: down } }); }
     const line = JSON.stringify({ ...request, id: ++next });
     if (Buffer.byteLength(line) >= LINE_LIMIT) { done(null); return reply({ status: 413, error: { message: 'a request is at most 1 MiB' } }); }
@@ -235,7 +235,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     else { first = false; publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files))); }
     watchAll(Object.keys(reply.ok.files));
   };
-  const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : ANSWER_MS, done: read });
+  const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : answerMs, done: read });
   // The app's directory (where a new design beside it appears) and the
   // design's, whatever the first read gave, and any other holding a file.
   // A directory removed and made again is watched again (by its inode).
@@ -381,13 +381,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers` a list of objects with `items` (indices), its `tokens` a count' } };
       // A revert's review is the server's own: it is planned again from it.
       if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
-      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review);
+      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'history') return history(request);
     // Which app this server is, and which run of it, so `tamber tool` can
     // tell its own from another's and a client can tell a restart.
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch } } : r));
+    // `live`: a dev loop serves it, whose running builds take a value-only
+    // edit in place, no reload (LLP 1121 stage 4's live table).
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live } } : r));
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
     if (request.method === 'drop') {
@@ -438,7 +440,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (--writing === 0 && again) { again = false; rescan(); }
     };
     writing++;
-    return ask(request, { done: announce });
+    // Held until the server answers, however long: a write that applied
+    // after its client was told it timed out would leave the client wrong
+    // (an undo's redo lost). A server that exits fails it at once.
+    return ask(request, { wait: 0, done: announce });
   }
   const proposals = new Map();
   const forget = (id, why) => { proposals.delete(id); send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, ...why }); };
@@ -455,12 +460,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   /** The proposals held now, as a reconnecting client reads them. */
   const held = () => [...proposals].map(([id, p]) => p.shown);
-  async function hold(client, ops, files, replaces, review) {
+  async function hold(client, ops, files, replaces, review, requires) {
     expire();
     const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
     // The digests of files it was planned on but does not edit (a revert's
-    // file already as before) are its preconditions too.
-    const guards = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path)));
+    // file already as before), and those the client requires, are its
+    // preconditions too.
+    const guards = { ...(requires && typeof requires === 'object' ? requires : {}), ...Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path))) };
     const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}) });
     if (!planned.ok) return planned;
     const id = `prop-${epoch}-${++proposalCount}`;

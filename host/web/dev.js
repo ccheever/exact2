@@ -257,6 +257,29 @@ if (es) {
     };
     slot.ready?.();
   }
+  // The live table (LLP 1121 stage 4): a batch applies on its base; a stale
+  // build asks for the snapshot. A frame before boot waits for it, the
+  // latest only (a snapshot carries the whole design).
+  let designing = Promise.resolve();
+  // Applied in place (the wasm's `exact_design_rows`): its batch is the
+  // page's only when `live` says applied.
+  const apply = async (frame) => {
+    const x = globalThis.exact;
+    await x.ready;
+    if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
+    const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
+    if (out.live === "applied") x.send(n);
+    return out;
+  };
+  const design = (frame) => {
+    designing = designing.then(async () => {
+      const out = await apply(frame);
+      if (out.live === "stale") {
+        const response = await fetch("/__dev/design", { cache: "no-store" });
+        if (response.status === 200) await apply(await response.json());
+      } else if (out.live.startsWith("refused")) console.error("exact dev:", out.live);
+    }).catch((error) => console.error("exact dev:", String(error)));
+  };
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
@@ -276,6 +299,7 @@ if (es) {
       })().catch(error => { show(String(error), "gpu"); console.error('exact dev:', error); });
       return;
     }
+    if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
     if (message.ready === false) return;
     client.receive(message);
   };

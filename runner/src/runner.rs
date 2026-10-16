@@ -29,6 +29,7 @@ pub use intersect::Intersection;
 pub use shown::BlockPlacement;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
+mod live;
 mod mode;
 mod root_font;
 mod shown;
@@ -38,6 +39,7 @@ pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
     KeyboardEvent, ScrollEvent,
 };
+pub use live::{LiveApplied, LiveRefusal};
 mod canvas2d;
 pub use canvas2d::{
     engine as canvas_engine, CanvasEngine, CanvasList, DrawReply, DrawRequest, Drawn, Geometry,
@@ -361,6 +363,12 @@ pub struct Runner<D: DataSource> {
     reorder_ops: Vec<exact_kernel::Op>,
     /// The wide colours the queued patches hold, kept from the table's sweep.
     reorder_kept: exact_kernel::style::wide::Keep,
+    /// The design digest a live batch last left it at (LLP 1121 stage 4);
+    /// `None` while it runs its plan's own.
+    design: Option<String>,
+    /// A development build, which admits live batches (a host says so at
+    /// boot from its compat, [`Runner::admit_live`]).
+    live: bool,
     /// The session the owner's token names (LLP 1094 D4).
     reorder_session: Option<Box<reorder_group::Session>>,
     /// A grouped drop's source while its `reorderdrop` runs (D2).
@@ -818,6 +826,8 @@ impl<D: DataSource> Runner<D> {
             reorder_owner: None,
             reorder_ops: Vec::new(),
             reorder_kept: Default::default(),
+            design: None,
+            live: false,
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),

@@ -78,3 +78,28 @@ test('a boundary takes its tuple and the inherited token text, in document order
   globalThis.exact.modes.command(['dark-style', 'grey']);
   expect(journal.at(-1)).toBe('setMode("dark-style", "grey") refused: an axis of the app\'s design and one of its values');
 });
+
+// LLP 1121 stage 4: a development build's live batch sets each changed
+// token's property in every tuple's rule, on its base only.
+test('a live batch sets each tuple rule on its base, and a stale one asks for the snapshot', async () => {
+  const document = createDocument();
+  const rule = (selectorText) => ({ selectorText, style: { map: new Map(), setProperty(p, v) { this.map.set(p, v); } } });
+  const black = rule(':root,[data-x-modes="dark-style=black"]'), dim = rule('[data-x-modes="dark-style=dim"]'), accent = rule('[data-x-modes="dark-style=dim"][data-x-accent="--x-a"]');
+  document.styleSheets = [{ cssRules: [black, dim, accent] }];
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  modes([['dark-style', ['black', 'dim']]], {}, [], {}, [], { '--x-ink': 'ink' }, 'd0');
+  const design = globalThis.exact.design;
+  expect(design({ kind: 'tamber-batch', base: 'other', design: 'd1', tokens: [] }).live).toBe('stale');
+  // A notice of the design it runs applies nothing.
+  expect(design({ kind: 'tamber-batch', base: 'd0', design: 'd0', tokens: [] }).live).toBe('applied');
+  const batch = { kind: 'tamber-batch', base: 'd0', design: 'd1', tokens: [{ name: 'ink', value: '#ff0000ff', slices: [], prop: '--x-ink', css: ['#ff0000ff', '#00ff00ff'] }] };
+  expect(design(batch).live).toBe('applied');
+  expect(black.style.map.get('--x-ink')).toBe('#ff0000ff');
+  expect(dim.style.map.get('--x-ink')).toBe('#00ff00ff');
+  expect(accent.style.map.size).toBe(0);
+  // Its base is past now; a snapshot applies whatever this page ran.
+  expect(design(batch).live).toBe('stale');
+  expect(design({ ...batch, kind: 'tamber-snapshot', base: null, design: 'd2', tokens: [{ ...batch.tokens[0], css: ['#000000ff', '#111111ff'] }] }).live).toBe('applied');
+  expect(dim.style.map.get('--x-ink')).toBe('#111111ff');
+});

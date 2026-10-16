@@ -445,6 +445,7 @@ impl<D: DataSource> Host<D> {
         )
         .map_err(HostError::Runner)?;
         runner.measure_unless_production(compat, false); // LLP 1079 D1: the browser lays out
+        runner.admit_live(compat);
         Host::open(links, runner, launch, Batch::new(), Default::default())
     }
 

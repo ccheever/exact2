@@ -1378,6 +1378,8 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn measure(&mut self) {
         let on = !exact_runner::delivery::production(&self.compat);
         self.host.runner_mut().measure(on, true);
+        // The live table is development's too (LLP 1121 stage 4).
+        self.host.runner_mut().admit_live(Some(&self.compat));
     }
 
     /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:

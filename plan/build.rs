@@ -716,6 +716,101 @@ fn main() {
     let _ = writeln!(w, "        w.into_vec()");
     let _ = writeln!(w, "    }}");
 
+    // structure: the canonical bytes without the design's values
+    let _ = writeln!(w, "    /// The plan's structure (LLP 1121 stage 4, commit 3): its canonical bytes with the design's values left out (`theme` rows' `value`, `theme_slices`' `value`, but a role override's or a profile colour's, which a host takes at boot), so two plans that differ only in token values have equal structures (the builder interns the values after every other string, so none moves another's id). A dev loop compares them to send a value-only edit as a batch instead of a new plan.");
+    let _ = writeln!(w, "    pub fn structure(&self) -> Vec<u8> {{");
+    // Strings only the design's values name are left out of the pool; code
+    // names strings by id, so the rest stay, in place.
+    let _ = writeln!(w, "        let design = |r: &ThemeRow| self.str(r.role).is_empty() && !self.str(r.value).contains(\"(--\");");
+    let _ = writeln!(
+        w,
+        "        let mut values = vec![false; self.strings.len()];"
+    );
+    let _ = writeln!(
+        w,
+        "        for r in &self.theme {{ if design(r) {{ values[r.value.0 as usize] = true; }} }}"
+    );
+    let _ = writeln!(w, "        for r in &self.theme_slices {{ if !self.str(r.value).contains(\"(--\") {{ values[r.value.0 as usize] = true; }} }}");
+    for t in &schema.tables {
+        for f in &t.fields {
+            if !matches!(parse_codec(&f.codec), Codec::Str)
+                || (f.name == "value" && (t.name == "theme" || t.name == "theme_slices"))
+            {
+                continue;
+            }
+            let _ = writeln!(
+                w,
+                "        for r in &self.{} {{ values[r.{}.0 as usize] = false; }}",
+                t.name, f.name
+            );
+        }
+    }
+    let _ = writeln!(w, "        for r in &self.theme {{ if !design(r) {{ values[r.value.0 as usize] = false; }} }}");
+    let _ = writeln!(w, "        let mut w = Writer::default();");
+    let _ = writeln!(w, "        w.bytes(MAGIC); w.u32(FORMAT_VERSION); w.u64(FORMAT_DIGEST); w.u64(self.kernel_schema_digest); w.u64(self.compiler_identity);");
+    for f in &schema.header {
+        if f.codec == "string" {
+            let _ = writeln!(w, "        w.string(&self.{});", f.name);
+        } else {
+            let _ = writeln!(
+                w,
+                "        w.u32(self.{}.map_or(u32::MAX, |v| v.0));",
+                f.name
+            );
+        }
+    }
+    let _ = writeln!(
+        w,
+        "        for (s, value) in self.strings.iter().zip(&values) {{ if !*value {{ w.string(s); }} }}"
+    );
+    let _ = writeln!(
+        w,
+        "        w.u32(self.code.len() as u32); w.bytes(&self.code);"
+    );
+    let _ = writeln!(
+        w,
+        "        w.u32(self.data.len() as u32); w.bytes(&self.data);"
+    );
+    for t in &schema.tables {
+        let _ = writeln!(w, "        w.u32(self.{}.len() as u32);", t.name);
+        let _ = writeln!(w, "        for r in &self.{} {{", t.name);
+        for f in &t.fields {
+            // A token's value is the design's, unless it overrides a role
+            // (hosts take role tables at boot) or names a profile's colour.
+            if f.name == "value" && t.name == "theme" {
+                let _ = writeln!(w, "            if !self.str(r.role).is_empty() || self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}");
+                continue;
+            }
+            if f.name == "value" && t.name == "theme_slices" {
+                let _ = writeln!(
+                    w,
+                    "            if self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}"
+                );
+                continue;
+            }
+            let stmt = match parse_codec(&f.codec) {
+                Codec::U8 => format!("w.u8(r.{});", f.name),
+                Codec::U16 => format!("w.u16(r.{});", f.name),
+                Codec::U32 => format!("w.u32(r.{});", f.name),
+                Codec::I32 => format!("w.i32(r.{});", f.name),
+                Codec::F64 => format!("w.f64(r.{});", f.name),
+                Codec::Bool => format!("w.u8(r.{} as u8);", f.name),
+                Codec::Str => format!("w.u32(r.{}.0);", f.name),
+                Codec::Enum(_) => format!("w.u8(r.{} as u8);", f.name),
+                Codec::Idx(_) => format!("w.u32(r.{}.0);", f.name),
+                Codec::Opt(_) => format!("w.u32(r.{}.map_or(u32::MAX, |v| v.0));", f.name),
+                Codec::Range(_) => format!("w.u32(r.{f}.start); w.u32(r.{f}.len);", f = f.name),
+                Codec::Code | Codec::Bytes => {
+                    format!("w.u32(r.{f}.offset); w.u32(r.{f}.len);", f = f.name)
+                }
+            };
+            let _ = writeln!(w, "            {stmt}");
+        }
+        let _ = writeln!(w, "        }}");
+    }
+    let _ = writeln!(w, "        w.into_vec()");
+    let _ = writeln!(w, "    }}");
+
     // decode
     let _ = writeln!(w, "    /// Decode and validate whole. Every index, range, code, and data reference is checked before the plan is returned; a failure names the row.");
     let _ = writeln!(

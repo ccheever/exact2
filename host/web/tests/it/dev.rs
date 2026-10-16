@@ -520,3 +520,104 @@ fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize(
         assert_eq!(state["device"]["prefersColorScheme"], "dark");
     }
 }
+
+/// LLP 1121 stage 4, commit 3: a value-only edit of the app's design
+/// publishes no plan (its file is written, for a host that watches it); its
+/// batch says what changed. An edit that changes the plan's
+/// structure, or the Contract, still writes one. A write by rename, as the
+/// Tamber server makes it, is the same case as one in place, as an editor
+/// saves.
+#[test]
+fn a_value_only_design_edit_writes_no_plan_and_sends_a_batch() {
+    let dir = scratch("design");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n";
+    std::fs::write(&design, tamber).unwrap();
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"one\" color=\"ink\"\n";
+    std::fs::write(&src, view).unwrap();
+    let mut s = Session::new(&src, &out);
+    let first = s.poll::<NoData>().expect("first look builds").unwrap();
+    assert!(first.live.is_none());
+    let on_disk = std::fs::read(&out).unwrap();
+    // A value, saved in place.
+    save(&design, &tamber.replace("#111111", "#222222"), 1);
+    let edit = s.poll::<NoData>().expect("a design edit").unwrap();
+    let live = edit.live.expect("value-only");
+    assert_eq!(std::fs::read(&out).unwrap(), edit.bytes, "the file follows");
+    assert_ne!(edit.bytes, on_disk);
+    let names: Vec<&str> = live.batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["ink"]);
+    assert_eq!(live.batch.tokens[0].value, "#222222ff");
+    assert_eq!(live.snapshot.tokens.len(), 2);
+    assert_eq!(live.batch.design, live.snapshot.design);
+    // Another, written by rename: its base is the last batch's design.
+    let tmp = dir.join(".app.tamber.tmp");
+    std::fs::write(&tmp, tamber.replace("#111111", "#333333")).unwrap();
+    std::fs::rename(&tmp, &design).unwrap();
+    let edit = s.poll::<NoData>().expect("a renamed design").unwrap();
+    let next = edit.live.expect("value-only");
+    assert_eq!(next.batch.base.as_deref(), Some(live.batch.design.as_str()));
+    // A token no view reads is in no plan: an empty batch, which the loop
+    // does not send. Naming it in the view is structure.
+    save(
+        &design,
+        &format!("{}  edge = #000000\n", tamber.replace("#111111", "#333333")),
+        3,
+    );
+    let quiet = s.poll::<NoData>().expect("rebuilt").unwrap();
+    assert!(quiet
+        .live
+        .as_ref()
+        .is_some_and(|l| l.batch.tokens.is_empty()));
+    save(
+        &src,
+        &view.replace("column ", "column border-color=\"edge\" "),
+        4,
+    );
+    let structural = s.poll::<NoData>().expect("a structure edit").unwrap();
+    assert!(structural.live.is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1121 stage 4, commit 4: a running web build applies a batch in
+/// place (no reload: its state stays), and answers stale for one whose base
+/// it has passed.
+#[test]
+fn a_running_web_build_applies_a_batch_in_place() {
+    use exact_runner::design;
+    let dir = scratch("live-host");
+    let view = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column background-color=\"page\"\n      button press=bump testId=\"bump\"\n        text `${n}` color=\"ink\" testId=\"count\"\n";
+    let plan = |tamber: &str| {
+        std::fs::write(dir.join("app.tamber"), tamber).unwrap();
+        std::fs::write(dir.join("app.contract"), view).unwrap();
+        contract::compile_path(&dir.join("app.contract")).unwrap()
+    };
+    let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
+    let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
+    let structure = design::structure(&a);
+    let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let (mut host, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
+    let bump = {
+        let k = host.runner().kernel();
+        k.node_by_key(k.find_by_test_id("bump")[0]).unwrap().id
+    };
+    host.dispatch(bump, exact_runner::Event::Press);
+    let out = host.apply_live(&batch.json());
+    assert!(out.starts_with("{\"live\":\"applied\""), "{out}");
+    assert!(
+        out.contains("rgba(255,0,0,1)"),
+        "the new colour reaches the page: {out}"
+    );
+    let count = {
+        let k = host.runner().kernel();
+        let n = k.node_by_key(k.find_by_test_id("count")[0]).unwrap();
+        n.props.str(exact_kernel::PropId::Text).map(str::to_string)
+    };
+    assert_eq!(count.as_deref(), Some("1"), "no reload: the state stays");
+    assert!(host
+        .apply_live(&batch.json())
+        .starts_with("{\"live\":\"stale\""));
+    let _ = std::fs::remove_dir_all(dir);
+}

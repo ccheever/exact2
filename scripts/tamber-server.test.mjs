@@ -73,6 +73,39 @@ test('the token goes only to a local request, and every request needs it', async
   tamber.close();
 });
 
+// LLP 1121 stage 4: a dev loop's wire says its builds take a value-only edit
+// live; a write is held until the server answers, however long (a read
+// still times out), so a write never lands after its client was told it
+// failed.
+test('hello says live, and a slow write is answered, not timed out', async () => {
+  const port = 8803;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  // Answers a transaction after 300 ms, a describe never.
+  const slowServe = () => {
+    const child = fakeServe();
+    child.stdin.removeAllListeners('data');
+    let buf = '';
+    child.stdin.on('data', chunk => {
+      buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        const r = JSON.parse(line);
+        const answer = () => child.stdout.write(`${JSON.stringify({ id: r.id, ok: { files: {}, written: [], changed: [] } })}\n`);
+        if (r.method === 'transaction') setTimeout(answer, 300);
+        else if (r.method !== 'describe') answer();
+      }
+    });
+    return child;
+  };
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: slowServe, log: () => {}, live: true, answerMs: 100 });
+  const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
+  const post = body => ask(tamber, gate, { path: '/__tamber', method: 'POST', headers, body: JSON.stringify(body) });
+  expect((await post({ method: 'hello' })).body.ok.live).toBe(true);
+  const write = await post({ method: 'transaction', client: 'agent', files: {}, ops: [] });
+  expect(write.status).toBe(200);
+  expect((await post({ method: 'describe' })).status).toBe(504);
+  tamber.close();
+});
+
 // The real server (`contract tamber serve`, built once by cargo) behind an
 // HTTP listener and the development gate, as a dev loop mounts it.
 let dir, server, tamber, origin, headers;
@@ -375,6 +408,9 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
+  // A held proposal checks the files its client requires, as a transaction does.
+  const guarded = await post({ method: 'propose', hold: true, client: 'agent', requires: { 'brand.tamber': 'f'.repeat(64) }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }] });
+  expect(guarded.status).toBe(409);
   // In part: the one item kept is a new proposal.
   const two = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
   const part = await post({ method: 'accept', client: 'person', proposal: two.ok.proposal, items: [1] });

@@ -20,6 +20,11 @@
 //! The rows are the template kernel's, projected twice: once as the plan
 //! says, and once with each varying token bound to a sentinel colour no row
 //! of the first projection writes, which is then each token's `var()`.
+//!
+//! A development build (`--dev-reload`, LLP 1121 stage 4) makes every token
+//! that overrides no role a property, varying or not, so the live table can
+//! set any of them in place ([`every`], [`design`]); a release build folds
+//! the others inline, as before, byte for byte.
 
 use exact_kernel::StyleId;
 use exact_plan::{BindingKind, Plan};
@@ -39,10 +44,33 @@ pub const CHANNELS: [(StyleId, &str); 7] = [
     (StyleId::TextStrokeColor, "-webkit-text-stroke-color"),
 ];
 
+thread_local! {
+    /// A development build's: every token a property ([`every`]).
+    static EVERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Make every token that overrides no role a property while the returned
+/// guard lives (a development build, LLP 1121 stage 4); restored after.
+pub fn every(on: bool) -> impl Drop {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            EVERY.with(|e| e.set(self.0));
+        }
+    }
+    Restore(EVERY.with(|e| e.replace(on)))
+}
+
+fn every_token() -> bool {
+    EVERY.with(std::cell::Cell::get)
+}
+
 /// Whether `plan` has modes on the web: app axes, or a theme and a
-/// `color-scheme` boundary, whose inherited token colours are written again.
+/// `color-scheme` boundary, whose inherited token colours are written again;
+/// in a development build, any theme.
 pub fn active(plan: &Plan) -> bool {
-    !plan.axes.is_empty()
+    every_token() && !plan.theme.is_empty()
+        || !plan.axes.is_empty()
         || !plan.theme.is_empty()
             && plan
                 .bindings
@@ -56,7 +84,7 @@ pub fn active(plan: &Plan) -> bool {
 pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for (i, row) in plan.theme.iter().enumerate() {
-        if row.slices.len == 0 {
+        if row.slices.len == 0 && !(every_token() && plan.str(row.role).is_empty()) {
             continue;
         }
         let name = plan.str(row.name);
@@ -316,8 +344,18 @@ impl Modes {
                 ));
             }
         }
+        // A development build's design digest, for the live table's base.
+        let design = match every_token() {
+            true => format!(
+                ",{}",
+                json(&exact_runner::design::digest(
+                    &exact_runner::design::tokens(plan)
+                ))
+            ),
+            false => String::new(),
+        };
         format!(
-            "$modes([{}],{{{}}},{},{{{}}},{},{{{}}});",
+            "$modes([{}],{{{}}},{},{{{}}},{},{{{}}}{design});",
             axes.join(","),
             channels.join(","),
             serde_json::to_string(&self.texts).unwrap(),
@@ -348,7 +386,7 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
             .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
     );
     let (mut css, mut accent) = (String::new(), Vec::new());
-    if axes.is_empty() {
+    if axes.is_empty() && !every_token() {
         return (css, accent);
     }
     let mut texts = Vec::new();
@@ -365,13 +403,7 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
             else {
                 continue;
             };
-            let colour = exact_kernel::ColorValue::parse_light_dark(value)
-                .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed));
-            let mut text = String::new();
-            match colour {
-                Some(c) => exact_kernel::gradient::color_css(&mut text, c),
-                None => text.push_str("transparent"),
-            }
+            let text = css_of(value);
             if text.contains("--exact-accent") && !accent.contains(prop) {
                 accent.push(prop.clone());
             }
@@ -389,6 +421,56 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
         }
     }
     (css, accent)
+}
+
+/// A token's colour text as the page's rules declare it.
+fn css_of(value: &str) -> String {
+    let colour = exact_kernel::ColorValue::parse_light_dark(value)
+        .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed));
+    let mut text = String::new();
+    match colour {
+        Some(c) => exact_kernel::gradient::color_css(&mut text, c),
+        None => text.push_str("transparent"),
+    }
+    text
+}
+
+/// A development build's design for the live table (LLP 1121 stage 4): the
+/// plan's structure and design digests and each token's wire text, and for
+/// each token the page declares, its property and its CSS per full tuple, as
+/// [`rules`] writes them. The dev loop sends the changed ones as a batch.
+pub fn design(plan: &Plan) -> serde_json::Value {
+    use exact_runner::design;
+    let tokens = design::tokens(plan);
+    let props = properties(plan);
+    let tables: Vec<_> = (0..bridge::tuples(plan))
+        .map(|tuple| bridge::theme_table_at(plan, tuple))
+        .collect();
+    let rows: Vec<serde_json::Value> = tokens
+        .iter()
+        .map(|t| {
+            let mut row = serde_json::json!({"name": t.name, "value": t.value, "slices": t.slices});
+            if let Some((_, prop)) = props.iter().find(|(n, _)| *n == t.name) {
+                let css: Vec<String> = tables
+                    .iter()
+                    .map(|table| {
+                        table
+                            .iter()
+                            .find(|(n, _, role)| **n == *t.name && !role)
+                            .map_or_else(|| "transparent".to_string(), |(_, v, _)| css_of(v))
+                    })
+                    .collect();
+                row["prop"] = prop.clone().into();
+                row["css"] = css.into();
+            }
+            row
+        })
+        .collect();
+    serde_json::json!({
+        "structure": design::structure(plan),
+        "digest": design::digest(&tokens),
+        "tokens": rows,
+    })
 }
 
 /// The varying tokens whose value names the accent in some tuple, by

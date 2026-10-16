@@ -111,7 +111,10 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
   stage 4's build channel;
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
-- `epoch`: this run of the server, the same value its events carry (*1.1*).
+- `epoch`: this run of the server, the same value its events carry (*1.1*);
+- `live`: true when a dev loop serves the wire, whose running builds take a value-only edit in
+  place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
+  False from a server no dev loop runs.
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 
@@ -213,6 +216,9 @@ A digest it carries is checked as a transaction's is, and a stale one is 409 (wi
 `{client, ops, files, requires?}` writes.
 - **`client`** is required, any non-empty string. By convention it is `design-tool:<person>`,
   `agent:<name>` or `import:<kind>`. Clients share one server, so a hello's name is no write's.
+- **Answered when done.** A write (a transaction, `undo`, `accept`) is held until the server
+  answers, however long it takes; it never answers 504 and then lands. A server that exits fails
+  every request in flight. Reads still time out at 120 seconds (504).
 - **Under the lock:** the digests are checked, the checker runs, and the files are committed as a
   set (temporary files fsynced, an intent record in `.exact/tamber.journal`, the renames, the
   record removed). A refused transaction changes nothing.
@@ -272,8 +278,8 @@ oldest goes), and announces it.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
   indices and its `tokens` a count. `review.revert` is the server's own, and refused from a
   client.
-- **Guards.** A held propose doesn't read `requires`. Any file in `files` that no operation edits
-  becomes a guard checked at `accept`.
+- **Guards.** The files a held propose `requires`, and any file in `files` that no operation
+  edits, are checked when it is planned and again at `accept`.
 
 **`accept`** `{proposal, client, items?}` applies the proposal against the digests it was planned
 with.
@@ -388,6 +394,39 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
   event among them. Once those are seen it answers 503, never an empty answer that would be
   asked again at once (*1.1*).
 
+## The live table (LLP 1121 stage 4)
+
+A write reaches every running development build at once. Release builds take none of this.
+
+- **A value-only edit publishes no plan.** When only `.tamber` files changed and the new plan's
+  structure is the published one's, the dev loop sends the changed tokens as a batch instead, and
+  nothing reloads. This is decided by content, so a hand edit and a write through the wire are the
+  same case. The plan file is still written, for a host that watches the file instead of the
+  stream.
+  - **The structure** is the plan without its design values: every `theme` row's `value` and
+    every slice's, except a role override's or a profile colour's, which hosts take at boot.
+  - **Anything else** still publishes a plan and reloads: a Contract edit, a token added, gone or
+    starting to vary, a role override's value, a synthetic token gained or lost.
+- **The batch** is an event on the dev stream the builds already hold (`/__dev`; the JS target's
+  `/__dev/page`): `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
+  slices}]}`.
+  - `value` is the default tuple's wire text (a colour as CSS text), and `slices` one text per full
+    app tuple where the token varies. A synthetic token's name is its expression, and its new value
+    rides along.
+  - `base` is the design digest it applies to, and `design` the new one. The JS target's batches
+    add each token's custom property and its CSS per tuple (`prop`, `css`).
+- **Applied only on its base.** A build applies a batch whose `base` is the design it runs, in one
+  commit with no layout for colours. A build on another design answers stale and fetches the
+  **snapshot**: `GET /__dev/design` answers `{kind: "tamber-snapshot", structure, base: null,
+  design, tokens}` with every token, or 204 when no value-only edit came after the published plan.
+  A build applies a snapshot when its structure is the plan's it runs.
+- **A notice** is a batch with no tokens whose `base` and `design` are the current design. A build
+  on that design applies nothing; one on another fetches the snapshot. The stream sends one on
+  connect, after value-only edits, and in place of a batch too large for a frame (32 KiB). A
+  native build fetches the snapshot after each plan it applies, and Linux polls it with its plan.
+- **A full wide colour table** refuses a colour with a journal line. The row keeps its value, and
+  the build reports it `unsupported` (the build channel, commit 5).
+
 ## The design tool's files (*1.1*)
 
 - **`GET /__tamber/tool/…`** serves the built tool (`target/design-tool-web`) to local requests
@@ -400,9 +439,6 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 ## Not yet in the protocol
 
 - **LLP 1121 stage 4, with LLP 1122 D4:**
-  - the live table (a `tamber-batch` event on the dev stream, and snapshots), and `hello`'s
-    `live: true` once it works;
-  - `class` judged by the whole closure;
   - the build channel (registration, the `status`, `unsupported` and `selected` reports, the
     `pin` command, `builds` in `hello`);
   - scrub sessions;

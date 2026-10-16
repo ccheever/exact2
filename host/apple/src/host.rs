@@ -62,6 +62,8 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[path = "live.rs"]
+mod live;
 #[path = "paint.rs"]
 mod paint;
 #[path = "paragraph.rs"]
@@ -434,6 +436,7 @@ impl<D: DataSource> Host<D> {
         runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);
+        runner.admit_live(compat);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
