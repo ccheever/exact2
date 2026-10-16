@@ -604,9 +604,10 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   real.onChange(() => {});
   expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
   const agent = pageReporter(true, new Proxy({}, {get(_, name) { if (name === 'devicePixelRatio') return 2; throw new Error('agent read the platform'); }})); // the display's scale alone is the page's own under the agent too: no drive value stands in for it (LLP 1115.000 D10.3)
-  expect(agent.bits()).toBe(4 | 8 | 32); // the drive navigated to the page: `navigate` (bits 5–6: 1)
-  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32); agent.prefer({ 'has-focus': 'true' });
-  expect(agent.bits()).toBe(1 | 2 | 4 | 32);
+  expect(agent.bits()).toBe(4 | 8 | 32 | 256); // the drive navigated to the page: `navigate` (bits 5–6: 1); files in a share, never a picture (LLP 1125 D12)
+  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32 | 256); agent.prefer({ 'has-focus': 'true' });
+  expect(agent.bits()).toBe(1 | 2 | 4 | 32 | 256); agent.prefer({ 'can-share-files': false, 'can-share-pictures': true }); expect(agent.bits()).toBe(1 | 2 | 4 | 32 | 512); agent.prefer({ 'can-share-files': true, 'can-share-pictures': false });
+  const asked = [], sharing = pageReporter(false, { ...platform, File: class { constructor(_, name, { type }) { asked.push([name, type]); } }, navigator: { onLine: true, share() {}, canShare: d => d.files.length === 1 } }); expect(sharing.bits()).toBe(4 | 32 | 256); expect(asked).toEqual([['a.txt', 'text/plain']]); // files in a share where `navigator.canShare({files})` takes a small text file (LLP 1125 D12)
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
   expect(agent.read()['can-share']).toBe(true); expect(agent.read()['display-scale']).toBe(2); expect(real.displayScale()).toBe(1); agent.prefer({ 'display-scale': 2 }); expect(() => agent.prefer({ 'display-scale': 3 })).toThrow("prefer: display-scale: 3: the page's is 2");
   agent.onChange(() => { throw new Error('agent listened to the platform'); });

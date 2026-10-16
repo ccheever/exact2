@@ -804,11 +804,13 @@ function apply(batch) {
         else if (/^show(OpenFile|Directory|SaveFile)Picker$/.test(op.name)) { // LLP 1069.010 D2: the runner rules; a browser without the picker refuses
           const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: op.name === "showSaveFilePicker" || typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (op.name === "share") {
-          // LLP 1069.003: the runner rules (refused, or held for the agent, D6);
-          // else the browser's sheet, started inside the input dispatch while
-          // activation is live (D4). The outcome is a journal line (D2).
-          const [title, text, url] = op.args ?? [], ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "share", title, text, url, source: op.source, agent: agentMode })))));
+          // LLP 1069.003: the runner rules (refused, or held for the agent, D6;
+          // a picture of an element refused on the web, LLP 1125 D12); else the
+          // browser's sheet, started inside the input dispatch while activation
+          // is live (D4); files are read first (picker-glue.js). The outcome is a journal line (D2).
+          const [title, text, url, files] = op.args ?? [], ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "share", title, text, url, files, source: op.source, agent: agentMode, web: true })))));
           if (ruling.present && typeof navigator.share !== "function") log("share: refused: unavailable");
+          else if (ruling.present && ruling.files?.length) { const p = picker().then(m => m.share({ title, text, url }, ruling.files)).then(log); inflight.add(p); p.finally(() => inflight.delete(p)); }
           else if (ruling.present) navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
             .then(() => "share: shared", e => e?.name === "AbortError" ? "share: dismissed" : `share: refused: ${e?.name ?? e}`).then(log);
         }

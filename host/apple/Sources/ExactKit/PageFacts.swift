@@ -1,12 +1,13 @@
 // The page's facts (LLP 1069.000 D2, D3): whether any of the app can be
 // seen (`visibilityState`), whether the device is online (`onLine`), whether
-// a share sheet exists (`canShare`, LLP 1069.003 D5), whether the document
-// pickers do (`canOpenFiles`), whether the session's window has the focus
-// (`hasFocus`, `document.hasFocus()`: #114), and the root font size `rem`
-// lengths follow (the platform's body size, LLP 1115 D3: Dynamic Type's body
-// on iOS, 17 at the default; `NSFont.systemFontSize`, 13, on the Mac). The
-// runner answers the first five through `exactPage()`; the kernel lays out
-// `rem` against the last. Under the agent the machine is never read: the
+// a share sheet exists (`canShare`, LLP 1069.003 D5) and takes files and
+// pictures (`canShareFiles`, `canSharePictures`, LLP 1125 D12), whether
+// the document pickers do (`canOpenFiles`), whether the session's window has
+// the focus (`hasFocus`, `document.hasFocus()`: #114), and the root font
+// size `rem` lengths follow (the platform's body size, LLP 1115 D3: Dynamic
+// Type's body on iOS, 17 at the default; `NSFont.systemFontSize`, 13, on the
+// Mac). The runner answers all but the last through `exactPage()`; the
+// kernel lays out `rem` against the last. Under the agent the machine is never read: the
 // drive's values stand in (`prefer`'s `page` group), visible, online, a share
 // sheet, the pickers, focus, the platform's default body size (17 on iOS, 13
 // on the Mac) until it says otherwise (LLP 1069.000 D6), unless
@@ -23,7 +24,7 @@ import Network
 
 package enum PageFacts {
     /// What an agent's `prefer` set, in place of the platform's readings.
-    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double(defaultRootFontSize)) {
+    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double(defaultRootFontSize)) {
         didSet { changed() }
     }
     /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
@@ -74,6 +75,17 @@ package enum PageFacts {
     }
     /// Both Apple platforms have a share sheet.
     static var canShare: Bool { substituted ? agent.canShare : true }
+    /// iOS's and the Mac's sheets take file URLs and a node's picture
+    /// (LLP 1125 D12); tvOS has no sheet to take them.
+    static var canShareFiles: Bool {
+        if substituted { return agent.canShareFiles }
+        #if os(tvOS)
+        return false
+        #else
+        return true
+        #endif
+    }
+    static var canSharePictures: Bool { substituted ? agent.canSharePictures : canShareFiles }
     /// The document pickers (LLP 1069.010 D2): the Mac's panels, iOS's
     /// document picker; tvOS has none (studio diary R31).
     static var canOpenFiles: Bool {
@@ -166,9 +178,10 @@ package enum PageFacts {
 
     /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
-    /// pickers, bit 4 without focus, bit 7 about to be suspended.
+    /// pickers, bit 4 without focus, bit 7 about to be suspended, bits 8 and
+    /// 9 a share takes files and pictures.
     static func bits(_ window: FocusWindow?) -> UInt32 {
-        (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0)
+        (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0)
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;

@@ -5,7 +5,8 @@
 // createImageBitmap, which applies EXIF orientation; a video's from its
 // metadata), and delivered as `change` (host kind 26). Under the agent the
 // driver's bytes arrive as Files and take the same path (D9). Also loaded
-// by the first `app:/` source an `image` or `video` shows (D7): `appURL`.
+// by the first `app:/` source an `image` or `video` shows (D7): `appURL`,
+// and by a `share` with `files=` (LLP 1125 D12): `share`.
 const picked = new Map(); // app:/tmp/picked/… → File
 const urls = new Map(); // app:/… → [its object URL, the version it was made from], for `image`/`video` (D7)
 let opened; // the app's file store, or null when it has none (a drive without --storage)
@@ -165,6 +166,27 @@ globalThis.exact.picker = function install(host) {
       saved(dispatch, r.node, String(path).trim().split(/[\\/]/).filter(Boolean).pop());
       return { bytes: btoa(raw) };
     },
+    /** `share(files=…)` (LLP 1125 D12): the share data `data` with each
+     * `app:/` file the runner allowed (`{path}`) as a File named by its last
+     * segment and typed by its extension, to the browser's sheet when
+     * `navigator.canShare` takes them. Resolves to the journal line. The
+     * reads are awaited inside the press's transient activation, which
+     * `navigator.share` still needs when they end. */
+    async share(data, files) {
+      let made;
+      try {
+        made = await Promise.all(files.map(async ({ path }) => {
+          const name = path.split('/').pop(), type = typeFor(name), file = picked.get(path);
+          if (file) return new File([file], name, { type });
+          const s = await fileStore(host.appId);
+          if (!s) throw new Error('this page has no app files');
+          return new File([(await s.blob(path, type)).blob], name, { type });
+        }));
+      } catch (e) { return `share: refused: ${e?.message ?? e}`; }
+      const members = { ...Object.fromEntries(Object.entries(data).filter(([, v]) => v != null)), files: made };
+      if (typeof navigator.canShare !== 'function' || !navigator.canShare(members)) return 'share: refused: this browser cannot share these files';
+      return navigator.share(members).then(() => 'share: shared', e => e?.name === 'AbortError' ? 'share: dismissed' : `share: refused: ${e?.name ?? e}`);
+    },
     /** The element's own `change`: what the person chose. */
     change: (el, id) => el.files?.length ? deliver(id, [...el.files], since()).finally(() => { el.value = ''; }) : Promise.resolve(),
     cancel: (id) => since()(id, 27, ''),
@@ -193,5 +215,5 @@ function pinnedTo(api, g, pin) {
 function typeFor(name) {
   const ext = name.toLowerCase().split('.').pop();
   return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
-    svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml', xml: 'application/xml', json: 'application/json', md: 'text/markdown', txt: 'text/plain', log: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', css: 'text/css', yaml: 'application/yaml', yml: 'application/yaml' }[ext] ?? 'application/octet-stream';
+    svg: 'image/svg+xml', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml', xml: 'application/xml', json: 'application/json', md: 'text/markdown', txt: 'text/plain', log: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', css: 'text/css', yaml: 'application/yaml', yml: 'application/yaml' }[ext] ?? 'application/octet-stream';
 }
