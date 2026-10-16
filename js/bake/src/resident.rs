@@ -132,6 +132,7 @@ impl Drop for Compiler {
 
 const WORKER: &str = r#"
 import { rolldown } from 'rolldown';
+import { parseSync } from 'rolldown/utils';
 import { realpathSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,7 +148,7 @@ async function compile() {
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
   const { configure, check, assertCapturedModule, ambientRefusals, packageImports } = await import(resolve(stage,'__exact_config.mjs'));
-  configure(stage, true);
+  configure(stage, true, parseSync);
   const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {

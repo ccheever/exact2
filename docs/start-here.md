@@ -41,8 +41,9 @@ For shared server data, `bun <exact2>/scripts/exact.mjs new app --snapback
 driver, generated operations and device. The origin defaults to 4400.
 `bun exact.mjs snapback` wires an existing app. With an existing schema, the
 untouched greeting becomes a typed query and mutation explorer with `--online`.
-`snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
-together. Password sign-in, stored sessions and refresh with Contract time are
+`snapback --port <n>` records an ignored local backend selection.
+`EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin and matching
+grant at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
 For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage

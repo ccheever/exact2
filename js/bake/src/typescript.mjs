@@ -9,6 +9,42 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { execFile } from 'node:child_process';
 import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
 
+/** Explicit build input, ahead of an ignored app-local development selection. */
+export function backendOrigin(app, env=process.env) {
+  const file=resolve(app,'.exact/backend-origin');
+  const value=env.EXACT_BACKEND_ORIGIN ?? (existsSync(file) ? readFileSync(file,'utf8').trim() : null);
+  if (value===null) return null;
+  let url; try { url=new URL(value); } catch { throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin'); }
+  if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.pathname!=='/' || url.search || url.hash)
+    throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin without credentials, path, query or fragment');
+  return url.origin;
+}
+/** Rewrite only the top-level literal origin and its exact net.fetch grant literals in the captured copy. */
+export function injectBackendOrigin(code, origin, parse) {
+  if (origin===null) return code;
+  const parsed=parse('app.ts',code);
+  if (parsed.errors.length) throw new Error('EXACT_BACKEND_ORIGIN: app.ts must parse before selecting a backend');
+  const declarations=parsed.program.body.flatMap(s=>(s.type==='ExportNamedDeclaration' ? s.declaration : s)?.declarations ?? []);
+  const targets=declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='origin');
+  const init=targets[0]?.init;
+  const literal=init?.type==='Literal' && typeof init.value==='string' ? init.value
+    : init?.type==='TemplateLiteral' && !init.expressions.length ? init.quasis[0].value.cooked : null;
+  if (targets.length!==1 || !literal || !/^https?:\/\//.test(literal))
+    throw new Error('EXACT_BACKEND_ORIGIN: app.ts needs one top-level literal const origin; use it in net.fetch ${origin}');
+  const edits=[[init.start,init.end,JSON.stringify(origin)]];
+  const previous=literal.replace(/\/+$/,'');
+  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}` : line).join('\n');
+  const walk=node=>{
+    if (!node || typeof node!=='object') return;
+    if (node.type==='Literal' && typeof node.value==='string') { const next=replace(node.value); if(next!==node.value) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
+    if (node.type==='TemplateElement') { const next=replace(node.value.cooked); if(next!==node.value.cooked) edits.push([node.start,node.end,next.replaceAll('\\','\\\\').replaceAll('`','\\`').replaceAll('${','\\${')]); return; }
+    for(const child of Object.values(node)) if(Array.isArray(child)) child.forEach(walk); else if(child && typeof child==='object') walk(child);
+  };
+  declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants').forEach(d=>walk(d.init));
+  for(const [start,end,value] of edits.sort((a,b)=>b[0]-a[0])) code=code.slice(0,start)+value+code.slice(end);
+  return code;
+}
+
 // Rolldown IDs are file paths, not URL or slash-normalized strings. Both
 // producers enforce the same captured-file boundary (LLP 1027 D5). A
 // package's declarations are captured for the checker alone (`stagePackages`):
@@ -331,7 +367,12 @@ const configuredLibrary=(file)=>{
     || Boolean(es && Number(es[1])<=year);
 };
 
-export function configure(stage, incremental=false) {
+export function configure(stage, incremental=false, parse) {
+  const app=capturedOrigins(stage).at(-1)[1], modulePath=resolve(stage,'app.ts');
+  if (existsSync(modulePath)) {
+    const before=readFileSync(modulePath,'utf8'), after=injectBackendOrigin(before,backendOrigin(app),parse);
+    if (before!==after) writeFileSync(modulePath,after);
+  }
   const inside = (path) => {
     if (path !== stage && !path.startsWith(stage+sep)) throw new Error('tsconfig: path outside captured app: '+path);
     return path;

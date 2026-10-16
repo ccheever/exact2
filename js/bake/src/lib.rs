@@ -425,6 +425,11 @@ fn build_sources(
     for file in package_declarations(&stage.0)? {
         println!("cargo:rerun-if-changed={}", file.display());
     }
+    println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join(".exact/backend-origin").display()
+    );
     // And the Contract libraries the app uses, wherever they are installed.
     contract::rerun_if_changed(&root.join("app.contract"));
     Ok(())
@@ -1122,7 +1127,8 @@ import { configure, check } from './__exact_config.mjs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 const [tsc, root] = process.argv.slice(1);
-configure(process.cwd());
+const {parseSync}=await import(createRequire(resolve(root, 'package.json')).resolve('rolldown/utils'));
+configure(process.cwd(),false,parseSync);
 const libraries = resolve(dirname(createRequire(resolve(root, 'package.json')).resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`)), 'lib');
 try { await check(process.cwd(), tsc, libraries); }
 catch (error) { process.stderr.write(String(error?.message ?? error)); process.exit(3); }

@@ -1,3 +1,4 @@
+import { backendOrigin, injectBackendOrigin } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -18,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { transformSync } from 'rolldown/utils';
+import { transformSync, parseSync } from 'rolldown/utils';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withoutDev } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
@@ -270,7 +271,7 @@ async function typecheck() {
   writeFileSync(resolve(stage, '__exact_entry.ts'), "import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n" + overlay);
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   const real = realpathSync(stage);
-  configure(real);
+  configure(real, false, parseSync);
   // The packages whose declarations the check reads (typescript.mjs
   // `stagePackages`) are inputs the dev loop watches too, as it watches the
   // Contract packages the compile read: a changed `.d.ts` checks app.ts again.
@@ -322,6 +323,10 @@ if (ts) {
     });
   } });
 }
+const selectedBackend = backendOrigin(appDir);
+if (ts && selectedBackend) Bun.plugin({name: 'backend-origin', setup(build) {
+  build.onLoad({filter: /[/\\]app\.ts$/}, ({path}) => path===appTs ? {contents: injectBackendOrigin(readFileSync(path,'utf8'),selectedBackend,parseSync), loader: 'ts'} : undefined);
+}});
 const tsModule = ts ? await import(resolve(appDir, 'app.ts')) : null;
 const grants = ts ? String(tsModule.grants ?? '') : '';
 // What the native bake refuses of the module (js/bake/src/lib.rs `bake_in`,
@@ -495,6 +500,7 @@ const scopedModule = (code, id) => {
   // and the browser's own I/O, as the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
     'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto'];
+  if (id===appTs) code=injectBackendOrigin(code,selectedBackend,parseSync);
   const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
     ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));

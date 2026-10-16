@@ -356,3 +356,23 @@ test('backend fetch prefixes follow the built origin and refuse ambiguous grants
   expect(() => backendFetchPrefixes(tests(), [])).toThrow(/exactly one net.fetch origin/);
   expect(() => backendFetchPrefixes(tests(), ['https://one.example', 'https://two.example'])).toThrow(/literal URL/);
 });
+
+test('backend selection changes captured origin and grants while preserving unrelated literals', async () => {
+  const {backendOrigin, injectBackendOrigin} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const code = `// const origin = 'http://comment';
+const label = '☃';
+const origin = 'http://127.0.0.1:4400/';
+export const grants = [\`net.fetch \${origin}\`, 'net.fetch http://127.0.0.1:4400', 'net.fetch https://other.example'].join('\\n');
+const other = 'http://127.0.0.1:4400';`;
+  const next = injectBackendOrigin(code, 'https://backend.example', parseSync);
+  expect(next).toContain('const origin = "https://backend.example"');
+  expect(next).toContain('"net.fetch https://backend.example"');
+  expect(next).toContain('net.fetch https://other.example');
+  expect(next).toContain("const other = 'http://127.0.0.1:4400'");
+  expect(next).toContain("// const origin = 'http://comment'");
+  expect(() => injectBackendOrigin('const origin = compute();', 'http://new', parseSync)).toThrow(/top-level literal/);
+  for (const value of ['file:///tmp/a', 'https://user:pw@backend.example', 'http://backend.example/path', ''])
+    expect(() => backendOrigin('.', {EXACT_BACKEND_ORIGIN: value})).toThrow(/EXACT_BACKEND_ORIGIN/);
+  expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
+});

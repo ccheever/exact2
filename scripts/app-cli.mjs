@@ -121,6 +121,13 @@ if (verb === 'contract') {
   // first rather than refusing a stale build. An ios or macos drive builds first
   // when its build is missing or older than its sources, saying so on one line
   // (scripts/agent-build.mjs, LLP 1116.002 D4); a phone's stays explicit.
+  const backendFlag = ['test', 'agent', 'verify'].includes(verb) && host === 'web' ? rest.indexOf('--backend') : -1;
+  if (backendFlag >= 0) {
+    const value = rest[backendFlag + 1];
+    if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin');
+    process.env.EXACT_BACKEND_ORIGIN = value;
+    rest.splice(backendFlag, 2);
+  }
   const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some((a) => a === '--url' || a === '--web-dist');
   const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host) && !rest.includes('--device');
   // `test [host] [file|glob …]`: the test files named (each `.contract`, a glob or `--test <file>`, from the

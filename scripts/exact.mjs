@@ -48,6 +48,7 @@ import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 import { signRelease } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
 import { guardFlags, helpText } from './help.mjs';
+import { backendOrigin } from '../js/bake/src/typescript.mjs';
 import { devicePreflight } from '../snapback4/web/device-build.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -934,7 +935,7 @@ async function main(argv) {
   if (verb === 'backend') {
     const dir = resolve(name), parent = resolve(dir, '..');
     const source = readFileSync(resolve(dir, 'app.ts'), 'utf8');
-    const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(source)?.[1];
+    const origin = backendOrigin(dir) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(source)?.[1];
     if (!origin) throw new Error('exact backend: app.ts needs a literal const origin (bun exact.mjs snapback --port N writes it)');
     const url = new URL(origin);
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw new Error('exact backend: the origin must be loopback to launch a local server');
@@ -952,10 +953,10 @@ async function main(argv) {
     const args = guardFlags('snapback', argv.slice(1)), port = args.indexOf('--port');
     const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
     // Always ask Cargo to validate its inputs; cached or unstamped bytes never block repair.
-    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null, artifactOnly: args.includes('--artifact-only') }));
+    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null, artifactOnly: args.includes('--artifact-only'), rebuild: args.includes('--rebuild') }));
     app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
-    const nextOrigin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];
+    const nextOrigin = backendOrigin(dir) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];
     await devicePreflight(app, nextOrigin ? [nextOrigin] : []);
     return;
   }

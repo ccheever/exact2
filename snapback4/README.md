@@ -39,7 +39,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 >   `bun exact.mjs backend`, and the generated test file's `fail fetch`/`pass fetch`
 >   prefixes. On `test web`, write `fail fetch "backend"` / `pass fetch "backend"`: those
 >   resolve from the built grant at runtime, so `app.ts` has the only origin setting.
->   With several fetch origins, use explicit URL prefixes. `bun exact.mjs snapback --port N` updates them together. The page's port (`EXACT_PORT`,
+>   With several fetch origins, use explicit URL prefixes. `bun exact.mjs snapback --port N` selects a local override. The page's port (`EXACT_PORT`,
 >   `--port` on `bun exact.mjs`) is another, never this one.
 > - **Grants.** `sqlite.open app:/data` for the partition; `fs.read app:/tmp`
 >   to upload a picked file and `fs.write app:/cache` to download one.
@@ -94,9 +94,9 @@ above it): `bun exact.mjs snapback`. Either one:
    the backend first writes `snapback/generated/`.
 4. **Builds the device** the page loads into `assets/snapback4.wasm` (`node
    <exact2>/snapback4/web/build.mjs assets/snapback4.wasm` by hand) and its
-   glue, which every host's bake type-checks. Every default `snapback` run asks Cargo to rebuild when inputs changed, including
-   if the existing stamp is missing or stale. It refuses an edited driver or backend
-   mount with a before/after diff before changing files. The first build compiles the
+   glue, which every host's bake type-checks. A default `snapback` run asks Cargo to rebuild when inputs changed, including
+   when the existing stamp is missing or stale. It refuses an edited driver or backend
+   mount with a before/after diff before changing files. Port-only changes reuse a compatible stamped device. The first build compiles the
    client for a few minutes; later ones take seconds. The web host serves it
    at `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s
    `wasm` names another). A web build of an app that mounts the driver
@@ -838,19 +838,21 @@ those from earlier tests in it. Two ways out:
   leaves.
 ### Ports: the Snapback origin and the page's own
 
-Two ports, set apart. **The Snapback origin** is a constant in `app.ts`
-(`const origin = 'http://127.0.0.1:4400'`) and its `net.fetch` grant; a data
-module reads no environment, so the server must come to it:
-`snapback4 dev --port 4400` (4400 is also `dev`'s default), and the test
-file's `fail fetch`/`pass fetch` prefixes name the same origin. To move it,
-run `bun exact.mjs snapback --port <n>` to update a literal loopback
-`const origin`, matching grant literals and test fetch prefixes; it prints
-the matching `dev --port <n>`. `bun exact.mjs backend` starts it in the backend directory
-and reads that same `const origin`; `backend serve <release>` uses the same port. `${origin}` grants follow automatically.
-An origin it cannot identify or a production origin is refused for this
-port edit: set production origins yourself. `test web` reads
-this origin from the build's `net.fetch` grants (`app.ts`'s `grants`), asks
-whether anything listens there, and refuses the run when nothing does.
+The backend defaults to `const origin` in `app.ts`. Change it without editing
+sources using `EXACT_BACKEND_ORIGIN=https://api.example` at build/run time, or
+`bun exact.mjs test web --backend http://127.0.0.1:30100`. The build injects that
+origin and its matching `net.fetch` grant into its captured module; authored
+files retain their default. Use `net.fetch ${origin}` for the grant. A computed
+origin is refused when overriding it; declare one top-level literal instead.
+`fail fetch "backend"` follows the built grant, including an override.
+
+`bun exact.mjs snapback --port N` stores a local development selection in
+`.exact/backend-origin` (ignored), used by builds and `bun exact.mjs backend`.
+`EXACT_BACKEND_ORIGIN` wins over that selection. Existing sources and literal
+test prefixes are preserved; use the `backend` alias in portable tests.
+A compatible stamped wasm is reused for a port-only change; `--rebuild` forces
+its rebuild. Backend preflight reads the built grant and names a missing server.
+
 **The Exact page's port** is separate: `EXACT_PORT=<n>` (or `--port <n>`)
 serves `web`, `test web` and `agent web` on exactly that port, else a free
 one selected within `PORT_LO`–`PORT_HI` when both are set, else by the OS
