@@ -17,6 +17,9 @@ component Toolbar
       button aria-label="Share" testId="share"
         image "symbol:share"
       image "symbol:sf/cloud.sun.rain" aria-label="Showers later" width=28 height=28
+      row gap=6 align-items="center"
+        image "symbol:calendar" aria-hidden=true
+        text "Tomorrow"
 ```
 
 The roles: `add`, `close`, `back`, `forward-chevron`, `chooser`, `compose`, `pencil`, `delete`,
@@ -37,7 +40,9 @@ the role, with a warning that names it (`lower-symbol-alias`).
 - A role draws on every host. `symbol:sf/<name>` (`sf/arrow.clockwise`,
   `sf/cloud.sun.rain`) draws on Apple only, and is blank on the web and Linux; a tab or
   button that must show everywhere takes a role.
-- A symbol-only button needs an `aria-label`. A tab is a symbol over its text.
+- A symbol-only button needs an `aria-label`. A tab is a symbol over its text. A symbol beside
+  text that says the same is decoration: `aria-hidden=true`, so VoiceOver reads it once.
+- `activity` is an ECG trace (heart, workouts). Done or not done is `DoneMark` (`exact:content`).
 - Leave a symbol's colour unsaid: in a button it is the tint, and it follows dark mode.
   Emoji aren't icons: they ignore the tint, the weight and the theme.
 - `width` and `height` size a symbol that stands alone.

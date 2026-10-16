@@ -21,12 +21,13 @@ The only required reading; the rest is lookup.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
-   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark`; `EmptyState` over your `button`
+   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` over your `button`
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
    list whose rows push (beside its detail) need no code; one number and its buttons: a
    centred column (`max-width=420`). The rows of a list the person deletes from swipe to
    delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
+   `haptic("selection")` marks a choice in your own control, `haptic("success")` a task done.
 
 ## The workflow
 

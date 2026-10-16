@@ -1,7 +1,7 @@
 # Recipe: after a write
 
 The field clears, or the form closes, only when the reply is ok; a refusal keeps what was
-typed and says why, under the field.
+typed and says why under the field it is about, not in an alert.
 
 ```contract
 shape Tag
@@ -44,7 +44,7 @@ component TagList
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.tags'; // exact new writes this line
+export const appId = 'com.example.tags';
 export const grants = '';
 
 const tags: Result<'loadTags'> = [];
