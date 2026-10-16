@@ -711,7 +711,8 @@ component App
             }
         }
         let batch = host.dispatch(id("toggle"), exact_runner::Event::Press);
-        assert!(!batch.contains("\"error\""), "{batch}");
+        let reply: serde_json::Value = serde_json::from_str(&batch).unwrap();
+        assert_eq!(reply.get("error"), Some(&serde_json::Value::Null), "{batch}");
         assert!(batch.contains("\"role\":"), "{batch}");
         assert!(
             !batch.contains("\"op\":\"create\""),
