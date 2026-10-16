@@ -21,7 +21,7 @@ const kmTriggerKey = (k: string) => ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Spac
 describe('no menu keeps a click-away layer of its own', () => {
   test('the menus that had one are popovers, light-dismissed', async () => {
     const files = readdirSync(dir).filter(name => name.endsWith('.contract'));
-    const gone = ['details-editors-backdrop', 'file-editors-backdrop', 'crumb-menu-backdrop', 'linked-pr-menu-backdrop', 'approval-menu-dismiss', 'Close diff scope menu'];
+    const gone = ['details-editors-backdrop', 'file-editors-backdrop', 'crumb-menu-backdrop', 'linked-pr-menu-backdrop', 'approval-menu-dismiss', 'Close diff scope menu', 'device-menu-backdrop'];
     for (const file of files) {
       const text = await source(file);
       for (const testId of gone) expect(`${file}: ${text.includes(testId)}`).toBe(`${file}: false`);
@@ -126,5 +126,23 @@ describe('the approval\'s "More approval options" menu (ComposerPendingApprovalA
     expect(state.menuOpen).toBe(true);
     actions.call('toggled', state, {}, [{ newState: 'closed' }]);
     expect(state.menuOpen).toBe(false);
+  });
+});
+
+describe('the device rail\'s menus (DeviceControlsRail)', () => {
+  test('each trigger opens its popover beside it; its expanded state follows the toggle; a choice closes it', async () => {
+    const device = await source('r6-device.contract');
+    const menu = line(device, 'column id=menuId data-dialog-return="menu"');
+    for (const part of ['focusin=dialogMenuEntered(menuId, testId)', 'toggle=toggled', 'popover="auto"', 'position-area=area', 'margin-right="0.25rem"', 'min-width="10rem"']) expect(menu).toContain(part);
+    const trigger = line(device, 'button id=testId popovertarget=menuId');
+    for (const part of ['key=triggerKey', 'aria-haspopup="menu"', 'aria-expanded=open']) expect(trigger).toContain(part);
+    expect(trigger).not.toContain('press=');
+    expect(line(device, 'button id=testId press=press popovertarget=menuId popovertargetaction="hide"')).toContain('role=(icon == ""');
+    expect(device).not.toMatch(/ws\.rail\.menu|surface-r6dev-menu|railEnd/);
+    const button = contractComponent('r6-device.contract', 'R6RailMenuButton'), state = button.state();
+    button.call('toggled', state, {}, [{ newState: 'open' }]);
+    expect(state.open).toBe(true);
+    button.call('toggled', state, {}, [{ newState: 'closed' }]);
+    expect(state.open).toBe(false);
   });
 });

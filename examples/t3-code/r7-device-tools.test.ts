@@ -70,13 +70,10 @@ describe('device workspace completeness', () => {
     await r6DeviceLocal(c, native, state, 'p', 'back', ANDROID);
     await r6DeviceLocal(c, native, state, 'p', 'recents', ANDROID);
     expect(calls.filter(call => call.op === 'r6DeviceInput').map(call => call.request?.action)).toEqual(['back', 'recents']);
-    await r6DeviceLocal(c, native, state, 'p', 'menu', 'rotate');
     let ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect([ws.rail.menu, ws.r7.rail.rotateDisabled]).toEqual(['rotate', false]);
+    expect(ws.r7.rail.rotateDisabled).toBe(false);
     await r6DeviceLocal(c, native, state, 'p', 'tools-pick-orientation', 'landscape_left');
     expect(calls.filter(call => call.method === 'device.action').map(call => call.payload)).toEqual([{ hostId: 'local', deviceId: 'emulator-5554', type: 'setOrientation', value: 'landscape_left' }]);
-    ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
-    expect(ws.rail.menu).toBe('');
     (c.presentation as Obj).deviceStreams = { [ANDROID]: { status: 'streaming', inputConnected: false, inputDetail: 'closed 1001' } };
     ws = (await r6DeviceView(c, native, state, true, 'p')).workspace;
     expect(ws.stream.inputNotice).toBe('Input disconnected (closed 1001), reconnecting…');

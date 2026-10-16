@@ -281,16 +281,20 @@ describe('found while driving: Float device over chat closes the right panel (De
 });
 
 describe('the device rail menus hear the keys at a focused row (Base UI Menu)', () => {
-  test('each rail menu draws its rows inside its KeyMenu', async () => {
+  test('each rail menu is a popover beside its trigger, its rows inside its KeyMenu', async () => {
     const workspace = await component('r6-device.contract', 'R6DeviceWorkspaceView');
-    for (const [menu, rows] of [['text', ['device-text-small', 'device-text-default', 'device-text-large', 'device-text-extra-large']],
-      ['rotate', ['device-rotate-portrait', 'device-rotate-landscape']], ['more', ['device-float', 'device-close-panel', 'device-power-off']]] as const) {
-      const popup = under(workspace, `if ws.rail.menu == "${menu}"`);
-      expect(popup[0]).toContain(`role="menu"`);
-      const keyMenu = under(workspace, `KeyMenu(menuId="device-${menu}-keys"`).join('\n');
-      for (const row of rows) expect(keyMenu).toMatch(new RegExp(`R6MenuItem\\(keysId="device-${menu}-keys".*testId="${row}"\\)`));
-      // The KeyMenu sits inside the popup, the rows inside the KeyMenu (its `slot`).
-      expect(popup[1]).toContain(`KeyMenu(menuId="device-${menu}-keys"`);
+    const button = await component('r6-device.contract', 'R6RailMenuButton');
+    // The KeyMenu sits inside the popup, the rows inside the KeyMenu (the button's `slot`).
+    expect(button).toContain('        column width="100%" padding="0.25rem"');
+    expect(button).toContain('role="menu" aria-label=menuLabel testId=menuTestId\n          KeyMenu(menuId=keysId, items=items, keyed=0, gap="0px", modal=true)\n            children');
+    // DeviceControlsRail's MenuPopups: side left, the text size and rotate menus centred, More end-aligned.
+    for (const [menu, area, rows] of [['text', 'left', ['device-text-small', 'device-text-default', 'device-text-large', 'device-text-extra-large']],
+      ['rotate', 'left', ['device-rotate-portrait', 'device-rotate-landscape']], ['more', 'left span-top', ['device-float', 'device-close-panel', 'device-power-off']]] as const) {
+      const call = workspace.split('\n').find(line => line.includes(`menuId="device-${menu}-popup"`) && line.includes('R6RailMenuButton('))!;
+      expect(call).toContain(`area="${area}", keysId="device-${menu}-keys"`);
+      const rowsUnder = under(workspace, call.trim()).join('\n');
+      for (const row of rows) expect(rowsUnder).toMatch(new RegExp(`R6MenuItem\\(keysId="device-${menu}-keys", menuId="device-${menu}-popup".*testId="${row}"\\)`));
     }
   });
 });
+
