@@ -92,6 +92,11 @@ private final class MIDIArm {
     private var lastReport: String?
     private var lastSend = -Double.infinity
     private var closed = false
+    /// When each note last handed out sounds (a note-on's host time), by
+    /// output, channel and note, and the latest time handed to each output:
+    /// a note-off or Stop sent at teardown is stamped no earlier.
+    private var sounding: [Int64: Double] = [:]
+    private var latest: [Int32: Double] = [:]
     /// Input from CoreMIDI's realtime thread, popped here; the source that
     /// wakes this run loop for it.
     private let ring: UnsafeMutablePointer<exact_midi_ring> = calloc(1, MemoryLayout<exact_midi_ring>.size)!.assumingMemoryBound(to: exact_midi_ring.self)
@@ -290,13 +295,19 @@ private final class MIDIArm {
 
     /// A session's runner is replaced or closed (`id` is one of its held
     /// messages): a note-off or a Stop is handed now, so no note is left
-    /// sounding and no device follows a dead clock; anything else is let go.
+    /// sounding and no device follows a dead clock, stamped no earlier than
+    /// its note-on or the output's last message handed, which CoreMIDI may
+    /// still hold; anything else is let go.
     func settle(id: UInt64) {
         guard let i = held.firstIndex(where: { $0.id == id }) else { return }
         let m = held.remove(at: i)
         let s = m.bytes.first ?? 0
-        if s & 0xF0 == 0x80 || (s & 0xF0 == 0x90 && m.bytes.count == 3 && m.bytes[2] == 0) || s == 0xFC {
-            hand(m.uid, CACurrentMediaTime(), m.bytes)
+        let now = CACurrentMediaTime()
+        if s & 0xF0 == 0x80 || (s & 0xF0 == 0x90 && m.bytes.count == 3 && m.bytes[2] == 0) {
+            // Never ahead of its note-on, which CoreMIDI may still hold.
+            hand(m.uid, max(now, sounding[Self.key(m.uid, m.bytes)] ?? now), m.bytes)
+        } else if s == 0xFC {
+            hand(m.uid, max(now, latest[m.uid] ?? now), m.bytes)
         }
         schedule()
     }
@@ -316,6 +327,11 @@ private final class MIDIArm {
         CFRunLoopAddTimer(loop, timer, .defaultMode)
     }
 
+    /// A note message's key: output, channel and note.
+    private static func key(_ uid: Int32, _ bytes: [UInt8]) -> Int64 {
+        Int64(uid) << 16 | Int64(bytes[0] & 0x0F) << 8 | Int64(bytes.count > 1 ? bytes[1] : 0)
+    }
+
     /// One message to CoreMIDI, stamped with its host time.
     private func hand(_ uid: Int32, _ at: Double, _ bytes: [UInt8]) {
         guard let destination = Self.endpoint(uid, .destination) else {
@@ -329,6 +345,8 @@ private final class MIDIArm {
         if n > 1 { word |= UInt32(bytes[1]) << 8 }
         if n > 2 { word |= UInt32(bytes[2]) }
         lastSend = CACurrentMediaTime()
+        latest[uid] = max(latest[uid] ?? at, at)
+        if bytes[0] & 0xF0 == 0x90, n == 3, bytes[2] > 0 { sounding[Self.key(uid, bytes)] = at }
         withUnsafeTemporaryAllocation(byteCount: 256, alignment: 8) { raw in
             let list = raw.baseAddress!.assumingMemoryBound(to: MIDIEventList.self)
             var packet = MIDIEventListInit(list, ._1_0)

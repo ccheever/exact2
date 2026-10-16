@@ -121,11 +121,23 @@ test('a boot forgets what an earlier runner left held, but sends its note-offs a
   m.out.ops([{ op: 'send', id: 1, output: 'out', data: [0x90, 60, 100], at: 500 }, { op: 'send', id: 2, output: 'out', data: [0x80, 60, 0], at: 600 },
     { op: 'send', id: 3, output: 'out', data: [0x90, 61, 0], at: 600 }, { op: 'send', id: 4, output: 'out', data: [0xfc], at: 700 }]);
   m.out.ops([], true);
-  // Sent at once, with no timestamp: no note is left sounding when the old runner's note-on was handed.
-  expect(m.sent).toEqual([['out', [0x80, 60, 0], undefined], ['out', [0x90, 61, 0], undefined], ['out', [0xfc], undefined]]);
+  // Sent now: no note is left sounding when the old runner's note-on was handed.
+  expect(m.sent).toEqual([['out', [0x80, 60, 0], 1000], ['out', [0x90, 61, 0], 1000], ['out', [0xfc], 1000]]);
   m.c.advance(1000);
   expect(m.sent.length).toBe(3);
   expect(m.out.state().held).toBe(0);
+  m.c.restore();
+});
+
+test('a note-off a boot sends is stamped no earlier than its handed note-on', async () => {
+  const m = midi({ permission: 'granted' });
+  await settle(); await settle();
+  // Runner time 40 is handed at once (within the hold), stamped 1040; its note-off at 500 is held.
+  m.out.ops([{ op: 'send', id: 1, output: 'out', data: [0x90, 60, 100], at: 40 }, { op: 'send', id: 2, output: 'out', data: [0x80, 60, 0], at: 500 },
+    { op: 'send', id: 3, output: 'out', data: [0xfc], at: 600 }]);
+  expect(m.sent).toEqual([['out', [0x90, 60, 100], 1040]]);
+  m.out.ops([], true);
+  expect(m.sent.slice(1)).toEqual([['out', [0x80, 60, 0], 1040], ['out', [0xfc], 1040]]);
   m.c.restore();
 });
 

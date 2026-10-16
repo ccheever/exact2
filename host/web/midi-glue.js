@@ -33,6 +33,9 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
   let held = [];
   /** The inputs the runner opened, by id. */
   let open = new Set();
+  /** When each note handed out sounds (its timestamp), by output, channel and note, and the latest timestamp handed to each
+   * output: a note-off or Stop sent at a boot is stamped no earlier. */
+  const sounding = new Map(), latest = new Map();
   const list = map => [...(map?.values?.() ?? [])].map(p => ({ id: String(p.id), name: p.name ?? '', manufacturer: p.manufacturer ?? '', state: p.state === 'disconnected' ? 'disconnected' : 'connected' }));
   function report() {
     deliver({ ports: { state, inputs: list(access?.inputs), outputs: list(access?.outputs) } });
@@ -88,18 +91,24 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
       const m = held.shift(), output = access?.outputs?.get?.(m.output);
       if (!output || output.state === 'disconnected') { log(`midi: ${m.output} is not connected; message ${m.id} not sent`); continue; }
       if (t > m.at) late++;
-      try { output.send(m.data, origin() + m.at); } catch (e) { log(`midi: message ${m.id} not sent: ${e.message}`); }
+      const stamp = origin() + m.at;
+      latest.set(m.output, Math.max(latest.get(m.output) ?? stamp, stamp));
+      if ((m.data[0] & 0xf0) === 0x90 && m.data[2] > 0) sounding.set(`${m.output} ${m.data[0] & 0x0f} ${m.data[1]}`, stamp);
+      try { output.send(m.data, stamp); } catch (e) { log(`midi: message ${m.id} not sent: ${e.message}`); }
     }
     if (held.length) timer = setTimeout(pump, Math.max(0, held[0].at - HOLD - t));
   }
   /** A new runner: what an earlier one left held is let go, but a note-off or a Stop goes now, so no note is left sounding
-   * and no device follows a dead clock. */
+   * and no device follows a dead clock, stamped no earlier than its note-on or the output's last message handed (which
+   * the browser may still hold). */
   function end() {
     clearTimeout(timer); timer = null;
     for (const m of held.splice(0)) {
-      const [s, , v] = m.data, off = (s & 0xf0) === 0x80 || ((s & 0xf0) === 0x90 && v === 0) || s === 0xfc;
-      const output = off ? access?.outputs?.get?.(m.output) : null;
-      if (output && output.state !== 'disconnected') try { output.send(m.data); } catch (e) { log(`midi: message ${m.id} not sent: ${e.message}`); }
+      const [s, n, v] = m.data, note = (s & 0xf0) === 0x80 || ((s & 0xf0) === 0x90 && v === 0), stop = s === 0xfc;
+      const output = note || stop ? access?.outputs?.get?.(m.output) : null;
+      if (!output || output.state === 'disconnected') continue;
+      const after = note ? sounding.get(`${m.output} ${s & 0x0f} ${n}`) : latest.get(m.output);
+      try { output.send(m.data, Math.max(now(), after ?? -Infinity)); } catch (e) { log(`midi: message ${m.id} not sent: ${e.message}`); }
     }
   }
   const handlers = {

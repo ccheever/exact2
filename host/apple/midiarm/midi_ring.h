@@ -1,12 +1,16 @@
 // @ref LLP 1125 D8. A single-producer, single-consumer ring of MIDI 1.0
 // input messages: CoreMIDI's receive block, on its realtime thread, pushes;
 // the arm's own thread pops. Neither side allocates or takes a lock, so the
-// receive block never waits on the main thread or the allocator. A message
-// that finds the ring full is counted and dropped (4,096 messages arrive
-// between two drains only from a flood).
+// receive block never waits on the main thread or the allocator. Notes and
+// transport messages are never dropped while a continuous message (Control
+// Change, pressure, pitch bend) could be instead: the last
+// `EXACT_MIDI_HEADROOM` places are theirs alone, so a controller flood loses
+// its own messages (which the runner coalesces anyway) and not the note-off
+// behind it (D8). A message that finds no place is counted and dropped.
 #include <stdint.h>
 
 #define EXACT_MIDI_RING 4096
+#define EXACT_MIDI_HEADROOM 1024
 
 typedef struct {
     int32_t uid;
@@ -23,10 +27,13 @@ typedef struct {
     long signaled;
 } exact_midi_ring;
 
-/// Push one message (the producer); false when the ring is full.
+/// Push one message (the producer); false when it found no place: a
+/// continuous one beyond the headroom, any one when the ring is full.
 static inline int exact_midi_ring_push(exact_midi_ring *r, int32_t uid, double at, uint8_t b0, uint8_t b1, uint8_t b2, uint8_t count) {
     long head = __atomic_load_n(&r->head, __ATOMIC_RELAXED), tail = __atomic_load_n(&r->tail, __ATOMIC_ACQUIRE);
-    if (head - tail >= EXACT_MIDI_RING) {
+    uint8_t kind = b0 & 0xF0;
+    int continuous = kind == 0xA0 || kind == 0xB0 || kind == 0xD0 || kind == 0xE0;
+    if (head - tail >= EXACT_MIDI_RING - (continuous ? EXACT_MIDI_HEADROOM : 0)) {
         __atomic_fetch_add(&r->dropped, 1, __ATOMIC_RELAXED);
         return 0;
     }

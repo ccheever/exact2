@@ -915,6 +915,13 @@ are binding and two of them amend the text:
   one time, as the runner does (conformance `midi-order`), and a listener's
   refusal is `tap midi`'s refusal there too. midi-glue.js journals a refused
   request as `access denied`.
+  Round 2: a fill a full queue blocks wakes when the blocked output can take
+  a place (its track's offset counted), never again where it stood; a
+  runner ended for its replacement takes the host's clock first; only the
+  clock's own Start, taken back, is sent again; a note-off or Stop sent at
+  teardown is stamped no earlier than its note-on or the output's last
+  message; Apple's input ring keeps its last 1,024 places for notes and
+  transport messages.
 - **Not done here.** No real device or IAC bus was available, so nothing was
   sent to hardware from the Mac, and Chrome's Web MIDI was not tried by
   hand. The watchdog and iOS foreground re-enumeration are not exercised by a

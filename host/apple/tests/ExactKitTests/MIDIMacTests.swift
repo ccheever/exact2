@@ -5,8 +5,9 @@
 // before the hold sends nothing; an input is stamped with its packet's time
 // and its bytes come through MIDIOutput as the runner's JSON; a replugged
 // endpoint keeps its unique-ID id; inputs opened before the request are heard
-// once it is granted; a new runner's boot hands a held note-off at once and
-// lets the rest go. macOS only: a simulator has no MIDIServer.
+// once it is granted; a new runner's boot hands a held note-off at once, never
+// ahead of its handed note-on, and lets the rest go; a controller flood loses
+// no note-off. macOS only: a simulator has no MIDIServer.
 #if os(macOS)
 import CoreMIDI
 import QuartzCore
@@ -161,6 +162,56 @@ final class MIDIMacTests: XCTestCase {
         output.apply(["boot": true, "ops": []])
         wait(0.3)
         XCTAssertEqual(lock.withLock { arrived }.map(\.status), [0x80], "the note-off at once, the note-on never")
+        output.shutdown()
+    }
+
+    /// Review round 2: a note-off a boot sends is stamped no earlier than its
+    /// note-on, which CoreMIDI may still hold: it never reaches the synth first.
+    func testABootNeverSendsANoteOffAheadOfItsNoteOn() throws {
+        let library = try library()
+        var delivered: [String] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { delivered.append($0) }, library: { library })
+        output.apply(["ops": [["op": "request"]]])
+        wait(2) { delivered.contains { $0.contains("\(self.uid(self.destination))") } }
+        let now = (CACurrentMediaTime() - ExactEnv.t0) * 1000, out = String(uid(destination))
+        // Within the hold: handed at once, stamped 40 ms ahead; its note-off held.
+        output.apply(["ops": [["op": "send", "id": 1, "output": out, "data": [0x90, 62, 100], "at": now + 40],
+                              ["op": "send", "id": 2, "output": out, "data": [0x80, 62, 0], "at": now + 2000]]])
+        wait(0.01)
+        output.apply(["boot": true, "ops": []])
+        wait(0.3)
+        let got = lock.withLock { arrived }
+        XCTAssertEqual(got.map(\.status), [0x90, 0x80], "the note-on, then its note-off")
+        if got.count == 2 { XCTAssertGreaterThanOrEqual(got[1].at, got[0].at) }
+        output.shutdown()
+    }
+
+    /// Review round 2: a controller flood the arm cannot pass on at once
+    /// loses its own messages, never the note-off behind it (D8).
+    func testAControllerFloodLosesNoNoteOff() throws {
+        let library = try library()
+        var delivered: [String] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { delivered.append($0) }, library: { library })
+        let input = String(uid(source))
+        output.apply(["ops": [["op": "open", "inputs": [input]], ["op": "request"]]])
+        wait(2) { delivered.contains { $0.contains(input) } }
+        wait(0.2)
+        // 5,000 Control Changes and a note-off in one event list, one callback's worth.
+        var buffer = [UInt8](repeating: 0, count: 65536)
+        buffer.withUnsafeMutableBytes { raw in
+            let list = raw.baseAddress!.assumingMemoryBound(to: MIDIEventList.self)
+            var packet = MIDIEventListInit(list, ._1_0)
+            var words = (0..<5000).map { UInt32(0x20B0_0700) | UInt32($0 % 128) } + [0x2080_3C00]
+            var i = 0
+            while i < words.count {
+                let n = min(60, words.count - i)
+                packet = words.withUnsafeMutableBufferPointer { MIDIEventListAdd(list, 65536, packet, 0, n, $0.baseAddress! + i) }
+                i += n
+            }
+            XCTAssertEqual(MIDIReceivedEventList(source, list), noErr)
+        }
+        wait(2) { delivered.contains { $0.contains("[128,60,0]") } }
+        XCTAssertTrue(delivered.contains { $0.contains("[128,60,0]") }, "the note-off came through")
         output.shutdown()
     }
 
