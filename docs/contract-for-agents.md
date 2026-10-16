@@ -375,8 +375,10 @@ component Cart
   its parameters and standard calls (including `performanceNow()`), without component-state
   capture or recursion. Pass an app value in; do not invent an ambient reference.
   A `fn` named like a standard function (`fn indexOf`) shadows it in every
-  expression of the app, so a standard function added later never breaks an
+  free call of the app, so a standard function added later never breaks an
   app that had the name first; an action or a host command keeps its own rule.
+  A method call (`xs.indexOf(x)`) is always the built-in: calling one whose name
+  the file also declares is refused (`syntax-method-shadowed`).
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
   and the commands `share(…)`, `showNotification(…)`, `scrollIntoView(…)`, `playSound(…)` and

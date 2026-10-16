@@ -373,6 +373,7 @@ final class MenuHost: NSObject {
         // window under it kept its first responder: nothing to give back.
         let entry = entries[index], window = entry.native == nil ? presenter?.viewport.window : nil
         let hadFocus = window.flatMap(focusOwner).map { contains(pop, $0) } ?? false
+        let heldMenu = presenter?.shownMenus.contains { contains(pop, $0) } ?? false
         entries.remove(at: index)
         presenter?.popoverEvents.changed(pop, open: false)
         // Reset, unmount, a changed row: the menu ends and nothing it showed dispatches.
@@ -393,6 +394,12 @@ final class MenuHost: NSObject {
                 window.makeFirstResponder(previous)
                 if let range = entry.selection, let editor = window.firstResponder as? NSTextView { editor.setSelectedRange(range) }
             } else { window.makeFirstResponder(presenter?.viewport) }
+            // The refresh above said AXMenuClosed while the window held the
+            // focus; the focus given back is told after it, so VoiceOver
+            // leaves the menu for it (Accessibility.swift).
+            if heldMenu, let presenter, let focused = presenter.focusedNode {
+                NSAccessibility.post(element: presenter.keyView(of: focused), notification: .focusedUIElementChanged)
+            }
         }
     }
     func reset() {

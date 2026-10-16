@@ -267,6 +267,17 @@ fn an_arrow_is_only_a_callback_and_the_types_hold() {
     // An app's `fn map` shadows the roster's, callback and all.
     contract::compile("fn map(n: number): number = n\ncomponent A\n  view\n    text `${map(2)}`\n")
         .unwrap();
+    // A method call is the built-in, so a `fn`, shape or action of its name is
+    // refused rather than called (LLP 1116.016 D2), in a template too.
+    for src in [
+        "fn trim(s: string): string = s\ncomponent A\n  state s = \" a \"\n  view\n    text s.trim()\n",
+        "fn length(s: string): number = 0\ncomponent A\n  state s = \"a\"\n  view\n    text `${s.length}`\n",
+        "component A\n  state xs = [1]\n  state n = 0\n  action filter(k: number)\n    n = k\n  view\n    text xs.filter(x => x > 0).length.toString()\n",
+    ] {
+        let e = contract::compile(src).unwrap_err();
+        assert_eq!(e.id, "syntax-method-shadowed", "{src}: {e}");
+        assert!(e.message.contains("is the built-in method"), "{e}");
+    }
 }
 
 #[test]

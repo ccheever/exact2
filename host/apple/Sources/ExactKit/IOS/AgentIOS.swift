@@ -38,19 +38,25 @@ extension Agent {
             var announcement = ready
             announcement["container"] = NSHomeDirectory()
             announcement["token"] = token
+            // @ref LLP 1012#summary — only pre-handshake startup retries. UIKit
+            // lifecycle reads and observers stay on the main thread; the worker
+            // waits off-main under one deadline, including inactive time.
+            let startup = AgentSocketStartup(active: UIApplication.shared.applicationState == .active)
+            let notifications = NotificationCenter.default
+            let observers = [
+                notifications.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in startup.setActive(true) },
+                notifications.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in startup.setActive(false) },
+                notifications.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in startup.cancel() },
+            ]
             Thread {
-                let fd = socket(AF_INET, SOCK_STREAM, 0)
-                guard fd >= 0 else { return }
-                let connected = withUnsafePointer(to: &addr) {
-                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                        connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-                guard connected == 0 else {
-                    FileHandle.standardError.write(Data("exact: agent connect: \(String(cString: strerror(errno)))\n".utf8))
-                    close(fd)
+                let fd: Int32
+                do { fd = try startup.connect(to: addr) }
+                catch {
+                    DispatchQueue.main.async { observers.forEach(notifications.removeObserver) }
+                    FileHandle.standardError.write(Data("exact: agent startup: \(error)\n".utf8))
                     return
                 }
+                DispatchQueue.main.async { observers.forEach(notifications.removeObserver) }
                 out = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
                 reply(announcement)
                 serve(fd: fd)

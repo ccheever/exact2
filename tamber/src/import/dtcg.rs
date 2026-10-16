@@ -382,17 +382,16 @@ fn is_dark(mode: &str) -> bool {
 
 /// A file's name without its directory and its `.json`, any case.
 fn stem(name: &str) -> String {
-    let base = name.rsplit('/').next().unwrap_or(name);
-    match base.len() > 5 && base[base.len() - 5..].eq_ignore_ascii_case(".json") {
-        true => base[..base.len() - 5].to_string(),
-        false => base.to_string(),
-    }
+    set_id(name.rsplit('/').next().unwrap_or(name))
 }
 
-/// A file's path without its `.json`, any case.
+/// A file's path without its `.json`, any case. A name of any characters
+/// (a person's file picker gives it) is cut only at a character boundary.
 fn set_id(name: &str) -> String {
-    match name.len() > 5 && name[name.len() - 5..].eq_ignore_ascii_case(".json") {
-        true => name[..name.len() - 5].to_string(),
+    let cut = name.len().saturating_sub(5);
+    match name.len() > 5 && name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(".json")
+    {
+        true => name[..cut].to_string(),
         false => name.to_string(),
     }
 }
@@ -407,6 +406,25 @@ fn read(files: &[(String, String)]) -> Result<Read, String> {
                 .map_err(|e| format!("{name}: {e}"))
         })
         .collect::<Result<_, _>>()?;
+    // One themes document or one resolver: a second would be read as
+    // nothing, so it is refused, named.
+    let roots: Vec<&String> = parsed
+        .iter()
+        .filter(|(n, v)| {
+            stem(n) == "$themes" || v.get("$themes").is_some() || v.get("resolutionOrder").is_some()
+        })
+        .map(|(n, _)| n)
+        .collect();
+    if roots.len() > 1 {
+        return Err(format!(
+            "more than one themes or resolver document ({}); import them one at a time",
+            roots
+                .iter()
+                .map(|n| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     let themes_file = parsed.iter().find(|(n, _)| stem(n) == "$themes");
     let single = parsed.iter().find(|(_, v)| v.get("$themes").is_some());
     if themes_file.is_some() || single.is_some() {

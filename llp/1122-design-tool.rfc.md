@@ -886,3 +886,88 @@ lands with or after the Tamber stage it needs.
    tool sends four commands (inspect, outline, hold, pin) and receives three reports
    (status, a selection, unsupported), and it never drives an app (D4). Taps and typing
    stay with agents, through the agent API.
+
+## 10. As built
+
+### T1, commit 1: the server additions, `tamber/1.1` (`6281652df`..`a0129f4ad`)
+
+- **`history`** is the design files' git log, with token-level edits per commit.
+- **`revert`** proposes, held, the inverse of a past commit as semantic operations
+  (`set-token`, `unset-token-when`, `add-token`, `remove-token`, axis values), planned on
+  today's files. It is never a byte restore, since a client can't send one.
+  - **Refused, naming each edit and why,** where an edit has no inverse operation: the commit
+    created or removed a design file, added or removed a dial, added an axis, reordered an
+    axis's values, changed an axis's `under`, or changed a kind, a range, metadata, the
+    design's name or its exports. A removed axis is restored with `add-axis`.
+  - **Accepted after its files moved,** it is planned again from the commit, never replayed. A
+    partial revert keeps its selection when planned again.
+  - A client can't forge a revert's review. A removed dial counts as restored only with its
+    whole declaration.
+- **`import`** takes `{kind, source, name?}`, or `sources: [{name, text}]` for multi-file DTCG
+  such as Figma's per-mode files. Astryx is refused there and keeps its CLI.
+- **`requires: {path: digest}`**, on a transaction or a proposal, names files a write was
+  planned on but doesn't edit. It is checked on the snapshot the write uses.
+- **`/__tamber/tool/`** serves the tool's files to local requests only, through no symlink or
+  dot file.
+
+### T1, commit 2: the skeleton and `tamber tool` (`b516197e1`..`9bdf8cf62`)
+
+- **The tool is served at a fixed local port, 127.0.0.1:7740.** A data module's grant names one
+  origin and port, and its `fetch` needs an absolute URL.
+  - So one tool runs per machine, on one project at a time. To switch, stop it and run `tamber
+    tool <other app>`.
+  - The port binds loopback only.
+  - A port already held is refused, naming what holds it: another app's design server, or a
+    process found with `lsof`. A design server for the same app, serving this checkout's
+    build, is reused.
+- **`bun exact.mjs tamber tool [<app>] [--via <dev url>]`** builds the tool if stale. With no
+  `--via`, it starts the app's design server on that port. With `--via`, it forwards
+  `/__tamber` to the dev loop that holds the design (one writer per project). `--via` takes only
+  a loopback address, and only a loop serving this app.
+- **The data module:**
+  - it fetches the token once, and asks again once after a 404, for a restarted server;
+  - its grant names the tool's origin only;
+  - every write is `design-tool:<person>`, with the person asked once and kept;
+  - it follows changes by the long poll, first asking with `wait: false`;
+  - an epoch change or `missed` starts the list again and reads the design again.
+- **Wire additions (`tamber/1.1`):**
+  - `hello` carries the app's directory;
+  - `wait: false` makes the long poll answer at once;
+  - while the design server is down, the long poll answers its `down` event, then 503, never
+    an empty answer to ask again at once.
+
+### T1, commit 3: the dials panel, the token grid and contrast (`d1704b462`, `567ca6099`, `e2dc10b70`, `d508bba97`, `d9ffffcb8`)
+
+- **The panel is drawn from declared metadata only.** A control that doesn't fit its dial's kind
+  falls back to the kind's own control, and its help says so. Groups appear in the order they
+  are first declared, priority defaults to 2, and priority 3 goes behind "More" (LLP 1121 D15).
+  `control=none` is not drawn.
+- **Grid columns** are app-mode tuples × light and dark. The light column is left out for the
+  values of an `under scheme=dark` axis, since it repeats the default's. A residual shows its
+  fallback, labelled.
+- **Contrast** is between any two tokens, on stored values (each side clipped to 8-bit sRGB),
+  labelled so. Declared pairs (`pair=`, LLP 1121 D3) are not built yet.
+- **Additions to `tamber/1.1`:** `resolve` carries `srgb {light, dark}` and `files` (the digests
+  it read), `explain` carries `files`, and `hello` carries `epoch`. The tool re-reads a grid
+  whose reads span two revisions, and it binds undo and redo to one server epoch.
+- **Known limitation:** a colour dial's `select` options written as `oklch()` or `hsl()` are
+  matched against the current value as written, not folded.
+
+### T1, commit 4: editing and undo (`f707933a7`, with its fixes in `e2dc10b70`, `d508bba97`, `b51155dd3`)
+
+- **A cell writes the branch the checker picks for its column** (D6's target branch). On a light
+  column, a `when` naming an under-dark axis is passed over, as the checker does. "Only this
+  mode" adds a `when` naming every axis, and a light column with an under-dark axis offers none.
+- **Apply writes the proposal it shows:** its edit, the digests `propose` read, and the server
+  run that read them.
+- **Expressions are kept.** Overwriting a value that names tokens, dials or a platform role is an
+  explicit "Pin a value".
+- **The chip** reads "Rebuilds" unless `hello` says `live: true`. Stage 4 adds that field once
+  the live table works.
+- **Undo and redo** are the session's stack of inverse ids, bound to one run of the server by its
+  token. A different run on the port refuses them as unknown, and the stacks start again. A
+  refused inverse names who changed the file. Redo sends the original operations against the
+  current digests.
+- **Open:** if the wire answers an undo with 504 after 120 s and the undo lands later, its entry is
+  set aside, with a message, instead of moving to redo. The fix is in the wire (a write is held
+  until the server answers), queued with Tamber stage 4.
