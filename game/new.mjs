@@ -142,17 +142,20 @@ export function createApp(destination, options = {}) {
   return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
 }
 
+const rosterRule = /^[ \t]+insert[ \t]*<-[ \t]*deny[ \t]*(?:--[^\n]*)?$/m;
+
 /** Development fixtures are examples: schema types cannot determine an app's intended privileges. */
 export function rosterSeeds(schema) {
+  schema = schema.replace(/\r\n?/g, '\n').replace(/^[ \t]*--[^\n]*$/gm, '') + '\n';
   const persona = /^use personas\s+([\w-]+)/m.exec(schema)?.[1];
-  const tables = [...schema.matchAll(/^table (\w+):\s*\n((?:[ \t]+[^\n]*\n|\n)*)/gm)]
-    .filter(m => /^\s+insert\s*<-\s*deny\s*$/m.test(m[2]));
+  const tables = [...schema.matchAll(/^table[ \t]+(\w+):[ \t]*(?:--[^\n]*)?\n((?:[ \t]+[^\n]*\n|\n)*)/gm)]
+    .filter(m => rosterRule.test(m[2]));
   return tables.map(([, table, body]) => {
     let bits = BigInt(`0x${createHash('sha256').update(table).digest('hex').slice(0,32)}`), id = '';
     const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
     do { id = alphabet[Number(bits & 31n)] + id; bits >>= 5n; } while (bits);
     const row = {id: id.padStart(26, '0')};
-    for (const [, field, raw] of body.matchAll(/^  (\w+):\s*([^\n]+)/gm)) {
+    for (const [, field, raw] of body.matchAll(/^[ \t]+(\w+):[ \t]*([^\n]+)/gm)) {
       const type = raw.replace(/\s+--.*$/, '').trim();
       if (/\?|\bdefault\b/.test(type)) continue;
       if (type === 'principal') {
@@ -171,7 +174,7 @@ export function rosterSeeds(schema) {
 
 function seedRoster(dir) {
   const schema = readFileSync(resolve(dir, '../snapback/schema.q'), 'utf8');
-  if (!/^\s+insert\s*<-\s*deny\s*$/m.test(schema)) return false;
+  if (!rosterRule.test(schema.replace(/\r\n?/g, '\n'))) return false;
   const fixture = resolve(dir, '../seed.json');
   const rows = existsSync(fixture) ? JSON.parse(readFileSync(fixture, 'utf8')) : rosterSeeds(schema);
   if (!Array.isArray(rows) || rows.some(r => typeof r?.table !== 'string' || !r.row || Array.isArray(r.row) || typeof r.row !== 'object')) throw new Error('backend seed.json must be a list of {table,row}');

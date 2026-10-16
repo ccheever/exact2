@@ -651,6 +651,13 @@ table owners:
     assert.match(sample[0].row.id, /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
     assert.deepEqual(sample, [{table:'owners', row:{id:sample[0].row.id,person:'dev:alice',role:'owner',label:'example',enabled:true}}]);
     assert.deepEqual(rosterSeeds(schema), sample);
+    const indented = schema.replace(/^  /gm, '    ').replace(/    update <- deny\n$/, '').trimEnd();
+    assert.ok(indented.endsWith('    insert <- deny'));
+    assert.deepEqual(rosterSeeds(indented), sample, 'four-space fields and an EOF deny rule preserve all required fields');
+    assert.deepEqual(rosterSeeds(indented.replaceAll('\n', '\r\n')), sample, 'CRLF does not change the seeded shape');
+    assert.deepEqual(rosterSeeds(indented.replace('    person:', '-- roster membership\n    person:') + ' -- seeded only'), sample, 'comments do not terminate a table or hide its deny rule');
+    assert.deepEqual(rosterSeeds(indented.replace('table owners:', 'table owners: -- roster')), sample);
+    writeFileSync(resolve(parent, 'snapback/schema.q'), indented);
     const app = resolve(parent, 'roster');
     const said = createApp(app, {snapback:{online:true,build:false}});
     assert.match(said, /review the persona, role and field values/);
