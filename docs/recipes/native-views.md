@@ -15,7 +15,7 @@ component Pad
 ```
 
 ```swift
-import UIKit // iOS only; for macOS too, import AppKit under #if os(macOS)
+import UIKit // for macOS too, import AppKit under #if os(macOS)
 
 final class Pad: ExactModule {
     override class var views: [String: ExactNativeFactory] {
@@ -54,13 +54,15 @@ final class Strip: ExactNativeInstance {
   `title`, `input`, `playing`). Check a name with `contract vocab <name>`.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames` and `context.after(ms)`, never a
-  `CADisplayLink` or a `DispatchQueue` timer, so the agent's `clock +N` moves the animation
+  `CADisplayLink` or `DispatchQueue` timer, so the agent's `clock +N` moves the animation
   and a drive repeats.
-- **Touches:** recognizers on the view. A touch its hit test declines (a `point(inside:)`
-  that follows the drawn shape) goes to what is under the box, so a capsule smaller than its
-  box blocks nothing; the box keeps it with `press=` or `isUserInteractionEnabled = false`.
-  The agent's plain `tap` runs no recognizer: drive with `agent ios --touch platform`.
+- **Touches:** recognizers on the view. A touch its `point(inside:)` declines goes to what
+  is under the box (a capsule blocks only its shape), unless the box has `press=` or
+  `isUserInteractionEnabled = false`.
+  The agent's plain `tap` runs no recognizer: use `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored `width`, `height` wins.
 - **Accessibility:** [native views](../contract-for-agents.md#native-views-accessibility).
 - **First frame:** a view attaches after first paint, so a slow one never delays it. A cheap
-  one that must be in the first frame (a boot splash) says `ExactNativeFactory(firstFrame: true)`.
+  one the first frame shows (a splash) says `ExactNativeFactory(firstFrame: true)`; a tag
+  that draws nothing (an engine) never does. Its module is made with its first view, on
+  main: make an `AVAudioEngine` or player on first use, not in `init`.
