@@ -478,8 +478,11 @@ export function resolveApp(nameOrCrate) {
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
   dir = realpathSync(dir);
   // The bake runs this checkout's TypeScript compiler and bundler (partial
-  // fixture copies carry no package.json, as PINNED_BUN says).
-  if (PINNED_BUN && !existsSync(resolve(ROOT, 'node_modules'))) throw new Error(`${ROOT} has no node_modules: run \`bun install --frozen-lockfile\` there first`);
+  // fixture copies carry no package.json, as PINNED_BUN says): a new worktree's are installed from its lock.
+  if (PINNED_BUN && !existsSync(resolve(ROOT, 'node_modules'))) {
+    console.error(`${ROOT} has no node_modules: bun install --frozen-lockfile there`);
+    if (spawnSync(process.execPath, ['install', '--frozen-lockfile'], { cwd: ROOT, stdio: ['ignore', 2, 2] }).status !== 0) throw new Error(`${ROOT}: bun install --frozen-lockfile failed (above); run it there, then this again`);
+  }
   // Materialize defaults before Cargo inspects workspace members on a clean checkout.
   const manifest = readManifest(dir, name);
   if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
