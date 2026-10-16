@@ -981,6 +981,7 @@ public final class ExactSession {
     /// the agent's clock seeks native animations through it. Slices published
     /// before it land first (T4), and it is asked again (a fling's fills).
     func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
+        guard !batch.busy else { return }
         guard !applying else { apply(batch); return }
         if !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
             // What the slices leave owed is asked after this batch, as in `apply`.
@@ -1015,9 +1016,8 @@ public final class ExactSession {
 
     /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
-
     package func apply(_ batch: Batch) {
-        guard state != .destroyed else { return }
+        guard state != .destroyed, !batch.busy else { return }
         appliedBatches += 1
         // A slice the owner committed before this batch applies first (T4).
         if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {

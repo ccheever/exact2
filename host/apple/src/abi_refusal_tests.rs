@@ -173,6 +173,47 @@ fn invalid_mode_keeps_state() {
 }
 
 #[test]
+fn rejected_mode_pins_keep_state() {
+    preserves_state(
+        |bridge, _| {
+            let len = bridge.input_write(b"missing=value");
+            bridge.set_mode(len)
+        },
+        "mode:",
+    );
+}
+
+#[test]
+fn a_borrowed_runtime_marks_its_answer_busy() {
+    thread_local! {
+        static RUNTIMES: RefCell<Registry<Dot>> = RefCell::new(Registry::default());
+    }
+    let rt = RUNTIMES.with(|r| r.borrow_mut().create());
+    with_runtime(
+        &RUNTIMES,
+        rt,
+        false,
+        |_, _| {
+            let len = with_runtime(
+                &RUNTIMES,
+                rt,
+                false,
+                |_, _| panic!("a reentrant call must not reach the borrowed host"),
+                |len| len,
+            );
+            REFUSAL.with(|r| {
+                let r = r.borrow();
+                let batch: Json = serde_json::from_slice(&r[..len as usize]).unwrap();
+                assert_eq!(batch["busy"], true, "{batch}");
+                assert!(batch["error"].as_str().unwrap().contains("busy:"));
+            });
+        },
+        |_| panic!("the outer call is available"),
+    );
+    RUNTIMES.with(|r| assert!(r.borrow_mut().destroy(rt)));
+}
+
+#[test]
 fn truncated_intrinsics_keeps_state() {
     preserves_state(
         |bridge, _| {

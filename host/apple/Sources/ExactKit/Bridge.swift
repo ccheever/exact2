@@ -19,6 +19,8 @@ public struct Batch {
     /// The runner's clock after the call, milliseconds (LLP 1012 `clock`).
     public let clock: Double?
     public let error: String?
+    /// Re-entry reached no runner turn; the presenter keeps its scheduling state.
+    public let busy: Bool
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
@@ -49,9 +51,10 @@ public struct Batch {
     public var wakelock: Bool? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
-    init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
+    init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false, busy: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
+        self.busy = busy
     }
     static func decode(_ data: Data, resolver: AssetResolver? = nil) -> Batch {
         data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self), resolver: resolver) }
@@ -103,7 +106,7 @@ package final class Runtime {
     // notification runs after the owner's current job, anything else
     // answers `busy`.
     static let busy = Batch(ops: [], timers: false, motion: false, clock: nil,
-        error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
+        error: "busy: the owner is waiting on this callback (LLP 1072 T5)", busy: true)
     static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
     package func on(_ body: () -> Batch) -> Batch {
         let (open, modal) = topLayer?() ?? ([], nil)

@@ -54,7 +54,7 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => self.commit(&[], None),
-            Err(e) => return exact_runner::agent::error(&format!("mode: {e:?}")),
+            Err(e) => return self.refused(Some(format!("mode: {e:?}"))),
         };
         // An object, as every batch is: the modes go first.
         format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
