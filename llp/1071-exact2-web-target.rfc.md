@@ -1810,10 +1810,18 @@ Two levers, in order:
    runtime up (no DevTools attached, five runs): 1.67–1.94 s → 0.48–0.53 s,
    ~23 MB more JS heap (44 → 67 MB). Caltrain and RealWorld: no difference
    past noise (60–110 ms either way). Other browsers ignore the comment.
-2. *Per-plan constants hoisted* to module scope (emit.rs's header):
-   the colour map once, its inner maps built once; metric maps, one radius
-   validator, long literals interned. 22.7 → ~8.5 MB estimated; the colour
-   map alone measured 22.7 → 10.9 MB, its dev build 3.2 → 2.5 s.
+2. *Per-plan constants hoisted* to module scope (emit.rs, after `wait`):
+   the colour map once (`$cm`), its inner maps built once; each distinct
+   metric map, corner validator and string literal of 64+ JSON bytes once
+   (`Uses::share`, `$$<kind><n>`). `.gen/app.js` 22.7 → 10.9 MB (the colour
+   map) → 9.3 MB; the release `app.js` 20.6 → 9.1 → 7.5 MB.
+
+The dev loop on the clone, a Contract text edit to its first frame in the
+DOM (the loop's own log, Chrome without DevTools, five edits, a loaded
+machine): ~15–18 s with the debug compiler (a 12–15 s build, a ~3 s
+reload); 5.7 s with the design reader's optimised one (host-dev, dev.mjs);
+~3.1 s with the hint; 2.4–2.6 s with the constants (plan ready ~2.1 s,
+runtime up ~0.35 s).
 
 Measuring note: a CDP client that enables the Network domain (Playwright
 does) captures each request's initiator stack, which makes V8 collect source
