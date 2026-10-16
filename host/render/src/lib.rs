@@ -603,6 +603,19 @@ pub(crate) fn retire_renders() {
     drop(retired);
 }
 
+/// Drop this render thread's JavaScript runtimes while its supporting
+/// thread-locals are still available.
+pub(crate) fn shutdown_render_thread() {
+    let retired = RETIRED.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let made = MADE.with(|m| m.borrow_mut().take());
+    let realms = REALMS.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let executors = EXECUTORS.with(|e| std::mem::take(&mut *e.borrow_mut()));
+    drop(retired);
+    drop(made);
+    drop(realms);
+    drop(executors);
+}
+
 /// Make this worker's next render's module realm now (LLP 1048.000 D10's
 /// fresh realm, made ahead): a new source from `data`, loaded, which only
 /// the next render on this thread takes, once. A worker calls it when it is
@@ -1135,6 +1148,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
         line.push('}');
         println!("{line}");
     }
+    shutdown_render_thread();
     if failed {
         ExitCode::FAILURE
     } else {
