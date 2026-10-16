@@ -935,3 +935,39 @@ lands with or after the Tamber stage it needs.
   - `wait: false` makes the long poll answer at once;
   - while the design server is down, the long poll answers its `down` event, then 503, never
     an empty answer to ask again at once.
+
+### T1, commit 3: the dials panel, the token grid and contrast (`d1704b462`, `567ca6099`, `e2dc10b70`, `d508bba97`, `d9ffffcb8`)
+
+- **The panel is drawn from declared metadata only.** A control that doesn't fit its dial's kind
+  falls back to the kind's own control, and its help says so. Groups appear in the order they
+  are first declared, priority defaults to 2, and priority 3 goes behind "More" (LLP 1121 D15).
+  `control=none` is not drawn.
+- **Grid columns** are app-mode tuples × light and dark. The light column is left out for the
+  values of an `under scheme=dark` axis, since it repeats the default's. A residual shows its
+  fallback, labelled.
+- **Contrast** is between any two tokens, on stored values (each side clipped to 8-bit sRGB),
+  labelled so. Declared pairs (`pair=`, LLP 1121 D3) are not built yet.
+- **Additions to `tamber/1.1`:** `resolve` carries `srgb {light, dark}` and `files` (the digests
+  it read), `explain` carries `files`, and `hello` carries `epoch`. The tool re-reads a grid
+  whose reads span two revisions, and it binds undo and redo to one server epoch.
+- **Known limitation:** a colour dial's `select` options written as `oklch()` or `hsl()` are
+  matched against the current value as written, not folded.
+
+### T1, commit 4: editing and undo (`f707933a7`, with its fixes in `e2dc10b70`, `d508bba97`, `b51155dd3`)
+
+- **A cell writes the branch the checker picks for its column** (D6's target branch). On a light
+  column, a `when` naming an under-dark axis is passed over, as the checker does. "Only this
+  mode" adds a `when` naming every axis, and a light column with an under-dark axis offers none.
+- **Apply writes the proposal it shows:** its edit, the digests `propose` read, and the server
+  run that read them.
+- **Expressions are kept.** Overwriting a value that names tokens, dials or a platform role is an
+  explicit "Pin a value".
+- **The chip** reads "Rebuilds" unless `hello` says `live: true`. Stage 4 adds that field once
+  the live table works.
+- **Undo and redo** are the session's stack of inverse ids, bound to one run of the server by its
+  token. A different run on the port refuses them as unknown, and the stacks start again. A
+  refused inverse names who changed the file. Redo sends the original operations against the
+  current digests.
+- **Open:** if the wire answers an undo with 504 after 120 s and the undo lands later, its entry is
+  set aside, with a message, instead of moving to redo. The fix is in the wire (a write is held
+  until the server answers), queued with Tamber stage 4.
