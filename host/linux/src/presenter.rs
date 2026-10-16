@@ -1,6 +1,5 @@
-//! The presenter: what a painter holds beyond the kernel — scroll offsets,
-//! images, focus, the pointer — and the operations that touch it: frames,
-//! hit-testing, presses, wheels, typing, the clock, screenshots.
+//! The presenter: painter state beyond the kernel — scrolling, images, focus
+//! and the pointer — and operations from frames through input to screenshots.
 //!
 //! @ref LLP 1015 §4; LLP 1010 §3 (scroll chaining: the web's
 //! `overscroll-behavior: auto`); LLP 1012 (the five host-side operations)
@@ -106,13 +105,11 @@ mod window;
 #[cfg(test)]
 mod collection_tests;
 #[cfg(test)]
+mod events_tests;
+#[cfg(test)]
 mod kept_rows_tests;
-
 #[cfg(test)]
 mod swipe_tests;
-
-#[cfg(test)]
-mod events_tests;
 
 #[cfg(test)]
 mod visibility_tests;
@@ -207,9 +204,8 @@ pub struct Presenter<D: DataSource> {
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
     pointer_path: Vec<exact_kernel::NodeKey>,
-    /// A pointer or wheel walk is under way: a contact its handler retired
-    /// (the pressed node removed or disabled) is cancelled when it ends, so
-    /// no other walk runs inside it ([`Presenter::retire_pointer`]).
+    /// During a pointer or wheel walk, a retired contact is cancelled when it
+    /// ends so no other walk runs inside it ([`Presenter::retire_pointer`]).
     pointer_walking: bool,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
     /// secondary, 4 middle (review b5-b 1).
@@ -220,22 +216,19 @@ pub struct Presenter<D: DataSource> {
     /// Bumped whenever `boxes` is replaced.
     boxes_serial: u64,
     pub(crate) dirty: bool,
-    /// The app's `setScheme` (`None`: follow the system) and the system's
-    /// appearance, which the device's shell says ([`Presenter::set_device`])
-    /// or an agent (LLP 1061 D5); light until either does.
+    /// The app's `setScheme` (`None`: follow the system) and the appearance
+    /// its shell or an agent says (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
     /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
     device: Option<Device>,
-    /// What the pointer is, and how far it moves before a contact is a
-    /// drag: a mouse and the shared slop until a shell says (D7.4).
+    /// Pointer kind and drag slop: mouse and shared slop until a shell says (D7.4).
     pointer_kind: PointerKind,
     slop: f64,
     /// The shell's window, its insets, and the page's place in it (D3.3).
     window: window::State,
     /// What a shell that scrolls by itself was told of its scrollers (D7.3).
     reader: scrollers::Reader,
-    /// The reported colours this presenter last painted from (D4), and what
-    /// it asks of its shell (D5).
+    /// The colours last painted (D4), and what this asks of its shell (D5).
     colors: palette::State,
     requests: requests::State,
     /// The text fields the shell hosts, as it was told them (D8).
@@ -253,18 +246,15 @@ pub struct Presenter<D: DataSource> {
     /// A failed painter's blank fallback cannot bless an update generation.
     pub(crate) last_frame_succeeded: bool,
     pub(crate) display: display_frame::State,
-    /// Which painter was asked for (`Auto` may change its mind after a
-    /// failed frame).
+    /// Requested painter (`Auto` may change its mind after a failed frame).
     choice: PainterChoice,
-    /// How long the font scan took at boot, milliseconds (the one cost that
-    /// is the machine's, not the app's).
+    /// Boot font-scan milliseconds: the machine's cost, not the app's.
     pub fonts_ms: f64,
     /// The painter, for the report.
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
-    /// Requests whose continuation a source held at dispatch (LLP 1027.002
-    /// D3): released after a later commit, by token.
+    /// Requests held at dispatch, released after a later commit (LLP 1027.002 D3).
     parked: BTreeMap<u64, exact_runner::RequestOut>,
     refusal_turn: bool,
     collection: collection::State,
