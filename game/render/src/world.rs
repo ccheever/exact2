@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub(crate) mod assets;
 pub(crate) mod scene;
 mod upload;
+mod visibility;
 pub(crate) use scene::snap as trace_snap;
 use scene::Scene;
 
@@ -403,6 +404,7 @@ pub struct Feed {
     shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
     draw_entities: Vec<(exact_game::Entity, bool)>,
+    visibility: visibility::Visibility,
     slots: Vec<u32>,
     page_scratch: Box<[f32; PAGE * 12]>,
     dimensions: Vec<[f32; 3]>,
@@ -444,6 +446,7 @@ impl Default for Feed {
             shapes: BTreeMap::new(),
             batches: Vec::new(),
             draw_entities: Vec::new(),
+            visibility: Default::default(),
             slots: Vec::new(),
             page_scratch: Box::new([0.0; PAGE * 12]),
             dimensions: Vec::new(),
@@ -584,10 +587,11 @@ impl Feed {
             // Entity/parent/visibility revisions include cameras, particles and
             // gameplay-only rows. Rebuild draw records only if their effective
             // membership changed, or a draw's own mesh/LOD/assets changed.
+            self.visibility.begin();
             let entities: Vec<_> = w
                 .query::<(&Mesh, &Transform)>()
                 .iter()
-                .map(|(entity, _)| (entity, w.is_visible(entity)))
+                .map(|(entity, _)| (entity, self.visibility.get(w, entity)))
                 .collect();
             batches = initial
                 || next.assets != old.assets
@@ -622,6 +626,17 @@ impl Feed {
             // Parented global poses: every one when the hierarchy changed, else
             // only those in blocks whose poses changed since the last pass.
             // Membership too: a parented entity can gain its Transform later.
+            // A scene without offsets already has exact propagated globals.
+            // Check once per feed, not once per entity's entire parent chain.
+            let has_offsets = w.query::<&exact_game::Offset>().iter().next().is_some();
+            let world_pose = |e| {
+                if has_offsets {
+                    scene::drawn(w, e)
+                } else {
+                    w.global(e)
+                }
+                .map(scene::decompose)
+            };
             let rebuilt = initial
                 || parent_changed
                 || offset_changed
@@ -630,7 +645,7 @@ impl Feed {
             if rebuilt {
                 self.overrides.clear();
                 for (e, _) in w.query::<(&Parent, &Transform)>().iter() {
-                    if let Some(t) = scene::pose(w, e) {
+                    if let Some(t) = world_pose(e) {
                         self.overrides.push(PreparedPose::new(e, t));
                     }
                 }
@@ -641,7 +656,7 @@ impl Feed {
                     .without::<Parent>()
                     .iter()
                 {
-                    if let Some(t) = scene::pose(w, e) {
+                    if let Some(t) = world_pose(e) {
                         self.overrides.push(PreparedPose::new(e, t));
                     }
                 }
@@ -665,7 +680,7 @@ impl Feed {
                         .cloned()
                         .unwrap_or_default();
                     for pose in &mut self.overrides[range] {
-                        pose.valid = if let Some(t) = scene::pose(w, pose.entity) {
+                        pose.valid = if let Some(t) = world_pose(pose.entity) {
                             pose.values = floats(t);
                             true
                         } else {
@@ -756,7 +771,7 @@ impl Feed {
                     {
                         continue;
                     }
-                    if let Some(t) = scene::pose(w, e) {
+                    if let Some(t) = world_pose(e) {
                         self.previous.push((e.index(), floats(t)));
                         self.transforms[1 - self.current].invalidate(slot / PAGE);
                     }
@@ -764,7 +779,7 @@ impl Feed {
             }
             if !initial {
                 for &e in w.fresh() {
-                    if let Some(t) = scene::pose(w, e) {
+                    if let Some(t) = world_pose(e) {
                         self.previous.push((e.index(), floats(t)));
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
@@ -787,7 +802,7 @@ impl Feed {
                 if parent_changed {
                     for &e in &self.parents {
                         if !w.has::<Parent>(e) {
-                            if let Some(t) = scene::pose(w, e) {
+                            if let Some(t) = world_pose(e) {
                                 self.previous.push((e.index(), floats(t)));
                                 self.transforms[1 - self.current]
                                     .invalidate(e.index() as usize / PAGE);
@@ -822,12 +837,16 @@ impl Feed {
             }
             self.history_pending = moved && !initial;
         }
+        let drawn = draw_entities.as_deref().unwrap_or(&self.draw_entities);
         if batches {
             self.dimensions.fill([1.0; 3]);
             for group in &mut self.groups {
                 group.slots.clear();
             }
-            for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
+            for ((e, (mesh, _)), &(expected, visible)) in
+                w.query::<(&Mesh, &Transform)>().iter().zip(drawn)
+            {
+                debug_assert_eq!(e, expected);
                 mesh.validate().map_err(RenderError::scene)?;
                 if matches!(mesh, Mesh::Asset(_)) {
                     continue;
@@ -838,7 +857,7 @@ impl Feed {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
                 }
                 self.dimensions[slot] = dimensions(mesh);
-                if !w.is_visible(e) {
+                if !visible {
                     continue;
                 }
                 let viewmodel = w.has::<ViewModel>(e);
@@ -965,7 +984,7 @@ impl Feed {
         if batches {
             if next.assets != 0 || !self.assets.records.is_empty() {
                 self.assets
-                    .batches(w, r, &mut self.batches, &mut self.slots)?;
+                    .batches(w, r, drawn, &mut self.batches, &mut self.slots)?;
             }
             r.batches(&self.batches, &self.slots)?;
         }

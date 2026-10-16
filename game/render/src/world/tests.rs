@@ -692,12 +692,28 @@ fn prepared_pose_preserves_offsets_and_rejects_invalid_or_recycled_rows() {
             ..Transform::at(1., 2., 3.)
         },
         Parent(root),
-        exact_game::Offset(Transform::at(0.5, 0.25, -0.75)),
     ));
     w.propagate();
     let mut feed = Feed::default();
     let mut recorder = Recording::default();
     feed.feed_to(&w, &mut recorder).unwrap();
+    // The no-offset fast path must switch both ways within this same world,
+    // including inherited offsets under rotated, nonuniform ancestors.
+    for (entity, offset) in [
+        (root, Some(Transform::at(0.5, 0.25, -0.75))),
+        (child, Some(Transform::at(-1., 2., 0.))),
+        (root, None),
+        (child, None),
+    ] {
+        if let Some(offset) = offset {
+            w.insert(entity, exact_game::Offset(offset));
+        } else {
+            w.remove::<exact_game::Offset>(entity);
+        }
+        feed.feed_to(&w, &mut recorder).unwrap();
+        let row = feed.overrides.iter().find(|p| p.entity == child).unwrap();
+        assert_eq!(row.values, floats(scene::pose(&w, child).unwrap()));
+    }
     let expected = scene::pose(&w, child).unwrap();
     assert_eq!(prepared_pose(&w, child, &feed.overrides), Some(expected));
     let stale = [PreparedPose::new(child, expected)];

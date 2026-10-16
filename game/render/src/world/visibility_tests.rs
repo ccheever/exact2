@@ -19,13 +19,25 @@ fn primitive_changes_preserve_model_records_but_model_changes_rebuild_them() {
     assert!(r.batches.iter().any(|b| b.mesh == MeshId(99)));
     let (mut model_batches, mut model_slots) = (Vec::new(), Vec::new());
     f.assets
-        .batches(&w, &mut r, &mut model_batches, &mut model_slots)
+        .batches(
+            &w,
+            &mut r,
+            &f.draw_entities,
+            &mut model_batches,
+            &mut model_slots,
+        )
         .unwrap();
     model_batches.clear();
     model_slots.clear();
     let count = allocations::count(|| {
         f.assets
-            .batches(&w, &mut r, &mut model_batches, &mut model_slots)
+            .batches(
+                &w,
+                &mut r,
+                &f.draw_entities,
+                &mut model_batches,
+                &mut model_slots,
+            )
             .unwrap();
     });
     assert_eq!(count, 0, "unchanged models need no copied names or records");

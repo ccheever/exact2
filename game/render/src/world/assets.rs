@@ -36,10 +36,13 @@ impl Assets {
         self.entities.clear();
     }
 
+    // `drawn` is the feed's current Mesh+Transform query, with effective
+    // visibility already resolved through every living ancestor.
     pub fn batches(
         &mut self,
         w: &World,
         r: &mut impl Writes,
+        drawn: &[(exact_game::Entity, bool)],
         batches: &mut Vec<Batch>,
         slots: &mut Vec<u32>,
     ) -> Result<(), RenderError> {
@@ -54,9 +57,13 @@ impl Assets {
             saved.revisions == revisions
                 && w.query::<(&Mesh, &Transform)>()
                     .iter()
-                    .filter_map(|(entity, (mesh, _))| match mesh {
-                        Mesh::Asset(name) if w.is_visible(entity) => Some((entity, name.as_str())),
-                        _ => None,
+                    .zip(drawn)
+                    .filter_map(|((entity, (mesh, _)), &(expected, visible))| {
+                        debug_assert_eq!(entity, expected);
+                        match mesh {
+                            Mesh::Asset(name) if visible => Some((entity, name.as_str())),
+                            _ => None,
+                        }
                     })
                     .eq(saved.models.iter().map(|(e, name)| (*e, name.as_str())))
         });
@@ -68,9 +75,13 @@ impl Assets {
             models: w
                 .query::<(&Mesh, &Transform)>()
                 .iter()
-                .filter_map(|(entity, (mesh, _))| match mesh {
-                    Mesh::Asset(name) if w.is_visible(entity) => Some((entity, name.clone())),
-                    _ => None,
+                .zip(drawn)
+                .filter_map(|((entity, (mesh, _)), &(expected, visible))| {
+                    debug_assert_eq!(entity, expected);
+                    match mesh {
+                        Mesh::Asset(name) if visible => Some((entity, name.clone())),
+                        _ => None,
+                    }
                 })
                 .collect(),
             revisions,
@@ -85,12 +96,8 @@ impl Assets {
         for group in self.groups.values_mut() {
             group.clear();
         }
-        for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
-            let Mesh::Asset(name) = mesh else { continue };
-            if !w.is_visible(entity) {
-                continue;
-            }
-            self.entity(w, r, entity, name)?;
+        for (entity, name) in &structure.models {
+            self.entity(w, r, *entity, name)?;
         }
         self.digests = look_digests(w);
         r.part_looks(&self.part_bases, &self.part_looks);
