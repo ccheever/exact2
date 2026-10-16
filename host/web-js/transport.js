@@ -32,7 +32,9 @@ const beatAt = (seg, t) => seg.beat + (t - seg.at) * seg.bpm / 60000;
 
 const Seqs = []; // each declared sequence, in plan order: its code, `ended`, name, and its gate and key as last stood
 let Readers = {}, Owner = null, Last = null, Raw = [], Play = null, Segments = [], Recorded = 0, State = 'stopped', Reason = '';
-let IssuedTo = 0, Skip = 0, RefillDue = Infinity, PhaseDue = Infinity, EndedDue = Infinity, Pending = null, UnsentTold = false;
+// Issued: where the last fill stopped, by beat (a tempo edit moves its time): the hits before it, and the first [1] at it,
+// were issued.
+let IssuedTo = 0, Skip = 0, Issued = [-Infinity, 0], RefillDue = Infinity, PhaseDue = Infinity, EndedDue = Infinity, Pending = null, UnsentTold = false;
 const T = () => Sounds.seq;
 const Answer = { name: 'transport', requests: 0, due: Infinity, next: Infinity, then: () => { for (const r of Resources) if (r.source === 'exactTransport') R(r); } };
 let End = null; // the armed end's `clock.timers` entry: a new one per arming, so one being fired keeps the kind it was chosen as
@@ -123,8 +125,11 @@ function fill(at, how) {
   if (Play.tracks.length !== n) timing(at);
   const from = IssuedTo, to = at + LOOKAHEAD, live = !clock.agent, g = seg();
   Midi.ticks(b => time(g, b), to, endBeat(Play), live ? at : -Infinity, at);
-  const list = hits(Play, g, from, to);
+  const list = hitsAcross(Play, from, to);
   let skipped = 0; while (skipped < Skip && skipped < list.length && list[skipped].at === from) skipped++;
+  // The hits an earlier fill issued (an edit fills from its time again): a run of the first, as hits are in time order.
+  let issued = 0, tied = 0;
+  for (const h of list) { if (h.beat === Issued[0] && tied < Issued[1]) tied++; else if (h.beat >= Issued[0]) break; issued++; }
   list.splice(0, skipped); Skip = 0;
   let late = 0, unsent = null;
   const full = T().batch(() => {
@@ -135,7 +140,7 @@ function fill(at, how) {
       const place = w => w >= at ? w : how === 'arm' ? at : how === 'edit' ? null : live && w < at - REFILL ? (counted++, null) : w;
       // The note's place first: one the full queue blocks stops the fill before any of the hit's outputs is issued; it
       // takes a place once within the hold. A blocked sample's frees when it would start. (The runner's `fill`.)
-      const skip = how === 'edit' && when - HOLD <= at, on = s.note >= 0 ? place(when) : null, note = skip ? null : on;
+      const skip = how === 'edit' && k + skipped < issued && when - HOLD <= at, on = s.note >= 0 ? place(when) : null, note = skip ? null : on;
       if (note != null && Midi.canSend(output) && Midi.blocks(note, at)) return [k, note - HOLD];
       if (s.src) { const w = place(when); if (w != null && T().issue(at, [s.src, w, s.gain, s.group, s.rate, s.pan], h.at) === 'full') return [k, w]; }
       if (note != null && Midi.canSend(output)) Midi.note(output, [0x90 | s.channel, s.note, s.velocity], note, Math.max(time(g, h.beat + s.duration) + offset, note), h.at, at);
@@ -150,8 +155,18 @@ function fill(at, how) {
   if (full != null) {
     const [k, admit] = full, t = list[k].at;
     let before = 0; while (before < k && list[k - 1 - before].at === t) before++;
-    IssuedTo = t; Skip = before + (t === from ? skipped : 0); RefillDue = Math.min(T().nextStart(at), Midi.nextHanded(at), admit);
-  } else { IssuedTo = to; RefillDue = to - REFILL; }
+    IssuedTo = t; Skip = before + (t === from ? skipped : 0); Issued = [list[k].beat, Skip]; RefillDue = Math.min(T().nextStart(at), Midi.nextHanded(at), admit);
+  } else { IssuedTo = to; Issued = [beatAt(g, to), 0]; RefillDue = to - REFILL; }
+}
+// `p`'s hits in [from, to), each timed by the segment it falls in: a fill an edit restarts before its time reaches back
+// into the tempo before it (the runner's `Transport::hits`).
+function hitsAcross(p, from, to) {
+  const out = [], first = Math.max(Segments.findLastIndex(g => g.at <= from), 0);
+  for (let j = first; j < Segments.length; j++) {
+    const lo = j === first ? from : Math.max(Segments[j].at, from), hi = j + 1 < Segments.length ? Math.min(Segments[j + 1].at, to) : to;
+    if (lo < hi) out.push(...hits(p, Segments[j], lo, hi));
+  }
+  return out;
 }
 function arm(i, t, args) {
   const name = Seqs[i].name;
@@ -177,7 +192,9 @@ function edit(t, args) {
   T().batch(() => T().retract(t));
   Midi.retractSeq(t);
   Midi.clockTo(p.clockOut, Math.ceil(beatAt(g, t) * 24), t);
-  Play = p; IssuedTo = t; Skip = 0; UnsentTold = false;
+  // From `t`, or from where a fill a full queue stopped before it: what it never issued is issued now, as the edit has it.
+  Play = p; UnsentTold = false;
+  if (IssuedTo > t) { IssuedTo = t; Skip = 0; }
   timing(t); fill(t, 'edit');
 }
 function stop(t, reason) {

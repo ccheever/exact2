@@ -590,3 +590,26 @@ fn an_app_s_own_start_does_not_suppress_the_clock_s_stop() {
     let s = sent(&r);
     assert!(s.iter().any(|e| e.0 == "fc" && e.2.is_none()), "{s:?}");
 }
+
+/// Review round 3: an edit while a full queue parks a note the fill never
+/// issued still issues it: an output the fill did not reach is not taken
+/// for one handed.
+#[test]
+fn an_edit_keeps_a_note_a_full_queue_parked() {
+    let mut r = granted(SOURCE);
+    r.act("floodOn", vec![]).unwrap();
+    r.act("flood", vec![]).unwrap();
+    r.act("laterOff", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.advance(10.0).unwrap();
+    r.act("faster", vec![]).unwrap();
+    r.advance(2000.0).unwrap();
+    let ons: Vec<String> = said(&r)
+        .into_iter()
+        .filter(|l| l.contains("90 3c 64 at ") && !l.ends_with("at 10000"))
+        .collect();
+    assert!(
+        ons.first().is_some_and(|l| l.ends_with("90 3c 64 at 100")),
+        "{ons:?}"
+    );
+}

@@ -598,6 +598,9 @@ pub struct Transport {
     issued_to: f64,
     /// Hits at `issued_to` a fill already issued (it stopped at the cap).
     skip: usize,
+    /// Where the last fill stopped, by beat (a tempo edit moves its time):
+    /// the hits before this beat, and the first `.1` at it, were issued.
+    issued: (f64, usize),
     /// Notes the value read could not send were journaled.
     unsent_told: bool,
     refill_due: f64,
@@ -629,6 +632,7 @@ impl Transport {
             reason: "",
             issued_to: 0.0,
             skip: 0,
+            issued: (f64::NEG_INFINITY, 0),
             unsent_told: false,
             refill_due: f64::INFINITY,
             phase_due: f64::INFINITY,
@@ -841,8 +845,12 @@ impl Transport {
         let first = (seg.beat_at(t) * 24.0).ceil();
         out.midi.clock_to(&play.clock_out, first, t, log);
         self.play = Some(play);
-        self.issued_to = t;
-        self.skip = 0;
+        // From `t`, or from where a fill a full queue stopped before it:
+        // what it never issued is issued now, as the edit has it.
+        if self.issued_to > t {
+            self.issued_to = t;
+            self.skip = 0;
+        }
         self.unsent_told = false;
         self.timing(t);
         self.fill(plan, out, t, live, Fill::Edit, log);
@@ -1007,9 +1015,20 @@ impl Transport {
         let end = play.end_beat();
         out.midi
             .ticks(|b| seg.time(b), to, end, late_before, at, log);
-        let mut hits = play.hits(&seg, from, to);
+        let mut hits = self.hits(&play, from, to);
         let skip = std::mem::take(&mut self.skip);
         let skipped = hits.iter().take(skip).take_while(|h| h.at == from).count();
+        // The hits an earlier fill issued (an edit fills from its time
+        // again): a run of the first, as hits are in time order.
+        let ((beat, n), mut issued, mut tied) = (self.issued, 0, 0);
+        for h in &hits {
+            if h.beat == beat && tied < n {
+                tied += 1;
+            } else if h.beat >= beat {
+                break;
+            }
+            issued += 1;
+        }
         hits.drain(..skipped);
         let (mut late, mut unsent) = (0, None);
         let midi = &mut *out.midi;
@@ -1038,7 +1057,7 @@ impl Transport {
                 // Where the note goes, decided first: a note the full queue
                 // blocks stops the fill before any of the hit's outputs is
                 // issued, so its refill issues none twice.
-                let skip = how == Fill::Edit && when - HOLD <= at;
+                let skip = how == Fill::Edit && k + skipped < issued && when - HOLD <= at;
                 let note_at = (step.note >= 0.0)
                     .then(|| place(when, &mut counted))
                     .flatten()
@@ -1066,7 +1085,7 @@ impl Transport {
                         }
                     }
                 }
-                // At an edit a note within the hold was handed already.
+                // At an edit an issued note within the hold was handed.
                 match note_at {
                     Some(on) if midi.can_send(output) => {
                         let off = seg.time(hit.beat + step.duration) + offset;
@@ -1109,6 +1128,7 @@ impl Transport {
                 let before = hits[..k].iter().rev().take_while(|h| h.at == t).count();
                 self.issued_to = t;
                 self.skip = before + if t == from { skipped } else { 0 };
+                self.issued = (hits[k].beat, self.skip);
                 // WAITING voices or QUEUED messages wait: the first to start
                 // or be handed frees a place, and the blocked output takes
                 // one by itself no later than `admit` (its start, or its
@@ -1121,10 +1141,32 @@ impl Transport {
             }
             None => {
                 self.issued_to = to;
+                self.issued = (seg.beat_at(to), 0);
                 self.refill_due = to - REFILL;
             }
         }
         self.play = Some(play);
+    }
+
+    /// `play`'s hits in `[from, to)`, each timed by the segment it falls
+    /// in: a fill an edit restarts before its time reaches back into the
+    /// tempo before it.
+    fn hits(&self, play: &Play, from: f64, to: f64) -> Vec<Hit> {
+        let segs = &self.segments;
+        let first = segs.iter().rposition(|g| g.at <= from).unwrap_or(0);
+        let mut out = Vec::new();
+        for j in first..segs.len() {
+            let lo = if j == first {
+                from
+            } else {
+                segs[j].at.max(from)
+            };
+            let hi = segs.get(j + 1).map_or(to, |n| n.at.min(to));
+            if lo < hi {
+                out.extend(play.hits(&segs[j], lo, hi));
+            }
+        }
+        out
     }
 }
 #[cfg(test)]
