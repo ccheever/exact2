@@ -1,0 +1,66 @@
+// The metronome's tests (LLP 1125 D5): a sequence's steps are voices in the
+// runner's record, so `clock +N` then `expect sound … at N` checks every hit
+// with no audio, and `exactTransport()` is `transport`. Run on any host with
+// `bun scripts/agent.mjs <host> --test apps/metronome/app.test.contract`.
+
+test "four clicks count in, then beat 1 is accented"
+  tap "toggle"
+  expect state transport.state == "countin"
+  expect state transport.anchorBeat == -4
+  clock +2100
+  expect state transport.state == "playing"
+  expect sound has "assets/click-high.wav" at 0
+  expect sound has "assets/click-high.wav" at 1500
+  expect sound has "assets/click-high.wav" at 2000
+  expect sound has "assets/click-low.wav" at 2500 gain 0.6
+  expect text "beat" == "Beat 1"
+
+test "the tempo moves from the beat it reached"
+  tap "count-in"
+  tap "toggle"
+  clock +1000
+  tap "faster"
+  expect text "bpm" == "121"
+  expect state transport.bpm == 121
+  expect state transport.anchorBeat == 2
+  clock +2000
+  expect sound has "assets/click-low.wav" at 500
+  expect sound has "assets/click-low.wav" at 1500 by edit
+  expect sound missing "assets/click-low.wav" at 1500 by end
+
+test "an edit retracts what has not started and plays the new value"
+  tap "count-in"
+  tap "toggle"
+  clock +1250
+  tap "accent"
+  expect sound has "assets/click-low.wav" at 1500 by edit
+  expect sound has "assets/click-low.wav" at 1500 by end
+  clock +1000
+  expect sound has "assets/click-low.wav" at 2000 gain 1
+  expect sound missing "assets/click-high.wav" at 2000
+
+test "the drum pattern's tracks loop at their own lengths"
+  tap "count-in"
+  tap "groove"
+  tap "toggle"
+  clock +3000
+  expect sound has "assets/kick.wav" at 0
+  expect sound has "assets/snare.wav" at 500
+  expect sound has "assets/kick.wav" at 1250 gain 0.8
+  expect sound has "assets/hat.wav" at 250 gain 0.35
+  expect sound has "assets/clap.wav" at 1000
+  expect sound has "assets/clap.wav" at 2500
+  expect sound has "assets/kick.wav" at 2000
+
+test "stop ends what waits, and the transport says why"
+  tap "haptics"
+  expect state haptics == true
+  tap "count-in"
+  tap "toggle"
+  clock +1250
+  tap "toggle"
+  expect state transport.state == "stopped"
+  expect state transport.reason == "gate"
+  expect sound has "assets/click-low.wav" at 1500 by cancelled
+  clock +2000
+  expect sound missing "assets/click-high.wav" at 2000

@@ -899,6 +899,28 @@ out (`_ReportRPCTimeout`, seen on iOS simulators whose audio is wedged), it
 aborts the process inside `AVAudioEngine`; opening at the first voice keeps
 that from launch and from an app that plays nothing.
 
+**A sequence** (`sequence NAME when cond` holding `play(tracks, bpm=…)`, LLP
+1125 D2–D5) is expanded by the runner, never by a host: its steps become
+voices in the same table a second ahead of the runner's clock, refilled when
+half a second is left on a wake of its own that runs no action and that
+`clock settle` does not wait for, so a main-thread stall of up to 500 ms
+loses no step. The bound is the same for a sequence's voices and a tap's: at
+most 32 voices sound at any voice's start (another is dropped and journaled),
+and at most 256 wait to start (another tap is dropped; a sequence stops
+expanding early and wakes when the first starts, dropping nothing). The
+Apple mixer has 288 slots and a ring of 1024 ops for it, and frees a voice
+retracted before it starts at once; the web lets its node go. A step's haptic
+plays on the main thread at its time (Apple's feedback generators;
+`navigator.vibrate` on the web, where it exists): a blocked main thread makes
+it late, and `state.sounds.output.hapticsLate` counts those more than 10 ms
+late. Linux and Windows keep the record. On iOS and tvOS a sequence stops
+when the app goes to the background (`exactTransport().reason` is
+`background`), unless `audio_session` is `"playback"` and
+`host.ios.backgroundModes` has `"audio"`; a Mac app and a web page play on.
+`state.transport` is the record: what `exactTransport()` answers, the sequence
+that last played, how far its hits are issued (`issuedTo`), its last 16 tempo
+segments, and its last 64 haptics with their states.
+
 ### Media session
 
 An `audio` or `video` with `metadata=MediaMetadata(…)` claims the platform's

@@ -53,7 +53,8 @@ final class Strip: ExactNativeInstance {
   (`value`, `size`, `title`, `playing`) is the box's, not the module's: `contract vocab <name>`.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames`, `context.after(ms)`, never a
-  `CADisplayLink` or a timer, so `clock +N` moves the animation.
+  `CADisplayLink` or a timer, so `clock +N` moves the animation. Timed output (notes,
+  haptics) is a `sequence` (LLP 1125).
 - **Touches:** recognizers on the view; one its `point(inside:)` declines goes to what is
   under the box unless it has `press=`. Plain `tap` runs none: `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored size wins.

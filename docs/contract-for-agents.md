@@ -1440,32 +1440,65 @@ component Ding
     button "Ding" press=ding
 ```
 
-To keep time (a sequencer, a metronome), schedule ahead on the audio clock rather
-than starting each hit when a timer's commit lands: the press schedules the first
-window, `[performanceNow(), performanceNow() + 100)`, and each tick of a coarse timer schedules the next,
-`[scheduledTo, performanceNow() + 100)`, as a list a `fn` computes (`playSounds(hits)` takes a
-list of a shape whose fields are, in order, `src`, `at`, `gain` and `group`, then
-optionally `playbackRate` and then `pan`). A
-timer's commit is at its due time, so a hit planned at `t` lands on the grid:
+To keep time (a metronome, a drum machine, an interval timer, a rhythm game), declare
+what should play with a `sequence` and let the runner play it ([LLP
+1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md) D2–D5); do not
+start hits from a timer. It has a task's gate, and one `play(tracks, bpm=…)`. A
+track loops at its own `beats`, `loops` times or forever (0), so tracks of
+different lengths run against each other; a step is at a `beat` (a sixteenth is
+`0.25`) and plays a sample, a haptic, or both. The runner issues the steps into
+the voice table a second ahead on its own clock, so no action runs per step and a
+busy frame does not move a beat. The arguments are read again after every commit:
+change the pattern or the tempo in state and it plays from that commit, the tempo
+without a jump in phase. `from=-4` with `countIn=` is a count-in; `ended=` runs an
+action when a finite take ends, at that time:
 
 ```text
-action start
-  playing = true
-  playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))
-  scheduledTo = performanceNow() + 100
-action tick
-  if playing
-    playSounds(hitsBetween(song, scheduledTo, performanceNow() + 100))
-    scheduledTo = performanceNow() + 100
-action stop
-  playing = false
-  stopSounds()
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+fn click(beat: number, gain: number): Step = Step(beat=beat, src="assets/click.wav", gain=gain, group="click", note=-1, velocity=100, channel=0, duration=0.1, haptic="")
+
+component Metronome
+  state playing = false
+  state bpm = 120
+  resource transport = exactTransport() as shape Transport
+  derive bar = [Track(beats=4, loops=0, offset=0, output="", steps=[click(0, 1), click(1, 0.5), click(2, 0.5), click(3, 0.5)])]
+  sequence beat when playing
+    play(bar, bpm=bpm, from=-4, countIn=[click(0, 1), click(1, 1), click(2, 1), click(3, 1)])
 ```
 
+The shapes are flat and positional, as `playSounds`'s hit is: "none" is `""` or
+`-1`. Keep the tracks in a `derive`, so a commit that changes nothing else
+compares them at once. `exactTransport()` says what plays (`state`, `reason`,
+`bpm`, `anchorAt`, `anchorBeat`); a playhead is `anchorBeat + (performanceNow() -
+anchorAt) * bpm / 60000` in a frame task gated on it being shown. The gate turning
+false stops it; `stopSounds()` silences what sounds and the next steps still play.
+For one or two scheduled hits, `playSounds(hits)` with `at=` is enough (a list of a
+shape whose fields are, in order, `src`, `at`, `gain` and `group`, then optionally
+`playbackRate` and then `pan`).
+
 Tests read the runner's record: `expect sound has "assets/ding.wav" at 0`, with any
-of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled`, or
-`expect sound missing …`;
-`state sounds` lists the last 64 voices. `audio` stays HTML's player for long media
+of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|edit`, or
+`expect sound missing …`; a sequence's steps are voices like any other, so `clock
++2000` then `expect sound has "assets/click.wav" at 1500` works with no audio, and
+`expect state transport.state == "playing"` reads the transport.
+`state sounds` lists the last 64 voices, `state transport` the transport. `audio` stays HTML's player for long media
 (a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 
 A media source is the string an `image` takes, `app:/data` files included: an
