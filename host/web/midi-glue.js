@@ -17,10 +17,13 @@
 //   stall of more than 50 ms makes a message late (D7, a declared limit);
 //   the late ones are counted.
 // - **Receiving.** Only the inputs the runner opens listen. A message's
-//   runner time is its `timeStamp` less the origin; Clock and Active
-//   Sensing are left out (clock in is stage 4); what arrives in one frame
-//   is one delivery, so the runner coalesces it as one (rulings #2).
-const HOLD = 50;
+//   runner time is its `timeStamp` less the origin; Active Sensing is left
+//   out, and Timing Clock too unless the input is one a sequence follows
+//   (the open op's `clock`, LLP 1125 D9). What arrives in one frame is one
+//   delivery, so the runner coalesces it as one (rulings #2); ticks alone
+//   wait up to 50 ms from the oldest, and anything else takes them along at
+//   the next frame.
+const HOLD = 50, BATCH = 50;
 
 /** Install MIDI. `log`: the host's journal; `origin`: where runner time 0 is
  * on `performance.now()`'s timeline; `deliver(message)`: hands
@@ -28,11 +31,11 @@ const HOLD = 50;
  * `now`, `frame` and `hidden`. */
 function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = () => performance.now(), frame, hidden = () => globalThis.document?.hidden === true }) {
   const nextFrame = frame ?? (f => (hidden() || typeof requestAnimationFrame !== 'function' ? setTimeout(f, 16) : requestAnimationFrame(f)));
-  let access = null, state = 'prompt', asking = null, timer = null, late = 0, inbox = [], flushing = false;
+  let access = null, state = 'prompt', asking = null, timer = null, late = 0, inbox = [], flushing = false, ticking = null;
   /** Messages not yet handed, earliest first: `{id, output, data, at}`. */
   let held = [];
-  /** The inputs the runner opened, by id. */
-  let open = new Set();
+  /** The inputs the runner opened, by id, and those whose clock it follows. */
+  let open = new Set(), clockIn = new Set();
   /** The latest note-on timestamp handed for each output, channel and note, and the latest timestamp handed to each output:
    * a note-off or Stop sent at a boot is stamped no earlier. */
   const sounding = new Map(), latest = new Map();
@@ -78,12 +81,13 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
   }
   function heard(input, e) {
     const data = [...e.data];
-    if (data[0] === 0xf8 || data[0] === 0xfe) return;
+    if (data[0] === 0xfe || data[0] === 0xf8 && !clockIn.has(input)) return;
     inbox.push([input, e.timeStamp - origin(), data]);
-    if (!flushing) { flushing = true; nextFrame(flush); }
+    if (data[0] !== 0xf8) { if (!flushing) { flushing = true; nextFrame(flush); } }
+    else if (!flushing && ticking == null) ticking = setTimeout(flush, Math.max(0, BATCH - (now() - e.timeStamp)));
   }
   function flush() {
-    flushing = false;
+    flushing = false; clearTimeout(ticking); ticking = null;
     if (inbox.length) deliver({ messages: inbox.splice(0) });
   }
   /** Hand every message within the hold, then wait for the next. */
@@ -134,7 +138,7 @@ function installMidi({ log, origin, deliver, nav = globalThis.navigator, now = (
         if (output && output.state !== 'disconnected') try { output.send([0x80 | on.data[0] & 0x0f, on.data[1], 0], Math.max(now(), on.stamp)); } catch (e) { log(`midi: message ${id} not sent: ${e.message}`); }
       }
     },
-    open({ inputs }) { open = new Set(inputs.map(String)); listen(); },
+    open({ inputs, clock }) { open = new Set(inputs.map(String)); clockIn = new Set((clock ?? []).map(String)); listen(); },
     request() { if (state !== 'unavailable') ask(false); },
   };
   return {

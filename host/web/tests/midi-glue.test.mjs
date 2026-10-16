@@ -2,7 +2,8 @@
 // API is `unavailable`; a permission already granted is taken silently; a
 // request granted or refused; a message held until 50 ms before it is due
 // and handed with its timestamp; a retraction before the hold; inputs
-// opened and let go; a frame's input one delivery, Clock left out; ports
+// opened and let go; a frame's input one delivery, Clock left out unless a
+// sequence follows the input, whose ticks wait up to 50 ms; ports
 // reported again on a state change; a boot forgets what was held but its
 // note-offs and Stop, which go at once.
 import { test, expect } from 'bun:test';
@@ -179,6 +180,34 @@ test('only opened inputs listen; a frame is one delivery, Clock left out', async
   expect(pads.onmidimessage).toBe(null);
   expect(pads.closed).toBe(1);
   expect(typeof keys.onmidimessage).toBe('function');
+  m.c.restore();
+});
+
+test('a followed input\'s clock waits up to 50 ms from its oldest tick; Start takes the ticks along at the next frame (LLP 1125 D9)', async () => {
+  const m = midi({ permission: 'granted' });
+  await settle(); await settle();
+  const keys = m.access.inputs.get('keys'), pads = m.access.inputs.get('pads');
+  m.out.ops([{ op: 'open', inputs: ['keys', 'pads'], clock: ['keys'] }]);
+  m.delivered.length = 0;
+  // Ticks alone: one delivery 50 ms after the oldest, however many came; a tick from an input not followed is left out,
+  // and Active Sensing always.
+  keys.onmidimessage({ data: Uint8Array.of(0xf8), timeStamp: 1000 });
+  m.c.advance(20);
+  keys.onmidimessage({ data: Uint8Array.of(0xf8), timeStamp: 1020 });
+  pads.onmidimessage({ data: Uint8Array.of(0xf8), timeStamp: 1021 });
+  keys.onmidimessage({ data: Uint8Array.of(0xfe), timeStamp: 1022 });
+  m.c.paint();
+  expect(m.delivered).toEqual([]);
+  m.c.advance(29);
+  expect(m.delivered).toEqual([]);
+  m.c.advance(1);
+  expect(m.delivered).toEqual([{ messages: [['keys', 0, [0xf8]], ['keys', 20, [0xf8]]] }]);
+  // Start: at the next frame, the ticks pending ahead of it, and the tick timer let go.
+  keys.onmidimessage({ data: Uint8Array.of(0xf8), timeStamp: 1060 });
+  keys.onmidimessage({ data: Uint8Array.of(0xfa), timeStamp: 1065 });
+  m.c.paint();
+  expect(m.delivered.at(-1)).toEqual({ messages: [['keys', 60, [0xf8]], ['keys', 65, [0xfa]]] });
+  expect(m.c.pending()).toBe(0);
   m.c.restore();
 });
 

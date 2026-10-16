@@ -7,7 +7,8 @@
 // endpoint keeps its unique-ID id; inputs opened before the request are heard
 // once it is granted; a new runner's boot hands a held note-off at once, never
 // ahead of its handed note-on, and lets the rest go; a controller flood loses
-// no note-off. macOS only: a simulator has no MIDIServer.
+// no note-off; a followed input's clock is batched and its Start goes at
+// once (LLP 1125 D9). macOS only: a simulator has no MIDIServer.
 #if os(macOS)
 import CoreMIDI
 import QuartzCore
@@ -254,6 +255,80 @@ final class MIDIMacTests: XCTestCase {
         }
         wait(2) { delivered.contains { $0.contains("[128,60,0]") } }
         XCTAssertTrue(delivered.contains { $0.contains("[128,60,0]") }, "the note-off came through")
+        output.shutdown()
+    }
+
+    /// One system message (UMP type 1) from the test's virtual source,
+    /// stamped at host second `at`.
+    private func system(_ status: UInt8, at: Double) {
+        var buffer = [UInt8](repeating: 0, count: 256)
+        buffer.withUnsafeMutableBytes { raw in
+            let list = raw.baseAddress!.assumingMemoryBound(to: MIDIEventList.self)
+            var word: UInt32 = 0x1000_0000 | UInt32(status) << 16
+            let stamp = MIDITimeStamp(at * 1e9 * Double(Self.timebase.denom) / Double(Self.timebase.numer))
+            var packet = MIDIEventListInit(list, ._1_0)
+            packet = MIDIEventListAdd(list, 256, packet, stamp, 1, &word)
+            XCTAssertEqual(MIDIReceivedEventList(source, list), noErr)
+        }
+    }
+
+    /// Each delivery's messages, `(status, stamp in runner ms)`, with when it
+    /// came.
+    private func messages(_ deliveries: [(at: Double, json: String)]) -> [(at: Double, list: [(status: UInt8, ms: Double)])] {
+        deliveries.compactMap { d in
+            guard let object = try? JSONSerialization.jsonObject(with: Data(d.json.utf8)) as? [String: Any],
+                  let list = object["messages"] as? [[Any]] else { return nil }
+            return (d.at, list.map { m in (UInt8((m[2] as? [NSNumber])?.first?.intValue ?? 0), (m[1] as? NSNumber)?.doubleValue ?? .nan) })
+        }
+    }
+
+    /// LLP 1125 D9: a followed input's ticks come stamped from their packets
+    /// and batched at most 50 ms from the oldest; Start goes at once with the
+    /// ticks ahead of it; Active Sensing never comes, nor ticks from an input
+    /// no sequence follows.
+    func testAFollowedClockIsBatchedAndStartGoesAtOnce() throws {
+        let library = try library()
+        var deliveries: [(at: Double, json: String)] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { deliveries.append((CACurrentMediaTime(), $0)) }, library: { library })
+        let input = String(uid(source))
+        output.apply(["ops": [["op": "open", "inputs": [input], "clock": [input]], ["op": "request"]]])
+        wait(2) { deliveries.contains { $0.json.contains(input) } }
+        wait(0.2)
+        deliveries.removeAll()
+        // 48 ticks at 120 bpm, then Active Sensing, Start and Stop, each
+        // stamped as it is sent, from another thread while this one runs.
+        var sent: [(status: UInt8, at: Double)] = []
+        var finished = false
+        DispatchQueue.global().async {
+            for status in Array(repeating: UInt8(0xF8), count: 48) + [0xFE, 0xFA, 0xFC] {
+                let at = CACurrentMediaTime()
+                self.system(status, at: at)
+                self.lock.withLock { sent.append((status, at)) }
+                Thread.sleep(forTimeInterval: status == 0xF8 ? 0.5 / 24 : 0.03)
+            }
+            self.lock.withLock { finished = true }
+        }
+        wait(5) { self.lock.withLock { finished } }
+        wait(0.2)
+        let got = messages(deliveries), all = got.flatMap(\.list), want = lock.withLock { sent.filter { $0.status != 0xFE } }
+        XCTAssertEqual(all.map(\.status), want.map(\.status), "every tick, Start and Stop, in order; no Active Sensing")
+        for (m, s) in zip(all, want) { XCTAssertEqual(m.ms, (s.at - ExactEnv.t0) * 1000, accuracy: 0.5, "stamped from its packet") }
+        let ticks = got.filter { $0.list.allSatisfy { $0.status == 0xF8 } }
+        XCTAssertGreaterThan(ticks.count, 10)
+        XCTAssertLessThan(ticks.count, 30, "batched")
+        for (a, b) in zip(ticks, ticks.dropFirst()) { XCTAssertGreaterThan(b.at - a.at, 0.040, "ticks alone no more often than 50 ms") }
+        for d in ticks { XCTAssertLessThan(d.at - (ExactEnv.t0 + d.list[0].ms / 1000), 0.075, "nor later than 50 ms from the oldest") }
+        let start = try XCTUnwrap(got.first { $0.list.contains { $0.status == 0xFA } })
+        let fa = try XCTUnwrap(want.first { $0.status == 0xFA })
+        XCTAssertLessThan(start.at - fa.at, 0.010, "Start at once")
+        // Not followed: a tick goes nowhere, a note still comes.
+        output.apply(["ops": [["op": "open", "inputs": [input], "clock": []]]])
+        wait(0.1)
+        deliveries.removeAll()
+        for _ in 0..<5 { system(0xF8, at: CACurrentMediaTime()) }
+        play()
+        wait(0.3)
+        XCTAssertEqual(messages(deliveries).flatMap(\.list).map(\.status), [0x90])
         output.shutdown()
     }
 
