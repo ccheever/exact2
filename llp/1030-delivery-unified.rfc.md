@@ -167,8 +167,8 @@ the existing viewport unless `EXACT_WINDOW_WIDTH`/`EXACT_WINDOW_HEIGHT` override
 **Icon Composer (2026-10-16, issue #467):** `host.ios.icon` and `host.macos.icon`
 explicitly select one app-owned `.icon` directory relative to `app.json`.
 Its stem is the primary icon's name in the single `actool` pass alongside
-the app's catalogs. A selected project conflicts with an `.appiconset`
-in those catalogs; missing paths and non-`.icon` directories
+the app's catalogs. A selected project conflicts with an `AppIcon.appiconset`,
+or a set of its own name, in those catalogs (any other set is an alternate icon); missing paths and non-`.icon` directories
 are refused by name. The project and every layer are native binary inputs:
 their hashes enter the bake receipt and asset cache, and packaging refuses
 changed sources. tvOS keeps asset catalogs and never inherits this selection.

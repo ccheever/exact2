@@ -484,7 +484,7 @@ for (const [name, path, prepare, error] of [
   ['file', 'File.icon', dir => writeFileSync(resolve(dir, 'File.icon'), '{}'), /host\.ios\.icon.*File\.icon.*\.icon directory/],
   ['extension', 'Folder', dir => mkdirSync(resolve(dir, 'Folder')), /host\.ios\.icon.*Folder.*\.icon directory/],
   ['conflict', 'Primary.icon', dir => { mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/AppIcon.appiconset'), { recursive: true }); writeFileSync(resolve(dir, 'modules/apple/Art.xcassets/AppIcon.appiconset/Contents.json'), '{}'); }, /Primary\.icon.*Art\.xcassets\/AppIcon\.appiconset/],
-  ['named catalog conflict', 'Primary.icon', dir => { mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/Brand.appiconset'), { recursive: true }); writeFileSync(resolve(dir, 'modules/apple/Art.xcassets/Brand.appiconset/Contents.json'), '{}'); }, /Primary\.icon.*Art\.xcassets\/Brand\.appiconset/],
+  ['same-named catalog conflict', 'Primary.icon', dir => { mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/Primary.appiconset'), { recursive: true }); writeFileSync(resolve(dir, 'modules/apple/Art.xcassets/Primary.appiconset/Contents.json'), '{}'); }, /Primary\.icon.*Art\.xcassets\/Primary\.appiconset/],
   ['empty catalog conflict', 'Primary.icon', dir => mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/AppIcon.appiconset'), { recursive: true }), /Primary\.icon.*Art\.xcassets\/AppIcon\.appiconset/],
 ]) test(`Icon Composer refuses a selected ${name} by name`, () => inDir(dir => {
   const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
@@ -492,6 +492,14 @@ for (const [name, path, prepare, error] of [
   app.manifest.host.ios.icon = path;
   prepare(dir);
   assert.throws(() => appleAssetCatalogInventory(app, 'ios'), error);
+}));
+
+test('Icon Composer keeps an alternate app icon set beside the selected project', () => inDir(dir => {
+  const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const app = composerFixture(dir);
+  mkdirSync(resolve(dir, 'modules/apple/Art.xcassets/Brand.appiconset'), { recursive: true });
+  writeFileSync(resolve(dir, 'modules/apple/Art.xcassets/Brand.appiconset/Contents.json'), '{}');
+  assert.deepEqual(appleAssetCatalogInventory(app, 'ios').map(entry => entry.path), ['modules/apple/Art.xcassets', 'Primary.icon']);
 }));
 
 test('Icon Composer refuses paths outside the app even through an alias back inside', () => inDir(dir => {

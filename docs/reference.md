@@ -328,8 +328,9 @@ set `host.ios.icon` or `host.macos.icon` to its app-relative `.icon` directory,
 for example `"host": { "ios": { "icon": "art/Primary.icon" }, "macos": { "icon": "art/Primary.icon" } }`.
 Each platform selects independently; tvOS keeps its asset catalogs and does
 not inherit the iOS selection. There is no `.icon` discovery. The selected
-project must be inside the app and cannot coexist with an `.appiconset`
-in that platform's catalogs. Missing paths
+project must be inside the app and cannot coexist with a primary
+`AppIcon.appiconset`, or a set with the project's name, in that platform's
+catalogs; other sets stay alternate icons. Missing paths
 and paths that are not `.icon` directories fail by name. The project and its
 layers compile in the same `actool` pass as the app's catalogs; changing them
 requires a new native build. `icons` still supplies the web and the native

@@ -65,8 +65,11 @@ export function appleAssetCatalogInventory(app, platform) {
     if (!existsSync(path)) throw new Error(`${field} does not exist`);
     if (!selected.endsWith('.icon') || !lstatSync(path).isDirectory()) throw new Error(`${field} must name an .icon directory`);
     if (isAbsolute(selected) || !path.startsWith(resolve(app.dir) + '/') || !realpathSync(path).startsWith(realpathSync(app.dir) + '/')) throw new Error(`${field} must be inside the app`);
+    // `AppIcon` is the primary set's name (`iosAssets`), and a set named like the project would take its name;
+    // any other `.appiconset` is an alternate icon, which actool compiles beside the project.
+    const taken = new Set(['AppIcon.appiconset', `${basename(selected, '.icon')}.appiconset`]);
     for (const entry of catalogs) {
-      const primary = readdirSync(resolve(app.dir, entry.path), { recursive: true }).sort().find(name => name.endsWith('.appiconset'));
+      const primary = readdirSync(resolve(app.dir, entry.path), { recursive: true }).sort().find(name => taken.has(basename(name)));
       if (primary) throw new Error(`${field} conflicts with ${entry.path}/${primary}; select one primary icon`);
     }
     catalogs.push({ path: relative(app.dir, path), files: catalogFiles(path) });
