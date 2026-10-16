@@ -112,7 +112,7 @@ globalThis.exact.picker = function install(host) {
       picked.set(path, file);
       if (s) await s.putBlob(path, file);
       const { width, height, duration } = await describe(file);
-      lines.push([path, clean(file.name), clean(file.type || 'application/octet-stream'), file.size, width, height, duration].join('\t'));
+      lines.push([path, clean(file.name), clean(file.type || typeFor(file.name)), file.size, width, height, duration].join('\t'));
     }
     host.dispatch(id, 26, lines.join('\n'));
   }
@@ -179,5 +179,5 @@ globalThis.exact.picker = function install(host) {
 function typeFor(name) {
   const ext = name.toLowerCase().split('.').pop();
   return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
-    svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml', xml: 'application/xml', json: 'application/json', md: 'text/markdown', txt: 'text/plain' }[ext] ?? 'application/octet-stream';
+    svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml', xml: 'application/xml', json: 'application/json', md: 'text/markdown', txt: 'text/plain', log: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', css: 'text/css', yaml: 'application/yaml', yml: 'application/yaml' }[ext] ?? 'application/octet-stream';
 }

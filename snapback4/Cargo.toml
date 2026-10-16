@@ -9,18 +9,15 @@ edition = "2021"
 version = "0.1.0"
 license = "MIT"
 
-# Snapback4 0.4.16 release source: 468d3aa5be3eee914883e37f3ab0424030ac882d.
+# Snapback4 0.4.28 release source: af4b256a31f5266577d5c014bd96b7827386c9db.
 # Match the published CLI and browser device, without a mutable sibling checkout.
 [workspace.dependencies]
-snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16", default-features = false }
-snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16", default-features = false }
-snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16" }
+snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "af4b256a31f5266577d5c014bd96b7827386c9db", version = "=0.4.28", default-features = false }
+snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "af4b256a31f5266577d5c014bd96b7827386c9db", version = "=0.4.28", default-features = false }
+snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "af4b256a31f5266577d5c014bd96b7827386c9db", version = "=0.4.28" }
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
-parley = { path = "../vendor/parley" }
-fontique = { path = "../vendor/fontique" }
-wgpu-hal = { path = "../vendor/wgpu-hal" }
 
 [package]
 name = "exact-snapback4"

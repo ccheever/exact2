@@ -789,19 +789,20 @@ async function main(args) {
   // A development build whose last link in this scratch was this app's starts the product's build here, where
   // it only started ExactKit's compile: when the bake leaves the archive as it was, that build is the link,
   // and the half second SwiftPM takes to find nothing to do is spent beside Cargo, not after it. It holds the
-  // link's claim from here; with another app linking, or anything else, the build is as it was.
+  // link's claim from here; with another app linking, or anything else, the build is as it was. It links the
+  // capabilities that link did (`<product>.linked`), since this build's are known only once the bake ends.
   const sole = args.includes('--host') ? null : ios ? 'ExactIOS' : 'ExactMac';
   const early = (() => {
     if (embedOnly || cargoProfile !== HOST_DEV || !sole || !existsSync(binAnswer)) return null;
     const bin = readFileSync(binAnswer, 'utf8');
     let was = null;
     try { was = JSON.parse(readFileSync(resolve(bin, `${sole}.linked`), 'utf8')); } catch { return null; }
-    if (was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
+    if (was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || typeof was.link !== 'string' || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
     if (ios && !device && !existsSync(resolve(expected.scratch, `${sole}-entitlements.plist`))) return null;
     let claim;
     try { claim = claimBuildOutput(app, expected.swiftLock); } catch { return null; }
     const step = startApple('swift', [...swiftArgs, ...entitledArgs(expected.scratch, sole), '--product', sole], resolve(webBuildDir, 'swift-compile.log'),
-      { cwd: pkg, env: swiftEnv(expected.capture, expected.composition) });
+      { cwd: pkg, env: swiftEnv(expected.capture, expected.composition, was.link) });
     beside.push(step);
     return { claim, step };
   })();
@@ -1123,7 +1124,7 @@ async function main(args) {
       // swift build does not see the Rust archive (or that plist) change, so the executable is dropped to be
       // linked again: 0.4 s, and it was every build's. A development build drops only one linked from other
       // bytes, which `<product>.linked` beside it says: the archive's hash, whose it is, and the plist.
-      const linked = resolve(swiftBinDir, `${p}.linked`), from = JSON.stringify({ archive: archive ?? null, libDir, lib: env.EXACT_LIB ?? null, entitled });
+      const linked = resolve(swiftBinDir, `${p}.linked`), from = JSON.stringify({ archive: archive ?? null, libDir, lib: env.EXACT_LIB ?? null, link: appleLink, entitled });
       const same = cargoProfile === HOST_DEV && archive && existsSync(resolve(swiftBinDir, p)) && existsSync(linked) && readFileSync(linked, 'utf8') === from;
       if (!same) for (const stale of [p, `${p}.linked`]) rmSync(resolve(swiftBinDir, stale), { force: true });
       // The early build was this one's when nothing it linked from has changed.

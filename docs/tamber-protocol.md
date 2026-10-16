@@ -27,6 +27,8 @@ on macOS and Linux.
   - the `builds`, `build-status`, `unsupported` and `selected` events;
   - the live table's batch and snapshot frames, and the dev loop's endpoints (`/__dev/design`,
     `/__dev/report`, `/__dev/hello`, `/__dev/commands`);
+  - `uses`, scrub sessions (`scrub`, `scrub-release`, `scrub-cancel`, the `scrub` event) and
+    `propose`'s `texts` (stage 4, commit 6);
   - the items marked *1.2* below.
 
 ## Where it runs
@@ -72,7 +74,7 @@ statuses:
 |---|---|
 | 400 | malformed; refused by the checker; an unknown inverse; a `commit` refused |
 | 404 | an unknown proposal or commit |
-| 409 | a conflict (`conflict: true`); a revert refused; a commit while a write is in flight (no `conflict` field) |
+| 409 | a conflict (`conflict: true`); a revert refused; a commit while a write is in flight (no `conflict` field); a commit whose `scope` is stale (`stale: true`) |
 | 413 | too large |
 | 500 | reading git failed (`history`, `revert`, a write's baseline) |
 | 503 | the design server is down |
@@ -124,6 +126,7 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 - `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
   False from a server no dev loop runs.
+- `design`: the app's design file, the one an operation with no `file` edits (*1.1*).
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 
@@ -140,6 +143,11 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
   keyed by IR names, so a role is keyed by its row spelling.
+- `pairs`: `{token: [{name, token, fallback}]}`, what each token says it is drawn on (`pair=`,
+  LLP 1121 D3): `token` is whether `name` is a token of the design; a role no token overrides
+  has its `fallback` `{light, dark}` (*1.1*).
+- `warnings`: `[{file, line, col, id, message}]`, the design's `tamber-contrast` warnings, a pair
+  below 4.5:1 at its lowest tuple and scheme. They never refuse the design (*1.1*).
 
 **`resolve`** `{token, file?}` gives the token's value **as the build stores it**, per app-mode
 tuple:
@@ -163,6 +171,31 @@ tuple:
 - `dials` lists the dials it depends on, and `names` the tokens its values name, as the checker
   resolved them;
 - `files` gives the digests it read (*1.1*).
+
+`resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
+given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
+runner resolves it.
+
+**`uses`** `{token, file?}` (*1.2*, stage 4 commit 6) says where the app reads a token,
+statically: every row of the plan that takes a colour and whose expression names it, directly,
+through a token whose value names it, through a synthetic token (a row's expression over
+tokens) that reads it, or through a slot or derive that may hold it (a slot whose initial
+value, or a value an action stores in it, names it). A value compared (`mode == "brand"`) is no
+read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliases, files}`:
+- `sites: [{site, row, file, line, col, end_col, component, via?}]`: the plan node (`site`), the
+  row, and its source span from the plan's source map. `via` is absent for a direct read, `{token}`
+  through a token naming it, `{synthetic, through}` through a synthetic token's expression
+  (`through` null, or the `{token}` it reads it by), and `{slot}` or `{derive}` through one;
+- `plan`: the digest of the plan the sites index, compiled from the sources as they are, before
+  any bake. A build joins the spans through its own source map (LLP 1122 T2b's `outline`);
+- `aliases`: the tokens whose values name it, directly or through another;
+- `files`: the digests it read.
+
+A `file` that is not the design the app builds has no sites. The JS target's plan and a native
+bake of the same sources have the same sites. How many instances of each site are mounted on a
+build is not answered: that needs a report the
+build channel does not carry (a LLP 1121 §9 candidate). A design token no row reads has no sites.
+The app's build failing is an error (`the app does not build: …`).
 
 **A design that doesn't check** answers `{"message": "the design is refused", "diagnostics":
 [{file, line, col, id, message}]}`.
@@ -214,11 +247,57 @@ design.
   no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
-- `files`: the digests it planned against.
+- `files`: the digests it planned against;
+- `texts` (*1.2*): with `texts: true` in the request, the new text of each file it would write, by
+  path; a scrub's preview compiles them.
 
 A digest it carries is checked as a transaction's is, and a stale one is 409 (with no `by`).
 `requires` is `{path: digest}`, for files it was planned on but doesn't edit, checked alongside
 (*1.1*).
+
+### Scrub sessions (*1.2*, LLP 1121 D13, LLP 1122 D6)
+
+A token or dial dragged in the tool previews on every running build as a live batch, is written
+to no file while the gesture lasts, and is written once, on release. The wire runs it
+(`scripts/tamber-scrub.mjs`); the dev loop that mounts the wire previews it.
+
+- **`scrub`** `{client, ops, files, scrub?}` opens a scrub, or updates the client's open one
+  (`scrub` its id). It needs `write` scope and a present client (a subscription or long poll that
+  names it), and the dev loop's wire: a server no dev loop runs answers 501.
+  - **One at a time:** another client's scrub open is 409.
+  - **Each update is the whole gesture's edit,** planned (`propose` with `texts`) on the files as
+    the scrub opened on them (`files`, the digests its client read, given when it opens). The dev
+    loop compiles the texts in place of the design file and sends every build the batch from the
+    design it runs, as a value-only edit sends one; the snapshot it serves (`/__dev/design`) is the
+    scrub's while it lasts.
+  - **Updates that come while one previews** wait; only the latest is previewed, and the others
+    are answered `{scrub, superseded: true}`. An update back to the committed value previews the
+    committed design, and the scrub stays open.
+  - **The dev loop's builds and a preview.** Any write other than the scrub's own release, and
+    any hand edit, ends the scrub first (below); that write is never previewed over. What the
+    loop does with a value-only build that lands while a preview is still showing is only about
+    ordering: the build of such a write when it lands before the end's restore reaches the loop,
+    and a previous scrub's release build when it lands after the next scrub has opened. Both
+    leave the builds on the preview and change only what the end restores (the restore, or the
+    next scrub's end). A build that reloads the builds ends the preview there.
+  - It answers `{scrub, class: "live", changed, synthetic, files}`.
+  - **A rebuild-class edit has no scrub** (409): it applies on release, as a `transaction`.
+- **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
+  the scrub opened with, its reply a transaction's. A file moved since is a conflict naming who
+  moved it (`by`): nothing is written, and the builds get the committed design back. While a
+  release is written no scrub opens (409). The builds keep the preview until the build of what
+  it wrote, whose batch goes from it.
+- **`scrub-cancel`** `{client, scrub}` ends it without a write.
+- **It ends without a write** on a cancel, a competing write (any write, or a hand edit the
+  watcher sees, cancels it first), its client no longer present, the design server's loss, and
+  30 s with no update (counted from each update's arrival). On each, every build gets the **latest committed** design, not the
+  gesture's first, and a build that connects later gets the committed snapshot.
+- **The `scrub` event** `{scrub, client, reason}` says each opening (`opened`, at its first
+  preview; one that ends before it previews is never announced) and each end
+  (`released`, `refused`, `cancelled`, `competing write`, `disconnected`, `server lost`, `idle`).
+  While one is open the files and the running builds differ: the tool says "previewing".
+- **Scope:** the local tool's token writes. A paired client's scoped token (LLP 1122 D6) names
+  its scope, and a `propose`-scope client's scrub is 403.
 
 ### `transaction`
 
@@ -235,16 +314,20 @@ A digest it carries is checked as a transaction's is, and a stale one is 409 (wi
   landed. If it can't judge the record (a partial landing it can't account for, a temporary
   file with the wrong digest, an unreadable record), it keeps it and refuses to start. The wire
   then reports the server down.
-- **The reply** is `{files, changed, class, diff, synthetic, client, written, before, inverse}`
+- **The reply** is `{files, changed, class, diff, synthetic, client, written, before, inverse, write}`
   (`class` and `synthetic` as `propose` answers them):
   - `files` gives every design file's digest after the write;
+  - `write` numbers the write (rising, per run), the same number its `changed` event and the
+    session's edits carry, so a client can tell its own write's event from another's that left
+    the same bytes (*1.1*);
   - `written` lists the files it wrote, and `before` their digests as it read them;
   - `inverse` is an id, or null when nothing changed on disk.
 - **A conflict** is 409, `{conflict: true, message, files, stale: [path], by: {path: who}}`. `by`
   names who last changed each stale file: a client, or `"changed on disk"` for a hand edit or a
   checkout.
 - **Refused by the checker:** `{message: "refused", diagnostics: [{file, line, col, id,
-  message}]}`.
+  message}]}`. A write (or a propose) that would make a role override vary by an app axis is
+  refused the same way, `tamber-role-axis`, since the build would refuse it (*1.1*).
 - **An editor that ignores the lock** and saves between the server's last read and its rename is
   overwritten. The digests narrow that window but don't close it.
 
@@ -263,7 +346,17 @@ that write left it. Otherwise it is a conflict, with `by`.
 
 ### `commit` (LLP 1122 D9)
 
-`{client, message?}` commits to git the design files this session wrote. It never pushes.
+`{client, message?, dry?, scope?}` commits to git the design files this session wrote. It never
+pushes.
+- **`dry: true`** runs the same checks and writes nothing. It answers `{files, edits, scope}`:
+  what a commit would take, so a client can compose the message from the commit's own scope
+  (writes from before it connected among them). Files that are HEAD's again (an edit and its
+  undo) answer "nothing to commit" (*1.1*).
+- **`scope`**, a dry run's given back, refuses the commit (409, `stale: true`) if the session has
+  written since, so a write that lands in between is never committed under a message that leaves
+  it out (*1.1*).
+- **`edits`** (on a dry run and a commit) is `[{file, client, tokens, write?}]`, each session edit
+  with its author, the tokens it changed and its write's number (*1.1*).
 - **Refused (400), naming each file and why** (`refused: [{file, why}]`), when any of these holds:
   - the file was dirty or staged when the session first wrote it;
   - HEAD has moved since;
@@ -276,7 +369,7 @@ that write left it. Otherwise it is a conflict, with `by`.
   the real index's entries for those paths only, so other staging is untouched. HEAD moves only
   from the HEAD the guard checked. If it can't move, those index entries are put back.
 - **The message** is the one given, or a composed one, followed by each edit and its author.
-- **The reply** is `{commit, files: [path]}`, announced as a `committed` event.
+- **The reply** is `{commit, files: [path], edits}`, announced as a `committed` event.
 
 ### Held proposals (LLP 1122 D10)
 
@@ -349,7 +442,8 @@ with.
 
 `{kind, source, name?, prefix?, client}`, or `{kind, sources: [{name, text}], prefix?, client}`.
 - **The source.** `source` is the file's text. `name` is its file name; a Figma export's
-  `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files.
+  `<Collection>.<Mode>.json` names its modes. `sources` takes 1 to 256 files, and only for
+  `dtcg`: a stylesheet's importer reads one sheet, and several are refused (400, *1.1*).
 - **`kind`** is `shadcn`, `tailwind` or `dtcg`. `prefix` is the token prefix, by default
   `shadcn`, `tw` or `dtcg`.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
@@ -362,7 +456,9 @@ with.
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).
-- **A source that doesn't parse** is refused with string `diagnostics`.
+- **A source that doesn't parse** is refused, `{message: "the source is refused", diagnostics:
+  [{file, line, col, id, message}]}` as a checker's refusal is. With several files a
+  diagnostic is `{id, message}`, its message naming the file (*1.1*).
 - **An import with nothing new** answers 200, `{proposal: null, review, message}`.
 
 ## The change stream
@@ -377,8 +473,8 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 
 | `event` | Fields |
 |---|---|
-| `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `acceptedBy?`, `proposal?` |
-| `committed` | `client`, `commit`, `files: [path]` |
+| `changed` | `files` (every digest now), `edited` (paths whose digest moved, and paths gone, which `files` no longer lists), `changed: [{file, token}]` (null for a hand edit), `client`, `write?` (the write's number, *1.1*), `acceptedBy?`, `proposal?` |
+| `committed` | `client`, `commit`, `files: [path]`, `edits` (the commit's reply's, *1.1*) |
 | `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?` |
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |
@@ -386,6 +482,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `build-status` | `build`: one build, after its `status` report |
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
 | `selected` | `build`, `selected` (LLP 1122 D5; its sender is T2b's) |
+| `scrub` | `scrub`, `client`, `reason` (*1.2*; see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
   first, as its own event.
@@ -534,9 +631,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 ## Not yet in the protocol
 
-- **LLP 1121 stage 4, with LLP 1122 D4:**
-  - scrub sessions;
-  - `uses`.
+- **`uses`' mounted-instance count** needs a report outside the build channel's (a LLP 1121 §9
+  candidate).
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's
   `selected` report carries the value it resolved.
 - **Later stages:**

@@ -159,6 +159,13 @@ pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
     // the files in decides nothing.
     let mut files = files;
     files.sort();
+    // A stylesheet's importer reads one sheet; only DTCG takes several.
+    if files.len() > 1 && kind != "dtcg" {
+        return Err(bad(&format!(
+            "`{kind}` imports one stylesheet, not {}: several files are DTCG's",
+            files.len()
+        )));
+    }
     let design = exact_tamber::parse(current).map_err(|all| {
         json!({"message": "the design does not parse", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()})
     })?;
@@ -166,8 +173,11 @@ pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
         None => Err(bad(&format!(
             "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
         ))),
+        // Each diagnostic in the shape the wire gives a checker's: named by
+        // the source file when there is one, else by its message alone (an
+        // importer of several names the file in it), no place invented.
         Some(Err(all)) => Err(
-            json!({"message": "the source is refused", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()}),
+            json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| if files.len() == 1 { json!({"file": files[0].0, "line": d.line, "col": d.col, "id": d.id, "message": d.message}) } else { json!({"id": d.id, "message": d.message}) }).collect::<Vec<_>>()}),
         ),
         Some(Ok(import)) => Ok(import_json(&kind, &import)),
     }

@@ -8,7 +8,7 @@
    Compiling khronos-egl v6.0.0
    Compiling getrandom v0.2.17
    Compiling naga v29.0.4
-   Compiling contract-lower v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/lower)
+   Compiling contract-lower v0.1.0 ($HOME/lanes/game/exact2-wt-game/contract/lower)
    Compiling tinyvec_macros v0.1.1
    Compiling wayland-sys v0.31.11
    Compiling tinyvec v1.12.0
@@ -43,38 +43,38 @@
    Compiling drm v0.15.0
    Compiling wasmparser v0.228.0
    Compiling tiny-skia v0.12.0
-   Compiling exact-logic-abi v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/logic/abi)
+   Compiling exact-logic-abi v0.1.0 ($HOME/lanes/game/exact2-wt-game/logic/abi)
    Compiling evdev v0.13.2
-   Compiling exact-filesystem v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/filesystem)
-   Compiling exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu/reflect)
+   Compiling exact-filesystem v0.1.0 ($HOME/lanes/game/exact2-wt-game/filesystem)
+   Compiling exact-gpu-reflect v0.1.0 ($HOME/lanes/game/exact2-wt-game/gpu/reflect)
    Compiling harfrust v0.5.2
    Compiling skrifa v0.40.0
    Compiling ureq v3.4.0
    Compiling skrifa v0.44.0
    Compiling vello_shaders v0.10.0
-   Compiling ibex2 v0.1.0 (/home/ccheever/lanes/game/ibex/crates/ibex2)
+   Compiling ibex2 v0.1.0 ($HOME/lanes/game/ibex/crates/ibex2)
    Compiling wgpu-naga-bridge v30.0.1
    Compiling wgpu-hal v30.0.1
-   Compiling contract v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/cli)
+   Compiling contract v0.1.0 ($HOME/lanes/game/exact2-wt-game/contract/cli)
    Compiling vello_encoding v0.10.0
    Compiling swash v0.2.10
    Compiling wgpu-naga-bridge v29.0.4
    Compiling wgpu-hal v29.0.4
-   Compiling caltrain-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain/gpu)
-   Compiling weatherlight-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/weatherlight/gpu)
+   Compiling caltrain-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/apps/caltrain/gpu)
+   Compiling weatherlight-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/apps/weatherlight/gpu)
    Compiling wgpu-core-deps-windows-linux-android v30.0.1
    Compiling wasmi v2.0.0
    Compiling wgpu-core v30.0.1
-   Compiling caltrain-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain/linux)
-   Compiling caltrain v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain)
+   Compiling caltrain-linux v0.1.0 ($HOME/lanes/game/exact2-wt-game/apps/caltrain/linux)
+   Compiling caltrain v0.1.0 ($HOME/lanes/game/exact2-wt-game/apps/caltrain)
    Compiling cosmic-text v0.19.0
    Compiling wgpu-core-deps-windows-linux-android v29.0.4
    Compiling wgpu-core v29.0.4
    Compiling wgpu v30.0.1
-   Compiling exact-logic v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/logic)
-   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu)
+   Compiling exact-logic v0.1.0 ($HOME/lanes/game/exact2-wt-game/logic)
+   Compiling exact-gpu v0.1.0 ($HOME/lanes/game/exact2-wt-game/gpu)
    Compiling wgpu v29.0.4
    Compiling vello v0.10.0
-   Compiling exact-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux)
-   Compiling exact-linux-update v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux-update)
+   Compiling exact-linux v0.1.0 ($HOME/lanes/game/exact2-wt-game/host/linux)
+   Compiling exact-linux-update v0.1.0 ($HOME/lanes/game/exact2-wt-game/host/linux-update)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.56s

@@ -6,4 +6,5 @@ mod edit;
 mod expected;
 mod fmt;
 mod import;
+mod pair;
 mod parity;

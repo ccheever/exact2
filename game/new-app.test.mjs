@@ -2,16 +2,16 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, statSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
 import { appVerbs } from '../scripts/app-cli.mjs';
-import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns, wireSnapback } from './new.mjs';
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
  * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
-const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
+const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help', 'bun']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -34,7 +34,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
     assert.ok(launcher.trimEnd().split('\n').length <= 25, `exact.mjs is ${launcher.split('\n').length} lines`);
-    assert.match(launcher.split('\n')[1], /`bun exact\.mjs --help` lists the verbs/);
+    assert.match(launcher.split('\n')[2], /`bun exact\.mjs --help` lists the verbs/);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
@@ -60,13 +60,36 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state', '--chrome', 'platform', '--scale', '1'], ios],
       [['agent', 'ios', '--sim', 'lane', '--scale', '3', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', '--scale', '3', 'tree', '--chrome', 'platform'], [...ios, '--sim', 'lane']],
       [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree', '--chrome', 'platform', '--scale', '1']],
-      [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
+      [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', resolve(realpathSync(dir), 'app.contract'), '--json']],
+      [['contract', 'types', 'app.contract', '-o', 'app.contract.d.ts'], ['contract', 'types', resolve(realpathSync(dir), 'app.contract'), '-o', resolve(realpathSync(dir), 'app.contract.d.ts')]],
+      [['contract', 'vocab', 'background-color'], ['contract', 'vocab', 'background-color']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir), offline: '1' });
-      assert.deepEqual(result.stderr.trim() ? JSON.parse(result.stderr).args : null, built, `${command.join(' ')} builds first`);
+      assert.deepEqual(result.stderr.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line).args)[0] ?? null, built, `${command.join(' ')} builds first`);
     }
+    // From inside the app, a path from its parent finds the same file; one found nowhere is named.
+    const inside = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'contract', 'build', 'field-log/app.contract'], { cwd: dir, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(inside.stdout).args, ['contract', 'build', resolve(realpathSync(dir), 'app.contract')]);
+    assert.match(inside.stderr, /field-log\/app\.contract is .*field-log\/app\.contract \(the app is /);
+    const nowhere = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'contract', 'build', 'nope.contract'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.match(nowhere.stderr, /no nope\.contract in .* or in the app, /);
+    assert.deepEqual(JSON.parse(nowhere.stdout).args, ['contract', 'build', 'nope.contract']);
+    // App farm wave 1: `test --help` ran the suite, `web --help` started a server. Help builds nothing; a verb whose
+    // script has more to say is asked for its usage alone, and the rest print their line.
+    const helped = (...command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    const testHelp = helped('test', '--help');
+    assert.equal(testHelp.status, 0, testHelp.stderr);
+    assert.match(testHelp.stdout, /^bun exact\.mjs test /);
+    assert.ok(!testHelp.stdout.includes('{'), 'test --help starts no child');
+    for (const command of [['ios', '-h'], ['update', '--help']]) {
+      const said = helped(...command);
+      assert.equal(said.status, 0, said.stderr);
+      assert.match(said.stdout, new RegExp(`^bun exact\\.mjs ${command[0]}(?: |\\n)`));
+      assert.ok(!said.stdout.includes('{'), `${command[0]} --help ran its script`);
+    }
+    assert.match(helped('--help').stdout, /^bun exact\.mjs <verb>[^]*  test +/ );
     // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
     mkdirSync(resolve(dir, 'tests'));
     for (const name of ['b.test.contract', 'a.test.contract']) writeFileSync(resolve(dir, 'tests', name), '');
@@ -210,10 +233,12 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.ok(!existsSync(resolve(dir, 'app.json')), 'a game\'s manifest stays optional');
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
-    for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs']) {
+    for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
     }
+    mkdirSync(resolve(sdk, 'snapback4/web'), { recursive: true });
+    writeFileSync(resolve(sdk, 'snapback4/web/device-build.mjs'), 'export function devicePreflight() { throw new Error("a manifest-free game has no Snapback device"); }');
     withCli(sdk);
     const real = realpathSync(dir);
     const drive = (command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
@@ -223,6 +248,7 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
       [['web-build'], ['block-hop']],
       [['agent', 'web', 'tree'], ['web', '--app', 'block-hop', 'tree']],
       [['feedback', 'status'], ['status']],
+      [['contract', 'build', 'app.contract'], ['contract', 'build', resolve(real, 'app.contract')]],
     ]) {
       const result = drive(command);
       assert.equal(result.status, 0, result.stderr);
@@ -455,4 +481,180 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
+});
+
+// `exact new --snapback` (the author's ruling of 2026-10-12, via the sb4 app farm): the README's setup block, run. The
+// backend is the directory above; the device build is `bun exact.mjs snapback`'s, skipped here (`build: false`).
+test('a new Snapback app is wired to the backend above it, and update follows a moved checkout\'s mount', () => {
+  const root = realpathSync(resolve(import.meta.dir, '..')), parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'app'), manifest = () => JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.throws(() => createApp(dir, { snapback: { port: 'x' } }), /--port: x is not a port/);
+    const said = createApp(dir, { snapback: { port: 4410, build: false } });
+    // No backend server installed above: the schema is written, nothing generated, and it says what to do next.
+    assert.match(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), /^use personas alice, bob[^]*mutation post\(/);
+    assert.match(said, /not installed in .*npm i snapback4@\d+\.\d+\.\d+[^]*bunx snapback4 dev --port 4410/);
+    assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
+    assert.ok(!manifest().typescript.sources.snapback4.startsWith('/'), 'the native bake refuses an absolute mount');
+    assert.equal(manifest().typescript.sources.backend, undefined);
+    readManifest(dir, 'app');
+    // The data module's origin, its grant and the tests' fetch prefixes name the port; its appId is app.json's.
+    const ts = readFileSync(resolve(dir, 'app.ts'), 'utf8'), tests = readFileSync(resolve(dir, 'app.test.contract'), 'utf8');
+    assert.match(ts, /const origin = 'http:\/\/127\.0\.0\.1:4410';[^]*net\.fetch \$\{origin\}\\nsqlite\.open app:\/data/);
+    assert.ok(ts.includes(`export const appId = '${manifest().app.id}'`));
+    assert.match(tests, /^fresh\nepoch now$[^]*fail fetch "backend"/m);
+    const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
+    assert.match(view, /failure\(board\)[^]*f\.reason/);
+    assert.match(view, /resource board = notes\(persona, time.epochAtZero \+ sampledAt\)/);
+    assert.match(view, /action refreshBoard\n    sampledAt = performanceNow\(\)\n    refresh board/);
+    assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/assets\/snapback4\.wasm$/m);
+    assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /this app's data is Snapback 4's[^]*bun exact\.mjs snapback/);
+    // With the server installed above, `snapback` generates the operations once and mounts them; a schema stays the author's.
+    writeFileSync(resolve(parent, 'snapback/schema.q'), 'use personas carol\n');
+    mkdirSync(resolve(parent, 'node_modules/.bin'), { recursive: true });
+    writeFileSync(resolve(parent, 'node_modules/.bin/snapback4'), '#!/bin/sh\n[ "$1" = check ] && mkdir -p snapback/generated && echo "export const api = {};" > snapback/generated/api.ts\n');
+    mkdirSync(resolve(parent, 'node_modules/snapback4/bin'), {recursive: true});
+    writeFileSync(resolve(parent, 'node_modules/snapback4/bin/snapback4.js'), `import {mkdirSync, writeFileSync} from 'node:fs';
+mkdirSync('snapback/generated', {recursive: true});
+writeFileSync('snapback/generated/api.ts', 'export const api = {};');`);
+    assert.match(wireSnapback(dir, { build: false }), /snapback4 check: wrote/);
+    assert.equal(manifest().typescript.sources.backend, '../snapback/generated');
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
+    writeFileSync(resolve(dir, 'app.ts'), readFileSync(resolve(dir, 'app.ts'), 'utf8') + '\n// Another service: net.fetch http://127.0.0.1:44100\n');
+    mkdirSync(resolve(dir, 'tests/nested'), { recursive: true });
+    writeFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'fail fetch "http://127.0.0.1:4410/sync"\n');
+    assert.match(wireSnapback(dir, { build: false, port: 4411 }), /dev --port 4411/);
+    assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4411'/);
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "backend"/);
+    assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4411\/sync/);
+    assert.ok(readFileSync(resolve(dir, 'app.ts'), 'utf8').includes('net.fetch http://127.0.0.1:44100'));
+    const portSource = resolve(dir, 'app.ts');
+    writeFileSync(portSource, readFileSync(portSource, 'utf8').replace("const origin = 'http://127.0.0.1:4411'", 'const origin = "http://127.0.0.1:4411/"'));
+    const unchanged = readFileSync(portSource, 'utf8'), mtime = statSync(portSource).mtimeMs;
+    wireSnapback(dir, {build: false, port: 4411});
+    assert.equal(readFileSync(portSource, 'utf8'), unchanged);
+    assert.equal(statSync(portSource).mtimeMs, mtime);
+    wireSnapback(dir, {build: false, port: 4412});
+    assert.equal(readFileSync(portSource, 'utf8'), unchanged.replaceAll('http://127.0.0.1:4411', 'http://127.0.0.1:4412'));
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "backend"/);
+    assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4412\/sync/);
+    assert.throws(() => wireSnapback(dir, { build: false, port: 'x' }), /is not a port/);
+    const custom = resolve(parent, 'custom');
+    assert.match(createApp(custom, { snapback: { build: false, port: 4412 } }), /backend already has a schema: kept the greeting app[^]*dev --port 4412/);
+    assert.match(readFileSync(resolve(custom, 'app.ts'), 'utf8'), /http:\/\/127\.0\.0\.1:4412/);
+    writeFileSync(resolve(custom, 'app.ts'), readFileSync(resolve(custom, 'app.ts'), 'utf8').replace('http://127.0.0.1:4412', 'https://api.example.com'));
+    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /not a loopback backend/);
+    writeFileSync(resolve(custom, 'app.ts'), "export const grants = '';\n");
+    assert.match(wireSnapback(custom, { build: false, port: 4413 }), /added http:\/\/127\.0\.0\.1:4413/);
+    assert.match(readFileSync(resolve(custom, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4413';[^]*net.fetch \$\{origin\}/);
+    writeFileSync(resolve(custom, 'app.ts'), "const origin = process.env.BACKEND;\nexport const grants = '';\n");
+    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /origin is not a literal URL/);
+    assert.ok(!readFileSync(resolve(custom, 'app.ts'), 'utf8').includes('api.post'));
+    assert.ok(!readFileSync(resolve(custom, 'app.contract'), 'utf8').includes('Guestbook'));
+    const online = resolve(parent, 'online');
+    createApp(online, { snapback: { online: true, build: false, port: 4414 } });
+    assert.match(wireSnapback(online, { build: false }), /Online-only adapter/);
+    assert.ok(!readFileSync(resolve(online, 'app.ts'), 'utf8').includes('sqlite.open'));
+    const plainOnline = resolve(parent, 'plain-online');
+    createApp(plainOnline);
+    wireSnapback(plainOnline, {build: false, online: true, port: 4414});
+    assert.ok(!readFileSync(resolve(plainOnline, 'app.ts'), 'utf8').includes('sqlite.open'));
+    const onlineManifest = JSON.parse(readFileSync(resolve(online, 'app.json'), 'utf8'));
+    onlineManifest.typescript.sources.snapback4 = '..\\moved\\snapback4\\online';
+    writeFileSync(resolve(online, 'app.json'), JSON.stringify(onlineManifest));
+    createApp(online, { update: true });
+    assert.equal(realpathSync(resolve(online, JSON.parse(readFileSync(resolve(online, 'app.json'), 'utf8')).typescript.sources.snapback4)), resolve(root, 'snapback4/online'));
+    assert.match(readFileSync(resolve(online, 'AGENTS.md'), 'utf8'), /server-only Snapback adapter/);
+    assert.equal(existsSync(resolve(online, 'assets/snapback4.wasm')), false);
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
+    // The app's exact.mjs runs it, with the app's directory.
+    const sdk = resolve(parent, 'sdk');
+    mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
+    writeFileSync(resolve(sdk, 'scripts/exact.mjs'), 'console.log(JSON.stringify(process.argv.slice(2)));');
+    withCli(sdk);
+    const verb = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'snapback'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(verb.stdout), ['snapback', realpathSync(dir)]);
+    // An appId that disagrees is named. A checkout that moved: update rewrites the mount, as it does the Cargo paths.
+    writeFileSync(resolve(dir, 'app.ts'), ts.replace(/export const appId = '[^']*'/, "export const appId = 'com.example.other'"));
+    assert.ok(wireSnapback(dir, { build: false }).includes(`app.ts must say: export const appId = "${manifest().app.id}"; (it says "com.example.other")`));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest(), typescript: { sources: { ...manifest().typescript.sources, snapback4: '../../moved/exact2/snapback4/ts' } } }, null, 2));
+    const beforeMountRefusal = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    assert.throws(() => wireSnapback(dir, { build: false, port: 9999 }), /refusing to rewrite an edited mount[^]*- snapback4:[^]*\+ snapback4:/);
+    assert.equal(readFileSync(resolve(dir, 'app.ts'), 'utf8'), beforeMountRefusal);
+    const beforeArtifact = ['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(resolve(dir, file), 'utf8'));
+    assert.match(wireSnapback(dir, {build: false, artifactOnly: true}), /mounts kept unchanged/);
+    assert.deepEqual(['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(resolve(dir, file), 'utf8')), beforeArtifact);
+    assert.throws(() => wireSnapback(dir, {build: false, artifactOnly: true, port: 4410}), /cannot also change/);
+    createApp(dir, { update: true });
+    assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
+    // A plain app's notes say how to wire one.
+    const plain = resolve(parent, 'plain');
+    createApp(plain);
+    assert.match(readFileSync(resolve(plain, 'AGENTS.md'), 'utf8'), /exact new <path> --snapback[^]*bun exact\.mjs snapback/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 90_000); // Three offline Cargo resolutions.
+
+
+test('the online scaffold calls existing generated query/mutation handles and preserves authored apps', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-online-'));
+  try {
+    mkdirSync(resolve(parent, 'snapback/generated'), {recursive: true});
+    writeFileSync(resolve(parent, 'snapback/schema.q'), 'use personas carol\n');
+    writeFileSync(resolve(parent, 'snapback/generated/api.ts'), `export const api: Ops = {
+  search: { kind: "query", name: "search" },
+  create: { kind: "mutation", name: "create" },
+};`);
+    const dir = resolve(parent, 'explorer');
+    createApp(dir, {snapback: {online: true, build: false, port: 30126}});
+    const source = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    assert.match(source, /db.read\(api.search, args\)/);
+    assert.match(source, /db.send\(api.create, args\)/);
+    assert.match(source, /ArgsOf<typeof api.create>/);
+    assert.match(source, /'x-snapback-persona': "carol"/);
+    assert.ok(!source.includes('sqlite.open'));
+    const changed = source + '\n// authored fields follow\n';
+    writeFileSync(resolve(dir, 'app.ts'), changed);
+    wireSnapback(dir, {online: true, build: false});
+    assert.equal(readFileSync(resolve(dir, 'app.ts'), 'utf8'), changed);
+    const edited = resolve(parent, 'edited'); createApp(edited);
+    const custom = readFileSync(resolve(edited, 'app.ts'), 'utf8') + '\n// my app source\n';
+    writeFileSync(resolve(edited, 'app.ts'), custom);
+    wireSnapback(edited, {online: true, build: false});
+    assert.equal(readFileSync(resolve(edited, 'app.ts'), 'utf8'), custom);
+    const plain = resolve(parent, 'plain'); createApp(plain);
+    wireSnapback(plain, {online: true, build: false, port: 30126});
+    assert.match(readFileSync(resolve(plain, 'app.ts'), 'utf8'), /db.send\(api.create, args\)/);
+  } finally {rmSync(parent, {recursive: true, force: true});}
+});
+
+test('launchers and generated own commands find pinned Bun with an old PATH', () => {
+  const old = resolve(process.env.HOME, '.bun/bin/bun');
+  if (!existsSync(old)) return;
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-bun-'));
+  try {
+    const dir = resolve(parent, 'pinned'); createApp(dir);
+    const manifestPath = resolve(dir, 'app.json'), manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.commands = {runtime: ['bun', 'runtime.mjs']};
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(resolve(dir, 'runtime.mjs'), 'console.log(JSON.stringify({version:process.versions.bun,bun:process.env.BUN,path:Bun.which("bun")}));');
+    for (const explicit of [false, true]) {
+      const directEnv = {...process.env, PATH: '/usr/bin:/bin'};
+      if (explicit) directEnv.BUN = process.execPath; else delete directEnv.BUN;
+      const direct = spawnSync(resolve(dir, 'exact.mjs'), ['runtime'], {env: directEnv, encoding: 'utf8'});
+      assert.equal(direct.status, 0, direct.stderr);
+      assert.equal(JSON.parse(direct.stdout).version, process.versions.bun);
+      const rootDirect = spawnSync(resolve(import.meta.dirname, '../scripts/exact.mjs'), ['list'], {env: directEnv, encoding: 'utf8'});
+      assert.equal(rootDirect.status, 0, rootDirect.stderr);
+      const env = {...process.env, PATH: `${resolve(process.env.HOME, '.bun/bin')}:/usr/bin:/bin`};
+      if (explicit) env.BUN = process.execPath; else delete env.BUN;
+      const run = spawnSync(old, [resolve(dir, 'exact.mjs'), 'runtime'], {env, encoding: 'utf8'});
+      assert.equal(run.status, 0, run.stderr);
+      const observed = JSON.parse(run.stdout);
+      assert.equal(observed.version, process.versions.bun);
+      assert.equal(realpathSync(observed.bun), realpathSync(process.execPath));
+      assert.equal(realpathSync(observed.path), realpathSync(process.execPath));
+      const root = spawnSync(old, [resolve(import.meta.dirname, '../scripts/exact.mjs'), 'list'], {env, encoding: 'utf8'});
+      assert.equal(root.status, 0, root.stderr);
+    }
+  } finally {rmSync(parent, {recursive: true, force: true});}
 });

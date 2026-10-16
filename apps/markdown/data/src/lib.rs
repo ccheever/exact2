@@ -15,6 +15,10 @@
 //! open does not lose the one being read: a refusal comes back as the
 //! document already open plus a message, and the reader shows both.
 //!
+//! The answer watches what it opened and the folder it sits in, so an edit
+//! made in another program, or a file added beside it, shows without a
+//! reload (LLP 1069.010.000 D1).
+//!
 //! @ref LLP 1033 (the reader), LLP 1016 D1/D2 (requests as values)
 
 #![forbid(unsafe_code)]
@@ -369,7 +373,7 @@ impl DataSource for Markdown {
 
     fn answer(
         &mut self,
-        _store: &mut Store,
+        store: &mut Store,
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
@@ -393,6 +397,10 @@ impl DataSource for Markdown {
         if !asked.starts_with("doc:/") {
             let message = format!("{asked} is not a document you opened");
             return Ok(Answer::Now(self.opened(&asked, Err(message))));
+        }
+        store.observe_topic(&exact_data::documents::watch_topic(&asked, false));
+        if let Some(folder) = folder_of(&asked) {
+            store.observe_topic(&exact_data::documents::watch_topic(folder, false));
         }
         Ok(self.request(&asked, Step::Stat, "fs.stat", &asked))
     }

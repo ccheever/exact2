@@ -169,7 +169,7 @@ pub(crate) fn compile(
                         asm.str(id);
                     }
                     TemplatePart::Expr(x) => {
-                        if compile(l, asm, x, scope, locals)? != Ty::String {
+                        if !compile(l, asm, x, scope, locals)?.is_string() {
                             asm.call(Stdlib::ToString);
                         }
                     }
@@ -274,20 +274,18 @@ pub(crate) fn compile(
                 let [Expr::Ident(target, _)] = args.as_slice() else {
                     return err("lower-failed", format!("`{name}(x)` names one resource"), *span);
                 };
-                let Some((Ref::Resource(i), _)) = scope.lookup(target) else {
-                    return err(
-                        "lower-failed",
-                        format!("`{target}` is not a resource"),
-                        *span,
-                    );
-                };
-                let r = l.resources[i as usize];
-                if name == "failed" {
-                    asm.failed_resource(r);
-                    return Ok(Ty::Bool);
+                match scope.lookup(target) {
+                    Some((Ref::Resource(i), _)) => {
+                        let r = l.resources[i as usize];
+                        if name == "failed" { asm.failed_resource(r); } else { asm.failure_resource(r); }
+                    }
+                    Some((Ref::Mutation(i), _)) => {
+                        let m = l.mutations[i as usize];
+                        if name == "failed" { asm.failed_mutation(m); } else { asm.failure_mutation(m); }
+                    }
+                    _ => return err("lower-failed", format!("`{target}` is not a resource or mutation"), *span),
                 }
-                // @ref LLP 1109 D3 — `none`, or `some` of `{ code, message }`.
-                asm.failure_resource(r);
+                if name == "failed" { return Ok(Ty::Bool); }
                 return Ok(Ty::Option(Box::new(Ty::Record("Failure".into()))));
             }
             if name == "pending" {
@@ -393,6 +391,7 @@ pub(crate) fn compile(
                 (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
                 // A list's own type, or text's (LLP 1088 §9.1).
                 (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(Ty::Enum(_)), _) => Ty::String,
                 (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
                 (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
@@ -441,7 +440,7 @@ pub(crate) fn compile(
                     let ta = compile(l, asm, a, scope, locals)?;
                     let tb = compile(l, asm, b, scope, locals)?;
                     asm.simple(match op {
-                        BinOp::Add if ta == Ty::String => Opcode::Concat,
+                        BinOp::Add if ta.is_string() => Opcode::Concat,
                         BinOp::Add => Opcode::Add,
                         BinOp::Sub => Opcode::Sub,
                         BinOp::Mul => Opcode::Mul,
@@ -456,7 +455,7 @@ pub(crate) fn compile(
                         BinOp::And | BinOp::Or => unreachable!(),
                     });
                     match op {
-                        BinOp::Add if ta == Ty::String && tb == Ty::String => Ty::String,
+                        BinOp::Add if ta.is_string() && tb.is_string() => Ty::String,
                         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
                             if ta == Ty::Number && tb == Ty::Number =>
                         {
@@ -530,7 +529,7 @@ pub(crate) fn compile(
         }
         Expr::Typed(value, ty, span) => {
             let t = compile(l, asm, value, scope, locals)?;
-            contract_types::ascribe(&t, ty, &l.types.shapes, *span).map_err(|e| LowerError {
+            contract_types::ascribe(&t, value, ty, &l.types.shapes, *span, scope).map_err(|e| LowerError {
                 id: e.id,
                 message: e.message,
                 span: e.span,

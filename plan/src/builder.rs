@@ -210,6 +210,16 @@ impl PlanBuilder {
         })
     }
 
+    /// A string restricted to these finite members. String rows with fields
+    /// carry the members as field names (each field has the primitive string type).
+    pub fn string_enum(&mut self, values: &[String]) -> TypesId {
+        let string = self.primitive(TypeKind::String);
+        let fields: Vec<_> = values.iter().map(|v| (v.as_str(), string)).collect();
+        let id = self.record("enum", &fields);
+        self.plan.types[id.0 as usize].kind = TypeKind::String;
+        id
+    }
+
     /// `Option<elem>`.
     pub fn option(&mut self, elem: TypesId) -> TypesId {
         let name = self.str("option");

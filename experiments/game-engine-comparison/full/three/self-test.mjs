@@ -1,9 +1,10 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from '@playwright/test';
 import { strict as assert } from 'node:assert';
 import { mkdir } from 'node:fs/promises';
 
 const baseURL = process.env.BASE_URL || 'http://127.0.0.1:4173';
-const executablePath = process.env.CHROMIUM || '/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome';
+const executablePath = process.env.CHROMIUM || (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome");
 const browser = await chromium.launch({ headless: true, executablePath, args: ['--disable-gpu-sandbox'] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 const page = await context.newPage();

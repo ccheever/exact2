@@ -31,7 +31,7 @@ fn play(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(),
         [src, named @ ..] if !matches!(src, Expr::NamedArg(..)) => (src, named),
         _ => return err("type-play-sound", PLAY, span),
     };
-    if !matches!(infer(src, scope, shapes)?, Ty::String) {
+    if !infer(src, scope, shapes)?.is_string() {
         return err(
             "type-play-sound",
             format!("the sound is a string, its path: {PLAY}"),

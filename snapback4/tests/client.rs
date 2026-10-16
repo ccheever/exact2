@@ -144,8 +144,14 @@ impl Server {
         let method = fetch["method"].as_str().unwrap();
         let path = fetch["path"].as_str().unwrap();
         let body = fetch.get("body").map(Value::to_string).unwrap_or_default();
+        let headers: String = fetch["headers"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(name, value)| format!("{name}: {}\r\n", value.as_str().unwrap()))
+            .collect();
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
-        write!(stream, "{method} {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n{credential}\r\nconnection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}", body.len()).unwrap();
+        write!(stream, "{method} {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n{credential}\r\n{headers}connection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}", body.len()).unwrap();
         let mut raw = Vec::new();
         stream.read_to_end(&mut raw).unwrap();
         let text = String::from_utf8(raw).unwrap();
@@ -429,6 +435,16 @@ fn a_rust_source_drives_the_typed_client_through_host_requests() {
             (!request.body.is_empty()).then(|| serde_json::from_slice(&request.body).unwrap());
         assert!(request.headers.contains(&headers[0]));
         let mut fetch = json!({"method": request.method, "path": path});
+        let engine = request
+            .headers
+            .iter()
+            .find(|(name, _)| name == "x-snapback-device")
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&engine.1).unwrap(),
+            exact_snapback4_client::engine_info()
+        );
+        fetch["headers"] = json!({"x-snapback-device": engine.1});
         if let Some(body) = body {
             fetch["body"] = body;
         }
@@ -1078,4 +1094,17 @@ fn a_session_refreshes_once_and_only_as_its_own_principal() {
         true
     );
     assert!(rae.call(json!({"op": "refresh"}))["fetch"].is_object());
+}
+
+#[test]
+fn identity_is_available_without_storage_or_partition() {
+    let mut module = Module::new("identity-probe", "").unwrap();
+    let identity = module.call(&json!({"op": "engine_info"})).unwrap();
+    assert_eq!(identity["ok"]["format"], 1);
+    let headers = module.call(&json!({"op": "engine_headers"})).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(headers["ok"]["x-snapback-device"].as_str().unwrap())
+            .unwrap(),
+        identity["ok"]
+    );
 }

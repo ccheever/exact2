@@ -111,6 +111,42 @@ test('an unchanged app source retains the guest document across record updates',
   expect(await page.evaluate(async url => fetch(url).then(() => false, () => true), before)).toBe(true);
 }), 90000);
 
+test('bound sandbox changes preserve app frames after switching from data documents', () => browserTest(async (page, server) => {
+  await page.goto(server.url.href);
+  await page.evaluate(async () => {
+    globalThis.rt = await import('/rt.js'); globalThis.exact = {};
+    rt.data.appId = 'sandbox-source-switch';
+    const { createFileStore } = await import('/storage-fs.js');
+    await createFileStore(rt.data.appId).writeFile('app:/data/document.html', new TextEncoder().encode('<script>parent.postMessage("app loaded", "*")</script>'));
+    globalThis.messages = [];
+    addEventListener('message', e => { if (e.source === frame.contentWindow) messages.push([e.data, e.origin]); });
+    globalThis.source = rt.sig('data:text/html,<script>parent.postMessage("data loaded", "*")</script>');
+    globalThis.sandbox = rt.sig('allow-scripts');
+    globalThis.scope = rt.scope(() => {
+      globalThis.frame = rt.h(document.querySelector('main'), 'iframe', 0, {}, 0);
+      rt.P(frame, 'sandbox', sandbox);
+      rt.P(frame, 'src', source);
+    });
+  });
+  await page.waitForFunction(() => messages.some(([text]) => text === 'data loaded'));
+  expect(await page.evaluate(() => messages)).toContainEqual(['data loaded', 'null']);
+  await page.evaluate(() => rt.commit(() => rt.W(source, 'app:/data/document.html')));
+  await page.waitForFunction(() => messages.some(([text]) => text === 'app loaded'));
+  const appURL = await page.evaluate(() => frame.src);
+  expect(appURL).toStartWith('blob:');
+  for (const value of ['allow-scripts allow-same-origin', null, 'allow-scripts']) {
+    await page.evaluate(value => rt.commit(() => rt.W(sandbox, value)), value);
+    expect(await page.evaluate(() => frame.src)).toBe(appURL);
+  }
+  await page.evaluate(() => rt.commit(() => { rt.W(sandbox, 'allow-scripts allow-same-origin'); rt.W(source, 'data:text/html,<script>parent.postMessage("data again", "*")</script>'); }));
+  expect(await page.evaluate(() => frame.getAttribute('src'))).toBe('about:blank');
+  expect(await page.evaluate(async url => fetch(url).then(() => false, () => true), appURL)).toBe(true);
+  await page.evaluate(() => rt.commit(() => rt.W(sandbox, 'allow-scripts')));
+  await page.waitForFunction(() => messages.some(([text]) => text === 'data again'));
+  expect(await page.evaluate(() => messages)).toContainEqual(['data again', 'null']);
+  await page.evaluate(() => { rt.end(scope); frame.remove(); });
+}), 90000);
+
 test('wasm iframe events before activation settle and dispatch once after activation', () => browserTest(async (page, server) => {
   const glue = await Bun.file('host/web/glue.js').text();
   const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));

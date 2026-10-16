@@ -306,6 +306,8 @@ export function ambientRefusals(stage, file, code, parse) {
 export const compilerOptions = {
   noEmit: true,
   strict: true,
+  // Installed declaration internals belong to their package; app sources stay strict.
+  skipLibCheck: true,
   target: 'ES2023',
   module: 'ESNext',
   moduleResolution: 'bundler',
@@ -392,6 +394,18 @@ export function configure(stage, incremental=false) {
   stagePackages(stage);
 }
 
+/** A name that is not a source (`Result<'posted'>`, a mutation's slot) fails
+ * as "does not satisfy the constraint 'keyof SourceMap'", which lists none:
+ * say which there are (sb4 farm wave 7, E3: 061 and 066, 15 minutes). */
+function sourceNames(stage,diagnostics) {
+  if(!/constraint 'keyof SourceMap'/.test(diagnostics))return '';
+  let text='';
+  try { text=readFileSync(resolve(stage,'app.contract.d.ts'),'utf8'); } catch { return ''; }
+  const map=text.match(/export interface SourceMap \{\n([\s\S]*?)\n\}/)?.[1] ?? '';
+  const names=[...map.matchAll(/^\s+("[^"]+"|[A-Za-z_$][\w$]*):/gm)].map(m=>m[1].replace(/^"|"$/g,''));
+  return names.length ? `\nnote: Result<…> and Args<…> take a source's name, what the contract calls (\`resource x = name(…)\`, \`send slot = name(…)\`), never a resource's or mutation's own: ${names.map(n=>`'${n}'`).join(', ')}\n` : '';
+}
+
 // Short-lived native checks trade fewer GC cycles for a soft Go memory limit
 // (not an RSS cap); explicit user settings always win.
 const checkEnv={GOGC:'300',GOMEMLIMIT:'128MiB',GOMAXPROCS:'4',...process.env};
@@ -415,7 +429,7 @@ export function check(stage, tsc, libraries) {
     {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024}, (error, stdout, stderr) => {
       if (error) {
         const diagnostics=String(stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
-        return fail(new Error(diagnostics+String(stderr??'') || String(error.message)));
+        return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+String(stderr??'') || String(error.message)));
       }
       for(const path of stdout.trim().split(/\r?\n/)) {
         if(path && !allowed(realpathSync(path)))return fail(new Error('module outside captured app: '+path));

@@ -150,6 +150,9 @@ impl<D: DataSource> Runner<D> {
         self.forgot = true;
         self.sync_pending_flags();
         let name = self.target_name(target);
+        // Why, on the line the test runner quotes for a mutation (which has
+        // no `state.failed`): sb4 farm wave 6, E3.
+        let reason = why.message.clone();
         let mut again = Vec::new();
         let next = match target {
             Target::Resource(i) => {
@@ -166,12 +169,14 @@ impl<D: DataSource> Runner<D> {
                 "it keeps its last value"
             }
             Target::Mutation(m) => {
+                self.failed_mut[m] = Some(why);
                 // Its write ends, and what it showed in is asked again.
                 self.end_write(m, write);
                 "it is not retried"
             }
         };
-        let what = format!("request {ticket} ({name}) failed and is no longer pending: {next}");
+        let what =
+            format!("request {ticket} ({name}) failed and is no longer pending: {next}: {reason}");
         self.log(what.clone());
         if ask_again {
             self.log(super::lines::asked_again(ticket, &name));
@@ -254,9 +259,11 @@ mod tests {
                 }
                 Outcome::Response(_) => Ok(Answer::Now(Value::some(Value::str("fresh")))),
                 Outcome::Failed { .. } if self.shape_refusal => Ok(Answer::Now(Value::NONE)),
-                Outcome::Failed { kind, message } => {
-                    Err(DataError::Failed(FailureCode::of_kind(kind), message))
-                }
+                Outcome::Failed { kind, message } => Err(DataError::Failed(
+                    FailureCode::of_kind(kind),
+                    message,
+                    String::new(),
+                )),
                 other => panic!("unexpected outcome: {other:?}"),
             }
         }

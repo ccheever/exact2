@@ -165,6 +165,8 @@ const refused = pins => {
   return null;
 };
 
+// dev-only {: the live table's runtime, which a release build's copy leaves
+// out (build.mjs `withoutDev`).
 /** The page's rule for each full tuple, by its key, and its accent
  * companions (`[data-x-accent]`, modes.rs `rules`), by key and property. */
 function tupleRules() {
@@ -210,6 +212,7 @@ function design(frame) {
   Design = (globalThis.exact ??= {}).designDigest = frame.design;
   return { live: "applied" };
 }
+// dev-only }
 
 /** `axes`: [name, values] as declared, the first value the default;
  * `classes`: each class's rows by bit, the text's index or -1; `texts`,
@@ -220,7 +223,9 @@ function design(frame) {
  * install `exact.design`. */
 export function modes(axes, classes, texts, vars, accent, names, devDesign, devStructure) {
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
+  // dev-only {
   if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Structure = devStructure; Rules = null; Object.assign(globalThis.exact ??= {}, { design, designDigest: devDesign }); }
+  // dev-only }
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {

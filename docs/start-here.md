@@ -36,15 +36,37 @@ bun exact.mjs pattern      # lists the starters; `pattern <name>` writes one
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
+For shared server data, `bun <exact2>/scripts/exact.mjs new app --snapback
+[--port <n>]` from the backend’s directory writes a guestbook and wires its
+driver, generated operations and device. The origin defaults to 4400.
+`bun exact.mjs snapback` wires an existing app. With an existing schema, the
+untouched greeting becomes a typed query and mutation explorer with `--online`.
+`snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
+together. Password sign-in, stored sessions and refresh with Contract time are
+in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
+For a server-only schema, add `--online`; `snapback` and `update` preserve it.
+On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
+grants. A computed origin or grants declaration needs an explicit edit.
+After upgrading Snapback4 or Exact's device, run `bun exact.mjs snapback --rebuild`.
+Custom mounts: add `--artifact-only` to rebuild without rewiring.
+The device's embedded `snapback4.engine` section records its identity;
+`assets/snapback4.wasm.json` is derived diagnostic output.
+`snapback`, `contract build`, `test web` and `agent web` refuse a stale device;
+web drives compare it with the running server before opening the page.
+
+Start from the nearest pattern. `exact.mjs` runs from any directory: a file you
+name is found where you are, else in the app, and it says which it took. Your
+shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
 |`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
-|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--storage` keeps data.|
+|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
+Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
@@ -52,6 +74,22 @@ point (`--scale 3`: the device's): no other simulator tool is needed. `--touch p
 each tap a real touch, `--timing platform` gives UIKit its own timing, and `ios --release` builds
 what ships (`--prebuild --release` early: its first build is minutes; `EXACT_UPDATE_TRUST=production
 bun exact.mjs agent ios …` drives it).
+
+**Ports.** `--port <n>` on `web`, `test web` and `agent web`, or `EXACT_PORT=<n>`,
+serves on that port; a held port is refused. Otherwise each picks a free port within `PORT_LO`–`PORT_HI` when both are set, and
+prints its URL. A native client starts a second loop on `n+1`. A storage store
+keeps its data per port, so drive one store on one port.
+
+- **Bun and Chrome.** Launchers prefer `$BUN`, then `~/.bun-1.4.2/bin/bun`,
+  independently of a login shell’s PATH. Generated commands and child scripts
+  inherit that binary. `./exact.mjs` also works when PATH has no Bun. Set `CHROME=/absolute/path/to/chrome` to select Chromium.
+- **Named Chrome stores.** `agent web --storage s1` starts empty each run.
+  Add `--keep-storage` to reopen its saved data and password session, or
+  `--reset-storage` to explicitly reset it. A live drive owns its profile;
+  another drive cannot reset it. Authored tests always isolate their browser
+  stores, including across repeated suite runs. Backend rows persist: use
+  `fresh` with `dev`, or create uniquely keyed fixtures with `serve`.
+  Firefox/WebKit use a new profile each drive and do not preserve named stores.
 
 **Splitting a port among helpers:** commit the seam between the halves first (the shared types,
 the native module's interface), then start each helper in the background from that commit,
@@ -116,23 +154,34 @@ component Groceries
           text (groceries.length == 0 ? "Nothing on the list." : leftText(left)) testId="left"
 ```
 
+- **Styles.** A colour behind a box is `background-color`; the `background` shorthand is refused.
 - **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
   Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
   an action does, and repeats with `for x in xs key=…`; no `form` (a field's Enter is its `submit`).
-- **Expressions.** No truthiness. A function the web has as a string or array method is
-  called as one (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
-  (`first(xs)`, `round(n)`). A list type is `Item[]`. A record copy is
-  `Shape(old, field=value)`. An event passes its captured arguments, then the payload
-  (`toggle(i.id)` gets the bool). An action's writes land when it ends, so a later line
-  reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, then read `n`).
+- **Expressions** are TypeScript's: what compiles means what it means in TypeScript, and
+  what does not is refused with what to write. The web's string and array methods are
+  methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
+  (`first(xs)`, `round(n)`). What differs: no truthiness; absence is an option (`none`,
+  `some(x)`, `match`), not `null`; a value never changes (`xs.concat([x])`, a record copy
+  `Shape(old, field=value)`); `==` compares lists and records by value; a stored number is
+  finite (a `NaN` refuses the commit); sorting, grouping and joining are the data module's.
+  Nothing runs because a value changed: an event runs an action, which passes its captured
+  arguments, then the payload (`toggle(i.id)` gets the bool). Its writes land when it ends, so a
+  later line reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, read `n`).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;
   children take `props`.
+- **Refreshes.** Include every resource the write changes (`refreshes groceries, counts`).
 
-**The data module** answers each source with exactly its declared shape (an extra field
-fails it), reaches only what its `grants` name, and answers a failed fetch as data. The
-clock and randomness are refused there; time is an argument.
+**The data module** answers each source with exactly its declared shape: an extra
+field fails a resource or voids a mutation’s reply, whose slot keeps its old value.
+Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
+an extra field. It reaches only what its `grants` name and answers failed fetches as data
+([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
+refused there; time comes as an argument. A date from a value works
+(`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
+`logs` and its last lines in a failed test’s notes.
 
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
@@ -183,6 +232,27 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
+
+A Snapback app needs its backend running before `test web`: the runner checks
+loopback origins in `app.ts`’s `net.fetch` grants and refuses a Snapback run if
+none listens. Start `snapback4 dev` on that origin’s port, seeded if needed;
+`EXACT_PORT` sets the page’s port and never moves the backend.
+
+Each test opens empty app storage; backend rows survive tests and runs unless
+`fresh` at the file’s top (or leading a test) empties `snapback4 dev` before each
+test. This uses `POST /dev/reset` (Snapback4 **0.4.28**, `dev` only).
+`fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
+relative to the test file. A server lacking reset fails the test.
+
+Server ids are unique, not ordered. Sort by time; tests can reach rows by text
+or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
+
+| To assert | Write | Not |
+| --- | --- | --- |
+| A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |
+| A node's text | `expect text "<testId>" == "the whole text"` | `contains`, `!=`. The text is compared whole, and a node with no text of its own reads its descendants' joined: a row's testId reads its buttons' labels too, so put the testId on the text node |
+| State | `expect state lib.notes.0 .title == "Milk"` (a space after a list index), `== []`, `== none`, `== true` | an expression on the right |
+| A failed resource or mutation request | `expect text` on the view's `match failure(x) { case some(f) => f.code, case none => "" }`; `failed(x)` accepts either slot | `failure(x).code` without extracting the option. A thrown refusal is a request failure; an authored `{ok: false}` is a normal result |
 
 ## Pitfalls that cost the most
 

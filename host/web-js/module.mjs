@@ -310,6 +310,11 @@ ${patch}`;
   return wasm;
 }
 
+/** `text` without its `// dev-only {` … `// dev-only }` regions: what a
+ * build that is not the dev loop's copies of a runtime file (modes.js's
+ * live table, LLP 1121 stage 4), so no release page carries it. */
+export const withoutDev = (text) => text.replace(/^[ \t]*\/\/ dev-only \{.*\n[\s\S]*?^[ \t]*\/\/ dev-only \}.*\n/gm, '');
+
 /** The plan-to-JavaScript compiler (`exact-web-js`) as `[cmd, args]`: its
  * binary when nothing it was built from changed, one kept for the machine,
  * or `cargo run`, whose binary `done()` keeps. */

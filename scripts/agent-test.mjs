@@ -2,15 +2,17 @@
 // turns a file's `test` blocks into steps, and this drives them through the
 // session the operations use (`agent.mjs`'s `open`). `agent.mjs` re-exports it.
 import { spawnSync } from 'node:child_process';
-import { readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
-import { resolveApp } from './app.mjs';
+import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { serverUrl } from './verify.mjs';
+import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
@@ -34,7 +36,10 @@ const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.pr
  * navigation bar leaves out, which the agent's own chrome still paints (LLP 1116 D2). No clock can change that. */
 export function textExpectation(nodes, target, value) {
   const n = targetNode(nodes, target), got = n ? textOf(nodes, n) : undefined;
-  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}` };
+  const runs = [];
+  if (n && n.props.text == null && got !== n.props.value) for (let i = nodes.indexOf(n) + 1; i < nodes.length && nodes[i].depth > n.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
+  const parts = runs.length > 1 ? ` (joined from its descendants: ${runs.map((r) => JSON.stringify(r)).join(' + ')}; to assert one, give that text its own testId)` : '';
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}${parts}` };
   return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
 }
 
@@ -130,6 +135,81 @@ export function storeBase(appId, host, env = process.env, home = homedir()) {
   if (host === 'linux') return resolve(env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache'), 'exact', appId, 'agent');
   return null;
 }
+/** The origins a web build's data module may fetch: its `net.fetch` grants, as host/web-js/build.mjs writes them
+ * into the page's admission data (none for a wasm build). */
+export function fetchOrigins(dist) {
+  let text = ''; try { text = readFileSync(resolve(dist, '.gen/admission-data.js'), 'utf8'); } catch { return []; }
+  return [...new Set([...text.matchAll(/"net\.fetch (https?:\/\/[^/"\s]+)[/"]/g)].map((m) => m[1]))];
+}
+/** The loopback ones: a backend on this machine the tests talk to. */
+export const loopbackOrigins = (dist) => fetchOrigins(dist).filter((o) => /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(o));
+const listening = (origin, ms = 1000) => new Promise((done) => {
+  const { hostname, port, protocol } = new URL(origin), socket = connect({ host: hostname.replace(/^\[|\]$/g, ''), port: Number(port || (protocol === 'https:' ? 443 : 80)) });
+  const end = (ok) => { socket.destroy(); done(ok); };
+  socket.setTimeout(ms, () => end(false)).once('connect', () => end(true)).once('error', () => end(false));
+});
+/** Before a web run, every loopback origin the app fetches is asked whether anything listens (app farm wave 1: four
+ * builds' tests failed as data mismatches with no `snapback4 dev` running). An app whose data is a Snapback client
+ * (it mounts snapback4/ts) cannot open a partition that never synced, so every test would fail: the run is refused,
+ * naming the origin. Any other app is told, and runs (its tests may be of the error path). */
+export async function backendPreflight(app, dist, say = console.error) {
+  const down = [];
+  for (const origin of loopbackOrigins(dist)) if (!(await listening(origin))) down.push(origin);
+  if (!down.length) return devicePreflight(app, fetchOrigins(dist));
+  const what = `no backend at ${down.join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
+  if (!mountsSnapback(app)) return say(`note: ${what}; a test that loads from it fails`);
+  throw new Error(`${what}. The app's Snapback client cannot open data that has never synced, so every test would fail. Start the server first, from the backend's directory (\`npx snapback4 dev --port ${new URL(down[0]).port || 80}\`, seeded if the tests read seeded rows), then run the tests again.`);
+}
+/** A `snapback4 dev` server's commit head (`seq` of `GET /changes`), asked as its first declared persona; null for
+ * any other backend (no `/dev/status`: `serve`, a server of another kind), one not reached, or a refused ask. The
+ * tests of a run share that server and every write before the run (sb4 farm wave 7, E1: six builds read a rerun's
+ * or an earlier test's rows as an app bug), so a failed test says how many commits it began with. Advice only. */
+export async function backendHead(origin, ms = 1000) {
+  const get = async (path, headers) => { const r = await fetch(origin + path, { headers, signal: AbortSignal.timeout(ms) }); return r.ok ? r.json() : null; };
+  try {
+    const status = await get('/dev/status');
+    if (typeof status?.storeId !== 'string') return null;
+    const changes = await get('/changes?since=0', { 'x-snapback-persona': status.personas?.[0] ?? 'exact' });
+    return Number.isInteger(changes?.seq) ? changes.seq : null;
+  } catch { return null; }
+}
+// @ref LLP 1086 D13 — `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): a test file's per-test reset.
+/** Before a test opens, each snapback4 dev server the app fetches is emptied through its development door, `POST
+ * /dev/reset` (dev only: the app's tables and derived data emptied; a body of `[{table, row}]` seeds it after; it answers
+ * `{reset: true, seeded, generation}`). An origin that is no snapback4 dev server (no `/dev/status` with a `storeId`) is
+ * left alone. Nothing to reset, an origin that does not answer, or a server older than the door (404) refuses the test
+ * with what to do. Returns a line for each server reset. */
+export async function resetBackends(origins, rows = null, ms = 10000) {
+  const said = [];
+  for (const origin of origins) {
+    let status;
+    try { const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }); status = r.ok ? await r.json().catch(() => null) : null; }
+    catch (e) { throw new Error(`fresh: nothing answered at ${origin} (${e.cause?.code ?? e.message}): start \`snapback4 dev --port ${new URL(origin).port || 80}\` there first`); }
+    if (typeof status?.storeId !== 'string') continue;
+    const r = await fetch(`${origin}/dev/reset`, { method: 'POST', signal: AbortSignal.timeout(ms), ...(rows ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) } : {}) });
+    const text = await r.text();
+    if (r.status === 404) throw new Error(`fresh: the snapback4 dev server at ${origin} has no reset door (POST /dev/reset answered 404: ${text.slice(0, 160)}); it is older than the snapback4 that adds it. Install snapback4@0.4.23 in the backend's directory`);
+    let reply = null; try { reply = JSON.parse(text); } catch { /* said below */ }
+    if (!r.ok || reply?.reset !== true) throw new Error(`fresh: POST ${origin}/dev/reset answered ${r.status}: ${text.slice(0, 300)}`);
+    said.push(`${origin} reset to generation ${reply.generation}${rows ? `, ${reply.seeded} row${reply.seeded === 1 ? '' : 's'} seeded` : ''}`);
+  }
+  if (!said.length) throw new Error(`fresh: no snapback4 dev server at ${origins.length ? origins.join(', ') : 'any loopback origin the app fetches (its web build\'s net.fetch grants: none)'}; \`fresh\` empties one before each test`);
+  return said;
+}
+/** A `fresh` line's seed file, a path from the test file: a JSON list of `{table, row}`. */
+export function freshRows(file, seed) {
+  if (seed == null) return null;
+  const path = resolve(dirname(resolve(file)), seed);
+  let rows; try { rows = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`fresh ${JSON.stringify(seed)}: ${path}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
+  if (!Array.isArray(rows) || rows.some((r) => typeof r?.table !== 'string' || r.row === null || typeof r.row !== 'object')) throw new Error(`fresh ${JSON.stringify(seed)}: ${path} is not a list of {"table": "…", "row": {…}}`);
+  return rows;
+}
+/** The note a failed test gets when the backend held commits as it began: from before the run, from earlier tests. */
+export function sharedBackendNote(origin, before, earlier) {
+  const n = (k) => `${k} commit${k === 1 ? '' : 's'}`;
+  const from = [before ? `${n(before)} from before this run (a seed, or an earlier run on this server)` : '', earlier ? `${n(earlier)} from earlier tests in this run` : ''].filter(Boolean).join(' and ');
+  return `the backend at ${origin} held ${from} when this test began: every test and every run on that server sees those rows, so a count, a position or a "taken" refusal can be theirs. Give each test its own rows (a code or name only it uses, asserted newest first or through its own reply), or each test file its own empty server (snapback4/README.md, "Tests share the server")`;
+}
 const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 /** The stores of authored-test runs that are gone (`<storage>.r<pid>-<tag>.t<n>`, the pid no longer running):
  * a run killed before it removed its own. A live run's are left alone, so concurrent runs never share or
@@ -140,6 +220,30 @@ export function sweepTestStores(base, storage) {
   const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
   for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
 }
+/** `"backend"` follows the app's single net.fetch origin at test runtime. Literal prefixes stay literal. */
+export function backendFetchPrefixes(tests, origins) {
+  const unique = [...new Set(origins.map(o => o.replace(/\/+$/, '')))];
+  for (const t of tests) for (const step of t.steps) {
+    if (!['fail-fetch', 'pass-fetch'].includes(step.op) || step.prefix !== 'backend') continue;
+    if (unique.length !== 1) throw new Error(`line ${step.line}: fetch "backend" needs exactly one net.fetch origin; found ${unique.length}. Use a literal URL for a multi-backend app.`);
+    step.prefix = unique[0];
+  }
+  return tests;
+}
+
+/** Each mutation whose reply was refused, and why, from the journal line both runners write when they let its request
+ * go (`request N (name) failed and is no longer pending: <it ends unsent | it is not retried>: <why>`). A mutation has no
+ * `state.failed`: its slot keeps what it had and its `then` never runs, so this is the only place the reason is said
+ * (sb4 farm wave 6, E3: an answer's undeclared field voided a reply, 25 minutes with nothing naming the field). */
+export function refusedReplies(lines) {
+  const refused = new Map();
+  for (const l of Array.isArray(lines) ? lines : []) {
+    const m = (typeof l === 'string' ? l : JSON.stringify(l)).match(/request \d+ \(([^)]+)\) failed and is no longer pending: (?:it ends unsent|it is not retried): (.*)$/);
+    if (m) refused.set(m[1], m[2]);
+  }
+  return refused;
+}
+const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; its slot keeps what it had and its \`then\` does not run`;
 /** The notes a CLI drive writes on stderr beside its replies, each once (LLP 1102 §3.17; app farm round 1, where a
  * shape refusal lived only in `logs` and an early `tree` showed an empty list): a drive with no scratch store whose
  * source was refused storage; a resource that failed, and why; a read taken while the app's data is in flight. Call it
@@ -150,7 +254,7 @@ export function driveNotes(s, { host, storage }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
-  let peek = 0, probes = 0, clocked = false;
+  let peek = 0, probes = 0, clocked = false, replies = 0;
   return async (op) => {
     const end = op === 'end', early = READS.includes(op) && !clocked && !said.has('early');
     if (op === 'clock') clocked = true;
@@ -163,6 +267,9 @@ export function driveNotes(s, { host, storage }) {
           if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', 'a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
         }
       }
+      const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);
+      if (Array.isArray(j?.lines)) replies = j.next;
+      for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
       for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}; it shows its placeholder or last value, and \`failed(${name})\` is true (\`state\` lists it under \`failed\`)`);
       const pending = (state?.pending ?? []).filter((p) => !p.device).map((p) => p.name);
@@ -207,12 +314,24 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
+  // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
+  const granted = host === 'web' && !url ? fetchOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  // The Snapback dev servers the tests share, and each one's head before the first test (`backendHead`).
+  const shared = host === 'web' && !url && mountsSnapback(resolveApp(app)) ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  const atStart = await Promise.all(shared.map((o) => backendHead(o)));
+  // What `fresh` resets: every loopback origin the app's web build fetches (its net.fetch grants).
+  const backends = url ? [] : loopbackOrigins(resolve(webDist ?? defaultWebDist()));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  const tests = JSON.parse(c.stdout);
+  // Native runs use the scaffold's same declared origin when no web admission file exists.
+  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
+  const tests = backendFetchPrefixes(JSON.parse(c.stdout), granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
+  if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };
@@ -232,15 +351,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
     const facts = { size, seed, locale, timeZone, epoch, failFetch };
     const lines = [];
-    let beforeData = false, leading = 0;
+    let beforeData = false, leading = 0, reset = null;
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
     const armed = new Map(); // prefix -> the line that armed it with a count
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
     // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
     const notes = [], shots = []; // `shots`: the paths of the test's own `screenshot` steps (verify --shots copies them)
+    for (const st of granted.length ? t.steps : []) if ((st.op === 'fail-fetch' || st.op === 'pass-fetch') && !granted.some((o) => o.startsWith(st.prefix) || st.prefix.startsWith(o))) notes.push(`line ${st.line}: \`${st.op.replace('-', ' ')} ${JSON.stringify(st.prefix)}\` names no origin app.ts fetches (its net.fetch grants: ${granted.join(', ')}), so it changes nothing`);
     const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;
+      else if (st.op === 'fresh') reset = st;
       else if (st.op === 'fail-fetch') { early(st); facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
       else if (st.op === 'size') facts.size = [st.width, st.height];
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
@@ -251,10 +372,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
     // a test, so a `reload` relaunches from the same date on every host. `facts.epoch` is the date at the clock's zero
     // of the launch now running: a `reload` moves it on by the virtual time that launch reached (LLP 1116.009 D1).
+    const fixedDate = facts.epoch == null;
     try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
     }
+    // `fresh`: the backend emptied (and seeded) before the app opens; a refusal fails this test at its line.
+    if (reset) try { await resetBackends(backends, freshRows(file, reset.seed)); } catch (e) {
+      results.push({ name: t.name, failures: [`${t.name}: line ${reset.line}: ${e.message}`], notes });
+      continue;
+    }
+    const heads = await Promise.all(shared.map((o) => backendHead(o)));
     // A drag on an iOS simulator is the touch runner's real gesture (LLP 1080.000 §11; chat2 diary: an authored
     // test could not drag there); every other step stays the agent's. A phone has no runner yet: its drag says so.
     // `--touch platform` makes every tap a real touch too (splitter rough 12: a test of what a finger reaches).
@@ -264,7 +392,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // (every `clock +N`, settle and timer), as the runner reports it; whole milliseconds, which every host takes.
     const first = facts.epoch; // the test's launch date, which a `reload` moves `facts.epoch` on from
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale });
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
@@ -289,7 +417,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
@@ -309,10 +437,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.landError) throw new Error(`the input was delivered; landing what it started failed: ${r.landError}`); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
-    // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem).
+    // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem), then a
+    // mutation whose reply was refused (sb4 farm wave 6, E3: the same refusal, with no `state.failed` to show it).
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
-      const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('');
+      const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('')
+        + [...refusedReplies((await s.op({ op: 'logs', since: 0 }).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
       if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
@@ -347,7 +477,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           if (INPUTS.has(st.op)) await settleFired();
           if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
           switch (st.op) {
-            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
+            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
             case 'fail-fetch': {
               if (n < leading) break;
@@ -388,7 +518,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'reload': await reload(); await data(); input = null; loaded = true; break;
             case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
-            case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
+            case 'pick': {
+              try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
+              catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
+              input = st.line; break;
+            }
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
             // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
@@ -476,10 +610,20 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
       if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
+      // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
+      // values into the view to see them; `logs` had them all along). Advice only.
+      if (failures.length && closedAt == null) try {
+        const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
+        const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));
+        if (said.length) notes.push(`the data module logged${said.length > 8 ? ` (the last 8 of ${said.length})` : ''}: ${said.slice(-8).join(' | ')}`);
+      } catch { /* advice only */ }
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
+    if (failures.length && !reset) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
+    // The README says `epoch now` (sb4 farm wave 7, E1: 013 found it only in prose).
+    if (failures.length && fixedDate && atStart.some((h) => h != null)) notes.push('this test ran on the fixed date 2026-01-01T00:00:00Z while snapback4 dev keeps real time: if what failed reads a time (a deadline, an age, a window), the server\'s and the app\'s disagree; write `epoch now` at the top of the test file (snapback4/README.md, "Time")');
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }

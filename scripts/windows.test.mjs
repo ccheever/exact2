@@ -811,6 +811,7 @@ test('a type step keeps its newlines, quotes and clipboard words', () => {
   expect(typeCommand('type editor # A\n\nbody')).toEqual(['editor','# A\n\nbody']);
   expect(typeCommand('type editor "a\\nb"')).toEqual(['editor','a\nb']);
   expect(typeCommand('type "the note" hello')).toEqual(['the note','hello']);
+  expect([typeCommand("type room-draft 'Test Den'"),typeCommand('type room-draft "\'Den\'"'),typeCommand("type room-draft it's")]).toEqual([['room-draft','Test Den'],['room-draft',"'Den'"],['room-draft',"it's"]]);
   expect([typeCommand('type editor paste a\\nb c'),typeCommand('type editor copy')]).toEqual([['editor',{clipboard:'paste',text:'a\nb c'}],['editor',{clipboard:'copy'}]]);
 });
 

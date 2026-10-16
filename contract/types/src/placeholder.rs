@@ -18,6 +18,7 @@ pub fn zero(ty: &Ty, shapes: &Shapes) -> Option<Value> {
     Some(match ty {
         Ty::Number => Value::Number(0.0),
         Ty::String => Value::str(""),
+        Ty::Enum(values) => Value::str(values.first()?),
         Ty::Bool => Value::Bool(false),
         Ty::Unit => Value::Unit,
         Ty::Option(_) => Value::Option(None),
@@ -154,6 +155,7 @@ fn constant(
             };
             Some(Value::Number(-n))
         }
+        (Ty::Enum(values), Expr::Str(s, _)) if values.contains(s) => Some(Value::str(s)),
         (Ty::String, Expr::Str(s, _)) => Some(Value::str(s)),
         (Ty::String, Expr::Template(parts, _))
             if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) =>

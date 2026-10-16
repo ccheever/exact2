@@ -49,9 +49,9 @@ test "search, then swipe to delete"
   expect tree has "note-1"
 ```
 
-- A `list` with no `appearance` is the plain list: its children are rows, with the platform's
-  separators and press. Draw neither. A non-row child says `border-bottom="none"`; rows
-  of your own say `appearance="none"`.
+- A plain `list` gets platform separators and press. A row's bottom or next row's top wins,
+  including `none` or zero; clearing restores it. Non-rows use `border-bottom="none"`;
+  authored rows use `appearance="none"`.
 - The swipe is a horizontal snap scroll naming its content and its trailing action (on iOS
   UIKit's own, not your paint; a full swipe runs the first). In a grouped list: no `width` on the
   scroll, `padding-right=0` on it (its padding is in its port, where the action would show),

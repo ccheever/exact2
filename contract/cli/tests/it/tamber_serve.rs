@@ -312,6 +312,39 @@ fn reads_name_the_chain_the_checker_resolved_and_a_residuals_fallback() {
 }
 
 #[test]
+fn describe_names_each_tokens_pairs_and_the_contrast_warnings() {
+    let dir = app(
+        "pairs",
+        "tamber t\n\ntheme\n  ground = #ffffff\n  ink = #767676  pair=ground,Canvas\n  faint = #eeeeee  pair=ground\n",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    let (describe, _) = s.ask(json!({"method": "describe"}));
+    let pairs = &describe["ok"]["pairs"];
+    assert_eq!(
+        pairs["ink"][0],
+        json!({"name": "ground", "token": true, "fallback": null}),
+        "{describe}"
+    );
+    assert_eq!(pairs["ink"][1]["name"], "Canvas");
+    assert!(
+        pairs["ink"][1]["fallback"]["light"].is_string(),
+        "{describe}"
+    );
+    // #767676 on white is 4.54:1, above; #eeeeee on white is not.
+    let warnings = describe["ok"]["warnings"].as_array().unwrap();
+    assert_eq!(warnings.len(), 1, "{describe}");
+    assert_eq!(warnings[0]["id"], "tamber-contrast");
+    assert!(
+        warnings[0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("`faint` on `ground`"),
+        "{describe}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn requests_are_typed_bounded_and_attributed() {
     let dir = app("strict", SMALL);
     let file = dir.join("app.tamber");
@@ -643,5 +676,170 @@ fn a_synthetic_token_that_comes_to_fold_is_rebuild_then_live() {
         next["ok"]["synthetic"][0]["expr"],
         "color-mix(in srgb, brand 60%, white)"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_write_that_makes_a_role_vary_by_an_axis_is_refused_as_the_build_would() {
+    let dir = app(
+        "role-axis",
+        "tamber t\n\naxes\n  mode = a | b\n\ntheme\n  ink = #000000\n  -exact-label = ink\n",
+    );
+    let file = dir.join("app.tamber");
+    let before = std::fs::read_to_string(&file).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-token", "name": "ink", "when": [{"axis": "mode", "value": "b"}], "value": "#111111"});
+    let (proposed, _) = s.ask(json!({"method": "propose", "ops": [op]}));
+    assert_eq!(
+        proposed["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+        "{proposed}"
+    );
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert_eq!(
+        done["error"]["diagnostics"][0]["id"], "tamber-role-axis",
+        "{done}"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `uses` (LLP 1121 stage 4, commit 6): every style row that reads the
+/// token, directly, through a token naming it and through a synthetic
+/// token, each at its source span; a text that happens to hold the name
+/// is no use.
+#[test]
+fn uses_names_every_site_through_aliases_and_synthetic_tokens() {
+    let dir = app(
+        "uses",
+        "tamber app\n\ntheme\n  brand = #0a7aff\n  ink = brand\n  brand-2 = #123456\n",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state pick = \"brand\"\n  state on = false\n  view\n    column\n      text \"brand\" color=\"brand\"\n      text \"b\" color=\"ink\"\n      text \"c\" background-color=\"color-mix(in srgb, brand 60%, white)\"\n      text \"d\" color=\"brand-2\"\n      text \"e\" width=(pick == \"brand\" ? 10 : 20)\n      text \"f\" color=pick\n      text \"g\" color=(on ? \"brand\" : \"brand-2\")\n      text \"h\" font-family=\"brand sans\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "brand"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    let at = |line: u64| sites.iter().find(|s| s["line"] == line);
+    // A string compared is no read; a slot holding the name is one; either
+    // arm of a choice is one; a row that takes no colour reads no token.
+    assert_eq!(sites.len(), 5, "{uses}");
+    assert!(sites.iter().all(|s| s["line"] != 10), "{uses}");
+    assert_eq!(at(11).unwrap()["via"], json!({"slot": "pick"}));
+    assert!(at(12).unwrap().get("via").is_none(), "{uses}");
+    assert_eq!(at(6).unwrap()["row"], "text_color");
+    assert!(at(6).unwrap().get("via").is_none(), "{uses}");
+    assert_eq!(at(7).unwrap()["via"], json!({"token": "ink"}));
+    assert_eq!(
+        at(8).unwrap()["via"],
+        json!({"synthetic": "color-mix(in srgb, brand 60%, white)", "through": null})
+    );
+    assert_eq!(
+        at(6).unwrap()["file"]
+            .as_str()
+            .map(|f| f.ends_with("app.contract")),
+        Some(true)
+    );
+    assert_eq!(uses["ok"]["aliases"], json!(["ink"]));
+    assert!(uses["ok"]["plan"].is_string(), "{uses}");
+    let (none, _) = s.ask(json!({"method": "uses", "token": "nope"}));
+    assert!(none["error"]["message"].is_string(), "{none}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `uses` answers once for every plan of the same sources (theme2's
+/// condition): the JS target compiles the plan `uses` does, and a native
+/// bake keeps its nodes and bindings, so the sites (node indices and
+/// spans) are the same on each.
+#[test]
+fn uses_sites_are_the_same_on_the_js_plan_and_the_native_bake() {
+    use exact_runner::{DataError, DataSource};
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/theme-fixture/app.contract");
+    let (mapped, map) = contract::compile_path_mapped(&root).unwrap();
+    let map: Value = serde_json::from_str(&map.json(&mapped.encode())).unwrap();
+    // The JS target's compile (host/web-js `exact-web-js js`, with sites).
+    let (js, _) = contract::compile_path_all(&root, true).unwrap();
+    let native = contract::bake(mapped.clone(), NoData).unwrap();
+    let none = std::collections::BTreeSet::new();
+    for token in [
+        "surface.page",
+        "accent.fill",
+        "border.hairline",
+        "text.primary",
+    ] {
+        let synthetic = ["color-mix(in srgb, border.hairline 60%, transparent)".to_string()];
+        let of = |plan: &exact_plan::Plan| {
+            contract::tamber_uses::sites(plan, &map, token, &none, &synthetic)
+        };
+        let ours = of(&mapped);
+        assert!(!ours.is_empty(), "{token}");
+        assert_eq!(of(&js), ours, "{token} on the JS target's plan");
+        assert_eq!(of(&native), ours, "{token} on the native bake");
+    }
+}
+
+/// `uses` follows a value into what it is stored in and compared with: an
+/// action storing the name into one slot does not make another a use; a
+/// slot copied from one holding it is one; a comparison however built, and
+/// an element id (`url(#brand)`), are none.
+#[test]
+fn uses_follows_stores_and_skips_comparisons_and_ids() {
+    let dir = app("uses-flow", "tamber app\n\ntheme\n  brand = #0a7aff\n");
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state label = \"x\"\n  state ink = \"#000000\"\n  state pick = \"brand\"\n  state copy = \"#000000\"\n  state p = \"br\"\n  action set\n    label = \"brand\"\n    ink = \"#ffffff\"\n  action take\n    copy = pick\n  view\n    column\n      text \"a\" color=ink press=set\n      text \"b\" color=copy press=take\n      text \"c\" color=(\"brand\" == p + \"and\" ? \"#111111\" : \"#222222\")\n      text \"d\" fill=\"url(#brand)\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "brand"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    assert_eq!(sites.len(), 1, "{uses}");
+    assert_eq!(sites[0]["line"], 15, "{uses}");
+    assert_eq!(sites[0]["via"], json!({"slot": "copy"}));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `uses` follows a value through an action's local (`let`), and reads a
+/// role override by any of its spellings.
+#[test]
+fn uses_follows_locals_and_role_spellings() {
+    let dir = app(
+        "uses-local",
+        "tamber app\n\ntheme\n  brand = #0a7aff\n  secondary-label = #445566\n",
+    );
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  state ink = \"#000000\"\n  action set\n    let chosen = \"brand\"\n    ink = chosen\n  view\n    column\n      text \"a\" color=ink press=set\n      text \"b\" color=\"secondary-label\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "brand"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    assert_eq!(sites.len(), 1, "{uses}");
+    assert_eq!(sites[0]["via"], json!({"slot": "ink"}));
+    let (role, _) = s.ask(json!({"method": "uses", "token": "-exact-secondary-label"}));
+    let sites = role["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{role}"));
+    assert_eq!(sites.len(), 1, "{role}");
+    assert_eq!(sites[0]["line"], 9, "{role}");
     let _ = std::fs::remove_dir_all(&dir);
 }

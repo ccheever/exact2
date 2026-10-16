@@ -272,7 +272,7 @@ component App
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
 ## confirm: ask before deleting
-names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal
+names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal, prompt, rename
 
 A `dialog role="alertdialog"`: its `aria-label` the question, a `text` the message, each action
 a `button` with `press` that also closes it, and one Cancel (a closing button with no
@@ -305,6 +305,12 @@ component App
 
 - Its rows are only text, actions and one Cancel; a form is a sheet (`contract vocab modal`).
   In tests, `clock settle` after it opens, then `tap "remove-confirm"`.
+- A prompt (rename, a name for a new list) is the same alert with an `input` row:
+  `input value=draft input=editDraft placeholder="Name"` among its rows. iOS's alert shows it
+  as its own text field, macOS's `NSAlert` beneath its message; each keystroke is the input's
+  `input`, so the action's `press` reads `draft`. Return presses the first action that is not
+  destructive (nothing while it is disabled), unless the field has a `submit`, which then has
+  Return alone. `disabled=(draft == "")` on Save dims it while the field is empty.
 - An alert has no outside: Escape and Back cancel it, a tap beside it does nothing. Leave
   `closedby` unwritten; `closedby="any"` asks for the platform's dismissible form in its place
   (an action sheet on an iPhone, a dialog a click outside closes on the web).
@@ -412,6 +418,12 @@ component App
 - In a grouped list (`list appearance="auto"`), the scroll is a section's row: leave its
   `width` unsaid and give it `padding-right=0`. To ask first, the action's `press` opens a
   confirmation (`contract vocab confirm`). In tests, `tap "delete-Milk"` presses it.
+- UIKit draws its swipe actions itself (rounded on iOS 26 and later), whatever you paint.
+  To keep painted actions (flush 76-point rectangles of your own colours), write
+  `appearance="none"` on every control the row names: on iOS the row then swipes by its own
+  scroll, as on the web, and keeps the swipe's behaviours: one row open at a time, a full
+  swipe (past half the row) presses the outermost action, and VoiceOver reads each action as
+  a custom action of the row's content.
 
 More: docs/recipes/list-rows.md (search, filter, the long-press menu)
 

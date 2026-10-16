@@ -1,6 +1,6 @@
 //! Text and keyboard input, sharing the presenter's focus owner.
 use super::*;
-use exact_runner::ControlValue;
+use exact_runner::{ControlValue, FieldSelection, InputDetails, SelectionDirection};
 use std::collections::BTreeSet;
 
 impl<D: DataSource> Presenter<D> {
@@ -57,34 +57,34 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
-        // The whole value replaces any selection and leaves the caret at its
-        // end, which `input` reports (x2apps codeedit #2). `change` waits for
-        // Enter or blur (`commit_text`), as hardware typing does.
-        let caret = exact_runner::FieldSelection::at_end(&text);
-        self.mark_field(id, &text, caret, false);
-        self.edited = Some(id);
-        // What earlier commits replaced goes first, and the watch is the
-        // bound value from before this edit's dispatch (LLP 1069.001 D4).
         self.forget_replaced_choices();
-        let bound = self.bound_text(id);
-        self.host.values.watch(id, Some(bound.clone()));
-        let error = if self
-            .host
-            .runner()
-            .handlers_of(id)
-            .contains(&EventKind::Input)
-        {
-            self.host.dispatch_at(
-                id,
-                Event::Input(ControlValue::Field(text.clone(), caret)),
-                now,
-            )
-        } else {
-            None
+        let value = self.field_text(id);
+        let selection = FieldSelection {
+            start: 0,
+            end: field::utf16_len(&value),
+            direction: SelectionDirection::None,
         };
-        let e = self.after_commit();
-        self.keep_typed(id, text, bound);
-        if let Some(e) = error.or(e) {
+        let moved = self.field_selection(id) != selection;
+        self.mark_field(id, &value, selection, true);
+        // The web driver selects all, then inserts. The queued select
+        // handler reads the caret after that insertion, not the old range.
+        if moved {
+            self.field_select_tasks.push(id);
+        }
+        let (next, caret) = field::replace(&value, selection, &text);
+        let error = self.edit_field(
+            id,
+            next,
+            caret,
+            now,
+            InputDetails {
+                input_type: "insertText".into(),
+                data: Some(text),
+                cancelable: true,
+                is_composing: false,
+            },
+        );
+        if let Some(e) = error {
             return Err(e);
         }
         let value = self.field_text(id);
@@ -566,7 +566,7 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let value = self.field_text(id);
-        let selection = self.field_selection(id);
+        let selection = self.reported_selection(id, &value, self.field_selection(id));
         Some(self.host.dispatch_at(
             id,
             Event::Change(ControlValue::Field(value, selection)),

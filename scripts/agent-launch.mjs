@@ -1,7 +1,7 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -167,6 +167,100 @@ export function netOptions(environment = process.env) {
   return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
 }
 
+/** Own a named Chrome profile before resetting it, including when two drives
+ * choose different page ports. The OS releases the lock if the driver dies. */
+export async function exclusiveWebStore(options, launch) {
+  if (options.storage === undefined || options.browser !== 'chrome' || options.reuse) return launch();
+  const app = resolveApp(options.app), store = driveStore(app, options.storage, options.env);
+  mkdirSync(store.base, {recursive: true});
+  let release, acquired;
+  const ready = new Promise(resolve => { acquired = resolve; });
+  const lifetime = new Promise(resolve => { release = resolve; });
+  const holding = filesystemLock(store.base + '-locks', `${options.storage}/.lock`, async () => { acquired(); await lifetime; });
+  try { await Promise.race([ready, holding]); }
+  catch (error) { throw new Error(`--storage ${options.storage}: profile lock failed (${error.message}); close any drive of this store or use another name`); }
+  const unlock = async () => { release(); await holding; };
+  try {
+    const carrier = await launch(), close = carrier.close.bind(carrier);
+    let closed;
+    carrier.close = () => closed ??= (async () => { await close(); await unlock(); })();
+    return carrier;
+  } catch (error) { await unlock(); throw error; }
+}
+
+/** The one port a web drive's page is served on, `--port <n>` else `EXACT_PORT`, or null for the default (a free port;
+ * a named store's from its hash). Builders on a shared machine must keep every listener in an assigned range (app farm
+ * wave 1: 21 builds could not). A test run serves its tests on it one at a time. A named store's data is its origin's,
+ * so drive one store on one port. */
+export function webPort(flag, env = process.env) {
+  const given = flag ?? env.EXACT_PORT;
+  if (given === undefined || given === '') return null;
+  const port = Number(given);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${flag === undefined ? 'EXACT_PORT' : '--port'} ${given}: a port number, 1–65535`);
+  return port;
+}
+
+/** Temporary tests own a fresh page origin; a persistent named drive keeps its port. */
+export function webPortRange(env = process.env) {
+  if (env.PORT_LO === undefined && env.PORT_HI === undefined) return null;
+  const lo = Number(env.PORT_LO), hi = Number(env.PORT_HI);
+  if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi > 65535 || lo > hi)
+    throw new Error(`PORT_LO/PORT_HI must name an inclusive port range, 1–65535 (got ${env.PORT_LO}/${env.PORT_HI})`);
+  return [lo, hi];
+}
+export function drivePagePort(fixed, kept, temporary = false, env = process.env) {
+  if (fixed != null) return fixed;
+  const range = webPortRange(env), port = !temporary ? kept?.port : null;
+  return port != null && (!range || (port >= range[0] && port <= range[1])) ? port : 0;
+}
+
+/** Listen on `port` (0: any free one). A named port still held is asked again for `ms`: the run's last page, or the
+ * last run's, can still be letting go of it (app farm wave 1: "port in use" between runs). `named` (`--port`/EXACT_PORT)
+ * says so in the refusal, and when the port is in Linux's ephemeral range, which any outgoing connection can borrow. */
+export async function listenOn(server, port, host = '127.0.0.1', ms = port ? 2000 : 0, named = false, env = process.env) {
+  const range = port === 0 ? webPortRange(env) : null;
+  if (range) {
+    for (let candidate = range[0]; candidate <= range[1]; candidate++) {
+      try { return await listenOn(server, candidate, host, 0, false, {}); }
+      catch (error) { if (error.code !== 'EADDRINUSE') throw error; }
+    }
+    throw Object.assign(new Error(`ports ${range[0]}–${range[1]} (PORT_LO/PORT_HI) are all in use`), {code: 'EADDRINUSE'});
+  }
+  for (const end = Date.now() + ms; ; await new Promise((r) => setTimeout(r, 100))) {
+    try {
+      return await new Promise((ok, fail) => {
+        const listening = () => { server.off('error', failed); ok(server.address().port); }, failed = (e) => { server.off('listening', listening); fail(e); };
+        server.once('error', failed).once('listening', listening).listen(port, host);
+      });
+    }
+    catch (e) {
+      if (e.code === 'EADDRINUSE' && Date.now() < end) { server.close(() => {}); continue; }
+      if (e.code !== 'EADDRINUSE' || !named) throw e;
+      let range = null; try { range = readFileSync('/proc/sys/net/ipv4/ip_local_port_range', 'utf8').trim().split(/\s+/).map(Number); } catch {}
+      const borrowed = range && port >= range[0] && port <= range[1] ? `; it is in this machine's ephemeral range (${range[0]}–${range[1]}), which outgoing connections borrow for a while, so a port outside it is steadier` : '';
+      throw Object.assign(new Error(`port ${port} (--port or EXACT_PORT) is in use: another drive or program holds it${borrowed}`), { code: e.code });
+    }
+  }
+}
+
+/** A launching Chrome's stderr, unfiltered: the last lines, and the first fatal one, which the native stack trace
+ * after it pushes out of any tail (app farm 082: "Socket path too long" under a long TMPDIR read as a bare stack). */
+export function launchLog(limit = 8) {
+  const log = { tail: [], fatal: null, add(line) {
+    if (!log.fatal && /:FATAL:|\bCheck failed\b/.test(line)) log.fatal = line;
+    log.tail.push(line); if (log.tail.length > limit) log.tail.shift();
+  } };
+  return log;
+}
+
+/** Why Chrome did not start or answer, from its `launchLog` (the pipe only closes). */
+export function launchFailure(error, log, { alive, chrome, env = process.env }) {
+  const tail = log.tail.slice(-6), lines = log.fatal && !tail.includes(log.fatal) ? [log.fatal, '…', ...tail] : tail;
+  const temp = env.TMPDIR || tmpdir(), socket = /Socket path too long/i.test(log.fatal ?? '')
+    ? `\nChrome keeps a Unix socket under TMPDIR (${temp}, ${temp.length} characters), and a socket's path must fit in 107 bytes: give the drive a shorter TMPDIR.` : '';
+  return new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${lines.map(l => '  chrome: ' + l).join('\n') || '  (it printed nothing)'}${socket || (alive ? '' : '\nSet CHROME to a browser that runs here.')}`);
+}
+
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */
@@ -213,10 +307,15 @@ export function parseFlags(argv) {
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--sim') flags.sim = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
+    else if (argv[i] === '--keep-storage') flags.keepStorage = true;
+    else if (argv[i] === '--reset-storage') flags.resetStorage = true;
+    else if (argv[i] === '--port') flags.port = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);
   }
+  if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
 }
 
@@ -368,7 +467,55 @@ const GENERATED = /\/build\/[^/]+\/out\//;
 const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
 export function depInfoNewer(since, bin, info) {
-  return depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).filter(p => { try { return statSync(p).mtimeMs > since; } catch { return !DIRECTORY_WATCH.test(p); } }).map(shown);
+  const skips = new Map();
+  // What no build reads: a build's output, installed packages (their declarations are inputs of their own) and a
+  // hidden tree; within an app, also what its other freshness checks pass over (`notBuildInput`, and the names
+  // `newerThan` skips, a README or a test), each outside the trees a build takes files from.
+  const skipFor = dir => {
+    let app = dir;
+    while (!existsSync(resolve(app, 'app.json')) && dirname(app) !== app) app = dirname(app);
+    if (!existsSync(resolve(app, 'app.json'))) return (path, isDir) => isDir && UNWATCHED_TREE.test(basename(path));
+    if (!skips.has(app)) {
+      const ignored = notBuildInput(app);
+      skips.set(app, (path, isDir) => !INPUT_TREE.test(relative(app, path))
+        && (isDir ? UNWATCHED_TREE.test(basename(path)) || ignored(path) : ignored(path) || NOT_INPUT.test(basename(path))));
+    }
+    return skips.get(app);
+  };
+  return [...new Set(depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).flatMap(p => {
+    let stat;
+    try { stat = statSync(p); } catch { return DIRECTORY_WATCH.test(p) ? [] : [shown(p)]; }
+    if (!stat.isDirectory()) return stat.mtimeMs > since ? [shown(p)] : [];
+    const dir = resolve(p);
+    return watchedChanges(since, dir, skipFor(dir));
+  }))];
+}
+
+const UNWATCHED_TREE = /^(target|node_modules|\..*)$/;
+/** A directory in dep-info is a build script's watch, which Cargo scans recursively. It changed when a file under it
+ * that a build reads was modified after `since`, or when a directory in it was (an entry created, removed or renamed)
+ * after `since` and not by the creation of an entry no build reads: the JS build creates `app.contract.d.ts` in the
+ * app directory after a native build, which moves the directory's mtime to that file's birth and is no change to
+ * that build. A later write to such an entry explains nothing; a filesystem without birth times excuses nothing. */
+function watchedChanges(since, dir, skip) {
+  const out = [];
+  const walk = at => {
+    let entries; try { entries = readdirSync(at, { withFileTypes: true }); } catch { return; }
+    let created = -Infinity;
+    for (const e of entries) {
+      const path = resolve(at, e.name);
+      let stat; try { stat = statSync(path); } catch { continue; }
+      const isDir = stat.isDirectory();
+      if (skip(path, isDir)) created = Math.max(created, stat.birthtimeMs || -Infinity);
+      else if (isDir) walk(path);
+      else if (stat.mtimeMs > since) out.push(shown(path));
+    }
+    // The directory's mtime lands a few microseconds after the entry's birth.
+    const mtime = statSync(at).mtimeMs;
+    if (mtime > since && mtime > created + 1) out.push(shown(at));
+  };
+  walk(dir);
+  return out;
 }
 
 /** Cargo's dep-info beside a binary: every source input newer than the binary, or gone. */
@@ -736,7 +883,7 @@ export class Cdp {
  * activation, as for a person), answered "Stay". Either the dialog or the target's detach comes; after the second the
  * page is gone. */
 export async function closePage(req, { cdp, sessionId, call, frame }) {
-  if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { error: 'tap close takes no other input fields' };
+  if (Object.keys(req).some(k => !['op', 'close'].includes(k)) || req.close !== true) return { malformed: true, error: 'tap close takes no other input fields' };
   let listener, timer;
   const outcome = new Promise((ok) => {
     listener = (msg) => {
@@ -762,7 +909,7 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
  * keeps it open, as a `cancel` handler that prevents it does). `escape` presses it (CDP's, or Playwright's keyboard).
  * Null with none open: the page's agent then takes the browser's Back from the selected route (navigation.js `back`). */
 export async function backLayer(req, { evaluate, escape, frame }) {
-  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { error: 'tap back takes no other input fields' };
+  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { malformed: true, error: 'tap back takes no other input fields' };
   const open = `document.querySelectorAll('dialog:modal, [role="alertdialog"]:popover-open').length`, before = await evaluate(open);
   if (!before) return null;
   await escape();

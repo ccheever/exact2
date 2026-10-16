@@ -182,7 +182,7 @@ pub fn string(s: &str) -> String {
 pub fn ty(t: &Ty) -> String {
     match t {
         Ty::Number => ".number".into(),
-        Ty::String => ".string".into(),
+        Ty::String | Ty::Enum(_) => ".string".into(),
         Ty::Bool => ".bool".into(),
         Ty::Unit => ".unit".into(),
         Ty::Option(t) => format!("(.option {})", ty(t)),

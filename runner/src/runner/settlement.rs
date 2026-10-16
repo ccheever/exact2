@@ -15,6 +15,7 @@ pub(super) struct Settled {
     pending_res: Vec<bool>,
     failed_res: Vec<Option<crate::failure::Failure>>,
     pending_mut: Vec<bool>,
+    failed_mut: Vec<Option<crate::failure::Failure>>,
     store_readers: Vec<bool>,
     resource_args: Vec<Vec<Value>>,
 }
@@ -201,7 +202,10 @@ impl<D: DataSource> Runner<D> {
                     && base.failed_res[r]
                         == crate::failure::state(&self.failed_args, &self.failed_why, r)
             }
-            Input::PendingMutation(m) => base.pending_mut[m] == self.pending_mut[m],
+            Input::PendingMutation(m) => {
+                base.pending_mut[m] == self.pending_mut[m]
+                    && base.failed_mut[m] == self.failed_mut[m]
+            }
             Input::Clock => base.now_ms.to_bits() == self.now_ms.to_bits(),
         })
     }
@@ -293,6 +297,7 @@ impl<D: DataSource> Runner<D> {
                             failed_resources: &self.failed_args,
                             failed_why: &self.failed_why,
                             pending_mutations: &self.pending_mut,
+                            failed_mutations: &self.failed_mut,
                             store_dependent_derives: &derive_store_dependent,
                             store_dependent_resources: &self.store_readers,
                         };
@@ -366,6 +371,7 @@ impl<D: DataSource> Runner<D> {
                                 failed_resources: &self.failed_args,
                                 failed_why: &self.failed_why,
                                 pending_mutations: &self.pending_mut,
+                                failed_mutations: &self.failed_mut,
                                 store_dependent_derives: &derive_store_dependent,
                                 store_dependent_resources: &self.store_readers,
                             };
@@ -683,7 +689,7 @@ impl<D: DataSource> Runner<D> {
                                 // failure belongs to its resource, not its input.
                                 Err(RunnerError::Data {
                                     resource,
-                                    error: DataError::Failed(code, why),
+                                    error: DataError::Failed(code, why, reason),
                                 }) => {
                                     let kept = if let Some(state) = &states[i] {
                                         placeholder = state.placeholder;
@@ -697,15 +703,18 @@ impl<D: DataSource> Runner<D> {
                                     let Some(kept) = kept else {
                                         return Err(RunnerError::Data {
                                             resource,
-                                            error: DataError::Failed(code, why),
+                                            error: DataError::Failed(code, why, reason),
                                         });
                                     };
                                     effects[i] = RequestEffect::Answered;
                                     pending_res[i] = false;
                                     self.log(super::lines::failed_now(&resource, &why));
                                     self.failed_args[i] = Some(args.clone());
-                                    self.failed_why[i] =
-                                        Some(crate::failure::Failure { code, message: why });
+                                    self.failed_why[i] = Some(crate::failure::Failure {
+                                        code,
+                                        message: why,
+                                        reason,
+                                    });
                                     kept
                                 }
                                 Err(error) => return Err(error),
@@ -843,6 +852,7 @@ impl<D: DataSource> Runner<D> {
                 pending_res,
                 failed_res: crate::failure::states(&self.failed_args, &self.failed_why),
                 pending_mut: self.pending_mut.clone(),
+                failed_mut: self.failed_mut.clone(),
                 store_readers,
                 resource_args,
             });
@@ -936,7 +946,12 @@ pub(super) fn zero(plan: &exact_plan::Plan, ty: exact_plan::TypesId) -> Option<V
     let row = plan.types.get(ty.0 as usize)?;
     Some(match row.kind {
         TypeKind::Number => Value::Number(0.0),
-        TypeKind::String => Value::str(""),
+        TypeKind::String => Value::str(
+            row.fields
+                .iter()
+                .next()
+                .map_or("", |f| plan.str(plan.field(f).name)),
+        ),
         TypeKind::Bool => Value::Bool(false),
         TypeKind::Unit => Value::Unit,
         TypeKind::Option => Value::NONE,

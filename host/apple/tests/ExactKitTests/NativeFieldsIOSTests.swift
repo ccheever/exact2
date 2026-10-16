@@ -33,6 +33,35 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
     }
 
+    /// LLP 1104 D5: a first screen with no field measures no field's chrome.
+    /// The boot registers the control font, and the first field to ask is
+    /// measured then, before its answer, so its first layout is exact.
+    func testABootWithNoFieldMeasuresNoFieldsChrome() throws {
+        let app = ExactApp.shared, fieldless = try fieldlessPlan()
+        let previous = app.lastPlan.map { ExactGeneration(plan: $0, assets: app.resolver, token: app.selectedToken, module: app.lastModule) }
+        app.installInitial(ExactGeneration(plan: fieldless, assets: AssetResolver(root: app.assetRoot)))
+        let session = app.makeSession(label: "fieldless-chrome")
+        session.presenter.viewport.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        defer {
+            session.destroy()
+            if let previous { app.installInitial(previous) }
+            else {
+                app.installInitial(ExactGeneration(plan: fieldless, assets: app.resolver, token: 1104))
+                _ = app.fallBackFromInitial(reason: "test cleanup")
+            }
+        }
+        XCTAssertNil(session.boot(size: CGSize(width: 400, height: 800)).error)
+        let engine = session.text.measuring
+        let id = try XCTUnwrap(Owner.shared.sync { engine.platformControlID }, "the boot registered the control font")
+        let cache = session.fieldChrome, body = cache.body
+        XCTAssertEqual(cache.misses, 0)
+        let request = ExactFieldChromeRequest(kind: 0, family_id: id, size: Float(body.pointSize), weight: UInt16(TextEngine.controlWeight(body)), italic: 0)
+        let chrome = cache.answer(request, font: body)
+        XCTAssertEqual(cache.misses, 1, "nothing was measured at boot")
+        XCTAssertEqual(chrome.provisional, 0)
+        XCTAssertGreaterThanOrEqual(chrome.minimum_height, Float(body.lineHeight))
+    }
+
     /// LLP 1115.000 D10.3: a booted session tells the kernel its display's
     /// scale with the page's facts, so the plan's `hr` is one device pixel
     /// of this simulator's display (a third of a point at 3x, where a plan
@@ -102,14 +131,19 @@ final class NativeFieldsIOSTests: XCTestCase {
         cache.configure(traits)
         let engine = TextEngine(resolve: { _ in nil })
         let id = engine.registerControlFont(cache.body)
-        cache.prefill(family: id, font: cache.body, weight: UInt16(TextEngine.controlWeight(cache.body)), italic: false)
         for size in [11, 17, 26, 34] {
             for family in [Int(id), 4] {
                 for kind in UInt8(0)...UInt8(3) {
                     let request = ExactFieldChromeRequest(kind: kind, family_id: UInt16(family), size: Float(size), weight: 400, italic: 0)
                     let font = engine.font(size: CGFloat(size), weight: 400, family: family, italic: false)
-                    _ = cache.answer(request, font: font)
+                    let misses = cache.misses
+                    let first = cache.answer(request, font: font)
+                    XCTAssertEqual(cache.misses, misses + 1, "measured when first asked")
                     let exact = cache.answer(request, font: font)
+                    XCTAssertEqual(cache.misses, misses + 1)
+                    XCTAssertEqual(first.provisional, 0, "a miss is measured before it is answered")
+                    XCTAssertEqual([first.top, first.right, first.bottom, first.left, first.minimum_height],
+                                   [exact.top, exact.right, exact.bottom, exact.left, exact.minimum_height])
                     XCTAssertEqual(exact.provisional, 0)
                     if kind != 3 {
                         // A search field is UIKit's search field, its clear
@@ -151,8 +185,12 @@ final class NativeFieldsIOSTests: XCTestCase {
         let request = ExactFieldChromeRequest(kind: 0, family_id: id, size: 17, weight: 400, italic: 0)
         let font = engine.font(size: 17, weight: 400, family: Int(id), italic: false)
         cache.configure(.init(traitsFrom: [traits, .init(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge), .init(legibilityWeight: .bold)]))
-        XCTAssertEqual(cache.answer(request, font: font).provisional, 1, "traits form part of the key")
+        let misses = cache.misses
+        let large = cache.answer(request, font: font)
+        XCTAssertEqual(cache.misses, misses + 1, "traits form part of the key")
+        XCTAssertEqual(large.provisional, 0)
         XCTAssertEqual(cache.answer(request, font: font).provisional, 0)
+        XCTAssertEqual(cache.misses, misses + 1)
         cache.presented(false)
         XCTAssertEqual(cache.presentedProvisional, 0)
         cache.presented(true)
@@ -168,10 +206,9 @@ final class NativeFieldsIOSTests: XCTestCase {
         let engine = TextEngine(resolve: { _ in nil })
         let id = engine.registerControlFont(cache.body)
         let font = engine.font(size: 17, weight: 400, family: Int(id), italic: false)
-        cache.prefill(family: id, font: font, weight: 400, italic: false)
         for kind in [UInt8(0), 1] {
             let chrome = cache.answer(ExactFieldChromeRequest(kind: kind | FieldChromeCache.cell, family_id: id, size: 17, weight: 400, italic: 0), font: font)
-            XCTAssertEqual(chrome.provisional, 0, "prefilled")
+            XCTAssertEqual(chrome.provisional, 0)
             let plain = UITextField()
             plain.borderStyle = .none
             plain.font = font
@@ -188,7 +225,7 @@ final class NativeFieldsIOSTests: XCTestCase {
         }
         let area = cache.answer(ExactFieldChromeRequest(kind: 3 | FieldChromeCache.cell, family_id: id, size: 17, weight: 400, italic: 0), font: font)
         let standard = UITextView()
-        XCTAssertEqual(area.provisional, 0, "prefilled")
+        XCTAssertEqual(area.provisional, 0)
         XCTAssertEqual([area.left, area.right], [0, 0])
         XCTAssertEqual(area.top, Float(standard.textContainerInset.top))
         XCTAssertEqual(area.bottom, Float(standard.textContainerInset.bottom))

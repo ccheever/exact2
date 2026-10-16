@@ -87,6 +87,7 @@ fn infer_built(
                 }
             }
             match first {
+                Ty::Enum(_) => Ok(Ty::String),
                 Ty::String | Ty::List(_) => Ok(first),
                 other => argument(0, "string | list", &other),
             }
@@ -99,10 +100,10 @@ fn infer_built(
                 Ty::Bool
             };
             match &first {
-                Ty::String if second == Ty::String => Ok(found),
-                Ty::String => argument(1, "string", &second),
+                Ty::String | Ty::Enum(_) if second.is_string() => Ok(found),
+                Ty::String | Ty::Enum(_) => argument(1, "string", &second),
                 Ty::List(item) => match item.unify(&second) {
-                    Some(Ty::String | Ty::Number | Ty::Bool) => Ok(found),
+                    Some(Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool) => Ok(found),
                     Some(other) => err(
                         "type-argument",
                         format!(
@@ -164,7 +165,10 @@ pub(crate) fn infer_call(
         }
     };
     if f == Stdlib::Join {
-        if !matches!(item, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown) {
+        if !matches!(
+            item,
+            Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+        ) {
             return err(
                 "type-argument",
                 format!(
@@ -235,7 +239,7 @@ pub(crate) fn infer_call(
     if !matches!(result, Ty::Bool | Ty::Unknown) {
         // No truthiness: say the comparison the web's `filter` implied.
         let compare = match &result {
-            Ty::String => "compare it: `x.name != \"\"`",
+            Ty::String | Ty::Enum(_) => "compare it: `x.name != \"\"`",
             Ty::Number => "compare it: `x.count != 0`",
             Ty::Option(_) => "compare it: `x.note != none`",
             Ty::List(_) => "test it: `x.tags.length > 0`",

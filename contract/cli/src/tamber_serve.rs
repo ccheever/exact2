@@ -37,12 +37,16 @@
 //!   reached, and the app's synthetic tokens (its rows' expressions over
 //!   tokens, read from the plan the compiler builds) re-folded, those that
 //!   change listed in `synthetic` with their new value per app tuple.
+//!   A propose with `texts: true` also answers the texts it would write,
+//!   by file, for a scrub's preview (stage 4, commit 6).
 //! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
 //!   of files it does not edit but was planned on, checked with the rest.
-//! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
+//! - **Reads:** `hello`, `describe`, `resolve`, `explain`, `uses`, each of the
 //!   design or of the `file` it names. `resolve`'s tuples carry `srgb
 //!   {light, dark}`, each side's 8-bit clip, and `resolve` and `explain`
-//!   the `files` digests they read (`tamber/1.1`).
+//!   the `files` digests they read (`tamber/1.1`); `describe` each token's
+//!   declared `pairs` (a role's with its fallback) and the design's
+//!   contrast `warnings`.
 //! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
 //!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
 //!   and `import-plan` plans an import from a source's text against the
@@ -596,6 +600,7 @@ impl Server {
             Some("describe") => vec![reply(self.describe(&request))],
             Some("resolve") => vec![reply(self.resolve(&request))],
             Some("explain") => vec![reply(self.explain(&request))],
+            Some("uses") => vec![reply(self.uses(&request))],
             Some("propose") => vec![reply(self.transaction(&request, false))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
@@ -693,8 +698,31 @@ impl Server {
             .zip(&folding.design.tokens)
             .map(|(t, declared)| (t.name.clone(), json!(meta(&declared.meta))))
             .collect();
+        // What each token is drawn on (`pair=`): a token by its name, a role
+        // no token overrides with its fallback; and the contrast warnings.
+        let pairs: serde_json::Map<String, Value> = folding
+            .tokens
+            .iter()
+            .filter(|t| !t.pairs.is_empty())
+            .map(|t| {
+                let named = t.pairs.iter().map(|p| {
+                    let token = folding.tokens.iter().any(|u| &u.name == p);
+                    let fallback = (!token)
+                        .then(|| exact_tamber::fallback(&exact_tamber::Folded::Host(exact_tamber::Host::Role(p.clone())), &self.vocab))
+                        .flatten();
+                    json!({"name": p, "token": token, "fallback": fallback.map(|[l, d]| json!({"light": l, "dark": d}))})
+                });
+                (t.name.clone(), json!(named.collect::<Vec<_>>()))
+            })
+            .collect();
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        let warnings: Vec<Value> = folding
+            .warnings
+            .iter()
+            .map(|d| diagnostic(&file, d))
+            .collect();
         Ok(
-            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}}),
+            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
         )
     }
 
@@ -760,6 +788,47 @@ impl Server {
         )
     }
 
+    /// Where the app reads a token (`crate::tamber_uses`): each plan site
+    /// whose style rows name it, directly, through a token naming it or
+    /// through a synthetic token, with its source span. `site` indexes the
+    /// plan compiled here (`plan`, its digest, before any bake); a build
+    /// joins the spans through its own source map (LLP 1122 T2b's
+    /// `outline`).
+    fn uses(&mut self, request: &Value) -> Result<Value, Value> {
+        let (snap, folding) = self.design(request)?;
+        let name = required(request, "token")?;
+        if !folding.tokens.iter().any(|t| t.name == name) {
+            return Err(json!({"message": format!("no token `{name}`")}));
+        }
+        // A design file the app does not build has no sites.
+        if optional(request, "file")?.is_some_and(|f| f != self.design) {
+            return Ok(
+                json!({"token": name, "plan": null, "sites": [], "aliases": [], "files": files_json(&snap)}),
+            );
+        }
+        let aliases = contract::tamber_uses::aliases(
+            &name,
+            folding
+                .tokens
+                .iter()
+                .map(|t| (t.name.as_str(), t.names.as_slice())),
+        );
+        let synthetic: Vec<String> = self
+            .synthetic(&snap)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(e, _)| e)
+            .collect();
+        let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
+            .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
+        let map: Value = serde_json::from_str(&map.json(&plan.encode()))
+            .map_err(|e| json!({"message": format!("source map: {e}")}))?;
+        let sites = contract::tamber_uses::sites(&plan, &map, &name, &aliases, &synthetic);
+        Ok(
+            json!({"token": name, "plan": map["digest"], "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
+        )
+    }
+
     /// Plan, and when `write`, commit: the digests, the inverse's id, the
     /// tokens it changes, `live` or `rebuild`, the diff. Each file it edits
     /// must carry the digest the client saw (a `propose` checks the ones it
@@ -796,7 +865,10 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since the client read it", "files": files_json(&snap), "stale": stale}),
             );
         }
-        self.run(&snap, &ops, client, false)
+        // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
+        // a propose would write, which it asks for.
+        let texts = !write && request["texts"] == json!(true);
+        self.run(&snap, &ops, client, false, texts)
     }
 
     /// Apply an inverse this server issued, while each file it restores is
@@ -824,7 +896,7 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap), "stale": stale}),
             );
         }
-        let result = self.run(&snap, &issued.ops, Some(client), true);
+        let result = self.run(&snap, &issued.ops, Some(client), true, false);
         if result.is_ok() {
             self.issued.remove(&id);
             self.order.retain(|i| *i != id);
@@ -839,6 +911,7 @@ impl Server {
         ops: &[(String, Op)],
         client: Option<String>,
         undo: bool,
+        with_texts: bool,
     ) -> Result<Value, Value> {
         let texts: Vec<(String, String)> = snap
             .iter()
@@ -853,6 +926,44 @@ impl Server {
         let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})
         })?;
+        // What the build refuses beyond the crate's check, a write refuses
+        // too, so nothing is written that the app cannot build: a role
+        // override that varies by an app axis (LLP 1121 D5, the compiler's
+        // `tamber-role-axis`). An undo restores what was, and is not judged.
+        if !undo {
+            // A role that varied before this write is the file's own,
+            // already refused by the build; only what the write makes vary.
+            let varies = |text: &str| -> Vec<(String, u32, u32)> {
+                exact_tamber::check(text, &self.vocab).map_or(Vec::new(), |f| {
+                    f.tokens
+                        .iter()
+                        .zip(&f.design.tokens)
+                        .filter(|(t, _)| {
+                            t.role.is_some()
+                                && t.values.windows(2).any(|w| w[0].css() != w[1].css())
+                        })
+                        .map(|(t, d)| (t.name.clone(), d.name.line, d.name.col))
+                        .collect()
+                })
+            };
+            let mut axis = Vec::new();
+            for (path, text, _) in &planned.files {
+                let before: Vec<String> = texts
+                    .iter()
+                    .find(|(p, _)| p == path)
+                    .map_or(Vec::new(), |(_, t)| {
+                        varies(t).into_iter().map(|(n, ..)| n).collect()
+                    });
+                for (name, line, col) in varies(text) {
+                    if !before.contains(&name) {
+                        axis.push(diagnostic(path, &exact_tamber::Diagnostic { id: "tamber-role-axis", message: format!("`{name}` overrides a role and varies by an app axis: a role has one value, which the hosts' own surfaces read; vary a token the rows name instead (LLP 1121 D5)"), line, col }));
+                    }
+                }
+            }
+            if !axis.is_empty() {
+                return Err(json!({"message": "refused", "diagnostics": axis}));
+            }
+        }
         let mut out = json!({
             "files": files_json(snap),
             "changed": planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>(),
@@ -862,6 +973,13 @@ impl Server {
             "diff": planned.diff,
             "synthetic": planned.synthetic.iter().map(|(expr, values)| json!({"expr": expr, "values": values.iter().map(|v| v.css()).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });
+        if with_texts {
+            out["texts"] = json!(planned
+                .files
+                .iter()
+                .map(|(p, text, _)| (p.clone(), json!(text)))
+                .collect::<serde_json::Map<_, _>>());
+        }
         let Some(client) = client else {
             return Ok(out);
         };

@@ -231,17 +231,17 @@ fn agent_contact_phases_drive_presenter_and_refuse_malformed_or_second_down() {
         (
             r#"{"op":"tap","phase":"move","x":200,"y":330,"ms":10}"#,
             [200., 330.],
-            10.,
+            0.,
         ),
         (
             r#"{"op":"tap","phase":"move","dx":0,"dy":-120,"ms":30}"#,
             [200., 210.],
-            40.,
+            0.,
         ),
         (
             r#"{"op":"tap","phase":"hold","ms":100}"#,
             [200., 210.],
-            140.,
+            100.,
         ),
     ] {
         let reply = crate::agent::handle(&mut p, command);
@@ -256,13 +256,33 @@ fn agent_contact_phases_drive_presenter_and_refuse_malformed_or_second_down() {
     assert!(!reply.contains("error"), "{reply}");
     let decoded: serde_json::Value = serde_json::from_str(&reply).unwrap();
     assert_eq!(decoded["at"], serde_json::json!([200., 210.]));
-    assert_eq!(decoded["clock"], 140.);
+    assert_eq!(decoded["clock"], 100.);
     assert_eq!(decoded["contact"], false);
     assert_eq!(text(&p, "count"), "1");
     assert_eq!(text(&p, "velocity"), "0");
-    assert_eq!(p.host.now(), 140.);
+    assert_eq!(p.host.now(), 100.);
     assert!(p.contact.is_none());
     assert!(p.collection_interaction().is_none());
+}
+
+#[test]
+fn agent_height_drag_releases_at_rest_without_advancing_time() {
+    let mut p = boot(APP);
+    let handle = id(&p, "handle");
+    for command in [
+        format!(r#"{{"op":"tap","id":{handle},"phase":"down","x":200,"y":340}}"#),
+        r#"{"op":"tap","phase":"move","dx":0,"dy":-130,"ms":80}"#.into(),
+        r#"{"op":"tap","phase":"up"}"#.into(),
+    ] {
+        let reply: serde_json::Value =
+            serde_json::from_str(&crate::agent::handle(&mut p, &command)).unwrap();
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["clock"], 0.);
+        assert_eq!(p.host.now(), 0.);
+    }
+    assert_eq!(text(&p, "count"), "1");
+    assert_eq!(text(&p, "velocity"), "0");
+    assert!(text(&p, "seen").parse::<f64>().unwrap() > 180.);
 }
 
 #[test]
@@ -270,7 +290,7 @@ fn agent_cancel_retires_contact_without_release_action() {
     let mut p = boot(APP);
     recognize(&mut p);
     p.pointer_move(200., 210., 20.).unwrap();
-    // Agent phases seek the Runner clock as well as presentation.
+    // Align the runner with the preceding live pointer samples.
     assert!(p.clock(20.).1.is_none());
     let reply = crate::agent::handle(&mut p, r#"{"op":"tap","phase":"cancel"}"#);
     assert!(!reply.contains("error"), "{reply}");
@@ -294,9 +314,9 @@ fn agent_aborted_move_reports_last_delivered_step_not_requested_endpoint() {
     );
     let decoded: serde_json::Value = serde_json::from_str(&reply).unwrap();
     assert_eq!(decoded["at"], serde_json::json!([210., 340.]));
-    assert_eq!(decoded["clock"], 16.);
+    assert_eq!(decoded["clock"], 0.);
     assert_eq!(decoded["contact"], false);
-    assert_eq!(p.host.now(), 16.);
+    assert_eq!(p.host.now(), 0.);
     assert_eq!(text(&p, "count"), "0");
 }
 

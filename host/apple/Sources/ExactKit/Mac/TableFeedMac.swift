@@ -31,6 +31,24 @@
 #if os(macOS)
 import AppKit
 
+/// AppKit keeps selection, emphasis and separator insets; the shared row
+/// policy decides whether its stock separator belongs at this boundary.
+private final class TableSeparatorRowView: NSTableRowView {
+    var separates = true { didSet { if separates != oldValue { needsDisplay = true } } }
+    weak var appearanceSource: NodeView? { didSet { if appearanceSource !== oldValue { needsDisplay = true } } }
+    private func drawSystemSeparator(in dirtyRect: NSRect) { super.drawSeparator(in: dirtyRect) }
+    override func drawSeparator(in dirtyRect: NSRect) {
+        guard separates else { return }
+        if let appearanceSource {
+            appearanceSource.effectiveAppearance.performAsCurrentDrawingAppearance {
+                drawSystemSeparator(in: dirtyRect)
+            }
+        } else {
+            drawSystemSeparator(in: dirtyRect)
+        }
+    }
+}
+
 /// The table's own view for one row: around the runner's row while that row
 /// is mounted, empty otherwise.
 final class TableRowCell: NSTableCellView {
@@ -112,6 +130,13 @@ final class TableRowCell: NSTableCellView {
         feed.moved()
         row.rowDisclosure(hidden: false)
         if backgroundStyle == .emphasized { row.rowEmphasisChanged(false) }
+    }
+
+    func separatorAppearanceChanged(_ node: NodeView) {
+        guard let row, (node === row || node.isDescendant(of: row)),
+              let rowView = superview as? TableSeparatorRowView,
+              rowView.appearanceSource === node else { return }
+        rowView.needsDisplay = true
     }
 
     /// Hit tests that ask what is under a point, not who takes a click
@@ -351,11 +376,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     /// The row's first paragraph, in the order it is written.
     fileprivate func textStart(of node: NodeView) -> NodeView? {
-        if node.kind == "text" { return node }
-        for case let child as NodeView in node.container.subviews where !child.isHidden {
-            if let found = textStart(of: child) { return found }
-        }
-        return nil
+        TableHost.textStart(of: node)
     }
 
     /// Whether a click that hit `hit` in a row's cell is that view's own:
@@ -458,6 +479,9 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// has the rows, and each mounted row in the cell the table has for it.
     func sync() {
         guard let presenter, let list, presenter.views[id] === list, home != nil else { return }
+        // Provenance may change without a new row count, frame or collection
+        // revision. Refresh the row and its predecessor even on that path.
+        defer { syncSeparators() }
         let pixel = 1 / (table.window?.backingScaleFactor ?? 1)
         let port = self.port
         // A batch that changed no row, no frame of one and nothing of the port's width leaves the table as it is.
@@ -701,6 +725,31 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { count }
+    private func separates(at index: Int) -> Bool {
+        guard index >= 0, index < count else { return false }
+        // An estimated, unmounted row has no authored intent to read yet.
+        guard let row = row(at: index) else { return index + 1 < count }
+        return presenter?.tables.separates(row.node, in: id) ?? false
+    }
+    private func separatorAppearanceSource(at index: Int) -> NodeView? {
+        guard let row = row(at: index), let presenter else { return nil }
+        return presenter.views[row.root] ?? presenter.tables.authoredRow(of: row.node) ?? row.node
+    }
+    private func syncSeparators() {
+        table.enumerateAvailableRowViews { view, index in
+            guard let view = view as? TableSeparatorRowView else { return }
+            view.appearanceSource = self.separatorAppearanceSource(at: index)
+            view.separates = self.separates(at: index)
+        }
+    }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let identifier = NSUserInterfaceItemIdentifier("exact.row.separator")
+        let view = tableView.makeView(withIdentifier: identifier, owner: self) as? TableSeparatorRowView ?? TableSeparatorRowView()
+        view.identifier = identifier
+        view.appearanceSource = separatorAppearanceSource(at: row)
+        view.separates = separates(at: row)
+        return view
+    }
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { self.row(at: row)?.height ?? estimate }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: Self.column, owner: nil) as? TableRowCell ?? TableRowCell(feed: self)
@@ -714,6 +763,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// The table let a row's view go: the runner's row, if it is still
     /// mounted, stays in the document.
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
+        (rowView as? TableSeparatorRowView)?.appearanceSource = nil
         (rowView.view(atColumn: 0) as? TableRowCell)?.sendHome()
     }
 

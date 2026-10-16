@@ -971,3 +971,53 @@ lands with or after the Tamber stage it needs.
 - **Open:** if the wire answers an undo with 504 after 120 s and the undo lands later, its entry is
   set aside, with a message, instead of moving to redo. The fix is in the wire (a write is held
   until the server answers), queued with Tamber stage 4.
+
+### T1, commit 5: the changeset, `commit` and history (`7c68b2935`, `710959c37`, `f4c957321`, `3b5376d36`, `5ce08cfc8`)
+
+- **The changeset** lists every write since the tool opened, its own and others', hand edits
+  included.
+  - Each row gives the token values before and after, measured file by file between the reads
+    either side of the write. The tool's own rows show their diff.
+  - After a gap in the long poll, a row says the list may be incomplete. Old rows aren't
+    reconciled.
+- **`commit`** composes its message from a dry run of the server's scope (`commit {dry}` →
+  `{files, edits, scope}`), so writes from before the tool opened are named. It sends the scope
+  back, and the server refuses the commit (409, `stale: true`) if the session wrote in between.
+  Refusals show by file and reason. It never pushes.
+- **`write`** numbers each write, on its reply, its `changed` event and the session's edits.
+  `hello` carries `design`.
+- **History** reads as token edits, ten to a page. Revert holds a past commit's inverse as a
+  proposal.
+
+### T1, commit 6: agents' edits and held proposals (`b98b34628`, `f4c957321`, `84b87121a`, `7b83ebd68`)
+
+- Each change names its client, with a colour per client in the order clients appear.
+- **The grid outlines only the cells a change moved,** each credited to the latest client that
+  changed it, measured between the nearest reads around the change. A hand edit gets the tokens
+  that moved in its stretch that no other change claims.
+- Highlights fade oldest first, one every 3 s.
+- **The inbox** shows each proposal's proposer, diff, tokens and items, each item naming its file.
+  - Accept, Accept picked, or Drop. A partial or stale accept comes back recomputed with its new
+    diff, never replayed.
+  - An accepted proposal is one undo step. Its redo is written as the proposer's, and the tool's
+    row says who redid it.
+
+### T1a, commit 7: import review (`782bf06b4`, `84b87121a`, `7b83ebd68`, `1df7c4a12`; `1d83f9794`)
+
+- **Through the file picker:** one stylesheet, or several DTCG files, each a mode. Several
+  stylesheets are refused (400).
+- **The review** lists each operation by kind:
+  - a token, with each mode's value and swatches, references followed;
+  - an axis;
+  - a dropped mode value.
+- **Role overrides are off until ticked.** One the importer can't offer shows its
+  `tamber-role-axis` note. Every unmapped value is listed with its reason and source block, and
+  the count shows as source = mapped + reported.
+- **Each mode's value is editable** before accepting, and what Accept writes is what the card
+  shows. Accept is one transaction, and undo one step.
+- **The server refuses** a write or propose that would make a role override vary by an app axis
+  (`tamber-role-axis`, as the compiler's lowering would), and nothing is written. A role that
+  varied before the write is left to the build.
+- **Known gap:** a reference whose target has modes the reference lacks gets no rows for them.
+
+T1 and T1a are complete.

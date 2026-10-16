@@ -191,6 +191,17 @@ queues, reconnect and account retirement. There is no Snapback asset-upload API
 in this checkout: the deterministic losing-cancellation output witness is Exact's
 native storage adapter. No new Snapback media feature or qualification is claimed.
 
+## Local patch 14, Exact's app interface: document watches and expected writes
+
+`bindings/storage.d.ts` declares `fs.watch(path, {recursive})` and the
+`options` argument of `writeFile`, `atomicWriteFile` and `appendFile`
+(`{expect: {modifiedMs, size}}`), as exact2 LLP 1069.010.000 D1 and D2a give
+them. Declarations only: no Ibex source runs either. Exact's prelude
+(`js/src/prelude.js`) records a watch as an LLP 1016.002 topic and does an
+expected write as a `stat`, a comparison and the write, queued together; the
+web glue and Exact's Rust storage do the same. Replay the declarations on a
+refresh.
+
 ## Local patch, upstream-bound: a socket's buffered message count
 
 Exact's runner-owned sockets (LLP 1016.000 D7) refuse a mutation's batch

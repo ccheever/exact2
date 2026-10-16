@@ -405,6 +405,7 @@ impl Rewriter<'_> {
                     Ok(())
                 }
             },
+            TypeExpr::Enum(..) => Ok(()),
             TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => self.ty(inner),
         }
     }

@@ -2,7 +2,7 @@
 // colour can follow, each with its metadata or none, groups and priorities
 // (declared out of priority order), a select with an option that is no
 // literal, a range in scientific notation, two axes, a role override and a
-// fixed-scheme token.
+// fixed-scheme token, and declared pairs (one below 4.5:1).
 tamber dials
 
 axes
@@ -29,11 +29,11 @@ theme
   accent.fill = accent
   accent.soft = oklch(from accent calc(l + lift) c h)
   tone.base = oklch(0.6 chroma hue)
-  tone.warm = oklch(0.7 0.1 warmth)
+  tone.warm = oklch(0.7 0.1 warmth)  pair=surface.page
   tone.fine = oklch(0.6 fine 200)
   paint.pick = paint
   tone.deep = oklch(from accent calc(l - shade) c h)
-  text.primary = light-dark(#0f1419, #e7e9ea)
+  text.primary = light-dark(#0f1419, #e7e9ea)  pair=surface.page
   text.system = -exact-secondary-label
   ink.on-brand = #ffffff  scheme=fixed
   -exact-label = text.primary

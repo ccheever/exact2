@@ -130,6 +130,20 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
+  // LLP 1069.010.000 D1, D2a: the answer watches a chosen file and its
+  // folder, and a write that expects a stale stat is refused.
+  if (op === "doc-watch") {
+    const folder = value.slice(0, value.lastIndexOf("/"));
+    storage.fs.watch(value);
+    storage.fs.watch(folder, { recursive: true });
+    const read = await storage.fs.stat(value), out: string[] = [];
+    await storage.fs.writeFile(value, bytes("someone else's longer text"));
+    try { await storage.fs.atomicWriteFile(value, bytes("mine"), { expect: read }); out.push("written"); }
+    catch (e: any) { out.push(e.kind + " " + e.code); }
+    await storage.fs.atomicWriteFile(value, bytes("mine"), { expect: await storage.fs.stat(value) });
+    out.push("then written");
+    return {text: out.join(" ")};
+  }
   // A folder the person chose (LLP 1069.010 D1), `value` its `doc:` path:
   // listed, read, written beside, and refused past what it holds.
   if (op === "doc") {
