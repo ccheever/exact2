@@ -118,6 +118,8 @@ component KeybindingsPanel
     setWhen: action
     record: action
     capture: action
+    // A capture field took or lost the focus (CaptureField).
+    held: action
     rest: action
     openFile: action
   view
@@ -153,13 +155,13 @@ component KeybindingsPanel
               SettingsSelect(selectId="new-keybinding-command", label="Command", valueLabel=(draftCommand == "" ? "Command" : data.draftCommandLabel), empty=(draftCommand == ""), value=draftCommand, width=224, disabled=busy, options=data.commands, choose=chooseCommand)
               if data.draftConflict != ""
                 Warning(label=data.draftConflict, detail=`${data.draftConflict} The most recent matching binding wins when both conditions can apply.`)
-              CaptureField(label=data.draftCommandLabel, value=draftKey, original="", recording=(recording and draftRow == "new"), setKey=setKey, record=record("new", draftCommand, draftKey, draftWhen), capture=capture)
+              CaptureField(rowId="new", label=data.draftCommandLabel, value=draftKey, original="", recording=(recording and draftRow == "new"), setKey=setKey, record=record("new", draftCommand, draftKey, draftWhen), capture=capture, held=held)
               button press=rest("keybinding", `action=save&command=${encodeURIComponent(draftCommand)}&key=${encodeURIComponent(draftKey)}&when=${encodeURIComponent(draftWhen)}`) disabled=(busy or draftCommand == "" or draftKey == "" or not data.draftValid) class=KbPrimary testId="save-new-keybinding" opacity=(busy or draftCommand == "" or draftKey == "" or not data.draftValid ? 0.64 : 1)
                 text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
               button press=cancelAdd disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label="Cancel new keybinding" testId="cancel-new-keybinding" title=""
                 LucideX(size=14, color="light-dark(#71717b, #818181)")
         for binding in data.rows key=binding.id
-          KeybindingRow(row=binding, editing=(draftRow == binding.id), draftKey=draftKey, draftWhen=draftWhen, recording=(recording and draftRow == binding.id), conflict=(draftRow == binding.id ? data.draftConflict : binding.conflict), valid=data.draftValid, busy=busy, edit=edit, setKey=setKey, record=record, capture=capture, rest=rest)
+          KeybindingRow(row=binding, editing=(draftRow == binding.id), draftKey=draftKey, draftWhen=draftWhen, recording=(recording and draftRow == binding.id), conflict=(draftRow == binding.id ? data.draftConflict : binding.conflict), valid=data.draftValid, busy=busy, edit=edit, setKey=setKey, record=record, capture=capture, held=held, rest=rest)
         if data.available and data.rows.length == 0 and not adding
           text "No keybindings match your search." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" text-align="center" padding-top="3rem" padding-bottom="3rem" width="100%" testId="keybindings-empty"
       WhenEditor(view=data.whenView, expression=draftWhen, setWhen=setWhen)
@@ -178,6 +180,7 @@ component KeybindingRow
     setKey: action
     record: action
     capture: action
+    held: action
     rest: action
   state hovered = false
   action hover(over: bool)
@@ -223,14 +226,17 @@ component KeybindingRow
             for pill in row.pills key=pill.id
               text pill.text font-size="0.75rem" font-weight=500 line-height="1rem" min-width="1.25rem" height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" text-align="center" display="flex" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #818181)"
         if dirty or recording or row.key == ""
-          CaptureField(label=row.label, value=draftKey, original=row.key, recording=recording, setKey=setKey, record=record(row.id, row.command, draftKey, draftWhen), capture=capture)
+          CaptureField(rowId=row.id, label=row.label, value=(editing ? draftKey : row.key), original=row.key, recording=recording, setKey=setKey, record=record(row.id, row.command, (editing ? draftKey : row.key), (editing ? draftWhen : row.condition)), capture=capture, held=held)
 
-// The capture field: the reference Input starts recording on focus; here the
-// field is a button that starts recording when pressed. The recorder
-// (key-recorder.contract) fills it; Escape restores the previous binding;
-// leaving it stops recording.
+// The capture field (KeybindingsSettings.tsx's Input and NewKeybindingKeyInput): a text field that records while it
+// has the focus. Taking the focus (a click, Tab) starts recording; a recorded chord or Escape ends it, and the field
+// keeps the focus and goes on taking keys, as the reference's input does: the next chord replaces the draft and Escape
+// restores the binding without leaving Settings; leaving it stops recording and keeps the draft. An existing binding's
+// field mounts from its pill already recording and takes the focus (autoFocus={isRecording}); the new binding's
+// does not, so the focus stays on "Add keybinding". The recorder (key-recorder.contract) fills it.
 component CaptureField
   props
+    rowId: string
     label: string
     value: string
     original: string
@@ -238,24 +244,35 @@ component CaptureField
     setKey: action
     record: action
     capture: action
-  // A recorded chord ends recording, but the reference's input keeps the focus and goes on taking keys until it is
-  // left: the next chord replaces the draft and Escape restores the binding without leaving Settings. `held` keeps
-  // the recorder mounted, and so focused, from its first key to its blur.
-  state held = false
+    // The recorder took ("true") or lost ("") the focus: the window lets go of it on a press outside it (T3Window
+    // outsidePressDown), as a browser blurs the reference's input on such a press.
+    held: action
+  // From the recorder's first key to its blur, though recording ended: it stays up, the window's modal scope.
+  state taking = false
   action took(key: string)
-    held = key != "blur"
-    capture(original, key)
+    taking = key != "blur"
+    // Another row's field can have started recording as this one let go of the focus: its blur is not this row's.
+    if key != "blur" or recording
+      capture(original, key)
+    if key == "blur"
+      held(`keybinding-recorder-${rowId}`, false)
+  action entered
+    held(`keybinding-recorder-${rowId}`, true)
+    if not recording
+      record()
+  action idleLeft
+    held(`keybinding-field-${rowId}`, false)
   view
-    if recording or held
-      // The recorder takes every key while it has the focus (`data-keybinding-capture`: the
-      // reference's shortcut listeners and its Escape-to-go-back skip it), so it is the window's modal scope:
-      // no shortcut button outside it hears a chord (Settings' Back its Escape, the palette its ⌘K). Leaving it
-      // (blur) stops recording and keeps the draft, as the reference's input does.
-      row class=KbCapture align-items="center" aria-modal=true testId="keybinding-recording"
-        KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, label=`Keybinding for ${label}`, testId="keybinding-recorder", capture=took, cancel=took("blur"))
+    if recording or taking
+      // The recorder takes every key while it has the focus (`data-keybinding-capture`: the reference's shortcut
+      // listeners and its Escape-to-go-back skip it), so it is the window's modal scope then: no shortcut button
+      // outside it hears a chord (Settings' Back its Escape, the palette its ⌘K). It mounts modal and focused: the
+      // idle field below hands it the focus that started recording.
+      row class=KbCapture align-items="center" aria-modal=true focusin=entered testId=`keybinding-recording-${rowId}`
+        KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))
     else
-      button press=record aria-label=`Keybinding for ${label}` class=KbCapture display="flex" flex-direction="row" align-items="center" testId=`keybinding-capture-${label}`
-        text (value == "" ? "Unassigned" : value) font-family="monospace" font-size="0.8125rem" line-height="1.25rem" line-clamp=1 color=(value == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+      row class=KbCapture align-items="center" focusin=entered testId=`keybinding-capture-${rowId}`
+        KeyRecorder(prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)
 
 // WarningTooltipIcon: the triangle, and its TooltipPopup (side top) with the whole sentence.
 component Warning

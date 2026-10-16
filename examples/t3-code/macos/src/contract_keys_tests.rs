@@ -119,6 +119,29 @@ fn host() -> exact_apple::Host<Replies> {
     }
     replies.0.insert(plan.str(shell.source).to_owned(), view);
     replies.fixture(&plan, "welcome", &[(&["show"], Value::Bool(false))]);
+    // Settings › Keybindings with one binding, Chat: New on ⌘N.
+    let (row_type, mut row) = element(&plan, "bindings", &["rows"]);
+    for (name, value) in [
+        ("id", Value::str("chat-new")),
+        ("command", Value::str("chat.new")),
+        ("label", Value::str("Chat: New")),
+        ("key", Value::str("mod+n")),
+        ("source", Value::str("Default")),
+        ("aria", Value::str("⌘N")),
+        ("defaultKey", Value::str("mod+n")),
+    ] {
+        set(&plan, row_type, &mut row, &[name], value);
+    }
+    replies.fixture(
+        &plan,
+        "bindings",
+        &[
+            (&["available"], Value::Bool(true)),
+            (&["writable"], Value::Bool(true)),
+            (&["draftValid"], Value::Bool(true)),
+            (&["rows"], Value::list(vec![row])),
+        ],
+    );
     let measurer = CallbackMeasurer::new(measure, std::ptr::null_mut(), None);
     let (mut host, _) =
         exact_apple::Host::boot(PLAN, replies, Box::new(measurer), 1280.0, 840.0).unwrap();
@@ -211,9 +234,8 @@ fn a_sidebar_row_press_carries_its_own_click_modifiers() {
     }
 }
 
-/// Settings › Keybindings' new row with its recorder up: the Contract focus target (key-recorder.contract), not the
-/// native T3KeyRecorder view.
-fn recording() -> exact_apple::Host<Replies> {
+/// Settings › Keybindings, its new row added.
+fn adding() -> exact_apple::Host<Replies> {
     let mut host = host();
     let runner = host.runner_mut();
     runner.act("openSettings", vec![]).unwrap();
@@ -221,6 +243,15 @@ fn recording() -> exact_apple::Host<Replies> {
         .act("coreNavigate", vec![Value::str("keybindings")])
         .unwrap();
     runner.act("newKeybinding", vec![]).unwrap();
+    runner.take_commands();
+    host
+}
+
+/// Settings › Keybindings' new row with its recorder up: the Contract focus target (key-recorder.contract), not the
+/// native T3KeyRecorder view.
+fn recording() -> exact_apple::Host<Replies> {
+    let mut host = adding();
+    let runner = host.runner_mut();
     let new = Value::str("new");
     runner
         .act(
@@ -242,7 +273,7 @@ fn keydown(key: &str, code: &str, held: &str) -> Event {
 fn the_keybinding_recorder_captures_a_chord_by_its_physical_key_and_escape_restores() {
     let mut host = recording();
     let runner = host.runner_mut();
-    let recorder = node(runner, "keybinding-recorder").expect("the recorder is up");
+    let recorder = node(runner, "keybinding-recorder-new").expect("the recorder is up");
     assert!(
         runner
             .kernel()
@@ -250,8 +281,10 @@ fn the_keybinding_recorder_captures_a_chord_by_its_physical_key_and_escape_resto
             .unwrap()
             .props
             .iter()
-            .any(|(prop, _)| prop.name() == "autofocus"),
-        "it takes the keyboard as it mounts"
+            .any(
+                |(prop, value)| prop.name() == "autofocus" && format!("{value:?}").contains("true")
+            ),
+        "recording, it takes the keyboard as it mounts"
     );
     // KeybindingsSettings.tsx's Input: a text field named for its command ("Keybinding for New thread"), the prompt
     // its placeholder, so VoiceOver reads both as the focus lands in it.
@@ -308,7 +341,7 @@ fn the_keybinding_recorder_captures_a_chord_by_its_physical_key_and_escape_resto
     // Recording ends, but the field keeps the focus and goes on taking keys (KeybindingsSettings.tsx's Input stays
     // mounted and focused): the same recorder shows the draft.
     assert_eq!(
-        node(runner, "keybinding-recorder"),
+        node(runner, "keybinding-recorder-new"),
         Some(recorder),
         "the recorder keeps the focus after a chord"
     );
@@ -327,9 +360,143 @@ fn the_keybinding_recorder_captures_a_chord_by_its_physical_key_and_escape_resto
         Some(&Value::Bool(false))
     );
     assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
-    // Leaving the field ends it.
-    let recorder = node(runner, "keybinding-recorder")
+    // The new row's field (NewKeybindingKeyInput) stays a text field, "Unassigned", once the focus leaves it.
+    let recorder = node(runner, "keybinding-recorder-new")
         .expect("the unassigned row's field still has the focus");
     runner.dispatch(recorder, Event::Blur).unwrap();
-    assert!(node(runner, "keybinding-recorder").is_none(), "left");
+    assert!(node(runner, "keybinding-recorder-new").is_none(), "left");
+    assert_eq!(
+        prop(runner, "keybinding-field-new", "placeholder").as_deref(),
+        Some("Unassigned")
+    );
+    assert!(!modal(runner, "keybinding-capture-new"));
+}
+
+/// Whether the node is the window's modal scope (`aria-modal`).
+fn modal(runner: &Runner<Replies>, test_id: &str) -> bool {
+    let id = node(runner, test_id).unwrap_or_else(|| panic!("{test_id} is rendered"));
+    runner
+        .kernel()
+        .node(id)
+        .unwrap()
+        .props
+        .iter()
+        .any(|(prop, value)| {
+            prop.name() == "accessibilityModal" && format!("{value:?}").contains("true")
+        })
+}
+
+/// The focus entering `field`, as its ancestor `row` hears it (`focusin` bubbles; the host delivers it to each).
+fn focusin(runner: &mut Runner<Replies>, row: &str, field: &str) {
+    let id = node(runner, row).unwrap_or_else(|| panic!("{row} is rendered"));
+    runner
+        .dispatch(
+            id,
+            Event::Focusin {
+                target: field.to_owned(),
+                related_target: None,
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn the_new_keybinding_row_is_a_text_field_that_records_once_it_has_the_focus() {
+    // KeybindingsSettings.tsx: "Add keybinding" mounts NewKeybindingSettingsRow, whose Input does not autofocus, so the
+    // focus stays on the button; the field is an Input from the start, "Unassigned" until it takes the focus.
+    let mut host = adding();
+    let runner = host.runner_mut();
+    let field = node(runner, "keybinding-field-new").expect("the new row's field is shown");
+    assert_eq!(
+        format!("{:?}", runner.kernel().node(field).unwrap().node_type),
+        "TextInput"
+    );
+    assert!(
+        !runner
+            .kernel()
+            .node(field)
+            .unwrap()
+            .props
+            .iter()
+            .any(
+                |(prop, value)| prop.name() == "autofocus" && format!("{value:?}").contains("true")
+            ),
+        "the field does not take the focus from Add keybinding"
+    );
+    assert_eq!(
+        prop(runner, "keybinding-field-new", "placeholder").as_deref(),
+        Some("Unassigned")
+    );
+    assert_eq!(
+        runner.slot("keybindingRecording"),
+        Some(&Value::Bool(false))
+    );
+    assert!(!modal(runner, "keybinding-capture-new"));
+    // Its onFocus starts recording (a click or Tab): the recorder takes its place, focused (autofocus) and modal.
+    focusin(runner, "keybinding-capture-new", "keybinding-field-new");
+    assert_eq!(runner.slot("keybindingRecording"), Some(&Value::Bool(true)));
+    assert_eq!(runner.slot("keybindingPrevious"), Some(&Value::str("new")));
+    assert_eq!(
+        prop(runner, "keybinding-recorder-new", "placeholder").as_deref(),
+        Some("Press shortcut")
+    );
+    assert!(
+        modal(runner, "keybinding-recording-new"),
+        "recording, it scopes the window's shortcuts"
+    );
+    // A press elsewhere in the window lets go of the field, as a browser blurs the reference's input.
+    let root = node(runner, "t3-code").unwrap();
+    runner.take_commands();
+    runner
+        .dispatch(
+            root,
+            Event::Pointerdown(exact_runner::PointerEvent {
+                offset_x: 4.0,
+                offset_y: 4.0,
+                buttons: 1.0,
+                pressure: 0.5,
+                pointer_type: "mouse".to_owned(),
+                pointer_id: 1.0,
+                client_x: 4.0,
+                client_y: 4.0,
+                held: Default::default(),
+            }),
+        )
+        .unwrap();
+    let blurs = runner
+        .take_commands()
+        .into_iter()
+        .filter(|command| command.name == "blur")
+        .map(|command| format!("{:?}", command.args))
+        .collect::<Vec<_>>();
+    assert_eq!(blurs.len(), 1, "{blurs:?}");
+    assert!(blurs[0].contains("keybinding-recorder-new"), "{blurs:?}");
+}
+
+#[test]
+fn an_existing_bindings_field_mounts_recording_and_escape_gives_the_pill_back() {
+    let mut host = adding();
+    let runner = host.runner_mut();
+    runner.act("cancelKeybinding", vec![]).unwrap();
+    let pill = node(runner, "edit-keybinding-chat-new").expect("the binding's pill");
+    runner.dispatch(pill, Event::Press).unwrap();
+    // autoFocus={isRecording}: the field takes the focus as the pill gives way to it.
+    let field = node(runner, "keybinding-recorder-chat-new").expect("the field replaces the pill");
+    assert!(runner
+        .kernel()
+        .node(field)
+        .unwrap()
+        .props
+        .iter()
+        .any(|(prop, value)| prop.name() == "autofocus" && format!("{value:?}").contains("true")));
+    assert_eq!(runner.slot("keybindingRecording"), Some(&Value::Bool(true)));
+    // Escape restores ⌘N; the row is no longer dirty, so the pill comes back in the field's place, as the
+    // reference's KeybindingKeyControl renders it (showPill), and Settings stays.
+    runner
+        .dispatch(field, keydown("Escape", "Escape", ""))
+        .unwrap();
+    assert_eq!(runner.slot("keybindingKey"), Some(&Value::str("mod+n")));
+    assert!(node(runner, "keybinding-recorder-chat-new").is_none());
+    assert!(node(runner, "edit-keybinding-chat-new").is_some());
+    assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
 }
