@@ -447,11 +447,13 @@ final class MenuHost {
         guard let pop = owner.popover, let entry = owner.actions.first(where: { $0.node === action }) else { return false }
         return entry.enabled && presented(owner, entry) && choosable(action, in: pop)
     }
-    /// A prompt's actions follow the page as its fields are typed in: one
-    /// its author disables while the name is empty is dimmed, as a
-    /// hand-built rename's Save is, rather than a change that withdraws it.
+    /// A prompt follows the page as its field is typed in: the field takes
+    /// the value the page now holds, and an action its author disables while
+    /// the name is empty is dimmed, as a hand-built rename's Save is, rather
+    /// than a change that withdraws it.
     private func followPrompt(_ owner: Confirmation) {
         guard let pop = owner.popover, !owner.finishing else { return }
+        owner.fields.forEach { $0.sync() }
         for (entry, button) in zip(owner.actions, owner.buttons) {
             guard let node = entry.node, live(node) else { continue }
             entry.enabled = choosable(node, in: pop)
@@ -886,6 +888,12 @@ final class MenuHost {
         if closedby == "none" { return "closedby is none: an alert always has its Cancel" }
         return alert ? nil : "closedby is \(closedby), and only an alert has no outside"
     }
+    /// A prompt: an alertdialog with a text field (`PromptField`). Every
+    /// action may be disabled while it opens (Save, until a name is typed):
+    /// its field and its cancel are still there.
+    private func prompts(_ pop: NodeView) -> Bool {
+        pop.props["accessibilityRole"] == "alertdialog" && pop.container.subviews.contains { ($0 as? NodeView)?.isPromptField == true }
+    }
     /// LLP 1115.000 D11.5: a `dialog` that is not a confirmation by its rows
     /// is a sheet, its content laid out by the kernel (DialogSheetIOS.swift).
     func isSheet(_ node: NodeView) -> Bool {
@@ -930,7 +938,7 @@ final class MenuHost {
         }
         if confirmation?.finishing == true {
             guard !isOpen(pop), showable(pop), source.map({ eligible($0) }) ?? true,
-                  unconfirmable(pop, modal: modal) == nil, rows(of: pop, modal: modal).actions.contains(where: { choosable($0, in: pop) }) else { return false }
+                  unconfirmable(pop, modal: modal) == nil, prompts(pop) || rows(of: pop, modal: modal).actions.contains(where: { choosable($0, in: pop) }) else { return false }
             if let previous = pendingConfirmation { presenter?.popoverEvents.changed(previous.popover, open: false) }
             pendingConfirmation = PendingConfirmation(pop, source, modal: modal)
             presenter?.popoverEvents.changed(pop, open: true)
@@ -958,7 +966,7 @@ final class MenuHost {
         let (children, actions, cancels) = rows(of: pop, modal: modal)
         let boundary = isDialog(pop) ? pop.superview : nil
         // A disabled choice shows dimmed; the others stay choosable.
-        guard actions.contains(where: { eligible($0, inertBoundary: boundary) }) else { return refuse("every action is disabled") }
+        guard prompts(pop) || actions.contains(where: { eligible($0, inertBoundary: boundary) }) else { return refuse("every action is disabled") }
         guard let controller = controller(for: source ?? pop), !busy(controller) else { return false }
         let presented = actions.map { Confirmation.Presented($0, title: title(of: $0), enabled: eligible($0, inertBoundary: boundary)) }
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }

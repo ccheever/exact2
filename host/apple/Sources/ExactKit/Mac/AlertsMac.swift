@@ -117,7 +117,10 @@ final class AlertHost {
         let texts = children.filter { $0.kind == "text" }
         let fields = children.filter(\.isPromptField)
         guard children.count == actions.count + cancels.count + texts.count + fields.count, let cancel = cancels.first,
-              actions.allSatisfy({ closes($0, pop, popover: popover) }), actions.contains(where: { choosable($0, in: pop) }) else { return nil }
+              actions.allSatisfy({ closes($0, pop, popover: popover) }),
+              // A prompt's actions may all be disabled (Save, until a name is
+              // typed): its field and its cancel are still there.
+              !fields.isEmpty || actions.contains(where: { choosable($0, in: pop) }) else { return nil }
         let lines = texts.map(menus.title(of:)).filter { !$0.isEmpty }
         // A prompt's fields count with its text: what it asks explains it.
         guard ConfirmationShape.isAlert(texts: lines.count + fields.count, actions: actions.count, cancels: cancels.count) else { return nil }
@@ -127,10 +130,11 @@ final class AlertHost {
         // Where the one filled button is the cancel the alert has no Return
         // default: AppKit gives a cancel Escape and never Return (its own
         // "Cancel", added first, has Escape alone), and a button has one key.
-        // A prompt's Return is its first action that is not destructive
-        // unless the author emphasized one, as a hand-built rename's Save.
-        let emphasized = Self.defaultRow(filled: nodes.map { $0.face?.style == "filled" }, destructive: destructive)
-            ?? (fields.isEmpty ? nil : actions.indices.first { !destructive[$0] })
+        // A prompt's Return is its first action that is not destructive, on
+        // every host (as iOS's `preferredAction` and the web's Enter), even
+        // while it is disabled: Return then does nothing until it enables.
+        let emphasized = fields.isEmpty ? Self.defaultRow(filled: nodes.map { $0.face?.style == "filled" }, destructive: destructive)
+            : actions.indices.first { !destructive[$0] }
         let words = ConfirmationShape.alertText(label: pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }, lines: lines)
         return Plan(title: words.title ?? "", message: words.message ?? "", rows: rows, fields: fields, destructive: destructive,
                     defaultRow: emphasized.flatMap { rows[$0].cancel ? nil : $0 })
@@ -266,6 +270,10 @@ final class AlertHost {
             field.setAccessibilityLabel(node.props["accessibilityLabel"])
             field.setAccessibilityIdentifier(node.props["testId"])
             field.isEnabled = !node.disabled
+            // The input's own limits: `readonly`, and `maxlength` by the
+            // formatter its own field has (TextInputLimit.swift).
+            field.isEditable = node.props["editable"] != "false"
+            field.formatter = TextInputFormatter(node)
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 228).isActive = true
             stack.addArrangedSubview(field)
@@ -283,8 +291,8 @@ final class AlertHost {
     /// field takes the text, and the input hears it. nil when `node` is no
     /// field of an alert that is up.
     func type(_ node: NodeView, _ text: String) -> String? {
-        guard let owner = presented, let field = owner.fields.first(where: { $0.node === node })?.field, field.isEnabled else { return nil }
-        field.stringValue = text
+        guard let owner = presented, let field = owner.fields.first(where: { $0.node === node })?.field, field.isEnabled, field.isEditable else { return nil }
+        field.stringValue = TextInputLimit.prefix(text, props: node.props)
         NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
         return field.stringValue
     }
@@ -297,11 +305,20 @@ final class AlertHost {
         }
         owner.fields = []
     }
-    /// A prompt's buttons follow the page as its fields are typed in: one
-    /// its author disables while the name is empty is dimmed, rather than a
-    /// change that withdraws the alert.
+    /// A prompt follows the page as its field is typed in: its field and its
+    /// buttons, one its author disables while the name is empty dimmed,
+    /// rather than a change that withdraws the alert.
     private func followPrompt(_ owner: Presented) {
         guard let pop = owner.node else { return }
+        // The value the page now holds (an input handler may rewrite what was
+        // typed), and its enablement; a composition in progress stands.
+        for (node, field) in owner.fields where presenter?.views[node.id] === node {
+            if let value = node.props["value"], field.stringValue != value, (field.currentEditor() as? NSTextView)?.hasMarkedText() != true {
+                field.stringValue = value
+            }
+            field.isEnabled = !node.disabled
+            field.isEditable = node.props["editable"] != "false"
+        }
         for (index, row) in owner.rows.enumerated() where !row.cancel && owner.alert.buttons.indices.contains(index) {
             guard let node = row.node, presenter?.menus.live(node) == true else { continue }
             row.enabled = choosable(node, in: pop)

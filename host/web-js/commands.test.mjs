@@ -35,8 +35,9 @@ test('relaunch reloads the browser document and keeps committed storage', async 
 }, 30000);
 
 // A prompt's Return commits the field's `change` before it presses the first
-// enabled action that is not destructive, so the action reads the new value
-// and an action the change enables counts.
+// action that is not destructive, so the action reads the new value and an
+// action the change enables counts; while that action is disabled Return
+// presses nothing, never the next one.
 test("a prompt's Return commits its field, then presses its action", async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
@@ -44,7 +45,8 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     return new Response(`<dialog role="alertdialog" open><input id="name">
         <button id="delete" data-exact-on="press" data-destructive="true">Delete</button>
-        <button id="save" data-exact-on="press" disabled>Save</button></dialog><output id="log"></output>
+        <button id="save" data-exact-on="press" disabled>Save</button>
+        <button id="suggest" data-exact-on="press">Use Suggestion</button></dialog><output id="log"></output>
       <script type="module">
         import '/commands.js';
         let draft = '';
@@ -52,6 +54,7 @@ test("a prompt's Return commits its field, then presses its action", async () =>
         document.querySelector('#name').addEventListener('change', e => { draft = e.target.value; save.disabled = draft === ''; });
         document.querySelector('#delete').onclick = () => { log.textContent = 'deleted'; };
         save.onclick = () => { log.textContent = 'saved ' + draft; };
+        document.querySelector('#suggest').onclick = () => { log.textContent = 'suggested'; };
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
   let browser;
@@ -59,6 +62,8 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
     const page = await browser.newPage();
     await page.goto(server.url.href);
+    await page.locator('#name').press('Enter');
+    expect(await page.locator('#log').textContent()).toBe('');
     await page.locator('#name').fill('Kick');
     await page.locator('#name').press('Enter');
     expect(await page.locator('#log').textContent()).toBe('saved Kick');

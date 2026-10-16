@@ -328,6 +328,35 @@ final class AlertMacTests: XCTestCase {
         window.close()
     }
 
+    /// A prompt opens with Save disabled until a name is typed and stays
+    /// open when the name is cleared again; its field follows the authored
+    /// input after each batch (the value the page holds, `readonly`).
+    func testAPromptOpensWithSaveDisabledAndItsFieldFollowsTheInput() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [10: ["disabled": "true"]], field: true)
+        p.press(2)
+        let owner = try XCTUnwrap(p.alerts.presented, "a prompt opens with every action disabled")
+        XCTAssertEqual(owner.alert.buttons.map(\.isEnabled), [false, true], "the field and Cancel remain")
+        let field = try XCTUnwrap((owner.alert.accessoryView as? NSStackView)?.arrangedSubviews.first as? NSTextField)
+        p.apply(wireBatch([["op": "props", "id": 10, "clear": ["disabled"]], ["op": "props", "id": 51, "set": ["value": "KICK"]]]))
+        p.alerts.sync()
+        XCTAssertTrue(p.alerts.presented === owner)
+        XCTAssertEqual(field.stringValue, "KICK", "the value the page now holds")
+        XCTAssertTrue(owner.alert.buttons[0].isEnabled)
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["disabled": "true"]], ["op": "props", "id": 51, "set": ["value": "", "editable": "false"]]]))
+        p.alerts.sync()
+        XCTAssertTrue(p.alerts.presented === owner, "clearing the name dims Save and keeps the alert")
+        XCTAssertFalse(owner.alert.buttons[0].isEnabled)
+        XCTAssertFalse(field.isEditable, "readonly")
+        XCTAssertNil(p.alerts.type(try XCTUnwrap(p.views[51]), "x"), "a readonly field takes no typing")
+        p.alerts.reset()
+        window.close()
+        // Return is the first action that is not destructive, as on iOS and
+        // the web: the author's emphasis does not move it in a prompt.
+        let choice = fixture(label: "Save?", lines: [], actions: ["Don't Save", "Save"], props: [:], filled: [11], field: true)
+        XCTAssertEqual(try XCTUnwrap(choice.alerts.plan(of: try XCTUnwrap(choice.views[3]), popover: false)).defaultRow, 0)
+        window.close()
+    }
+
     /// Any other shape is no alert: more than three buttons or no cancel is
     /// the chooser's menu (ChooserMacTests), and a `dialog` holding anything
     /// but text and buttons, or with no text, is a sheet that holds the

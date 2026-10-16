@@ -328,6 +328,38 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(p.views[20]).headerField, "the authored field is its own again")
     }
 
+    /// A prompt opens with every action disabled (Save, until a name is
+    /// typed), and its field follows the authored input after each batch:
+    /// the value the page now holds, its enablement, and its own checks on
+    /// an edit (`readonly`, `maxlength`).
+    func testAPromptsFieldFollowsTheAuthoredInputAndOpensWithSaveDisabled() throws {
+        let (p, controller, _) = confirmation(label: "Rename", texts: [], actions: ["Delete", "Save"], cancel: true)
+        defer { dismiss(p, controller) }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["input"], "props": ["value": ""], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [20, 3, 4, 9]],
+                           ["op": "props", "id": 3, "set": ["disabled": "true"]], ["op": "props", "id": 4, "set": ["disabled": "true"]]]))
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "a prompt opens with every action disabled")
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        XCTAssertEqual(alert.actions.map(\.isEnabled), [false, false, true], "the field and Cancel remain")
+        XCTAssertEqual(alert.preferredAction?.title, "Save", "Return is Save while it is disabled too: it then does nothing")
+        let field = try XCTUnwrap(alert.textFields?.first)
+
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["value": "KICK"]]]))
+        XCTAssertEqual(field.text, "KICK", "the value the page now holds (an input handler that rewrites it)")
+        XCTAssertNotNil(p.menus.observation(), "still presented")
+        func edits(_ text: String) -> Bool {
+            field.delegate?.textField?(field, shouldChangeCharactersIn: NSRange(location: (field.text ?? "").utf16.count, length: 0), replacementString: text) ?? true
+        }
+        XCTAssertTrue(edits("S"))
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["maxlength": "4"]]]))
+        XCTAssertFalse(edits("S"), "maxlength")
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["editable": "false"], "clear": ["maxlength"]]]))
+        XCTAssertFalse(edits("S"), "readonly")
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["disabled": "true"], "clear": ["editable"]]]))
+        XCTAssertFalse(field.isEnabled, "disabled")
+    }
+
     /// Without a label, the first line titles the alert and the rest is
     /// its message; an alert always has a title.
     func testAnUnlabelledConfirmationIsTitledByItsFirstLine() throws {
