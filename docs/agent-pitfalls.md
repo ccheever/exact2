@@ -464,6 +464,25 @@ screen, 2026-10-16.)
   the padding and did nothing; a Contract box is `content-box`, as CSS's is. Fix: drop a
   `minHeight` or `height` that the padding already passes, or write
   `box-sizing="border-box"` on that box.
+- **Rows with text in them drift up the list.** Each Patterns row (a 16/20 name over a
+  13/16 subtitle) was 67 points where the original's was 67⅔, so the eighth row ended 5⅓
+  points high. Cause: on iOS, React Native (0.88's `TextMeasurementRounding.h`,
+  facebook/react-native#53450) adds 0.001 pt to a `Text`'s measured height and width before
+  rounding them up to the device pixel, so a `Text` whose measured height is already on the
+  pixel grid (a whole `lineHeight`, at 1x, 2x or 3x) is one device pixel taller: one per
+  `Text` box, not per line, so a wrapped `Text` gains one in all, and one without
+  `lineHeight` or off the grid usually gains nothing. A UILabel, a hand-built UIKit port and
+  Exact all give the line box its `lineHeight`. Fix, when a native port must match the
+  original to the pixel: add the pixels as `-exact-hairline` of `padding-bottom`. In euxy
+  at 3x the original's glyphs sat where Exact draws them without the extra pixels, so they
+  go below the stack: under the name and subtitle, `padding-bottom="-exact-hairline"` on
+  the subtitle and on the column that holds both; under a settings row's one text, on it.
+  That put all eight Patterns rows on the original's separators to the pixel and the glyphs
+  within a hundredth of a pixel (a hairline on each text kept the pitch but set the
+  subtitle a device pixel low). Compare glyph positions against the reference before
+  placing them elsewhere. `-exact-hairline` is a device pixel natively; on the web below
+  1.5 dppx (a 1.25 display) it is 1 CSS px (`host/web/index.html`), so this is advice for
+  the native targets.
 - **A floating button's shadow is heavier than the original's.** Cause: on iOS React
   Native drops the shadow of a view with `overflow: "hidden"` (its layer masks to its
   bounds), so the shadow its style declares was never drawn; CSS draws a `box-shadow`
