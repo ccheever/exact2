@@ -478,6 +478,8 @@ pub struct Runner<D: DataSource> {
     /// Whether fresh answers of store-reading resources are kept for the
     /// next boot: only for a source that may not be ready at boot.
     keeping: kept::Keeping,
+    /// Resources asked again and again with new arguments (a development build's warning).
+    churn: query::Churn,
     poisoned: bool,
     /// Evaluate every site on every update (the incremental update's
     /// reference; `set_full_evaluation`).
@@ -885,6 +887,7 @@ impl<D: DataSource> Runner<D> {
             stale: Vec::new(),
             awaiting: Vec::new(),
             keeping: Default::default(),
+            churn: Default::default(),
             delivery,
             viewport,
             page: Default::default(),
