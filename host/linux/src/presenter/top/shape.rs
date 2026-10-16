@@ -238,5 +238,5 @@ pub(crate) fn neutral_alert(kernel: &Kernel, id: ViewId, pressed: &dyn Fn(ViewId
                 && n.props.str(PropId::SemanticTag) == Some("dialog")
                 && n.props.get(PropId::NavigationKey).is_none()
         })
-        && alert(kernel, id, pressed).is_some()
+        && alert(kernel, id, pressed, true).is_some()
 }
