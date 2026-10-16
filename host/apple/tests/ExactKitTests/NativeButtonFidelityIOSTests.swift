@@ -281,22 +281,31 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         let large = UITraitCollection(traitsFrom: [.init(preferredContentSizeCategory: .large), .init(displayScale: 3)])
         cache.configure(large, in: session.presenter.viewport)
         let data = try face(title: "Send this very long message to everyone in the group")
+        // A miss is measured before it is answered: exact, never provisional.
         let first = cache.answer(face: data, widthKind: 0, width: 100)
-        XCTAssertEqual(first.provisional, 1)
+        XCTAssertEqual(first.provisional, 0); XCTAssertEqual(cache.misses, 1)
         let exact = cache.answer(face: data, widthKind: 0, width: 100)
         XCTAssertEqual(exact.provisional, 0); XCTAssertEqual(cache.misses, 1)
+        XCTAssertEqual(exact.height, first.height)
+        // Later offers reuse the face's configured probe, and answer as a fresh button does.
         let wide = cache.answer(face: data, widthKind: 0, width: 300)
-        XCTAssertEqual(wide.provisional, 1)
+        XCTAssertEqual(wide.provisional, 0); XCTAssertEqual(cache.misses, 2)
+        let fresh = cache.measure(ButtonFace(json: data), widthKind: 0, width: 300, traits: large)
+        XCTAssertEqual(wide.width, fresh.width); XCTAssertEqual(wide.height, fresh.height)
         XCTAssertGreaterThan(exact.height, wide.height, "real UIKit wrapping changes height with width")
+        var misses = cache.misses
+        func missed(_ answer: ExactButtonMeasure, _ label: String) {
+            XCTAssertEqual(answer.provisional, 0, label); XCTAssertEqual(cache.misses, misses + 1, label); misses = cache.misses
+        }
         for traits in [UITraitCollection(traitsFrom: [large, .init(legibilityWeight: .bold)]),
             UITraitCollection(traitsFrom: [large, .init(displayScale: 2)]),
             UITraitCollection(traitsFrom: [large, .init(preferredContentSizeCategory: .accessibilityExtraExtraLarge)])] {
-            XCTAssertTrue(cache.configure(traits, in: session.presenter.viewport)); XCTAssertEqual(cache.answer(face: data, widthKind: 0, width: 100).provisional, 1)
+            XCTAssertTrue(cache.configure(traits, in: session.presenter.viewport)); missed(cache.answer(face: data, widthKind: 0, width: 100), "traits")
         }
-        XCTAssertEqual(cache.answer(face: try face(["title": ["font_weight": 600]]), widthKind: 0, width: 100).provisional, 1)
-        XCTAssertEqual(cache.answer(face: try face(title: "Other"), widthKind: 0, width: 100).provisional, 1)
-        XCTAssertEqual(cache.answer(face: data, widthKind: 1, width: 0).provisional, 1)
-        XCTAssertEqual(cache.answer(face: data, widthKind: 2, width: 0).provisional, 1)
+        missed(cache.answer(face: try face(["title": ["font_weight": 600]]), widthKind: 0, width: 100), "rows")
+        missed(cache.answer(face: try face(title: "Other"), widthKind: 0, width: 100), "title")
+        missed(cache.answer(face: data, widthKind: 1, width: 0), "min-content")
+        missed(cache.answer(face: data, widthKind: 2, width: 0), "max-content")
     }
     func testHeightForWidthAgainstRequiredWidthWindowLayout() throws {
         let session = try fixture(); defer { session.destroy() }

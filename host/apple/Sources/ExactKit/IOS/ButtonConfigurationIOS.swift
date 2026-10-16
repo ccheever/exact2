@@ -42,8 +42,16 @@ enum ButtonConfigurationIOS {
         let linear = { (v: CGFloat) in v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
         return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) > 0.3
     }
-    /// UIKit's public system-spacing constraint, evaluated on the running OS.
+    /// UIKit's public system-spacing constraint, evaluated on the running OS
+    /// once per font: solving it takes an Auto Layout pass. Main thread.
+    private static var spacings: [UIFont: CGFloat] = [:]
     static func systemSpacing(font: UIFont) -> CGFloat {
+        if let known = spacings[font] { return known }
+        let spacing = solveSystemSpacing(font: font)
+        spacings[font] = spacing
+        return spacing
+    }
+    private static func solveSystemSpacing(font: UIFont) -> CGFloat {
         let parent = UIView(), before = UIImageView(), after = UILabel()
         after.font = font
         for view in [before, after] { view.translatesAutoresizingMaskIntoConstraints = false; parent.addSubview(view) }
