@@ -36,12 +36,13 @@ const tabs = (bar) => `<main id="nav" navigationKey="2" navigationBack="back" st
     ${bar}
   </main>`;
 const BAR = `<div role="tablist" id="bar" style="display:flex;flex-direction:row"><button role="tab" id="tab1" aria-controls="p1" aria-selected="true" data-button-style="bordered" data-native style="flex:1 1 0%"><img alt=""><span data-exact-text>People</span></button><button role="tab" id="tab2" aria-controls="p2" aria-selected="false" data-button-style="bordered" data-native style="flex:1 1 0%"><img alt=""><span data-exact-text>Saved</span></button></div>`;
-const page = (body, routePaths = []) => style + `<div id="exact-root">${body}</div><span id="secondary" style="position:absolute;color:var(--exact-secondary-label)"></span>
+const page = (body, routePaths = [], waitForActivation = false) => style + `<div id="exact-root">${body}</div><span id="secondary" style="position:absolute;color:var(--exact-secondary-label)"></span>
 <script type="module">
   import { navigation, unselected } from './navigation.js';
   const root = document.getElementById('exact-root');
   window.calls = [];
-  navigation.connect(root, () => false, line => calls.push(line), id => calls.push('host back ' + id), null, href => ${JSON.stringify(routePaths)}.includes(href));
+  navigation.connect(root, () => false, line => calls.push(line), id => calls.push('host back ' + id), null, href => ${JSON.stringify(routePaths)}.includes(href), ${waitForActivation});
+  window.activate = () => navigation.activate(root, line => calls.push(line));
   window.select = key => { document.getElementById('nav').setAttribute('navigationKey', key); navigation.project(root, () => {}); };
   const locations = new Map();
   window.push = (key, url, visits) => {
@@ -223,6 +224,19 @@ check('navigationSplit opts a stack out, or names the width of a list the rule d
 const ruleStack = body => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;position:relative">
   <div id="r1" navigationKey="1" style="${abs}"><header><h1>People</h1></header>${body}</div>${detail('r2', 2)}</main>`;
 
+check('a served document stays unsplit across resize until its target adopts it', () => {
+  const body = '<div data-exact-list><button data-exact-router-press="true">Open</button></div>';
+  const stack = ruleStack(body).replace('id="r1"', 'id="r1" navigationSplit="280"');
+  return inChrome(page(stack, [], true), async (evaluate, size) => {
+    const state = `[document.getElementById('r1').getAttribute('data-exact-split'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1').style.getPropertyValue('--exact-split'), document.getElementById('r1').inert, document.getElementById('r2').inert]`;
+    expect(await evaluate(state)).toEqual([null, null, '', false, false]);
+    await size(390); await size(1280);
+    expect(await evaluate(state)).toEqual([null, null, '', false, false]);
+    await evaluate('activate()');
+    expect(await evaluate(state)).toEqual(['list', 'detail', '280px', false, false]);
+  });
+}, 30000);
+
 check('split admission reads list and outer press facts, not roles or decorative chevrons', () => {
   const link = '<a href="/item/a">A</a>';
   const cases = [
@@ -371,6 +385,9 @@ check('only an ordinary outer press associates its row with navigation', () => {
   const body = '<div data-exact-list><div id="owner" data-exact-router-press="true"><button id="star" data-exact-router-press="false">Star</button></div><a id="action-link" href="/item/b" data-exact-router-press="true">Linked action</a></div>';
   const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
   return inChrome(page(html), async evaluate => {
+    // A refused action owns no later timer/resource/keyboard navigation after this click dispatch ends.
+    await evaluate(`(async () => { select('1'); document.getElementById('owner').click(); await Promise.resolve(); push(2, '/item/a'); })()`);
+    expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r2')]`)).toEqual([false, true]);
     // The host leaves these link clicks to the browser, so a later router change owns no row.
     for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
       await evaluate(`push(2, '/item/a'); { const link = document.getElementById('action-link'); link.addEventListener('click', e => e.preventDefault(), {once:true}); link.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,${modifier}:true})); } push(3, '/edit')`);

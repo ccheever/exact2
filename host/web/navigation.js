@@ -27,6 +27,7 @@ const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? p
 // WIDE is the web's presentation threshold, not a different navigation rule.
 const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches;
 let splitLists = new WeakMap(), rowOf = new WeakMap(), actionRows = new WeakMap(), visits = new Map();
+const activationRequired = new WeakSet(), activated = new WeakSet();
 const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
 let pressedRow = null, pendingRow = null;
 const excluded = el => el.hasAttribute("popover") || el.hasAttribute("data-exiting") || getComputedStyle(el).display === "none";
@@ -85,8 +86,11 @@ function captureRow(event) {
   let owner = event.target;
   while (owner && owner !== list && rowPress(owner) === null && !rowHref(owner)) owner = owner.parentElement;
   if (owner?.matches("a[href]") && (owner.target && owner.target !== "_self" || owner.hasAttribute("download"))) return;
-  if (listRows(list).some(r => r.el === owner && r.press === "true"))
-    pressedRow = { row: owner, list, route, at: performance.now(), from: last?.url };
+  if (listRows(list).some(r => r.el === owner && r.press === "true")) {
+    const candidate = pressedRow = { row: owner, list, route, from: last?.url };
+    // Only a router commit made by this click dispatch may claim the row.
+    queueMicrotask(() => { if (pressedRow === candidate) pressedRow = null; });
+  }
 }
 /** Href rows restore from retained visits. Action-only rows remember only a normal click's next router change. */
 function detailRows(routes, found) {
@@ -282,8 +286,10 @@ function drain() {
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
-  connect(hostRoot, dispatch, journal, back = null, goTo = null, matchesRoute = () => false) {
+  connect(hostRoot, dispatch, journal, back = null, goTo = null, matchesRoute = () => false, waitForActivation = false) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute;
+    if (waitForActivation) { activationRequired.add(hostRoot); activated.delete(hostRoot); }
+    else { activationRequired.delete(hostRoot); activated.add(hostRoot); }
     // Capture before either target's link listener commits. Early replay before connect has no action-row association.
     document.addEventListener("click", captureRow, true);
     document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — symbols and images inside pressables do not start picture drags.
@@ -314,6 +320,11 @@ export const navigation = {
       }
     });
   },
+  /** Enable projection after a target has adopted its served DOM, then make the first projection. */
+  activate(hostRoot = root, journal = log) {
+    activated.add(hostRoot);
+    navigation.project(hostRoot, journal);
+  },
   reset(op = null) {
     refused = new WeakMap(); splitLists = new WeakMap(); rowOf = new WeakMap(); actionRows = new WeakMap();
     pressedRow = pendingRow = null; visits = new Map((op?.visits ?? []).map(([id, url]) => [String(id), url]));
@@ -325,7 +336,7 @@ export const navigation = {
   },
   apply(op) {
     visits = new Map((op.visits ?? []).map(([id, url]) => [String(id), url]));
-    pendingRow = pressedRow && op.url !== pressedRow.from && performance.now() - pressedRow.at < 2000
+    pendingRow = pressedRow && op.url !== pressedRow.from
       ? { ...pressedRow, id: String(op.top), url: op.url } : null;
     pressedRow = null;
     last = op;
@@ -348,6 +359,7 @@ export const navigation = {
     });
   },
   project(root, log) {
+    if (activationRequired.has(root) && !activated.has(root)) return;
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
       nav.removeAttribute("data-exact-sidebar"); // Read authored placement, including changes on retained nodes.
