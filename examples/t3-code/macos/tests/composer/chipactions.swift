@@ -157,6 +157,29 @@ final class ComposerChipActionTests: XCTestCase {
         }
     }
 
+    /// Context another panel adds (a review comment, an image, a preview annotation) goes in at the selection's start and
+    /// deletes nothing, so a chip left selected after its preview closes stays: insertContextReferencesAtCaret and
+    /// insertAttachmentReferences are insertComposerText at "cursor", the selection's `from` (ChatComposer.tsx).
+    func testContextAddedFromAnotherPanelKeepsASelectedChip() {
+        let text = "fix \(file) and \(image) and \(review) now "
+        for (kind, source) in [("file", file), ("image", image), ("review-comment", review)] {
+            for added in [review.replacingOccurrences(of: "review_x", with: "review_y"),
+                          image.replacingOccurrences(of: "image_1111", with: "image_9999"),
+                          annotation] {
+                let fixture = ActionFixture(text)
+                let chip = fixture.chip(kind)
+                XCTAssertTrue(fixture.mouseDown(fixture.center(chip)), kind)
+                fixture.press.close(seq: fixture.press.seq)
+                fixture.base.window.makeFirstResponder(nil)
+                XCTAssertEqual(fixture.view.selectedRange(), chip.range, kind)
+                XCTAssertEqual(fixture.base.composer.editor.insert(["text": added])["applied"] as? Bool, true)
+                XCTAssertEqual(fixture.view.string, text.replacingOccurrences(of: source, with: "\(added) \(source)"), "\(kind) ← \(added)")
+                let caret = (("fix \(file) and \(image) and \(review) now " as NSString).range(of: source).location) + (added as NSString).length + 1
+                XCTAssertEqual(fixture.view.selectedRange(), NSRange(location: caret, length: 0), "the caret follows what went in")
+            }
+        }
+    }
+
     func testAnExpiredExcerptHasNoPress() {
         let fixture = ActionFixture("[Terminal 1 line 2](t3-context://v1/terminal/terminal_old) now ")
         let chip = fixture.chip("terminal")
