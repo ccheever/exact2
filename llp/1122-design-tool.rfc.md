@@ -1039,7 +1039,7 @@ T1 and T1a are complete.
   - Cancel and Escape wait for the server to let go, and leaving the edit cancels first.
   - It is not offered for a rebuild edit or with no loop, and the tool says why.
 
-### T2's gate (2026-10-16; the run is `~/x2theme/t2-gate-run.txt`)
+### T2's gate: met, the web page's structural reload tracked apart (2026-10-16; the run is `~/x2theme/t2-gate-run.txt`)
 
 The run was on the Bluesky clone, on the wasm loop with the tool driven in headless Chrome, plus
 the iOS simulator and the Mac.
@@ -1054,6 +1054,8 @@ the iOS simulator and the Mac.
 | Closing the tool clears its pins on every build, and a reloaded build gets its pins back | **Met.** The pins were handed back 38 s after the tool closed. |
 | A report without the current nonce is refused | **Met** (403). |
 
+- **The lead's ruling:** the gate is met. The web page's structural reload is tracked as its own
+  fix (reload1, `~/x2theme/reload-brief.md`), which theme2 signs off when it comes.
 - **On the JS loop,** the clone's JS-target page busy-loops in headless Chrome (queued at stage 4).
   Being same-site with the tool, it stalled the tool's renderer, so the live lines were driven over
   the wire there, and they reached iOS and the Mac.
