@@ -602,6 +602,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                its IR, tamber.json (ir -o <file>), or its layout (fmt)
   exact tamber serve <app>     the design server alone (development only): /__tamber
   exact tamber op <url> <request JSON>|subscribe  its scripted client
+  exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
   exact tamber import shadcn|tailwind|dtcg|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
 
@@ -893,6 +894,7 @@ function main(argv) {
   if (verb === 'tamber' && name === 'serve') return import('./tamber-server.mjs').then(m => m.serveAlone(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'import') return import('./tamber-server.mjs').then(m => m.importTheme(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'op') return import('./tamber-server.mjs').then(m => m.op(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'tool') return import('./tamber-server.mjs').then(m => m.toolCommand(rest)).then(code => process.exit(code));
   if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));

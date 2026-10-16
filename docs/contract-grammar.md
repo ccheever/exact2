@@ -570,9 +570,12 @@ than this test-file grammar.
 The complete current `stdlib` name inventory is below. `T` and `U` express generic
 relationships enforced by the type checker, not user-declarable type parameters.
 Signatures are authored forms; localization's internal lowered signature differs.
-An app's `fn` of one of these names shadows it in every expression of the app, as a
-JavaScript function declared over a global does: a name the inventory gains later
-never breaks an app that declared it first.
+An app's `fn` of one of these names shadows it in every free call (`indexOf(xs, x)`), as
+a JavaScript function declared over a global does: a name the inventory gains later
+never breaks an app that declared it first. A method call (`xs.indexOf(x)`, `s.length`)
+is always the built-in, so a file that declares a `fn`, shape or action of that name and
+also calls it as a method is refused (`syntax-method-shadowed`), since the call would
+otherwise reach the app's function, which TypeScript's method never does.
 
 `contract vocab <name>` prints one function's entry from these tables (its rows and
 examples) beside the roster's signature, so what a row says here is what `vocab`

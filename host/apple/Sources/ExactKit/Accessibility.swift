@@ -134,16 +134,42 @@ extension NodeView {
     /// (Core-AAM): a `menu` is `AXMenu`, as WebKit serves one, so VoiceOver
     /// says "menu" as it does for AppKit's.
     static let containerRoles: [String: NSAccessibility.Role] = ["group": .group, "radiogroup": .radioGroup, "menu": .menu, "menubar": .menuBar]
-    /// What an alert dialog says as it opens: its name, its role ("dialog")
-    /// and its description, in VoiceOver's order for an element; nil with
-    /// neither a name nor a description.
-    var alertWords: String? {
+    /// What a dialog says as it opens: its name, its role ("dialog") and its
+    /// description, in VoiceOver's order for an element; nil with neither a
+    /// name nor a description.
+    var dialogWords: String? {
         let name = authoredLabel, description = accessibleDescription
         guard name != nil || description != nil else { return nil }
         return [name, accessibilityRoleDescription(), description].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
     }
     /// A pressable's AppKit role when it is no toggle: a link, a menu item, else a button.
     var buttonRole: NSAccessibility.Role { props["accessibilityRole"] == "link" ? .link : isMenuItem ? .menuItem : .button }
+    var isMenu: Bool { ["menu", "menubar"].contains(props["accessibilityRole"] ?? "") }
+    /// The `menu` or `menubar` this node is in, the nearest.
+    var owningMenu: NodeView? {
+        var next = presenter?.menus.parent(of: self) ?? superview
+        while let view = next {
+            if let node = view as? NodeView, node.isMenu { return node }
+            next = presenter?.menus.parent(of: view) ?? view.superview
+        }
+        return nil
+    }
+    /// The row of this menu that holds the keyboard focus: what AppKit's
+    /// menu has highlighted, its selected child.
+    var focusedMenuRow: NodeView? {
+        guard let presenter, let row = presenter.keyTarget(window?.firstResponder), row.isMenuItem, row.owningMenu === self else { return nil }
+        return row
+    }
+    /// Inside a popover: AppKit's `NSPopover` says nothing of itself as it
+    /// opens, only the focus change for its first responder.
+    var inPopover: Bool {
+        var next: NSView? = self
+        while let view = next {
+            if (view as? NodeView)?.props["popover"] != nil { return true }
+            next = presenter?.menus.parent(of: view) ?? view.superview
+        }
+        return false
+    }
     #endif
     /// How a live region speaks: its `aria-live`, else its role's; nil when
     /// `off` or neither.
@@ -230,7 +256,7 @@ extension NodeView {
 /// read from the node that holds the field.
 final class FieldCell: NSTextFieldCell {
     private var numberField: Field? {
-        guard let field = controlView as? Field, field.accessibilityRole() == .incrementor else { return nil }
+        guard let field = controlView as? Field, field.numberOwner != nil else { return nil }
         return field
     }
     /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
@@ -376,6 +402,17 @@ extension NodeView {
         selector == #selector(accessibilityPerformShowMenu) ? showMenuTarget != nil : super.isAccessibilitySelectorAllowed(selector)
     }
     package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
+    /// A menu's selected child is the row that holds the focus, and that row
+    /// is selected, as AppKit's menu serves its highlighted item (measured:
+    /// `AXSelectedChildren` and `AXSelected` follow the highlight).
+    package override func accessibilitySelectedChildren() -> [Any]? {
+        guard isMenu, let presenter else { return super.accessibilitySelectedChildren() }
+        return focusedMenuRow.map { [presenter.keyView(of: $0)] } ?? []
+    }
+    package override func isAccessibilitySelected() -> Bool {
+        guard isMenuItem, let menu = owningMenu else { return super.isAccessibilitySelected() }
+        return menu.focusedMenuRow === self
+    }
     private var showMenuTarget: NodeView? {
         guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
               let target = presenter.contextTarget(self), !target.disabled, !target.inert else { return nil }
@@ -594,23 +631,49 @@ extension Presenter {
             #endif
         }
         #if os(macOS)
-        // A `menu` that comes into view says so, as AppKit's menu does as it
-        // opens and WebKit's does for one (AXMenuOpened): VoiceOver says "menu".
+        // A `menu` says it opened and closed as AppKit's menu does
+        // (AXMenuOpened, AXMenuClosed, on the menu; measured), so VoiceOver
+        // says "menu" and, after, leaves the menu for the focus.
         let shown = chrome.ids("role:menu").compactMap { views[$0] }.filter(\.accessibilityVisible)
-        for menu in shown where !shownMenus.contains(ObjectIdentifier(menu)) {
+        for menu in shown where !shownMenus.contains(where: { $0 === menu }) {
             NSAccessibility.post(element: menu, notification: .init(rawValue: "AXMenuOpened"))
+            if menu.focusedMenuRow != nil { NSAccessibility.post(element: menu, notification: .selectedChildrenChanged) }
         }
-        shownMenus = Set(shown.map(ObjectIdentifier.init))
+        let closed = shownMenus.filter { menu in !shown.contains { $0 === menu } }
+        for menu in closed {
+            // A menu taken out of the window is no element to post on; the page is.
+            NSAccessibility.post(element: menu.window != nil ? menu : viewport, notification: .init(rawValue: "AXMenuClosed"))
+        }
+        shownMenus = shown
+        // The focus moved out of the menu before it went (the app focused
+        // the invoker, then removed the menu): told again after AXMenuClosed,
+        // VoiceOver follows it. A popover's menu gives the focus back only
+        // after this pass, so `MenuHost.close` tells it then.
+        if !closed.isEmpty, let focused = focusedNode {
+            NSAccessibility.post(element: keyView(of: focused), notification: .focusedUIElementChanged)
+        }
         let modal = macAccessibilityModal
         if modal.map(ObjectIdentifier.init) != announcedModal {
             announcedModal = modal.map(ObjectIdentifier.init)
             NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: modal.map { [.uiElements: [modalLanding($0)]] })
-            if let modal, modal.props["accessibilityRole"] == "alertdialog", modal.window?.isSheet != true, let words = modal.alertWords {
-                // WAI-ARIA's alertdialog fires the alert event as it opens,
-                // and VoiceOver reads an `NSAlert`'s title and message as it
-                // appears (AppKit's sheet-created notification), whatever
-                // holds the focus. One that is no sheet has no window to be
-                // announced by, so it is announced as an `alert` is, assertively.
+            // A dialog is announced once while it stays up: one handed the
+            // modal back by a dialog closed over it is not read again, as an
+            // AppKit sheet is not when its child sheet ends.
+            announcedDialogs.removeAll { dialog in
+                dialog.window == nil || dialog.isHiddenOrHasHiddenAncestor || leaving[dialog.id] != nil
+                    || (dialog.props["accessibilityModal"] != "true" && dialogs.active !== dialog)
+            }
+            if let modal, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(modal.groupSubrole ?? ""),
+               modal.window?.isSheet != true, !modal.inPopover, !announcedDialogs.contains(where: { $0 === modal }),
+               let words = modal.dialogWords {
+                announcedDialogs.append(modal)
+                // VoiceOver reads a dialog window's title (a sheet's, a
+                // panel's) and an `NSAlert`'s message as it appears, whatever
+                // the focus does next, and WAI-ARIA's alertdialog fires the
+                // alert event as it opens. A dialog drawn in the page has no
+                // window to be read by, so it is announced as an `alert` is,
+                // assertively. A sheet is AppKit's to read; a dialog in a
+                // popover is not read, as `NSPopover` is not.
                 NSAccessibility.post(element: modal, notification: .announcementRequested,
                     userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue])
             }
