@@ -391,15 +391,27 @@ could not, the comment at the fix says what happened and why the code is so.
 ## Work left
 
 As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646,
-#647, #651 and #655) and a session with real keys on the terminal. Each item says what is wrong or
-missing; the open framework issues that someone using the app runs into are in the section above.
+#647, #651 and #655), a session with real keys on the terminal and VoiceOver session G. Each item
+says what is wrong or missing; the open framework issues that someone using the app runs into are
+in the section above.
 
 **Fails:**
 
-- A press in the composer (or in any text field) does not close an open popover menu, such as
-  the Project scripts or Git options menu: the Mac host light-dismisses only on a
-  mouse-down/mouse-up pair its event monitor sees, and NSTextView's tracking loop takes the
-  mouse-up (host).
+- A press in the composer, Search threads or Search settings does not close an open popover menu
+  (Project scripts, Git options, Environment scope): the Mac host light-dismisses only on a
+  mouse-down/mouse-up pair its event monitor sees, and a text view's tracking loop takes the
+  mouse-up (host). Fixed in exact2 PR #663, a draft not yet on main: there the menu closes when
+  the button is released, as on the web. Once it is merged, re-run session G's row 4.
+- macOS VoiceOver (session G, rows 3, 5, 6, 10, 11, 12 and 14): a dialog drawn in the page that
+  opens with the focus in a field says "<name>, dialog" and cuts off the field; an alertdialog
+  says only "Cancel, button"; after Escape closes a painted menu, VoiceOver can land on a switch
+  or 'scroll area' instead of the trigger (host). Fixed in exact2 PR #664, a draft not yet on
+  main: there VoiceOver lands where a commit's focus() or the focus given back puts it, the
+  dialog's name and message follow the focused control's words at low priority, and a painted
+  menu opened with VO-Space and closed with Escape sends VoiceOver back to its trigger, as an
+  NSMenu does. The clone needs no change for it; if the low-priority name proves to be dropped,
+  its confirmations could become `dialog role="alertdialog"` with `showModal(id)` (NSAlert) and
+  its form dialogs `dialog` with `showModal(id)` (a sheet).
 
 The items below that were fixed since the 2026-10-15 session still want real keys, a pointer and
 VoiceOver.
@@ -426,6 +438,10 @@ VoiceOver.
 - After the accent picker closes, a second Escape in Create theme leaves Settings and the
   floating theme editor stays open (ThemeEditorPanel has no Escape handler; Settings'
   useEscapeToGoBack takes it).
+- ⌘Z with the prompt focused is the prompt's own undo, as in the reference (thread.undo is
+  `!terminalFocus && !editableFocus`).
+- The right panel toggle moves from the chat header into the panel when the panel opens, as the
+  reference's does.
 
 **Checked with real keys** (2026-10-16):
 
@@ -461,6 +477,15 @@ menu, not TISSelectInputSource, before they judge IME rows.
 
 **Fixed, not checked with real input or VoiceOver:**
 
+- A field the reference focuses when it mounts now takes the focus whatever held it: the flat
+  sidebar's rename after a double-click from the prompt, the project scope search, the citation,
+  diff and pull request comment drafts, the pull request title and editors, Reply, the
+  keybindings and licenses searches, and the custom model fields.
+- The main sidebar trigger is one node, 'Toggle main sidebar' (a toggle), at the window controls
+  and over the Settings nav, so a VoiceOver press on it no longer answers 'no action available'.
+  Usage's dialogs cover it, and it is inert while they or a pull request's confirm are open.
+- Removing an image that is also an inline chip returns the focus to its Remove on Cancel; on
+  Confirm, once the removal lands, the focus moves to the next tile or the prompt.
 - macOS VoiceOver (exact2 PR #655, rows 8, 10 and 13 of session F): an `inert` page is out of
   VoiceOver's reach. After Escape closes a painted menu over Settings, the host gives the focus
   back to the trigger before it says the menu closed, then sends VoiceOver there, so VoiceOver no
@@ -612,7 +637,9 @@ focus back on the Git options chevron after a Commit or Publish dialog it opened
 scripts menu's Escape and outside press. With the pointer and VoiceOver: a composer image
 thumbnail's Preview button and its Remove (VO-Space on Remove moves the focus to the next tile or
 the prompt). With the pointer: a background environment's flat sidebar row's context menu and a
-drag that reorders it.
+drag that reorders it; the Snoozed (1) header and Wake on a background thread. With real keys and
+VoiceOver: the fields focused on mount (above), the 'Toggle main sidebar' toggle, and the focus
+after Cancel and Confirm on removing an image that is also an inline chip.
 
 **Passed with real keys, pointer or VoiceOver** (2026-10-15): the keybinding recorder's Escape,
 Snooze's focus return, Return on the fixed menus, the launcher's letters after a remount, the
@@ -638,6 +665,8 @@ and italic font faces, the permission helper's real grant (the user's), and a ta
   popover in a narrow window.
 - VO-Space on each chip kind.
 - Kotoeri's ⌃K in the terminal has not been run: no Japanese input source is installed.
+- The Snoozed (1) header did not expand on a real click, which an agent drive does not reproduce
+  (the agent's tap expands it), so Wake on a background environment's thread still needs one.
 - Tab in the legacy Rename project dialog, now that the accessibility tree no longer collapses
   under a modal popup.
 
@@ -650,8 +679,17 @@ environment, a machines list and an ACP agent stand-in (each has its README). St
 tailnet, and a server older than the client for the machines-update popover's busy states.
 
 **Framework issues opened by this app:** the macOS issues it opened from 2026-10-13 to 2026-10-16
-are closed on main. `issues/20261010-pointer-events-reach-ancestors.md` waits for a decision; until
-then the app forwards presses to the window itself.
+are closed on main, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to
+every ancestor that hears them, and `stopPropagation()` stops them). Open: the light-dismiss and
+VoiceOver-sequence fixes above, exact2 drafts #663 and #664.
+
+**Workarounds main has made unnecessary:** since pointer events bubble, the window's `main` hears
+every press itself, so the app's forwards to it are redundant: the sidebar's `sidebarPressDown`
+and an answer's `down` (markdown.contract) call `outsidePressDown`, the floating theme editor's
+pickers and inspector take `outsideDown` and `outsideUp` as props, and the diff and Files gutters
+report a `press` that closes a skill chip's details (`closeChipFromPress`). Each press now runs
+the window's outside press twice, which is harmless, as each step checks what it already closed.
+Remove them, with their comments, in a clone branch that drives each case.
 
 ## Source and checks
 

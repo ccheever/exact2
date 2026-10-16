@@ -614,6 +614,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "exact-route",
+ "serde_json",
  "sha2",
 ]
 
