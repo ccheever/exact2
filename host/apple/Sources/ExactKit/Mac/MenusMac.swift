@@ -93,7 +93,8 @@ final class MenuHost: NSObject {
     func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.layer === view } }
     func hides(_ node: NodeView) -> Bool { node.props["popover"] != nil || node.props["semanticTag"] == "dialog" }
     func projects(_ node: NodeView) -> Bool { entries.contains { $0.popover === node } }
-    private var pointerDown: (button: Int, ancestor: UInt32?)?
+    private var pointerDown: (button: Int, ancestor: UInt32?, press: Int)?
+    private var pressCount = 0
     private var escapeHeld = false
     var presented: [NodeView] { entries.filter { $0.menu == nil }.map(\.popover) }
     /// Modal accessibility includes an external popover opened from the
@@ -493,11 +494,45 @@ final class MenuHost: NSObject {
         }
         return true
     }
+    /// HTML's popover light dismiss: a press outside closes the auto
+    /// popovers above the one it began in, at its release, when it was
+    /// released over the same one (the spec's "popover pointerdown target",
+    /// https://html.spec.whatwg.org/multipage/popover.html#popover-light-dismiss).
     func pointer(_ event: NSEvent) {
         guard !entries.isEmpty, presenter?.hosts(event.window) == true,
               [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp].contains(event.type),
-              let content = event.window?.contentView else { return }
-        let hit = content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow)
+              let window = event.window else { return }
+        let (ancestor, hit) = clickedPopover(at: event.locationInWindow, in: window)
+        if event.type == .leftMouseUp || event.type == .rightMouseUp { return release(event.buttonNumber, at: ancestor) }
+        pressCount += 1
+        let press = pressCount, button = event.buttonNumber, at = event.timestamp
+        pointerDown = (button, ancestor, press)
+        // A view that tracks the press itself (NSTextView, a field editor, an
+        // NSControl) takes the release from the queue in its own loop, in the
+        // event-tracking run loop mode, and no local monitor sees it; the
+        // application's current event is then that release. The run loop is
+        // back in the default mode once the loop has ended.
+        guard hit else { return }
+        RunLoop.main.perform(inModes: [.default]) { [weak self, weak window] in
+            guard let self, let window, self.pointerDown?.press == press, let taken = NSApp.currentEvent,
+                  taken.type == (button == 0 ? .leftMouseUp : .rightMouseUp), taken.window === window, taken.timestamp >= at else { return }
+            self.release(button, at: self.clickedPopover(at: taken.locationInWindow, in: window).ancestor)
+        }
+    }
+    private func release(_ button: Int, at ancestor: UInt32?) {
+        defer { pointerDown = nil }
+        guard let down = pointerDown, down.button == button, down.ancestor == ancestor else { return }
+        for entry in entries.reversed() where entry.value != "manual" {
+            if entry.popover.id == ancestor { break }
+            close(entry.popover, restoreFocus: false)
+        }
+    }
+    /// The spec's "topmost clicked popover" at a point in `window`: the
+    /// auto popover the view there is in or invokes, and whether any view
+    /// of the content is there.
+    private func clickedPopover(at point: NSPoint, in window: NSWindow) -> (ancestor: UInt32?, hit: Bool) {
+        guard let content = window.contentView else { return (nil, false) }
+        let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
         let ancestor = entries.last(where: { entry in
             guard entry.value != "manual" else { return false }
             guard let hit else { return false }
@@ -508,16 +543,7 @@ final class MenuHost: NSObject {
                 return self.popoverInvocation(node)?.target === entry.popover
             }
         })?.popover.id
-        if event.type == .leftMouseDown || event.type == .rightMouseDown {
-            pointerDown = (event.buttonNumber, ancestor)
-        } else {
-            defer { pointerDown = nil }
-            guard let down = pointerDown, down.button == event.buttonNumber, down.ancestor == ancestor else { return }
-            for entry in entries.reversed() where entry.value != "manual" {
-                if entry.popover.id == ancestor { break }
-                close(entry.popover, restoreFocus: false)
-            }
-        }
+        return (ancestor, hit != nil)
     }
     var observation: [String: Any]? {
         entries.last.map { entry in
