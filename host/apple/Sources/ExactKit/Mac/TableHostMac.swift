@@ -147,13 +147,21 @@ final class TableHost {
                 // bottom; the trailing cell inset is sixteen points.
                 let frame = NSRect(x: from, y: bottom - 1, width: end - from, height: 1)
                 if line.frame != frame { line.frame = frame }
-                row.effectiveAppearance.performAsCurrentDrawingAppearance {
-                    let color = NSColor.separatorColor.cgColor
-                    if line.backgroundColor != color { line.backgroundColor = color }
-                }
+                appearanceChanged(row)
             }
         }
         for (id, line) in lines where !needed.contains(id) { line.removeFromSuperlayer(); lines[id] = nil }
+    }
+    /// A painted separator belongs to its row's appearance. AppKit can tell
+    /// the root about a window change before it has updated every descendant;
+    /// the row's own callback is the point at which its effective appearance
+    /// is current, including an authored `color-scheme` override.
+    func appearanceChanged(_ row: NodeView) {
+        guard let line = lines[row.id] else { return }
+        row.effectiveAppearance.performAsCurrentDrawingAppearance {
+            let color = NSColor.separatorColor.cgColor
+            if line.backgroundColor != color { line.backgroundColor = color }
+        }
     }
     /// A row in a cell takes layout's frame in the cell's space. Any other
     /// frame while a table shows may be a row's in the document, a new
