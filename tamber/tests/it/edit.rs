@@ -5,7 +5,7 @@
 use common::vocab;
 use exact_tamber::{apply, apply_all, format, undo, Op};
 
-mod common;
+use crate::common;
 
 fn clone() -> String {
     let src = std::fs::read_to_string(concat!(

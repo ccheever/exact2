@@ -25,10 +25,10 @@ enum IntoView {
             return t1 - size
         }
     }
-    static func smooth(_ args: [Any], style: [String: BatchValue]) -> Bool {
+    static func animates(_ args: [Any]) -> Bool {
         let behavior = args.count > 3 ? args[3] as? String : nil
         return !ExactEnv.agentFreezes && !DisplayPreferences.reducedMotion
-            && (behavior == "smooth" || ((behavior == nil || behavior == "auto") && style["scroll_behavior"]?.string == "smooth"))
+            && behavior != "instant"
     }
     static func inset(_ rect: CGRect, style: [String: BatchValue], family: String, outward: Bool = false) -> CGRect {
         let top = style["\(family)_top"]?.length(basis: rect.height) ?? 0
@@ -50,6 +50,13 @@ enum IntoView {
 import AppKit
 
 extension Presenter {
+    func cancelPageElementScroll(_ clip: NSClipView) {
+        guard pageElementAnimation != nil else { return }
+        pageElementAnimation = nil
+        let at = clip.bounds.origin
+        NSAnimationContext.runAnimationGroup({ context in context.duration = 0; clip.animator().setBoundsOrigin(at) })
+    }
+
     func scrollElementIntoView(_ args: [Any]) {
         guard let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
@@ -76,18 +83,26 @@ extension Presenter {
             from = clip
         }
         for (clip, owner, to) in moves {
-            owner?.cancelElementScroll()
+            if let owner { owner.cancelElementScroll() } else { cancelPageElementScroll(clip) }
             guard to != clip.bounds.origin else { continue }
-            let end = owner?.scrollEnd ?? ScrollEnd()
-            owner?.scrollEnd = end
-            if IntoView.smooth(args, style: owner?.style ?? [:]) {
+            if IntoView.animates(args) {
                 let token = UUID()
-                end.elementAnimation = token; end.hold()
-                NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(to) }, completionHandler: { [weak owner] in
-                    guard end.elementAnimation == token else { return }
-                    end.elementAnimation = nil
-                    owner?.endScroll()
-                })
+                if let owner {
+                    let end = owner.scrollEnd ?? ScrollEnd()
+                    owner.scrollEnd = end
+                    end.elementAnimation = token; end.hold()
+                    NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(to) }, completionHandler: { [weak owner] in
+                        guard end.elementAnimation == token else { return }
+                        end.elementAnimation = nil
+                        owner?.endScroll()
+                    })
+                } else {
+                    pageElementAnimation = token
+                    NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(to) }, completionHandler: { [weak self] in
+                        guard self?.pageElementAnimation == token else { return }
+                        self?.pageElementAnimation = nil
+                    })
+                }
             } else {
                 NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(to) })
                 clip.scroll(to: to)

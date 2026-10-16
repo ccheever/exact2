@@ -29,6 +29,8 @@ package final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     package let viewport = PageScrollView(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
+    /// The page viewport's programmatic element reveal, while AppKit owns its interpolation.
+    var pageElementAnimation: UUID?
     lazy var focusEvents = FocusEvents(self)
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
@@ -585,6 +587,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
         pointerHeld = nil
         pointerSource = nil
