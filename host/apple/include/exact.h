@@ -68,7 +68,10 @@ void exact_raster_session_control(uint64_t session, uint32_t op);
 uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);
 void exact_raster_cancel(uint64_t session, uint64_t request);
 uint32_t exact_raster_status(uint64_t session, uint64_t request);
-ExactRasterWork exact_raster_next_decode(uint32_t timeout_ms);
+/* The gate's wakes so far: read before a worker looks for a source to read,
+   and passed to next_decode, which then returns at once at any wake since. */
+uint64_t exact_raster_wake_sequence(void);
+ExactRasterWork exact_raster_next_decode(uint32_t timeout_ms, uint64_t since);
 uint32_t exact_raster_is_cancelled(uint64_t permit);
 /* Transfers one retained immutable native payload, even on stale completion.
  * Scratch must already be gone. release(payload) may run on any thread. */

@@ -990,3 +990,20 @@ fn a_part_answers_only_for_its_own_crop() {
         Some(demand(4, 1, 1, 0).key.pixels)
     );
 }
+
+/// A source to read that arrives while a worker looks for one, after it
+/// read the wake sequence and before it waits, ends the wait at once: the
+/// worker does not sleep through it to the backstop.
+#[test]
+fn a_wake_while_the_worker_looked_ends_its_wait_at_once() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let since = gate.wake_sequence();
+    session.wake();
+    let started = std::time::Instant::now();
+    assert!(gate
+        .wait_work_since(since, std::time::Duration::from_secs(10))
+        .is_none());
+    let waited = started.elapsed();
+    assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
+}

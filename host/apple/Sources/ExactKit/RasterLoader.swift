@@ -339,13 +339,16 @@ final class RasterWorkers: @unchecked Sendable {
                 // Each decode earns a metadata turn, even under continuous
                 // ready-metadata traffic from another session.
                 if metadataFirst { metadataFirst = false; if metadataTurn() { return } }
-                let work = exact_raster_next_decode(0)
+                let work = exact_raster_next_decode(0, 0)
                 if work.permit != 0 { metadataFirst = true; deliver(work); return }
+                // Read before looking: a source acquired while this worker
+                // looks wakes the gate after it, and the wait returns at once.
+                let since = exact_raster_wake_sequence()
                 if metadataTurn() { return }
                 // Work wakes the gate: a decode admitted or freed, a source
                 // acquired, a session resumed. The timeout is a backstop, long
                 // enough not to be a poll, so an idle app's workers sleep.
-                let waited = exact_raster_next_decode(1000)
+                let waited = exact_raster_next_decode(1000, since)
                 if waited.permit != 0 { metadataFirst = true; deliver(waited) }
             }
         }
