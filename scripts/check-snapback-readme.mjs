@@ -27,7 +27,7 @@ export function checkReceipt(receipt, pinned, files) {
     if (receipt.files?.[name]!==digest(files[name] ?? '')) throw new Error(`Snapback README tests are stale: ${name} changed. ${rerun}`);
   }
   const names=receipt.examples.map(example=>example.name);
-  if (names.length!==4 || new Set(names).size!==4 || !['A complete app','A complete online app','A complete online password app'].every(name=>names.includes(name)) || !names.some(name=>name.startsWith('Auth recipe: ')))
+  if (names.length!==5 || new Set(names).size!==5 || !['A complete app','A complete online app','A complete online password app','A complete mixed identity app','Auth recipe: reload'].every(name=>names.includes(name)))
     throw new Error(`Snapback README receipt omits a complete example. ${rerun}`);
   for (const example of receipt.examples) if (!(example.tests>0 && example.runs===2)) throw new Error(`Snapback README receipt has an incomplete example. ${rerun}`);
   return receipt;

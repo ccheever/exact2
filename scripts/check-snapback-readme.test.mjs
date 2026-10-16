@@ -14,7 +14,7 @@ test('qualification refuses stale version claims and a different wave pin',()=>{
 });
 test('a text-only repin, edited example, or incomplete run cannot refresh the receipt',()=>{
   const files=Object.fromEntries(testedFiles.map(name=>[name,`contents of ${name}`]));
-  const examples=['A complete app','A complete online app','A complete online password app','Auth recipe: mixed identity'].map(name=>({name,tests:2,runs:2}));
+  const examples=['A complete app','A complete online app','A complete online password app','A complete mixed identity app','Auth recipe: reload'].map(name=>({name,tests:2,runs:2}));
   const receipt={format:1,version:'0.4.29',date:'2026-10-16',examples,files:Object.fromEntries(testedFiles.map(name=>[name,digest(files[name])]))};
   expect(checkReceipt(receipt,'0.4.29',files)).toBe(receipt);
   expect(()=>checkReceipt(receipt,'0.4.30',files)).toThrow(/no completed test receipt/);
@@ -36,15 +36,16 @@ test('the retest extracts every complete authored app including its exact test c
   const readme=readFileSync(new URL('../snapback4/README.md',import.meta.url),'utf8');
   const recipe=readFileSync(new URL('../docs/recipes/snapback-auth.md',import.meta.url),'utf8');
   const examples=extractExamples(readme,recipe);
-  expect(examples).toHaveLength(4);
+  expect(examples).toHaveLength(5);
   expect(examples[0].online).toBe(false);
   expect(examples[2].blocks[0]).toContain('use identity password');
   expect(examples[3].blocks[2]).toContain('.guest(');
   expect(examples[3].blocks[3]).toContain('reload');
-  expect(()=>extractExamples(readme,recipe.replace('```quarry','```text'))).toThrow(/expected schema/);
+  expect(examples[4].blocks[3]).toContain('fresh\nepoch now');
+  expect(()=>extractExamples(readme,recipe.replace('```contract-test','```text'))).toThrow(/literal reload/);
   expect(refreshClaims('tested as written against\n0.4.29\n(2026-10-15)','0.4.30','2026-10-16')).toBe('tested as written against 0.4.30 (2026-10-16)');
 });
 
 test('the committed pins, authored sources and claims have a complete execution receipt',()=>{
-  expect(checkRepository(new URL('..',import.meta.url).pathname).examples).toBe(4);
+  expect(checkRepository(new URL('..',import.meta.url).pathname).examples).toBe(5);
 });

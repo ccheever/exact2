@@ -1488,7 +1488,7 @@ while let Step::Fetch(fetch) = step {
 ## Checks
 
 `node scripts/retest-snapback-readme.mjs --version <v> [--registry <url>]`
-executes all three complete apps above and the mixed-auth recipe twice against
+executes all four complete apps above and the auth recipe’s reload test twice against
 that registry's package. Pass `--revision <published-source-sha>` when the registry
 omits `gitHead`. A failure restores the candidate pins and leaves the claims
 unchanged. Only a successful run updates the npm and Cargo pins, lockfiles,

@@ -19,11 +19,12 @@ export function extractExamples(readme, recipe) {
     if(example.name==='A complete online password app' && example.blocks.length===3)
       example.blocks.unshift(online.blocks[0].replace('use personas alice, bob','use identity password'));
   }
-  for(const [,name,text] of recipe.matchAll(/^### ([^\n]+)\n([\s\S]*?)(?=^### |^## |$(?![\s\S]))/gm)) {
-    const blocks=[...text.matchAll(/```(?:quarry|contract(?:-test)?|ts)\n([\s\S]*?)\n```/g)].map(m=>m[1]);
-    if(blocks.length) examples.push({name:`Auth recipe: ${name}`,online:true,blocks});
-  }
-  assert.ok(examples.length>=4,'README and auth recipe must contain every complete example (three guestbooks and mixed auth)');
+  assert.equal(examples.length,4,'README must contain every complete example (three guestbooks and mixed auth)');
+  const mixed=examples.find(example=>example.name==='A complete mixed identity app');
+  assert.ok(mixed,'README is missing the complete mixed identity app');
+  const reload=[...recipe.matchAll(/```contract-test\n([\s\S]*?)\n```/g)];
+  assert.equal(reload.length,1,'Auth recipe needs its literal reload test');
+  examples.push({name:'Auth recipe: reload',online:true,blocks:[...mixed.blocks.slice(0,3),`fresh\nepoch now\n\n${reload[0][1]}`]});
   for(const example of examples) {
     assert.equal(example.blocks.length,4,`${example.name}: expected schema, Contract, TypeScript and test fences`);
     assert.ok(/^test /m.test(example.blocks[3]),`${example.name}: no tests`);
