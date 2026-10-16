@@ -511,6 +511,7 @@ fn lower_with_sites(
         }
     }
     l.timers(&root.tasks, &scope)?;
+    l.sequences(&root.sequences, &scope)?;
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.is_empty() {

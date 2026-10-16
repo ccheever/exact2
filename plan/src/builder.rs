@@ -686,6 +686,13 @@ impl PlanBuilder {
         }
     }
 
+    /// A `sequence` (LLP 1125 D2): its gate, key and `play` arguments as
+    /// plan code, and its `ended=` action.
+    pub fn sequence(&mut self, row: SequencesRow) -> SequencesId {
+        self.plan.sequences.push(row);
+        SequencesId(self.plan.sequences.len() as u32 - 1)
+    }
+
     /// A region under `parent` (or an arm root when `parent` is `None`),
     /// with `arm_count` arms allocated. Returns the region and its arms.
     #[allow(clippy::too_many_arguments)] // mirrors the row: kind, site (parent, arm, order), two codes, arms

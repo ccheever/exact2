@@ -318,13 +318,21 @@ fn check_mutation_then(c: &Component) -> Vec<AnalyzeError> {
 
 fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
     let mut errors = Vec::new();
-    for t in &c.tasks {
+    // A task's action, and a sequence's `ended=` (LLP 1125 D2): each runs
+    // as a timer does, with no arguments.
+    let ended = c.sequences.iter().filter_map(|q| q.ended.as_ref());
+    for (name, span) in c
+        .tasks
+        .iter()
+        .map(|t| (&t.timer.1, t.timer.2))
+        .chain(ended.map(|(n, s)| (n, *s)))
+    {
         let result = (|| -> Result<(), AnalyzeError> {
-            let Some(a) = c.actions.iter().find(|a| a.name == t.timer.1) else {
+            let Some(a) = c.actions.iter().find(|a| &a.name == name) else {
                 return err(
                     "analyze-unknown-action",
-                    format!("`{}` is not an action", t.timer.1),
-                    t.timer.2,
+                    format!("`{name}` is not an action"),
+                    span,
                 );
             };
             if !a.params.is_empty() {
@@ -335,7 +343,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
                         a.name,
                         a.params.len()
                     ),
-                    t.timer.2,
+                    span,
                 );
             }
             Ok(())

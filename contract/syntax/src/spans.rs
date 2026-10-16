@@ -1,6 +1,6 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
-use crate::{ast::*, Span};
+use crate::{ast::*, sequence::Sequence, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
 /// Destructuring is exhaustive so new syntax must account for its locations.
@@ -101,7 +101,8 @@ structs! {
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, view, span }
+        mutations, actions, tasks, sequences, view, span }
+    Sequence { name, gate, key, tracks, options, ended, span }
     Persist { name, span }
     Binding { name, expr, span }
     ResourceDecl { name, source, args, identity, shape, placeholder, span }

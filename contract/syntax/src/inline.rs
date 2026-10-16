@@ -245,6 +245,7 @@ fn expand_with_sites(
         mutations: source.mutations.clone(),
         actions: source.actions.clone(),
         tasks: source.tasks.clone(),
+        sequences: source.sequences.clone(),
         view: Vec::new(),
         span: source.span,
     };

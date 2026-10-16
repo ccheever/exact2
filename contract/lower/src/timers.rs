@@ -3,8 +3,9 @@
 //! initializer is and evaluated by the runner at each commit.
 
 use crate::{err_one, LowerError, Lowerer};
-use contract_syntax::{Expr, Task, TaskKind};
+use contract_syntax::{Expr, Sequence, Task, TaskKind};
 use contract_types::Scope;
+use exact_plan::{SequencesRow, Value};
 
 impl Lowerer<'_> {
     /// Every task of the root, in declaration order.
@@ -66,6 +67,68 @@ impl Lowerer<'_> {
             });
             let key = code(self, &t.key)?;
             self.b.set_timer_gate(id, gate, key);
+        }
+        Ok(())
+    }
+
+    /// Every sequence of the root (LLP 1125 D2), in declaration order: its
+    /// gate and key as a task's, and each `play` argument as plan code, an
+    /// omitted one a constant. Clock in and clock out are later stages'.
+    pub(crate) fn sequences(
+        &mut self,
+        sequences: &[Sequence],
+        scope: &Scope,
+    ) -> Result<(), Vec<LowerError>> {
+        for q in sequences {
+            for (option, stage, id) in [
+                ("clock", 4, "lower-sequence-clock"),
+                ("clockOut", 3, "lower-sequence-clock-out"),
+            ] {
+                if let Some((_, _, at)) = q.options.iter().find(|o| o.0 == option) {
+                    return Err(err_one(
+                        id,
+                        format!("`{option}=` is not built yet (LLP 1125 stage {stage}); a sequence keeps its own time from `bpm=`"),
+                        *at,
+                    ));
+                }
+            }
+            let code = |l: &mut Self, e: Option<&Expr>, default: Value| match e {
+                Some(e) => l.expr_code(e, scope, 0).map_err(|e| vec![e]),
+                None => Ok(l.b.constant(&default)),
+            };
+            let always = Value::Bool(true);
+            let gated = q.gate.is_some() || q.key.is_some();
+            let gate = code(self, q.gate.as_ref(), always.clone())?;
+            let key = code(self, q.key.as_ref(), always)?;
+            let tracks = code(self, Some(&q.tracks), Value::Number(0.0))?;
+            let bpm = code(self, q.option("bpm"), Value::Number(0.0))?;
+            let from = code(self, q.option("from"), Value::Number(0.0))?;
+            let count_in = code(self, q.option("countIn"), Value::list(Vec::new()))?;
+            let clock = code(self, None, Value::str(""))?;
+            let clock_out = code(self, None, Value::str(""))?;
+            let ended = q.ended.as_ref().map(|(name, _)| {
+                self.actions[self
+                    .root
+                    .actions
+                    .iter()
+                    .position(|a| &a.name == name)
+                    .unwrap()]
+            });
+            let name = self.b.str(&q.name);
+            self.b.sequence(SequencesRow {
+                name,
+                gated,
+                gate,
+                keyed: q.key.is_some(),
+                key,
+                tracks,
+                bpm,
+                from,
+                count_in,
+                clock,
+                clock_out,
+                ended,
+            });
         }
         Ok(())
     }
