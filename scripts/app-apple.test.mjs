@@ -10,7 +10,7 @@ import { HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots } from './app.mjs';
 import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, writeUsageStrings, designCompatible, COMPATIBLE_SDK, moduleTripleFor } from '../host/apple/build.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
-import { macReleaseEntitlements } from '../host/apple/assets.mjs';
+import { macReleaseEntitlements, launchImageInventory } from '../host/apple/assets.mjs';
 
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
@@ -130,6 +130,16 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     const launch = assets.filter(asset => asset.Name === 'ExactLaunchImage');
     assert.ok(launch.length >= 1, 'Assets.car holds the launch image');
     assert.ok(launch.every(asset => asset.PixelWidth === 40 * asset.Scale), `40 points wide at each scale: ${JSON.stringify(launch)}`);
+    // The launch image is a binary input: packaging draws the bytes the bake
+    // recorded, and refuses a picture replaced since, or one the receipt lacks.
+    const baked = launchImageInventory(app);
+    assert.equal(baked.sha256.length, 64);
+    const again = resolve(dir, 'Again.app'); mkdirSync(again);
+    assert.equal(iosAssets(app, again, true, { expectedLaunchImage: baked }).UILaunchScreen.UIImageName, 'ExactLaunchImage');
+    assert.throws(() => iosAssets(app, again, true, { expectedLaunchImage: null }), /launch image changed after the bake/);
+    writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+    assert.notEqual(launchImageInventory(app).sha256, baked.sha256);
+    assert.throws(() => iosAssets(app, again, true, { expectedLaunchImage: baked }), /launch image changed after the bake/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
 

@@ -49,6 +49,17 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
+/** The iOS launch screen's picture (`host.ios.launchImage`) with the SHA-256
+ * of its bytes, or null: a binary input, as the asset catalogs are, which the
+ * bake records and packaging draws from the bytes it recorded. */
+export function launchImageInventory(app) {
+  const image = app.manifest.host?.ios?.launchImage;
+  if (!image) return null;
+  const source = resolve(app.dir, image.src);
+  if (!existsSync(source)) throw new Error(`host/apple: ${app.name}'s launch image ${image.src} does not exist`);
+  return { src: image.src, width: image.width, sha256: createHash('sha256').update(readFileSync(source)).digest('hex') };
+}
+
 /** Catalogs follow the app's native module directory selection; Icon Composer
  * projects are explicitly selected per platform. Their bytes
  * are native binary inputs, not portable plan assets or live update payloads. */
@@ -96,17 +107,18 @@ function catalogFiles(root) {
 export function iosAssets(app, dir, device, options = {}) {
   return appleAssets(app, dir, { ...options, device, platform: options.tv ? 'tvos' : 'ios' });
 }
-export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected, launch = 'system' } = {}) {
+export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected, expectedLaunchImage, launch = 'system' } = {}) {
   const sourcePlatform = platform === 'tvos' ? 'ios' : platform;
   const catalogs = appleAssetCatalogInventory(app, platform);
   const selected = catalogs.find(entry => entry.path.endsWith('.icon'));
   if (expected !== undefined && JSON.stringify(catalogs) !== JSON.stringify(expected))
     throw new Error('Apple asset catalogs changed after the bake; rebuild before packaging');
+  const launchImage = platform === 'ios' ? launchImageInventory(app) : null;
+  if (expectedLaunchImage !== undefined && JSON.stringify(launchImage) !== JSON.stringify(expectedLaunchImage))
+    throw new Error('the launch image changed after the bake; rebuild before packaging');
   if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
   if (kept) {
     const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
-    const image = app.manifest.host?.ios?.launchImage;
-    const launchImage = image ? [image, existsSync(resolve(app.dir, image.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, image.src))).digest('hex') : null] : null;
     const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch, launchImage,
       app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
       // What the compile itself writes: a cache from before `--accent-color` named no accent
@@ -117,7 +129,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       rmSync(making, { recursive: true, force: true });
       mkdirSync(making, { recursive: true });
       try {
-        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs, launch })));
+        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs, expectedLaunchImage: launchImage, launch })));
         rmSync(made, { recursive: true, force: true });
         renameSync(making, made);
       } finally { rmSync(making, { recursive: true, force: true }); }
@@ -137,7 +149,15 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       return copied;
     });
     const assets = resolve(work, 'Generated.xcassets');
-    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch) } : {};
+    // The launch image drawn is the bytes the inventory hashed, copied once.
+    let picture = null;
+    if (launchImage) {
+      const bytes = readFileSync(resolve(app.dir, launchImage.src));
+      if (createHash('sha256').update(bytes).digest('hex') !== launchImage.sha256) throw new Error('the launch image changed while capturing it; rebuild before packaging');
+      picture = { path: resolve(work, 'launch.png'), width: launchImage.width };
+      writeFileSync(picture.path, bytes);
+    }
+    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch, picture) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
     const iconName = selected ? basename(selected.path, '.icon') : hasIcon ? 'AppIcon' : null;
     if (catalog && platform === 'ios' && !iconName) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare host.ios.icon or a square icon of at least 512 px`);
@@ -183,29 +203,27 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
  * same grey and nothing lighter shows between the launch screen and the first
  * frame (stopwatch, round 13: "blank white screen for ~1 s").
  * `UILaunchScreen` names colours and images only from an asset catalog, so
- * this writes its colour set, and the manifest's `host.ios.launchImage` as
- * an image set at its width in points (1x, 2x and 3x), which iOS centres on
- * that colour, for the shared compile. Returns the plist keys to merge. */
-function launchScreen(app, catalog, launch = 'system') {
+ * this writes its colour set, and the manifest's `host.ios.launchImage`
+ * (`picture`: its captured bytes' file and width) as an image set at its
+ * width in points (1x, 2x and 3x), which iOS centres on that colour, for the
+ * shared compile. Returns the plist keys to merge. */
+function launchScreen(app, catalog, launch = 'system', picture = null) {
   const named = app.manifest.background_color;
   const light = named ?? (launch === 'grouped' ? '#F2F2F7' : undefined);
   const dark = named ? app.manifest.background_color_dark : launch === 'grouped' ? '#000000' : undefined;
-  const image = app.manifest.host?.ios?.launchImage;
   const keys = {};
-  if (image) {
-    const source = resolve(app.dir, image.src);
-    if (!existsSync(source)) throw new Error(`host/apple: ${app.name}'s launch image ${image.src} does not exist`);
+  if (picture) {
     const set = resolve(catalog, 'ExactLaunchImage.imageset');
     mkdirSync(set, { recursive: true });
     const images = [1, 2, 3].map(scale => {
       const filename = `launch@${scale}x.png`;
-      run('sips', ['--resampleWidth', String(Math.round(image.width * scale)), source, '--out', resolve(set, filename)], { stdio: 'ignore' });
+      run('sips', ['--resampleWidth', String(Math.round(picture.width * scale)), picture.path, '--out', resolve(set, filename)], { stdio: 'ignore' });
       return { idiom: 'universal', filename, scale: `${scale}x` };
     });
     writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images, info: { author: 'exact', version: 1 } }));
     keys.UIImageName = 'ExactLaunchImage';
   }
-  if (!light) return image ? { UILaunchScreen: keys } : {};
+  if (!light) return picture ? { UILaunchScreen: keys } : {};
   const components = (hex, field) => {
     const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
     if (!m) throw new Error(`${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);

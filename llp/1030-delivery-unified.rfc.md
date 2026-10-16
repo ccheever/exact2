@@ -138,7 +138,10 @@ colour (`background_color`). An app whose first frame draws a picture
 on its background (the euxy port's unlit LED grid, Expo's splash
 `image` and `imageWidth`) launches showing it, where a colour alone
 flashed the bare background first. It is host metadata, part of the
-binary's identity as the icon is.
+binary's identity: the receipt names its bytes among the binary's inputs
+(and its SHA-256 in the metadata), so a replaced picture is a new binary,
+and packaging draws the bytes the bake recorded, refusing a picture
+replaced since (Astra's review).
 
 The panel's correction: the manifest is not one blob whose digest is
 the binary's identity. It has typed sections, and only some are
