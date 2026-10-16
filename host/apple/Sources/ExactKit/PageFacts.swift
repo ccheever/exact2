@@ -7,12 +7,14 @@
 // size `rem` lengths follow (the platform's body size, LLP 1115 D3: Dynamic
 // Type's body on iOS, 17 at the default; `NSFont.systemFontSize`, 13, on the
 // Mac). The runner answers all but the last through `exactPage()`; the
-// kernel lays out `rem` against the last. Under the agent the machine is never read: the
-// drive's values stand in (`prefer`'s `page` group), visible, online, a share
-// sheet, the pickers, focus, the platform's default body size (17 on iOS, 13
-// on the Mac) until it says otherwise (LLP 1069.000 D6), unless
-// `EXACT_DEVICE=real` asks for the machine's (LLP 1069.007 D8: a person
-// looking at the real thing).
+// kernel lays out `rem` against the last. Under the agent the machine's facts are
+// not read: the drive's values stand in (`prefer`'s `page` group), visible,
+// online, a share sheet, the pickers, focus, until it says otherwise (LLP
+// 1069.000 D6), unless `EXACT_DEVICE=real` asks for the machine's (LLP
+// 1069.007 D8: a person looking at the real thing). The text size is the
+// device's, as UIKit's controls have it, until `prefer root-font-size` names
+// one (LLP 1116.019 D2): a screenshot at an accessibility size is what a
+// person sees, not Exact's text at 17 points among controls at 53.
 #if os(macOS)
 import AppKit
 typealias FocusWindow = NSWindow
@@ -24,7 +26,7 @@ import Network
 
 package enum PageFacts {
     /// What an agent's `prefer` set, in place of the platform's readings.
-    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double(defaultRootFontSize)) {
+    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double?.none) {
         didSet { changed() }
     }
     /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
@@ -123,7 +125,7 @@ package enum PageFacts {
     /// (its body style is 29 points, read at ten feet).
     static var rootFontSize: Double {
         if let pinnedRootFontSize { return pinnedRootFontSize }
-        if substituted { return agent.rootFontSize }
+        if substituted, let size = agent.rootFontSize { return size }
         #if os(macOS)
         return Double(NSFont.systemFontSize)
         #elseif os(tvOS)
@@ -133,8 +135,8 @@ package enum PageFacts {
         #endif
     }
 
-    /// The body size at the platform's default settings: what the agent
-    /// pins until its drive says otherwise (`prefer`'s `root-font-size`).
+    /// The body size at the platform's default settings: a text's size when
+    /// its style names none.
     package static let defaultRootFontSize: CGFloat = {
         #if os(macOS)
         return 13
