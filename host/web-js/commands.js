@@ -6,12 +6,17 @@ import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize }
 // A prompt's Return (kernel/src/confirmation.rs): Enter in an alertdialog's
 // text field presses its first enabled action that is not destructive, as
 // Return chooses a native prompt's (`preferredAction`, NSAlert's default
-// button). A field whose author handles Enter (`submit`) keeps it.
+// button). The field's edit commits first (its `change`, as leaving it does),
+// so the action reads it and an action enabled by it counts. A field whose
+// author handles Enter (`submit`) keeps it.
 addEventListener("keydown", ev => {
-  const dialog = ev.key === "Enter" && !ev.isComposing && !ev.defaultPrevented && !ev.$submit && ev.target?.localName === "input"
-    && ev.target.closest('dialog[role="alertdialog"], [popover][role="alertdialog"]');
-  const action = dialog && [...dialog.querySelectorAll("button")].find(b => b.matches('[data-exact-on~="press"]:not([data-destructive="true"]):not(:disabled)'));
-  if (action) { ev.preventDefault(); action.click(); }
+  const field = ev.target, dialog = ev.key === "Enter" && !ev.isComposing && !ev.defaultPrevented && !ev.$submit && field?.localName === "input"
+    && field.closest('dialog[role="alertdialog"], [popover][role="alertdialog"]');
+  if (!dialog) return;
+  ev.preventDefault();
+  field.blur();
+  const action = [...dialog.querySelectorAll("button")].find(b => b.matches('[data-exact-on~="press"]:not([data-destructive="true"]):not(:disabled)'));
+  if (action) action.click(); else field.focus();
 });
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
