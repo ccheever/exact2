@@ -1151,6 +1151,14 @@ fn shell_top_layer_reports_viewport_frames_and_modal_visibility_to_reads() {
         .replace(
             "id=\"confirm\" role",
             "id=\"confirm\" data-paint=\"accent\" role",
+        )
+        .replace(
+            "dialog id=\"light\"",
+            "column id=\"light\" popover=\"auto\" data-paint=\"accent\"",
+        )
+        .replace(
+            "commandfor=\"light\" command=\"close\"",
+            "popovertarget=\"light\" popovertargetaction=\"hide\"",
         );
     let (mut p, error) = Presenter::boot_with(
         &crate::test_plan(&source),
@@ -1203,14 +1211,14 @@ fn shell_top_layer_reports_viewport_frames_and_modal_visibility_to_reads() {
         );
         assert_eq!(
             p.host.runner().slot("hits"),
-            Some(&Value::list(vec![Value::str("menu")]))
+            Some(&Value::list(vec![Value::str("menu"), Value::str("page")]))
         );
         assert_eq!(
             p.host.runner().slot("shown"),
-            Some(&Value::list(vec![Value::str("menu")]))
+            Some(&Value::list(vec![Value::str("page"), Value::str("menu")]))
         );
         probe(&mut p, 1.0, 1.0);
-        assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("none")));
+        assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
     }
     p.key_down("Escape", 1.0);
     probe(&mut p, 1.0, 1.0);
@@ -1221,6 +1229,8 @@ fn shell_top_layer_reports_viewport_frames_and_modal_visibility_to_reads() {
     );
     tap(&mut p, "ask").unwrap();
     probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("none")));
+    assert_eq!(p.host.runner().slot("hits"), Some(&Value::list(vec![])));
     assert_eq!(
         p.host.runner().slot("shown"),
         Some(&Value::list(vec![Value::str("confirm")]))
@@ -1231,6 +1241,14 @@ fn shell_top_layer_reports_viewport_frames_and_modal_visibility_to_reads() {
     assert_eq!(
         p.host.runner().slot("shown"),
         Some(&Value::list(vec![Value::str("page")]))
+    );
+    p.popover_command("showPopover", &[Value::str("light")]);
+    assert_eq!(p.surface().unwrap().kind, SurfaceKind::Alert);
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page"), Value::str("light")]))
     );
 }
 

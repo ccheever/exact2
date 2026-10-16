@@ -1009,8 +1009,8 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// The shell makes the page inert under either kind of surface. Its
-    /// menu frame is in window pixels; the runner reads viewport points.
+    /// Report the shell's frame in viewport points and whether it opened
+    /// modally. A popover leaves the document reachable to structural reads.
     /// Native alerts, as on Apple, report no authored geometry.
     fn report_top_layer(&mut self) {
         let Some(open) = &self.top.open else {
@@ -1026,7 +1026,8 @@ impl<D: DataSource> Presenter<D> {
             }
         };
         let frames = [(open.node, rect)];
-        self.host.runner_mut().top_layer_frames(&frames, Some(0));
+        let modal = open.modal.then_some(0);
+        self.host.runner_mut().top_layer_frames(&frames, modal);
     }
 
     /// The open surface as the shell is told it: its frame in the window
