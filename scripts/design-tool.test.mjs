@@ -198,8 +198,8 @@ test('every control on the dials panel comes from the design as describe gives i
 /** `bun scripts/agent.mjs web --url <url>` running `ops`, each reply parsed
  * (spawned, not run synchronously: the proxy below answers in this
  * process). */
-async function drive(url, storage, ops) {
-  const child = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+async function drive(url, storage, ops, { keepStorage = false } = {}) {
+  const child = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', storage, ...(keepStorage ? ['--keep-storage'] : []), '--json', ...ops], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   child.stderr.on('data', d => { said = (said + d).slice(-4000); });
   const out = lines(child);
@@ -598,7 +598,7 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
       // Tailwind's default theme, and Figma's export (a file a mode).
       'type import-kind tailwind', 'tap import-choose', `type @import-file ${join(fixtures, 'tailwind-theme.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
       'type import-kind dtcg', 'tap import-choose', `type @import-file ${figma.join('\n')}`, 'clock data', 'clock +1', 'clock data', 'state',
-    ]);
+    ], { keepStorage: true });
     const later = more.filter(r => r.resources);
     const after = later[0].resources.changes.held.find(h => h.proposal === edited);
     expect(after).toMatchObject({ from: id, kept: true });
