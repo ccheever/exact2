@@ -36,6 +36,9 @@ impl<D: DataSource> Presenter<D> {
             Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),
             _ => {}
         }
+        // The build channel (LLP 1122 D4): the frames its tick took, the
+        // commands dispatched before any generation is handled.
+        self.serve_build_channel();
         if let Some(generation) = self.pending_dev.take() {
             match self.reload_module(&generation.plan, data(), generation.module.clone()) {
                 Ok(_) => {
@@ -51,8 +54,6 @@ impl<D: DataSource> Presenter<D> {
         if self.pending_dev.is_none() {
             self.serve_live();
         }
-        // The build channel (LLP 1122 D4): the frames the tick took.
-        self.serve_build_channel();
     }
 
     pub(super) fn prepare_logic(

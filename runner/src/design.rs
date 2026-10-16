@@ -4,11 +4,11 @@
 //!
 //! A **batch** carries the tokens a value-only edit changed, each as wire
 //! text (colours as CSS text, as LLP 1095's wire carries them) with its
-//! slice per app tuple where it varies, the plan's structure digest, the
-//! design digest it applies to (`base`) and the new one. A build applies it
-//! only when `base` is the design it runs; otherwise it fetches the
-//! **snapshot** (`/__dev/design`): every token, no base, applied when the
-//! structure is its plan's. A **notice** (a batch of no tokens, [`notice`])
+//! slice per app tuple where it varies, the design's shape digest
+//! ([`shape`]), the design digest it applies to (`base`) and the new one. A
+//! build applies it only when the shape is its plan's and `base` is the
+//! design it runs; otherwise it fetches the **snapshot** (`/__dev/design`):
+//! every token, no base, applied when the shape is its plan's. A **notice** (a batch of no tokens, [`notice`])
 //! tells a build that connects, or missed a batch, which design to run.
 //! Each process interns what it parses itself, so no wide colour id
 //! crosses.
@@ -33,7 +33,7 @@ pub struct Token {
 /// its target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edit {
-    /// The plan structure it is for ([`structure`]).
+    /// The design shape it is for ([`shape`]).
     pub structure: String,
     /// The design digest it applies to; `None` for a snapshot.
     pub base: Option<String>,

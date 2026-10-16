@@ -1,11 +1,14 @@
+#if os(macOS)
+import AppKit
+#endif
 import Foundation
 import XCTest
 @testable import ExactKit
 
 // The build channel's host half (LLP 1122 D4): a pin read as the server
 // sends it (scripts/tamber-builds.mjs `pinRefused`), the commands dispatched
-// before generation handling, the process id the server accepts, and a live
-// batch's design digest.
+// before generation handling, the process id the server accepts, a live
+// batch's design digest, and the plan's own after a boot.
 final class BuildChannelTests: XCTestCase {
     private func parse(_ json: String) -> (pin: BuildPin?, refused: String?) {
         let frame = try! JSONSerialization.jsonObject(with: Data("{\"pin\":\(json)}".utf8)) as! [String: Any]
@@ -60,4 +63,22 @@ final class BuildChannelTests: XCTestCase {
         XCTAssertNil(other.design)
         XCTAssertNotEqual(other.error, "unreadable batch")
     }
+
+    #if os(macOS)
+    /// A boot, as a generation, reports its plan's own design: the server's
+    /// `/__dev/design` answers 204 when its design is the plan's, so no
+    /// snapshot replaces a digest a live batch left from the plan before.
+    func testABootReportsItsPlansDesign() {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "build-channel-design")
+        defer { session.destroy(); BuildChannel.design = nil }
+        XCTAssertNil(session.runtime.designDigest(), "nothing runs before boot")
+        BuildChannel.design = "the last plan's"
+        XCTAssertNil(session.boot(size: CGSize(width: 400, height: 300)).error)
+        let digest = session.runtime.designDigest()
+        XCTAssertNotNil(digest)
+        XCTAssertNotEqual(digest, "")
+        XCTAssertEqual(BuildChannel.design, digest)
+    }
+    #endif
 }

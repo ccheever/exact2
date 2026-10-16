@@ -169,7 +169,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // subscription that names it, or a long poll open or answered within the
   // last 35 s (the poll's 25 s and some), as a client whose fetch reads a
   // body whole holds the wire. A client no longer present loses its pins on
-  // every build.
+  // every build. The same timer expires a polled build that stopped polling.
   const presence = new Map(); // client -> { open, answered }
   const PRESENT_MS = 35_000;
   const present = client => { const p = presence.get(client); return !!p && (p.open > 0 || Date.now() - p.answered < PRESENT_MS); };
@@ -180,7 +180,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (answered) p.answered = Date.now();
     presence.set(client, p);
   };
-  const absent = () => { for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
+  const absent = () => { channel.sweep(); for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
   const absence = setInterval(absent, 5_000);
   absence.unref?.();
   /** Announce `files` (path → digest): the paths whose digest moved, and

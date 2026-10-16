@@ -418,12 +418,16 @@ A write reaches every running development build at once. Release builds take non
   same case. The plan file is still written, for a host that watches the file instead of the
   stream.
   - **The structure** is the plan without its design values: every `theme` row's `value` and
-    every slice's, except a role override's or a profile colour's, which hosts take at boot.
+    every slice's, except a role override's or a profile colour's, which hosts take at boot. The
+    dev loop compares it; it does not go on the wire.
   - **Anything else** still publishes a plan and reloads: a Contract edit, a token added, gone or
     starting to vary, a role override's value, a synthetic token gained or lost.
 - **The batch** is an event on the dev stream the builds already hold (`/__dev`; the JS target's
   `/__dev/page`): `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
   slices}]}`.
+  - `structure` is the digest of the design's **shape** (`design::shape`): the axes, and each
+    token's name, role, role override value and slice count. The JS target's build and a wasm or
+    native build of the same sources share it, though their plans differ.
   - `value` is the default tuple's wire text (a colour as CSS text), and `slices` one text per full
     app tuple where the token varies. A synthetic token's name is its expression, and its new value
     rides along.
@@ -433,7 +437,8 @@ A write reaches every running development build at once. Release builds take non
   commit with no layout for colours. A build on another design answers stale and fetches the
   **snapshot**: `GET /__dev/design` answers `{kind: "tamber-snapshot", structure, base: null,
   design, tokens}` with every token, or 204 when no value-only edit came after the published plan.
-  A build applies a snapshot when its structure is the plan's it runs.
+  A build applies a batch or a snapshot only when its `structure` equals the shape of the plan it
+  runs (`design::shape`); on another it answers `structure`, as a new plan is on its way.
 - **A notice** is a batch with no tokens whose `base` and `design` are the current design. A build
   on that design applies nothing; one on another fetches the snapshot. The stream sends one on
   connect, after value-only edits, and in place of a batch too large for a frame (32 KiB). A
@@ -457,13 +462,16 @@ The tool drives no input into an app; a command changes only what `prefer` would
     again. Every registration is told the pin the server holds for it, or none.
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
     no plan, sends none), and `design` its design digest.
-  - The nonce is 128 random bits. Builds a registration names are kept, at most 256; polled
-    streams at most 64.
+  - The nonce is 128 random bits. A stream is one build: another `id` registered on it replaces
+    the build it was, and that build's pin. Builds a registration names are kept, at most 256;
+    polled streams at most 64.
   - A report whose nonce is no open stream's is refused (403): the dev loop takes other POSTs
-    with no token. A report before a registration is 409.
+    with no token. A report before a registration is 409. A report's body is at most 64 KiB,
+    read within 10 s.
   - A build with no stream opens a polled one: `GET /__dev/hello` gives a nonce, and `GET
-    /__dev/commands?nonce=` answers the frames since its last poll (a polled stream unpolled for 5
-    seconds is disconnected). Linux does this, and so does the JS loop's resident `--serve-as`
+    /__dev/commands?nonce=` answers the frames since its last poll, at most 32 KiB of them (the
+    rest wait for the next poll, and a batch larger alone goes as its notice). A polled stream
+    unpolled for 5 seconds is disconnected. Linux does this, and so does the JS loop's resident `--serve-as`
     producer, which relays the frames onto its devices' streams; their reports go to the main
     loop directly.
 - **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:

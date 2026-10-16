@@ -1,10 +1,10 @@
 //! The build channel's polled stream (LLP 1122 D4, LLP 1121 stage 4 commit
-//! 5): this host holds no SSE dev stream, so the URL poller's worker asks
+//! 5): this host holds no SSE dev stream, so the URL poller's channel worker asks
 //! `/__dev/hello` for a nonce, registers with it (`POST /__dev/report`), and
 //! on each tick sends what the presenter queued and takes the frames queued
 //! for it (`GET /__dev/commands`). A 404 hello is a dev loop with no design
 //! server: the channel is quiet a while, then asks again. A 403 is an
-//! expired nonce (30 s unpolled, or a restarted loop): hello again and
+//! expired nonce (5 s unpolled, or a restarted loop): hello again and
 //! register again, under the same id, so the loop replays this build's pins.
 //! Only the worker touches the network; the presenter applies the frames
 //! (`presenter/build_channel.rs`).
@@ -111,6 +111,12 @@ impl Link {
         let wanted = self.nonce.is_none() || self.snapshot;
         self.snapshot = false;
         wanted
+    }
+
+    /// A snapshot [`Link::take_design`] asked for did not come (a failed
+    /// request, a 5xx): the next tick asks again.
+    pub fn missed_design(&mut self) {
+        self.snapshot = true;
     }
 
     /// The live-table frames (`tamber-batch`, `tamber-snapshot`) the ticks
@@ -650,6 +656,133 @@ mod tests {
             (Some(1), Some(2))
         );
         assert_eq!(link.frames, [json!({"kind": "pin"})]);
+    }
+
+    /// A dev loop answering each request on its own thread, by path; a
+    /// `None` reply holds the request open.
+    fn serve(reply: impl Fn(&str) -> Option<(u16, String)> + Send + Sync + 'static) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let page = format!("http://{}/", listener.local_addr().unwrap());
+        let reply = Arc::new(reply);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let reply = reply.clone();
+                std::thread::spawn(move || {
+                    let mut head = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).unwrap_or(0) == 1 {
+                        head.push(byte[0]);
+                    }
+                    let head = String::from_utf8_lossy(&head).to_string();
+                    let length: usize = head
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap())
+                        })
+                        .unwrap_or(0);
+                    let mut body = vec![0u8; length];
+                    let _ = stream.read_exact(&mut body);
+                    let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let Some((status, body)) = reply(&path) else {
+                        std::thread::sleep(Duration::from_secs(30));
+                        return;
+                    };
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                });
+            }
+        });
+        page
+    }
+
+    /// Poll until `done`, or fail after `within`.
+    fn poll_until(
+        poller: &mut crate::fetch::Poller,
+        within: Duration,
+        mut done: impl FnMut(&mut crate::fetch::Poller, bool) -> bool,
+    ) {
+        let until = Instant::now() + within;
+        loop {
+            let finished = poller.poll().is_err();
+            if done(poller, finished) {
+                return;
+            }
+            assert!(Instant::now() < until, "timed out");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// The commands poll keeps its pace while a plan download stalls: the
+    /// loop drops a stream left unpolled 5 s, and the pins sent meanwhile.
+    #[test]
+    fn a_stalled_plan_download_does_not_stop_the_commands_poll() {
+        let polls = Arc::new(Mutex::new(0));
+        let counted = polls.clone();
+        let page = serve(move |path| match path {
+            "/" => None,
+            "/__dev/hello" => Some((200, json!({"nonce": "n"}).to_string())),
+            "/__dev/report" => Some((200, "{}".into())),
+            p if p.starts_with("/__dev/commands") => {
+                *counted.lock().unwrap() += 1;
+                Some((
+                    200,
+                    json!([{"kind": "pin", "revision": 1, "pin": null}]).to_string(),
+                ))
+            }
+            _ => Some((503, "{}".into())),
+        });
+        let mut poller = crate::fetch::Poller::new(page, "{}".into(), None);
+        poll_until(&mut poller, Duration::from_secs(4), |_, finished| {
+            assert!(!finished, "the plan request is held open");
+            *polls.lock().unwrap() >= 3
+        });
+        let link = poller.link.as_mut().unwrap();
+        assert!(link.registered);
+        assert!(link.frames.len() >= 2, "each poll's pin is taken");
+    }
+
+    /// A snapshot asked for and not answered (a 5xx) is asked for again
+    /// next tick, and not again once one came.
+    #[test]
+    fn a_failed_snapshot_is_asked_for_again() {
+        let designs = Arc::new(Mutex::new(0));
+        let counted = designs.clone();
+        let page = serve(move |path| match path {
+            "/__dev/design" => {
+                let mut n = counted.lock().unwrap();
+                *n += 1;
+                Some(if *n == 1 {
+                    (503, "{}".into())
+                } else {
+                    (200, "{\"s\":1}".into())
+                })
+            }
+            p if p.starts_with("/__dev/commands") => Some((200, "[]".into())),
+            _ => Some((404, String::new())),
+        });
+        let mut poller = crate::fetch::Poller::new(page, "{}".into(), None);
+        let link = poller.link.as_mut().unwrap();
+        link.nonce = Some("n".into());
+        link.snapshot = true;
+        // The first tick's snapshot fails: still asked for.
+        poll_until(&mut poller, Duration::from_secs(4), |_, finished| finished);
+        assert_eq!(*designs.lock().unwrap(), 1);
+        assert!(poller.link.as_ref().unwrap().snapshot);
+        assert_eq!(poller.design, None);
+        // The next comes.
+        poll_until(&mut poller, Duration::from_secs(4), |_, finished| finished);
+        assert_eq!(*designs.lock().unwrap(), 2);
+        assert_eq!(poller.design.as_deref(), Some("{\"s\":1}"));
+        assert!(!poller.link.as_ref().unwrap().snapshot);
+        // And no third.
+        poll_until(&mut poller, Duration::from_secs(4), |_, finished| finished);
+        assert_eq!(*designs.lock().unwrap(), 2);
     }
 
     #[test]

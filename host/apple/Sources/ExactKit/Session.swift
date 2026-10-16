@@ -833,7 +833,7 @@ public final class ExactSession {
             routerOp = nil
             generation += 1
             if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
-            booted = true; app.liveBooted()
+            booted = true; app.liveBooted(self)
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
@@ -922,7 +922,7 @@ public final class ExactSession {
         awaitingTree = true // the tint a reset gives back is reported with the new tree
         presenter.reset()
         forgetAppearances()
-        booted = true; app.liveBooted()
+        booted = true; app.liveBooted(self)
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)

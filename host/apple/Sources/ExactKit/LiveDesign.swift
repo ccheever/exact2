@@ -27,7 +27,12 @@ extension ExactApp {
     }
 
     /// A session booted from the published plan, which carries that plan's
-    /// own design: the one the server's builds run is fetched again; a pin
-    /// held is set on it, and the generation reported (LLP 1122 D4).
-    func liveBooted() { connection?.syncDesign(); repinBooted() }
+    /// own design: that design is the one reported until the server's
+    /// snapshot says otherwise (`/__dev/design` answers 204 while the
+    /// server's is the plan's), fetched again here; a pin held is set on
+    /// it, and the generation reported (LLP 1122 D4).
+    func liveBooted(_ session: ExactSession) {
+        if BuildChannel.enabled, let design = session.runtime.designDigest() { BuildChannel.design = design }
+        connection?.syncDesign(); repinBooted()
+    }
 }

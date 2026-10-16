@@ -227,8 +227,10 @@ if (es) {
       return accepted;
     },
     // A new generation runs its plan's own design: the live one since, if any, comes after.
-    // And the pin held, set again on its runner; its status says the new generation.
-    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; if (channel.held) command(channel.held); else if (channel.nonce) status(); },
+    // And the pin held, set again on its runner; its status says the new generation,
+    // and the design its runner runs (read from it: /__dev/design is 204 when the
+    // plan's own is the one to run, so no live answer would say it).
+    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; if (channel.held) command(channel.held); else if (channel.nonce) status(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -309,20 +311,27 @@ if (es) {
     const fresh = () => `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`;
     let id;
     try { id = sessionStorage.getItem("exact.dev.build"); } catch { return fresh(); }
-    if (id && typeof BroadcastChannel === "function") {
-      const tabs = new BroadcastChannel("exact.dev.build"), mine = id;
+    const tabs = typeof BroadcastChannel === "function" ? new BroadcastChannel("exact.dev.build") : null;
+    if (id && tabs) {
+      const mine = id;
       const taken = await new Promise((done) => { tabs.onmessage = (e) => { if (e.data === `taken:${mine}`) done(true); }; tabs.postMessage(`who:${mine}`); setTimeout(() => done(false), 60); });
       if (taken) id = null;
-      const own = id ?? fresh();
-      tabs.onmessage = (e) => { if (e.data === `who:${own}`) tabs.postMessage(`taken:${own}`); };
-      id = own;
     }
     id ??= fresh();
+    // Answered for any id this tab holds, one it just made included: a tab
+    // duplicated from it copies that too.
+    if (tabs) { const own = id; tabs.onmessage = (e) => { if (e.data === `who:${own}`) tabs.postMessage(`taken:${own}`); }; }
     try { sessionStorage.setItem("exact.dev.build", id); } catch { /* storage refused */ }
     return id;
   })();
-  const post = (body) => fetch("/__dev/report", { method: "POST", body: JSON.stringify({ nonce: channel.nonce, ...body }) });
-  const report = async (body) => { if (!channel.nonce || !(await channel.registered)) return; await post(body).catch(() => {}); };
+  const post = (nonce, body) => fetch("/__dev/report", { method: "POST", body: JSON.stringify({ nonce, ...body }) });
+  // A report goes on the stream whose registration it waited for: one that
+  // a new stream (a reconnect) replaced meanwhile is dropped.
+  const report = async (body) => {
+    const { nonce, registered } = channel;
+    if (!nonce || !(await registered) || channel.nonce !== nonce || channel.registered !== registered) return;
+    await post(nonce, body).catch(() => {});
+  };
   const wasmCall = async (name, ...args) => { const x = globalThis.exact; await x.ready; if (typeof x.wasm?.[name] !== "function") return null; const n = x.wasm[name](...args), out = JSON.parse(x.readOut(n)); x.send(n); return out; };
   const modes = async () => { const x = globalThis.exact; await x.ready; return x.wasm?.exact_set_mode ? JSON.parse(x.readOut(x.wasm.exact_set_mode(x.writeIn("?")))).modes ?? null : null; };
   // The design this build runs: the runner's, said beside any answer (a
@@ -390,12 +399,12 @@ if (es) {
     if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
-      channel.nonce = message.nonce;
+      const nonce = channel.nonce = message.nonce;
       channel.plan ??= message.generation ?? null;
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const answer = await post({ kind: "register", id: await buildId, host: "web", capabilities: ["pin"], plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow() });
+        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin"], plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow() });
         return answer.ok;
       })().catch(() => false);
       status();

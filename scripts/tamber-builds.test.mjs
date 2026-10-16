@@ -2,10 +2,11 @@
 // by nonce and the build list, a report without the nonce refused, `pin` on
 // one build only and its effective facts reported, a client's pins cleared
 // when it goes and replayed to a build that registers again, a command
-// never read as a plan push, and a polled stream (Linux, the resident loop's
-// relay), which expires and is bounded.
+// never read as a plan push, a stream that is one build, and a polled stream
+// (Linux, the resident loop's relay), which expires, is bounded, and answers
+// a poll within the hosts' limits; a report's body read safely.
 import { expect, test } from 'bun:test';
-import { buildChannel, relayChannel } from './tamber-builds.mjs';
+import { buildChannel, relayChannel, serveReport } from './tamber-builds.mjs';
 
 const stream = channel => {
   const frames = [];
@@ -71,7 +72,8 @@ test('a polled stream queues its frames, expires unpolled, and is bounded', () =
   let now = 1_000_000;
   Date.now = () => now;
   try {
-    const channel = buildChannel();
+    const events = [];
+    const channel = buildChannel({ send: e => events.push(e) });
     const { nonce } = channel.openPolled();
     expect(register(channel, nonce, 'linux-1', 'linux').status).toBe(200);
     expect(channel.poll(nonce)).toEqual([{ kind: 'pin', revision: 0, pin: null }]);
@@ -79,15 +81,73 @@ test('a polled stream queues its frames, expires unpolled, and is bounded', () =
     expect(channel.poll(nonce)).toEqual([{ kind: 'pin', revision: 1, pin: { rootFontSize: 20 } }]);
     expect(channel.poll(nonce)).toEqual([]);
     expect(channel.poll('other')).toBe(null);
-    // Unpolled for 30 s: gone, its reports refused, its build off the list.
-    now += 31_000;
-    expect(report(channel, { nonce, kind: 'status' }).status).toBe(403);
+    // Unpolled for 5 s: gone with nothing else on the channel. The list
+    // says so, and the server's timer (`sweep`) tells the clients.
+    now += 4_000;
+    expect(channel.list().map(b => b.id)).toEqual(['linux-1']);
+    now += 1_001;
+    channel.sweep();
+    expect(events.at(-1)).toEqual({ event: 'builds', builds: [] });
     expect(channel.list()).toEqual([]);
+    expect(report(channel, { nonce, kind: 'status' }).status).toBe(403);
     // Hellos nobody polls are bounded: the oldest go first.
     const first = channel.openPolled().nonce;
     for (let i = 0; i < 100; i++) { now += 1; channel.openPolled(); }
     expect(channel.poll(first)).toBe(null);
   } finally { Date.now = realNow; }
+});
+
+test('a stream is one build: registering another id replaces it, so the cap holds', () => {
+  const channel = buildChannel();
+  const a = stream(channel);
+  expect(register(channel, a.nonce, 'web-0').status).toBe(200);
+  channel.pin('tool', 'web-0', { scheme: 'dark' });
+  for (let i = 1; i <= 1000; i++) register(channel, a.nonce, `web-${i}`);
+  expect(channel.list().map(b => b.id)).toEqual(['web-1000']);
+  // The build it was is gone, its pin with it: registering it again has none.
+  expect(channel.owners()).toEqual([]);
+  // The cap still forgets the oldest disconnected builds.
+  for (let i = 0; i < 300; i++) { const s = stream(channel); register(channel, s.nonce, `b-${i}`); s.close(); }
+  expect(register(channel, stream(channel).nonce, 'b-0').status).toBe(200);
+  expect(channel.list().map(b => b.id)).toEqual(['web-1000', 'b-0']);
+});
+
+test('a poll answers at most 32 KiB: a frame over it as a notice, the rest queued', () => {
+  const channel = buildChannel();
+  const { nonce } = channel.openPolled();
+  const token = (i, n) => ({ name: `t${i}`, value: 'x'.repeat(n), slices: [] });
+  const big = { kind: 'tamber-batch', structure: 's', base: 'd0', design: 'd1', tokens: [token(0, 40_000)] };
+  channel.broadcast(big);
+  expect(channel.poll(nonce)).toEqual([{ kind: 'tamber-batch', structure: 's', base: 'd1', design: 'd1', tokens: [] }]);
+  const mid = i => ({ kind: 'tamber-batch', structure: 's', base: `d${i}`, design: `d${i + 1}`, tokens: [token(i, 12_000)] });
+  for (let i = 0; i < 5; i++) channel.broadcast(mid(i));
+  const polls = [];
+  for (let frames; (frames = channel.poll(nonce)).length;) polls.push(frames);
+  for (const frames of polls) expect(Buffer.byteLength(JSON.stringify(frames))).toBeLessThanOrEqual(32 * 1024);
+  expect(polls.flat()).toEqual([0, 1, 2, 3, 4].map(mid));
+  expect(polls.length).toBe(3);
+});
+
+test('a report\'s body: read within its bound, an abort or an oversize body survived', async () => {
+  const { createServer, request } = await import('node:http');
+  const channel = buildChannel();
+  const server = createServer((req, res) => serveReport(channel, req, res));
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  const at = `http://127.0.0.1:${server.address().port}/__dev/report`;
+  const send = (body, abort = false) => new Promise((ok) => {
+    const out = request(at, { method: 'POST', headers: { 'content-length': String(1 << 20) } }, (res) => { res.resume(); ok(res.statusCode); });
+    out.on('error', () => ok('reset'));
+    out.write(body);
+    if (abort) setTimeout(() => { out.destroy(); ok('aborted'); }, 20);
+  });
+  // Aborted midway: the server goes on.
+  expect(await send('{"nonce":', true)).toBe('aborted');
+  // Over 64 KiB: its socket destroyed.
+  expect(await send('x'.repeat(70 * 1024))).toBe('reset');
+  const { nonce } = channel.open(() => {});
+  const answer = await fetch(at, { method: 'POST', body: JSON.stringify({ nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: [] }) });
+  expect(answer.status).toBe(200);
+  server.close();
 });
 
 // The resident loop (`dev.mjs --serve-as`) relays the main loop's commands to

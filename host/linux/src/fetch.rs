@@ -114,32 +114,42 @@ pub(crate) struct Poller {
     pub identity: Option<String>,
     due: std::time::Instant,
     worker: Option<std::sync::mpsc::Receiver<Tick>>,
+    /// The in-flight tick asked for `/__dev/design`.
+    asked_design: bool,
     /// The dev server's design snapshot, as last polled, for the presenter
     /// to apply (a build on it already applies nothing).
     pub design: Option<String>,
-    /// The build channel (LLP 1122 D4), polled on the same worker.
+    /// The build channel (LLP 1122 D4), polled on its own worker: a slow
+    /// plan download must not leave the stream unpolled past the server's
+    /// 5 s, which drops it and the pins sent meanwhile.
     pub link: Option<crate::build_channel::Link>,
+    channel: Option<std::sync::mpsc::Receiver<crate::build_channel::Answer>>,
+    channel_due: std::time::Instant,
 }
 
-type Tick = (
-    FetchOutcome,
-    Option<Option<String>>,
-    Option<crate::build_channel::Answer>,
-);
+type Tick = (FetchOutcome, Option<Option<String>>);
+
+/// The pause after a tick before the next: well under the 5 s a polled
+/// build stream lives unpolled.
+const TICK: std::time::Duration = std::time::Duration::from_millis(500);
 
 impl Poller {
     pub fn new(url: String, compat: String, identity: Option<String>) -> Self {
         // No channel in a production build (LLP 1122 D4), dev plan or not.
         let link = (is_url(&url) && !exact_runner::delivery::production(&compat))
             .then(|| crate::build_channel::Link::new(identity.clone()));
+        let now = std::time::Instant::now();
         Self {
             url,
             compat,
             identity,
-            due: std::time::Instant::now(),
+            due: now,
             worker: None,
+            asked_design: false,
             design: None,
             link,
+            channel: None,
+            channel_due: now,
         }
     }
 
@@ -152,17 +162,54 @@ impl Poller {
         }
     }
 
+    /// Take a finished channel tick back and start the next when due,
+    /// whatever the plan worker is doing.
+    fn poll_channel(&mut self) {
+        let Some(link) = self.link.as_mut() else {
+            return;
+        };
+        if let Some(worker) = &self.channel {
+            match worker.try_recv() {
+                Ok(answer) => {
+                    self.channel = None;
+                    link.settle(answer);
+                    self.channel_due = std::time::Instant::now() + TICK;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.channel = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            }
+        }
+        if std::time::Instant::now() < self.channel_due {
+            return;
+        }
+        self.channel_due = std::time::Instant::now() + TICK;
+        if let Some(exchange) = link.exchange() {
+            let url = self.url.clone();
+            let (send, receive) = std::sync::mpsc::channel();
+            self.channel = Some(receive);
+            std::thread::spawn(move || {
+                let _ = send.send(exchange.run(&url));
+            });
+        }
+    }
+
     pub fn poll(&mut self) -> FetchOutcome {
+        // The channel first: the presenter dispatches a tick's frames
+        // before the generation this hands back (`poll_development`).
+        self.poll_channel();
         if let Some(worker) = &self.worker {
             match worker.try_recv() {
-                Ok((outcome, design, answer)) => {
+                Ok((outcome, design)) => {
                     self.worker = None;
-                    self.keep_design(design);
-                    if let (Some(link), Some(answer)) = (self.link.as_mut(), answer) {
-                        link.settle(answer);
+                    // A snapshot asked for and not answered (a failed
+                    // request, a 5xx) is asked for again next tick.
+                    if self.asked_design && design.is_none() {
+                        if let Some(link) = self.link.as_mut() {
+                            link.missed_design();
+                        }
                     }
-                    // Well under the 5 s a polled build stream lives unpolled.
-                    self.due = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    self.keep_design(design);
+                    self.due = std::time::Instant::now() + TICK;
                     return outcome;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -178,14 +225,13 @@ impl Poller {
             // Once the channel is on, live frames come down its poll and
             // the snapshot is fetched only when asked (LLP 1122 D4).
             let design = self.link.as_mut().is_none_or(|link| link.take_design());
-            let exchange = self.link.as_mut().and_then(|link| link.exchange());
+            self.asked_design = design;
             let (send, receive) = std::sync::mpsc::channel();
             self.worker = Some(receive);
             std::thread::spawn(move || {
                 let changed = fetch_changed(&url, &compat, previous.as_deref());
                 let design = design.then(|| fetch_design(&url)).flatten();
-                let answer = exchange.map(|exchange| exchange.run(&url));
-                let _ = send.send((changed, design, answer));
+                let _ = send.send((changed, design));
             });
         }
         Ok(None)

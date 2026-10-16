@@ -46,7 +46,7 @@ import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
-import { relayChannel } from '../../scripts/tamber-builds.mjs';
+import { relayChannel, serveReport } from '../../scripts/tamber-builds.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
@@ -1149,11 +1149,7 @@ const server = createServer(async (req, res) => {
   // nonce; a build that holds no stream (Linux) opens a polled one.
   if (url.pathname === '/__dev/report' && req.method === 'POST') {
     if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-    const chunks = []; let size = 0;
-    for await (const chunk of req) { size += chunk.length; if (size > 64 * 1024) { res.writeHead(413); res.end(); return; } chunks.push(chunk); }
-    const answer = tamber.channel.report(Buffer.concat(chunks).toString('utf8'));
-    res.writeHead(answer.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(answer.body == null ? undefined : JSON.stringify(answer.body));
+    await serveReport(tamber.channel, req, res);
     return;
   }
   if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {

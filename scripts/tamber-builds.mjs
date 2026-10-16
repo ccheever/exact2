@@ -32,6 +32,13 @@ const ID = /^[\w.:-]{1,64}$/;
 // no token, so what they keep is bounded.
 // A Linux build polls twice a second: unpolled 5 s, it is disconnected.
 const POLLED_MS = 5_000, POLLED = 64, BUILDS = 256;
+// One poll's answer, and so any frame in it, is at most this many bytes:
+// Linux reads a commands response of at most 64 KiB, and the resident loop
+// writes each frame it relays as one event, which Apple bounds at 64 KiB
+// (PlanURL.swift). A frame over it goes as a notice.
+const POLL_BYTES = 32 * 1024;
+// A report's body: at most this many bytes, read within this long.
+const REPORT_BYTES = 64 * 1024, REPORT_MS = 10_000;
 const KINDS = new Set(['register', 'status', 'unsupported', 'selected']);
 const RESERVED = new Set(['inspect', 'outline', 'hold']);
 
@@ -45,13 +52,22 @@ function pinRefused(pin) {
   if (pin.contrast !== undefined && !['more', 'less', 'no-preference'].includes(pin.contrast)) return '`contrast` is more, less or no-preference';
   if (pin.mode !== undefined && (typeof pin.mode !== 'object' || pin.mode === null || Array.isArray(pin.mode) || Object.entries(pin.mode).some(([a, v]) => typeof v !== 'string' || /[,=]/.test(a + v)))) return '`mode` is {axis: value}, with no `,` or `=`';
   if (pin.rootFontSize !== undefined && !(Number.isFinite(pin.rootFontSize) && pin.rootFontSize >= 4 && pin.rootFontSize <= 64)) return '`rootFontSize` is px, 4 to 64';
+  if (JSON.stringify(pin).length > 4096) return 'a pin is at most 4 KiB';
   return null;
+}
+
+/** A frame as one poll may carry it: a live-table frame over the bound as
+ * its notice (no tokens, so a build at another design asks for the
+ * snapshot); any other, which is never that large, as it is. */
+function bounded(f) {
+  if (Buffer.byteLength(JSON.stringify(f)) <= POLL_BYTES || !String(f.kind).startsWith('tamber-')) return f;
+  return { kind: 'tamber-batch', structure: f.structure, base: f.design, design: f.design, tokens: [] };
 }
 
 /** One dev loop's builds. `send(event)` tells the design server's clients
  * (`builds`, `build-status`, `unsupported`, `selected`). */
 export function buildChannel({ send = () => {}, log = () => {} } = {}) {
-  const streams = new Map(); // nonce -> { write(frame), build: id | null, queue: [] }
+  const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
   const pins = new Map(); // id -> { client, pin, revision }
   let revision = 0, greeting = () => null;
@@ -66,8 +82,10 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
   };
   const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
   const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null });
-  const list = () => [...builds.values()].filter(b => streams.has(b.nonce)).map(shown);
-  const announce = () => send({ event: 'builds', builds: list() });
+  // A build is connected while the stream it registered on still names it.
+  const connected = b => streams.get(b.nonce)?.build === b.id;
+  const listed = () => [...builds.values()].filter(connected).map(shown);
+  const announce = () => send({ event: 'builds', builds: listed() });
   const frame = (id, f) => { const b = builds.get(id); const s = b && streams.get(b.nonce); if (s) s.write(f); };
   const pinFrame = id => ({ kind: 'pin', revision: pins.get(id)?.revision ?? revision, pin: pins.get(id)?.pin ?? null });
 
@@ -80,14 +98,26 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       return { nonce: n, close: () => close(n) };
     },
     /** A stream for a build that polls (Linux, the resident loop's relay):
-     * frames queue until it polls; unpolled for 30 s it is gone. */
+     * frames queue until it polls; unpolled for 5 s it is gone. */
     openPolled() {
       sweep();
       const queue = [];
       const opened = this.open(f => queue.push(f));
       const s = streams.get(opened.nonce);
       s.seen = Date.now();
-      s.poll = () => { s.seen = Date.now(); return queue.splice(0); };
+      // As many queued frames as fit one answer; the rest wait for the next.
+      s.poll = () => {
+        s.seen = Date.now();
+        let size = 2, n = 0;
+        for (; n < queue.length; n++) {
+          queue[n] = bounded(queue[n]);
+          size += Buffer.byteLength(JSON.stringify(queue[n])) + (n ? 1 : 0);
+          // (A frame that fits no answer, which `bounded` leaves none, would
+          // go alone rather than hold the queue.)
+          if (size > POLL_BYTES) { n ||= 1; break; }
+        }
+        return queue.splice(0, n);
+      };
       // The design to run, as a stream's hello says it (a notice).
       const hello = greeting();
       if (hello) queue.push(hello);
@@ -111,12 +141,15 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         if (typeof r.id !== 'string' || !ID.test(r.id)) return { status: 400, body: { message: '`id` is the build\'s own, 1–64 of [A-Za-z0-9_.:-]' } };
         if (typeof r.host !== 'string' || !Array.isArray(r.capabilities)) return { status: 400, body: { message: 'a registration names its `host` and its `capabilities`' } };
         // The same build on a new stream: the old one's is no longer it.
-        for (const [k, other] of streams) if (other !== s && other.build === r.id) other.build = null;
+        for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
+        // A stream is one build: another id registered on it replaces the
+        // build it was, and that build's pin goes with it.
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities.filter(c => typeof c === 'string'), plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!streams.has(b.nonce)) { builds.delete(id); pins.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
@@ -140,7 +173,11 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       return { status: 204, body: null };
     },
     /** The registered builds with an open stream. */
-    list,
+    list: () => { sweep(); return listed(); },
+    /** Polled streams past their time closed (their builds announced gone):
+     * on every use of the channel, and on the server's timer, so a build
+     * that stops polling leaves when nothing else happens. */
+    sweep,
     /** A live-table frame (a batch, a snapshot, a notice) for every polled
      * stream: the loop's server is the one source of batches, and a stream
      * the loop serves itself is written to by the loop. */
@@ -157,8 +194,9 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
     pin(client, id, pin) {
       const why = pinRefused(pin);
       if (why) return { error: why };
-      const targets = id == null ? list().map(b => b.id) : [id];
-      if (id != null && !list().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
+      sweep();
+      const targets = id == null ? listed().map(b => b.id) : [id];
+      if (id != null && !listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
       revision += 1;
       for (const t of targets) {
         if (pin === null) pins.delete(t); else pins.set(t, { client, pin, revision });
@@ -181,6 +219,29 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       announce();
     },
   };
+}
+
+/** `POST /__dev/report` on `channel` (both dev loops). The body is read
+ * within REPORT_MS; one over REPORT_BYTES, or not done in time, has its
+ * socket destroyed, and one aborted is dropped: none rejects, as a rejection
+ * in the server's handler would end the loop. */
+export async function serveReport(channel, req, res) {
+  const text = await new Promise((done) => {
+    const chunks = [];
+    let size = 0;
+    const end = (value) => { clearTimeout(deadline); done(value); };
+    const drop = () => { req.socket?.destroy(); req.destroy(); end(null); };
+    const deadline = setTimeout(drop, REPORT_MS);
+    req.on('data', (chunk) => { size += chunk.length; if (size > REPORT_BYTES) drop(); else chunks.push(chunk); });
+    req.on('end', () => end(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', () => end(null));
+    req.on('aborted', () => end(null));
+    req.on('close', () => end(null));
+  });
+  if (text == null || res.destroyed) return;
+  const answer = channel.report(text);
+  res.writeHead(answer.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(answer.body == null ? undefined : JSON.stringify(answer.body));
 }
 
 /** Serving as another loop's producers (`--serve-as`, host/web/dev.mjs): a
