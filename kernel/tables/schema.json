@@ -3629,7 +3629,7 @@
       "bit": 167,
       "field": "content_transition",
       "codec": "enum:ContentTransition",
-      "_comment": "@ref LLP 1077 D15: not CSS. How a text's digits change: numeric rolls each changed digit (up, or down for numeric-countdown).",
+      "_comment": "@ref LLP 1077 D15: not CSS. How a text's digits change: numeric rolls each changed digit the way the number moved (always down for numeric-countdown); on Apple, SwiftUI's numeric text (LLP 1115.003 D3).",
       "cold": true
     },
     {
