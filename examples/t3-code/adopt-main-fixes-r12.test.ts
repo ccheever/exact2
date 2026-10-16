@@ -18,7 +18,7 @@ describe('the Mac\'s own presentations main gives what the clone writes stay the
 
   test('every popover keeps the painted layer (LLP 1115.002 D7.3): `popover="auto"` and an authored fallback row', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
-    expect(popovers.length).toBe(65); // the archived row's and the pull request number's context popovers, the project scripts menu
+    expect(popovers.length).toBe(66); // the archived row's and the pull request number's context popovers, the project scripts and Open in menus
     for (const line of popovers) {
       expect(line).toContain('popover="auto"');
       expect(line).toMatch(/\sposition-try-fallbacks=/);
@@ -116,7 +116,10 @@ const reviewed: Record<string, Site[]> = {
     ['Inheritance', 'id=`inherit-${row.key}`', q('bottom span-right'), FLIP, 'settings/SettingInheritance.tsx:226 start'],
     ['DeviceVersions', 'id=`device-versions-${tool.kind}`', q('bottom span-left'), FLIP, 'device/DeviceToolVersions.tsx:48 end'],
   ],
-  'shell-details.contract': [['WorkspaceMenu', 'id="details-workspace-menu"', q('bottom span-right'), FLIP, 'BranchToolbarEnvModeSelector.tsx:230 Select start']],
+  'shell-details.contract': [
+    ['WorkspaceMenu', 'id="details-workspace-menu"', q('bottom span-right'), FLIP, 'BranchToolbarEnvModeSelector.tsx:230 Select start'],
+    ['OpenInMenu', 'id="details-editors-menu"', q('bottom span-left'), FLIP, 'chat/OpenInPicker.tsx:429 end, anchor the row'],
+  ],
   // The thread and draft menus are the system's context menu in the reference, at the pointer: no area. Their painted
   // submenus (agent, web) sit beside the row and flip to its start side, as the Appearance submenu does.
   'sidebar-row.contract': [

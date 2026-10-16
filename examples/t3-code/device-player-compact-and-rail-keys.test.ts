@@ -135,7 +135,7 @@ describe('the card becomes the header\'s popover where no placement is left', ()
     expect(root).toContain('detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) :');
     expect(root).toContain('detailsEpoch = op == "toggle" ? canvas.popoverEpoch : detailsEpoch');
     // Only the inline mode's toggle remembers the thread's docked card; the window's popover is the shown one.
-    expect(root).toContain('if (op != "toggle" or not detailsPopover) and op != "editors"');
+    expect(root).toContain('if (op != "toggle" or not detailsPopover) and op != "dismiss"');
     expect(root).toContain('narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details,');
     expect(root).toContain('shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView');
     // The popover lies in the chat column under the floating player (the reference's popover sits below the player;
@@ -161,7 +161,7 @@ describe('the card becomes the header\'s popover where no placement is left', ()
     // backdrop, so the window's rule stands aside.
     expect(root).toContain('    canvasGestureValue = value\n    detailsOpen = detailsOpen and value == ""');
     const press = under(window, 'action outsidePressDown(e: PointerEvent)').join('\n');
-    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)\n      detailsEditors = false\n      titleMenuOpen = false\n      detailsActRoot("dismiss", "", "")');
+    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)\n      titleMenuOpen = false\n      detailsActRoot("dismiss", "", "")');
     // The right panel's details button is drawn only on a sheet, under the window's backdrop: no exception names it.
     expect(press).not.toContain('panel-toggle-details');
     for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).not.toContain('id="panel-toggle-details"');
@@ -248,17 +248,16 @@ describe('the rows each density shows (ThreadDetailsPanel)', () => {
     expect(top[0]).toContain('column width="100%" hatch="t3-frame" data-frame="details-full-top"');
     const topText = top.join('\n');
     for (const row of ['R4EnvRow(', 'testId="details-workspace"', 'testId="details-folder"']) expect(topText).toContain(row);
-    expect(under(body, 'if details.editorShow and density != "essential"').join('\n')).toContain('testId="details-open-editor"');
+    expect(under(body, 'if details.editorShow and density != "essential"').join('\n')).toContain('OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)');
     const tail = under(body, 'data-frame="details-full-tail"').join('\n');
     expect(tail).toContain('ThreadAutomationsSection(');
     expect(tail).toContain('LineageGroups(');
     expect(under(body, 'if details.cwd != ""').join('\n')).toContain('DetailsSection(title="Version Control", separated=(density == "full"), heading=false)');
     expect(body).toContain('R4GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)');
     expect(under(body, 'if density == "compact"')[0]).toContain('data-frame="details-density-compact"');
-    // The scripts row stays in every density, its menu a popover anchored at its chevron (r6-polish.contract); Open in's
-    // menu hangs under the rows each density shows.
+    // The scripts and Open in rows' menus are popovers anchored at their chevrons, as wide as the row.
     expect(body).toContain('R6ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16)');
-    expect(body).toContain('top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem")');
+    expect(body).not.toContain('details-editors');
   });
 
   test('compact: the Git action group shows only while an action runs or just finished; Changes always', async () => {
