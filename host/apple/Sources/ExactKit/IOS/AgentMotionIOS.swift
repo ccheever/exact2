@@ -38,14 +38,13 @@ extension Agent {
 
     /// The app's own motion on the wall clock — a `UIView.animate` or a
     /// Core Animation animation on a running layer of its window, a native
-    /// module's included — runs to its end, for at most `bound` seconds,
-    /// and then its completion: `clock` waits for it (LLP 1012 §2), so an
-    /// overlay a module fades away is gone after `clock settle`, as it is
-    /// for a person. Core Animation's time is the wall's, which the
-    /// agent's clock cannot seek. Whether it came to rest.
-    @discardableResult func awaitWallMotion(bound: TimeInterval) -> Bool {
-        guard bound > 0, let window = presenter.viewport.window, Agent.wallMotion(under: window.layer) else { return true }
-        let deadline = Date(timeIntervalSinceNow: bound)
+    /// module's included — runs to its end, until `deadline`, and then its
+    /// completion: `clock` waits for it (LLP 1012 §2), so an overlay a
+    /// module fades away is gone after `clock settle`, as it is for a
+    /// person. Core Animation's time is the wall's, which the agent's clock
+    /// cannot seek. Whether it came to rest (false: still running).
+    @discardableResult func awaitWallMotion(until deadline: Date) -> Bool {
+        guard let window = presenter.viewport.window, Agent.wallMotion(under: window.layer) else { return true }
         repeat {
             if Date() >= deadline { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
@@ -94,14 +93,32 @@ extension Agent {
             let s = speed * layer.speed
             guard s != 0, !layer.isHidden else { continue }
             for key in layer.animationKeys() ?? [] {
-                guard let a = layer.animation(forKey: key), a.speed != 0, a.repeatCount < 1e6, a.repeatDuration < 1e6, a.duration < 60 else { continue }
-                let span = max(a.duration * Double(max(1, a.repeatCount)) * (a.autoreverses ? 2 : 1), a.repeatDuration)
-                if a.beginTime == 0 || layer.convertTime(now, from: nil) < a.beginTime + span { return true }
+                if let a = layer.animation(forKey: key), inFlight(a, on: layer, key: key, now: now) { return true }
             }
             pending.append(contentsOf: (layer.sublayers ?? []).map { ($0, s) })
         }
         return false
     }
+
+    /// Whether `a`, on `layer` under `key`, is still running on the wall
+    /// clock: finite (a caret's blink and a spinner repeat for ever), not
+    /// held at speed 0 (Contract motion the agent's clock seeks), and not
+    /// past its end, though kept on the layer to hold its last frame
+    /// (`isRemovedOnCompletion` false). One whose begin time is still 0 has
+    /// not been committed or kept no begin: it runs for its span from when
+    /// it was first seen.
+    static func inFlight(_ a: CAAnimation, on layer: CALayer, key: String, now: CFTimeInterval) -> Bool {
+        guard a.speed != 0, a.repeatCount < 1e6, a.repeatDuration < 1e6, a.duration < 60 else { return false }
+        let span = max(a.duration * Double(max(1, a.repeatCount)) * (a.autoreverses ? 2 : 1), a.repeatDuration) / Double(abs(a.speed))
+        guard a.beginTime == 0 else { return layer.convertTime(now, from: nil) < a.beginTime + span }
+        let seen = "\(ObjectIdentifier(layer).hashValue)/\(key)/\(ObjectIdentifier(a).hashValue)"
+        if unbegun.count > 256 { unbegun.removeAll() }
+        let first = unbegun[seen] ?? now
+        unbegun[seen] = first
+        return now - first < span
+    }
+    /// When each animation with no begin time was first seen (`inFlight`).
+    nonisolated(unsafe) private static var unbegun: [String: CFTimeInterval] = [:]
 
     /// Where UIKit's own controls that move by themselves are shown (a
     /// segmented control, a switch, a slider, a stepper, a tab bar, whose

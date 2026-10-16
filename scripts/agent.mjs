@@ -1241,7 +1241,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (real) {
         const from = s.now, end = req.to, t0 = performance.now();
         for (;;) {
-          const to = Math.max(s.now, Math.min(end, from + (performance.now() - t0))), r = await s.op({ op: 'clock', to });
+          const to = Math.max(s.now, Math.min(end, from + (performance.now() - t0))), r = await s.op({ op: 'clock', to, step: true }); // real time passes here: the host waits on no native motion
           s.now = r.clock;
           if (to >= end) return { ...r, real: Math.round(performance.now() - t0) };
           await new Promise(ok => setTimeout(ok, Math.min(REAL_STEP_MS, end - to)));
@@ -1249,13 +1249,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       }
       // A long seek steps by wall clock (each operation ~CLOCK_BUDGET_MS of a web clock op's 60 s, from CLOCK_STEP_MS of world
       // time, at most 4x a step and CLOCK_SPAN_MS), so a cheap hour is a few presents, not 3,600; the final reply is the seek's.
-      let span = CLOCK_STEP_MS;
-      for (let t0; !req.settle && req.to - s.now > span; span = clockSpan(span, performance.now() - t0)) t0 = performance.now(), s.now = (await s.op({ op: 'clock', to: s.now + span })).clock;
-      const r = await s.op(req); // an intermediate step's pending state is stale by now; a failed step threw
+      let span = CLOCK_STEP_MS; const jump = req.settle ? 0 : req.to - s.now; // the host lets native motion run once, after the last step, for up to all of it
+      for (let t0; !req.settle && req.to - s.now > span; span = clockSpan(span, performance.now() - t0)) t0 = performance.now(), s.now = (await s.op({ op: 'clock', to: s.now + span, step: true })).clock;
+      const r = await s.op(req.to - s.now < jump ? { ...req, jump } : req); // an intermediate step's pending state is stale by now; a failed step threw
       s.now = r.clock;
       // A store's or the network's reply comes on real time, which a jump does not wait for unless a timer fires first (calendar F10).
-      if (!req.settle && r.inflight) r.diagnostic = `${r.inflight} request${r.inflight === 1 ? '' : 's'} still in flight on real time (a store's, a worker's, the network's): \`clock +N\` moved the clock without waiting for ${r.inflight === 1 ? 'it' : 'them'}; \`clock data\` or \`clock settle\` lands them (then \`clock +N\`), and \`state\` lists them under pending. A native view's UIView.animate runs out within \`clock +N\` or \`clock settle\`; one a display link moves, only with \`clock +N real\``;
-      if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
+      if (!req.settle && r.inflight) r.diagnostic = `${r.inflight} request${r.inflight === 1 ? '' : 's'} still in flight on real time (a store's, a worker's, the network's): \`clock +N\` moved the clock without waiting for ${r.inflight === 1 ? 'it' : 'them'}; \`clock data\` or \`clock settle\` lands them (then \`clock +N\`), and \`state\` lists them under pending. A native view's UIView.animate runs on for up to N ms (at most 1.5 s) of a \`clock +N\`, and \`clock settle\` waits up to 1.5 s for it; one a display link moves runs only with \`clock +N real\``;
+      if (req.settle && r.settled === false) r.diagnostic = r.reason === 'motion' ? 'clock settle waited 1.5 s for the app\'s own native animation (UIView.animate, Core Animation) and it still runs: `clock +N real` lets it run on, `screenshot` shows where it is' : r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
     /** The window to `w`x`h` points (reader: repagination): the browser's viewport, a macOS window, the Linux presenter. The wire's

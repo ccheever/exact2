@@ -641,6 +641,9 @@ public final class Agent {
         guard var to = target, to.isFinite else { return ["malformed": true, "error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
+        #if os(iOS) || os(tvOS)
+        var wallDeadline: Date?
+        #endif
         var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
@@ -679,8 +682,13 @@ public final class Agent {
             // as the web hosts' do (calendar F10, workout F6).
             guard settle else {
                 #if os(iOS) || os(tvOS)
-                // The app's own native motion on the wall clock has as long as the jump, up to 1.5 s.
-                awaitWallMotion(bound: min(1.5, (landed - from) / 1000))
+                // The app's own native motion on the wall clock has as long as
+                // the whole jump (`jump`: the driver's seek in steps), up to
+                // 1.5 s, once: after its last step (`step` marks the others).
+                if req["step"] as? Bool != true {
+                    let jump = req["jump"] as? Double ?? landed - from
+                    awaitWallMotion(until: Date(timeIntervalSinceNow: min(1.5, max(0, jump) / 1000)))
+                }
                 #endif
                 var out = reply(landed)
                 let inflight = pendingCount()
@@ -708,9 +716,12 @@ public final class Agent {
             }
             if next <= landed && !world.pending {
                 #if os(iOS) || os(tvOS)
-                // The app's own native motion on the wall clock ends first;
+                // The app's own native motion on the wall clock ends first,
+                // within 1.5 s for the whole call, or the call is not settled;
                 // what its completion starts is checked below.
-                awaitWallMotion(bound: 1.5)
+                let wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
+                wallDeadline = wallUntil
+                if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
                 #endif
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn

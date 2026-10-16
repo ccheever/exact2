@@ -91,7 +91,7 @@ final class AgentMotionIOSTests: XCTestCase {
         XCTAssertFalse(Agent.appOverlay(node), "a node is the session's")
         var finished = false
         UIView.animate(withDuration: 0.3) { overlay.alpha = 0 } completion: { _ in overlay.removeFromSuperview(); finished = true }
-        XCTAssertTrue(agent.awaitWallMotion(bound: 1.5), "it ends within the bound")
+        XCTAssertTrue(agent.awaitWallMotion(until: Date(timeIntervalSinceNow: 1.5)), "it ends within the bound")
         XCTAssertTrue(finished, "and its completion has run")
         XCTAssertNil(overlay.superview)
         // An overlay still up when a tap comes: the tap waits for it to go.
@@ -120,6 +120,34 @@ final class AgentMotionIOSTests: XCTestCase {
         node.layer.add(held, forKey: "held")
         XCTAssertFalse(Agent.wallMotion(under: window.layer))
         XCTAssertFalse(agent.nativeGeometryInFlight(), "`clock settle` does not wait on it")
+    }
+
+    /// Native motion that is over, or never ends, is not in flight: an
+    /// animation kept on its layer past its end (`isRemovedOnCompletion`
+    /// false, no begin time of its own) and a geometry animation repeating
+    /// for ever make neither `clock` nor `clock settle` wait.
+    func testKeptAndEndlessAnimationsAreNotInFlight() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+        ])
+        let window = try XCTUnwrap(self.window)
+        let node = try XCTUnwrap(agent.session.presenter.views[1])
+        let kept = CABasicAnimation(keyPath: "position.x")
+        kept.fromValue = 0; kept.toValue = 10; kept.duration = 0.1
+        kept.fillMode = .forwards; kept.isRemovedOnCompletion = false
+        node.layer.add(kept, forKey: "kept")
+        XCTAssertTrue(agent.nativeGeometryInFlight(), "running")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+        XCTAssertFalse(Agent.wallMotion(under: window.layer), "kept past its end")
+        XCTAssertFalse(agent.nativeGeometryInFlight())
+        node.layer.removeAnimation(forKey: "kept")
+        let endless = CABasicAnimation(keyPath: "transform.rotation")
+        endless.toValue = Double.pi; endless.duration = 1; endless.repeatCount = .infinity
+        node.layer.add(endless, forKey: "endless")
+        XCTAssertFalse(agent.nativeGeometryInFlight(), "a spinner is not a transition")
+        node.layer.removeAnimation(forKey: "endless")
     }
 }
 #endif
