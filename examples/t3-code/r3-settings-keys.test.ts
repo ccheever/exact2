@@ -99,12 +99,13 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
   test('both recorders mount it in their modal row; the action editor\'s Escape and blur keep the old binding', async () => {
     const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
     const settings = await source('settings-keybindings.contract'), actions = await source('settings-b-actions.contract');
-    expect(settings).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, label=`Keybinding for ${label}`, testId="keybinding-recorder", capture=took, cancel=took("blur"))');
-    expect(actions).toContain('KeyRecorder(prompt="Press shortcut", value="", recording=true, label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
+    expect(settings).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))');
+    expect(settings).toContain('KeyRecorder(prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)');
+    expect(actions).toContain('KeyRecorder(prompt="Press shortcut", value="", recording=true, autofocus=true, label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
     expect(actions).toContain('row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"');
     const view = await source('key-recorder.contract');
     // The reference's Input: a text field named for its command, the prompt its placeholder (VoiceOver reads both).
-    expect(view).toContain('input id=testId autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt');
+    expect(view).toContain('input id=testId autofocus=autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt');
     const editor = contractComponent('settings-b-actions.contract', 'ProjectActionEditor');
     const state = (keybinding: string) => ({ ...editor.state({ item: { keybinding, previewUrl: '', setup: false, wait: false, autoOpen: false, name: '', command: '', icon: 'play', id: '' } }), keybinding, recording: true });
     for (const [value, expected] of [['escape', 'mod+k'], ['esc', 'mod+k'], ['tab', 'mod+k'], ['backspace', ''], ['mod+shift+j', 'mod+shift+j']] as const) {
@@ -118,5 +119,47 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
     editor.call('record', idle, { focus: (id: string) => starts.push(id) }, []);
     expect(idle.recording).toBe(true);
     expect(starts).toEqual(['action-keybinding-recorder']);
+  });
+});
+
+// KeybindingsSettings.tsx's Input (an existing binding's, and NewKeybindingKeyInput): a text field whose onFocus starts
+// recording and whose onBlur stops it, the field staying.
+describe('the Settings capture field (settings-keybindings.contract CaptureField)', () => {
+  const field = contractComponent('settings-keybindings.contract', 'CaptureField');
+  const run = (action: string, args: unknown[], recording: boolean, taking = false) => {
+    const calls: string[] = [];
+    const state = { ...field.state({ rowId: 'new', original: 'mod+n', recording }), taking };
+    const scope = {
+      rowId: 'new', original: 'mod+n', recording,
+      record: () => calls.push('record'),
+      capture: (original: string, key: string) => calls.push(`capture:${original}:${key}`),
+      held: (id: string, on: boolean) => calls.push(`held:${id}:${on}`),
+    };
+    field.call(action, state, scope, args);
+    return { calls, taking: state.taking };
+  };
+  test('taking the focus starts recording, and the window learns which field has it', () => {
+    expect(run('entered', [], false).calls).toEqual(['held:keybinding-recorder-new:true', 'record']);
+    // An existing binding's field mounts from its pill already recording (autoFocus={isRecording}).
+    expect(run('entered', [], true).calls).toEqual(['held:keybinding-recorder-new:true']);
+  });
+  test('a chord or Escape keeps the field, leaving it ends recording only for the row that records', () => {
+    expect(run('took', ['escape'], true)).toEqual({ calls: ['capture:mod+n:escape'], taking: true });
+    expect(run('took', ['mod+j'], true)).toEqual({ calls: ['capture:mod+n:mod+j'], taking: true });
+    expect(run('took', ['blur'], true, true)).toEqual({ calls: ['capture:mod+n:blur', 'held:keybinding-recorder-new:false'], taking: false });
+    // Another row's pill started recording as this field gave up the focus: its blur leaves that recording alone.
+    expect(run('took', ['blur'], false, true)).toEqual({ calls: ['held:keybinding-recorder-new:false'], taking: false });
+  });
+  test('the recorder is up, the window\'s modal scope, only while the field records or takes keys; else an idle field shows', () => {
+    const drawn = (marker: string, recording: boolean, taking: boolean) => field.drawn(marker, { taking }, { rowId: 'new', recording });
+    expect(drawn('aria-modal=true focusin=entered', true, false)).toBe(true);
+    expect(drawn('aria-modal=true focusin=entered', false, true)).toBe(true);
+    expect(drawn('aria-modal=true focusin=entered', false, false)).toBe(false);
+    expect(drawn('testId=`keybinding-capture-${rowId}`', false, false)).toBe(true);
+  });
+  test('the new row\'s field is always shown', async () => {
+    const text = await Bun.file(new URL('./settings-keybindings.contract', import.meta.url)).text();
+    expect(text).toContain('CaptureField(rowId="new", ');
+    expect(text).not.toContain('button press=record aria-label=`Keybinding for ${label}`');
   });
 });

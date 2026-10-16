@@ -125,7 +125,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
 describe('the keybinding recorder owns every key while it records', () => {
   test('the recording field is the window\'s modal scope, and leaving it stops recording', async () => {
     const capture = await component('settings-keybindings.contract', 'CaptureField');
-    expect(line(capture, 'testId="keybinding-recording"')).toContain('aria-modal=true');
+    expect(line(capture, 'testId=`keybinding-recording-${rowId}`')).toContain('aria-modal=true');
     const recorder = line(capture, 'KeyRecorder(');
     expect(recorder).toContain('capture=took, cancel=took("blur")');
     const app = await source('app.contract');

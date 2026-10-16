@@ -230,7 +230,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   const shows = (state: Env, scope: Env) => value(source('app-window.contract').match(/^  derive citeShows = (.+)$/m)![1]!, { ...scope, ...state });
   const scope = () => ({ data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0,
     citeWaitDone: 0, pageCover: false, settingsOpen: false, modal: false });
-  const state = (): Env => ({ citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0 });
+  const state = (): Env => ({ citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0, keybindingField: '' });
 
   test.each(['Escape', 'clear', 'key', 'outside'])('%s during the double-click delay cancels the future offer', (dismiss) => {
     const w = state(), props = scope(), a = answer();
@@ -325,7 +325,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
 
   test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {
     const at = (x: number, y: number) => {
-      const state: Env = { outsideDown: false, citeFor: '["t","a"]' };
+      const state: Env = { outsideDown: false, citeFor: '["t","a"]', keybindingField: '' };
       window.call('outsidePressDown', state, { chipShown: false, detailsOpen: false, frame: (id: string) => id === 'cite-action' ? geometry(501, 385, 65.3, 28) : geometry(0, 0, 0, 0) },
         [{ buttons: 1, clientX: x, clientY: y }]);
       return state;

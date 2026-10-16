@@ -255,8 +255,9 @@ describe('the rows each density shows (ThreadDetailsPanel)', () => {
     expect(under(body, 'if details.cwd != ""').join('\n')).toContain('DetailsSection(title="Version Control", separated=(density == "full"), heading=false)');
     expect(body).toContain('R4GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)');
     expect(under(body, 'if density == "compact"')[0]).toContain('data-frame="details-density-compact"');
-    // The scripts row stays in every density; its menu and Open in's hang under the rows each density shows.
-    expect(body).toContain('top=((44 + (density == "full" ? (details.envShow ? 64 : 32) : 0) + (details.editorShow and density != "essential" ? 32 : 0)) * rem / 16)');
+    // The scripts row stays in every density, its menu a popover anchored at its chevron (r6-polish.contract); Open in's
+    // menu hangs under the rows each density shows.
+    expect(body).toContain('R6ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16)');
     expect(body).toContain('top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem")');
   });
 
