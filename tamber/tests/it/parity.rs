@@ -5,7 +5,7 @@
 use exact_kernel::{Color, ColorValue};
 use exact_tamber::{check, Vocab};
 
-mod common;
+use crate::common;
 
 fn kernel(text: &str) -> Option<ColorValue> {
     ColorValue::parse_light_dark(text).or_else(|| Color::parse(text).map(ColorValue::Fixed))

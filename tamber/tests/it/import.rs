@@ -3,11 +3,10 @@
 //! the transaction applies to a design that checks; and re-importing the
 //! unchanged source proposes nothing.
 
+use crate::common;
 use common::vocab;
 use exact_tamber::import::{shadcn, Import};
 use exact_tamber::{apply_all, check, parse, Op};
-
-mod common;
 
 const EMPTY: &str = "tamber app\n";
 

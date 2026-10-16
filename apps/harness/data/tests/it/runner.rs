@@ -24,7 +24,7 @@ fn entries(v: &Value) -> usize {
 
 #[test]
 fn a_runner_takes_the_shapes_and_the_push() {
-    let source = format!("{}\n{APP}", include_str!("../../shapes.contract"));
+    let source = format!("{}\n{APP}", include_str!("../../../shapes.contract"));
     let plan = contract::compile(&source).expect("the app compiles");
     let harness = Harness::with_options(Options::offline(None));
     let mut handle = harness.clone();

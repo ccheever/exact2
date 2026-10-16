@@ -76,7 +76,7 @@ fn autofocus_bubbles_on_mount_and_after_focused_removal() {
 
 #[test]
 fn focus_handlers_stop_before_the_outer_wrapper() {
-    let source = include_str!("../../../contract/corpus/focus-bubble.contract");
+    let source = include_str!("../../../../contract/corpus/focus-bubble.contract");
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
         (),

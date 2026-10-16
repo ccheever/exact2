@@ -1,7 +1,7 @@
 //! Real Chrome coverage of the private module realm, not a simulated DOM.
 use std::path::Path;
 use std::process::Command;
-#[path = "support/caltrain.rs"]
+#[path = "../support/caltrain.rs"]
 mod caltrain;
 
 #[test]
