@@ -242,7 +242,7 @@ describe('the image preview\'s zoomable image', () => {
     const view = source('composer-chip-image.contract');
     expect(view).toContain('row width=(windowWidth * 0.92) align-items="center" justify-content="space-between" pointer-events="none"');
     expect(view).toContain('column min-width=0 align-items="center" pointer-events="auto"');
-    expect(line('composer-chip-image.contract', 'id="chip-image-viewport"')).toContain('box id="chip-image-viewport" tabindex=0 role="group" aria-label=`${preview.name}, zoomable image`');
+    expect(line('composer-chip-image.contract', 'id="chip-image-viewport"')).toContain('box id="chip-image-viewport" tabindex=0 role="region" aria-label=`${preview.name}, zoomable image`');
     // The picture takes the clicks but no Tab stop: the viewport is the stop.
     expect(line('composer-chip-image.contract', 'testId="chip-image-picture"')).toContain('tabindex=-1 retainFocus=true');
   });
