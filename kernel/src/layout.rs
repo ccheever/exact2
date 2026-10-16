@@ -1174,7 +1174,7 @@ impl LayoutTree {
         }
         let result = self
             .taffy
-            .compute_layout_with_measure(root, available, measure);
+            .compute_layout_with_measure(root, available, &mut measure);
         result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))?;
         self.provisional_chrome |= provisional_button;
         if let Some(view) = invalid_button {
