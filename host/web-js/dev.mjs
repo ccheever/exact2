@@ -79,16 +79,21 @@ function build(app, dist, keep = () => false, compiler = null) {
   });
 }
 
-/** Copy the compiler at `path`, and its dep-info, to `copy` (each written
- * whole, then renamed), dated as it is, so `freshCompiler` reads the copy
- * as it read the original; or remove the copy where that fails. */
+/** Copy the compiler at `path`, and its dep-info, to `copy`, dated as it
+ * is, so `freshCompiler` reads the copy as it read the original: each file
+ * written whole, dated, then renamed, and only when `path` was not built
+ * again meanwhile. Where that fails, the copy stays as it was. */
 function copyCompiler(path, copy) {
-  const temp = `${copy}.${process.pid}.tmp`; // a loop's own: apps in the tree share a target/
+  const temp = `${copy}.${process.pid}.tmp`, tempDep = `${temp}.d`;
   try {
-    for (const [from, to] of [[`${path}.d`, `${copy}.d`], [path, copy]]) { copyFileSync(from, temp); renameSync(temp, to); }
-    const { atime, mtime } = statSync(path);
-    utimesSync(copy, atime, mtime);
-  } catch { rmSync(temp, { force: true }); rmSync(copy, { force: true }); }
+    const built = statSync(path);
+    copyFileSync(path, temp);
+    utimesSync(temp, built.atime, built.mtime);
+    copyFileSync(`${path}.d`, tempDep);
+    if (statSync(path).mtimeMs !== built.mtimeMs) throw new Error('built again');
+    renameSync(tempDep, `${copy}.d`);
+    renameSync(temp, copy);
+  } catch { rmSync(temp, { force: true }); rmSync(tempDep, { force: true }); }
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
@@ -255,7 +260,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // replaces even a fresh binary), taken while it is done and fresh, then
     // kept while it is fresh, so a build while the reader builds again (as
     // it does below, after every edit) takes it as well.
-    const copy = resolve(app.target, 'web-js-dev-compiler');
+    // The app's own (apps in the tree share a target/).
+    const copy = resolve(app.target, `web-js-dev-compiler-${app.name.replace(/[^\w.-]/g, '_')}`);
     if (tool.ready && freshCompiler(tool.path)) copyCompiler(tool.path, copy);
     const compiler = freshCompiler(copy) ? copy : null;
     // Anything else may move the compiler: the design tool is built again.
