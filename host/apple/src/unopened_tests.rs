@@ -401,6 +401,36 @@ fn a_tab_holding_a_2d_canvas_is_built_at_once() {
     assert_eq!(named(&host, &renamed, "create", "title-saved").len(), 1);
 }
 
+/// Where draws are deferred (LLP 1072 §8.5), the presenter asks for one
+/// when the last batch says one is owed: a turn that runs no canvas work
+/// after the commit that made a canvas still says so, until the draw.
+#[test]
+fn a_deferred_draw_stays_owed_through_turns_that_draw_nothing() {
+    let later = "                  if not shown\n                    canvas surface=spark(1) width=10 height=10 testId=\"spark\"\n";
+    let (mut host, _) = boot_app(&with(APP, later), false);
+    host.set_canvas_deferred(true);
+    let owed = |batch: &str| serde_json::from_str::<Json>(batch).unwrap()["canvasOwed"] == true;
+    let view = id(&host, "rename");
+    let made = host.dispatch_at(view, Event::Press, 10.0);
+    assert!(owed(&made), "{made}");
+    let spark = id(&host, "spark");
+    assert!(
+        named(&host, &ops(&made), "create", "spark").len() == 1
+            && !ops(&made).iter().any(|o| o["op"] == "canvas2d")
+    );
+    host.set_time(1.0e12, 0.0);
+    let idle = host.set_time(1.0e12, 0.0);
+    assert!(ops(&idle).is_empty() && owed(&idle), "{idle}");
+    let drawn = host.canvas_draw();
+    assert!(
+        ops(&drawn)
+            .iter()
+            .any(|o| o["op"] == "canvas2d" && o["id"] == spark),
+        "{drawn}"
+    );
+    assert!(!owed(&drawn), "{drawn}");
+}
+
 /// An `svg` whose scene was published while it waited (its colour moving
 /// with a route's in a panel laid out in flow) is sent its scene when its
 /// view is made, though the scene did not change.
