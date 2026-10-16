@@ -506,17 +506,22 @@ Module 2025.10, as `bun exact.mjs tamber export dtcg <app>` writes it, from the 
   read as the export when it has the header, or the export's shape (a set `exact`, then the one
   modifier `mode` with its contexts named for their tuples) where a tool dropped `$extensions`.
   - **The baseline** is the kept one the header's digest names, or a fresh export of the design
-    when the file came from the design as it is. With no header, it is the design's or the newest
-    kept one with the file's contexts. With none of these the import is refused: comparing with
-    another export would propose reverting what nobody edited.
+    when the file came from the design as it is. With no header, it is whichever of the kept ones
+    and the design's own export has the file's contexts and differs from it in the fewest values.
+    With none of these the import is refused: comparing with another export would propose
+    reverting what nobody edited.
   - **Each token's values** are compared with the baseline's, as colours: a tool that drops `hex`
-    or reprints the numbers changes nothing. An unchanged token proposes nothing, its source kept
+    or reprints the numbers changes nothing. In a context with several sources the last that
+    declares a token wins, as the resolver says. An unchanged token proposes nothing, its source kept
     (an expression, a role); so does one the design has already.
   - **A changed tuple** proposes one `set-token`, its `when` naming every axis of the tuple and its
     value the tuple's light and dark. An axis `under scheme=dark` is named only on a tuple off its
     default, since the light side is the line without it; a light value edited only in such a
-    tuple is reported. Each token's operations are checked as the design would take them, and one
-    it would refuse (a role's value varying by such an axis) is reported with the checker's id.
+    tuple is reported. Each token's operations are applied and folded as the design would take
+    them: a tuple a changed line reaches that the file left alone (one whose value followed the
+    default) is pinned to the file's value with a line naming every axis, until every context
+    renders as the file has it. A token no lines can give that, or that the design would refuse (a
+    role's value varying by such an axis), is reported with the reason or the checker's id.
   - **Reported in `unmapped`, not added or removed:** a token the export did not have, one the file
     drops, one missing from a context, and a value no colour is read from.
 

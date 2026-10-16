@@ -200,7 +200,8 @@ fn rendered(h: Half) -> Wide {
             Some(Parsed::Wide(read)) => read,
             _ => w,
         },
-        Half::Legacy(..) => h.wide(),
+        // Its 8-bit bytes, as the plan carries it, not the unquantised value.
+        Half::Legacy(c, _) => Half::legacy(c).wide(),
     }
 }
 
@@ -422,7 +423,9 @@ fn context_map(doc: &Value) -> Option<Vec<(String, Modes, bool)>> {
     if refs != ["#/sets/exact", "#/modifiers/mode"] || modifiers.len() != 1 {
         return None;
     }
-    modifiers["mode"]["contexts"]
+    modifiers
+        .get("mode")?
+        .get("contexts")?
         .as_object()?
         .keys()
         .map(|name| named(name).map(|(m, d)| (name.clone(), m, d)))
@@ -569,22 +572,36 @@ fn baseline_for(incoming: &Value, kept: &[String], fresh: &str) -> Result<String
         }
         return Err(format!("no baseline for this export: it came from the design at digest {d}, which no kept export here and not the design as it is has; export again, and make the edits in that file"));
     }
-    let contexts = |text: &str| {
-        serde_json::from_str::<Value>(text).ok().and_then(|d| {
-            d["modifiers"]["mode"]["contexts"]
-                .as_object()
-                .map(|c| c.keys().cloned().collect::<Vec<_>>())
-        })
+    // With no header, the candidate with the file's contexts that differs
+    // from it in the fewest values: an unedited file is its own export
+    // exactly, whichever design came after.
+    let theirs = tokens_by_context(incoming);
+    let differs = |text: &str| -> Option<usize> {
+        let doc: Value = serde_json::from_str(text).ok()?;
+        let ours = tokens_by_context(&doc);
+        if ours.keys().ne(theirs.keys()) {
+            return None;
+        }
+        Some(
+            theirs
+                .iter()
+                .flat_map(|(c, all)| all.iter().map(move |(n, t)| (c, n, t)))
+                .filter(|(c, n, t)| {
+                    !ours[*c]
+                        .iter()
+                        .rev()
+                        .find(|(m, _)| m == *n)
+                        .is_some_and(|(_, u)| same(&t["$value"], &u["$value"]))
+                })
+                .count(),
+        )
     };
-    let theirs = incoming["modifiers"]["mode"]["contexts"]
-        .as_object()
-        .map(|c| c.keys().cloned().collect::<Vec<_>>());
-    if contexts(fresh) == theirs {
-        return Ok(fresh.to_string());
-    }
     kept.iter()
-        .find(|b| contexts(b) == theirs)
-        .cloned()
+        .map(String::as_str)
+        .chain([fresh])
+        .filter_map(|b| differs(b).map(|n| (n, b)))
+        .min_by_key(|(n, _)| *n)
+        .map(|(_, b)| b.to_string())
         .ok_or_else(|| "no baseline for this export: its header is gone and no kept export has its contexts; export again".to_string())
 }
 
@@ -640,7 +657,8 @@ pub fn reimport(
                  name: &str| {
         tokens
             .get(context)
-            .and_then(|all| all.iter().find(|(n, _)| n == name))
+            // The last source that declares it wins, as the resolver says.
+            .and_then(|all| all.iter().rev().find(|(n, _)| n == name))
             .map(|(_, t)| t["$value"].clone())
     };
     // The tuples: each one's light and dark context, and its base, the
@@ -808,20 +826,114 @@ pub fn reimport(
                 comment: None,
             });
         }
-        if why.is_none() && !token_ops.is_empty() {
-            match crate::apply_all(current, &token_ops, vocab) {
+        // Applied as the design would take them, then folded: a line they
+        // change can reach a tuple the file left alone (the default line, a
+        // tuple off an axis under scheme=dark that followed it), which is
+        // pinned to the file's value with a line naming every axis, until
+        // every context renders as the file has it.
+        let target = |context: &str| {
+            value(&theirs, context, name)
+                .as_ref()
+                .and_then(written_colour)
+                .and_then(|c| exact_color::parse(&c))
+                .and_then(|p| match p {
+                    Parsed::Legacy(c) => Some(Half::legacy(c).wide()),
+                    Parsed::Wide(w) => Some(w),
+                    _ => None,
+                })
+        };
+        let mut rounds = 0;
+        while why.is_none() && !token_ops.is_empty() {
+            let refused = |all: Vec<Diagnostic>| {
+                let first = all
+                    .first()
+                    .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
+                Some((
+                    String::new(),
+                    format!("the design would refuse it ({first})"),
+                ))
+            };
+            let edited = match crate::apply_all(current, &token_ops, vocab) {
                 // The design has it already (this file accepted before).
-                Ok(edited) if edited.text == current => token_ops.clear(),
-                Ok(_) => {}
-                Err(all) => {
-                    let first = all
-                        .first()
-                        .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
-                    why = Some((
-                        String::new(),
-                        format!("the design would refuse it ({first})"),
-                    ));
+                Ok(edited) if edited.text == current => {
+                    token_ops.clear();
+                    break;
                 }
+                Ok(edited) => edited.text,
+                Err(all) => {
+                    why = refused(all);
+                    break;
+                }
+            };
+            let folding = match crate::check(&edited, vocab) {
+                Ok(f) => f,
+                Err(all) => {
+                    why = refused(all);
+                    break;
+                }
+            };
+            let Some(checked) = folding
+                .tokens
+                .iter()
+                .zip(&folding.design.tokens)
+                .find(|(_, t)| t.name.value == written)
+                .map(|(c, _)| c)
+            else {
+                break;
+            };
+            let mut off: Vec<(&Modes, &[String; 2])> = Vec::new();
+            for (modes, sides) in &tuples {
+                let pins: Vec<(&str, &str)> = modes
+                    .iter()
+                    .map(|(a, v)| (a.as_str(), v.as_str()))
+                    .collect();
+                let Some(folded) = folding.tuple(&pins).and_then(|t| checked.values.get(t)) else {
+                    continue;
+                };
+                let wrong = [false, true].iter().any(|&dark| {
+                    let have = side(folded, dark, vocab).map(|(h, _)| rendered(h));
+                    !matches!((have, target(&sides[usize::from(dark)])), (Some(h), Some(t)) if {
+                        let (p, q) = (h.linear_srgb(), t.linear_srgb());
+                        p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-6) && (h.alpha - t.alpha).abs() < 1e-3
+                    })
+                });
+                if wrong {
+                    off.push((modes, sides));
+                }
+            }
+            if off.is_empty() {
+                break;
+            }
+            rounds += 1;
+            if rounds > 3 {
+                why = Some((String::new(), "no lines this design takes give every context the file's value (a light side that differs between tuples an axis under scheme=dark tells apart)".into()));
+                break;
+            }
+            for (modes, sides) in off {
+                let read = [light_of(modes).unwrap_or(&sides[0]), &sides[1]]
+                    .map(|c| value(&theirs, c, name).as_ref().and_then(written_colour));
+                let [Some(l), Some(d)] = read else {
+                    why = Some((
+                        sides.join(" / "),
+                        "a value this importer reads no colour from".into(),
+                    ));
+                    break;
+                };
+                token_ops.push(Op::SetToken {
+                    name: written.clone(),
+                    when: if modes.is_empty() {
+                        Vec::new()
+                    } else {
+                        modes.clone()
+                    },
+                    value: if l == d {
+                        l
+                    } else {
+                        format!("light-dark({l}, {d})")
+                    },
+                    at: None,
+                    comment: None,
+                });
             }
         }
         match why {

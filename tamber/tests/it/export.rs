@@ -330,3 +330,85 @@ fn a_relative_colour_exports_as_it_renders() {
     let t = context(&mut doc, &first)["negative"]["chroma"]["$value"].clone();
     assert_eq!(t["hex"], "#808080", "{t}");
 }
+
+/// A token's value in a context of `doc`, as hex.
+fn hex_in(doc: &Value, context: &str, path: &[&str]) -> String {
+    let mut at = &doc["modifiers"]["mode"]["contexts"][context][0];
+    for p in path {
+        at = &at[*p];
+    }
+    at["$value"]["hex"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn an_edit_reaches_only_the_contexts_it_changed() {
+    let red: Value = serde_json::from_str(RED).unwrap();
+    // `accent.fill`'s dim dark follows its default: an edit of the black
+    // dark alone pins dim to what it was.
+    let import = edited_import(|doc| {
+        context(doc, "dark-style=black, dark")["accent"]["fill"]["$value"] = red.clone()
+    });
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let accepted = exact_tamber::apply_all(FIXTURE, &import.ops, &vocab())
+        .unwrap()
+        .text;
+    let (_, doc) = exported(&accepted);
+    assert_eq!(
+        hex_in(&doc, "dark-style=black, dark", &["accent", "fill"]),
+        "#ff0000"
+    );
+    assert_eq!(
+        hex_in(&doc, "dark-style=dim, dark", &["accent", "fill"]),
+        "#1d9bf0"
+    );
+    assert_eq!(
+        hex_in(&doc, "dark-style=dim, light", &["accent", "fill"]),
+        "#1d9bf0"
+    );
+    // Two light sides an axis under scheme=dark tells apart: no lines give
+    // both, reported.
+    let blue = serde_json::json!({"colorSpace": "srgb", "components": [0, 0, 1], "hex": "#0000ff"});
+    let import = edited_import(|doc| {
+        context(doc, "dark-style=black, light")["accent"]["soft"]["$value"] = red.clone();
+        context(doc, "dark-style=dim, light")["accent"]["soft"]["$value"] = blue.clone();
+    });
+    assert!(import.ops.is_empty(), "{:?}", import.ops);
+    assert_eq!(import.unmapped.len(), 1, "{:?}", import.unmapped);
+    // A later source in a context wins, as the resolver says.
+    let import = edited_import(|doc| {
+        let srcs = doc["modifiers"]["mode"]["contexts"]["dark-style=black, dark"]
+            .as_array_mut()
+            .unwrap();
+        srcs.push(
+            serde_json::json!({"accent": {"fill": {"$type": "color", "$value": red.clone()}}}),
+        );
+    });
+    assert_eq!(import.ops.len(), 2, "{:?}", import.ops);
+}
+
+#[test]
+fn a_stripped_copy_reads_against_the_export_it_came_from() {
+    let (first, mut doc) = exported(FIXTURE);
+    let changed = FIXTURE.replace("accent.fill = #1d9bf0", "accent.fill = #00ff00");
+    doc["sets"]["exact"]["sources"][0] = serde_json::json!({});
+    // Kept beside it, the first export: an unedited copy proposes nothing
+    // against the changed design.
+    let import = reimport(&doc.to_string(), &[first], &changed, &vocab()).unwrap();
+    assert!(import.ops.is_empty(), "{:?}", import.ops);
+    // A renamed modifier is no export of ours, and no panic.
+    doc["modifiers"] = serde_json::json!({"other": doc["modifiers"]["mode"].clone()});
+    assert!(!exact_tamber::export::is_own(&doc.to_string()));
+}
+
+#[test]
+fn a_legacy_colour_exports_its_bytes() {
+    let src = include_str!("../corpus/relative.tamber");
+    let (_, mut doc) = exported(src);
+    let first = doc["modifiers"]["mode"]["default"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let v = context(&mut doc, &first)["absolute"]["calc"]["$value"].clone();
+    assert_eq!(v["hex"], "#800000", "{v}");
+    assert_eq!(v["components"][0].as_f64().unwrap(), 128.0 / 255.0);
+}

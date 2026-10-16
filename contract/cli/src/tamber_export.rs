@@ -132,9 +132,18 @@ pub fn keep(design: &Path, exported: &str) -> std::io::Result<PathBuf> {
     let digest = exact_tamber::export::digest(exported)
         .filter(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_hexdigit()))
         .ok_or_else(|| std::io::Error::other("the export names no digest"))?;
+    // A new file of its own (`create_new` follows no link), renamed into
+    // place: a link at either name is replaced, never written through.
     let write = |name: &str, text: &str| {
-        let tmp = dir.join(format!(".{name}.{}", std::process::id()));
-        std::fs::write(&tmp, text)?;
+        use std::io::Write;
+        let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+        let _ = std::fs::remove_file(&tmp);
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        f.write_all(text.as_bytes())?;
+        drop(f);
         std::fs::rename(&tmp, dir.join(name))
     };
     write(".gitignore", "*\n")?;
