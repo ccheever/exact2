@@ -158,6 +158,8 @@ final class TableHost {
     /// is current, including an authored `color-scheme` override.
     func appearanceChanged(_ row: NodeView) {
         guard let line = lines[row.id] else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         row.effectiveAppearance.performAsCurrentDrawingAppearance {
             let color = NSColor.separatorColor.cgColor
             if line.backgroundColor != color { line.backgroundColor = color }
