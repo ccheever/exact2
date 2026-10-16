@@ -324,13 +324,25 @@ if (es) {
     try { sessionStorage.setItem("exact.dev.build", id); } catch { /* storage refused */ }
     return id;
   })();
-  const post = (nonce, body) => fetch("/__dev/report", { method: "POST", body: JSON.stringify({ nonce, ...body }) });
-  // A report goes on the stream whose registration it waited for: one that
-  // a new stream (a reconnect) replaced meanwhile is dropped.
-  const report = async (body) => {
+  // A report gives up after 10 s; a registration waits as long as it takes
+  // (its answer is what every report on the stream waits for).
+  const post = (nonce, body, ms) => fetch("/__dev/report", { method: "POST", body: JSON.stringify({ nonce, ...body }), ...(ms ? { signal: AbortSignal.timeout(ms) } : {}) });
+  // A report goes on the stream it was made on, once that stream's
+  // registration answers: one that a new stream (a reconnect) replaced
+  // meanwhile is dropped. Reports go one at a time, in the order made, so a
+  // refusal never crosses the status after it (the server binds a refusal
+  // to the frame's status). A new stream starts its own queue, and a post
+  // gives up after 10 s, so one stuck request holds up nothing for long.
+  let reports = { nonce: null, tail: Promise.resolve() };
+  const report = (body) => {
     const { nonce, registered } = channel;
-    if (!nonce || !(await registered) || channel.nonce !== nonce || channel.registered !== registered) return;
-    await post(nonce, body).catch(() => {});
+    if (!nonce) return Promise.resolve();
+    if (reports.nonce !== nonce) reports = { nonce, tail: Promise.resolve() };
+    const queue = reports;
+    return (queue.tail = queue.tail.then(async () => {
+      if (!(await registered) || channel.nonce !== nonce || channel.registered !== registered) return;
+      await post(nonce, body, 10_000).catch(() => {});
+    }));
   };
   const wasmCall = async (name, ...args) => { const x = globalThis.exact; await x.ready; if (typeof x.wasm?.[name] !== "function") return null; const n = x.wasm[name](...args), out = JSON.parse(x.readOut(n)); x.send(n); return out; };
   const modes = async () => { const x = globalThis.exact; await x.ready; return x.wasm?.exact_set_mode ? JSON.parse(x.readOut(x.wasm.exact_set_mode(x.writeIn("?")))).modes ?? null : null; };
@@ -400,7 +412,7 @@ if (es) {
     status();
   };
   const command = (frame) => {
-    designing = designing.then(() => frame.kind === "pin" ? pin(frame) : report({ kind: "unsupported", what: frame.kind })).catch((error) => console.error("exact dev:", String(error)));
+    designing = designing.then(() => { if (frame.kind === "pin") return pin(frame); report({ kind: "unsupported", what: frame.kind }); }).catch((error) => console.error("exact dev:", String(error)));
   };
   es.onmessage = (event) => {
     let message;
