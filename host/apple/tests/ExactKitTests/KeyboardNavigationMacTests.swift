@@ -218,6 +218,8 @@ final class KeyboardNavigationMacTests: XCTestCase {
             window?.close()
             let p = fixture()
             let last = try XCTUnwrap(p.controls.controls[10])
+            // Built again, as a batch does: links that did not change keep the first stop's previous.
+            p.syncKeyViewLoop()
             p.focusElement(["a"])
             try tab(p, shift: true)
             XCTAssertTrue(window.firstResponder === last, "on: \(on); from the first field: the loop's last stop")
