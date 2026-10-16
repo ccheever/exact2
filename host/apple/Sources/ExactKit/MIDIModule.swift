@@ -69,6 +69,9 @@ final class MIDIHub {
     private var heard: [Heard] = []
     private var draining = false
     private var ticking = false
+    /// Drains so far: a tick's delayed drain armed before the last drain is
+    /// stale, and leaves the ticks since to their own 50 ms.
+    private var drains = 0
     /// The inputs some session follows the clock of (under `lock`).
     private var clockUIDs: Set<Int32> = []
     private var nextID: UInt64 = 0
@@ -163,23 +166,30 @@ final class MIDIHub {
         let now = !tick && !draining, later = tick && !draining && !ticking
         draining = draining || now
         ticking = ticking || later
+        let armed = drains
         lock.unlock()
         if now {
             DispatchQueue.main.async { self.drain() }
         } else if later {
             let wait = max(0, 0.05 - (CACurrentMediaTime() - message.at))
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { self.drain() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { self.drain(armed: armed) }
         }
     }
 
     /// What arrived since the last drain: to each session that opened its
     /// input, one delivery, its ticks only to a session that follows them.
-    /// A drain that finds nothing (a tick's, after one at once) does nothing.
-    private func drain() {
+    /// A tick's drain (`armed`, the drains when it was armed) that another
+    /// drain came before does nothing.
+    private func drain(armed: Int? = nil) {
         lock.lock()
+        if let armed, armed != drains {
+            lock.unlock()
+            return
+        }
         let batch = heard
         heard = []
         (draining, ticking) = (false, false)
+        drains += 1
         lock.unlock()
         for output in outputs.compactMap(\.output) {
             let mine = batch.filter { output.open.contains($0.uid) && ($0.bytes.first != 0xF8 || output.clock.contains($0.uid)) }

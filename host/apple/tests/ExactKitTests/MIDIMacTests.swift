@@ -332,6 +332,39 @@ final class MIDIMacTests: XCTestCase {
         output.shutdown()
     }
 
+    /// Review round 1 (Astra): a drain at once (a note) leaves the ticks
+    /// after it their own 50 ms; the delayed drain armed before it does not
+    /// deliver them early.
+    func testTicksAfterADrainAtOnceWaitTheirOwnFiftyMilliseconds() throws {
+        let library = try library()
+        var deliveries: [(at: Double, json: String)] = []
+        let output = MIDIOutput(log: { _ in }, deliver: { deliveries.append((CACurrentMediaTime(), $0)) }, library: { library })
+        let input = String(uid(source))
+        output.apply(["ops": [["op": "open", "inputs": [input], "clock": [input]], ["op": "request"]]])
+        wait(2) { deliveries.contains { $0.json.contains(input) } }
+        wait(0.2)
+        deliveries.removeAll()
+        var finished = false
+        DispatchQueue.global().async {
+            self.system(0xF8, at: CACurrentMediaTime())
+            Thread.sleep(forTimeInterval: 0.010)
+            self.play()
+            for _ in 0..<15 {
+                Thread.sleep(forTimeInterval: 0.020)
+                self.system(0xF8, at: CACurrentMediaTime())
+            }
+            self.lock.withLock { finished = true }
+        }
+        wait(3) { self.lock.withLock { finished } }
+        wait(0.2)
+        let ticks = messages(deliveries).filter { $0.list.allSatisfy { $0.status == 0xF8 } }
+        XCTAssertGreaterThan(ticks.count, 2)
+        for d in ticks {
+            XCTAssertGreaterThan(d.at - (ExactEnv.t0 + d.list[0].ms / 1000), 0.040, "ticks alone wait their 50 ms")
+        }
+        output.shutdown()
+    }
+
     private static let timebase: mach_timebase_info_data_t = {
         var info = mach_timebase_info_data_t()
         mach_timebase_info(&info)
