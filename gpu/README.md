@@ -19,6 +19,10 @@ No GPU device or texture object crosses the DLL boundary. Transformed, clipped,
 multiple-canvas and backdrop-dependent layouts use ordinary capture instead.
 Canvas ID zero presents the complete CPU UI frame after the game is unmounted,
 so menus continue through the same swapchain instead of switching back to GDI.
+The final flags argument uses bit 0 for changed UI and bit 1 for a solid underlay.
+With bit 1 set, the below pointer holds only four premultiplied RGBA bytes;
+otherwise it holds the full pixel buffer. The above pointer always holds `len`
+bytes. A solid underlay is cleared on the GPU without a CPU pixel upload.
 Capture reuses its render target and staging buffer until size, format or device
 changes. The Windows host follows the current monitor's refresh rate.
 

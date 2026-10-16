@@ -1151,7 +1151,7 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
     split.fill(&shape, [30, 60, 90, 255], ts);
     assert!(split.split_window_canvas(rect, &[shape], ts));
     split.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
-    let below = split.take_window_underlay().unwrap();
+    let below = split.take_window_underlay().unwrap().into_pixels();
     let above = split.finish().unwrap();
     for (((b, g), a), expected) in below
         .data()
@@ -1170,7 +1170,7 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
     split.recycle_window_layers(below, Some(above));
     split.begin(16., 8., 1.);
     assert!(split.split_window_canvas(rect, &[], ts));
-    let below = split.take_window_underlay().unwrap();
+    let below = split.take_window_underlay().unwrap().into_pixels();
     let above = split.finish().unwrap();
     assert!(
         below.data().iter().all(|&c| c == 255),
@@ -1183,7 +1183,10 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
     split.recycle_window_layers(below, Some(above));
     split.begin(8., 4., 1.);
     assert!(split.split_window_canvas((0., 0., 8., 4.), &[], ts));
-    assert_eq!(split.take_window_underlay().unwrap().width(), 8);
+    assert_eq!(
+        split.take_window_underlay().unwrap().into_pixels().width(),
+        8
+    );
     let resized = split.finish().unwrap();
     assert_eq!((resized.width(), resized.height()), (8, 4));
     assert!(resized.data().iter().all(|&c| c == 0));

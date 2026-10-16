@@ -1,6 +1,52 @@
 //! What the paint walk draws through.
 use super::*;
 
+/// UI below a split window canvas, with storage retained for its next repaint.
+pub enum WindowLayer {
+    /// Pixels contain the complete painted layer.
+    Pixels(Pixmap),
+    /// Every pixel has this premultiplied RGBA value; storage need not contain it.
+    Solid {
+        /// Premultiplied RGBA bytes.
+        color: [u8; 4],
+        /// Allocation available for the next frame.
+        storage: Pixmap,
+    },
+}
+
+impl WindowLayer {
+    /// Materialize the layer for a CPU reader.
+    pub fn into_pixels(self) -> Pixmap {
+        match self {
+            Self::Pixels(pixels) => pixels,
+            Self::Solid { color, mut storage } => {
+                let color = tiny_skia::PremultipliedColorU8::from_rgba(
+                    color[0], color[1], color[2], color[3],
+                )
+                .expect("a window clear is premultiplied");
+                storage.pixels_mut().fill(color);
+                storage
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn storage(self) -> Pixmap {
+        match self {
+            Self::Pixels(pixels) => pixels,
+            Self::Solid { storage, .. } => storage,
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Pixels(pixels) => pixels.data(),
+            Self::Solid { color, .. } => color,
+        }
+    }
+}
+
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
@@ -79,7 +125,7 @@ pub trait Backend {
     /// Reuse storage released by the previous window picture.
     fn recycle_window_layers(&mut self, _below: Pixmap, _above: Option<Pixmap>) {}
     /// UI painted below the last successfully split window canvas.
-    fn take_window_underlay(&mut self) -> Option<Pixmap> {
+    fn take_window_underlay(&mut self) -> Option<WindowLayer> {
         None
     }
     /// A platform element (`paint/native.rs`) in `shape`; `props` is JSON.

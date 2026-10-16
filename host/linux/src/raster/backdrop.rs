@@ -68,7 +68,7 @@ impl Raster {
             (x1 - x0) as usize,
             (y1 - y0) as usize,
         );
-        let Some(target) = self.target.as_mut() else {
+        let Some(target) = self.target.pixels() else {
             return;
         };
         let stride = target.width() as usize * 4;

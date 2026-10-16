@@ -75,7 +75,7 @@ impl Raster {
         let Some(edges) = edges.finish() else {
             return false;
         };
-        let Some(target) = self.target.as_mut() else {
+        let Some(target) = self.target.pixels() else {
             return false;
         };
         target.fill_path(
@@ -155,7 +155,7 @@ mod tests {
         let mut shape = Shape::rect((16., 16., 5088., 161.));
         shape.radii = [(8., 8.); 4];
         let color = [20, 25, 29, 232];
-        let mut expected = r.target.as_ref().unwrap().clone();
+        let mut expected = r.target.pixels().unwrap().clone();
         expected.fill_path(
             &rounded_rect(&shape).unwrap(),
             &solid(color),
@@ -164,7 +164,7 @@ mod tests {
             None,
         );
         r.fill(&shape, color, Transform::identity());
-        assert!(r.target.as_ref().unwrap().data() == expected.data());
+        assert!(r.target.pixels().unwrap().data() == expected.data());
 
         for case in 0..7 {
             let mut r = Raster::new();
@@ -182,13 +182,13 @@ mod tests {
                 6 => shape.rect.1 = 300.,
                 _ => unreachable!(),
             }
-            let previous = r.target.as_ref().unwrap().data().to_vec();
+            let previous = r.target.pixels().unwrap().data().to_vec();
             let path = rounded_rect(&shape).unwrap();
             assert!(
                 !r.fill_solid_middle(&shape, color, &path, dev),
                 "case={case}"
             );
-            assert!(r.target.as_ref().unwrap().data() == previous);
+            assert!(r.target.pixels().unwrap().data() == previous);
         }
     }
 
@@ -229,7 +229,7 @@ mod tests {
                 for alpha in [0, 1, 83, 127, 232, 254, 255] {
                     let mut r = Raster::new();
                     r.begin(420., 200., scale);
-                    let target = r.target.as_mut().unwrap();
+                    let target = r.target.pixels().unwrap();
                     for (i, p) in target.pixels_mut().iter_mut().enumerate() {
                         *p = Color::from_rgba8(
                             (i * 17) as u8,
@@ -249,7 +249,7 @@ mod tests {
                     expected.fill_path(&path, &solid(color), FillRule::Winding, dev, None);
                     assert!(r.fill_solid_middle(&shape, color, &path, dev));
                     assert!(
-                        r.target.as_ref().unwrap().data() == expected.data(),
+                        r.target.pixels().unwrap().data() == expected.data(),
                         "scale={scale} y={y} alpha={alpha}"
                     );
                 }

@@ -27,7 +27,7 @@ impl Raster {
         clips: &[Shape],
         ts: Transform,
     ) -> bool {
-        let Some(target) = &mut self.target else {
+        let Some(target) = self.target.pixels() else {
             return false;
         };
         if dst.0 != 0.
@@ -88,7 +88,7 @@ impl Raster {
             quality: FilterQuality::Bilinear,
             ..PixmapPaint::default()
         };
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_ref());
         }
     }
@@ -162,7 +162,7 @@ mod tests {
         let mut r = Raster::new();
         r.begin(40., 24., scale);
         r.target
-            .as_mut()
+            .pixels()
             .unwrap()
             .fill(Color::from_rgba8(53, 101, 177, 255));
         r
@@ -253,13 +253,13 @@ mod tests {
                 _ => unreachable!(),
             }
             let source_before = source.data().to_vec();
-            let target_before = actual.target.as_ref().unwrap().data().to_vec();
+            let target_before = actual.target.pixels().unwrap().data().to_vec();
             assert!(
                 !actual.copy_opaque_canvas(&source, dst, &clips, ts),
                 "case {case}"
             );
             assert_eq!(
-                actual.target.as_ref().unwrap().data(),
+                actual.target.pixels().unwrap().data(),
                 target_before,
                 "case {case} mutated before refusal"
             );

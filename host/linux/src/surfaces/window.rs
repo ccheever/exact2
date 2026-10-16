@@ -2,6 +2,7 @@
 //! painter supplying the UI before and after that canvas. All other layouts
 //! keep the capture path. No wgpu object crosses this DLL boundary.
 use super::*;
+use crate::paint::WindowLayer;
 use std::sync::Arc;
 use tiny_skia::Pixmap;
 
@@ -21,7 +22,7 @@ type Present = unsafe extern "C" fn(
 
 pub(super) struct Layers {
     view: u32,
-    below: Pixmap,
+    below: WindowLayer,
     above: Arc<Pixmap>,
 }
 
@@ -75,7 +76,8 @@ impl<D: DataSource> Presenter<D> {
                     .is_some_and(|l| l.view == view);
             if !cached {
                 if let Some(layers) = self.surfaces.window_layers.take() {
-                    self.brush.recycle_window_layers(layers.below, layers.above);
+                    self.brush
+                        .recycle_window_layers(layers.below.storage(), layers.above);
                 }
                 self.brush.window_canvas = Some(view);
                 let above = self.frame();
@@ -101,10 +103,11 @@ impl<D: DataSource> Presenter<D> {
                         self.viewport().1,
                         self.brush.scale,
                         self.host.now(),
-                        below.data().as_ptr(),
+                        below.bytes().as_ptr(),
                         above.data().as_ptr(),
                         above.data().len(),
-                        u32::from(!cached),
+                        u32::from(!cached)
+                            | (u32::from(matches!(below, WindowLayer::Solid { .. })) << 1),
                     )
                 };
                 if result == 0 {

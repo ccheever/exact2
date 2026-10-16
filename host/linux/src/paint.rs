@@ -483,7 +483,7 @@ pub struct Frame {
     pub boxes: Vec<PaintedBox>,
 }
 
-pub use backend::Backend;
+pub use backend::{Backend, WindowLayer};
 
 /// The painter: the walk over one backend.
 pub struct Painter {
@@ -658,7 +658,7 @@ impl Painter {
     }
 
     #[cfg(windows)]
-    pub(crate) fn take_window_underlay(&mut self) -> Option<Pixmap> {
+    pub(crate) fn take_window_underlay(&mut self) -> Option<WindowLayer> {
         self.backend.take_window_underlay()
     }
 

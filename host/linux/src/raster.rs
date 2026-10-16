@@ -9,11 +9,13 @@ mod canvas;
 mod mask;
 #[cfg(target_arch = "x86_64")]
 mod solid_rect;
+mod target;
+use target::Target;
 
 use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::GradientPaint;
-use crate::paint::{Backend, Rect4, Shape, POINTER};
+use crate::paint::{Backend, Rect4, Shape, WindowLayer, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_kernel::gradient::{premultiplied_ramp, Geometry};
 use std::rc::Rc;
@@ -38,8 +40,8 @@ struct ClipKey {
 /// The tiny-skia backend.
 #[derive(Default)]
 pub struct Raster {
-    target: Option<Pixmap>,
-    window_underlay: Option<Pixmap>,
+    target: Target,
+    window_underlay: Option<WindowLayer>,
     window_background: Option<Pixmap>,
     window_overlay: Option<Pixmap>,
     transparent: bool,
@@ -98,7 +100,7 @@ impl Raster {
         }) {
             self.cached_clip = None;
         }
-        self.target = None;
+        self.target = Target::default();
     }
 
     // A rounded box has two solid central strips. If the complete binary
@@ -416,23 +418,21 @@ impl Backend for Raster {
         // scale 1000 is 1.4 TB); drawing into none is a no-op and `finish`
         // refuses the frame by name.
         let fits = self.width <= MAX_FRAME_SIDE && self.height <= MAX_FRAME_SIDE;
-        self.target = fits
+        let pixels = fits
             .then(|| {
                 self.window_background
                     .take()
                     .filter(|p| p.width() == self.width && p.height() == self.height)
                     .or_else(|| Pixmap::new(self.width, self.height))
             })
-            .flatten()
-            .map(|mut pixmap| {
-                if self.transparent {
-                    pixmap.fill(Color::TRANSPARENT);
-                } else {
-                    let [r, g, b, a] = self.page.unwrap_or([255; 4]);
-                    pixmap.fill(Color::from_rgba8(r, g, b, a));
-                }
-                pixmap
-            });
+            .flatten();
+        let color = if self.transparent {
+            Color::TRANSPARENT
+        } else {
+            let [r, g, b, a] = self.page.unwrap_or([255; 4]);
+            Color::from_rgba8(r, g, b, a)
+        };
+        self.target = Target::cleared(pixels, color);
     }
 
     fn begin_damage(
@@ -492,7 +492,7 @@ impl Backend for Raster {
             bounds.2 = bounds.2.max(x + w);
             bounds.3 = bounds.3.max(y + h);
         }
-        self.target = Some(target);
+        self.target = Target::painted(target);
         self.clips.push(Some(Rc::new(mask)));
         // A containing input rectangle proves the binary union is rectangular.
         // Integer device edges allow opaque integer fills to use that rectangle
@@ -536,9 +536,8 @@ impl Backend for Raster {
 
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform) {
         if color[3] == 255 && self.active_clip().is_none() && self.viewport_clip(shape, ts) {
-            if let Some(target) = self.target.as_mut() {
-                target.fill(Color::from_rgba8(color[0], color[1], color[2], color[3]));
-            }
+            self.target
+                .clear(Color::from_rgba8(color[0], color[1], color[2], color[3]));
             return;
         }
         let Some(mut path) = rounded_rect(shape) else {
@@ -551,7 +550,7 @@ impl Backend for Raster {
         }
         if shape.rounded() && color[3] == 255 {
             if let Some(rect) = self.covered_damage(shape, dev) {
-                if let Some(target) = self.target.as_mut() {
+                if let Some(target) = self.target.pixels() {
                     target.fill_path(
                         &PathBuilder::from_rect(rect),
                         &solid(color),
@@ -605,7 +604,7 @@ impl Backend for Raster {
                                     original[2].min(damage.right()),
                                     original[3].min(damage.bottom()),
                                 ) {
-                                    if let Some(target) = self.target.as_mut() {
+                                    if let Some(target) = self.target.pixels() {
                                         target.fill_path(
                                             &PathBuilder::from_rect(rect),
                                             &solid(color),
@@ -640,7 +639,7 @@ impl Backend for Raster {
             }
         }
         let mask = self.active_clip().cloned();
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             t.fill_path(
                 &path,
                 &solid(color),
@@ -667,7 +666,7 @@ impl Backend for Raster {
         };
         let dev = self.device(ts);
         let mask = self.active_clip().cloned();
-        let Some(t) = self.target.as_mut() else {
+        let Some(t) = self.target.pixels() else {
             return;
         };
         // @ref LLP 1055.000 D7 — a gradient is a tiny-skia shader in the
@@ -838,7 +837,7 @@ impl Backend for Raster {
         };
         let dev = self.device(ts);
         let mask = self.active_clip().cloned();
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             t.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
         }
     }
@@ -883,7 +882,7 @@ impl Backend for Raster {
         } else {
             mask
         };
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             t.fill_path(
                 &region,
                 &solid(part.color),
@@ -922,7 +921,7 @@ impl Backend for Raster {
                 return;
             }
         }
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_ref());
             if let Some(tint) = tint {
                 let mut ink = solid(tint);
@@ -974,7 +973,7 @@ impl Backend for Raster {
             blend_mode,
             ..PixmapPaint::default()
         };
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_deref());
         }
     }
@@ -1009,7 +1008,7 @@ impl Backend for Raster {
         {
             return false;
         }
-        let Some(mut overlay) = self
+        let Some(overlay) = self
             .window_overlay
             .take()
             .filter(|p| p.width() == self.width && p.height() == self.height)
@@ -1017,8 +1016,8 @@ impl Backend for Raster {
         else {
             return false;
         };
-        overlay.fill(Color::TRANSPARENT);
-        self.window_underlay = self.target.replace(overlay);
+        self.window_underlay = self.target.take_layer();
+        self.target = Target::cleared(Some(overlay), Color::TRANSPARENT);
         self.window_underlay.is_some()
     }
 
@@ -1027,7 +1026,7 @@ impl Backend for Raster {
         self.window_overlay = above;
     }
 
-    fn take_window_underlay(&mut self) -> Option<Pixmap> {
+    fn take_window_underlay(&mut self) -> Option<WindowLayer> {
         self.window_underlay.take()
     }
 
@@ -1048,7 +1047,7 @@ impl Backend for Raster {
             self.width as f32,
             self.height as f32,
         ));
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             text.paint_clipped(
                 t,
                 paragraph,
@@ -1247,7 +1246,7 @@ impl Backend for Raster {
             };
             below.draw_pixmap(0, 0, layer.as_ref(), &paint, Transform::identity(), None);
         }
-        self.target = Some(below);
+        self.target = Target::painted(below);
     }
 
     fn pointer(&mut self, x: f32, y: f32) {
@@ -1266,7 +1265,7 @@ impl Backend for Raster {
             width: 1.0,
             ..Stroke::default()
         };
-        if let Some(t) = self.target.as_mut() {
+        if let Some(t) = self.target.pixels() {
             t.fill_path(
                 &path,
                 &solid([255, 255, 255, 255]),
