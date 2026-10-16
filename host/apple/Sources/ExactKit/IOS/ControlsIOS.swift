@@ -188,6 +188,34 @@ final class ControlHost: NSObject {
         return made
     }
 
+    /// Whether a native button's control could not show: it is in a closed
+    /// `dialog` or popover (`MenuHost.inClosedBox`), which UIKit's menu and
+    /// alert present from its face, or in what a native bar stands for (a
+    /// lifted header, an adopted tablist: `NavigationHost.covers`), whose
+    /// items are made from faces too, while the host hides it: the cover
+    /// leaves after the box shows again. It gets one when that changes, as
+    /// a field in a closed box waits for it to show.
+    private func unshown(_ node: NodeView) -> Bool {
+        if presenter.menus.inClosedBox(node) { return true }
+        let covers = presenter.navigation.covers
+        guard covers.values.contains(.whole) else { return false }
+        var at: UIView? = node
+        while let view = at {
+            if let box = view as? NodeView, covers[box.id] == .whole, box.hiddenByHost { return true }
+            at = view.superview
+        }
+        return false
+    }
+
+    /// The native buttons the last sync left without a control (`unshown`).
+    private var waiting: Set<UInt32> = []
+    /// A closed box now shows in Exact's views (the agent's top layer, a
+    /// sheet, a context menu's preview): its buttons get their controls now,
+    /// whether or not a batch laid it out.
+    func syncShown() {
+        if waiting.contains(where: { presenter.views[$0].map { !unshown($0) } ?? false }) { sync(contents: false) }
+    }
+
     /// Asks for the face of `id` again at the next sync.
     func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
 
@@ -196,8 +224,10 @@ final class ControlHost: NSObject {
     /// the batch changed.
     func sync(contents: Bool = true, touched: [UInt32] = []) {
         if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
-        let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
+        let all = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
+        let owners = all.filter { !($0.isNativeButton && unshown($0)) }
         let live = Set(owners.map(\.id))
+        waiting = Set(all.map(\.id)).subtracting(live)
         // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
         let leaving = Set(presenter.leaving.values.flatMap { $0.members.map(\.id) })
         for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {

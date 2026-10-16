@@ -672,6 +672,8 @@ extension NavigationHost {
     /// button's title read from the route beneath, as UIKit reads it.
     private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
         let item = c.navigationItem
+        // A header the bar stops standing for shows its native buttons.
+        defer { presenter.controls.syncShown() }
         // The host's hiding goes; CSS's `display` decides (`NodeView.isHidden`
         // keeps the host's word apart: writing CSS's answer kept it hidden).
         for node in c.barNodes { node.isHidden = false }
