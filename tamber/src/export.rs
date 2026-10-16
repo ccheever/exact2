@@ -200,8 +200,13 @@ fn rendered(h: Half) -> Wide {
             Some(Parsed::Wide(read)) => read,
             _ => w,
         },
-        // Its 8-bit bytes, as the plan carries it, not the unquantised value.
-        Half::Legacy(c, _) => Half::legacy(c).wide(),
+        // Its 8-bit bytes and alpha byte, as the plan carries it (`#rrggbbaa`),
+        // not the unquantised value.
+        Half::Legacy(c, _) => {
+            let mut w = Half::legacy(c).wide();
+            w.alpha = (c.a * 255.0).round() / 255.0;
+            w
+        }
     }
 }
 
@@ -400,33 +405,42 @@ fn named(context: &str) -> Option<(Modes, bool)> {
 /// Each context of an export, its tuple and side: from the header, or from
 /// the names of the `mode` modifier's contexts when a tool dropped it.
 fn context_map(doc: &Value) -> Option<Vec<(String, Modes, bool)>> {
+    let contexts = doc
+        .get("modifiers")?
+        .get("mode")?
+        .get("contexts")?
+        .as_object()?;
     if let Some(h) = header(doc) {
-        return h["contexts"].as_object().map(|all| {
-            all.iter()
-                .map(|(name, c)| {
-                    let modes = c["modes"]
-                        .as_object()
-                        .into_iter()
-                        .flatten()
-                        .map(|(a, v)| (a.clone(), v.as_str().unwrap_or_default().to_string()))
-                        .collect();
-                    (name.clone(), modes, c["scheme"] == "dark")
-                })
-                .collect()
-        });
+        let all: Vec<(String, Modes, bool)> = h["contexts"]
+            .as_object()?
+            .iter()
+            .map(|(name, c)| {
+                let modes = c["modes"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(a, v)| (a.clone(), v.as_str().unwrap_or_default().to_string()))
+                    .collect();
+                (name.clone(), modes, c["scheme"] == "dark")
+            })
+            .collect();
+        return all
+            .iter()
+            .all(|(n, ..)| contexts.contains_key(n))
+            .then_some(all);
     }
     // Without the header, the export's shape: a set `exact` and the one
     // modifier `mode`, in that order, its contexts named for their tuples.
-    let order = doc["resolutionOrder"].as_array()?;
-    let refs: Vec<&str> = order.iter().filter_map(|r| r["$ref"].as_str()).collect();
-    let modifiers = doc["modifiers"].as_object()?;
-    if refs != ["#/sets/exact", "#/modifiers/mode"] || modifiers.len() != 1 {
+    let refs: Vec<&str> = doc
+        .get("resolutionOrder")?
+        .as_array()?
+        .iter()
+        .filter_map(|r| r["$ref"].as_str())
+        .collect();
+    if refs != ["#/sets/exact", "#/modifiers/mode"] || doc["modifiers"].as_object()?.len() != 1 {
         return None;
     }
-    modifiers
-        .get("mode")?
-        .get("contexts")?
-        .as_object()?
+    contexts
         .keys()
         .map(|name| named(name).map(|(m, d)| (name.clone(), m, d)))
         .collect()
@@ -444,7 +458,7 @@ pub fn digest(text: &str) -> Option<String> {
     header(&doc)?["digest"].as_str().map(str::to_string)
 }
 
-/// A context's tokens: each name (a group's `$root` the group's) and its
+/// A token tree's tokens: each name (a group's `$root` the group's) and its
 /// token object.
 fn flatten(tree: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
     let Some(obj) = tree.as_object() else { return };
@@ -463,9 +477,42 @@ fn flatten(tree: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
     }
 }
 
-/// Each context's tokens by name, from a document's `mode` modifier.
-fn tokens_by_context(doc: &Value) -> std::collections::BTreeMap<String, Vec<(String, Value)>> {
-    let mut out = std::collections::BTreeMap::new();
+/// A context source's tokens, in order: a token tree, or a reference to a
+/// set or a tree in the same document (`#/sets/…`), resolved as the
+/// Resolver Module says. A reference elsewhere, or a cycle, is refused.
+fn source_tokens(
+    doc: &Value,
+    src: &Value,
+    depth: usize,
+    out: &mut Vec<(String, Value)>,
+) -> Result<(), String> {
+    if depth > 16 {
+        return Err("references nest too deep".into());
+    }
+    let Some(r) = src.get("$ref").and_then(Value::as_str) else {
+        flatten(src, "", out);
+        return Ok(());
+    };
+    let target = r
+        .strip_prefix('#')
+        .and_then(|p| doc.pointer(p))
+        .ok_or_else(|| format!("`{r}` names nothing in this document"))?;
+    match target.get("sources").and_then(Value::as_array) {
+        Some(srcs) => {
+            for s in srcs {
+                source_tokens(doc, s, depth + 1, out)?;
+            }
+        }
+        None => flatten(target, "", out),
+    }
+    Ok(())
+}
+
+/// Each context's tokens by name, from a document's `mode` modifier, a
+/// later source after an earlier.
+type ByContext = std::collections::BTreeMap<String, Vec<(String, Value)>>;
+fn tokens_by_context(doc: &Value) -> Result<ByContext, String> {
+    let mut out = ByContext::new();
     for (context, srcs) in doc["modifiers"]["mode"]["contexts"]
         .as_object()
         .into_iter()
@@ -473,15 +520,15 @@ fn tokens_by_context(doc: &Value) -> std::collections::BTreeMap<String, Vec<(Str
     {
         let mut all = Vec::new();
         for src in srcs.as_array().into_iter().flatten() {
-            flatten(src, "", &mut all);
+            source_tokens(doc, src, 0, &mut all).map_err(|e| format!("`{context}`: {e}"))?;
         }
         out.insert(context.clone(), all);
     }
-    out
+    Ok(out)
 }
 
 /// A colour object as Tamber writes it: its `hex` where that, and its alpha
-/// in eighths of 255, are exactly what its sRGB components say (an 8-bit
+/// in steps of a byte, are exactly what its sRGB components say (an 8-bit
 /// colour, as a design writes one), else what the DTCG importer reads.
 fn written_colour(value: &Value) -> Option<String> {
     let byte = |hex: &str, i: usize| {
@@ -503,7 +550,7 @@ fn written_colour(value: &Value) -> Option<String> {
         match value.get("alpha").map(Value::as_f64) {
             None => Some(hex.to_ascii_lowercase()),
             Some(Some(a)) if a >= 1.0 => Some(hex.to_ascii_lowercase()),
-            Some(Some(a)) if (a * 255.0 - (a * 255.0).round()).abs() < 1e-9 && a >= 0.0 => {
+            Some(Some(a)) if a >= 0.0 && (a * 255.0 - (a * 255.0).round()).abs() < 1e-6 => {
                 Some(format!(
                     "{}{:02x}",
                     hex.to_ascii_lowercase(),
@@ -516,54 +563,38 @@ fn written_colour(value: &Value) -> Option<String> {
     short.or_else(|| colour(value))
 }
 
-/// Two JSON values the same, numbers to a rounding (a tool may reprint
-/// them).
-fn close(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(x), Value::Number(y)) => match (x.as_f64(), y.as_f64()) {
-            (Some(x), Some(y)) => (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0),
-            _ => x == y,
-        },
-        (Value::Array(x), Value::Array(y)) => {
-            x.len() == y.len() && x.iter().zip(y).all(|(a, b)| close(a, b))
-        }
-        (Value::Object(x), Value::Object(y)) => {
-            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| close(v, w)))
-        }
-        _ => a == b,
-    }
-}
-
-/// Two colour values the same: as written, to a rounding, or as the colours
-/// they read as (a tool that drops `hex`, or writes the components again).
-fn same(a: &Value, b: &Value) -> bool {
-    if close(a, b) {
-        return true;
-    }
-    let read = |v: &Value| match colour(v).and_then(|c| exact_color::parse(&c))? {
+/// A colour value as the colour it reads as.
+fn read(value: &Value) -> Option<Wide> {
+    match colour(value).and_then(|c| exact_color::parse(&c))? {
         Parsed::Legacy(c) => Some(Half::legacy(c).wide()),
         Parsed::Wide(w) => Some(w),
         _ => None,
-    };
-    match (read(a), read(b)) {
-        (Some(x), Some(y)) => {
-            let (p, q) = (x.linear_srgb(), y.linear_srgb());
-            p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-9) && (x.alpha - y.alpha).abs() < 1e-9
-        }
-        _ => false,
     }
+}
+
+/// Two colours the same, to a reprint's rounding: a millionth in linear
+/// sRGB, well inside an 8-bit step.
+fn alike(x: &Wide, y: &Wide) -> bool {
+    let (p, q) = (x.linear_srgb(), y.linear_srgb());
+    p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-6) && (x.alpha - y.alpha).abs() < 1e-6
+}
+
+/// Two colour values the same: as written, or as the colours they read as
+/// (a tool that drops `hex`, or prints the components again).
+fn same(a: &Value, b: &Value) -> bool {
+    a == b || matches!((read(a), read(b)), (Some(x), Some(y)) if alike(&x, &y))
 }
 
 /// A tuple: every axis and its value.
 type Modes = Vec<(String, String)>;
 
 /// The baseline an incoming export is compared with: the kept one its
-/// header's digest names; else the design's own export when the incoming
-/// file came from the design as it is (its digest, or with no header its
-/// contexts); else, with no header, the newest kept one with its contexts.
+/// header's digest names, or the design's own export when that is the
+/// digest. With no header, the one candidate (a kept export, or the design's)
+/// with the file's contexts; more than one is refused, since the file's
+/// values cannot tell an edit from another export's.
 fn baseline_for(incoming: &Value, kept: &[String], fresh: &str) -> Result<String, String> {
-    let wanted = header(incoming).and_then(|h| h["digest"].as_str());
-    if let Some(d) = wanted {
+    if let Some(d) = header(incoming).and_then(|h| h["digest"].as_str()) {
         if let Some(b) = kept.iter().find(|b| digest(b).as_deref() == Some(d)) {
             return Ok(b.clone());
         }
@@ -572,50 +603,42 @@ fn baseline_for(incoming: &Value, kept: &[String], fresh: &str) -> Result<String
         }
         return Err(format!("no baseline for this export: it came from the design at digest {d}, which no kept export here and not the design as it is has; export again, and make the edits in that file"));
     }
-    // With no header, the candidate with the file's contexts that differs
-    // from it in the fewest values: an unedited file is its own export
-    // exactly, whichever design came after.
-    let theirs = tokens_by_context(incoming);
-    let differs = |text: &str| -> Option<usize> {
-        let doc: Value = serde_json::from_str(text).ok()?;
-        let ours = tokens_by_context(&doc);
-        if ours.keys().ne(theirs.keys()) {
-            return None;
-        }
-        Some(
-            theirs
-                .iter()
-                .flat_map(|(c, all)| all.iter().map(move |(n, t)| (c, n, t)))
-                .filter(|(c, n, t)| {
-                    !ours[*c]
-                        .iter()
-                        .rev()
-                        .find(|(m, _)| m == *n)
-                        .is_some_and(|(_, u)| same(&t["$value"], &u["$value"]))
-                })
-                .count(),
-        )
+    let keys = |doc: &Value| {
+        doc["modifiers"]["mode"]["contexts"]
+            .as_object()
+            .map(|c| c.keys().cloned().collect::<Vec<_>>())
     };
-    kept.iter()
-        .map(String::as_str)
-        .chain([fresh])
-        .filter_map(|b| differs(b).map(|n| (n, b)))
-        .min_by_key(|(n, _)| *n)
-        .map(|(_, b)| b.to_string())
-        .ok_or_else(|| "no baseline for this export: its header is gone and no kept export has its contexts; export again".to_string())
+    let theirs = keys(incoming);
+    let mut found: Vec<&str> = Vec::new();
+    let mut digests: Vec<Option<String>> = Vec::new();
+    for b in kept.iter().map(String::as_str).chain([fresh]) {
+        let doc: Value = serde_json::from_str(b).map_err(|e| format!("a baseline: {e}"))?;
+        let d = digest(b);
+        if keys(&doc) == theirs && !digests.contains(&d) {
+            digests.push(d);
+            found.push(b);
+        }
+    }
+    match found.as_slice() {
+        [one] => Ok(one.to_string()),
+        [] => Err("no baseline for this export: its header is gone and no kept export, nor the design, has its contexts; export again".into()),
+        _ => Err("no baseline for this export: its header is gone, and more than one export it could have come from is kept (the design changed since it was written); export again, and make the edits in that file".into()),
+    }
 }
 
 /// Re-import a Tamber export (`incoming`) against the baseline it came from
-/// (one of `kept`, newest first, by its header's digest; or a fresh export of
-/// `current`, the design as it is). A token whose `$value` is unchanged in
-/// every context proposes nothing, its source kept. A changed one proposes
-/// a `set-token` per tuple whose value changed, its `when` naming every axis
-/// of that tuple; an axis `under scheme=dark` only on a tuple off its
-/// default, since its light side is the line without it. Each token's
-/// operations are checked as the design would take them, and a token they
-/// do not apply to, one the baseline lacks or the file removes, one missing
-/// from a context, or a value this importer reads no colour from, is
-/// reported.
+/// (one of `kept`, newest first; or a fresh export of `current`, the design
+/// as it is). A token whose `$value` is unchanged in every context proposes
+/// nothing, its source kept. A changed one proposes a `set-token` per tuple
+/// whose value changed, its `when` naming every axis of that tuple (an axis
+/// `under scheme=dark` only on a tuple off its default, whose light side is
+/// the line without it), each side the file's where it changed and the
+/// design's as it is where it did not. The operations are applied and folded
+/// as the design would take them: a tuple they reach that the file left
+/// alone is pinned to the design's value, until every context renders as
+/// wanted. A token the design would refuse, alone or with the others, one the
+/// baseline lacks or the file removes, one missing from a context, a context
+/// the export did not have, or a value no colour is read from, is reported.
 pub fn reimport(
     incoming: &str,
     kept: &[String],
@@ -625,45 +648,37 @@ pub fn reimport(
     let refuse = |m: String| vec![Diagnostic::new("tamber-export-import", m, 1, 1)];
     let doc: Value =
         serde_json::from_str(incoming).map_err(|e| refuse(format!("not JSON: {e}")))?;
-    let design = crate::parse(current)?;
-    let fresh = crate::check(current, vocab).and_then(|f| dtcg(&f, vocab))?;
+    let cur = crate::check(current, vocab)?;
+    let fresh = dtcg(&cur, vocab)?;
     let baseline = baseline_for(&doc, kept, &fresh).map_err(refuse)?;
     let base: Value = serde_json::from_str(&baseline)
         .map_err(|e| refuse(format!("the baseline: not JSON: {e}")))?;
     let contexts =
         context_map(&base).ok_or_else(|| refuse("the baseline is no Tamber export".into()))?;
-    let under: Vec<String> = header(&base)
+    let axes = header(&base)
         .and_then(|h| h["axes"].as_array())
-        .into_iter()
-        .flatten()
+        .cloned()
+        .unwrap_or_default();
+    let under: Vec<&str> = axes
+        .iter()
         .filter(|a| a["under"] == "dark")
-        .filter_map(|a| a["name"].as_str().map(str::to_string))
+        .filter_map(|a| a["name"].as_str())
         .collect();
-    let defaults: Vec<(String, String)> = header(&base)
-        .and_then(|h| h["axes"].as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|a| {
-            Some((
-                a["name"].as_str()?.to_string(),
-                a["values"][0].as_str()?.to_string(),
-            ))
-        })
+    let defaults: Vec<(&str, &str)> = axes
+        .iter()
+        .filter_map(|a| Some((a["name"].as_str()?, a["values"][0].as_str()?)))
         .collect();
-    let theirs = tokens_by_context(&doc);
-    let ours = tokens_by_context(&base);
-    let value = |tokens: &std::collections::BTreeMap<String, Vec<(String, Value)>>,
-                 context: &str,
-                 name: &str| {
+    let theirs = tokens_by_context(&doc).map_err(refuse)?;
+    let ours = tokens_by_context(&base).map_err(refuse)?;
+    let value = |tokens: &ByContext, context: &str, name: &str| {
         tokens
             .get(context)
             // The last source that declares it wins, as the resolver says.
             .and_then(|all| all.iter().rev().find(|(n, _)| n == name))
             .map(|(_, t)| t["$value"].clone())
     };
-    // The tuples: each one's light and dark context, and its base, the
-    // tuple with every axis under scheme=dark at its default, whose light
-    // side it shows.
+    // The tuples, each its light and dark context; and a tuple's base, with
+    // every axis under scheme=dark at its default, whose light side it shows.
     let mut tuples: Vec<(Modes, [String; 2])> = Vec::new();
     for (name, modes, dark) in &contexts {
         match tuples.iter_mut().find(|(m, _)| m == modes) {
@@ -678,21 +693,24 @@ pub fn reimport(
     let base_of = |modes: &Modes| -> Modes {
         modes
             .iter()
-            .map(|(a, v)| match under.contains(a) {
+            .map(|(a, v)| match under.contains(&a.as_str()) {
                 true => (
                     a.clone(),
                     defaults
                         .iter()
-                        .find(|(d, _)| d == a)
-                        .map_or(v.clone(), |(_, dv)| dv.clone()),
+                        .find(|(d, _)| *d == a)
+                        .map_or(v.clone(), |(_, dv)| dv.to_string()),
                 ),
                 false => (a.clone(), v.clone()),
             })
             .collect()
     };
-    let light_of = |modes: &Modes| -> Option<&String> {
-        let b = base_of(modes);
-        tuples.iter().find(|(m, _)| *m == b).map(|(_, s)| &s[0])
+    let tuple_of = |modes: &Modes| tuples.iter().find(|(m, _)| m == modes);
+    let modes_of = |context: &str| {
+        tuples
+            .iter()
+            .find(|(_, s)| s.iter().any(|c| c == context))
+            .map(|(m, _)| m.clone())
     };
     let mut names: Vec<String> = Vec::new();
     for all in theirs.values().chain(ours.values()) {
@@ -710,7 +728,6 @@ pub fn reimport(
         ours.get(&first)
             .is_some_and(|all| all.iter().any(|(m, _)| m == n))
     };
-    let (mut ops, mut unmapped, mut mapped) = (Vec::new(), Vec::new(), 0);
     let report = |unmapped: &mut Vec<Unmapped>, name: &str, block: &str, why: String| {
         unmapped.push(Unmapped {
             block: block.to_string(),
@@ -720,6 +737,22 @@ pub fn reimport(
             token: Some(name.to_string()),
         });
     };
+    let mut unmapped = Vec::new();
+    // A context the export did not have: no tuple of the design.
+    let extra: Vec<&String> = theirs
+        .keys()
+        .filter(|c| !contexts.iter().any(|(n, ..)| n == *c))
+        .collect();
+    for c in &extra {
+        unmapped.push(Unmapped {
+            block: (*c).clone(),
+            name: (*c).clone(),
+            value: String::new(),
+            why: "a context the export did not have: its contexts are the design's tuples, and an axis is added to the design, not by re-import".into(),
+            token: None,
+        });
+    }
+    let mut accepted: Vec<(String, Vec<Op>)> = Vec::new();
     for name in &names {
         if !in_base(name) {
             report(&mut unmapped, name, "", "not in the export it came from: a new token is added to the design, not by re-import".into());
@@ -749,33 +782,107 @@ pub fn reimport(
             );
             continue;
         }
+        let changed = |context: &str| !matches!((value(&theirs, context, name), value(&ours, context, name)), (Some(a), Some(b)) if same(&a, &b));
+        if !contexts.iter().any(|(c, ..)| changed(c)) {
+            mapped_unchanged(&mut accepted, name);
+            continue;
+        }
         // The design's own spelling: exactly, or a role's row in any case.
         let overrides = ours[&first]
             .iter()
             .find(|(n, _)| n == name)
             .is_some_and(|(_, t)| t["$extensions"]["exact"]["overrides"].is_string());
-        let written = design
+        let declared = cur
             .tokens
             .iter()
-            .find(|t| t.name.value == *name)
+            .zip(&cur.design.tokens)
+            .find(|(_, t)| t.name.value == *name)
             .or_else(|| {
                 overrides
                     .then(|| {
-                        design
-                            .tokens
+                        cur.tokens
                             .iter()
-                            .find(|t| t.name.value.eq_ignore_ascii_case(name))
+                            .zip(&cur.design.tokens)
+                            .find(|(_, t)| t.name.value.eq_ignore_ascii_case(name))
                     })
                     .flatten()
-            })
-            .map_or(name.clone(), |t| t.name.value.clone());
-        let changed = |context: &str| !matches!((value(&theirs, context, name), value(&ours, context, name)), (Some(a), Some(b)) if same(&a, &b));
+            });
+        let Some((now, decl)) = declared else {
+            report(
+                &mut unmapped,
+                name,
+                "",
+                "not in the design any more: a token is added to the design, not by re-import"
+                    .into(),
+            );
+            continue;
+        };
+        let written = decl.name.value.clone();
+        // What a context should be: the file's where it changed, the design's
+        // as it is where it did not, as text and as the colour it renders.
+        let now_side = |context: &str| -> Option<(String, Option<Wide>)> {
+            let modes = modes_of(context)?;
+            let dark = contexts.iter().any(|(n, _, d)| n == context && *d);
+            let pins: Vec<(&str, &str)> = modes
+                .iter()
+                .map(|(a, v)| (a.as_str(), v.as_str()))
+                .collect();
+            let folded = now.values.get(cur.tuple(&pins)?)?;
+            let text = match folded {
+                Folded::One(_) | Folded::Pair(..) => {
+                    // An opaque 8-bit colour as a design writes it, `#rrggbb`.
+                    let css = folded.side(dark).ok()?.css();
+                    match css.strip_suffix("ff") {
+                        Some(short) if css.len() == 9 && css.starts_with('#') => short.to_string(),
+                        _ => css,
+                    }
+                }
+                Folded::Host(h) => Folded::Host(h.clone()).css(),
+            };
+            Some((text, side(folded, dark, vocab).map(|(h, _)| rendered(h))))
+        };
+        let want = |context: &str| -> Option<(String, Option<Wide>)> {
+            if changed(context) {
+                let v = value(&theirs, context, name)?;
+                Some((written_colour(&v)?, read(&v)))
+            } else {
+                now_side(context)
+            }
+        };
+        let line =
+            |modes: &Modes, sides: &[String; 2], every: bool| -> Result<Op, (String, String)> {
+                let light = tuple_of(&base_of(modes)).map_or(&sides[0], |(_, s)| &s[0]);
+                let (Some((l, _)), Some((d, _))) = (want(light), want(&sides[1])) else {
+                    return Err((
+                        sides.join(" / "),
+                        "a value this importer reads no colour from".into(),
+                    ));
+                };
+                let off = modes.iter().any(|(a, v)| {
+                    under.contains(&a.as_str())
+                        && base_of(modes).iter().any(|(b, w)| b == a && w != v)
+                });
+                let when: Modes = modes
+                    .iter()
+                    .filter(|(a, _)| every || off || !under.contains(&a.as_str()))
+                    .cloned()
+                    .collect();
+                Ok(Op::SetToken {
+                    name: written.clone(),
+                    when,
+                    value: if l == d {
+                        l
+                    } else {
+                        format!("light-dark({l}, {d})")
+                    },
+                    at: None,
+                    comment: None,
+                })
+            };
         let mut token_ops = Vec::new();
         let mut why = None;
         for (modes, sides) in &tuples {
-            let Some(light) = light_of(modes) else {
-                continue;
-            };
+            let light = tuple_of(&base_of(modes)).map_or(&sides[0], |(_, s)| &s[0]);
             // A light side under an axis under scheme=dark shows its base's:
             // an edit there alone is no value of the design.
             if light != &sides[0] && changed(&sides[0]) && !changed(light) {
@@ -786,62 +893,25 @@ pub fn reimport(
                 continue;
             }
             // A tuple off an axis under scheme=dark whose dark side follows
-            // its base's, before and after, takes the base's new line.
-            let base_dark = tuples
-                .iter()
-                .find(|(m, _)| *m == base_of(modes))
-                .map(|(_, s)| &s[1]);
-            if let Some(bd) = base_dark.filter(|bd| *bd != &sides[1]) {
-                let follows = |tokens| matches!((value(tokens, &sides[1], name), value(tokens, bd, name)), (Some(a), Some(b)) if same(&a, &b));
+            // its base's, before and after, takes the base's new line (the
+            // fold below pins it if not).
+            if let Some((_, b)) = tuple_of(&base_of(modes)).filter(|(m, _)| m != modes) {
+                let follows = |tokens: &ByContext| matches!((value(tokens, &sides[1], name), value(tokens, &b[1], name)), (Some(x), Some(y)) if same(&x, &y));
                 if follows(&theirs) && follows(&ours) {
                     continue;
                 }
             }
-            let read = [light, &sides[1]]
-                .map(|c| value(&theirs, c, name).as_ref().and_then(written_colour));
-            let [Some(l), Some(d)] = read else {
-                why = Some((
-                    sides.join(" / "),
-                    "a value this importer reads no colour from".into(),
-                ));
-                break;
-            };
-            let off: bool = modes.iter().any(|(a, v)| {
-                under.contains(a) && base_of(modes).iter().any(|(b, w)| b == a && w != v)
-            });
-            let when: Modes = modes
-                .iter()
-                .filter(|(a, _)| off || !under.contains(a))
-                .cloned()
-                .collect();
-            token_ops.push(Op::SetToken {
-                name: written.clone(),
-                when,
-                value: if l == d {
-                    l
-                } else {
-                    format!("light-dark({l}, {d})")
-                },
-                at: None,
-                comment: None,
-            });
+            match line(modes, sides, false) {
+                Ok(op) => token_ops.push(op),
+                Err(w) => {
+                    why = Some(w);
+                    break;
+                }
+            }
         }
-        // Applied as the design would take them, then folded: a line they
-        // change can reach a tuple the file left alone (the default line, a
-        // tuple off an axis under scheme=dark that followed it), which is
-        // pinned to the file's value with a line naming every axis, until
-        // every context renders as the file has it.
-        let target = |context: &str| {
-            value(&theirs, context, name)
-                .as_ref()
-                .and_then(written_colour)
-                .and_then(|c| exact_color::parse(&c))
-                .and_then(|p| match p {
-                    Parsed::Legacy(c) => Some(Half::legacy(c).wide()),
-                    Parsed::Wide(w) => Some(w),
-                    _ => None,
-                })
-        };
+        // Applied and folded as the design would take them: a tuple a changed
+        // line reaches that the file left alone is pinned, with a line naming
+        // every axis, until every context renders as wanted.
         let mut rounds = 0;
         while why.is_none() && !token_ops.is_empty() {
             let refused = |all: Vec<Diagnostic>| {
@@ -892,10 +962,8 @@ pub fn reimport(
                 };
                 let wrong = [false, true].iter().any(|&dark| {
                     let have = side(folded, dark, vocab).map(|(h, _)| rendered(h));
-                    !matches!((have, target(&sides[usize::from(dark)])), (Some(h), Some(t)) if {
-                        let (p, q) = (h.linear_srgb(), t.linear_srgb());
-                        p.iter().zip(&q).all(|(m, n)| (m - n).abs() < 1e-6) && (h.alpha - t.alpha).abs() < 1e-3
-                    })
+                    let target = want(&sides[usize::from(dark)]).and_then(|(_, w)| w);
+                    !matches!((have, target), (Some(h), Some(t)) if alike(&h, &t))
                 });
                 if wrong {
                     off.push((modes, sides));
@@ -906,49 +974,58 @@ pub fn reimport(
             }
             rounds += 1;
             if rounds > 3 {
-                why = Some((String::new(), "no lines this design takes give every context the file's value (a light side that differs between tuples an axis under scheme=dark tells apart)".into()));
+                why = Some((String::new(), "no lines this design takes give every context its value (a light side that differs between tuples an axis under scheme=dark tells apart)".into()));
                 break;
             }
             for (modes, sides) in off {
-                let read = [light_of(modes).unwrap_or(&sides[0]), &sides[1]]
-                    .map(|c| value(&theirs, c, name).as_ref().and_then(written_colour));
-                let [Some(l), Some(d)] = read else {
-                    why = Some((
-                        sides.join(" / "),
-                        "a value this importer reads no colour from".into(),
-                    ));
-                    break;
-                };
-                token_ops.push(Op::SetToken {
-                    name: written.clone(),
-                    when: if modes.is_empty() {
-                        Vec::new()
-                    } else {
-                        modes.clone()
-                    },
-                    value: if l == d {
-                        l
-                    } else {
-                        format!("light-dark({l}, {d})")
-                    },
-                    at: None,
-                    comment: None,
-                });
+                match line(modes, sides, true) {
+                    Ok(op) => token_ops.push(op),
+                    Err(w) => {
+                        why = Some(w);
+                        break;
+                    }
+                }
             }
         }
         match why {
             Some((block, w)) => report(&mut unmapped, name, &block, w),
-            None => {
-                mapped += 1;
-                ops.extend(token_ops);
-            }
+            None => accepted.push((name.clone(), token_ops)),
         }
     }
-    let counted = counted(names.len(), mapped, unmapped.len())?;
+    // Together, as one transaction: a token whose operations the design
+    // refuses beside the others' (a dial nothing uses any more) is reported.
+    let mut ops: Vec<Op> = Vec::new();
+    let mut mapped = 0;
+    for (name, token_ops) in accepted {
+        if !token_ops.is_empty() {
+            let mut trial = ops.clone();
+            trial.extend(token_ops.iter().cloned());
+            if let Err(all) = crate::apply_all(current, &trial, vocab) {
+                let first = all
+                    .first()
+                    .map_or(String::new(), |d| format!("{}: {}", d.id, d.message));
+                report(
+                    &mut unmapped,
+                    &name,
+                    "",
+                    format!("the design would refuse it with the tokens before it ({first})"),
+                );
+                continue;
+            }
+            ops = trial;
+        }
+        mapped += 1;
+    }
+    let counted = counted(names.len() + extra.len(), mapped, unmapped.len())?;
     Ok(Import {
         ops,
         offers: Vec::new(),
         unmapped,
         counted,
     })
+}
+
+/// An unchanged token: mapped, no operations.
+fn mapped_unchanged(accepted: &mut Vec<(String, Vec<Op>)>, name: &str) {
+    accepted.push((name.to_string(), Vec::new()));
 }

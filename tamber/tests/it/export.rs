@@ -236,7 +236,9 @@ fn an_axis_under_scheme_dark_keeps_its_light_side_on_the_line_without_it() {
     });
     assert!(import.ops.is_empty());
     assert!(
-        import.unmapped[0].why.contains("tamber-under-role"),
+        import.unmapped[0]
+            .why
+            .contains("the design would refuse it"),
         "{:?}",
         import.unmapped
     );
@@ -391,10 +393,24 @@ fn a_stripped_copy_reads_against_the_export_it_came_from() {
     let (first, mut doc) = exported(FIXTURE);
     let changed = FIXTURE.replace("accent.fill = #1d9bf0", "accent.fill = #00ff00");
     doc["sets"]["exact"]["sources"][0] = serde_json::json!({});
-    // Kept beside it, the first export: an unedited copy proposes nothing
-    // against the changed design.
-    let import = reimport(&doc.to_string(), &[first], &changed, &vocab()).unwrap();
+    // The design as it was: its own export is the one baseline, and an
+    // unedited copy proposes nothing.
+    let import = reimport(
+        &doc.to_string(),
+        std::slice::from_ref(&first),
+        FIXTURE,
+        &vocab(),
+    )
+    .unwrap();
     assert!(import.ops.is_empty(), "{:?}", import.ops);
+    // The design changed since: the first export kept, and the design's own,
+    // could each be where the copy came from; its values cannot tell an edit
+    // from the other export's, so it is refused.
+    let refused = reimport(&doc.to_string(), &[first], &changed, &vocab()).unwrap_err();
+    assert!(
+        refused[0].message.contains("more than one export"),
+        "{refused:?}"
+    );
     // A renamed modifier is no export of ours, and no panic.
     doc["modifiers"] = serde_json::json!({"other": doc["modifiers"]["mode"].clone()});
     assert!(!exact_tamber::export::is_own(&doc.to_string()));
@@ -411,4 +427,99 @@ fn a_legacy_colour_exports_its_bytes() {
     let v = context(&mut doc, &first)["absolute"]["calc"]["$value"].clone();
     assert_eq!(v["hex"], "#800000", "{v}");
     assert_eq!(v["components"][0].as_f64().unwrap(), 128.0 / 255.0);
+}
+
+#[test]
+fn round_three_edges() {
+    let red: Value = serde_json::from_str(RED).unwrap();
+    // The design changed since the export (dim's dark of `accent.fill`), and
+    // the file changed only black's dark: dim keeps the design's value.
+    let (text, mut doc) = exported(FIXTURE);
+    let newer = FIXTURE.replace(
+        "  accent.fill = #1d9bf0\n",
+        "  accent.fill = #1d9bf0\n    when dark-style=dim: light-dark(#1d9bf0, #00ff00)\n",
+    );
+    context(&mut doc, "dark-style=black, dark")["accent"]["fill"]["$value"] = red.clone();
+    let import = reimport(
+        &doc.to_string(),
+        std::slice::from_ref(&text),
+        &newer,
+        &vocab(),
+    )
+    .unwrap();
+    let accepted = exact_tamber::apply_all(&newer, &import.ops, &vocab())
+        .unwrap()
+        .text;
+    let (_, after) = exported(&accepted);
+    assert_eq!(
+        hex_in(&after, "dark-style=black, dark", &["accent", "fill"]),
+        "#ff0000"
+    );
+    assert_eq!(
+        hex_in(&after, "dark-style=dim, dark", &["accent", "fill"]),
+        "#00ff00"
+    );
+    // A source by reference, later in the context, wins.
+    let import = edited_import(|doc| {
+        doc["sets"]["red"] = serde_json::json!({"sources": [{"accent": {"fill": {"$type": "color", "$value": red.clone()}}}]});
+        doc["modifiers"]["mode"]["contexts"]["dark-style=black, dark"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"$ref": "#/sets/red"}));
+    });
+    assert!(!import.ops.is_empty(), "{:?}", import);
+    // A context the export did not have is reported.
+    let import = edited_import(|doc| {
+        let c = doc["modifiers"]["mode"]["contexts"]["dark-style=black, dark"].clone();
+        doc["modifiers"]["mode"]["contexts"]["dark-style=grey, dark"] = c;
+    });
+    assert!(
+        import
+            .unmapped
+            .iter()
+            .any(|u| u.name == "dark-style=grey, dark"),
+        "{:?}",
+        import.unmapped
+    );
+    assert_eq!(
+        import.counted.source,
+        import.counted.mapped + import.counted.reported
+    );
+    // A reprint of an 8-bit channel to six places changes nothing.
+    let import = edited_import(|doc| {
+        let v = &mut context(doc, "dark-style=black, dark")["accent"]["fill"]["$value"];
+        let c: Vec<f64> = v["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| (x.as_f64().unwrap() * 1e6).round() / 1e6)
+            .collect();
+        v["components"] = serde_json::json!(c);
+    });
+    assert!(import.ops.is_empty(), "{:?}", import.ops);
+}
+
+#[test]
+fn a_legacy_alpha_exports_its_byte() {
+    let src = "tamber t\n\ntheme\n  veil = rgb(10 20 30 / 50%)\n";
+    let (_, doc) = exported(src);
+    let v = &doc["modifiers"]["mode"]["contexts"]["light"][0]["veil"]["$value"];
+    assert_eq!(v["alpha"].as_f64().unwrap(), 128.0 / 255.0, "{v}");
+}
+
+#[test]
+fn an_unchanged_lossy_side_keeps_the_design_value() {
+    let src = "tamber t\n\ntheme\n  glow = light-dark(#ffffff, color(srgb-linear 2 2 2))\n";
+    let (text, mut doc) = exported(src);
+    assert!(
+        doc["modifiers"]["mode"]["contexts"]["dark"][0]["glow"]["$extensions"]["exact"]["lossy"]
+            .is_string()
+    );
+    doc["modifiers"]["mode"]["contexts"]["light"][0]["glow"]["$value"] =
+        serde_json::from_str(RED).unwrap();
+    let import = reimport(&doc.to_string(), &[text], src, &vocab()).unwrap();
+    let Op::SetToken { value, .. } = &import.ops[0] else {
+        panic!("{import:?}")
+    };
+    assert_eq!(value, "light-dark(#ff0000, color(srgb-linear 2 2 2))");
 }
