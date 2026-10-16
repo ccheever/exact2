@@ -243,7 +243,7 @@ pub struct Presenter<D: DataSource> {
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
     /// A failed painter's blank fallback cannot bless an update generation.
-    last_frame_succeeded: bool,
+    pub(crate) last_frame_succeeded: bool,
     pub(crate) display: display_frame::State,
     /// Which painter was asked for (`Auto` may change its mind after a
     /// failed frame).
@@ -705,6 +705,7 @@ impl<D: DataSource> Presenter<D> {
             return error;
         }
         let geometry_changed = self.viewport != (width, height);
+        self.dirty |= geometry_changed;
         self.viewport = (width, height);
         self.images.fit(self.viewport, self.brush.scale);
         if geometry_changed {
@@ -717,7 +718,7 @@ impl<D: DataSource> Presenter<D> {
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
     pub(crate) fn after_commit(&mut self) -> Option<String> {
-        self.dirty = true;
+        self.dirty |= self.brush.paint_epoch != Some(self.host.kernel().epoch());
         self.finish_commit()
     }
 
@@ -1377,6 +1378,8 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn measure(&mut self) {
         let on = !exact_runner::delivery::production(&self.compat);
         self.host.runner_mut().measure(on, true);
+        // The live table is development's too (LLP 1121 stage 4).
+        self.host.runner_mut().admit_live(Some(&self.compat));
     }
 
     /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:
@@ -1410,8 +1413,13 @@ impl<D: DataSource> Presenter<D> {
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
+        let animating = self.host.motion()
+            || self.arrange.is_some()
+            || self.group.is_some()
+            || self.focus.is_some();
         if self.host.tick(now_ms) {
             self.hatches.stale = true;
+            self.dirty = true;
             self.clamp_scroll();
             self.queue_collections();
             if let Some(error) = self.refresh_transform_geometry() {
@@ -1419,7 +1427,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.tick_arrange(self.host.now());
-        self.dirty = true;
+        self.dirty |= animating;
     }
 
     /// The pixels, as a PNG at `path`.

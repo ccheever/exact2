@@ -362,12 +362,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
-        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, design: design, apply: apply)
         connection.resolveAndBoot()
         return connection
     }
@@ -375,6 +375,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     let page: URL
     private let currentGeneration: () -> String?
     private let applyGeneration: (Generation, String) -> Bool
+    /// A live design batch or snapshot (LLP 1121 stage 4) applied to the
+    /// app; answers applied, stale, structure or refused.
+    private let applyDesign: (String) -> String
     private let preparationPending: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
@@ -396,11 +399,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, apply: @escaping (Generation, String) -> Bool) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
         applyGeneration = apply
+        applyDesign = design
         preparationPending = waiting
     }
 
@@ -411,6 +415,10 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         pending = nil
         Array(fetches.values).forEach { $0.cancel() }
         fetches.removeAll()
+        // A snapshot fetch cancelled with the rest: the generation this
+        // resolves syncs its design once applied.
+        syncing = false
+        waitingFrames.removeAll()
         return resolution
     }
 
@@ -679,6 +687,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                         func commitCandidate() {
                             guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
                             if applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
+                                // Its plan carries its own design; value-only edits since are the server's.
+                                syncDesign()
                                 status(String(format: "generation %@: envelope %.1f ms, payloads %.1f ms, preparation %.1f ms", String(identity.prefix(12)), envelopeMs, (fetched - payloadStarted) * 1000, (ProcessInfo.processInfo.systemUptime - fetched) * 1000))
                             } else if preparationPending() {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: commitCandidate)
@@ -819,6 +829,10 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             return
         }
         if let error = frame["error"] as? String { status("dev: \(error)"); return }
+        if let kind = frame["kind"] as? String, kind == "tamber-batch" || kind == "tamber-snapshot" {
+            design(frame)
+            return
+        }
         if frame["ready"] as? Bool == false { return }
         guard let revision = PlanURL.revision(frame), terminal == nil, observe(revision) else { return }
         if currentGeneration() == revision.identity { beginResolution(); return }
@@ -828,6 +842,45 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let generation = beginResolution()
         pending = revision
         fetchEnvelope(url, subscribe: false, generation: generation, expected: revision)
+    }
+
+    // MARK: the live table (LLP 1121 D13, stage 4)
+
+    /// A batch (a notice is one with no tokens) applied on its base; a build
+    /// on another design fetches the snapshot. One at a time, in the stream's
+    /// order: a frame that arrives while a snapshot is fetched waits for it,
+    /// so a snapshot never lands over a newer batch.
+    private func design(_ frame: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let text = String(data: data, encoding: .utf8) else { return }
+        if syncing { waitingFrames.append(text); return }
+        let answer = applyDesign(text)
+        if answer == "stale" { syncDesign() } else if answer.hasPrefix("refused") { status("live: \(answer)") }
+    }
+
+    private var syncing = false
+    private var waitingFrames: [String] = []
+
+    /// The design the server's builds run, when it is not the plan's own.
+    func syncDesign() {
+        guard !syncing, let url = URL(string: "/__dev/design", relativeTo: page)?.absoluteURL else { return }
+        syncing = true
+        var request = URLRequest(url: url)
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        fetch(request, limit: PlanURL.planLimit, generation: resolution) { [weak self] result in
+            guard let self else { return }
+            self.syncing = false
+            if case let .success((data, response)) = result, response.statusCode == 200, let text = String(data: data, encoding: .utf8) {
+                let answer = self.applyDesign(text)
+                if answer != "applied" { self.status("live: the snapshot was \(answer)") }
+            }
+            let frames = self.waitingFrames
+            self.waitingFrames.removeAll()
+            for text in frames {
+                if self.syncing { self.waitingFrames.append(text); continue }
+                if self.applyDesign(text) == "stale" { self.syncDesign() }
+            }
+        }
     }
 
     private func status(_ message: String) { fputs("exact url: \(message)\n", stderr) }

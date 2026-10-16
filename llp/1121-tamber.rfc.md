@@ -2304,3 +2304,38 @@ everywhere.
   involves a profile colour, has an unknown closure (the app's build stops before its design),
   or changes structure.
 - `propose`'s answer is now the closure's, not the design's shape alone.
+
+### Stage 4, commits 3 and 4: the live table (`ad6c46d1b`, review rounds `f133acb13`..`e27941bf9`, records `a7483ba86`)
+
+- **The plan's structure** (`Plan::structure`) is its canonical bytes without the design's
+  values. Role-override and profile-colour values stay in it, because hosts take them at boot,
+  and so do the axes, since an axis change renumbers the tuples a batch's slices index (the
+  brief had excluded the axes). The builder interns design values last, so a value-only edit
+  moves no other string's id.
+- **No plan is published** when only `.tamber` files changed and the structure is unchanged. This
+  is decided by content in the wasm loop's `Session`, in the TypeScript producer and in the JS
+  loop, so a hand edit and a server write are one path (the server's writes are not skipped
+  in-process). The wasm loop still writes the plan file, so a host watching it
+  (`EXACT_DEV_PLAN`) restarts as before; only builds connected to the dev URL are live. A
+  Rust-data app's wasm loop says `live: false`.
+- **The batch** is `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
+  slices}]}`, where a synthetic token is named by its expression.
+  - A snapshot (`GET /__dev/design`) carries every token.
+  - A notice (no tokens) goes out on connect, and in place of a batch over 32 KiB, which native
+    event frames can't carry.
+  - A stale base, or a notice for another design, fetches the snapshot.
+- **`Runner::apply_live`** sets every changed token in one commit with no layout, and refuses in a
+  production build (`admit_live`). It skips role overrides. A colour refused by a full wide table
+  keeps its old value and is reported as `unsupported`.
+- **The hosts:** `exact_design_rows` on the web and Apple ABIs, and `Presenter::apply_live` on
+  Linux (by polling, beside its envelope). Apple re-fetches the snapshot after every generation
+  it applies.
+- **The JS target's development build** makes every non-role token a custom property, and
+  `modes.js` rewrites each tuple's rule in one style update. Its release build was compared
+  byte for byte with the build before, on theme-fixture and the tamber-modes conformance app. The
+  generated JS and CSS (`.gen/app.css`, `.gen/app.js`, `paint.js`, `names.js`, `pages.json`) are
+  identical, and the plans differ only in string pool order, so the plan digest moves. The one
+  code difference is `.gen/modes.js`: it carries the live-table runtime, inert in release because
+  no development design is passed. A follow-up leaves it out of release builds.
+- **The server:** `hello.live`, writes held until answered (never a 504 and then applied), and a
+  held propose checks the `requires` its client names.

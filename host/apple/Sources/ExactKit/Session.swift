@@ -234,7 +234,7 @@ public final class ExactApp {
             if let old = self.devProgram { return old == program }
             self.devProgram = program
             return true
-        }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, apply: { [weak self] candidate, label in
+        }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, design: { [weak self] in self?.design($0) ?? "closed" }, apply: { [weak self] candidate, label in
             guard let self else { return false }
             let resolver = candidate.assets
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, commit: { true })
@@ -833,7 +833,7 @@ public final class ExactSession {
             routerOp = nil
             generation += 1
             if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
-            booted = true
+            booted = true; app.liveBooted()
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
@@ -922,7 +922,7 @@ public final class ExactSession {
         awaitingTree = true // the tint a reset gives back is reported with the new tree
         presenter.reset()
         forgetAppearances()
-        booted = true
+        booted = true; app.liveBooted()
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)

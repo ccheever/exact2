@@ -992,3 +992,146 @@ fn wide_mark_cost() {
         exact_kernel::style::wide::used()
     );
 }
+
+/// LLP 1121 stage 4, commit 3: a plan's structure leaves the design's values
+/// out, so a value-only edit has the same structure; a role override's
+/// value, a token's slices and a view changed do not.
+#[test]
+fn a_value_only_edit_keeps_the_plans_structure() {
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n";
+    let structure = |name: &str, design: &str, view: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap().structure()
+    };
+    let design = format!("{MODES}  Canvas = #fafafa\n");
+    let base = structure("structure-base", &design, view);
+    // Values, varying or not, in any tuple.
+    let values = design
+        .replace(
+            "light-dark(#111111, #eeeeee)",
+            "light-dark(#111111, #dddddd)",
+        )
+        .replace(
+            "light-dark(#ffffff, #161e27)",
+            "light-dark(#ffffff, #1a2430)",
+        );
+    assert_eq!(structure("structure-values", &values, view), base);
+    // A value that stops sharing its string with another token's, and one
+    // that comes to.
+    let shared = format!("{design}  edge = #fafafa\n");
+    let view_edge = view.replace("column ", "column border-color=\"edge\" ");
+    let base_edge = structure("structure-shared", &shared, &view_edge);
+    let apart = shared.replace("edge = #fafafa", "edge = #abcdef");
+    assert_eq!(structure("structure-apart", &apart, &view_edge), base_edge);
+    let together = shared.replace("edge = #fafafa", "edge = #111111");
+    assert_eq!(
+        structure("structure-together", &together, &view_edge),
+        base_edge
+    );
+    // Code that pushes a value's text keeps that string: the literal and the
+    // token changed together is no value-only edit.
+    let literal = |text: &str| {
+        format!("component App\n  state lit = \"{text}\"\n  view\n    column background-color=\"page\"\n      text lit color=\"ink\"\n")
+    };
+    let with = |ink: &str| {
+        design
+            .replace(
+                "ink = light-dark(#111111, #eeeeee)",
+                &format!("ink = {ink}"),
+            )
+            .replace(
+                "    when dark-style=dim: light-dark(#111111, #cccccc)\n",
+                "",
+            )
+    };
+    let shared_code = structure("structure-code-a", &with("#111111"), &literal("#111111ff"));
+    assert_ne!(
+        structure("structure-code-b", &with("#222222"), &literal("#222222ff")),
+        shared_code
+    );
+    assert_eq!(
+        structure("structure-code-c", &with("#222222"), &literal("#111111ff")),
+        shared_code
+    );
+    // A role override's value: the hosts take role tables at boot.
+    let role = design.replace("Canvas = #fafafa", "Canvas = #f0f0f0");
+    assert_ne!(structure("structure-role", &role, view), base);
+    // A token that stops varying by an axis (its slices go), and a view
+    // changed. (A token no view names is in no plan.)
+    let flat = design.replace(
+        "    when dark-style=dim: light-dark(#111111, #cccccc)\n",
+        "",
+    );
+    assert_ne!(flat, design);
+    assert_ne!(structure("structure-flat", &flat, view), base);
+    let other = view.replace("\"a\"", "\"b\"");
+    assert_ne!(structure("structure-view", &design, &other), base);
+}
+
+/// LLP 1121 stage 4, commit 4: a value-only edit reaches a running build as
+/// a batch, with no plan: its rows, a synthetic token's included, set in one
+/// commit with no layout. A stale base is refused (the build asks for a
+/// snapshot), a snapshot applies whole, and another structure is refused.
+#[test]
+fn a_batch_sets_a_running_builds_rows_without_a_plan() {
+    use exact_runner::design::{self, Token};
+    use exact_runner::LiveRefusal;
+    let view = "component App\n  view\n    column background-color=\"page\" testId=\"page\"\n      text \"a\" color=\"ink\" testId=\"ink\"\n      text \"b\" color=\"color-mix(in srgb, ink 50%, white)\" testId=\"mix\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    // With a role override, which a snapshot carries and does not set.
+    let modes = format!("{MODES}  Canvas = #fafafa\n");
+    let a = plan("live-a", &modes);
+    let b = plan("live-b", &modes.replace("#111111", "#ff0000"));
+    let structure = design::structure(&a);
+    assert_eq!(design::structure(&b), structure);
+    let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let names: Vec<&str> = batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["ink", "color-mix(in srgb, ink 50%, white)"],
+        "the synthetic token rides along"
+    );
+    // The wire round-trips.
+    assert_eq!(design::Edit::parse(&batch.json()), Some(batch.clone()));
+    let mut r = booted(a.clone());
+    // A release build takes none.
+    r.admit_live(Some(r#"{"inputs":{"trust":"production"}}"#));
+    assert!(matches!(r.apply_live(&batch), Err(LiveRefusal::Refused(_))));
+    r.admit_live(None);
+    let mix_before = row(&r, "mix", StyleId::TextColor);
+    let applied = r.apply_live(&batch).unwrap();
+    assert!(
+        !applied.receipt.layout_invalidated,
+        "a colour moves no geometry"
+    );
+    assert!(!applied.full);
+    assert_eq!(
+        row(&r, "ink", StyleId::TextColor),
+        parsed("light-dark(#ff0000, #eeeeee)")
+    );
+    assert_ne!(row(&r, "mix", StyleId::TextColor), mix_before);
+    assert_eq!(r.design(), batch.design);
+    // The same batch again: its base is no longer this build's.
+    assert_eq!(r.apply_live(&batch).unwrap_err(), LiveRefusal::Stale);
+    // A snapshot of the first design applies whole, whatever this build ran.
+    let back = design::snapshot(&structure, &design::tokens(&a));
+    r.apply_live(&back).unwrap();
+    assert_eq!(
+        row(&r, "ink", StyleId::TextColor),
+        parsed("light-dark(#111111, #eeeeee)")
+    );
+    assert_eq!(row(&r, "mix", StyleId::TextColor), mix_before);
+    // Another structure's.
+    let other = design::snapshot(
+        "0".repeat(64).as_str(),
+        &[Token {
+            name: "ink".into(),
+            value: "#000000".into(),
+            slices: vec![],
+        }],
+    );
+    assert_eq!(r.apply_live(&other).unwrap_err(), LiveRefusal::Structure);
+}

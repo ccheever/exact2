@@ -39,6 +39,17 @@ impl<D: DataSource> Presenter<D> {
                 Err(error) => eprintln!("exact url: candidate refused: {error}"),
             }
         }
+        // The live table (LLP 1121 stage 4): this display polls the server's
+        // snapshot with its plan, so a value-only edit lands without one.
+        if self.pending_dev.is_none() {
+            if let Some(frame) = self.dev.as_mut().and_then(|dev| dev.design.take()) {
+                match self.apply_live(&frame) {
+                    None => {}
+                    Some(why) if why == "structure" => {}
+                    Some(why) => eprintln!("exact url: live: {why}"),
+                }
+            }
+        }
     }
 
     pub(super) fn prepare_logic(

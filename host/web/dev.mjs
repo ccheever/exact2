@@ -236,13 +236,43 @@ const clients = new Set();
 let seq = 0;
 const pending = new Map(); // seq -> { saved, ready }
 const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
+// The live table (LLP 1121 stage 4): a value-only design edit publishes no
+// plan; its batch goes to every build, and its snapshot is kept for a build
+// that connects (or missed a batch) until the next plan.
+let designSnapshot = null;
+// A frame larger than this goes as a notice instead: a native host's event
+// frames are bounded (PlanURL.swift's 64 KiB).
+const DESIGN_FRAME = 32 * 1024;
+const designNotice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
+// The TypeScript producer's last design (`{structure, digest, tokens}`).
+let moduleDesign = null;
+/** The batch and snapshot from design `from` to `to`, or null when the
+ * structure differs (a token's name included). */
+function designBatch(from, to) {
+  if (from.structure !== to.structure || from.tokens.length !== to.tokens.length
+    || from.tokens.some((t, i) => t.name !== to.tokens[i].name)) return null;
+  const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
+  return {
+    batch: { kind: 'tamber-batch', structure: to.structure, base: from.digest, design: to.digest, tokens: to.tokens.filter((t, i) => !same(t, from.tokens[i])) },
+    snapshot: { kind: 'tamber-snapshot', structure: to.structure, base: null, design: to.digest, tokens: to.tokens },
+  };
+}
+function pushDesign({ batch, snapshot }) {
+  designSnapshot = snapshot;
+  let frame = JSON.stringify(batch);
+  if (frame.length > DESIGN_FRAME) frame = JSON.stringify(designNotice(snapshot));
+  for (const res of clients) res.write(`data: ${frame}\n\n`);
+}
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
 const installer = localInstaller({ app: () => app, origins, port: servedAs ?? port, gate, listener: { host, port } });
 // The design server's wire (LLP 1121 D13) when the app has a design; under
 // the JS loop (--serve-as) that loop mounts it.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir }) : null;
+// Live while a value-only edit has its path here: the resident compiler's or
+// the TypeScript producer's. A Rust-data app's own producer publishes every
+// plan, so its design edits reload.
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust }) : null;
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
 let current = null;
 let currentModule = null;
@@ -372,8 +402,15 @@ function startCompiler() {
     buffered = lines.pop();
     for (const line of lines) {
       const [kind, ...rest] = line.split(' ');
-      if (kind === 'plan') {
+      if (kind === 'design') {
+        const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
+        let live;
+        try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
+        console.log(`edit → batch ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no plan`);
+        pushDesign(live);
+      } else if (kind === 'plan') {
         if (assetsNeedRebuild) continue;
+        designSnapshot = null;
         const [bytes, saved, compile, bake, ready] = rest.map(Number);
         seq += 1;
         if (!first) pending.set(seq, { saved, ready });
@@ -551,6 +588,20 @@ function startModuleCompiler() {
         if (request.id !== moduleRun) continue;
         if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
         const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
+        // A value-only design edit (LLP 1121 stage 4): the same structure and
+        // the same module, so no generation; its tokens go out as a batch.
+        // The executables, not the receipt, which names the plan's digest.
+        const sameModule = currentModule && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
+        const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
+        if (reply.design) moduleDesign = reply.design;
+        if (live) {
+          if (live.batch.tokens.length) {
+            console.log(`edit → batch ready ${Date.now() - request.saved} ms · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no generation`);
+            pushDesign(live);
+          }
+          continue;
+        }
+        designSnapshot = null;
         moduleCards(candidate, app.id);
         const previous = currentModule;
         currentModule = candidate;
@@ -1129,11 +1180,22 @@ const server = createServer(async (req, res) => {
     res.end(req.method === 'HEAD' ? undefined : body);
     return;
   }
+  if (url.pathname === '/__dev/design') {
+    // The design builds should run: the last value-only edit's, or (204) the
+    // published plan's own.
+    if (!designSnapshot) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(designSnapshot));
+    return;
+  }
   if (url.pathname === '/__dev') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
     res.write(`data: ${hello()}\n\n`);
     for (const [stem, version] of gpuSides) res.write(`data: ${JSON.stringify({gpu:version, ...(stem === 'gpu' ? {} : {module:stem.slice(4)})})}\n\n`);
+    // A build that connects learns the design to run; one that runs another
+    // fetches the snapshot (/__dev/design).
+    if (designSnapshot) res.write(`data: ${JSON.stringify(designNotice(designSnapshot))}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
     req.on('close', () => clients.delete(res));

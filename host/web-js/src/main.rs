@@ -224,6 +224,18 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             }
+            // A development build's design, for the dev loop's live table
+            // (LLP 1121 stage 4): a value-only edit goes as a batch.
+            if dev_reload {
+                let _every = modes::every(true);
+                if let Err(e) = std::fs::write(
+                    dir.join("dev-design.json"),
+                    modes::design(&plan).to_string(),
+                ) {
+                    eprintln!("dev-design.json: {e}");
+                    return ExitCode::from(1);
+                }
+            }
             // What a Rust data module binds with (rust-data.js): the plan
             // without the bake's answers, which the page already has in
             // `app.js` and which can be most of a baked plan's bytes.

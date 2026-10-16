@@ -22,6 +22,7 @@ extension BatchReader {
         var images: [String] = []
         var seq: (UInt64, UInt64)?
         var modes: [String: String]?
+        var live: String?, unsupported = false
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -42,6 +43,8 @@ extension BatchReader {
             case "timer_due_ms": due = try r.number()
             case "error": error = try r.string()
             case "modes": if case .object(let object) = try r.value() { modes = object.compactMapValues { $0.string } }
+            case "live": live = try r.string()
+            case "unsupported": unsupported = try r.bool()
             case "seq":
                 let range = try r.array { try $0.number() }
                 if range.count == 2, range.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) { seq = (UInt64(range[0]), UInt64(range[1])) }
@@ -58,6 +61,8 @@ extension BatchReader {
         batch.canvasImages = images
         batch.seq = seq
         batch.modes = modes
+        batch.live = live
+        batch.unsupported = unsupported
         return batch
     }
 

@@ -226,7 +226,8 @@ if (es) {
       }
       return accepted;
     },
-    applied: () => { clearTimeout(retry); show(null); },
+    // A new generation runs its plan's own design: the live one since, if any, comes after.
+    applied: () => { clearTimeout(retry); show(null); generations += 1; syncDesign(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -257,6 +258,44 @@ if (es) {
     };
     slot.ready?.();
   }
+  // The live table (LLP 1121 stage 4): a batch applies on its base; a stale
+  // build asks for the snapshot. A frame before boot waits for it, the
+  // latest only (a snapshot carries the whole design).
+  let designing = Promise.resolve();
+  // Applied in place (the wasm's `exact_design_rows`): its batch is the
+  // page's only when `live` says applied.
+  // `still()`, after every wait, says whether the frame is still this page's.
+  const apply = async (frame, still = () => true) => {
+    const x = globalThis.exact;
+    await x.ready;
+    if (!still()) return { live: "structure" };
+    if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
+    const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
+    if (out.live === "applied") x.send(n);
+    if (out.unsupported) console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value");
+    return out;
+  };
+  // One at a time, in the stream's order: a snapshot fetched is never older
+  // than a batch applied before it.
+  // A snapshot asked for under one generation is that generation's: one
+  // that lands after the next is dropped (that one asks again).
+  let generations = 0;
+  const snapshot = async () => {
+    const asked = generations, still = () => asked === generations, response = await fetch("/__dev/design", { cache: "no-store" });
+    if (response.status !== 200 || !still()) return;
+    const frame = await response.json();
+    if (still()) await apply(frame, still);
+  };
+  const syncDesign = () => { designing = designing.then(snapshot).catch((error) => console.error("exact dev:", String(error))); };
+  const design = (frame) => {
+    designing = designing.then(async () => {
+      const out = await apply(frame);
+      // A batch for another structure: a generation is on its way, which
+      // syncs when applied.
+      if (out.live === "stale") await snapshot();
+      else if (out.live.startsWith("refused")) console.error("exact dev:", out.live);
+    }).catch((error) => console.error("exact dev:", String(error)));
+  };
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
@@ -276,6 +315,7 @@ if (es) {
       })().catch(error => { show(String(error), "gpu"); console.error('exact dev:', error); });
       return;
     }
+    if (message.kind === "tamber-batch" || message.kind === "tamber-snapshot") { design(message); return; }
     if (message.ready === false) return;
     client.receive(message);
   };
