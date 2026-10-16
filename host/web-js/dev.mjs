@@ -82,16 +82,18 @@ function build(app, dist, keep = () => false, compiler = null) {
 const mtimeMs = (path) => { try { return statSync(path).mtimeMs; } catch { return null; } };
 
 /** Copy the compiler at `path`, and its dep-info, to `copy`, dated `built`
- * (ms), the date it must have before and after: each file written whole,
- * dated, then renamed. Where that fails, the copy stays as it was. */
+ * (ms), the date it must have before and after, as its dep-info must keep
+ * its own (Cargo rewrites it in place): each file written whole, dated,
+ * then renamed. Where that fails, the copy stays as it was. */
 function copyCompiler(path, copy, built) {
   const temp = `${copy}.${process.pid}.tmp`, tempDep = `${temp}.d`;
   try {
-    if (mtimeMs(path) !== built) throw new Error('built again');
+    const dep = mtimeMs(`${path}.d`);
+    if (mtimeMs(path) !== built || dep === null) throw new Error('built again');
     copyFileSync(path, temp);
     utimesSync(temp, new Date(built), new Date(built));
     copyFileSync(`${path}.d`, tempDep);
-    if (mtimeMs(path) !== built) throw new Error('built again');
+    if (mtimeMs(path) !== built || mtimeMs(`${path}.d`) !== dep || !readFileSync(tempDep, 'utf8').endsWith('\n')) throw new Error('built again');
     renameSync(tempDep, `${copy}.d`);
     renameSync(temp, copy);
   } catch { rmSync(temp, { force: true }); rmSync(tempDep, { force: true }); }
