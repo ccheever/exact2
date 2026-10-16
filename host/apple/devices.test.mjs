@@ -1,11 +1,12 @@
 // LLP 1116.008 D8: a window capture of the app with the software keyboard put in from the simulator's display.
 // A fake `xcrun` stands for `simctl io <udid> screenshot`: it copies a prepared display picture to the path it is given.
 import { test, expect } from 'bun:test';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { crashReports, crashSummary, withKeyboard, phoneBridge } from './devices.mjs';
+import { crashReports, crashSummary, crashWatch, withKeyboard, phoneBridge } from './devices.mjs';
+import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
 
@@ -113,5 +114,51 @@ test("crash reports are this app's on this simulator, newest first, summarized b
       '   1 0xff (libexact_modules.dylib)',
     ]);
     expect(crashSummary(resolve(dir, 'missing.ips'))).toEqual([`crash report: ${resolve(dir, 'missing.ips')}`]);
+    // The older text form: placed by its Identifier and Path lines, summarized from its fields and crashed thread.
+    const legacy = (file, udid, seconds) => {
+      writeFileSync(resolve(dir, file), [
+        'Process:               euxy [84952]', `Path:                  /Users/USER/Library/Developer/CoreSimulator/Devices/${udid}/data/euxy.app/euxy`,
+        'Identifier:            dev.brent.euxy', 'Date/Time:             2026-10-16 06:10:55.000 -0700', '',
+        'Exception Type:        EXC_CRASH (SIGABRT)', 'Termination Reason:    SIGNAL 6 Abort trap: 6', '',
+        'Application Specific Information:', 'abort() called', '',
+        'Thread 1 Crashed::  Dispatch queue: euxy.sound', '0   libsystem_kernel.dylib        \t0x1b2c3d4e5 __pthread_kill + 8',
+        '1   libexact_modules.dylib        \t0x100200300 Engine.start() + 12', '', 'Thread 2:', '0   libsystem_kernel.dylib  0x1 x + 1',
+      ].join('\n'));
+      utimesSync(resolve(dir, file), new Date(seconds * 1000), new Date(seconds * 1000));
+    };
+    legacy('euxy-5.crash', 'MINE', 500);
+    legacy('euxy-6.crash', 'OTHER', 600);
+    expect(crashReports('euxy', 0, scope).map((f) => f.slice(dir.length + 1))).toEqual(['euxy-5.crash', 'euxy-2.ips', 'euxy-1.ips']);
+    expect(crashSummary(resolve(dir, 'euxy-5.crash'))).toEqual([
+      `crash report: ${resolve(dir, 'euxy-5.crash')} (2026-10-16 06:10:55.000 -0700)`,
+      '  EXC_CRASH (SIGABRT), SIGNAL 6 Abort trap: 6; thread 1 (euxy.sound) crashed:',
+      '  abort() called',
+      '   0 __pthread_kill + 8 (libsystem_kernel.dylib)',
+      '   1 Engine.start() + 12 (libexact_modules.dylib)',
+    ]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A launch that crashes before the agent's socket opens (Astra's review): the failure reads a report already written since the
+// build, and waits for the one macOS writes a moment after the process dies.
+test('a failed launch reads the crash report written before it, and waits for the one its own crash writes', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-crash-watch-')), bundle = resolve(dir, 'euxy.app');
+  try {
+    const at = (file, ms) => utimesSync(file, new Date(ms), new Date(ms));
+    const report = (file) => writeFileSync(resolve(dir, file), JSON.stringify({ bundleID: 'dev.brent.euxy', timestamp: file }) + '\n' + JSON.stringify({ procPath: '/CoreSimulator/Devices/MINE/data/euxy.app/euxy' }));
+    mkdirSync(bundle);
+    writeFileSync(resolve(bundle, 'receipt.json'), '{}');
+    at(resolve(bundle, 'receipt.json'), Date.now() - 60_000);
+    report('euxy-old.ips');
+    at(resolve(dir, 'euxy-old.ips'), Date.now() - 30_000);
+    const scope = { bundleId: 'dev.brent.euxy', udid: 'MINE', dir };
+    expect(crashWatch('euxy', bundle, scope)()[0]).toContain('euxy-old.ips'); // a crash before this launch, by hand
+    const watch = crashWatch('euxy', bundle, scope);
+    const late = spawn('sh', ['-c', `sleep 0.4; cp '${resolve(dir, 'euxy-old.ips')}' '${resolve(dir, 'euxy-new.ips')}'`]);
+    const started = Date.now(), lines = watch(5000);
+    expect(lines[0]).toContain('euxy-new.ips');
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(watch()).toEqual([]); // said once
+    late.kill();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

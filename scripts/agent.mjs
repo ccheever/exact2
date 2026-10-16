@@ -708,7 +708,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
   const launched = Date.now(), crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
-  const crashes = crashWatch(crashName, bundle, { bundleId: id, udid: dev.udid }); // for `logs`: a crash of this build here, by hand or in a drive
+  const crashes = crashWatch(crashName, bundle, { bundleId: id, udid: dev.udid }), crashed = (why, died) => new Error([why, ...crashes(died ? 3000 : 0)].join('\n')); // `logs`, a failed launch: this build's crash here
   const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   onProcess?.(console_);
   const hostLines = [];
@@ -720,13 +720,13 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   let socket = null;
   const t = Date.now();
   while (!socket) {
-    if (consoleDone) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); throw new Error('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n')); }
+    if (consoleDone) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); throw crashed('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n'), true); }
     if (Date.now() - t > 20000) {
       try { console_.kill('SIGKILL'); } catch {}
       await consoleExited;
       rmSync(dir, { recursive: true, force: true });
       await touches?.close();
-      throw new Error('the app never opened its agent socket; ' + hostLines.join('\n'));
+      throw crashed('the app never opened its agent socket; ' + hostLines.join('\n'));
     }
     socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
     if (!socket) await sleep(50);
@@ -807,9 +807,9 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       },
       close,
     };
-  } catch (e) {
+  } catch (e) { const died = consoleDone; // before close ends the launch
     try { await close(); } catch (failure) { e.message += `; ${failure.message}`; }
-    throw e;
+    throw /crash report:/.test(e.message) ? e : Object.assign(e, { message: crashed(e.message, died).message });
   }
 }
 const CLOCK_STEP_MS = 1000, CLOCK_BUDGET_MS = 3000, CLOCK_SPAN_MS = 600_000, REAL_STEP_MS = 50;

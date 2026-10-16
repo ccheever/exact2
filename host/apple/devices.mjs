@@ -122,42 +122,77 @@ export function crashReports(name, since, { bundleId, udid, dir = resolve(homedi
   const ours = (f) => {
     if (!bundleId && !udid) return true;
     const report = parseReport(f);
-    return !!report && (!bundleId || report.head.bundleID === bundleId) && (!udid || [report.body.procPath, report.body.coalitionName].some((p) => String(p ?? '').includes(udid)));
+    return !!report && (!bundleId || report.bundleID === bundleId) && (!udid || report.paths.some((p) => String(p ?? '').includes(udid)));
   };
   return names.filter((f) => f.startsWith(name + '-') && /\.(ips|crash)$/.test(f))
     .map((f) => resolve(dir, f)).filter((f) => at(f) >= since && ours(f)).sort((a, b) => at(b) - at(a));
 }
-/** An `.ips` report: a JSON header line, then the JSON body. Null for any other. */
-function parseReport(file) {
+/** A crash report as one shape, whichever form it is in: its bundle id, time,
+ *  the paths that place it on a simulator, how the process ended and why (the
+ *  exception, the termination, the app-specific message, such as a Swift
+ *  `fatalError`'s), and the crashing thread's top `frames` frames. An `.ips`
+ *  is a JSON header line, then the JSON body; a `.crash` is the older text,
+ *  `Field: value` lines and a `Thread N Crashed:` list. Null for neither. */
+function parseReport(file, frames = 8) {
+  let text;
+  try { text = readFileSync(file, 'utf8'); } catch { return null; }
   try {
-    const text = readFileSync(file, 'utf8'), cut = text.indexOf('\n');
-    return { head: JSON.parse(text.slice(0, cut)), body: JSON.parse(text.slice(cut + 1)) };
-  } catch { return null; }
+    const cut = text.indexOf('\n'), head = JSON.parse(text.slice(0, cut)), body = JSON.parse(text.slice(cut + 1));
+    const e = body.exception ?? {}, images = body.usedImages ?? [];
+    const thread = body.threads?.[body.faultingThread] ?? body.threads?.find((t) => t.triggered);
+    return {
+      bundleID: head.bundleID, timestamp: head.timestamp, paths: [body.procPath, body.coalitionName],
+      ended: [[e.type, e.signal && `(${e.signal})`].filter(Boolean).join(' '), body.termination?.indicator].filter(Boolean).join(', '),
+      thread: thread ? `thread ${body.faultingThread ?? thread.id}${thread.queue ? ` (${thread.queue})` : ''}` : null,
+      why: Object.values(body.asi ?? {}).flat().map((line) => String(line).trim()).slice(0, 3),
+      frames: (thread?.frames ?? []).slice(0, frames).map((f) => `${f.symbol ? `${f.symbol} + ${f.symbolLocation ?? 0}` : `0x${(f.imageOffset ?? 0).toString(16)}`} (${images[f.imageIndex]?.name ?? '?'})`),
+    };
+  } catch {}
+  const field = (name) => text.match(new RegExp(`^${name}:[ \\t]*(.+)$`, 'm'))?.[1].trim();
+  if (!field('Identifier') && !field('Path')) return null;
+  const lines = text.split('\n'), at = lines.findIndex((l) => /^Thread \d+ Crashed/.test(l));
+  const listed = at < 0 ? [] : lines.slice(at + 1);
+  const end = listed.findIndex((l) => !/^\d+\s/.test(l));
+  return {
+    bundleID: field('Identifier'), timestamp: field('Date/Time'), paths: [field('Path'), field('Coalition')],
+    ended: [field('Exception Type'), field('Termination Reason')].filter(Boolean).join(', '),
+    thread: at < 0 ? null : lines[at].replace(/^Thread (\d+) Crashed:*\s*(?:Dispatch queue:\s*)?/, (_, n) => `thread ${n} `).trim().replace(/^(thread \d+) (.+)$/, '$1 ($2)'),
+    // Its own lines, below the heading, up to a blank line.
+    why: (() => { const h = lines.findIndex((l) => /^Application Specific Information:/.test(l)); if (h < 0) return []; const after = lines.slice(h + 1), stop = after.findIndex((l) => !l.trim()); return after.slice(0, stop < 0 ? 3 : stop).map((l) => l.trim()).slice(0, 3); })(),
+    // `0   libsystem_kernel.dylib   0x1b2c…   __pthread_kill + 8`: the symbol, then its image.
+    frames: listed.slice(0, end < 0 ? listed.length : end).slice(0, frames)
+      .map((l) => { const m = l.match(/^\d+\s+(\S+)\s+0x[0-9a-f]+\s+(.*)$/); return m ? `${m[2].trim()} (${m[1]})` : l.trim(); }),
+  };
 }
 /** A crash report as a few lines: its path and time, how the process ended
- *  and why (the exception, the termination, the app-specific message, such as
- *  a Swift `fatalError`'s), and the crashing thread's top `frames` frames. */
+ *  and why, and the crashing thread's top `frames` frames. */
 export function crashSummary(file, frames = 8) {
-  const report = parseReport(file);
-  if (!report) return [`crash report: ${file}`];
-  const { head, body } = report, e = body.exception ?? {}, images = body.usedImages ?? [];
-  const thread = body.threads?.[body.faultingThread] ?? body.threads?.find((t) => t.triggered);
-  const why = Object.values(body.asi ?? {}).flat().map(String).slice(0, 3);
+  const r = parseReport(file, frames);
+  if (!r) return [`crash report: ${file}`];
   return [
-    `crash report: ${file} (${head.timestamp ?? 'no time'})`,
-    `  ${[[e.type, e.signal && `(${e.signal})`].filter(Boolean).join(' '), body.termination?.indicator].filter(Boolean).join(', ')}${thread ? `; thread ${body.faultingThread ?? thread.id}${thread.queue ? ` (${thread.queue})` : ''} crashed:` : ''}`,
-    ...why.map((line) => `  ${line.trim()}`),
-    ...(thread?.frames ?? []).slice(0, frames).map((f, i) => `  ${String(i).padStart(2)} ${f.symbol ? `${f.symbol} + ${f.symbolLocation ?? 0}` : `0x${(f.imageOffset ?? 0).toString(16)}`} (${images[f.imageIndex]?.name ?? '?'})`),
+    `crash report: ${file} (${r.timestamp ?? 'no time'})`,
+    `  ${[r.ended, r.thread && `${r.thread} crashed:`].filter(Boolean).join('; ')}`,
+    ...r.why.map((line) => `  ${line}`),
+    ...r.frames.map((f, i) => `  ${String(i).padStart(2)} ${f}`),
   ];
 }
 /** The newest crash report the scope admits since `bundle` was built (its
  *  `receipt.json`), summarized once: each call answers only a report newer
- *  than the last it answered (`agent ios logs`). */
+ *  than the last it answered (`agent ios logs`, and a launch that failed).
+ *  Reports written before this launch count. `wait` ms: macOS writes a report
+ *  a moment after the process dies, so a launch that just failed polls that
+ *  long for one written since the watch began. */
 export function crashWatch(name, bundle, scope) {
-  let after = Date.now();
+  const began = Date.now();
+  let after = began;
   try { after = statSync(resolve(bundle, 'receipt.json')).mtimeMs; } catch {}
-  return () => {
-    const [latest] = crashReports(name, after, scope);
+  return (wait = 0) => {
+    const until = Date.now() + wait, mtime = (f) => statSync(f).mtimeMs;
+    let [latest] = crashReports(name, after, scope);
+    while ((!latest || mtime(latest) < began) && Date.now() < until) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+      [latest] = crashReports(name, after, scope);
+    }
     if (!latest) return [];
     after = statSync(latest).mtimeMs + 1;
     return crashSummary(latest);
