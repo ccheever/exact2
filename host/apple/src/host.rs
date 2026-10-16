@@ -1351,21 +1351,6 @@ impl<D: DataSource> Host<D> {
         self.present(&mut batch, false);
         self.finish(batch, error)
     }
-
-    fn preorder(&self) -> Vec<ViewId> {
-        let kernel = self.runner.kernel();
-        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
-        let mut order = Vec::new();
-        while let Some(id) = stack.pop() {
-            order.push(id);
-            if let Some(node) = kernel.node(id) {
-                let mut children = node.children();
-                children.reverse();
-                stack.extend(children);
-            }
-        }
-        order
-    }
 }
 
 /// A frame in its parent's space (a root's is absolute).

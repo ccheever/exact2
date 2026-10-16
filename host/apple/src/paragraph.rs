@@ -3,6 +3,23 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// Every node, parents before children: the order a whole tree's views
+    /// are made in.
+    pub(super) fn preorder(&self) -> Vec<ViewId> {
+        let kernel = self.runner.kernel();
+        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
+        let mut order = Vec::new();
+        while let Some(id) = stack.pop() {
+            order.push(id);
+            if let Some(node) = kernel.node(id) {
+                let mut children = node.children();
+                children.reverse();
+                stack.extend(children);
+            }
+        }
+        order
+    }
+
     /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
     /// which the presenter reads from the kernel (`exact_select_options`),
     /// never a view. A native button's title and image, or a run in its

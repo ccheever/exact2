@@ -13,6 +13,19 @@ impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))
     }
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        vec![("spark".into(), 1)]
+    }
+    fn draw_2d(
+        &mut self,
+        _: &str,
+        _: &[Value],
+        ctx: &exact_runner::exact_canvas::Context2d,
+        _: &exact_runner::exact_canvas::Frame,
+    ) -> Result<bool, exact_runner::exact_canvas::DrawError> {
+        ctx.fill_rect(0.0, 0.0, 4.0, 4.0);
+        Ok(false)
+    }
 }
 
 const APP: &str = r##"routes nav
@@ -281,5 +294,111 @@ fn elsewhere_every_tab_is_presented_at_boot() {
     let (host, ops) = boot(false);
     for shown in ["title-saved", "faded", "gone"] {
         assert_eq!(named(&host, &ops, "create", shown).len(), 1, "{shown}");
+    }
+}
+
+/// A tab inside a waiting tab waits on its own: building the outer one
+/// leaves what the inner one holds held, its canvas's inputs kept until
+/// the inner tab is selected.
+#[test]
+fn a_tab_inside_a_waiting_tab_waits_for_its_own_selection() {
+    let app = APP
+        .replace(
+            "  action rename\n",
+            "  state inner = \"a\"\n  action pickInner(name: string)\n    inner = name\n  action rename\n",
+        )
+        .replace(
+            "                  canvas surface=chart(label) width=10 height=10 testId=\"chart\"\n",
+            r#"                  column navigationKey=inner navigationBack="back" position="absolute" inset=0
+                    column role="tabpanel" id="panel-a" position="absolute" inset=0
+                      column navigationKey="a" position="absolute" inset=0
+                        text "A" testId="inner-a"
+                    column role="tabpanel" id="panel-b" position="absolute" inset=0
+                      column navigationKey="b" position="absolute" inset=0
+                        canvas surface=chart(label) width=10 height=10 testId="chart"
+                    row role="tablist"
+                      button role="tab" aria-controls="panel-a" aria-selected=(inner == "a") press=pickInner("a") testId="inner-tab-a"
+                        text "A"
+                      button role="tab" aria-controls="panel-b" aria-selected=(inner == "b") press=pickInner("b") testId="inner-tab-b"
+                        text "B"
+"#,
+        );
+    let (mut host, _) = boot_app(&app, true);
+    press(&mut host, "rename", 10.0);
+    let outer = press(&mut host, "tab-saved", 20.0);
+    assert_eq!(
+        named(&host, &outer, "create", "inner-a").len(),
+        1,
+        "{outer:?}"
+    );
+    let chart = id(&host, "chart");
+    assert!(!outer.iter().any(|o| o["id"] == chart), "{outer:?}");
+    let inner = press(&mut host, "inner-tab-b", 30.0);
+    assert_eq!(
+        named(&host, &inner, "create", "chart").len(),
+        1,
+        "{inner:?}"
+    );
+    let surface = named(&host, &inner, "surface", "chart");
+    assert_eq!(surface.len(), 1, "{inner:?}");
+    assert_eq!(surface[0]["values"], serde_json::json!(["two"]));
+}
+
+/// A route of a panel whose layout was skipped took its `scrollTop` with
+/// nothing to scroll; it takes it again in the batch that builds the tab.
+#[test]
+fn a_skipped_tabs_route_takes_its_scroll_position_when_built() {
+    let app = APP.replace(
+        "testId=`route-${e.name}` position=\"absolute\" inset=0",
+        "testId=`route-${e.name}` position=\"absolute\" inset=0 overflow=\"auto\" scrollTop=40",
+    );
+    let (mut host, _) = boot_app(&app, true);
+    let opened = press(&mut host, "tab-saved", 20.0);
+    let props = named(&host, &opened, "props", "route-saved");
+    assert!(
+        props.iter().any(|o| o["set"]["scrollTop"] == "40"),
+        "{opened:?}"
+    );
+}
+
+/// A 2D canvas that drew while its tab waited is given what it drew when
+/// the tab is built, from the draw that made its bitmap fresh; one in a
+/// panel laid out while it waits (in flow) drew at its real size.
+#[test]
+fn a_waiting_2d_canvas_gets_its_drawing_when_its_tab_is_built() {
+    let spark = "                  canvas surface=spark(1) width=10 height=10 testId=\"spark\"\n";
+    let in_flow = APP
+        .replace(
+            r#"testId=`panel-${t.name}` position="absolute" inset=0"#,
+            r#"testId=`panel-${t.name}` height=200"#,
+        )
+        .replace(r#"column flex=1 position="relative""#, "column flex=1");
+    for app in [APP.to_string(), in_flow] {
+        let app = app.replace(
+            "                  box opacity=0.5 width=10 height=10 testId=\"faded\"\n",
+            &format!(
+                "                  box opacity=0.5 width=10 height=10 testId=\"faded\"\n{spark}"
+            ),
+        );
+        let (mut host, boot) = boot_app(&app, true);
+        assert!(named(&host, &boot, "canvas2d", "spark").is_empty());
+        let opened = press(&mut host, "tab-saved", 20.0);
+        let view = id(&host, "spark");
+        let made = opened
+            .iter()
+            .position(|o| o["op"] == "create" && o["id"] == view);
+        let drawn: Vec<usize> = (0..opened.len())
+            .filter(|i| opened[*i]["op"] == "canvas2d" && opened[*i]["id"] == view)
+            .collect();
+        assert!(
+            made.is_some_and(|m| drawn.first().is_some_and(|d| *d > m)),
+            "{opened:?}"
+        );
+        let last = &opened[*drawn.last().unwrap()];
+        assert!(last["w"].as_f64().unwrap() > 0.0, "{opened:?}");
+        assert!(
+            drawn.iter().any(|i| opened[*i]["fresh"] == true),
+            "{opened:?}"
+        );
     }
 }
