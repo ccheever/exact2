@@ -107,9 +107,9 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(pressed, [5])
     }
 
-    func testNativeMenuTrackingUsesControlDisabledAfterInvocation() throws {
+    func testDisablingAnInvokerBeforeTrackingCancelsItsMenu() throws {
         try XCTSkipIf(ExactEnv.agentMode, "native menu tracking")
-        for (kind, href, expected) in [("view", "", true), ("button", "#help", true), ("button", "", false)] {
+        for (kind, href) in [("view", ""), ("button", "#help"), ("button", "")] {
             let p = presenter(kind: kind), source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2])
             source.props["href"] = href.isEmpty ? nil : href
             source.props["disabled"] = "true"
@@ -128,7 +128,7 @@ final class ContextMenuMacTests: XCTestCase {
             XCTAssertTrue(p.menus.isOpen(pop))
             source.props["disabled"] = "true"
             turn()
-            XCTAssertEqual(tracked, expected, "a disabled attribute invalidates native tracking only on a control")
+            XCTAssertFalse(tracked, "disabling any invoker before native tracking cancels its menu")
             XCTAssertFalse(p.menus.isOpen(pop))
             NotificationCenter.default.removeObserver(observer)
             p.menus.reset()
