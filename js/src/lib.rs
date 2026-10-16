@@ -232,8 +232,10 @@ pub struct Module {
     /// Where the host sends `native.later` requests; shared with an instance
     /// built from this template, which fills it on its owner.
     native_slot: exact_runner::Native,
-    /// The bound plan, kept so an owner thread can bind its own instance.
+    /// The bound plan, kept so an owner thread can bind its own instance;
+    /// none when placed on main (`keeps_plan`), whose engine is this one.
     plan: Option<Plan>,
+    keeps_plan: bool,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
     /// Each dispatched waiter's flag, by its call: set when the call is let
@@ -313,6 +315,7 @@ impl Module {
             native_factory: None,
             native_slot: Default::default(),
             plan: None,
+            keeps_plan: true,
             sigs: HashMap::new(),
             parked: Vec::new(),
             retired: std::collections::HashMap::new(),
@@ -367,7 +370,11 @@ impl Module {
     /// is; `Worker` builds an instance of it on a host-owned thread at
     /// activation, from what this one knows, and this one stays as the
     /// template. The engine never crosses a thread.
-    pub fn placed(self, placement: Placement) -> Placed<Module> {
+    pub fn placed(mut self, placement: Placement) -> Placed<Module> {
+        self.keeps_plan = placement == Placement::Worker;
+        if !self.keeps_plan {
+            self.plan = None;
+        }
         Placed::built(self, placement, Module::build)
     }
 

@@ -139,6 +139,8 @@ impl DataSource for Module {
                 module.directories = self.directories.clone();
                 module.document_owner = self.document_owner;
                 module.native_factory = self.native_factory;
+                // It keeps the placement (`Placed::replacement`), not `placed`'s word.
+                module.keeps_plan = self.keeps_plan;
                 module
             })
             .map_err(DataError::Unavailable)
@@ -244,7 +246,9 @@ impl DataSource for Module {
 
     /// The seam's signatures, from the plan's `sources` table (LLP 1027 D2).
     fn bind(&mut self, plan: &Plan) {
-        self.plan = Some(plan.clone());
+        if self.keeps_plan {
+            self.plan = Some(plan.clone());
+        }
         self.sigs.clear();
         for row in &plan.sources {
             let start = row.params.start as usize;
