@@ -1332,3 +1332,101 @@ fn the_sheets_symbol_and_checkmark_take_the_accent() {
         "the chevron: grey"
     );
 }
+
+/// LLP 1116.019 D6 (round 17's book-club, contacts and workout-log): a
+/// `button` row that is an action cell is drawn in the accent, as a
+/// hand-built action cell and SwiftUI's `List { Button }` are, and the kernel
+/// tells a native list so; a forward chevron anywhere in a row is the
+/// disclosure's grey unless its author coloured it, and a link that ends in
+/// one is a row that pushes, in the label's colour.
+#[test]
+fn an_action_row_is_tinted_and_a_rows_chevron_is_the_disclosures_grey() {
+    let r = boot(
+        r#"list appearance="auto" testId="list" flex=1
+  section
+    button press=go testId="action"
+      text "Update my progress"
+    button press=go testId="symbol"
+      image "symbol:add"
+      text "Add"
+    button press=go testId="push"
+      text "Open"
+      image "symbol:forward-chevron"
+    row testId="plain"
+      text "Plain"
+    link href="/x" testId="nested"
+      row gap=12 flex=1
+        text "Nested" flex=1
+        image "symbol:forward-chevron" testId="chev-unsaid"
+    link href="/x" testId="said"
+      row gap=12 flex=1
+        text "Said" flex=1
+        image "symbol:forward-chevron" color="-exact-system-red" testId="chev-red"
+    row gap=8
+      link href="/x" flex=1 display="flex" testId="contacts"
+        text "Contacts" flex=1 testId="contacts-name"
+        image "symbol:forward-chevron" testId="chev-contacts"
+      button press=go aria-label="Star"
+        image "symbol:star"
+text "accent" color="AccentColor" testId="accent"
+image "symbol:star" color="-exact-system-red" testId="red-star"
+image "photo.png" color="-exact-system-red" width=20 height=20 testId="photo""#,
+    );
+    let k = r.kernel();
+    let list = k.grouped_list(id(&r, "list")).unwrap();
+    let action = |t: &str| {
+        let view = id(&r, t);
+        list.sections[0]
+            .rows
+            .iter()
+            .find(|row| row.view == view)
+            .unwrap()
+            .action
+    };
+    assert!(
+        action("action") && action("symbol"),
+        "a title, a symbol before it at most"
+    );
+    assert!(
+        !action("push"),
+        "a row that pushes keeps the label's colour"
+    );
+    assert!(!action("plain") && !action("nested"), "a `row`, a link");
+    let colour = |t: &str| k.node(id(&r, t)).unwrap().text_color();
+    assert_eq!(colour("action"), colour("accent"));
+    assert_eq!(colour("symbol"), colour("accent"));
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    assert_eq!(colour("push"), role("-exact-label"));
+    assert_eq!(
+        colour("contacts-name"),
+        role("-exact-label"),
+        "not a link's colour"
+    );
+    let row = &list.sections[0].rows[0];
+    assert_eq!(
+        row.title_look,
+        TextLook::default(),
+        "the sheet's tint is unsaid"
+    );
+    let tint = |t: &str| {
+        k.node(id(&r, t))
+            .unwrap()
+            .computed_style(StyleMask::ALL)
+            .tint_color
+    };
+    assert_eq!(tint("chev-unsaid"), Some(role("-exact-tertiary-label")));
+    assert_eq!(tint("chev-contacts"), Some(role("-exact-tertiary-label")));
+    // `currentcolor` is the row's `None`: the symbol paints its `color`.
+    let red = role("-exact-system-red");
+    assert_eq!(
+        (tint("chev-red"), colour("chev-red")),
+        (None, red),
+        "the author's colour wins"
+    );
+    assert_eq!(
+        (tint("red-star"), colour("red-star")),
+        (None, red),
+        "a symbol's `color` is its colour"
+    );
+    assert!(tint("photo").is_some(), "a raster is given no tint");
+}

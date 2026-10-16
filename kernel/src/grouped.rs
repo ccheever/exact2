@@ -93,6 +93,11 @@ pub struct GroupedRow {
     pub accessory: Accessory,
     /// Whether the row is a button, so a tap presses it.
     pub pressable: bool,
+    /// Whether it is an action cell: a `button` (no `href`) of a title, a
+    /// symbol before it at most, and nothing at its trailing edge, whose
+    /// title the platform's list draws in the tint (LLP 1116.019 D6), as
+    /// the sheet's `grouped-action-color` does (`contract/lower/src/grouped.rs`).
+    pub action: bool,
     /// `destructive`.
     pub destructive: bool,
     /// `disabled`.
@@ -418,6 +423,12 @@ impl Kernel {
         if out.title.is_none() {
             out.custom = true;
         }
+        out.action = out.pressable
+            && row.props.str(PropId::Href).is_none()
+            && out.accessory == Accessory::None
+            && out.secondary.is_none()
+            && !out.subtitle
+            && !out.custom;
         if out.custom {
             // A custom row is its views, accessory and all.
             out = GroupedRow {

@@ -15,6 +15,7 @@
 //! most 704 points wide). What stays written here is the sheet's structure:
 //! which box is a flex row, which part grows, a separator's overlap.
 
+mod actions;
 mod messages;
 
 use crate::{err, LowerError};
@@ -45,6 +46,7 @@ const BODY: &str = "-exact-body";
 const SUBHEADLINE: &str = "-exact-subheadline";
 
 use crate::metrics::grouped as metric;
+use actions::{action_cell, disclosure};
 
 /// The style a grouped list's attributes ask for: `None` for any other
 /// element. `appearance` must be a literal (it decides what the node is),
@@ -760,6 +762,16 @@ fn row(node: &Node, separated: bool) -> Node {
         by_flag(attrs, "disabled", TERTIARY, ink, span)
     };
     let label = || Expr::Str(LABEL.into(), span);
+    // @ref LLP 1116.019 D6 — a `button` row that is an action cell (a title,
+    // a symbol before it at most, nothing at its trailing edge) is in the
+    // platform's action ink: the tint in UIKit's list, as SwiftUI's
+    // `List { Button }` and a hand-built action cell draw it. The kernel
+    // reads the same shape (`GroupedRow::action`).
+    let ink = if tag == "button" && action_cell(children) {
+        mv("action-color", span)
+    } else {
+        label()
+    };
     // A destructive `button` row's shape, where the platform's form shows
     // its push button: the button's height, its title at the button's
     // padding and no wider than its words, and `appearance`, which is how a
@@ -904,7 +916,7 @@ fn row(node: &Node, separated: bool) -> Node {
         m("border-bottom-color", "separator", span),
         n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
         s("font-size", BODY, span),
-        attr("color", tint(label()), span),
+        attr("color", tint(ink), span),
         s("text-align", "left", span),
     ];
     if destructive {
@@ -939,7 +951,7 @@ fn row(node: &Node, separated: bool) -> Node {
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
     let last = shown.len().saturating_sub(1);
     let mut at_shown = 0;
-    let parts = children
+    let parts: Vec<Node> = children
         .iter()
         .map(|child| {
             let i = if hidden(child) {
@@ -976,7 +988,7 @@ fn row(node: &Node, separated: bool) -> Node {
         tag: tag.clone(),
         positional: positional.clone(),
         attrs: rows,
-        children: parts,
+        children: parts.iter().map(disclosure).collect(),
         span: *span,
         instance: *instance,
     }

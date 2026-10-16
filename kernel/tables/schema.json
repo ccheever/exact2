@@ -5584,6 +5584,7 @@
     ["grouped-symbol-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-checkmark-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-destructive-color", "style", "-exact-system-red", "-exact-label", "-exact-system-red", "-exact-system-red"],
+    ["grouped-action-color", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-section-width", "style", "unset", "100%", "unset", "unset"],
     ["grouped-section-max-width", "style", "unset", 744, "unset", "unset"],
     ["grouped-section-margin-inline", "style", "unset", "auto", "unset", "unset"],

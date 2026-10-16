@@ -44,5 +44,7 @@ the role, with a warning that names it (`lower-symbol-alias`).
   text that says the same is decoration: `aria-hidden=true`, so VoiceOver reads it once.
 - `activity` is an ECG trace (heart, workouts). Done or not done is `DoneMark` (`exact:content`).
 - Leave a symbol's colour unsaid: in a button it is the tint, and it follows dark mode.
+  A `color` written on the symbol is its colour, as `currentcolor` paints an icon on the
+  web; a row's trailing `forward-chevron` is already the platform's grey.
   Emoji aren't icons: they ignore the tint, the weight and the theme.
 - `width` and `height` size a symbol that stands alone.

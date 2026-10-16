@@ -111,6 +111,8 @@ struct GroupedListModel: Equatable {
         /// A `radio` row's radio is checked (LLP 1115.000 D13.2).
         var checked = false
         var pressable = false
+        /// An action cell: its title in the tint (LLP 1116.019 D6).
+        var action = false
         var destructive = false
         var disabled = false
         var titleLook = Look()
@@ -148,6 +150,7 @@ struct GroupedListModel: Equatable {
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
                            target: id(r["target"]), checked: r["checked"] as? Bool ?? false, pressable: r["pressable"] as? Bool ?? false,
+                           action: r["action"] as? Bool ?? false,
                            destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false,
                            titleLook: Look(json: r["titleLook"]), secondaryLook: Look(json: r["secondaryLook"]))
             }
@@ -846,6 +849,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // Where the author gave none, the theme's label colours (LLP 1095 D4).
         if row.titleLook.color == nil, let ink = ThemeRoles.color("label", in: host.presenter.root) { c.textProperties.color = ink }
         if row.secondaryLook.color == nil, let ink = ThemeRoles.color("secondary-label", in: host.presenter.root) { c.secondaryTextProperties.color = ink }
+        // An action cell's title is the cell's tint, which an authored
+        // accent-color sets, as a hand-built action cell's and SwiftUI's
+        // `List { Button }` are.
+        if row.action, row.titleLook.color == nil { c.textProperties.color = .tintColor }
         row.titleLook.apply(to: &c.textProperties, engine: owner.text)
         row.secondaryLook.apply(to: &c.secondaryTextProperties, engine: owner.text)
         if row.destructive {
@@ -862,6 +869,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         cell.contentConfiguration = c
         cell.marginsIgnoreSafeArea()
         cell.accessories = accessories(row)
+        // A row that presses is a button to VoiceOver, or a link (LLP
+        // 1115.000 D11.6), as SwiftUI's `List { Button }` is; UIKit's cell
+        // says so only for a disclosure. A reused cell keeps what it was set.
+        let link = host.presenter.views[id]?.props["accessibilityRole"] == "link"
+        cell.accessibilityTraits.remove([.button, .link])
+        if row.pressable { cell.accessibilityTraits.insert(link ? .link : .button) }
     }
 
     private func accessories(_ row: GroupedListModel.Row) -> [UICellAccessory] {

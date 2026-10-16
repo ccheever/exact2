@@ -75,6 +75,16 @@ impl Lowerer<'_> {
             }
             None => attrs.as_slice(),
         };
+        let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
+        let expanded = match inked {
+            Some(row) => {
+                let mut rows = expanded.to_vec();
+                rows.push(row);
+                std::borrow::Cow::Owned(rows)
+            }
+            None => std::borrow::Cow::Borrowed(expanded),
+        };
+        let expanded = &*expanded;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
