@@ -1075,6 +1075,19 @@ final class NativeViews {
               owner.handlers.isSubset(of: Self.reported) else { return false }
         return view.hitTest(owner.convert(point, to: view), with: nil) == nil
     }
+    /// Whether `owner`'s module view says something to accessibility itself:
+    /// it or a view in it is an element, or lists elements of its own
+    /// (`accessibilityElements`). Then those are what VoiceOver reads, not
+    /// the box.
+    func speaksForItself(_ owner: NodeView) -> Bool {
+        guard let entry = entries[owner.id], entry.owner === owner, let view = entry.view, view.superview === owner else { return false }
+        func speaks(_ view: UIView) -> Bool {
+            guard !view.isHidden, !view.accessibilityElementsHidden else { return false }
+            if view.isAccessibilityElement || view.accessibilityElements?.isEmpty == false { return true }
+            return view.subviews.contains(where: speaks)
+        }
+        return speaks(view)
+    }
     /// The handlers a module's own events run (its `ExactNativeEvents`), not a touch on the box.
     private static let reported: Set<String> = ["change", "hover", "focus", "blur", "key", "submit", "load", "message"]
 

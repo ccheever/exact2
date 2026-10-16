@@ -758,6 +758,35 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertFalse(natives.declined(v, at: inside), "a view that takes no touches declines nothing")
     }
 
+    /// A module view with an element in it, or a list of its own, speaks for
+    /// itself to accessibility; a plain drawn one leaves its box to.
+    func testAModuleViewWithElementsSpeaksForItself() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        let v = NodeView(id: 1, kind: "native", presenter: p)
+        p.viewport.addSubview(v); p.views[1] = v
+        natives.create(owner: v)
+        v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+        natives.update(v)
+        let view = try XCTUnwrap(FakeModule.made.first?.view)
+        XCTAssertFalse(natives.speaksForItself(v))
+        view.accessibilityElements = [UIAccessibilityElement(accessibilityContainer: view)]
+        XCTAssertTrue(natives.speaksForItself(v))
+        view.accessibilityElements = nil
+        // A UILabel is an element once UIKit's accessibility runtime loads,
+        // which a test runner does not.
+        let label = UIView()
+        label.isAccessibilityElement = true
+        view.addSubview(label)
+        XCTAssertTrue(natives.speaksForItself(v), "an element in it")
+        label.isHidden = true
+        XCTAssertFalse(natives.speaksForItself(v))
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
