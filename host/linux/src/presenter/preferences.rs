@@ -91,6 +91,15 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
+    /// A live design batch or snapshot frame (LLP 1121 stage 4), in place.
+    pub fn apply_live(&mut self, frame: &str) -> Option<String> {
+        let error = self.host.apply_live(frame);
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
     /// App modes (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
     pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> Option<String> {
         let error = self.host.set_modes(pins);

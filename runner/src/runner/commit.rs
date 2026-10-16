@@ -34,6 +34,8 @@ pub(super) struct Checkpoint {
     timers: Vec<super::Timer>,
     published: Option<Box<Published>>,
     commands: usize,
+    /// Socket batches of earlier commits, not yet taken (LLP 1016.000 D7).
+    sockets: usize,
     /// The root font size, and the window's app tuple (`setMode`).
     root_font: (super::root_font::RootFont, f32, u32),
     /// Kept answers refused before this commit (`kept::refuse`).
@@ -102,6 +104,7 @@ impl<D: DataSource> Runner<D> {
                     })
                 }),
             commands: self.commands.len(),
+            sockets: self.sockets.len(),
             root_font: (
                 self.root_font,
                 self.kernel.root_font_size(),
@@ -126,8 +129,12 @@ impl<D: DataSource> Runner<D> {
                 self.journal_refused();
                 self.log_store_writes(c.store.writes)
             }
-            Err(_) if self.poisoned && !was_poisoned => self.store.restore(c.store),
+            Err(_) if self.poisoned && !was_poisoned => {
+                self.store.restore(c.store);
+                self.sockets.truncate(c.sockets);
+            }
             Err(_) => {
+                self.sockets.truncate(c.sockets);
                 // What the refused commit asked is let go with it.
                 self.forgot = true;
                 self.store.restore(c.store);
@@ -781,7 +788,7 @@ impl<D: DataSource> Runner<D> {
             args,
             continuation: request.continuation,
             keepable: keepable.then(|| request.clone()),
-            stream: request.stream.then(StreamCount::default),
+            stream: sockets::stream_count(&request),
             ask_again: false,
             origin: self.writes.tick(),
             write: match target {
@@ -1042,6 +1049,7 @@ impl<D: DataSource> Runner<D> {
         if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
             count.messages += 1;
             count.coalesced += u64::from(m.coalesced);
+            sockets::socket_message(count, m);
         }
         let p = p.clone();
         self.sync_pending_flags();
@@ -1073,6 +1081,7 @@ impl<D: DataSource> Runner<D> {
             Target::Mutation(m) => self.plan.mutations[m].ty,
         };
         self.store.take_topics();
+        self.snapshot_sockets();
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);

@@ -61,13 +61,19 @@ shell commands have no such help, so keep one directory.
 |---|---|
 |`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
-|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--storage` keeps data.|
+|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 Keep scratch files in `.exact/` (any other new file makes the build stale).
+
+`agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
+point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
+each tap a real touch, `--timing platform` gives UIKit its own timing, and `ios --release` builds
+what ships (`--prebuild --release` early: its first build is minutes; `EXACT_UPDATE_TRUST=production
+bun exact.mjs agent ios …` drives it).
 
 **Ports.** `--port <n>` on `web`, `test web` and `agent web`, or `EXACT_PORT=<n>`,
 serves on that port; a held port is refused. Otherwise each picks a free port within `PORT_LO`–`PORT_HI` when both are set, and
@@ -84,6 +90,11 @@ keeps its data per port, so drive one store on one port.
   stores, including across repeated suite runs. Backend rows persist: use
   `fresh` with `dev`, or create uniquely keyed fixtures with `serve`.
   Firefox/WebKit use a new profile each drive and do not preserve named stores.
+
+**Splitting a port among helpers:** commit the seam between the halves first (the shared types,
+the native module's interface), then start each helper in the background from that commit,
+owning its half and stubbing none of another's. Keep test screens off branches you merge, and
+keep working while they run.
 
 ## One screen: the view, its data, its test
 
@@ -151,7 +162,8 @@ component Groceries
   called as one (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
   (`first(xs)`, `round(n)`). A list type is `Item[]`. A record copy is
   `Shape(old, field=value)`. An event passes its captured arguments, then the payload
-  (`toggle(i.id)` gets the bool).
+  (`toggle(i.id)` gets the bool). An action's writes land when it ends, so a later line
+  reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, then read `n`).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;
@@ -272,6 +284,7 @@ Start from the nearest pattern, a tested app with what the recipes teach. Open a
 |a count 1–99|`contract vocab stepper`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
+|a view only Swift can draw|`native-views`|
 
 The others are named for their topic (`timers`, `money`…).
 

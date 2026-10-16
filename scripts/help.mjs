@@ -20,14 +20,16 @@ const name = (spec) => spec.split(' ')[0];
 const takesValue = (spec) => spec.includes(' ');
 
 // The drive flags `scripts/agent-launch.mjs` `parseFlags` takes, shared by `agent` and `test`
-// (`runTests` reads all but those `test` lists as internal).
+// (`runTests` reads all but those `test` lists as internal). A default said as exact.mjs's is the app
+// launcher's (app-cli.mjs): scripts/agent.mjs run alone paints the bars and keeps the device's pixels,
+// which the repository's smokes and pixel fixtures are written against.
 const DRIVE = [
   ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
   ['--storage <name>', 'a scratch store; Chrome starts empty each drive'],
   ['--keep-storage · --reset-storage', 'Chrome: reopen a named store · explicitly empty it'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
-  ['--scale <n>', 'shrink screenshots to n pixels per point; 1 captures points'],
-  ['--chrome platform', 'Apple: UIKit\'s bars, the Mac\'s sidebar (default: painted)'],
+  ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
+  ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
@@ -35,7 +37,7 @@ const DRIVE = [
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
-  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone)'],
+  ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
@@ -49,11 +51,12 @@ const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--release', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
+const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early'];
 
 export const HELP = {
   backend: {
@@ -189,11 +192,12 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
-    usage: 'bun exact.mjs ios [--run|--prebuild] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
+    usage: 'bun exact.mjs ios [--run|--prebuild] [--release] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
     common: ['ios [--run] [--sim <name>]    build for a simulator; --run launches it'],
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
       PREBUILD,
+      RELEASE,
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
@@ -204,21 +208,23 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
       OPTIMIZE,
     ],
     get internal() { return appleRest(this.flags); },
-    body: `The first build takes minutes, later ones a minute or two; several booted simulators are
-refused, not guessed (set EXACT_SIM). test ios and agent ios run it first themselves when
-the build is missing or older than its sources; an edit to only app.contract or what app.ts
-imports runs its new plan on the existing build instead, in about a second.
+    body: `The first build takes minutes, later ones a minute or two. Of several booted simulators it
+takes the one the app is installed on, else refuses to guess (--sim or EXACT_SIM). test ios
+and agent ios run it first themselves when the build is missing or older than its sources;
+an edit to only app.contract or what app.ts imports runs its new plan on the existing build
+instead, in about a second.
 Ports    none. Runs to completion (--run too); --prebuild returns at once, the build going on
          apart from this shell (its pid printed; test and agent wait for it).`,
     example: 'bun exact.mjs ios --run',
   },
   mac: {
     line: 'build the macOS app (--run launches it here)',
-    usage: 'bun exact.mjs mac [--run|--prebuild] [--bundle] [--url <url>] [--optimize speed|size]',
+    usage: 'bun exact.mjs mac [--run|--prebuild] [--release] [--bundle] [--url <url>] [--optimize speed|size]',
     flags: [
-      ['--run', 'launch it when built, in the foreground (its log here) until it quits'],
+      ['--run', 'assemble the .app and launch it when built, in the foreground (its log here) until it quits'],
       PREBUILD,
-      ['--bundle', 'also assemble the .app bundle'],
+      RELEASE,
+      ['--bundle', 'also assemble the .app bundle (--run does)'],
       ['--url <url>', 'with --run or --bundle: connect it to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
     ],
@@ -363,8 +369,8 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   },
   windows: {
     line: 'build the standalone Windows game into dist-windows/ (on Windows)',
-    usage: 'bun exact.mjs windows [--run] [--release]',
-    flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)']],
+    usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
+    flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
     body: 'Needs Windows and the MSVC Rust target.\nPorts    none. Runs to completion; with --run, until the game quits.',
     example: 'bun exact.mjs windows --run',
   },

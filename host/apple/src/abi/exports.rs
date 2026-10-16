@@ -628,6 +628,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_mode(len), |n| n)
         }
 
+        /// A live design batch or snapshot in the input buffer (LLP 1121
+        /// stage 4); development builds only.
+        #[no_mangle]
+        pub extern "C" fn exact_design_rows(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.design_rows(len), |n| n)
+        }
+
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_set_place(rt: u32, len: usize) -> u32 {

@@ -20,18 +20,38 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Why a bake failed, as its build script says it. Every app's build script
+/// ends in `.expect("bake …")`, which prints an error's `Debug`: a `String`'s
+/// quotes and escaped newlines put tsc's diagnostics on one line, so `Debug`
+/// is the text as written.
+pub struct BakeError(pub String);
+
+impl std::fmt::Debug for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n{}", self.0.trim_end())
+    }
+}
+
+impl std::fmt::Display for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BakeError {}
+
 /// An app's Cargo build-script entrypoint. Write the paired artifacts and
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
-pub fn build(app: &Path, platform: &str) -> Result<(), String> {
-    build_sources(app, platform, None, None)
+pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
+    build_sources(app, platform, None, None).map_err(BakeError)
 }
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
 /// never invoke or activate the Rust implementation; first-frame values bake
 /// through TypeScript alone.
-pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), String> {
-    build_sources(app, platform, Some(rust), None)
+pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), BakeError> {
+    build_sources(app, platform, Some(rust), None).map_err(BakeError)
 }
 
 /// Bake a mixed app through its own composer (LLP 1027.002 §5 step 0): the
@@ -45,12 +65,12 @@ pub fn build_mixed_with(
     rust: &dyn DataSource,
     rust_sources: &[&str],
     compose: impl FnOnce(Module) -> Box<dyn DataSource>,
-) -> Result<(), String> {
+) -> Result<(), BakeError> {
     let composer = Composer {
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
         compose: Box::new(compose),
     };
-    build_sources(app, platform, Some(rust), Some(composer))
+    build_sources(app, platform, Some(rust), Some(composer)).map_err(BakeError)
 }
 
 /// How a Cargo bake composes the TypeScript module with the app's Rust.
@@ -1127,7 +1147,7 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     if !checked.status.success() {
         let said = String::from_utf8_lossy(&checked.stderr).into_owned();
         return Err(if checked.status.code() == Some(3) {
-            format!("{} refused:\n{said}", tools.tsc.display())
+            format!("the TypeScript does not compile (tsc):\n{said}")
         } else {
             said
         });

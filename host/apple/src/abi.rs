@@ -308,6 +308,7 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, dispatch);
                 }
             }
+            h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
             presenter.prepend_to(&mut s);
         }
         self.output = s.into_bytes();
@@ -576,7 +577,7 @@ impl<D: DataSource> Bridge<D> {
                     if let Some(roots) = host.app_roots() {
                         executor.set_app_roots(roots);
                     }
-                    host.listen(executor.waker());
+                    host.listen_io(&**executor);
                 }
                 self.presenter_hooks(&mut host, &hooks);
                 self.executor = executor;
@@ -936,7 +937,7 @@ impl<D: DataSource> Bridge<D> {
             if let Some(roots) = candidate.host.app_roots() {
                 executor.set_app_roots(roots);
             }
-            candidate.host.listen(executor.waker());
+            candidate.host.listen_io(&**executor);
         }
         self.presenter_hooks(&mut candidate.host, &candidate.hooks);
         self.executor = executor;

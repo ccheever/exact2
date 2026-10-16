@@ -827,7 +827,21 @@ extension Agent {
             return "its middle is under the software keyboard; dismiss it or scroll the target above it first (state shows keyboard.top)"
         }
         if hit === v || hit.isDescendant(of: v) || (hit is NodeView && v.isDescendant(of: hit)) { return nil }
-        return "\((hit as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: hit))) covers its middle"
+        return Agent.covers(hit)
+    }
+
+    /// What is over a target, named: a node by its id; another view by its
+    /// class and the node holding it. The app's own native view (a module's
+    /// splash) may be animating away on the wall clock, which the agent's
+    /// clock does not move.
+    static func covers(_ hit: UIView) -> String {
+        if let node = hit as? NodeView { return "node #\(node.id) covers its middle" }
+        var up = hit.superview
+        while let u = up, !(u is NodeView) { up = u.superview }
+        let cls: AnyClass = Swift.type(of: hit), name = String(describing: cls)
+        let held = (up as? NodeView).map { "\(name), in node #\($0.id)," } ?? name
+        // build.mjs compiles an app's native modules as one Swift module of this name.
+        return "\(held) covers its middle" + (String(reflecting: cls).hasPrefix("ExactAppModules.") ?"; it is the app's own view: one animating away on real time (UIView.animate, a display link) goes only with `clock +N real`, while one drawn from the module's `frames` or `after` follows `clock +N`" : "")
     }
 
     /// The web's rule for a phase-less wheel tick (LLP 1070 G2, Chrome's,

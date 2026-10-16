@@ -629,7 +629,9 @@ if (import.meta.main) {
       try {
         const game = gameDefaults(dir).game;
         prepareGame(dir, game);
-        const env = {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(gameRoot,'target')};
+        // The game's own target, beside the build-dir its config names: the SDK's
+        // is shared with the SDK's builds and every other game's.
+        const env = {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(dir,'target')};
         if (hasArt(dir)) {
           const result=spawnSync('cargo',['run','--manifest-path',resolve(gameRoot,'Cargo.toml'),'-p','exact-game-bake','--locked','--offline','--','--art',dir], {
             cwd:gameRoot,env,stdio:'inherit',

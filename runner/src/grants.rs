@@ -82,12 +82,14 @@ pub fn refusal(errors: &[String]) -> String {
 
 /// Whether a trimmed line is one of exact2's own grants: enforced by the
 /// presenter (`surface.*`), by the OS and the capability that asks
-/// (`device.*`, LLP 1069.008 D3) and by the host's auth arm (`auth.*`, LLP
-/// 1069.006), never by the I/O executor.
+/// (`device.*`, LLP 1069.008 D3), by the OS's hardened runtime (`runtime.*`,
+/// D9) and by the host's auth arm (`auth.*`, LLP 1069.006), never by the I/O
+/// executor.
 pub(crate) fn own(line: &str) -> bool {
     line.starts_with("surface.read ")
         || line.starts_with("surface.write ")
         || crate::device::is_device_line(line)
+        || crate::hardened::is_runtime_line(line)
         || line.starts_with("auth.")
 }
 

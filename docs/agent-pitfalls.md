@@ -809,13 +809,38 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   an HTTPS wrapper would still block that page as mixed content after the ATS
   opt-in. The inner iframe keeps its sandbox and its authored dimensions.
   To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
-  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
+  `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/<Name>`; the driver then skips its
   stale-build check, so rebuild the bundle before each drive. An app's own page
-  (`src="assets/…"`) is served at `http://exact.localhost`: its `http:`
-  sub-resources on loopback load, and one on a named host follows the same ATS
-  setting. A sub-resource that fails is logged (`exact: iframe assets/…: <url>
-  did not load (<reason>)`) (#135).
+  (`src="assets/…"`) is served at `exact-app://app/assets/…` (the next entry): an
+  absolute `http:` sub-resource on loopback loads, and one on a named host follows
+  the same ATS setting. A sub-resource that fails is logged (`exact: iframe
+  assets/…: <url> did not load (<reason>)`, or `… is not an app asset under assets/
+  or deck/`) (#135).
   (Issue #106, 2026-10-06.)
+
+- **A bundled web page that works on the web can break on Apple if it reaches its
+  parent, sets cookies or registers a service worker.** An `iframe` of an HTML page
+  under `assets/` or `deck/` (a built web app: scripts, styles, fonts, chunks,
+  workers, wasm) loads with its files on the web, macOS and iOS. On the web it is same-origin
+  with the app's page; on Apple it is `exact-app://app/<path>`, a secure context
+  with no app page above it, where WebKit refuses `navigator.serviceWorker.register`
+  and drops `document.cookie`. Fix: talk to the app by `postMessage` only, keep
+  saved data in `localStorage`, IndexedDB or OPFS (kept across launches on all
+  three), and treat a service worker as optional. Untrusted content belongs at its
+  own URL, or under a `sandbox` without `allow-same-origin`. (LLP 1020.001 D5;
+  Exact Draw, 2026-10-15.)
+
+- **A local server behind an `iframe` is loaded from the frame's parent, not the
+  app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's
+  own document. With a `sandbox` on macOS, and always on iOS, it is the child of a
+  wrapper page at `http://exact.invalid` (for an `http:` guest) or
+  `https://exact.invalid`: the page's first request is a cross-site navigation, and
+  `window.parent`'s origin is the wrapper's. On the web the parent is the app's own
+  page, whose loopback port differs between the dev loop and an `agent web` or
+  `test web` run. A server that checks `Origin`, `Referer` or `Sec-Fetch-Site`
+  against a fixed list therefore refuses its own page on some hosts. Fix: admit the
+  page by a token in the `src` URL the data module builds, and keep the origin check
+  for the API requests the page itself makes. (Exact Draw, 2026-10-15.)
 
 - **A focus ring never shows in an `agent macos` screenshot.** `type save key Tab`
   moves the focus (`state` reads it in `focus.logical`), yet neither `screenshot`

@@ -62,6 +62,8 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[path = "live.rs"]
+mod live;
 #[path = "paint.rs"]
 mod paint;
 #[path = "paragraph.rs"]
@@ -434,6 +436,7 @@ impl<D: DataSource> Host<D> {
         runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);
+        runner.admit_live(compat);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
@@ -714,6 +717,11 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
+    /// [`Host::listen`] to `io`, and read sockets' buffered bytes from it (D7).
+    pub fn listen_io(&mut self, io: &dyn crate::executor::Io) {
+        self.listen(io.waker());
+        self.runner.set_socket_reader(io.socket_reader());
+    }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
         self.runner.native_slot()
@@ -1176,21 +1184,6 @@ impl<D: DataSource> Host<D> {
         let (mut batch, error) = self.resize_rounds(batch, error);
         self.state_onto(&mut batch);
         self.write(batch, error.as_deref())
-    }
-
-    /// An empty batch, which has no geometry to hold: a refusal's.
-    fn refused(&self, error: Option<String>) -> String {
-        let mut batch = Batch::new();
-        self.state_onto(&mut batch);
-        let (timers, motion) = (self.runner.timer_due_ms(), !self.engine.quiescent());
-        batch.finish(timers, motion, self.runner.now_ms(), error.as_deref())
-    }
-
-    fn state_onto(&self, batch: &mut Batch) {
-        batch.spatial = self.engine.spatial();
-        batch.frames = self.runner.wants_frames();
-        batch.seq = self.runner.seq_range();
-        batch.canvas_frames(self.runner.canvas_wants_frame());
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {

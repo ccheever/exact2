@@ -487,3 +487,24 @@ fn zero_period_repetition_matches_chromes_last_stop() {
         );
     }
 }
+
+#[test]
+fn a_gradient_read_through_its_captured_values_resolves_as_through_the_table() {
+    use crate::style::wide::Values;
+    let image = BackgroundImage::parse(
+        "linear-gradient(90deg in hsl, color(srgb 0.5001 0.5 0.5), light-dark(#0000ff, oklch(0.5 0.1 300)))",
+    )
+    .unwrap();
+    let g = image.gradient().unwrap();
+    let values = Values::of(g.stops.iter().map(|s| s.color));
+    let read = |id| values.get(id);
+    for dark in [false, true] {
+        assert_eq!(g.resolved_with(dark, &read), g.resolved(dark));
+        assert_eq!(
+            g.placed_with(200.0, 20.0, dark, &read)
+                .0
+                .resolved_with(dark, &read),
+            g.resolved(dark)
+        );
+    }
+}

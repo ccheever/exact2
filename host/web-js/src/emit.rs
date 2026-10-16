@@ -186,6 +186,8 @@ struct Em<'a> {
 const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
+    // A development build makes every token a property (LLP 1121 stage 4).
+    let _every = crate::modes::every(dev_reload);
     // @ref LLP 1095 D4 — the roles the theme replaces, as the runner sets them.
     let _ = exact_runner::bridge::set_role_overrides(plan);
     let fonts = crate::faces::fonts(plan)?;

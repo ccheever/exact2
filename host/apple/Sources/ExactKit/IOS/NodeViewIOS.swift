@@ -346,8 +346,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A hidden element is not exposed. Children stay in the tree: this is
     /// not `accessibilityElementsHidden`, which would hide them too.
     package override var isAccessibilityElement: Bool {
-        get { accessibilityExposed && super.isAccessibilityElement }
+        get {
+            guard kind == "native" else { return accessibilityExposed && super.isAccessibilityElement }
+            // A native module's box (LLP 1024): the module's own elements
+            // when its view has some; else the box, named by the Contract.
+            return accessibilityExposed && (super.isAccessibilityElement || authoredLabel != nil) && presenter?.session?.natives.speaksForItself(self) != true
+        }
         set { super.isAccessibilityElement = newValue }
+    }
+    /// A native module's box whose view has elements of its own, named by
+    /// the Contract (`aria-label`): VoiceOver says the name entering them.
+    package override var accessibilityContainerType: UIAccessibilityContainerType {
+        get {
+            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return super.accessibilityContainerType }
+            return .semanticGroup
+        }
+        set { super.accessibilityContainerType = newValue }
     }
     /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
     private var asksForFocus: Bool { explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
@@ -862,6 +876,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // that sets `auto` again is still a target.
             if passesThrough { return nil }
             guard bounds.contains(point) else { return nil }
+            if kind == "native", presenter?.session?.natives.declined(self, at: point, with: event) == true { return nil }
             if event?.type == .touches, isParagraph { touchedText() } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that

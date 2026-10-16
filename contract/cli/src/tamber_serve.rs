@@ -32,7 +32,11 @@
 //!   client never sends a restore.
 //! - **`propose`** plans without writing: the diff, the tokens it changes
 //!   (by file), `live` or `rebuild`, and the digests it planned against; a
-//!   digest it carries is checked as a transaction's is.
+//!   digest it carries is checked as a transaction's is. `live` is the
+//!   edit's closure (LLP 1121 D13, stage 4): no structure, no role override
+//!   reached, and the app's synthetic tokens (its rows' expressions over
+//!   tokens, read from the plan the compiler builds) re-folded, those that
+//!   change listed in `synthetic` with their new value per app tuple.
 //! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
 //!   of files it does not edit but was planned on, checked with the rest.
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
@@ -183,6 +187,9 @@ struct Server {
     next: u64,
     /// The client a `hello` named.
     client: Option<String>,
+    /// The app's synthetic tokens (LLP 1121 D3), by the digest of the
+    /// Contract sources they were read from.
+    synthetic: Option<(String, Vec<(String, bool)>)>,
 }
 
 /// Open without following a symbolic link at the last component.
@@ -310,6 +317,7 @@ impl Server {
             session: format!("{}-{started:x}", std::process::id()),
             next: 0,
             client: None,
+            synthetic: None,
         };
         server.same_state()?;
         server.recover()?;
@@ -319,6 +327,62 @@ impl Server {
             server.sweep();
         }
         Ok(server)
+    }
+
+    /// The app's synthetic tokens: every expression over tokens its rows
+    /// write, folding or not, as the compiler finds them (the plan keeps
+    /// only those that fold). Read again when a Contract source, what
+    /// resolved its imports, or the design's token names change, which is
+    /// what decides them. None when the build stopped before the design:
+    /// not kept, and tried again.
+    fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
+        let root = self.dir.join("app.contract");
+        let graph = contract::source_graph(&root);
+        let mut key = String::new();
+        for s in &graph.sources {
+            if s.path.extension().is_some_and(|e| e == "tamber") {
+                continue;
+            }
+            key.push_str(&s.path.to_string_lossy());
+            key.push('\0');
+            key.push_str(
+                &std::fs::read(&s.path)
+                    .map(|b| digest(&b))
+                    .unwrap_or_default(),
+            );
+            key.push('\n');
+        }
+        // What resolved the imports (package manifests, the paths tried).
+        for path in &graph.consulted {
+            key.push_str(&path.to_string_lossy());
+            key.push('\0');
+            key.push_str(&std::fs::read(path).map(|b| digest(&b)).unwrap_or_default());
+            key.push('\n');
+        }
+        if let Some(design) = snap
+            .iter()
+            .find(|(f, _, _)| *f == self.design)
+            .and_then(|(_, t, _)| exact_tamber::parse(t).ok())
+        {
+            for t in &design.tokens {
+                key.push_str(&t.name.value);
+                key.push('\n');
+            }
+        }
+        if let Some((k, exprs)) = &self.synthetic {
+            if *k == key {
+                return Some(exprs.clone());
+            }
+        }
+        let _ = contract_lower::synthetic_candidates();
+        let built = contract::compile_path_all(&root, false);
+        let exprs = contract_lower::synthetic_candidates();
+        // A build that stopped before the design says nothing of them.
+        let reached = built.is_ok() || !exprs.is_empty();
+        reached.then(|| {
+            self.synthetic = Some((key, exprs.clone()));
+            exprs
+        })
     }
 
     fn state(&self) -> PathBuf {
@@ -780,14 +844,23 @@ impl Server {
             .iter()
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
-        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo).map_err(|all| {
+        let known = self.synthetic(snap);
+        let exprs = known.clone().unwrap_or_default();
+        let synthetic = exact_tamber::Synthetic {
+            file: &self.design,
+            exprs: &exprs,
+        };
+        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})
         })?;
         let mut out = json!({
             "files": files_json(snap),
             "changed": planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>(),
-            "class": planned.class.name(),
+            // The closure unknown (the app's build stops before its design):
+            // no edit is answered live.
+            "class": if known.is_some() { planned.class.name() } else { exact_tamber::Class::Rebuild.name() },
             "diff": planned.diff,
+            "synthetic": planned.synthetic.iter().map(|(expr, values)| json!({"expr": expr, "values": values.iter().map(|v| v.css()).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });
         let Some(client) = client else {
             return Ok(out);

@@ -170,7 +170,8 @@ with `ERROR`. `state` prints one line a section (`slots {"count":1}`) and leaves
 the empty ones (null, `[]`, `{}`). `--json` prints every field of every reply.
 `--scale <n>` shrinks each screenshot to n pixels a point: an iPhone's are
 1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
-web, at about a ninth of the pixels. Use `--scale 1` unless you check fine pixels.
+web, at about a ninth of the pixels. An app's `bun exact.mjs agent ios|macos`
+takes `--scale 1` unless told otherwise; ask for more only to check fine pixels.
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -832,9 +833,11 @@ Keep the handle in module state by resource identity; after its `open` event,
 a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
 reason)`. The mapper only reads frames and returns snapshots. Sends run after
 the mutation's commit stands, in order, and have bounded admission. The
-source must send and answer synchronously. Refreshing or removing the
-resource invalidates the old handle. **Currently web JS target TypeScript
-only**; the wasm target and native hosts remain receive-only. See
+source must send and answer synchronously, and a mutation that sends cannot
+also `fetch` (whichever comes second refuses it). Refreshing or removing the
+resource invalidates the old handle. **TypeScript on the web JS target,
+macOS, iOS and Linux**; the wasm target and Rust sources remain
+receive-only. See
 [the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
 
 ### Optimistic writes: the overlay
@@ -1671,18 +1674,19 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   again pops it to its root.
 - On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
   is its bar item, a filled box holding a text is the item's badge, and the
-  tablist's `accent-color` (inherited, as in CSS) tints the selected item. Under the
-  agent the authored tablist and header paint and take taps instead; `tap tab-…` works on
-  every host. To see and drive what a person sees, pass `--chrome platform` (a drive or
-  a test on an iOS simulator): UIKit's tab bar, navigation bars and sheets show,
+  tablist's `accent-color` (inherited, as in CSS) tints the selected item; `tap tab-…`
+  works on every host. An app's `bun exact.mjs agent ios` and `test ios` drive what a
+  person sees (`--chrome platform`; `--chrome agent` paints the authored tablist and
+  header instead, as `scripts/agent.mjs` does by default): UIKit's tab bar, navigation bars and sheets show,
   `screenshot "file" window` draws them, and a tap naming a tab or a header control
   presses it through its bar (`native: "tab-bar-item"`, `"bar-button-item"`). The
   bars' own motion runs on real time (`clock +300 real` before a screenshot); the
   software keyboard, another window, is not drawn.
 - On the Mac a root tablist placed as above (the root column's last child) is the
   window's sidebar: AppKit's source list, one row a tab, with its button in the
-  toolbar and View ▸ Show Sidebar. Under the agent the authored tablist paints, as on
-  iOS; `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
+  toolbar and View ▸ Show Sidebar. Under the agent on `macos` the authored tablist
+  paints (on iOS only when `scripts/agent.mjs` runs alone: `exact.mjs` shows UIKit's
+  bars); `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
   presses its row (`native: "sidebar-row"`).
 - On the Mac a route's `header` is the window's title bar and toolbar: its heading the
   window's title (under a `head title`, over the app's name; there is no large title),

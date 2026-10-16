@@ -89,13 +89,35 @@ pub struct Generation {
 
 type FetchOutcome = Result<Option<Generation>, String>;
 
+/// The design the dev server's builds run (LLP 1121 stage 4):
+/// `/__dev/design`'s snapshot, `Ok(None)` for the published plan's own
+/// (204), `Err` when it could not be read (no server that keeps one).
+pub fn fetch_design(page: &str) -> Result<Option<String>, ()> {
+    let url = join(page, "/__dev/design").map_err(|_| ())?;
+    let mut req = ibex2::stdlib::fetch::Request::get(&url);
+    req.headers.set("accept", "application/json");
+    req.headers.set("cache-control", "no-cache");
+    req.max_body = Some(MAX_PLAN_BYTES);
+    let r = ibex2::transport::default_transport()
+        .send(&req)
+        .map_err(|_| ())?;
+    match r.status {
+        200 => String::from_utf8(r.body).map(Some).map_err(|_| ()),
+        204 => Ok(None),
+        _ => Err(()),
+    }
+}
+
 /// One in-flight URL poll owned by the presenter, shared by display and agent loops.
 pub(crate) struct Poller {
     url: String,
     compat: String,
     pub identity: Option<String>,
     due: std::time::Instant,
-    worker: Option<std::sync::mpsc::Receiver<FetchOutcome>>,
+    worker: Option<std::sync::mpsc::Receiver<(FetchOutcome, Result<Option<String>, ()>)>>,
+    /// The dev server's design snapshot, as last polled, for the presenter
+    /// to apply (a build on it already applies nothing).
+    pub design: Option<String>,
 }
 
 impl Poller {
@@ -106,14 +128,21 @@ impl Poller {
             identity,
             due: std::time::Instant::now(),
             worker: None,
+            design: None,
         }
     }
 
     pub fn poll(&mut self) -> FetchOutcome {
         if let Some(worker) = &self.worker {
             match worker.try_recv() {
-                Ok(outcome) => {
+                Ok((outcome, design)) => {
                     self.worker = None;
+                    // A 204 is the published plan's own design: a snapshot
+                    // still held (a generation waiting to boot) is dropped,
+                    // never applied over a newer plan of the same shape.
+                    if let Ok(design) = design {
+                        self.design = design;
+                    }
                     self.due = std::time::Instant::now() + std::time::Duration::from_millis(500);
                     return outcome;
                 }
@@ -130,7 +159,8 @@ impl Poller {
             let (send, receive) = std::sync::mpsc::channel();
             self.worker = Some(receive);
             std::thread::spawn(move || {
-                let _ = send.send(fetch_changed(&url, &compat, previous.as_deref()));
+                let changed = fetch_changed(&url, &compat, previous.as_deref());
+                let _ = send.send((changed, fetch_design(&url)));
             });
         }
         Ok(None)

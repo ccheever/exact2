@@ -587,15 +587,27 @@ impl KeyframesTable {
 
 /// The thread's role overrides from before a boot, put back unless the boot
 /// succeeds and clears it (LLP 1095 D4).
-pub(crate) struct RestoreOverrides(pub(crate) Option<Vec<(u8, exact_kernel::ColorValue)>>);
+pub(crate) struct RestoreOverrides(
+    pub(crate) Option<Vec<(u8, exact_kernel::ColorValue)>>,
+    /// Their wide colours, kept from the table's sweep until put back:
+    /// held for its life, never read.
+    #[allow(dead_code)]
+    exact_kernel::style::wide::Keep,
+);
 
 impl RestoreOverrides {
     /// Set `plan`'s overrides, keeping the thread's to put back; and whether
     /// they replace another plan's.
     pub(crate) fn set(plan: &exact_plan::Plan) -> (RestoreOverrides, bool) {
         let previous = exact_kernel::style::roles::overrides();
+        // Kept before they are replaced, which lets go of their old keep.
+        let kept = exact_kernel::style::wide::Keep::of(|m| {
+            for (_, c) in &previous {
+                m.color(*c);
+            }
+        });
         let replaced = set_role_overrides(plan);
-        (RestoreOverrides(Some(previous)), replaced)
+        (RestoreOverrides(Some(previous), kept), replaced)
     }
 }
 

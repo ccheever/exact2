@@ -479,6 +479,7 @@ fn an_image_lays_out_from_its_decoded_size() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker() {
     let dir = std::env::temp_dir().join(format!("exact-linux-image-worker-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -674,7 +675,9 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
                 Outcome::Failed { message, .. } => message.clone(),
                 Outcome::Storage(_) => panic!("HTTP request received a storage result"),
                 Outcome::Surface(_) => panic!("HTTP request received a surface result"),
-                Outcome::Message(_) => panic!("HTTP request received a stream message"),
+                Outcome::Message(_) | Outcome::Closed { .. } => {
+                    panic!("HTTP request received a stream message")
+                }
             };
             let name = if text.contains("ada") {
                 "ada".to_string()

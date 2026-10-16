@@ -102,3 +102,5 @@ cc = "1"
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
+# A scripted socket transport names the URL type its trait takes.
+url = "2.5"

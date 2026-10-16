@@ -13,6 +13,8 @@ impl Kernel {
         if let Some(tree) = self.layout.as_deref_mut().and_then(LayoutMirror::tree) {
             tree.trim();
         }
+        // What it held may have gone with the styles it let go.
+        self.wide_changed();
     }
 }
 

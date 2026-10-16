@@ -1136,6 +1136,55 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn grid_refusals_keep_declarations_but_absent_values_remove_them() {
+        let cases: Vec<_> = [
+            (StyleId::GridTemplateColumns, "40px 1fr", "subgrid [rails]"),
+            (StyleId::GridTemplateRows, "40px 1fr", "repeat(10001, 1px)"),
+            (StyleId::GridColumn, "1 / span 2", "10001"),
+            (StyleId::GridRow, "1 / span 2", "span 10001"),
+            (StyleId::GridAutoFlow, "row dense", "inherit"),
+            (StyleId::JustifyItems, "center", "left legacy"),
+        ]
+        .into_iter()
+        .map(|(id, valid, refused)| {
+            let writes = style_writes(id as u16, false).unwrap();
+            (writes[0].map.unwrap(), valid, refused)
+        })
+        .collect();
+        let script = format!(
+            r#"import {{ mock }} from 'bun:test';
+import {{ strict as assert }} from 'node:assert';
+const journal = [];
+mock.module('./rt.js', () => ({{ normal: (_, v) => v, say: line => journal.push(line) }}));
+const {{ gridValue }} = await import('./grid.js');
+for (const [source, valid, refused] of {}) {{
+  const map = eval(`(${{source}})`);
+  assert.equal(map(null), null);
+  assert.equal(map(undefined), undefined);
+  assert.equal(map(valid), valid);
+  for (const value of [refused, '']) {{
+    const before = journal.length;
+    assert.equal(map(value), 'unset', source);
+    assert.equal(journal.length, before + 1);
+    assert.ok(journal.at(-1).startsWith('unset '));
+    assert.ok(journal.at(-1).includes(JSON.stringify(value)));
+  }}
+}}"#,
+            serde_json::to_string(&cases).unwrap()
+        );
+        let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
     fn balanced_wrap_writes_the_same_property_for_bound_values() {
         let writes = style_writes(StyleId::TextWrapStyle as u16, false).unwrap();
         assert_eq!(writes.len(), 1);

@@ -53,12 +53,13 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       [['web-build'], ['field-log']],
       [['test'], testArgs('web'), webBuild],
       [['test', 'web'], testArgs('web'), webBuild],
-      [['test', 'ios'], testArgs('ios'), ios],
+      // An iOS drive shows UIKit's bars, and an Apple agent drive's screenshots are a pixel a point.
+      [['test', 'ios'], [...testArgs('ios'), '--chrome', 'platform'], ios],
       [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600'], ['macos', '--app', 'field-log']],
       [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces'], webBuild],
-      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state'], ios],
-      [['agent', 'ios', '--sim', 'lane', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', 'tree'], [...ios, '--sim', 'lane']],
-      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree']],
+      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state', '--chrome', 'platform', '--scale', '1'], ios],
+      [['agent', 'ios', '--sim', 'lane', '--scale', '3', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', '--scale', '3', 'tree', '--chrome', 'platform'], [...ios, '--sim', 'lane']],
+      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree', '--chrome', 'platform', '--scale', '1']],
       [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', resolve(realpathSync(dir), 'app.contract'), '--json']],
       [['contract', 'types', 'app.contract', '-o', 'app.contract.d.ts'], ['contract', 'types', resolve(realpathSync(dir), 'app.contract'), '-o', resolve(realpathSync(dir), 'app.contract.d.ts')]],
       [['contract', 'vocab', 'background-color'], ['contract', 'vocab', 'background-color']],
@@ -98,9 +99,9 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       return result.stdout.trim().split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l).args);
     };
     const tested = (host, file, ...more) => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), file), ...more];
-    assert.deepEqual(files(['test', 'ios', 'tests/b.test.contract', '--size', '800x600']), [tested('ios', 'tests/b.test.contract', '--size', '800x600')]);
+    assert.deepEqual(files(['test', 'ios', 'tests/b.test.contract', '--size', '800x600']), [tested('ios', 'tests/b.test.contract', '--size', '800x600', '--chrome', 'platform')]);
     assert.deepEqual(files(['test', 'macos', 'tests/*.test.contract']), [tested('macos', 'tests/a.test.contract'), tested('macos', 'tests/b.test.contract')]);
-    assert.deepEqual(files(['test', 'ios', '--test', 'field-log/tests/a.test.contract'], parent), [tested('ios', 'tests/a.test.contract')]);
+    assert.deepEqual(files(['test', 'ios', '--test', 'field-log/tests/a.test.contract'], parent), [tested('ios', 'tests/a.test.contract', '--chrome', 'platform')]);
     assert.equal(spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios', 'none/*.test.contract'], { cwd: dir, env: { ...process.env, EXACT2: sdk } }).status, 2);
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });

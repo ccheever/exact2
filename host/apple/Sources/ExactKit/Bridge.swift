@@ -37,6 +37,10 @@ public struct Batch {
     public var canvasImages: [String] = []
     /// The window's app modes after a `setMode` (LLP 1121 D5), when the call was one.
     public var modes: [String: String]? = nil
+    /// After a live design batch (LLP 1121 stage 4): applied, stale,
+    /// structure or refused; and whether a colour met a full wide table.
+    public var live: String? = nil
+    public var unsupported = false
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
@@ -539,6 +543,8 @@ package final class Runtime {
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
     func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
+    /// A live design batch or snapshot frame (LLP 1121 stage 4), applied in place.
+    func designRows(_ frame: String) -> Batch { on { read(exact_design_rows(rt, write(frame))) } }
     func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }

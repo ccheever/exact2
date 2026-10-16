@@ -21,6 +21,18 @@ pub struct PlanBuilder {
     /// shared. Each reference is validated on its own (`check_code`), so a
     /// shared body is indistinguishable from a copy to every reader.
     bodies: HashMap<Vec<u8>, Code, BuildHasherDefault<BodyHasher>>,
+    /// The design's values (`theme` rows' and slices'), interned at
+    /// [`finish`](Self::finish) after every other string: a value-only edit
+    /// then moves no other string's id, so the plan's structure
+    /// ([`Plan::structure`]) stays (LLP 1121 stage 4).
+    values: Vec<(ValueAt, String)>,
+}
+
+/// Where a design value interned at finish goes.
+#[derive(Debug)]
+enum ValueAt {
+    Theme(usize),
+    Slice(usize),
 }
 
 /// A multiply-rotate hash for the pools' dedup tables: code bodies this
@@ -62,6 +74,7 @@ impl PlanBuilder {
             },
             interned: HashMap::default(),
             bodies: HashMap::with_capacity_and_hasher(256, Default::default()),
+            values: Vec::new(),
         };
         // These eight distinct stack ids are part of the plan vocabulary.
         // A host may resolve several of them to one installed face; their
@@ -93,6 +106,7 @@ impl PlanBuilder {
             plan,
             interned,
             bodies: HashMap::default(),
+            values: Vec::new(),
         }
     }
 
@@ -316,12 +330,22 @@ impl PlanBuilder {
     /// A `theme` entry that varies by the app's axes (LLP 1121 D5): its
     /// value for every full tuple, in tuple order; `value` is the default's.
     pub fn theme_token(&mut self, name: &str, role: &str, value: &str, slices: &[&str]) -> ThemeId {
-        let (name, role, value) = (self.str(name), self.str(role), self.str(value));
+        let (name, role) = (self.str(name), self.str(role));
+        // The values wait for `finish`; the empty string stands until then.
+        let pending = self.str("");
         let start = self.plan.theme_slices.len() as u32;
         for s in slices {
-            let value = self.str(s);
-            self.plan.theme_slices.push(ThemeSlicesRow { value });
+            self.values.push((
+                ValueAt::Slice(self.plan.theme_slices.len()),
+                (*s).to_string(),
+            ));
+            self.plan
+                .theme_slices
+                .push(ThemeSlicesRow { value: pending });
         }
+        self.values
+            .push((ValueAt::Theme(self.plan.theme.len()), value.to_string()));
+        let value = pending;
         let slices = ThemeSlicesRange {
             start,
             len: slices.len() as u32,
@@ -843,7 +867,14 @@ impl PlanBuilder {
     }
 
     /// The plan, validated.
-    pub fn finish(self) -> Result<Plan, PlanError> {
+    pub fn finish(mut self) -> Result<Plan, PlanError> {
+        for (at, text) in std::mem::take(&mut self.values) {
+            let id = self.str(&text);
+            match at {
+                ValueAt::Theme(i) => self.plan.theme[i].value = id,
+                ValueAt::Slice(i) => self.plan.theme_slices[i].value = id,
+            }
+        }
         self.plan.validate()?;
         Ok(self.plan)
     }

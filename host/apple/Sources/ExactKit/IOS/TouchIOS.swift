@@ -228,7 +228,7 @@ extension Agent {
                 return ["error": "tap #\(v.id): the point is outside the list's port; scroll it into view first"]
             }
             guard seen === target || seen!.isDescendant(of: target) else {
-                return ["error": "tap #\(v.id): \((seen as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: seen!))) covers its middle"]
+                return ["error": "tap #\(v.id): \(Agent.covers(seen!))"]
             }
         }
         // Stage 3's boundary, over the target, every node enclosing it (an

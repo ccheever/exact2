@@ -520,7 +520,16 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 let control = contract_syntax::payload_control(tag, attrs);
                 for a in attrs {
                     if is_handler(&a.name, &a.value) {
-                        check_handler(&a.name, &a.value, scope, a.span, control, view)?;
+                        check_handler(&a.name, &a.value, scope, a.span, control, view).map_err(
+                            |mut e| {
+                                // A hyphenated tag is a native module's (LLP 1024 D1): an
+                                // event's name there is the box's handler, never a prop.
+                                if tag.contains('-') && e.id == "analyze-handler-shape" {
+                                    e.message.push_str(&format!("; on `{tag}` `{}` is an event, so give the module prop another name", a.name));
+                                }
+                                e
+                            },
+                        )?;
                     }
                 }
                 check_view(children, scope, view)?;

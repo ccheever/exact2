@@ -913,3 +913,225 @@ fn layout_names_exactly_the_tokens_a_row_read() {
     let role = node("role");
     assert!(role.contains("\"names\":[\"secondary-label\"]"), "{role}");
 }
+
+/// LLP 1121 stage 4, commit 1 (theme2's condition): what publishing a
+/// kernel's wide-colour mark after every changed commit costs on the normal
+/// write path. Run in release, by hand: `cargo test --release -p contract
+/// --test it wide_mark_cost -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn wide_mark_cost() {
+    use exact_kernel::style::wide::{Holder, WideMark};
+    // `WIDE_MARK_HEX=1` runs the same app in 8-bit colours, so no mark is
+    // ever taken: the baseline.
+    let hex = std::env::var("WIDE_MARK_HEX").is_ok_and(|v| v == "1");
+    let p3 = if hex {
+        MODES.to_string()
+    } else {
+        MODES
+            .replace("#ffffff", "color(display-p3 1 1 1)")
+            .replace("#000000", "color(display-p3 0 0 0)")
+            .replace("#161e27", "color(display-p3 0.09 0.12 0.15)")
+            .replace("#111111", "color(display-p3 0.07 0.07 0.07)")
+            .replace("#eeeeee", "color(display-p3 0.93 0.93 0.93)")
+            .replace("#cccccc", "color(display-p3 0.8 0.8 0.8)")
+    };
+    let border = if hex {
+        "`#${i % 10}0${i % 7}0${i % 9}0`"
+    } else {
+        "`color(display-p3 ${i / 1000} 0.5 0.5)`"
+    };
+    let window = if hex {
+        "`#${j % 10}0${j % 7}0${j % 9}0`"
+    } else {
+        "`color(display-p3 0.5 ${j / 1000} 0.5)`"
+    };
+    let rows: Vec<String> = (0..1000).map(|i| i.to_string()).collect();
+    // Each row also carries its own wide colour: 1,000 distinct styles. A
+    // second list of 200 windowed rows shifts by 10 a commit, as a scroll
+    // mounts and retires rows.
+    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  state n = 0\n  action flip\n    dim = not dim\n  action bump\n    n = n + 1\n  state start = 0\n  action shift\n    start = start + 10\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      button press=bump testId=\"bump\"\n        text `${{n}}`\n      button press=shift testId=\"shift\"\n        text \"shift\"\n      for j in rows.slice(start, start + 200) key=j\n        text `w${{j}}` border-color={window} border-width=1\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\" border-color={border} border-width=1\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
+    let path = app(
+        "wide-mark-cost",
+        &[("app.tamber", &p3), ("app.contract", &view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let id = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    let (flip, bump, shift) = (id(&r, "flip"), id(&r, "bump"), id(&r, "shift"));
+    let time = |f: &mut dyn FnMut()| {
+        let started = std::time::Instant::now();
+        for _ in 0..50 {
+            f();
+        }
+        started.elapsed() / 50
+    };
+    let switch = time(&mut || {
+        r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    });
+    let small = time(&mut || {
+        r.dispatch(bump, exact_runner::Event::Press).unwrap();
+    });
+    let scroll = time(&mut || {
+        r.dispatch(shift, exact_runner::Event::Press).unwrap();
+    });
+    let k = r.kernel_mut();
+    let mark = time(&mut || {
+        std::hint::black_box(k.wide_mark());
+    });
+    // The union rebuilt from every style's cached slots, as after styles go.
+    let rebuild = time(&mut || {
+        k.trim();
+    });
+    let holder = Holder::new();
+    let publish = time(&mut || holder.publish(WideMark::default()));
+    eprintln!(
+        "wide colours {}; Dim switch {switch:?}; one-text commit {small:?}; window shift {scroll:?}; mark (cached) {mark:?}; trim incl. rebuilt mark {rebuild:?}; publish {publish:?}",
+        exact_kernel::style::wide::used()
+    );
+}
+
+/// LLP 1121 stage 4, commit 3: a plan's structure leaves the design's values
+/// out, so a value-only edit has the same structure; a role override's
+/// value, a token's slices and a view changed do not.
+#[test]
+fn a_value_only_edit_keeps_the_plans_structure() {
+    let view = "component App\n  view\n    column background-color=\"page\"\n      text \"a\" color=\"ink\"\n";
+    let structure = |name: &str, design: &str, view: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap().structure()
+    };
+    let design = format!("{MODES}  Canvas = #fafafa\n");
+    let base = structure("structure-base", &design, view);
+    // Values, varying or not, in any tuple.
+    let values = design
+        .replace(
+            "light-dark(#111111, #eeeeee)",
+            "light-dark(#111111, #dddddd)",
+        )
+        .replace(
+            "light-dark(#ffffff, #161e27)",
+            "light-dark(#ffffff, #1a2430)",
+        );
+    assert_eq!(structure("structure-values", &values, view), base);
+    // A value that stops sharing its string with another token's, and one
+    // that comes to.
+    let shared = format!("{design}  edge = #fafafa\n");
+    let view_edge = view.replace("column ", "column border-color=\"edge\" ");
+    let base_edge = structure("structure-shared", &shared, &view_edge);
+    let apart = shared.replace("edge = #fafafa", "edge = #abcdef");
+    assert_eq!(structure("structure-apart", &apart, &view_edge), base_edge);
+    let together = shared.replace("edge = #fafafa", "edge = #111111");
+    assert_eq!(
+        structure("structure-together", &together, &view_edge),
+        base_edge
+    );
+    // Code that pushes a value's text keeps that string: the literal and the
+    // token changed together is no value-only edit.
+    let literal = |text: &str| {
+        format!("component App\n  state lit = \"{text}\"\n  view\n    column background-color=\"page\"\n      text lit color=\"ink\"\n")
+    };
+    let with = |ink: &str| {
+        design
+            .replace(
+                "ink = light-dark(#111111, #eeeeee)",
+                &format!("ink = {ink}"),
+            )
+            .replace(
+                "    when dark-style=dim: light-dark(#111111, #cccccc)\n",
+                "",
+            )
+    };
+    let shared_code = structure("structure-code-a", &with("#111111"), &literal("#111111ff"));
+    assert_ne!(
+        structure("structure-code-b", &with("#222222"), &literal("#222222ff")),
+        shared_code
+    );
+    assert_eq!(
+        structure("structure-code-c", &with("#222222"), &literal("#111111ff")),
+        shared_code
+    );
+    // A role override's value: the hosts take role tables at boot.
+    let role = design.replace("Canvas = #fafafa", "Canvas = #f0f0f0");
+    assert_ne!(structure("structure-role", &role, view), base);
+    // A token that stops varying by an axis (its slices go), and a view
+    // changed. (A token no view names is in no plan.)
+    let flat = design.replace(
+        "    when dark-style=dim: light-dark(#111111, #cccccc)\n",
+        "",
+    );
+    assert_ne!(flat, design);
+    assert_ne!(structure("structure-flat", &flat, view), base);
+    let other = view.replace("\"a\"", "\"b\"");
+    assert_ne!(structure("structure-view", &design, &other), base);
+}
+
+/// LLP 1121 stage 4, commit 4: a value-only edit reaches a running build as
+/// a batch, with no plan: its rows, a synthetic token's included, set in one
+/// commit with no layout. A stale base is refused (the build asks for a
+/// snapshot), a snapshot applies whole, and another structure is refused.
+#[test]
+fn a_batch_sets_a_running_builds_rows_without_a_plan() {
+    use exact_runner::design::{self, Token};
+    use exact_runner::LiveRefusal;
+    let view = "component App\n  view\n    column background-color=\"page\" testId=\"page\"\n      text \"a\" color=\"ink\" testId=\"ink\"\n      text \"b\" color=\"color-mix(in srgb, ink 50%, white)\" testId=\"mix\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    // With a role override, which a snapshot carries and does not set.
+    let modes = format!("{MODES}  Canvas = #fafafa\n");
+    let a = plan("live-a", &modes);
+    let b = plan("live-b", &modes.replace("#111111", "#ff0000"));
+    let structure = design::structure(&a);
+    assert_eq!(design::structure(&b), structure);
+    let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
+    let names: Vec<&str> = batch.tokens.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["ink", "color-mix(in srgb, ink 50%, white)"],
+        "the synthetic token rides along"
+    );
+    // The wire round-trips.
+    assert_eq!(design::Edit::parse(&batch.json()), Some(batch.clone()));
+    let mut r = booted(a.clone());
+    // A release build takes none.
+    r.admit_live(Some(r#"{"inputs":{"trust":"production"}}"#));
+    assert!(matches!(r.apply_live(&batch), Err(LiveRefusal::Refused(_))));
+    r.admit_live(None);
+    let mix_before = row(&r, "mix", StyleId::TextColor);
+    let applied = r.apply_live(&batch).unwrap();
+    assert!(
+        !applied.receipt.layout_invalidated,
+        "a colour moves no geometry"
+    );
+    assert!(!applied.full);
+    assert_eq!(
+        row(&r, "ink", StyleId::TextColor),
+        parsed("light-dark(#ff0000, #eeeeee)")
+    );
+    assert_ne!(row(&r, "mix", StyleId::TextColor), mix_before);
+    assert_eq!(r.design(), batch.design);
+    // The same batch again: its base is no longer this build's.
+    assert_eq!(r.apply_live(&batch).unwrap_err(), LiveRefusal::Stale);
+    // A snapshot of the first design applies whole, whatever this build ran.
+    let back = design::snapshot(&structure, &design::tokens(&a));
+    r.apply_live(&back).unwrap();
+    assert_eq!(
+        row(&r, "ink", StyleId::TextColor),
+        parsed("light-dark(#111111, #eeeeee)")
+    );
+    assert_eq!(row(&r, "mix", StyleId::TextColor), mix_before);
+    // Another structure's.
+    let other = design::snapshot(
+        "0".repeat(64).as_str(),
+        &[Token {
+            name: "ink".into(),
+            value: "#000000".into(),
+            slices: vec![],
+        }],
+    );
+    assert_eq!(r.apply_live(&other).unwrap_err(), LiveRefusal::Structure);
+}

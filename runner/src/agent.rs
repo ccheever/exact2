@@ -733,6 +733,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     );
     s.push_str(",\"displayMode\":");
     quote(media.display_mode.keyword(), &mut s);
+    s.push_str(",\"navigationType\":");
+    quote(page.navigation_type(), &mut s);
     s.push('}');
     // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
     if !runner.faults().is_empty() {
@@ -843,9 +845,20 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         quote(name, &mut s);
         let _ = write!(
             s,
-            ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}}}",
+            ",\"ticket\":{ticket},\"messages\":{},\"coalesced\":{}",
             count.messages, count.coalesced
         );
+        // A two-way socket's state, as the web JS target lists it (D7).
+        if let Some(socket) = count.socket {
+            let _ = write!(
+                s,
+                ",\"readyState\":{},\"bufferedAmount\":{},\"sent\":{}",
+                socket.ready_state,
+                runner.socket_buffered(*ticket, socket.buffered),
+                socket.sent
+            );
+        }
+        s.push('}');
     }
     s.push(']');
     // The module's background storage (LLP 1097 D8), where it has any.

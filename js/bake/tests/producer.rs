@@ -716,7 +716,7 @@ fn resident_producer_honors_compiler_overrides() {
     // This proves a real override ran and refused, without a Unix-only helper.
     let refusing = std::env::current_exe().unwrap();
     let tools = Tools {
-        tsc: refusing.clone(),
+        tsc: refusing,
         ..Tools::default()
     };
     let mut producer = exact_js_bake::Producer::new(tools).unwrap();
@@ -724,7 +724,7 @@ fn resident_producer_honors_compiler_overrides() {
         .bake(&f.0, None)
         .err()
         .unwrap()
-        .contains(&format!("{} refused", refusing.display())));
+        .contains("the TypeScript does not compile (tsc)"));
 }
 
 #[test]
