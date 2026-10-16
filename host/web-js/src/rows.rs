@@ -122,8 +122,8 @@ impl Em<'_> {
         let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
         // @ref LLP 1115.002 D6 — a metric the binding may name is its value
         // in the web's column before the row's own map sees it.
-        let metric =
-            style::metric_map(plan, plan.code(b.expr)).map(|m| format!("()=>({m})(({f})())"));
+        let metric = style::metric_map(plan, plan.code(b.expr))
+            .map(|m| format!("()=>{}(({f})())", self.uses.share('m', m)));
         let f = metric.as_deref().unwrap_or(f);
         // A list on a corner is the elliptical radius no row holds, which
         // the browser would draw: refused whole, as the kernel refuses it.
@@ -131,7 +131,7 @@ impl Em<'_> {
             && style::literal(plan, plan.code(b.expr)).is_none())
         .then(|| {
             self.uses.rt("say");
-            format!("()=>({})(({f})())", style::corner_list(id))
+            format!("()=>{}(({f})())", self.uses.share('m', style::corner_list(id)))
         });
         let f = corner.as_deref().unwrap_or(f);
         if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
