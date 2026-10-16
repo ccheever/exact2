@@ -56,11 +56,12 @@ impl<D: DataSource> Runner<D> {
             }
             bits |= exact_kernel::style::theme::name_bit(name);
         }
+        let mut moved = false;
         for &(name, value, slices) in edits {
-            crate::bridge::edit_token(&self.plan, name, value, slices);
+            moved |= crate::bridge::edit_token(&self.plan, name, value, slices);
         }
-        // What a binding reads moved (`Tamber::inputs`).
-        if !edits.is_empty() {
+        // What a binding reads moved (`Tamber::inputs`), if a value did.
+        if moved {
             self.design_moves += 1;
         }
         // Rows below parse under the new overrides; what the host drew from

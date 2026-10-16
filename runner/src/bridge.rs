@@ -294,11 +294,32 @@ thread_local! {
 
 /// A token's value from now on, over the plan's (LLP 1121 D13's edit): its
 /// default tuple's and, when it varies, every tuple's. The tables are built
-/// again when next bound.
-pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) {
+/// again when next bound. Whether it differs from what the token held.
+pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) -> bool {
     let at = plan_at(plan);
     EDITS.with(|edits| {
         let mut edits = edits.borrow_mut();
+        let held = match edits.iter().find(|(p, n, ..)| *p == at && n == name) {
+            Some((_, _, v, s)) => Some((v.clone(), s.clone())),
+            None => plan
+                .theme
+                .iter()
+                .find(|r| plan.str(r.name) == name)
+                .map(|r| {
+                    let slices =
+                        &plan.theme_slices[r.slices.start as usize..][..r.slices.len as usize];
+                    (
+                        plan.str(r.value).to_string(),
+                        slices
+                            .iter()
+                            .map(|s| plan.str(s.value).to_string())
+                            .collect(),
+                    )
+                }),
+        };
+        let moved = held.is_none_or(|(v, s): (String, Vec<String>)| {
+            v != value || s.iter().map(String::as_str).ne(slices.iter().copied())
+        });
         edits.retain(|(p, n, ..)| *p != at || n != name);
         edits.push((
             at,
@@ -306,8 +327,9 @@ pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&s
             value.into(),
             slices.iter().map(|s| (*s).into()).collect(),
         ));
-    });
-    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+        THEME_TABLE.with(|cache| cache.borrow_mut().take());
+        moved
+    })
 }
 
 /// A plan's buffers: which plan a cached table or an edit is.
