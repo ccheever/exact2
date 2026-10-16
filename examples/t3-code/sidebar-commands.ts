@@ -44,7 +44,7 @@ const toast = (client: T3Client, title: string, error: unknown) => { if (letGo(e
  * `row` is the thread as the sidebar shows it (the row's id and project id).
  */
 interface Target { threadId: string; environmentId: string; background: boolean; thread: Obj; row: Obj; config: Obj; threads: Obj[]; send(native: Native, payload: Obj): Promise<void> }
-function targetOf(client: T3Client, id: string): Target | null {
+export function targetOf(client: T3Client, id: string): Target | null {
   const found = rowThread(client, id);
   if (!found) return null;
   const { environmentId, threadId } = found.ref, background = !found.focused, thread = found.thread;
@@ -266,7 +266,7 @@ export async function deleteThreads(client: T3Client, native: Native, storage: F
   }
   setWorktreePrompt(client, undefined);
   if (outcome.firstFailure) toast(client, bulk ? 'Failed to delete threads' : 'Failed to delete thread', outcome.firstFailure.error);
-  if (bulk) session.selection = session.selection.filter(id => !!threadOf(client, id) && !outcome.deletedThreadKeys.has(id));
+  if (bulk) session.selection = session.selection.filter(id => !!targetOf(client, id) && !outcome.deletedThreadKeys.has(id));
 }
 /** The worktree question's answer: Confirm removes the worktree; Cancel (or closing) keeps it. Either way the thread is deleted and the run goes on. */
 async function answerWorktree(client: T3Client, native: Native, storage: Files, confirmed: boolean): Promise<void> {
@@ -444,7 +444,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
     else if (count && value === 'ArrowDown') session.searchIndex = (session.searchIndex + 1) % count;
     else if (count && value === 'ArrowUp') session.searchIndex = (session.searchIndex - 1 + count) % count;
   } else if (op === 'rename-start') {
-    const thread = threadOf(client, id);
+    const thread = targetOf(client, id)?.row;
     if (thread && session.renameId !== id) { session.renameId = id; session.renameTitle = str(thread.title); }
   } else if (op === 'rename-key') { if (value === 'Escape' && session.renameId === id) { session.renameId = ''; session.renameTitle = ''; } }
   else if (op === 'dialog-close') closeDialog(session);
@@ -510,9 +510,10 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     catch (error) { toast(client, 'Could not open threads', error); return ''; }
     return 'sidebar:new-thread';
   }
+  // The row's thread on its own environment (handleThreadContextMenu's threadByKey): a background row's choices act there.
   if (op === 'menu') {
     if (session.selection.length > 0 && session.selection.includes(id)) return bulkMenu(client, nativeHandle, storage);
-    const thread = threadOf(client, id);
+    const thread = targetOf(client, id)?.row;
     if (!thread) return '';
     const state = menuState(client, thread, value === 'header');
     const choice = await showMenu(client, nativeHandle, threadMenuItems(state));
@@ -522,7 +523,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   // menu as painted, so a selected row's is the bulk menu, as the right-click's handler decides.
   if (op === 'menu-choice') {
     if (session.selection.length > 0 && session.selection.includes(id)) return bulkChoice(client, nativeHandle, storage, value);
-    const thread = threadOf(client, id);
+    const thread = targetOf(client, id)?.row;
     if (!thread || !value) return '';
     const state = menuState(client, thread, false);
     return runChoice(client, nativeHandle, storage, thread, value, state.scope?.key ?? '');
@@ -597,7 +598,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
 /** The selected rows painted now, in the selection's order. */
 function selectedRows(client: T3Client, now: number): Obj[] {
   const rendered = new Set(renderedRows(client, partition(client, now)).map(entry => str(entry.thread.id)));
-  return sidebarSession(client).selection.filter(id => rendered.has(id)).map(id => threadOf(client, id)).filter((thread): thread is Obj => !!thread);
+  return sidebarSession(client).selection.filter(id => rendered.has(id)).map(id => targetOf(client, id)?.row).filter((thread): thread is Obj => !!thread);
 }
 async function bulkMenu(client: T3Client, nativeHandle: Native, storage: Files): Promise<string> {
   const threads = selectedRows(client, wall(client));

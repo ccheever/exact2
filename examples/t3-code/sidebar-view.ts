@@ -249,7 +249,8 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   // A right-click opens the row's own menu; on a row of the selection, the bulk menu over the selected rows painted now.
   const selected = searching ? [] : session.selection.map(id => rows.find(entry => entry.thread.id === id)?.thread).filter((thread): thread is Obj => !!thread);
   const bulk = selected.length ? menuRows(bulkMenuState(client, selected, now).items) : [];
-  const menuOf = (thread: Obj): MenuRow[] => searching || !client.shell.threads.some(entry => entry.id === thread.id) ? []
+  // A background environment's row has its menu too, by that environment's capabilities (handleThreadContextMenu).
+  const menuOf = (thread: Obj): MenuRow[] => searching ? []
     : session.selection.includes(str(thread.id)) ? bulk : menuRows(threadMenuItems(threadMenuState(client, thread, false, scopes, now)));
   const threads = rows.map(({ thread, section }, index) => row(client, thread, section, now, helpers,
     { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread) }));
