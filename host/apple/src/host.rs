@@ -548,9 +548,7 @@ impl<D: DataSource> Host<D> {
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
         colors::emit_roles(&mut batch);
-        for s in host.runner.take_surface_updates() {
-            batch.surface(&s);
-        }
+        host.emit_surfaces(&mut batch);
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             batch.router(&change);
@@ -1332,9 +1330,7 @@ impl<D: DataSource> Host<D> {
             self.emit_ranks(&mut batch);
         }
         self.canvas_turn(&mut batch);
-        for s in self.runner.take_surface_updates() {
-            batch.surface(&s);
-        }
+        self.emit_surfaces(&mut batch);
         // The capabilities the actions called, after their commits, in order.
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {

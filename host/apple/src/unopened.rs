@@ -1,26 +1,33 @@
-//! Tabs built when first selected (@ref LLP 1075.003 §3.7, Q5).
+//! Tabs built when first selected (@ref LLP 1075.003 §3.7, Q5, §9.12).
 //!
 //! On iOS and tvOS each tab is a navigation controller of its own under a
 //! `UITabBarController`, which loads a tab's view when the tab is first
 //! selected. The runner keeps every tab's stack mounted, so state, the
 //! agent's tree and every test read the same, but the presenter is given a
 //! tab the navigation root leaves unselected only when it is first selected:
-//! the tabpanel and its routes are views, their contents are not, and the
-//! kernel lays the panel out as covered whole (`display: none`), measuring
-//! nothing in it. Selected once, a tab stays built, as `UITabBarController`
-//! keeps a loaded tab. The panel's contents arrive in the batch that selects
-//! it, before UIKit shows it.
+//! the tabpanel and its routes are views, what the routes hold is not.
+//! Selected once, a tab stays built, as `UITabBarController` keeps a loaded
+//! tab. The panel's contents arrive in the batch that selects it, before
+//! UIKit shows it, with what the presenter would have heard meanwhile: the
+//! GPU surfaces' inputs and the presented motion and paint values.
+//!
+//! A waiting panel that is absolutely positioned is also laid out as covered
+//! whole (`display: none`), measuring nothing in it: out of flow, it moves
+//! no other box (LLP 1001 declares what it leaves out). A panel in flow is
+//! laid out as authored, since its size can move its siblings.
 
 use super::*;
 
-/// The tabs not yet selected, and the views their routes hold.
+/// The tabs not yet selected, and what the presenter has not been given.
 #[derive(Debug, Default)]
 pub(crate) struct Unopened {
-    /// Each tabpanel not yet selected.
-    panels: Vec<(ViewId, NodeKey)>,
-    /// Each view under one of their routes, which the presenter has not been given.
+    /// Each tabpanel not yet selected, and whether its layout is skipped.
+    panels: Vec<(ViewId, NodeKey, bool)>,
+    /// Each view under one of their routes.
     held: IdMap<NodeKey, ViewId>,
     held_ids: IdSet<ViewId>,
+    /// The last surface inputs of each held GPU canvas.
+    surfaces: IdMap<ViewId, exact_runner::SurfaceUpdate>,
 }
 
 #[cfg(test)]
@@ -48,13 +55,15 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// Before a commit's views: the held views it destroyed are forgotten,
-    /// and a tabpanel it made that the root leaves unselected waits.
+    /// Before a commit's views: what it destroyed of the held views is
+    /// forgotten, and a tabpanel it made that the root leaves unselected
+    /// waits.
     pub(crate) fn close_new_tabs(&mut self, receipts: &[Timed]) {
         let unopened = &mut self.unopened;
         for key in receipts.iter().flat_map(|t| &t.receipt.destroyed) {
             if let Some(id) = unopened.held.remove(key) {
                 unopened.held_ids.remove(&id);
+                unopened.surfaces.remove(&id);
             }
         }
         if !tabs_wait() {
@@ -84,15 +93,29 @@ impl<D: DataSource> Host<D> {
 
     fn close(&mut self, panels: &[ViewId]) {
         for &panel in panels {
-            let Some(key) = self.runner.kernel().node(panel).map(|n| n.key) else {
-                continue;
-            };
-            // A panel the kernel has is always coverable.
-            let _ = self
+            if let Some(key) = self.runner.kernel().node(panel).map(|n| n.key) {
+                self.unopened.panels.push((panel, key, false));
+            }
+        }
+        self.skip_waiting_layout();
+    }
+
+    /// Each waiting panel's layout is skipped while it is out of flow, and
+    /// restored when it comes into flow.
+    fn skip_waiting_layout(&mut self) {
+        for i in 0..self.unopened.panels.len() {
+            let (panel, _, skipped) = self.unopened.panels[i];
+            let out = self
                 .runner
-                .kernel_mut()
-                .set_host_cover(panel, Some(exact_kernel::HostCover::Whole));
-            self.unopened.panels.push((panel, key));
+                .kernel()
+                .node(panel)
+                .is_some_and(|n| n.style.position_type == exact_kernel::PositionType::Absolute);
+            if out != skipped {
+                let cover = out.then_some(exact_kernel::HostCover::Whole);
+                // A panel the kernel has is always coverable.
+                let _ = self.runner.kernel_mut().set_host_cover(panel, cover);
+                self.unopened.panels[i].2 = out;
+            }
         }
     }
 
@@ -113,7 +136,7 @@ impl<D: DataSource> Host<D> {
         };
         let (key, mut child, mut parent) = (node.key, id, node.parent);
         while let Some(at) = parent {
-            if self.unopened.panels.iter().any(|(p, _)| *p == at) {
+            if self.unopened.panels.iter().any(|(p, _, _)| *p == at) {
                 // The panel's own children (its routes) are views.
                 if child == id {
                     return false;
@@ -128,10 +151,22 @@ impl<D: DataSource> Host<D> {
         false
     }
 
+    /// The commits' GPU surface inputs: a held canvas's latest is kept
+    /// for its tab's opening, as the runner sends no input again unchanged.
+    pub(crate) fn emit_surfaces(&mut self, batch: &mut Batch) {
+        for s in self.runner.take_surface_updates() {
+            if self.held(s.view) {
+                self.unopened.surfaces.insert(s.view, s);
+            } else {
+                batch.surface(&s);
+            }
+        }
+    }
+
     /// After a commit's views: each waiting tab the root now selects is
-    /// built — its views made, its children placed, its presented motion
-    /// values sent — and laid out from now on. A tab that left the tree
-    /// stops waiting.
+    /// built — its views made, its children placed, its surfaces' inputs and
+    /// presented values sent — and laid out from now on. A tab that left the
+    /// tree stops waiting.
     pub(crate) fn open_selected_tabs(&mut self, batch: &mut Batch) {
         if self.unopened.panels.is_empty() {
             return;
@@ -139,19 +174,22 @@ impl<D: DataSource> Host<D> {
         let kernel = self.runner.kernel();
         self.unopened
             .panels
-            .retain(|(_, key)| kernel.node_by_key(*key).is_some());
+            .retain(|(_, key, _)| kernel.node_by_key(*key).is_some());
         let off = self.runner.unselected_tabs();
         let (open, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut self.unopened.panels)
             .into_iter()
-            .partition(|(panel, _)| !off.contains(panel));
+            .partition(|(panel, _, _)| !off.contains(panel));
         self.unopened.panels = wait;
-        for (panel, _) in open {
-            self.open(panel, batch);
+        self.skip_waiting_layout();
+        for (panel, _, skipped) in open {
+            self.open(panel, skipped, batch);
         }
     }
 
-    fn open(&mut self, panel: ViewId, batch: &mut Batch) {
-        let _ = self.runner.kernel_mut().set_host_cover(panel, None);
+    fn open(&mut self, panel: ViewId, skipped: bool, batch: &mut Batch) {
+        if skipped {
+            let _ = self.runner.kernel_mut().set_host_cover(panel, None);
+        }
         let kernel = self.runner.kernel();
         let routes = kernel.node(panel).map(|n| n.children()).unwrap_or_default();
         // Parents before children, as a boot makes them.
@@ -167,6 +205,13 @@ impl<D: DataSource> Host<D> {
             }
             stack.extend(node.children().into_iter().rev());
         }
+        // The panel's ancestors, whose presented colour its views inherit.
+        let mut above = Vec::new();
+        let mut at = Some(panel);
+        while let Some(id) = at {
+            above.push(id);
+            at = kernel.node(id).and_then(|n| n.parent);
+        }
         let handlers = self.runner.handlers();
         for &id in &order {
             self.create(id, handlers.get(&id).map_or(&[], Vec::as_slice), batch);
@@ -175,36 +220,45 @@ impl<D: DataSource> Host<D> {
             self.emit_children(id, batch);
         }
         for &id in &order {
+            if let Some(s) = self.unopened.surfaces.remove(&id) {
+                batch.surface(&s);
+            }
             self.present_settled(id, batch);
+        }
+        for id in above.into_iter().rev().chain(routes).chain(order) {
+            self.present_paint(id, batch);
         }
     }
 
-    /// A view made after its motion values were set: those that are not
-    /// the property's identity, as a boot sends them.
+    /// A view made after its motion values were set: what the engine
+    /// shows now that is not the property's identity, as a boot sends it.
     fn present_settled(&mut self, id: ViewId, batch: &mut Batch) {
-        if self.inline_runs.contains_key(&id) || self.svg.presented(id) {
-            return;
-        }
         let Some(key) = self.runner.kernel().node(id).map(|n| n.key) else {
             return;
         };
+        let node = motion_node(key);
         for property in [
             Property::Translate,
             Property::Scale,
             Property::Rotate,
             Property::Opacity,
+            Property::Layout,
         ] {
-            let Some(v) = self.engine.value(motion_node(key), property) else {
-                continue;
-            };
-            if property.identity() == Some(v) {
-                continue;
+            if let Some(value) = self.engine.sampled_value(node, property) {
+                self.present_value(id, property, node, value, true, batch);
             }
-            if property == Property::Translate && (v.z != 0.0 || v.w != 0.0) {
-                batch.present4(id, "translate", [v.x, v.y, v.z, v.w]);
-            } else {
-                batch.present(id, property.name(), v.x, v.y);
-            }
+        }
+    }
+
+    /// A box's moving paint over its rows, and its presented `color` on
+    /// what inherits it, inline runs among them (`present_colors`).
+    fn present_paint(&mut self, id: ViewId, batch: &mut Batch) {
+        let Some(key) = self.runner.kernel().node(id).map(|n| n.key) else {
+            return;
+        };
+        let shown = self.shown_paint(motion_node(key));
+        if shown.0.iter().any(Option::is_some) {
+            self.present_colors(id, batch, shown.get(Property::Color).is_some());
         }
     }
 }

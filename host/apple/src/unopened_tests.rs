@@ -15,9 +15,12 @@ impl DataSource for NoData {
     }
 }
 
-const APP: &str = r#"routes nav
+const APP: &str = r##"routes nav
   tab home "/"
   tab saved "/saved"
+
+keyframes tint
+  to color="#0000ff" opacity=0.3
 
 component App
   state label = "one"
@@ -34,9 +37,13 @@ component App
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
               column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0
+                color=(shown ? "#ff0000" : "#0000ff") transition="color 1s linear"
                 text (e.name == "home" ? "Home" : label) testId=`title-${e.name}`
                 if e.name == "saved"
                   box opacity=0.5 width=10 height=10 testId="faded"
+                  canvas surface=chart(label) width=10 height=10 testId="chart"
+                  column color="#00ff00"
+                    text "Tinted" animation="tint 100ms forwards" testId="tinted"
                   if shown
                     box width=10 height=10 testId="gone"
       row role="tablist"
@@ -46,11 +53,15 @@ component App
           text "Saved"
       button press=rename testId="rename"
         text "Rename"
-"#;
+"##;
 
 fn boot(wait: bool) -> (Host<NoData>, Vec<Json>) {
+    boot_app(APP, wait)
+}
+
+fn boot_app(app: &str, wait: bool) -> (Host<NoData>, Vec<Json>) {
     unopened::TABS_WAIT.set(wait);
-    let plan = contract::compile(APP)
+    let plan = contract::compile(app)
         .unwrap_or_else(|e| panic!("{e}"))
         .encode();
     let (host, batch) = Host::boot(
@@ -191,6 +202,77 @@ fn a_tab_built_late_is_laid_out_as_one_built_at_boot() {
             Some(f64::from(late.width))
         );
     }
+}
+
+/// A GPU canvas's inputs set while its tab waits reach it when the tab is
+/// built: the runner does not send them again unchanged.
+#[test]
+fn a_waiting_canvas_gets_its_surface_inputs_when_its_tab_is_built() {
+    let (mut host, boot_ops) = boot(true);
+    assert!(named(&host, &boot_ops, "surface", "chart").is_empty());
+    let renamed = press(&mut host, "rename", 10.0);
+    assert!(named(&host, &renamed, "surface", "chart").is_empty());
+    let opened = press(&mut host, "tab-saved", 20.0);
+    let surface = named(&host, &opened, "surface", "chart");
+    assert_eq!(surface.len(), 1, "{opened:?}");
+    assert_eq!(surface[0]["name"], "chart");
+    assert_eq!(surface[0]["values"], serde_json::json!(["two"]));
+}
+
+/// A colour moving while the tab waits shows where it is when the tab is
+/// built, on the views that inherit it, as a boot would show it.
+#[test]
+fn a_waiting_tab_is_built_with_its_presented_colour() {
+    // Each view's last text colour and lowered animations, after the
+    // colour inherited from the route has moved halfway and an animation
+    // of its own has ended filling forwards, both while the tab waited.
+    let shown = |wait: bool| {
+        let (mut host, mut all) = boot(wait);
+        all.extend(press(&mut host, "rename", 10.0));
+        all.extend(ops(&host.advance(510.0)));
+        all.extend(press(&mut host, "tab-saved", 510.0));
+        ["title-saved", "tinted"].map(|t| {
+            let view = id(&host, t);
+            let colour = all
+                .iter()
+                .rev()
+                .filter(|o| o["id"] == view && (o["op"] == "create" || o["op"] == "style"))
+                .find_map(|o| o["style"].get("text_color").cloned());
+            let lowered = all
+                .iter()
+                .rev()
+                .find(|o| o["id"] == view && o["op"] == "animations")
+                .map(|o| o["specs"].clone());
+            (colour, lowered)
+        })
+    };
+    let (late, early) = (shown(true), shown(false));
+    assert_eq!(late, early);
+    assert_eq!(late[1].0, Some(serde_json::json!([0, 0, 255, 255])));
+    assert!(late[1].1.is_some(), "the opacity track is the compositor's");
+}
+
+/// A tabpanel in flow is laid out while its tab waits: its size moves its
+/// siblings, so the layout never depends on which tabs were visited.
+#[test]
+fn a_waiting_panel_in_flow_keeps_its_place_in_the_layout() {
+    let app = APP
+        .replace(
+            r#"testId=`panel-${t.name}` position="absolute" inset=0"#,
+            r#"testId=`panel-${t.name}` height=200"#,
+        )
+        .replace(r#"column flex=1 position="relative""#, "column flex=1");
+    let frames = |wait: bool| {
+        let (host, ops) = boot_app(&app, wait);
+        let held = named(&host, &ops, "create", "title-saved").is_empty();
+        let k = host.runner().kernel();
+        let boxes = ["panel-home", "panel-saved", "title-saved", "tab-home"]
+            .map(|t| k.node(id(&host, t)).unwrap().frame);
+        (boxes, held)
+    };
+    let ((late, held), (early, _)) = (frames(true), frames(false));
+    assert!(held, "its contents still wait for the presenter");
+    assert_eq!(late, early);
 }
 
 /// Where tabs are not built lazily (the Mac), every tab is presented at boot.
