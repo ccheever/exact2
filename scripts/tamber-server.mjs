@@ -165,9 +165,24 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // The dev loop's running builds (LLP 1122 D4): registered on its streams,
   // their reports told to every client, their pins each client's own.
   const channel = buildChannel({ send: e => send({ ...e, seq: ++seq, epoch }), log });
-  // The clients that subscribed by name, by stream: a client's pins go when
-  // its last one closes.
-  const named = new Map();
+  // Which clients are present (LLP 1122 D4's ownership): a client holding a
+  // subscription that names it, or a long poll open or answered within the
+  // last 35 s (the poll's 25 s and some), as a client whose fetch reads a
+  // body whole holds the wire. A client no longer present loses its pins on
+  // every build.
+  const presence = new Map(); // client -> { open, answered }
+  const PRESENT_MS = 35_000;
+  const present = client => { const p = presence.get(client); return !!p && (p.open > 0 || Date.now() - p.answered < PRESENT_MS); };
+  const attend = (client, delta, answered = false) => {
+    if (!client) return;
+    const p = presence.get(client) ?? { open: 0, answered: 0 };
+    p.open += delta;
+    if (answered) p.answered = Date.now();
+    presence.set(client, p);
+  };
+  const absent = () => { for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
+  const absence = setInterval(absent, 5_000);
+  absence.unref?.();
   /** Announce `files` (path → digest): the paths whose digest moved, and
    * any `gone`. */
   const publish = (files, rest, gone = []) => {
@@ -328,19 +343,27 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`);
       subscribers.add(res);
-      // `{client}`: the stream its commands live as long as (LLP 1122 D4).
+      // `{client}`: its commands live while it is present (LLP 1122 D4).
       const client = typeof request?.client === 'string' && request.client ? request.client : null;
-      if (client) named.set(res, client);
+      attend(client, 1);
       res.on('close', () => {
         subscribers.delete(res);
-        named.delete(res);
-        if (client && ![...named.values()].includes(client)) channel.clear(client);
+        // A subscription counts while open; a long poll for 35 s after.
+        attend(client, -1);
+        if (client && !present(client)) channel.clear(client);
       });
       return true;
     }
     if (url.pathname === '/__tamber/events') {
       const after = request?.after ?? seq;
       if (!Number.isSafeInteger(after) || after < 0) { json(res, 400, { error: { message: '`after` is a sequence number' } }); return true; }
+      // `{client}`: present while this poll is open, and for 35 s after.
+      const client = typeof request?.client === 'string' && request.client ? request.client : null;
+      attend(client, 1);
+      try { return await longPoll(); } finally { attend(client, -1, true); }
+    }
+    async function longPoll() {
+      const after = request?.after ?? seq;
       const answer = () => {
         const since = events.filter(e => e.seq > after);
         // Fewer kept than asked for, or a number from before this server
@@ -385,6 +408,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
   async function dispatch(request) {
+    // Presence is also checked as requests come, not only every 5 s.
+    absent();
     if (WRITES.has(request.method)) return needsClient(request) ?? write(request);
     if (request.method === 'commit') {
       const refused = needsClient(request);
@@ -427,7 +452,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
    * the client holds a subscription naming it. `preview` `{build, axis,
    * value}` pins that build's mode for that axis. */
   function pin(request) {
-    if (![...named.values()].includes(request.client)) return { status: 400, error: { message: `${request.method}: subscribe as \`${request.client}\` first; a command lives as long as its client's subscription` } };
+    if (!present(request.client)) return { status: 409, error: { message: `${request.method}: \`${request.client}\` is not present: hold a long poll or a subscription that names it first (\`{client}\`); a command lives while its client is present` } };
     const build = request.build ?? null;
     if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
     let facts = request.pin;
@@ -667,6 +692,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   function close() {
     clearTimeout(timer);
+    clearInterval(absence);
     clearInterval(expiry);
     for (const w of watchers.values()) w.watcher.close();
     for (const res of subscribers) res.end();

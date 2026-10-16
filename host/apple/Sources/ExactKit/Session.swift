@@ -1276,8 +1276,8 @@ public final class ExactSession {
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
         apply(runtime.setPreferences(preferenceBits()))
-        // Increased Contrast changes what every platform colour resolves to.
-        reportColors()
+        // Increased Contrast changes what every platform colour resolves to; the build channel reports it (LLP 1122 D4).
+        reportColors(); app.scheduleStatus()
         #if os(macOS)
         controlTextChanged()
         #endif

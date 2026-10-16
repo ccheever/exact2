@@ -28,7 +28,9 @@ pub struct Token {
     pub slices: Vec<String>,
 }
 
-/// A batch or a snapshot.
+/// A batch or a snapshot. Its `structure` is the design's shape
+/// ([`shape`]), which every build compiled from the same sources has, whatever
+/// its target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edit {
     /// The plan structure it is for ([`structure`]).
@@ -52,6 +54,36 @@ fn hex(bytes: &[u8]) -> String {
 /// plans that differ only in design values.
 pub fn structure(plan: &Plan) -> String {
     hex(&plan.structure())
+}
+
+/// The digest of `plan`'s design shape: its axes, and each theme row's name,
+/// role (with a role override's value) and slice count. A batch is for one
+/// shape: the JS target's build and a wasm or native build of the same
+/// sources share it, though their plans differ (LLP 1122 D4's one stream
+/// for every copy).
+pub fn shape(plan: &Plan) -> String {
+    let mut bytes = Vec::new();
+    let mut text = |t: &str| {
+        bytes.extend_from_slice(&(t.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(t.as_bytes());
+    };
+    for a in &plan.axes {
+        text(plan.str(a.name));
+        text(plan.str(a.values));
+    }
+    text("");
+    for row in &plan.theme {
+        let role = plan.str(row.role);
+        text(plan.str(row.name));
+        text(role);
+        text(if role.is_empty() {
+            ""
+        } else {
+            plan.str(row.value)
+        });
+        text(&row.slices.len.to_string());
+    }
+    hex(&bytes)
 }
 
 /// `plan`'s design values, one per theme row, in table order.

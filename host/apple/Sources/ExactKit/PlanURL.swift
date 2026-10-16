@@ -801,7 +801,10 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard task === stream, !closed, terminal == nil else { return }
+        guard task === stream else { return }
+        // Its nonce ended with it: no report goes out under it again.
+        nonce = nil
+        guard !closed, terminal == nil else { return }
         if (error as? URLError)?.code == .cancelled { return }
         failed("events disconnected; resolving the current generation", generation: resolution)
     }
@@ -842,10 +845,11 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             design(frame)
             return
         }
-        // The build channel (LLP 1122 D4): a command before any generation;
-        // a new stream's hello registers again, under the same id.
-        if let kind = frame["kind"] as? String, BuildChannel.commands.contains(kind) { channel(frame); return }
-        if frame["hello"] as? Bool == true, let next = frame["nonce"] as? String, next != nonce, next.utf8.count <= 128 {
+        // The build channel (LLP 1122 D4), development builds only: a command
+        // before any generation; a new stream's hello registers again, under
+        // the same id.
+        if let kind = frame["kind"] as? String, BuildChannel.commands.contains(kind) { if BuildChannel.enabled { channel(frame) }; return }
+        if BuildChannel.enabled, frame["hello"] as? Bool == true, let next = frame["nonce"] as? String, next != nonce, next.utf8.count <= 128 {
             nonce = next
             reports.removeAll()
             channel(frame)
@@ -902,39 +906,52 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     // MARK: the build channel (LLP 1122 D4)
 
-    /// The nonce the stream's hello gave, which every report carries.
+    /// The nonce the stream's hello gave, which every report carries; nil
+    /// once that stream ends.
     private(set) var nonce: String?
-    private var reports: [Data] = []
+    /// The nonce a register succeeded on: no other report goes before it.
+    private var registered: String?
+    private var reports: [(nonce: String, body: [String: Any])] = []
     private var reporting: BoundedFetch?
+    /// The generation identity the build runs (the reports' `plan`).
+    var plan: String? { currentGeneration() }
 
     /// A `POST /__dev/report` with the nonce, and the plan for a register or
-    /// a status: one at a time, in order (a status after its register), at
-    /// most 16 waiting, on the page's origin; none before a hello.
+    /// a status: one at a time, in order, at most 16 waiting, on the page's
+    /// origin. None before a hello; one whose nonce is no longer the
+    /// stream's, or that would go before its register succeeded, is dropped.
     func report(_ body: [String: Any]) {
-        guard let nonce, reports.count < 16 else { return }
+        guard BuildChannel.enabled, let nonce, reports.count < 16 else { return }
         var body = body
-        body["nonce"] = nonce
-        if body["kind"] as? String == "register" || body["kind"] as? String == "status" { body["plan"] = currentGeneration() ?? NSNull() }
-        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
-        reports.append(data)
+        if body["plan"] == nil, body["kind"] as? String == "register" || body["kind"] as? String == "status" { body["plan"] = plan ?? NSNull() }
+        reports.append((nonce, body))
         sendReport()
     }
 
     private func sendReport() {
-        guard reporting == nil, !closed, !reports.isEmpty, let url = URL(string: "/__dev/report", relativeTo: page)?.absoluteURL else { return }
+        guard reporting == nil, !closed, let url = URL(string: "/__dev/report", relativeTo: page)?.absoluteURL else { return }
+        while let next = reports.first, next.nonce != nonce || (next.body["kind"] as? String != "register" && registered != next.nonce) { reports.removeFirst() }
+        guard let first = reports.first else { return }
+        let (sent, body) = (first.nonce, first.body)
+        reports.removeFirst()
+        var payload = body
+        payload["nonce"] = sent
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { sendReport(); return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = reports.removeFirst()
+        request.httpBody = data
+        let register = body["kind"] as? String == "register"
         // Its own rung: a new generation's `beginResolution` does not cancel it.
         let fetch = BoundedFetch(origin: page, limit: 4096) { [weak self] result in
             guard let self else { return }
             self.reporting = nil
             switch result {
-            case let .success((data, response)) where response.statusCode >= 300:
+            case let .success((_, response)) where response.statusCode < 300:
+                if register { self.registered = sent }
+            case let .success((data, response)):
                 self.status("build channel: report refused (\(response.statusCode)): \(String(decoding: data, as: UTF8.self))")
             case let .failure(failure): self.status("build channel: report failed: \(failure.message)")
-            default: break
             }
             self.sendReport()
         }

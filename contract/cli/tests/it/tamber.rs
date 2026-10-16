@@ -1085,8 +1085,8 @@ fn a_batch_sets_a_running_builds_rows_without_a_plan() {
     let modes = format!("{MODES}  Canvas = #fafafa\n");
     let a = plan("live-a", &modes);
     let b = plan("live-b", &modes.replace("#111111", "#ff0000"));
-    let structure = design::structure(&a);
-    assert_eq!(design::structure(&b), structure);
+    assert_eq!(design::structure(&b), design::structure(&a));
+    let structure = design::shape(&a);
     let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
     let names: Vec<&str> = batch.tokens.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(

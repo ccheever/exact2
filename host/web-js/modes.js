@@ -207,7 +207,7 @@ function design(frame) {
       if (companion) { if (css.includes("--exact-accent")) companion.removeProperty("--exact-accent"); else companion.setProperty("--exact-accent", css); }
     });
   }
-  Design = frame.design;
+  Design = (globalThis.exact ??= {}).designDigest = frame.design;
   return { live: "applied" };
 }
 
@@ -220,7 +220,7 @@ function design(frame) {
  * install `exact.design`. */
 export function modes(axes, classes, texts, vars, accent, names, devDesign, devStructure) {
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
-  if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Structure = devStructure; Rules = null; (globalThis.exact ??= {}).design = design; }
+  if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Structure = devStructure; Rules = null; Object.assign(globalThis.exact ??= {}, { design, designDigest: devDesign }); }
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {

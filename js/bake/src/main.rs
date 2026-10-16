@@ -118,6 +118,7 @@ fn design(plan: &[u8]) -> Result<serde_json::Value, String> {
     let tokens = design::tokens(&plan);
     Ok(serde_json::json!({
         "structure": design::structure(&plan),
+        "shape": design::shape(&plan),
         "digest": design::digest(&tokens),
         "tokens": tokens.iter().map(|t| serde_json::json!({"name": t.name, "value": t.value, "slices": t.slices})).collect::<Vec<_>>(),
     }))

@@ -12,13 +12,32 @@ use serde_json::{json, Value};
 
 impl<D: DataSource> Presenter<D> {
     /// Apply the frames the last tick took; report status after a
-    /// registration or a pin.
+    /// registration, a pin, or a change of the scheme, contrast or root
+    /// font size from anything else (the system, an agent's `prefer`).
     pub(super) fn serve_build_channel(&mut self) {
+        let facts = self.reported_facts();
         let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) else {
             return;
         };
-        let frames = std::mem::take(&mut link.frames);
-        let mut status = std::mem::take(&mut link.registered);
+        // Live frames wait for `poll_development`'s live step (a pending
+        // generation holds them); the rest are this step's.
+        let (live, frames): (Vec<_>, Vec<_>) = std::mem::take(&mut link.frames)
+            .into_iter()
+            .partition(crate::build_channel::is_live);
+        link.frames = live;
+        let mut status = std::mem::take(&mut link.registered)
+            || link.facts.is_some_and(|reported| reported != facts);
+        // The window's modes, compared only after a commit (the kernel's
+        // epoch moved): a mode set by the app is a status too.
+        let epoch = self.host.kernel().epoch();
+        let link = self.dev.as_mut().and_then(|dev| dev.link.as_mut()).unwrap();
+        if let Some((seen, reported)) = link.modes.as_mut() {
+            if *seen != epoch {
+                *seen = epoch;
+                let reported = reported.clone();
+                status |= self.host.runner().modes() != reported;
+            }
+        }
         for frame in frames {
             match Frame::parse(&frame) {
                 Some(Frame::Pin { revision, pin }) => {
@@ -64,7 +83,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_root_font_size(px) {
             self.report_unsupported("pin.rootFontSize", Some(&e));
         }
-        let mut modes = before.modes;
+        let mut modes = before.modes.clone();
         for (axis, value) in pin.mode {
             match modes.iter_mut().find(|(a, _)| *a == axis) {
                 Some(slot) => slot.1 = value,
@@ -83,8 +102,31 @@ impl<D: DataSource> Presenter<D> {
             Ok(()) => self.set_modes(&pins),
         };
         if let Some(e) = refused {
+            // No earlier pin's modes under this one's facts: the modes
+            // before the first pin, then the refusal.
+            let back: Vec<(&str, &str)> = before
+                .modes
+                .iter()
+                .map(|(a, v)| (a.as_str(), v.as_str()))
+                .collect();
+            if self.host.runner().check_modes(&back).is_ok() {
+                if let Some(e) = self.set_modes(&back) {
+                    eprintln!("exact url: pin.mode: {e}");
+                }
+            }
             self.report_unsupported("pin.mode", Some(&e));
         }
+    }
+
+    /// The facts a status names that change without a pin: the effective
+    /// scheme, the contrast, the root font size.
+    fn reported_facts(&self) -> (bool, exact_runner::Contrast, f64) {
+        let runner = self.host.runner();
+        (
+            self.dark(),
+            runner.viewport().preferences.contrast,
+            runner.root_font_size(),
+        )
     }
 
     /// A new generation's runner starts from its plan: the pin held is set
@@ -107,13 +149,15 @@ impl<D: DataSource> Presenter<D> {
         let runner = self.host.runner();
         let design = runner.design();
         let preferences = runner.viewport().preferences;
-        let mode: serde_json::Map<String, Value> = runner
-            .modes()
-            .into_iter()
-            .map(|(a, v)| (a, v.into()))
+        let modes = runner.modes();
+        let mode: serde_json::Map<String, Value> = modes
+            .iter()
+            .map(|(a, v)| (a.clone(), v.as_str().into()))
             .collect();
         let root_font_size = runner.root_font_size();
         let dark = self.dark();
+        let facts = self.reported_facts();
+        let epoch = self.host.kernel().epoch();
         let Some(dev) = self.dev.as_mut() else {
             return;
         };
@@ -123,6 +167,8 @@ impl<D: DataSource> Presenter<D> {
         };
         link.plan = plan.clone();
         link.design = Some(design.clone());
+        link.facts = Some(facts);
+        link.modes = Some((epoch, modes));
         let revision = link.revision;
         link.report(json!({
             "kind": "status",
@@ -148,6 +194,36 @@ impl<D: DataSource> Presenter<D> {
             if reported.as_deref() != Some(self.host.runner().design().as_str()) {
                 self.report_status();
             }
+        }
+    }
+
+    /// The live table (LLP 1121 stage 4): the server's snapshot, when
+    /// fetched, then the commands poll's batches in order (LLP 1122 D4),
+    /// so a value-only edit lands without a plan. A stale batch asks for
+    /// the snapshot next tick; a structure refusal waits for its plan.
+    pub(super) fn serve_live(&mut self) {
+        let Some(dev) = self.dev.as_mut() else {
+            return;
+        };
+        let mut frames: Vec<String> = dev.design.take().into_iter().collect();
+        if let Some(link) = dev.link.as_mut() {
+            frames.extend(link.take_live().iter().map(|f| f.to_string()));
+        }
+        let mut applied = false;
+        for frame in frames {
+            match self.apply_live(&frame) {
+                None => applied = true,
+                Some(why) if why == "structure" => {}
+                Some(why) if why == "stale" => {
+                    if let Some(link) = self.dev.as_mut().and_then(|d| d.link.as_mut()) {
+                        link.snapshot = true;
+                    }
+                }
+                Some(why) => eprintln!("exact url: live: {why}"),
+            }
+        }
+        if applied {
+            self.report_design();
         }
     }
 
@@ -262,5 +338,104 @@ mod tests {
         ));
         assert_eq!(reports[0]["what"], "pin.mode");
         assert_eq!(reports[1]["mode"]["dark-style"], "black");
+        // Refused right after a pin that applied: that pin's mode does not
+        // stay under the new facts.
+        let applied = sent(frames(
+            &mut p,
+            vec![json!({"kind": "pin", "revision": 6, "pin": {"mode": {"dark-style": "dim"}}})],
+        ));
+        assert_eq!(applied[0]["mode"]["dark-style"], "dim");
+        let reports = sent(frames(
+            &mut p,
+            vec![
+                json!({"kind": "pin", "revision": 7, "pin": {"scheme": "dark",
+                "mode": {"dark-style": "grey"}}}),
+            ],
+        ));
+        assert_eq!(reports[0]["what"], "pin.mode");
+        assert_eq!(reports[1]["mode"]["dark-style"], "black");
+        assert_eq!(reports[1]["scheme"], "dark");
+        assert_eq!(p.host.runner().modes()[0].1, "black");
+        // No frame: nothing to say, until the scheme changes for another
+        // reason (the system's), which is said once.
+        assert!(sent(frames(&mut p, vec![])).is_empty());
+        p.set_system_scheme(false);
+        p.serve_build_channel();
+        let status = &sent(frames(&mut p, vec![]));
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0]["scheme"], "light");
+        assert!(sent(frames(&mut p, vec![])).is_empty());
+        // A mode set with no pin (the app's `setMode`, an agent's `prefer
+        // mode`) is a commit, after which the modes are compared.
+        assert_eq!(p.set_modes(&[("dark-style", "dim")]), None);
+        let status = sent(frames(&mut p, vec![]));
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0]["mode"]["dark-style"], "dim");
+        assert!(sent(frames(&mut p, vec![])).is_empty());
+    }
+
+    /// The commands poll's live frames apply in order through `apply_live`;
+    /// a stale one asks for the snapshot, which the next tick fetches.
+    #[test]
+    fn live_frames_from_the_commands_poll_apply_in_order() {
+        use exact_runner::design;
+        let dir =
+            std::env::temp_dir().join(format!("exact-linux-live-poll-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let plan = |ink: &str| {
+            std::fs::write(
+                dir.join("app.tamber"),
+                format!("tamber t\n\ntheme\n  ink = {ink}\n  page = #ffffff\n"),
+            )
+            .unwrap();
+            std::fs::write(
+                dir.join("app.contract"),
+                "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column width=200 height=100 background-color=\"page\"\n      button press=bump testId=\"bump\"\n        text `${n}` testId=\"count\"\n      box width=40 height=20 background-color=\"ink\" testId=\"swatch\"\n",
+            )
+            .unwrap();
+            contract::compile_path(&dir.join("app.contract")).unwrap()
+        };
+        let (a, b, c) = (plan("#111111"), plan("#ff0000"), plan("#00ff00"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = design::shape(&a);
+        let ab = design::batch(&s, &design::tokens(&a), &design::tokens(&b)).unwrap();
+        let bc = design::batch(&s, &design::tokens(&b), &design::tokens(&c)).unwrap();
+        let (mut p, _) = Presenter::boot_with(
+            &a.encode(),
+            (),
+            (40.0, 20.0),
+            1.0,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        p.set_development(Some("http://127.0.0.1:9/".into()), None);
+        fn link(p: &mut Presenter<()>) -> &mut crate::build_channel::Link {
+            p.dev.as_mut().unwrap().link.as_mut().unwrap()
+        }
+        // In order: a then b; the pin beside them stays for its own step.
+        let frames: Vec<Value> = [&ab, &bc]
+            .iter()
+            .map(|f| serde_json::from_str(&f.json()).unwrap())
+            .chain([json!({"kind": "pin", "revision": 1, "pin": null})])
+            .collect();
+        link(&mut p).frames = frames;
+        p.serve_live();
+        let last = design::Edit::parse(&bc.json()).unwrap().design;
+        assert_eq!(p.host.runner().design(), last, "both batches applied");
+        assert_eq!(
+            link(&mut p).frames.len(),
+            1,
+            "the pin is not the live step's"
+        );
+        assert!(!link(&mut p).snapshot);
+        // The same batch again is stale now: the snapshot is asked for.
+        link(&mut p).frames = vec![serde_json::from_str(&ab.json()).unwrap()];
+        p.serve_live();
+        assert!(link(&mut p).snapshot);
+        let reports = link(&mut p).exchange().unwrap().reports_for_test();
+        assert_eq!(reports.len(), 1, "one status for the tick");
+        assert_eq!(reports[0]["design"], json!(p.host.runner().design()));
     }
 }

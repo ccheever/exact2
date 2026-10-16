@@ -24,7 +24,14 @@
 //   client's last subscription closes, its pins are cleared on every build.
 //   A build that registers again gets its pins replayed.
 
+import { randomBytes } from 'node:crypto';
+
 const ID = /^[\w.:-]{1,64}$/;
+// A polled stream unpolled this long is gone; at most this many are open,
+// and this many builds remembered (the oldest gone first): the routes take
+// no token, so what they keep is bounded.
+// A Linux build polls twice a second: unpolled 5 s, it is disconnected.
+const POLLED_MS = 5_000, POLLED = 64, BUILDS = 256;
 const KINDS = new Set(['register', 'status', 'unsupported', 'selected']);
 const RESERVED = new Set(['inspect', 'outline', 'hold']);
 
@@ -47,8 +54,17 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
   const streams = new Map(); // nonce -> { write(frame), build: id | null, queue: [] }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
   const pins = new Map(); // id -> { client, pin, revision }
-  let next = 0, revision = 0;
-  const nonce = () => `${Date.now().toString(36)}${(++next).toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  let revision = 0, greeting = () => null;
+  // A bearer credential for the report route: unguessable.
+  const nonce = () => randomBytes(16).toString('hex');
+  /** Polled streams past their time, and the oldest over the cap, closed. */
+  const sweep = () => {
+    const polled = [...streams].filter(([, s]) => s.seen !== undefined);
+    for (const [k, s] of polled) if (Date.now() - s.seen > POLLED_MS) close(k);
+    const open = polled.filter(([k]) => streams.has(k)).sort((a, b) => a[1].seen - b[1].seen);
+    for (const [k] of open.slice(0, Math.max(0, open.length - POLLED))) close(k);
+  };
+  const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
   const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null });
   const list = () => [...builds.values()].filter(b => streams.has(b.nonce)).map(shown);
   const announce = () => send({ event: 'builds', builds: list() });
@@ -61,29 +77,33 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
     open(write) {
       const n = nonce();
       streams.set(n, { write, build: null });
-      return { nonce: n, close: () => { const s = streams.get(n); streams.delete(n); if (s?.build) announce(); } };
+      return { nonce: n, close: () => close(n) };
     },
-    /** A stream for a build that polls (Linux): frames queue until it
-     * polls. */
+    /** A stream for a build that polls (Linux, the resident loop's relay):
+     * frames queue until it polls; unpolled for 30 s it is gone. */
     openPolled() {
+      sweep();
       const queue = [];
       const opened = this.open(f => queue.push(f));
-      let seen = Date.now();
       const s = streams.get(opened.nonce);
-      s.poll = () => { seen = Date.now(); return queue.splice(0); };
-      s.stale = () => Date.now() - seen > 30_000;
+      s.seen = Date.now();
+      s.poll = () => { s.seen = Date.now(); return queue.splice(0); };
+      // The design to run, as a stream's hello says it (a notice).
+      const hello = greeting();
+      if (hello) queue.push(hello);
       return opened;
     },
     /** A polled build's frames since its last poll; null for a nonce no
      * stream holds. */
     poll(n) {
-      for (const [k, s] of streams) if (s.stale?.()) { streams.delete(k); if (s.build) announce(); }
+      sweep();
       return streams.get(n)?.poll?.() ?? null;
     },
     /** `POST /__dev/report`'s body: `{status, body}`. */
     report(text) {
       let r;
       try { r = JSON.parse(text); } catch { return { status: 400, body: { message: 'a report is a JSON object' } }; }
+      sweep();
       const s = typeof r?.nonce === 'string' && streams.get(r.nonce);
       if (!s) return { status: 403, body: { message: 'no open dev stream holds this nonce' } };
       if (!KINDS.has(r.kind)) return { status: 400, body: { message: `a report's kind is one of ${[...KINDS].join(', ')}` } };
@@ -93,10 +113,14 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         // The same build on a new stream: the old one's is no longer it.
         for (const [k, other] of streams) if (other !== s && other.build === r.id) other.build = null;
         s.build = r.id;
+        builds.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities.filter(c => typeof c === 'string'), plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
+        // The oldest builds with no open stream forgotten, over the cap.
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!streams.has(b.nonce)) { builds.delete(id); pins.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
-        // Its pins, replayed (a reload is a new document).
-        if (pins.has(r.id)) s.write(pinFrame(r.id));
+        // Its pin, or none, as the server holds it now (a reload is a new
+        // document; a pin cleared while it was away is cleared there too).
+        s.write(pinFrame(r.id));
         announce();
         return { status: 200, body: { id: r.id } };
       }
@@ -117,6 +141,17 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
     },
     /** The registered builds with an open stream. */
     list,
+    /** A live-table frame (a batch, a snapshot, a notice) for every polled
+     * stream: the loop's server is the one source of batches, and a stream
+     * the loop serves itself is written to by the loop. */
+    broadcast(frame) {
+      sweep();
+      for (const s of streams.values()) if (s.seen !== undefined) s.write(frame);
+    },
+    /** The clients that hold a pin. */
+    owners: () => [...new Set([...pins.values()].map(p => p.client))],
+    /** What a polled stream is told when it opens (`() => frame | null`). */
+    greet(fn) { greeting = fn; },
     /** `client` pins `pin` on build `id`, or every build (`id` null); null
      * hands them back. The refusal, or the builds it went to. */
     pin(client, id, pin) {
@@ -129,6 +164,8 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         if (pin === null) pins.delete(t); else pins.set(t, { client, pin, revision });
         frame(t, { kind: 'pin', revision, pin });
       }
+      // Commands are journaled with their client (LLP 1122 D4).
+      log(`tamber: ${client} pinned ${JSON.stringify(pin)} on ${targets.join(', ') || 'no build'} (revision ${revision})`);
       announce();
       return { builds: targets, revision };
     },
@@ -152,8 +189,8 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
  * written to it (`write(frame)`). Its reports go to that loop directly: the
  * device's origin is that loop's. Batches are this loop's own, as it watches
  * the same files. Its nonce and `close()`, or null when that loop keeps no
- * channel. */
-export async function relayChannel(main, write, every = 250) {
+ * channel; `ended()` when that loop no longer holds the nonce. */
+export async function relayChannel(main, write, every = 250, ended = () => {}) {
   try {
     const opened = await (await fetch(`${main}/__dev/hello`, { signal: AbortSignal.timeout(5000) })).json();
     if (typeof opened.nonce !== 'string') return null;
@@ -162,7 +199,9 @@ export async function relayChannel(main, write, every = 250) {
       while (live) {
         try {
           const frames = await (await fetch(`${main}/__dev/commands?nonce=${encodeURIComponent(opened.nonce)}`, { signal: AbortSignal.timeout(5000) })).json();
-          if (!Array.isArray(frames)) return;
+          // The nonce gone (that loop restarted, or the poll lapsed): the
+          // device's stream ends, so it connects again for a new one.
+          if (!Array.isArray(frames)) { live = false; ended(); return; }
           for (const f of frames) write(f);
         } catch { /* that loop restarting: asked again */ }
         await new Promise(ok => setTimeout(ok, every));

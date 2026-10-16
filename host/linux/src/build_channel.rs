@@ -59,6 +59,14 @@ pub(crate) struct Link {
     pub before: Option<Pinned>,
     /// The pin held, by revision: set again on a new generation's runner.
     pub held: Option<(u64, Pin)>,
+    /// The scheme (dark), contrast and root font size the last status named.
+    pub facts: Option<(bool, exact_runner::Contrast, f64)>,
+    /// The window's modes the last status named, and the kernel epoch they
+    /// were last compared at: read again only after a commit.
+    pub modes: Option<(u64, Vec<(String, String)>)>,
+    /// Fetch `/__dev/design`'s snapshot next tick: a batch was stale, or the
+    /// build registered (again) and may have missed batches.
+    pub snapshot: bool,
 }
 
 impl Link {
@@ -75,15 +83,44 @@ impl Link {
             revision: None,
             before: None,
             held: None,
+            facts: None,
+            modes: None,
+            snapshot: false,
         }
     }
 
-    /// Queue a report (its nonce is the exchange's).
+    /// Queue a report (its nonce is the exchange's). A status supersedes
+    /// any still queued: at most one goes out a tick.
     pub fn report(&mut self, report: Value) {
-        if self.outbox.len() == MAX_OUTBOX {
-            self.outbox.remove(0);
+        if is_status(&report) {
+            self.outbox.retain(|r| !is_status(r));
         }
         self.outbox.push(report);
+        self.bound();
+    }
+
+    fn bound(&mut self) {
+        let over = self.outbox.len().saturating_sub(MAX_OUTBOX);
+        self.outbox.drain(..over);
+    }
+
+    /// Whether the next tick fetches `/__dev/design`: always while the
+    /// channel is off (no nonce: a 404 hello, not yet registered), else
+    /// only when asked — the live frames come down the commands poll.
+    pub fn take_design(&mut self) -> bool {
+        let wanted = self.nonce.is_none() || self.snapshot;
+        self.snapshot = false;
+        wanted
+    }
+
+    /// The live-table frames (`tamber-batch`, `tamber-snapshot`) the ticks
+    /// took, in order; the rest stay for [`Link::frames`]' other readers.
+    pub fn take_live(&mut self) -> Vec<Value> {
+        let (live, rest) = std::mem::take(&mut self.frames)
+            .into_iter()
+            .partition(is_live);
+        self.frames = rest;
+        live
     }
 
     /// The worker's half of the next tick, or `None` while the loop is quiet.
@@ -106,7 +143,19 @@ impl Link {
         self.nonce = answer.nonce;
         self.quiet_until = answer.off.then(|| Instant::now() + QUIET);
         self.registered |= answer.registered;
+        self.snapshot |= answer.registered;
         self.frames.extend(answer.frames);
+        // What did not go out goes first next tick, unless a newer status
+        // queued since stands for its status.
+        let newer = self.outbox.iter().any(is_status);
+        let mut unsent = answer.unsent;
+        unsent.retain(|r| !(newer && is_status(r)));
+        unsent.append(&mut self.outbox);
+        self.outbox = unsent;
+        if answer.off {
+            self.outbox.clear();
+        }
+        self.bound();
     }
 }
 
@@ -125,6 +174,20 @@ pub(crate) struct Answer {
     frames: Vec<Value>,
     registered: bool,
     off: bool,
+    /// Reports kept for the next tick: a transport failure or a 5xx.
+    unsent: Vec<Value>,
+}
+
+/// A live-table frame, the same JSON the web page's stream carries.
+pub(crate) fn is_live(frame: &Value) -> bool {
+    matches!(
+        frame["kind"].as_str(),
+        Some("tamber-batch" | "tamber-snapshot")
+    )
+}
+
+fn is_status(report: &Value) -> bool {
+    report["kind"] == "status"
 }
 
 /// A request's status and body; `None` when it did not complete.
@@ -145,41 +208,49 @@ fn send(url: &str, body: Option<&Value>) -> Option<(u16, Vec<u8>)> {
 
 impl Exchange {
     /// Hello and register when there is no nonce, send the reports, take the
-    /// frames; an expired nonce is renewed once a tick.
+    /// frames; an expired nonce is renewed once a tick. A report a failed
+    /// transport or a 5xx did not take is kept; another 4xx refused it.
     pub fn run(mut self, page: &str) -> Answer {
         let mut answer = Answer {
             nonce: self.nonce.take(),
             frames: Vec::new(),
             registered: false,
             off: false,
+            unsent: Vec::new(),
         };
+        self.tick(page, &mut answer);
+        answer.unsent = std::mem::take(&mut self.reports);
+        answer
+    }
+
+    fn tick(&mut self, page: &str, answer: &mut Answer) {
         let (Ok(hello), Ok(report), Ok(commands)) = (
             crate::fetch::join(page, "/__dev/hello"),
             crate::fetch::join(page, "/__dev/report"),
             crate::fetch::join(page, "/__dev/commands"),
         ) else {
-            return answer;
+            return;
         };
         for _ in 0..2 {
             let nonce = match answer.nonce.clone() {
                 Some(nonce) => nonce,
                 None => {
                     let Some((status, body)) = send(&hello, None) else {
-                        return answer;
+                        return;
                     };
                     if status == 404 {
                         answer.off = true;
-                        return answer;
+                        return;
                     }
                     let opened: Value = serde_json::from_slice(&body).unwrap_or_default();
                     let Some(nonce) = opened["nonce"].as_str().filter(|_| status == 200) else {
-                        return answer;
+                        return;
                     };
                     let register = json!({"nonce": nonce, "kind": "register", "id": self.id,
                         "host": "linux", "capabilities": ["pin"],
                         "plan": self.plan, "design": self.design});
                     if send(&report, Some(&register)).map(|r| r.0) != Some(200) {
-                        return answer;
+                        return;
                     }
                     answer.registered = true;
                     answer.nonce = Some(nonce.to_string());
@@ -190,11 +261,16 @@ impl Exchange {
             while !self.reports.is_empty() {
                 let mut body = self.reports[0].clone();
                 body["nonce"] = nonce.clone().into();
-                if send(&report, Some(&body)).map(|r| r.0) == Some(403) {
-                    expired = true;
-                    break;
+                match send(&report, Some(&body)).map(|r| r.0) {
+                    Some(403) => {
+                        expired = true;
+                        break;
+                    }
+                    None | Some(500..) => return,
+                    Some(_) => {
+                        self.reports.remove(0);
+                    }
                 }
-                self.reports.remove(0);
             }
             if !expired {
                 let url = format!("{commands}?nonce={}", encode(&nonce));
@@ -203,15 +279,14 @@ impl Exchange {
                         if let Ok(Value::Array(frames)) = serde_json::from_slice(&body) {
                             answer.frames.extend(frames);
                         }
-                        return answer;
+                        return;
                     }
                     Some((403, _)) => {}
-                    _ => return answer,
+                    _ => return,
                 }
             }
             answer.nonce = None;
         }
-        answer
     }
 }
 
@@ -451,6 +526,140 @@ mod tests {
         assert_eq!(posts[0]["capabilities"], json!(["pin"]));
         assert_eq!(posts[0]["plan"], "plan-a");
         assert_eq!(posts[0]["design"], "design-a");
+    }
+
+    /// A report a 5xx or a failed transport did not take goes again next
+    /// tick; one a 4xx refused does not; a newer status stands for an older.
+    #[test]
+    fn reports_survive_a_failed_post() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let page = format!("http://{}/", listener.local_addr().unwrap());
+        let posts = Arc::new(Mutex::new(Vec::<String>::new()));
+        let kept = posts.clone();
+        std::thread::spawn(move || {
+            let mut failing = true;
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).unwrap() == 1 {
+                    head.push(byte[0]);
+                }
+                let head = String::from_utf8_lossy(&head).to_string();
+                let length: usize = head
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse().unwrap())
+                    })
+                    .unwrap_or(0);
+                let mut body = vec![0u8; length];
+                stream.read_exact(&mut body).unwrap();
+                let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+                let (status, reply) = match path.as_str() {
+                    "/__dev/hello" => (200, json!({"nonce": "n"}).to_string()),
+                    "/__dev/report" => {
+                        let r: Value = serde_json::from_slice(&body).unwrap();
+                        let what = format!(
+                            "{}:{}",
+                            r["kind"].as_str().unwrap(),
+                            r["what"].as_str().unwrap_or("")
+                        );
+                        kept.lock().unwrap().push(what.clone());
+                        if what == "unsupported:bad" {
+                            (400, "{}".into())
+                        } else if what.starts_with("unsupported:batch") && failing {
+                            failing = false;
+                            (503, "{}".into())
+                        } else {
+                            (200, "{}".into())
+                        }
+                    }
+                    _ => (200, "[]".into()),
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+            }
+        });
+        let mut link = Link::new(None);
+        link.report(json!({"kind": "unsupported", "what": "bad"}));
+        link.report(json!({"kind": "unsupported", "what": "batch"}));
+        link.report(json!({"kind": "status", "scheme": "light"}));
+        let exchange = link.exchange().unwrap();
+        // While the tick runs, a newer status is queued.
+        link.report(json!({"kind": "status", "scheme": "dark"}));
+        link.settle(exchange.run(&page));
+        assert_eq!(
+            link.outbox.len(),
+            2,
+            "the batch report and the newer status"
+        );
+        let answer = link.exchange().unwrap().run(&page);
+        link.settle(answer);
+        assert!(link.outbox.is_empty());
+        assert_eq!(
+            *posts.lock().unwrap(),
+            [
+                "register:",
+                "unsupported:bad",
+                "unsupported:batch",
+                "unsupported:batch",
+                "status:"
+            ]
+        );
+        // A transport failure keeps them too.
+        let mut link = Link::new(None);
+        link.report(json!({"kind": "status"}));
+        let answer = link.exchange().unwrap().run("http://127.0.0.1:9/");
+        link.settle(answer);
+        assert_eq!(link.outbox.len(), 1);
+        for _ in 0..MAX_OUTBOX + 5 {
+            link.report(json!({"kind": "unsupported", "what": "x"}));
+        }
+        assert_eq!(link.outbox.len(), MAX_OUTBOX);
+    }
+
+    /// The design snapshot is polled while the channel is off, and once it
+    /// is on only when asked: after a registration or a stale batch.
+    #[test]
+    fn the_snapshot_is_fetched_on_demand_once_the_channel_is_on() {
+        let mut link = Link::new(None);
+        assert!(link.take_design(), "off: polled");
+        link.settle(Answer {
+            nonce: Some("n".into()),
+            frames: vec![
+                json!({"kind": "tamber-batch", "n": 1}),
+                json!({"kind": "pin"}),
+                json!({"kind": "tamber-snapshot", "n": 2}),
+            ],
+            registered: true,
+            off: false,
+            unsent: Vec::new(),
+        });
+        assert!(link.take_design(), "registered: one catch-up snapshot");
+        assert!(!link.take_design());
+        link.snapshot = true;
+        assert!(link.take_design());
+        let live = link.take_live();
+        assert_eq!(
+            (live[0]["n"].as_u64(), live[1]["n"].as_u64()),
+            (Some(1), Some(2))
+        );
+        assert_eq!(link.frames, [json!({"kind": "pin"})]);
+    }
+
+    #[test]
+    fn a_production_build_holds_no_channel() {
+        let production = r#"{"inputs":{"trust":"production"}}"#;
+        let poller =
+            crate::fetch::Poller::new("http://127.0.0.1:9/".into(), production.into(), None);
+        assert!(poller.link.is_none());
+        let poller = crate::fetch::Poller::new("http://127.0.0.1:9/".into(), "{}".into(), None);
+        assert!(poller.link.is_some());
     }
 
     #[test]

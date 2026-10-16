@@ -44,6 +44,9 @@ struct BuildPin: Equatable {
 /// The channel's state: the process's (one app, D11), as the agent's
 /// preferences are.
 enum BuildChannel {
+    /// A production build (`compat.json`'s `inputs.trust`) neither registers
+    /// nor takes a pin, whatever its environment.
+    static let enabled = !ExactEnv.productionBake
     /// The frame kinds dispatched before any generation handling.
     static let commands: Set<String> = ["pin", "inspect", "outline", "hold"]
     #if os(macOS)
@@ -58,11 +61,69 @@ enum BuildChannel {
     nonisolated(unsafe) static var design: String?
     /// The last pin frame's revision applied.
     nonisolated(unsafe) static var revision: Int?
-    /// The pin in force, re-applied to a session that boots under it.
+    /// The pin in force, applied whole to a session that boots under it.
     nonisolated(unsafe) static var pinned: BuildPin?
-    /// What was there before the first pin: undone by the next pin before
-    /// it applies, and by null for good.
-    nonisolated(unsafe) static var before: (restore: [() -> Void], contrast: String?, mode: [String: String]?)?
+    /// What was there before the first pin, until null hands it back.
+    nonisolated(unsafe) static var held: BuildHeld?
+    /// A status is owed this run-loop turn; the last one sent, on its nonce.
+    nonisolated(unsafe) static var statusOwed = false
+    nonisolated(unsafe) static var lastStatus: (nonce: String, body: NSDictionary)?
+
+    /// A session's modes under a pin: its own before the first pin, the
+    /// pin's over them.
+    static func modes(before: [String: String], pin: BuildPin?) -> [String: String] {
+        before.merging(pin?.mode ?? [:]) { $1 }
+    }
+}
+
+/// What was there before the first pin: the contrast setting and the system
+/// appearance (the Mac's, the process's; each iOS scene's own), and each
+/// session's modes, taken when a pin first reaches it.
+final class BuildHeld {
+    final class Session { weak var session: ExactSession?; let modes: [String: String]; init(_ s: ExactSession, _ m: [String: String]) { session = s; modes = m } }
+    let contrast = DisplayPreferences.agentContrast
+    private(set) var sessions: [Session] = []
+    #if os(macOS)
+    let appearance = (system: Agent.systemAppearance, app: NSApp.appearance)
+    #else
+    final class Scene { weak var scene: UIWindowScene?; let style: UIUserInterfaceStyle?, contrast: UIAccessibilityContrast?
+        init(_ s: UIWindowScene) {
+            scene = s
+            style = s.traitOverrides.contains(UITraitUserInterfaceStyle.self) ? s.traitOverrides.userInterfaceStyle : nil
+            contrast = s.traitOverrides.contains(UITraitAccessibilityContrast.self) ? s.traitOverrides.accessibilityContrast : nil
+        }
+    }
+    private(set) var scenes: [Scene] = []
+    #endif
+
+    /// A session's (and its scene's) before, unless already taken.
+    func take(_ s: ExactSession) {
+        sessions.removeAll { $0.session == nil }
+        if !sessions.contains(where: { $0.session === s }) { sessions.append(Session(s, s.runtime.setModes([:], check: true).modes ?? [:])) }
+        #if !os(macOS)
+        scenes.removeAll { $0.scene == nil }
+        if let scene = s.presenter.viewport.window?.windowScene, !scenes.contains(where: { $0.scene === scene }) { scenes.append(Scene(scene)) }
+        #endif
+    }
+    func modes(of s: ExactSession) -> [String: String] { sessions.first { $0.session === s }?.modes ?? [:] }
+
+    /// The system appearance as it was: a pin's are set again over it.
+    func restoreAppearance() {
+        #if os(macOS)
+        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        Agent.systemAppearance = appearance.system
+        if following { NSApp.appearance = appearance.app }
+        DisplayPreferences.changed()
+        #else
+        for held in scenes {
+            guard let scene = held.scene else { continue }
+            if let style = held.style { scene.traitOverrides.userInterfaceStyle = style } else { scene.traitOverrides.remove(UITraitUserInterfaceStyle.self) }
+            if let contrast = held.contrast { scene.traitOverrides.accessibilityContrast = contrast } else { scene.traitOverrides.remove(UITraitAccessibilityContrast.self) }
+            scene.windows.forEach { $0.updateTraitsIfNeeded() }
+        }
+        for held in sessions { held.session?.view?.updateTraitsIfNeeded() }
+        #endif
+    }
 }
 
 extension ExactApp {
@@ -71,10 +132,11 @@ extension ExactApp {
     /// A build-channel frame from the dev stream (`PlanURL`): a hello with a
     /// new nonce registers; a command applies, then reports.
     func channel(_ frame: [String: Any]) {
-        guard let connection else { return }
+        guard BuildChannel.enabled, let connection else { return }
         if frame["hello"] as? Bool == true {
             connection.report(["kind": "register", "id": BuildChannel.id, "host": BuildChannel.host, "capabilities": ["pin"], "design": BuildChannel.design ?? NSNull()])
-            reportStatus()
+            BuildChannel.lastStatus = nil
+            scheduleStatus()
             return
         }
         let kind = frame["kind"] as? String ?? ""
@@ -83,22 +145,47 @@ extension ExactApp {
         if let refused { connection.report(["kind": "unsupported", "what": "pin", "detail": refused]); return }
         self.pin(pin)
         BuildChannel.revision = (frame["revision"] as? NSNumber)?.intValue
-        reportStatus()
+        scheduleStatus()
     }
 
-    /// The effective facts, as the server's `build-status` shows them.
-    func reportStatus() {
-        guard let connection else { return }
+    /// A status at the end of this run-loop turn, one however many facts
+    /// changed in it (a pin, a design, a generation, the system's scheme or
+    /// contrast: `tellPreferences`), and none that says what the last did.
+    func scheduleStatus() {
+        guard BuildChannel.enabled, connection?.nonce != nil, !BuildChannel.statusOwed else { return }
+        BuildChannel.statusOwed = true
+        DispatchQueue.main.async { [weak self] in
+            BuildChannel.statusOwed = false
+            self?.reportStatus()
+        }
+    }
+
+    /// The effective facts, as the server's `build-status` shows them: the
+    /// scheme the app shows, the contrast setting, the window's modes, the
+    /// root font size the runner lays out by (after the app's own
+    /// `setRootFontSize`), the generation and design it runs.
+    private func reportStatus() {
+        guard let connection, let nonce = connection.nonce else { return }
         let first = bootedSessions.first
         #if os(macOS)
-        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let dark = (first?.view?.effectiveAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         #else
         let dark = (first?.view?.traitCollection ?? first?.presenter.viewport.window?.windowScene?.traitCollection)?.userInterfaceStyle == .dark
         #endif
         let modes = first.map { $0.runtime.setModes([:], check: true).modes ?? [:] }
-        connection.report(["kind": "status", "scheme": dark ? "dark" : "light", "contrast": DisplayPreferences.contrast,
-                           "mode": modes ?? NSNull(), "rootFontSize": PageFacts.rootFontSize,
-                           "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision ?? NSNull()])
+        let body: [String: Any] = ["kind": "status", "scheme": dark ? "dark" : "light", "contrast": DisplayPreferences.contrast,
+                                   "mode": modes ?? NSNull(), "rootFontSize": first.flatMap(renderedRootFontSize) ?? PageFacts.rootFontSize,
+                                   "plan": connection.plan ?? NSNull(), "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision ?? NSNull()]
+        if let last = BuildChannel.lastStatus, last.nonce == nonce, last.body.isEqual(to: body) { return }
+        BuildChannel.lastStatus = (nonce, body as NSDictionary)
+        connection.report(body)
+    }
+
+    /// The runner's own root font size (the agent's `state`, `device`).
+    private func renderedRootFontSize(_ s: ExactSession) -> Double? {
+        guard let data = s.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return ((o["device"] as? [String: Any])?["rootFontSize"] as? NSNumber)?.doubleValue
     }
 
     /// A pin on every booted session, as `prefer` sets each fact: the system
@@ -107,68 +194,55 @@ extension ExactApp {
     /// was there before the first pin; null hands every one back.
     private func pin(_ pin: BuildPin?) {
         let booted = bootedSessions
-        if BuildChannel.before == nil {
+        if BuildChannel.held == nil {
             guard pin != nil else { return }
-            var restore: [() -> Void] = []
-            #if os(macOS)
-            let (system, app) = (Agent.systemAppearance, NSApp.appearance)
-            restore.append {
-                let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
-                Agent.systemAppearance = system
-                if following { NSApp.appearance = app }
-                DisplayPreferences.changed()
-            }
-            #else
-            for session in booted {
-                guard let scene = session.presenter.viewport.window?.windowScene else { continue }
-                let style = scene.traitOverrides.contains(UITraitUserInterfaceStyle.self) ? scene.traitOverrides.userInterfaceStyle : nil
-                let contrast = scene.traitOverrides.contains(UITraitAccessibilityContrast.self) ? scene.traitOverrides.accessibilityContrast : nil
-                restore.append { [weak scene, weak session] in
-                    guard let scene else { return }
-                    if let style { scene.traitOverrides.userInterfaceStyle = style } else { scene.traitOverrides.remove(UITraitUserInterfaceStyle.self) }
-                    if let contrast { scene.traitOverrides.accessibilityContrast = contrast } else { scene.traitOverrides.remove(UITraitAccessibilityContrast.self) }
-                    scene.windows.forEach { $0.updateTraitsIfNeeded() }
-                    session?.view?.updateTraitsIfNeeded()
-                }
-            }
-            #endif
-            BuildChannel.before = (restore, DisplayPreferences.agentContrast, booted.first?.runtime.setModes([:], check: true).modes)
+            BuildChannel.held = BuildHeld()
         }
-        guard let before = BuildChannel.before else { return }
-        before.restore.forEach { $0() }
-        DisplayPreferences.agentContrast = pin?.contrast ?? before.contrast
-        for session in booted where pin?.scheme != nil || pin?.contrast != nil {
+        guard let held = BuildChannel.held else { return }
+        booted.forEach(held.take)
+        held.restoreAppearance()
+        BuildChannel.pinned = pin
+        apply(pin, to: booted, held)
+        if pin == nil { BuildChannel.held = nil }
+    }
+
+    /// `pin` set on `sessions`, over what `held` keeps. A session whose app
+    /// refuses the pin's modes runs its own again, and it is reported.
+    private func apply(_ pin: BuildPin?, to sessions: [ExactSession], _ held: BuildHeld) {
+        DisplayPreferences.agentContrast = pin?.contrast ?? held.contrast
+        for session in sessions where pin?.scheme != nil || pin?.contrast != nil {
             let agent = session.agentInstance
             if let scheme = pin?.scheme { agent.systemScheme(dark: scheme == "dark") }
             agent.systemContrast(more: DisplayPreferences.contrast == "more")
         }
         PageFacts.pinnedRootFontSize = pin?.rootFontSize
-        for session in booted { session.apply(session.runtime.setRootFontSize(PageFacts.rootFontSize)) }
-        BuildChannel.pinned = pin
-        let mode = (before.mode ?? [:]).merging(pin?.mode ?? [:]) { $1 }
-        if !mode.isEmpty { pinModes(mode, booted) }
-        if pin == nil { BuildChannel.before = nil }
-    }
-
-    /// The window's modes, checked before any session takes them (as
-    /// `prefer`'s mode group); a refusal is reported, not applied.
-    private func pinModes(_ mode: [String: String], _ sessions: [ExactSession]) {
-        guard let first = sessions.first else { return }
-        if let error = first.runtime.setModes(mode, check: true).error {
-            connection?.report(["kind": "unsupported", "what": "pin.mode", "detail": error])
-            return
+        for session in sessions { session.apply(session.runtime.setRootFontSize(PageFacts.rootFontSize)) }
+        var refused: String?
+        for session in sessions {
+            let before = held.modes(of: session), mode = BuildChannel.modes(before: before, pin: pin)
+            guard !mode.isEmpty else { continue }
+            if let error = session.runtime.setModes(mode, check: true).error {
+                refused = refused ?? error
+                if !before.isEmpty { session.apply(session.runtime.setModes(before)) }
+                continue
+            }
+            session.apply(session.runtime.setModes(mode))
         }
-        for session in sessions { session.apply(session.runtime.setModes(mode)) }
+        if let refused { connection?.report(["kind": "unsupported", "what": "pin.mode", "detail": refused]) }
     }
 
-    /// A session booted under a pin takes its modes once the boot's batch is
-    /// in (a generation's runner starts from the plan's).
+    /// A session (or scene) that boots under a pin takes the whole of it,
+    /// once the boot's batch is in (a generation's runner starts from the
+    /// plan's); either way the generation it runs is reported.
     func repinBooted() {
-        guard let mode = BuildChannel.pinned?.mode, !mode.isEmpty else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self, BuildChannel.pinned?.mode == mode else { return }
-            self.pinModes((BuildChannel.before?.mode ?? [:]).merging(mode) { $1 }, self.bootedSessions)
-            self.reportStatus()
+            guard let self else { return }
+            if BuildChannel.pinned != nil, let held = BuildChannel.held {
+                let booted = self.bootedSessions
+                booted.forEach(held.take)
+                self.apply(BuildChannel.pinned, to: booted, held)
+            }
+            self.scheduleStatus()
         }
     }
 }

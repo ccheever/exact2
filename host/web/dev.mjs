@@ -254,15 +254,19 @@ function designBatch(from, to) {
     || from.tokens.some((t, i) => t.name !== to.tokens[i].name)) return null;
   const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
   return {
-    batch: { kind: 'tamber-batch', structure: to.structure, base: from.digest, design: to.digest, tokens: to.tokens.filter((t, i) => !same(t, from.tokens[i])) },
-    snapshot: { kind: 'tamber-snapshot', structure: to.structure, base: null, design: to.digest, tokens: to.tokens },
+    batch: { kind: 'tamber-batch', structure: to.shape, base: from.digest, design: to.digest, tokens: to.tokens.filter((t, i) => !same(t, from.tokens[i])) },
+    snapshot: { kind: 'tamber-snapshot', structure: to.shape, base: null, design: to.digest, tokens: to.tokens },
   };
 }
 function pushDesign({ batch, snapshot }) {
+  // Serving as another loop's producers, that loop is the one source of
+  // batches (relayed onto these streams), so a resident loop sends none.
+  if (servedAs != null) return;
   designSnapshot = snapshot;
   let frame = JSON.stringify(batch);
   if (frame.length > DESIGN_FRAME) frame = JSON.stringify(designNotice(snapshot));
   for (const res of clients) res.write(`data: ${frame}\n\n`);
+  tamber?.channel.broadcast(JSON.parse(frame));
 }
 // A revision owns its plan and complete asset namespace. Its process epoch
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
@@ -274,6 +278,8 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
 const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust }) : null;
+// A polled stream (Linux) is told the design to run when it opens.
+tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
 let current = null;
 let currentModule = null;
@@ -1215,8 +1221,11 @@ const server = createServer(async (req, res) => {
     // A build's nonce for the build channel: this loop's own, or, serving as
     // another loop's producers, that loop's, whose commands are relayed.
     const write = frame => res.write(`data: ${JSON.stringify(frame)}\n\n`);
-    const opened = tamber?.channel.open(write) ?? (servedAs != null ? await relayChannel(`http://127.0.0.1:${servedAs}`, write) : null);
-    req.on('close', () => opened?.close());
+    // Listening for its close before the relay's hello, which takes a while.
+    let gone = false, opened = null;
+    req.on('close', () => { gone = true; opened?.close(); });
+    opened = tamber?.channel.open(write) ?? (servedAs != null ? await relayChannel(`http://127.0.0.1:${servedAs}`, write, 250, () => res.end()) : null);
+    if (gone) { opened?.close(); return; }
     res.write(`data: ${hello(opened?.nonce)}\n\n`);
     for (const [stem, version] of gpuSides) res.write(`data: ${JSON.stringify({gpu:version, ...(stem === 'gpu' ? {} : {module:stem.slice(4)})})}\n\n`);
     // A build that connects learns the design to run; one that runs another

@@ -27,12 +27,8 @@ fn a_running_build_applies_a_batch_in_place() {
     let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
     let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
     let _ = std::fs::remove_dir_all(&dir);
-    let batch = design::batch(
-        &design::structure(&a),
-        &design::tokens(&a),
-        &design::tokens(&b),
-    )
-    .unwrap();
+    let batch =
+        design::batch(&design::shape(&a), &design::tokens(&a), &design::tokens(&b)).unwrap();
     let (mut host, _) = Host::boot(
         &a.encode(),
         NoData,

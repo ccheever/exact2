@@ -18,12 +18,8 @@ fn a_running_build_paints_a_batch_in_place() {
     let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
     let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
     let _ = std::fs::remove_dir_all(&dir);
-    let batch = design::batch(
-        &design::structure(&a),
-        &design::tokens(&a),
-        &design::tokens(&b),
-    )
-    .unwrap();
+    let batch =
+        design::batch(&design::shape(&a), &design::tokens(&a), &design::tokens(&b)).unwrap();
     let (mut p, err) = Presenter::boot_with(
         &a.encode(),
         (),
@@ -60,7 +56,7 @@ fn a_running_build_paints_a_batch_in_place() {
     );
     // Its base is past now; a snapshot of the first design applies whole.
     assert_eq!(p.apply_live(&batch.json()).as_deref(), Some("stale"));
-    let back = design::snapshot(&design::structure(&a), &design::tokens(&a));
+    let back = design::snapshot(&design::shape(&a), &design::tokens(&a));
     assert_eq!(p.apply_live(&back.json()), None);
     assert_eq!(at(&mut p).0, [0x11, 0x11, 0x11]);
 }

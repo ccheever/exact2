@@ -40,6 +40,16 @@ final class BuildChannelTests: XCTestCase {
         XCTAssertEqual(BuildChannel.id, BuildChannel.id)
     }
 
+    func testModesUnderAPinAreEachSessionsOwnBeneathIt() {
+        let a = ["density": "compact", "theme": "ocean"], b = ["density": "roomy"]
+        let pin = BuildPin(mode: ["theme": "forest"])
+        XCTAssertEqual(BuildChannel.modes(before: a, pin: pin), ["density": "compact", "theme": "forest"])
+        XCTAssertEqual(BuildChannel.modes(before: b, pin: pin), ["density": "roomy", "theme": "forest"])
+        // Null, or a pin naming no mode, hands each its own back.
+        XCTAssertEqual(BuildChannel.modes(before: a, pin: nil), a)
+        XCTAssertEqual(BuildChannel.modes(before: b, pin: BuildPin(scheme: "dark")), b)
+    }
+
     func testLiveBatchCarriesItsDesign() {
         let batch = Batch.decode(Data(#"{"live":"applied","unsupported":true,"design":"d1","ops":[]}"#.utf8))
         XCTAssertEqual(batch.live, "applied")

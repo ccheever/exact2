@@ -47,16 +47,9 @@ impl<D: DataSource> Presenter<D> {
                 Err(error) => eprintln!("exact url: candidate refused: {error}"),
             }
         }
-        // The live table (LLP 1121 stage 4): this display polls the server's
-        // snapshot with its plan, so a value-only edit lands without one.
+        // The live table: the snapshot and the commands poll's batches.
         if self.pending_dev.is_none() {
-            if let Some(frame) = self.dev.as_mut().and_then(|dev| dev.design.take()) {
-                match self.apply_live(&frame) {
-                    None => self.report_design(),
-                    Some(why) if why == "structure" => {}
-                    Some(why) => eprintln!("exact url: live: {why}"),
-                }
-            }
+            self.serve_live();
         }
         // The build channel (LLP 1122 D4): the frames the tick took.
         self.serve_build_channel();

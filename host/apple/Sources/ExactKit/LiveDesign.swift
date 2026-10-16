@@ -22,12 +22,12 @@ extension ExactApp {
             fputs("exact url: live: a colour was refused (the wide colour table is full)\n", stderr)
             connection?.report(["kind": "unsupported", "what": "batch", "detail": "the wide colour table is full: a colour was refused"])
         }
-        if let design, design != BuildChannel.design { BuildChannel.design = design; reportStatus() }
+        if let design, design != BuildChannel.design { BuildChannel.design = design; scheduleStatus() }
         return answer
     }
 
     /// A session booted from the published plan, which carries that plan's
-    /// own design: the one the server's builds run is fetched again; a pin's
-    /// modes are set again.
+    /// own design: the one the server's builds run is fetched again; a pin
+    /// held is set on it, and the generation reported (LLP 1122 D4).
     func liveBooted() { connection?.syncDesign(); repinBooted() }
 }

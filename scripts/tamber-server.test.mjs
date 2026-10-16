@@ -108,7 +108,7 @@ test('hello says live, and a slow write is answered, not timed out', async () =>
 
 // LLP 1122 D4: the dev loop's builds in `hello`, and a pin a client may
 // set only while it subscribes by name, cleared on every build when it goes.
-test('a pin is its client\'s while it subscribes, and builds are in hello', async () => {
+test('a pin is its client\'s while it is present, and builds are in hello', async () => {
   const port = 8804;
   const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
   const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
@@ -118,8 +118,17 @@ test('a pin is its client\'s while it subscribes, and builds are in hello', asyn
   const build = tamber.channel.open(f => frames.push(f));
   tamber.channel.report(JSON.stringify({ nonce: build.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin'] }));
   expect((await post({ method: 'hello' })).body.ok.builds.map(b => b.id)).toEqual(['web-1']);
-  // Not subscribed: refused.
-  expect((await post({ method: 'pin', client: 'tool', build: 'web-1', pin: { scheme: 'dark' } })).status).toBe(400);
+  // Not present: refused.
+  expect((await post({ method: 'pin', client: 'tool', build: 'web-1', pin: { scheme: 'dark' } })).status).toBe(409);
+  // A long poll naming the client makes it present for 35 s after it is answered.
+  const polled = await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ wait: false, client: 'poller' }) });
+  expect(polled.status).toBe(200);
+  expect((await post({ method: 'pin', client: 'poller', build: 'web-1', pin: { scheme: 'light' } })).status).toBe(200);
+  // 35 s on with no poll: absent, and its pin handed back.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 36_000;
+  try { await post({ method: 'hello' }); } finally { Date.now = realNow; }
+  expect(frames.at(-1)).toMatchObject({ kind: 'pin', pin: null });
   // Subscribed by name: taken, and a frame goes to that build.
   const req = Object.assign(new PassThrough(), { method: 'POST', headers, socket: { remoteAddress: '127.0.0.1' } });
   const res = Object.assign(new EventEmitter(), { destroyed: false, writableEnded: false, writeHead() {}, write() {}, end() {} });
@@ -323,7 +332,7 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
     const base = `http://127.0.0.1:${port}`;
     const { token } = await (await fetch(`${base}/__tamber/token`)).json();
     const hello = await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
-    expect(hello.ok.protocol).toBe('tamber/1.1');
+    expect(hello.ok.protocol).toBe('tamber/1.2');
     expect(Object.keys(hello.ok.files)).toContain('app.tamber');
   } finally {
     if (dev.exitCode === null && dev.signalCode === null) {

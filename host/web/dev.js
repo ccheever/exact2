@@ -227,7 +227,8 @@ if (es) {
       return accepted;
     },
     // A new generation runs its plan's own design: the live one since, if any, comes after.
-    applied: () => { clearTimeout(retry); show(null); generations += 1; syncDesign(); },
+    // And the pin held, set again on its runner; its status says the new generation.
+    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; if (channel.held) command(channel.held); else if (channel.nonce) status(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -264,14 +265,16 @@ if (es) {
   let designing = Promise.resolve();
   // Applied in place (the wasm's `exact_design_rows`): its batch is the
   // page's only when `live` says applied.
-  const apply = async (frame) => {
+  // `still()`, after every wait, says whether the frame is still this page's.
+  const apply = async (frame, still = () => true) => {
     const x = globalThis.exact;
     await x.ready;
+    if (!still()) return { live: "structure" };
     if (typeof x.wasm?.exact_design_rows !== "function") return { live: "unsupported" };
     const n = x.wasm.exact_design_rows(x.writeIn(JSON.stringify(frame))), out = JSON.parse(x.readOut(n));
     if (out.live === "applied") x.send(n);
     if (typeof out.design === "string" && out.design !== x.designDigest) { x.designDigest = out.design; status(); }
-    if (out.unsupported) report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" });
+    if (out.unsupported) { console.warn("exact dev: the wide colour table is full: a colour was refused, its rows keep their value"); report({ kind: "unsupported", what: "batch", detail: "the wide colour table is full: a colour was refused" }); }
     return out;
   };
   // One at a time, in the stream's order: a snapshot fetched is never older
@@ -280,8 +283,10 @@ if (es) {
   // that lands after the next is dropped (that one asks again).
   let generations = 0;
   const snapshot = async () => {
-    const asked = generations, response = await fetch("/__dev/design", { cache: "no-store" });
-    if (response.status === 200 && asked === generations) await apply(await response.json());
+    const asked = generations, still = () => asked === generations, response = await fetch("/__dev/design", { cache: "no-store" });
+    if (response.status !== 200 || !still()) return;
+    const frame = await response.json();
+    if (still()) await apply(frame, still);
   };
   const syncDesign = () => { designing = designing.then(snapshot).catch((error) => console.error("exact dev:", String(error))); };
   const design = (frame) => {
@@ -296,31 +301,67 @@ if (es) {
   // The build channel (LLP 1122 D4): this page registers with its stream's
   // nonce, reports its effective facts, and takes `pin` from the design
   // server's clients; the other commands are reserved, and answered
-  // unsupported.
-  const channel = { nonce: null, revision: null, before: null };
-  const buildId = (() => { try { let id = sessionStorage.getItem("exact.dev.build"); if (!id) sessionStorage.setItem("exact.dev.build", id = `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`); return id; } catch { return `web-${Date.now()}`; } })();
-  const report = (body) => channel.nonce && fetch("/__dev/report", { method: "POST", body: JSON.stringify({ nonce: channel.nonce, ...body }) }).catch(() => {});
+  // unsupported. Every report waits for the stream's registration.
+  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, plan: null };
+  // The tab's own id, kept across its reloads (sessionStorage); a duplicated
+  // tab, which copies that storage, takes another when this one answers.
+  const buildId = (async () => {
+    const fresh = () => `web-${crypto.getRandomValues(new Uint32Array(2)).join("")}`;
+    let id;
+    try { id = sessionStorage.getItem("exact.dev.build"); } catch { return fresh(); }
+    if (id && typeof BroadcastChannel === "function") {
+      const tabs = new BroadcastChannel("exact.dev.build"), mine = id;
+      const taken = await new Promise((done) => { tabs.onmessage = (e) => { if (e.data === `taken:${mine}`) done(true); }; tabs.postMessage(`who:${mine}`); setTimeout(() => done(false), 60); });
+      if (taken) id = null;
+      const own = id ?? fresh();
+      tabs.onmessage = (e) => { if (e.data === `who:${own}`) tabs.postMessage(`taken:${own}`); };
+      id = own;
+    }
+    id ??= fresh();
+    try { sessionStorage.setItem("exact.dev.build", id); } catch { /* storage refused */ }
+    return id;
+  })();
+  const post = (body) => fetch("/__dev/report", { method: "POST", body: JSON.stringify({ nonce: channel.nonce, ...body }) });
+  const report = async (body) => { if (!channel.nonce || !(await channel.registered)) return; await post(body).catch(() => {}); };
   const wasmCall = async (name, ...args) => { const x = globalThis.exact; await x.ready; if (typeof x.wasm?.[name] !== "function") return null; const n = x.wasm[name](...args), out = JSON.parse(x.readOut(n)); x.send(n); return out; };
   const modes = async () => { const x = globalThis.exact; await x.ready; return x.wasm?.exact_set_mode ? JSON.parse(x.readOut(x.wasm.exact_set_mode(x.writeIn("?")))).modes ?? null : null; };
+  // The design this build runs: the runner's, said beside any answer (a
+  // batch for no structure changes nothing).
+  const designNow = async () => { const x = globalThis.exact; await x.ready; if (typeof x.wasm?.exact_design_rows !== "function") return null; const out = JSON.parse(x.readOut(x.wasm.exact_design_rows(x.writeIn(JSON.stringify({ kind: "tamber-batch", structure: "", base: "", design: "", tokens: [] })))));  return out.design ?? null; };
+  // The root's own size, the app's `setRootFontSize` rule set aside (navigation.js `beneathApp`).
+  const hostSize = () => { const rule = document.getElementById("exact-root-font-size"); if (rule) rule.disabled = true; try { return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16; } finally { if (rule) rule.disabled = false; } };
   const status = async () => {
     const rootStyle = getComputedStyle(document.documentElement);
     const scheme = /dark/.test(rootStyle.colorScheme) && !/light/.test(rootStyle.colorScheme) ? "dark" : /light/.test(rootStyle.colorScheme) && !/dark/.test(rootStyle.colorScheme) ? "light" : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
-    report({ kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), design: globalThis.exact.designDigest ?? null, revision: channel.revision });
+    report({ kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision });
   };
+  // The facts change under the page too.
+  for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
   const pin = async (frame) => {
     const root = document.documentElement.style, p = frame.pin;
-    // What it was before the first pin, handed back by `none`.
-    channel.before ??= { scheme: root.colorScheme, fontSize: root.fontSize, mode: await modes() };
+    // What it was before the first pin, handed back by `none`; each pin
+    // replaces the whole set.
+    channel.before ??= { scheme: root.colorScheme, fontSize: root.fontSize, hostFont: root.getPropertyValue("--exact-host-font-size"), mode: await modes() };
     root.colorScheme = p?.scheme ?? channel.before.scheme;
+    // The root font size as `prefer` sets it (navigation.js): the size an
+    // app's percentage is of, too.
     root.fontSize = p?.rootFontSize ? `${p.rootFontSize}px` : channel.before.fontSize;
-    await wasmCall("exact_set_root_font_size", parseFloat(getComputedStyle(document.documentElement).fontSize));
-    const mode = { ...(channel.before.mode ?? {}), ...(p?.mode ?? {}) };
-    const pins = Object.entries(mode).map(([a, v]) => `${a}=${v}`).join(",");
-    if (pins) { const x = globalThis.exact; const out = await wasmCall("exact_set_mode", x.writeIn(pins)); if (out?.error) report({ kind: "unsupported", what: "pin.mode", detail: out.error }); }
+    if (p?.rootFontSize) root.setProperty("--exact-host-font-size", root.fontSize);
+    else if (channel.before.hostFont) root.setProperty("--exact-host-font-size", channel.before.hostFont);
+    else root.removeProperty("--exact-host-font-size");
+    await wasmCall("exact_set_root_font_size", hostSize());
+    const x = globalThis.exact, pins = (m) => Object.entries(m).map(([a, v]) => `${a}=${v}`).join(",");
+    const mode = pins({ ...(channel.before.mode ?? {}), ...(p?.mode ?? {}) });
+    if (mode) {
+      // A mode refused leaves the modes before the first pin, not the last pin's.
+      const out = await wasmCall("exact_set_mode", x.writeIn(mode));
+      if (out?.error) { report({ kind: "unsupported", what: "pin.mode", detail: out.error }); const back = pins(channel.before.mode ?? {}); if (back) await wasmCall("exact_set_mode", x.writeIn(back)); }
+    }
     // A page cannot override the browser's `prefers-contrast`.
     if (p?.contrast) report({ kind: "unsupported", what: "pin.contrast", detail: "a web page cannot pin the browser's contrast" });
     if (!p) channel.before = null;
+    channel.held = p ? frame : null;
     channel.revision = frame.revision;
     status();
   };
@@ -350,11 +391,14 @@ if (es) {
     if (message.kind === "pin" || message.kind === "inspect" || message.kind === "outline" || message.kind === "hold") { command(message); return; }
     if (message.hello && message.nonce && message.nonce !== channel.nonce) {
       channel.nonce = message.nonce;
-      (async () => {
+      channel.plan ??= message.generation ?? null;
+      // Reports wait for this; a refused registration sends none.
+      channel.registered = (async () => {
         await globalThis.exact.ready;
-        await report({ kind: "register", id: buildId, host: "web", capabilities: ["pin"], plan: message.generation ?? null, design: globalThis.exact.designDigest ?? null });
-        status();
-      })().catch(() => {});
+        const answer = await post({ kind: "register", id: await buildId, host: "web", capabilities: ["pin"], plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow() });
+        return answer.ok;
+      })().catch(() => false);
+      status();
     }
     if (message.ready === false) return;
     client.receive(message);
