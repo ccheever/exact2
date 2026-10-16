@@ -13,7 +13,7 @@
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { existsSync, lstatSync, readFileSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
@@ -21,7 +21,7 @@ import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTra
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
 import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
-import { fresh, webCompiler } from './module.mjs';
+import { fresh, freshCompiler, webCompiler } from './module.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -77,6 +77,13 @@ function build(app, dist, keep = () => false, compiler = null) {
       done({ error: null, logic, packages, design, warnings: compilerWarnings(log) });
     });
   });
+}
+
+/** A copy of the compiler at `path` under the app's target/ (written
+ * whole, then renamed), or null where it cannot be made. */
+function compilerCopy(path, app) {
+  const copy = resolve(app.target, 'web-js-dev-compiler');
+  try { copyFileSync(path, `${copy}.tmp`); renameSync(`${copy}.tmp`, copy); return copy; } catch { return null; }
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
@@ -239,9 +246,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       }
     }
     if (building) { for (const p of pendingEdits) edited.add(p); for (const p of pendingAppeared) appeared.add(p); again = true; return; }
-    // The design reader, done and fresh, is this build's compiler too: taken
-    // before it builds again, which leaves an unchanged binary as it was.
-    const compiler = tool.ready && fresh(tool.path, `${tool.path}.d`) ? tool.path : null;
+    // The design reader, done and fresh, is this build's compiler too: a
+    // copy, taken before it builds again (Cargo replaces even a fresh one).
+    const compiler = tool.ready && freshCompiler(tool.path) ? compilerCopy(tool.path, app) : null;
     // Anything else may move the compiler: the design tool is built again.
     if (!designOnly) buildTool();
     // What a full build reads from disk is what changed since it began.

@@ -334,13 +334,23 @@ export const withoutDev = (text) => text.replace(/^[ \t]*\/\/ dev-only \{.*\n[\s
  * or `cargo run`, whose binary `done()` keeps. */
 const COMPILER = resolve(TARGET_DIR, 'debug/exact-web-js');
 const compilerKept = () => kept({ crate: 'exact-web-js', product: COMPILER, depInfo: `${COMPILER}.d`, group: ['debug'], buildDirs: [resolve(TARGET_DIR, 'debug/build')], stamp: resolve(MODULES, 'kept', 'exact-web-js.json') });
+/** `fresh`, for a compiler binary: also stale after an edit to the lockfile
+ * or to the manifest of the workspace or of any crate it was built from. */
+export function freshCompiler(product) {
+  try {
+    const text = readFileSync(`${product}.d`, 'utf8');
+    const files = text.slice(text.indexOf(': ') + 2).trim().split(/(?<!\\)\s+/).map(f => f.replace(/\\ /g, ' '));
+    const crates = new Set(files.filter(f => f.lastIndexOf('/src/') > 0).map(f => resolve(f.slice(0, f.lastIndexOf('/src/')), 'Cargo.toml')));
+    return fresh(product, `${product}.d`, [resolve(root, 'Cargo.lock'), resolve(root, 'Cargo.toml'), ...crates]);
+  } catch { return false; }
+}
 export function webCompiler() {
   // The optimised compiler (`host-dev`) the JS dev loop built for its design
-  // reader, named only while that build is done and fresh (dev.mjs): the
-  // same output, about ten times faster on a large app (the Bluesky clone:
-  // 1.2 s, not 11.8). A lockfile or manifest change makes it stale too.
+  // reader: a copy it makes for one build while that build is done and
+  // fresh (dev.mjs), the same output, about ten times faster on a large app
+  // (the Bluesky clone: 1.2 s, not 11.8).
   const fast = process.env.EXACT_WEB_COMPILER;
-  if (fast && fresh(fast, `${fast}.d`, [resolve(root, 'Cargo.lock'), resolve(root, 'Cargo.toml')])) return { cmd: fast, pre: [], done() {} };
+  if (fast && existsSync(fast)) return { cmd: fast, pre: [], done() {} };
   if (fresh(COMPILER, `${COMPILER}.d`)) return { cmd: COMPILER, pre: [], done() {} };
   const at = compilerKept();
   const taken = at.find();
