@@ -2500,3 +2500,29 @@ Stage 1's known limit, "overrides are per thread, not per session", is lifted.
   overrides over it, and `generation()` mixes in the bound session's.
 - The "role overrides" journal line is gone. Two sessions on one thread, with different overrides,
   answer differently both ways round (tested).
+
+### Stage 5, commit 2: role overrides go live (`55f7c4d33`..`3acbeceba`)
+
+**Stage 4's "role overrides are `rebuild`" rule is lifted.** A role override's value is now a
+live-table edit.
+- **The design's shape and the plan structure** leave an override's value out. Gaining or losing an
+  override is still structure, and so are profile colours. `propose` classes a change to an
+  override's value, or to a token one reads, as `live`.
+- **On the wire,** an override rides in the batch's and snapshot's `tokens` under its role's name
+  (`AccentColor`, `-exact-label`), its value the colour the role now takes. It needs no field of
+  its own: in a design an override is a token line named by its role, and a build knows its roles
+  from its plan.
+- **The runner:** `Roles::set` replaces the session's table in place, so every scope bound to it
+  reads the new one, and the rows naming the role (by any spelling) are set again in the same
+  commit.
+- **The hosts:**
+  - Apple re-presents the tint, sheets' tint and ground, bar titles, subtitles, field
+    placeholders and grouped lists, and the Mac retints rows naming the tint;
+  - the web page rewrites its role sheet;
+  - Linux re-targets paint motion and drops kept paint;
+  - the JS target's development build makes each override a sheet property (`--exact-label`, the
+    tint in the theme's `:root` rule). Its release output is byte-identical to before.
+- **Binding is checked.** A role resolved with no session bound while another session is live on the
+  thread is a development assertion and one journal line per call site, and every host binds
+  where it resolves.
+- Apple's and Linux's `unsupported` for a refused pin name its revision.
