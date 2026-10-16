@@ -21,7 +21,7 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 io`: `bun exact.mjs agent ios --touch platform --scale 3 … "clock settle" "screenshot .exact/x.png
 window"`. Each tap is a real touch: it opens a pull-down menu and picks a row (`tap <row's testId>`),
 switches tabs, and reaches a native module's own controls, which a plain `tap` refuses. A context
-menu stays painted and an alert's buttons UIKit's: answer those without the flag (or with `back`).
+menu, a row scrolled out of its menu and an alert's buttons take a drive without the flag (or `back`).
 
 | Flag or op | What it does |
 | --- | --- |

@@ -801,17 +801,23 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   faded out) ran on, but `clock +N` took no real time and a tap came while
   the overlay still covered the app ("UIView covers its middle"). Now a
   Core Animation animation still running on a running layer of the app's
-  window (finite, not held at speed 0, not kept on its layer past its end)
-  is waited for, its completion then run, once per command: `clock +N`
+  window (finite, not held at speed 0, not kept on its layer past its end;
+  one kept with no begin time is timed from when it is first seen, every
+  animation looked at in each pass so ones attached together are timed
+  together) is waited for, its completion then run and what that starts (a
+  second fade) waited for in the same budget, once per command: `clock +N`
   gives it up to N ms and at most 1.5 s, after its last step (the driver
   marks a long seek's other steps `step` and sends the whole `jump`, and
   `+N real` waits on none, real time passing anyway); `clock settle` gives
-  it 1.5 s for the whole call and, past that, answers `settled: false` with
-  reason `motion` (`awaitWallMotion`, `AgentMotionIOS.swift`). A tap, at the
-  point it will press, waits up to 3 s while a view the app laid on the
-  window, outside every session and every UIKit presentation, covers that
-  point and moves (or fades there, no longer hit-tested); one that has held
-  still for half a second is refused at once, named. Motion a display link
+  it 1.5 s for the whole call. Still running past either budget, the reply
+  says `settled: false` with reason `motion` (`awaitWallMotion`,
+  `AgentMotionIOS.swift`). A tap, at the point it will press, waits up to
+  3 s while something moves there in a view the app laid on the window,
+  outside every session and every UIKit presentation: a layer of it whose
+  presentation is over the point (a fading one's too, no longer
+  hit-tested) and animates or changes from frame to frame. It stops after
+  half a second with nothing moving there; one that stays is then refused,
+  named. A toast moving in another corner of such a view delays nothing. Motion a display link
   draws frame by frame has no animation to see: `clock +N real` lets it run.
   Driving the window layer's time from the agent's clock (`speed` 0, a
   `timeOffset`) was not chosen: it would hold UIKit's own animations as
@@ -837,12 +843,17 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   pull-down included, is UIKit's. A tap on its invoker opens it. A tap
   naming a row aims at that row: UIKit puts no identifier on the element it
   shows for an action, so the host keeps the rows it gave each menu, in
-  order, finds the one run of shown rows (accessibility elements outside
-  every session, by list, in reading order) whose labels are those, and
-  aims at the row's place in it. A duplicate title, a label that is
-  another's prefix or another open menu picks nothing else; a row of a
-  menu that is not shown, or of two menus that read the same, is refused
-  before any touch. The reply's `native` names it
+  order, and which popovers it last gave UIKit to present (a menu and its
+  submenus). The row's popover must be one of those; the host finds the
+  one run of shown rows (accessibility elements outside every session, by
+  list, in reading order) whose labels are its rows' and aims at the row's
+  place in it. A duplicate title, a label that is another's prefix or
+  another popover's menu reading the same picks nothing else; a row of a
+  popover not presented, of two presented popovers that read the same, of
+  a menu shown twice, or scrolled out of a menu that scrolls (its rows off
+  the screen are not in the view hierarchy; the rows it shows are matched
+  as one slice of its rows, and a slice that could be two places is
+  refused; drive it without the flag) is refused before any touch. The reply's `native` names it
   (`{"kind":"menuItem","label":…,"row":…}`). A screenshot while such a menu
   shows is the window's (`presented: "menu"`), however UIKit presents it.
   Under `--chrome platform` a tab aims at the one element UIKit shows with
