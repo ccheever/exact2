@@ -371,12 +371,15 @@ final class MenuHost {
     /// dialog the press retargeted it to presents in place of the menu. Only
     /// the invoker it was built for acts, and only while it is eligible.
     ///
-    /// The popover's `aria-label` titles the rows as an inline section, as a
-    /// hand-built UIKit pull-down's section heading does. A top-level
-    /// `UIMenu` title draws a taller header and sets the rows about 10 pt lower.
+    /// The popover's `aria-label` titles the rows. In the page it is an
+    /// inline section's heading, as a SwiftUI `Menu`'s title is drawn there:
+    /// a top-level `UIMenu` title draws a taller header and sets the rows
+    /// about 10 pt lower. A bar item's pull-down is a hand-built bar item's
+    /// `UIMenu(title:)`, taller header and all (LLP 1021, amended 2026-10-16).
     func pullDown(of v: NodeView, titled heading: String, inBar: Bool = false) -> UIMenu {
         let rows = rows(of: v, inBar: inBar)
-        return UIMenu(children: heading.isEmpty ? [rows] : [UIMenu(title: heading, options: .displayInline, children: [rows])])
+        if heading.isEmpty { return UIMenu(children: [rows]) }
+        return inBar ? UIMenu(title: heading, children: [rows]) : UIMenu(children: [UIMenu(title: heading, options: .displayInline, children: [rows])])
     }
     private func rows(of v: NodeView, inBar: Bool) -> UIDeferredMenuElement {
         UIDeferredMenuElement.uncached { [weak self, weak v, token = v.incarnation] completion in

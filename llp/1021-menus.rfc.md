@@ -445,7 +445,13 @@ cancels, a row that is not text, an action or the cancel, an action that does
 not hide the popover) logs
 `confirmation <id> refused: <why>` and opens nothing; it is no longer silent.
 The popover's `aria-label` titles the `UIMenu`, and titles the sheet only
-when it is a chooser: more than one action and no explanatory text. A
+when it is a chooser: more than one action and no explanatory text.
+*Amended 2026-10-16:* a pull-down from a page button heads its rows as an
+inline section (`displayInline`), as a SwiftUI `Menu` in the page draws its
+title; one from a bar item is a hand-built bar item's `UIMenu(title:)`,
+with its taller header (the euxy port's Sort menu, measured against its
+original's header menu and the UIKit port's: the inline section set the
+title about 6 points and the rows about 9 points high). A
 confirmation keeps no title row, as the native prompts it matches have none.
 *Superseded by LLP 1115 D6 (2026-10-09):* a confirmation with text, one
 cancel and at most three buttons is `UIAlertController(.alert)`, its
