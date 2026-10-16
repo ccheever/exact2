@@ -182,6 +182,8 @@ mod slot;
 mod stream;
 #[path = "canvas/surface.rs"]
 mod surface;
+#[path = "canvas/tamber.rs"]
+mod tamber;
 pub use picture::Picture;
 use picture::WeakPicture;
 pub use stream::drawing;

@@ -1349,8 +1349,9 @@ where it was, and only `clock +N real` lets it run, so a splash drawn from
 colours by name: `ExactTamber(view).color(.surfaceCard)` on Apple (the view a
 module made, or one inside it; in the process, a view under any node, or
 `ExactTamber(session:)` for a screen of the host's own), a `UIColor` or
-`NSColor` that resolves the scheme, contrast and elevation it is drawn in
-(Android's `ExactTamber` is not here yet). Each reads its place's app tuple: a view under an
+`NSColor` that resolves the scheme, contrast and elevation it is drawn in;
+`ExactTamber(view).color("surface.card")` on Android, a `Color` int resolved
+for the view's scheme. Each reads its place's app tuple: a view under an
 `-exact-mode` pin answers that mode. `observe { … }` runs after each batch that
 moved what the place reads (a `setMode`, a pin above it, a live edit, the
 scheme, the root font size), so re-apply a colour kept in a layer there. A

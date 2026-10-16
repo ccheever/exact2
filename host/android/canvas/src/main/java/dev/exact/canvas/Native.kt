@@ -171,6 +171,11 @@ object Native {
      * host's own handler (`host/linux/src/canvas/agent.rs`), on the host's thread. From the first one the host's turns
      * run at the driver's clock, which only a `clock` request moves. [AgentDrive] calls it for a driver over adb. */
     @JvmStatic external fun agent(line: ByteArray): ByteArray
+    /** What an [ExactTamber] asks (LLP 1121 D12), on the host's thread: `{"view": id or 0, "names": [..]}`, answered
+     * `{"inputs": "<u64>", "colors": {name: ARGB or null}}`, each colour as exact2 paints it at that view (its pinned
+     * modes, its scheme), null for a name the design lacks; `inputs` moves when anything the answer read does. A
+     * view that is no live node, or a name that is no string, is answered `{"error": ...}`. */
+    @JvmStatic external fun tamber(request: String): String
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean
     /** An ADPF hint session over [tids] (this process's threads), [targetNs] their work's target. */

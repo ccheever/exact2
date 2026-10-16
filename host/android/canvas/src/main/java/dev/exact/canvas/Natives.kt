@@ -230,6 +230,16 @@ class Natives(
         e.node.endRecording()
     }
 
+    /** The node id of the element whose view is [view] or holds it ([ExactTamber]'s place), or null (main thread). */
+    fun place(view: View): Int? {
+        var v: View? = view
+        while (v != null && v !== this) {
+            byView[v]?.let { return it.id }
+            v = v.parent as? View
+        }
+        return null
+    }
+
     /** The node op 28 draws for [id] (main thread). */
     fun node(id: Int): RenderNode? = elements[id]?.node
 

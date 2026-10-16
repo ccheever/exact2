@@ -361,6 +361,15 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         return task.get()
     }
 
+    /** Run [f] on the exact thread and wait for it, publishing nothing: a question that changes nothing
+     * ([ExactTamber]). */
+    fun <T> ask(f: () -> T): T {
+        if (Looper.myLooper() == thread.looper) return f()
+        val task = FutureTask<T> { f() }
+        handler.post(task)
+        return task.get()
+    }
+
     /** exact2's next stream, if it has one: copied, queued, and the main thread told. */
     private fun produce() {
         if (!running) { requests(); return }
@@ -374,6 +383,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         val bars = Native.bars()
         // A host library without the call (an older exact2) is not asked again.
         val access = if (accessible) try { Native.access(accessAgain).also { accessAgain = false } } catch (e: UnsatisfiedLinkError) { accessible = false; null } else null
+        // The bindings ask again first, so a frame's colours read the new answers; every turn, as a token only
+        // native code reads moves no paint (one inputs call per binding).
+        Tambers.turned()
         if (fresh == null && (told != null || fields != null || bars != null || access != null)) {
             queue.add(Pub(null, true, seq, 0, told, fields, bars, access))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
@@ -469,6 +481,14 @@ internal object Exact {
     fun agent(line: String): String {
         val o = owner ?: return "{\"error\":\"the reader carries a driver only with exact2 on its own thread (owner=0 is set)\"}"
         return o.sync { String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
+    }
+
+    /** What an [ExactTamber] asks ([Native.tamber], LLP 1121 D12): on exact2's thread, waited for, publishing
+     * nothing. An error's JSON where no host runs or the library predates the call. */
+    fun tamber(request: String): String {
+        val f = { try { Native.tamber(request) } catch (e: UnsatisfiedLinkError) { "{\"error\":\"no tamber in this library\"}" } }
+        val o = owner
+        return if (o != null) o.ask(f) else if (live) f() else "{\"error\":\"no host\"}"
     }
 
     /** Main thread, where exact2 runs there too (owner=0) and a hosted field told it something: the reader draws
