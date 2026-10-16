@@ -180,9 +180,10 @@ function serve(dir) {
 // is asked again at each report, and the Linux host reports a settling list more often than a page does.
 const BOUND = /Instance\(Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)\)|Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)|StringTooLong \{ name: "(?:[^"\\]|\\.)*" \}/;
 const boundReasons = lines => lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
-// The voice table's journal (LLP 1096 D5): every `sound …` and `sounds …` line, stamped, the same on every target; the
-// JS target never refuses one of its three commands (they are the runtime's own, not a host's).
-const SOUND = /^t=\S+ sounds? .*$|refused: (?:playSound|playSounds|stopSounds) .*$/;
+// The voice table's journal (LLP 1096 D5): every `sound …` and `sounds …` line, stamped, the same on every target, and
+// a sequence's `sequence …`, `haptic …` and `haptics …` lines (LLP 1125 D3); the JS target never refuses one of its
+// three commands (they are the runtime's own, not a host's).
+const SOUND = /^t=\S+ (?:sounds?|sequence|haptics?) .*$|refused: (?:playSound|playSounds|stopSounds) .*$/;
 const soundLines = lines => lines.flatMap(l => SOUND.exec(l)?.[0] ?? []);
 // A host's journal since its last read, read once for both filters: a read advances the cursor, so a second read
 // would see none of what the first consumed
@@ -254,7 +255,7 @@ function diffPng(a, b, sideBySide, masks = []) {
   return share;
 }
 // The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
-const STATE_KEYS = ['slots', 'derives', 'resources', 'writes', 'head', 'reorder', 'sounds', 'sessionCore'];
+const STATE_KEYS = ['slots', 'derives', 'resources', 'writes', 'head', 'reorder', 'sounds', 'transport', 'sessionCore'];
 // The media session (LLP 1098 D10) by testId (each target numbers its views its own way) and the artwork's path (each
 // page has its own port): what every host records (`sessionCore`, Linux's too), and what the pages publish (`session`).
 const addSession = s => {

@@ -186,7 +186,7 @@ export function commit(f, what = "commit") {
     settle();
     // A store write re-asks the resources that read the store, until quiet.
     for (let k = 0; Store.dirty && k < 4; k++) { Store.dirty = false; for (const r of Resources) if (r.store) r.revise(undo); settle(); }
-    Sched?.gates(); // gated tasks over the settled state, inside the rollback (LLP 1092 D8)
+    Sched?.gates(); Sounds.gate?.(); // gated tasks and sequences over the settled state, inside the rollback (LLP 1092 D8, LLP 1125 D2)
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
@@ -209,7 +209,7 @@ export function commit(f, what = "commit") {
     try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = armedAt(); if (!clock.agent) drive(); }
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
@@ -269,8 +269,8 @@ export const Hosts = {
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = document.getElementById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
 };
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
-/** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood. */
-export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]) };
+/** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2). */
+export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]), gate: null, stood: null, seq: null };
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);

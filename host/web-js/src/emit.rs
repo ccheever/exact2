@@ -183,7 +183,13 @@ struct Em<'a> {
 /// The runner's reserved sources the JS runtime answers itself: the page's
 /// facts, never the build's (`exactTime` in the entry, the rest in
 /// facts.js). `exactDelivery` answers what the build baked (facts.js).
-const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
+const HOST_FACTS: &[&str] = &[
+    "exactViewport",
+    "exactTime",
+    "exactPage",
+    "exactSurface",
+    "exactTransport",
+];
 
 pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
     // A development build makes every token a property (LLP 1121 stage 4).
@@ -604,6 +610,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let _ = write!(body, "{queues}($state);");
     }
     timers::timers(&mut em, &mut body)?;
+    let transport = timers::sequences(&mut em, &mut body)?;
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
         let widget = p.props.get("interactiveWidget");
@@ -724,6 +731,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             (paint, "import{paintUse as $paint}from\"./paint.js\";"),
             (em.list, "import{vl as $vl}from\"./list.js\";"),
             (em.media, "import{mediaUse as $media}from\"./media.js\";"),
+            (transport, "import{sequence as $sequence,transport as $transport}from\"./transport.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
             (modes.is_some(), "import{modes as $modes,Sx}from\"./modes.js\";"),

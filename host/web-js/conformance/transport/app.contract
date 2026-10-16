@@ -1,0 +1,83 @@
+// data: caltrain
+// Synthetic conformance plan: a sequence (LLP 1125 D2–D5) on the wasm
+// runner, the JS runtime and the Linux host, all under the driver: two
+// tracks of 3 and 4 beats against each other (polymeter), a count-in of
+// four hats from beat -4, a haptic on the 3-beat track, a step edited, a
+// tempo change, a key restart, the gate's stop, `stopSounds` while it plays,
+// and a finite take whose `ended=` action reads the time it ended. The
+// journal's `sound`, `sequence` and `haptic` lines, `state.sounds`,
+// `state.transport` and `exactTransport()`'s answer compare on every
+// target. (No slot shares a name with Caltrain's: the wasm page carries its
+// first world into this plan by slot name.)
+sound "assets/kick.wav"
+sound "assets/hat.wav"
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+shape Transport
+  state: string
+  reason: string
+  bpm: number
+  anchorAt: number
+  anchorBeat: number
+  clock: string
+
+fn hit(beat: number, src: string, gain: number): Step = Step(beat=beat, src=src, gain=gain, group="", note=-1, velocity=100, channel=0, duration=0.25, haptic="")
+fn buzz(beat: number): Step = Step(beat=beat, src="", gain=1, group="", note=-1, velocity=100, channel=0, duration=0.25, haptic="impact-light")
+
+component Seq
+  state seqPlaying = false
+  state seqBpm = 120
+  state seqTake = 0
+  state seqLoops = 0
+  state seqAccent = 1
+  state seqEndedAt = -1
+  resource transport = exactTransport() as shape Transport
+  derive seqTracks = [Track(beats=3, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/kick.wav", seqAccent), buzz(1)]), Track(beats=4, loops=seqLoops, offset=0, output="", steps=[hit(0, "assets/hat.wav", 0.5), hit(2, "assets/hat.wav", 0.5), hit(5, "assets/hat.wav", 1)])]
+  action seqStart
+    seqPlaying = true
+  action seqStop
+    seqPlaying = false
+  action seqFaster
+    seqBpm = 150
+  action seqEdit
+    seqAccent = 0.75
+  action seqRestart
+    seqTake = seqTake + 1
+  action seqQuiet
+    stopSounds()
+  action seqFinite
+    seqLoops = 1
+    seqPlaying = true
+  action seqEnded
+    seqEndedAt = performanceNow()
+    seqPlaying = false
+  sequence groove when seqPlaying key=seqTake
+    play(seqTracks, bpm=seqBpm, from=-4, countIn=[hit(0, "assets/hat.wav", 1), hit(1, "assets/hat.wav", 0.5), hit(2, "assets/hat.wav", 0.5), hit(3, "assets/hat.wav", 0.5)], ended=seqEnded)
+  view
+    column testId="root"
+      text `${transport.state} ${transport.reason} ${transport.bpm} ${transport.anchorBeat}` testId="transport"
+      text `ended at ${seqEndedAt}` testId="ended"
+      button "start" press=seqStart testId="start"
+      button "stop" press=seqStop testId="stop"
+      button "faster" press=seqFaster testId="faster"
+      button "edit" press=seqEdit testId="edit"
+      button "restart" press=seqRestart testId="restart"
+      button "quiet" press=seqQuiet testId="quiet"
+      button "finite" press=seqFinite testId="finite"
