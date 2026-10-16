@@ -12,6 +12,12 @@ import ExactSurfaces
 #if EXACT_LINK_DRAG
 import ExactDrag
 #endif
+#if EXACT_LINK_MEDIA_PICKER
+import ExactMediaPicker
+#endif
+#if EXACT_LINK_AUTH_SESSION
+import ExactAuthSession
+#endif
 import ExactUpdates
 public enum ExactComposition {
     public static let app: ExactApp = {
@@ -28,6 +34,12 @@ public enum ExactComposition {
         #endif
         #if EXACT_LINK_DRAG
         ExactDrag.install()
+        #endif
+        #if EXACT_LINK_MEDIA_PICKER
+        ExactMediaPicker.install()
+        #endif
+        #if EXACT_LINK_AUTH_SESSION
+        ExactAuthSession.install()
         #endif
         let app = ExactApp.shared
         ExactUpdates.install(on: app)

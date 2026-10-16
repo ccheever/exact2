@@ -433,8 +433,8 @@ WebSocket sending: the stream mapper receives a socket handle and a mutation
 sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
 subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
 expansion. No take named; the approved feature ruling admits it. Ambient
-WebSocket globals remain refused. The first slice is the web JS target's
-TypeScript adapter; D7 lists the remaining host deviations.
+WebSocket globals remain refused. TypeScript on the web JS target and the
+native hosts has it; D7 lists the host deviations and what remains.
 
 
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
@@ -456,6 +456,11 @@ names no take; `:focus-within` remains out.
   hydration, route payloads and cache policies are on the doing-list (the
   entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
+- A hardened-runtime exception on the app's own executable (Charlie, 2026-10-15):
+  `runtime.*` grants name helper executables only (LLP 1069.008 D9), until the
+  main executable has a consumer. The likely first, an in-process wasmtime loader
+  (LLP 1028), would need only `allow-jit` or `allow-unsigned-executable-memory`,
+  never `disable-library-validation`.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
   bundle of static files from a baked-in origin, after first pixel, into an on-disk

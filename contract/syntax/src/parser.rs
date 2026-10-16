@@ -84,6 +84,7 @@ pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxErr
         view_depth: 0,
         last: 0,
         free: Vec::new(),
+        methods: Vec::new(),
     };
     let parsed = p.file_all();
     if lexed.is_empty() {
@@ -114,6 +115,7 @@ pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), Syn
         view_depth: 0,
         last: 0,
         free: Vec::new(),
+        methods: Vec::new(),
     };
     let file = p.file()?;
     Ok((file, p.tokens))
@@ -132,6 +134,11 @@ struct Parser {
     /// at the end of the file unless the file declares a `fn`, shape or action
     /// of that name (LLP 1116.015 D2).
     free: Vec<(String, SyntaxError)>,
+    /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
+    /// when it declares a `fn`, shape or action of that name, which the
+    /// rewritten call would reach where TypeScript's method never would
+    /// (LLP 1116.016 D2).
+    methods: Vec<(String, Span)>,
 }
 
 type R<T> = Result<T, SyntaxError>;
@@ -324,6 +331,17 @@ impl Parser {
                             .filter(|(n, _)| !declared(n))
                             .map(|(_, e)| e),
                     );
+                    let methods = std::mem::take(&mut self.methods);
+                    errors.extend(methods.into_iter().filter(|(n, _)| declared(n)).map(|(n, span)| {
+                        let call = if n == "length" { ".length".to_string() } else { format!(".{n}(…)") };
+                        SyntaxError {
+                            id: "syntax-method-shadowed",
+                            message: format!(
+                                "rename this file's `{n}`: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                            ),
+                            span,
+                        }
+                    }));
                     if errors.is_empty() {
                         file.names = std::mem::take(&mut self.names);
                         return Ok(file);

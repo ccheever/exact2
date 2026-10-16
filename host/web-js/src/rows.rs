@@ -150,6 +150,12 @@ impl Em<'_> {
         if id == StyleId::AnimationTimeline && style::can_be(plan, plan.code(b.expr), &clock) {
             self.clocks();
         }
+        // A bound pin: modes.js gives the boundary its tuple (LLP 1121 D7).
+        if id == StyleId::Mode {
+            let p = self.uses.rt("P");
+            let _ = write!(self.out, "{p}({e},\"data-x-pin\",{f});");
+            return Ok(());
+        }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
@@ -346,16 +352,37 @@ impl Em<'_> {
         } else {
             "S"
         });
+        // @ref LLP 1121 D7 — an inherited colour row says whether it read
+        // a token (modes.js `Sx`), which a boundary below writes again (a
+        // stroke's shorthand by its colour). A boundary declares the tokens,
+        // so its `--exact-accent` naming one that names the accent would name
+        // itself: that token's colour stands by tuple (`data-x-accent`), as
+        // css.rs leaves a self-reference out; a clear there writes nothing.
         for (name, unit, map) in writes {
-            match map {
-                Some(m) => {
-                    let _ = write!(
-                        self.out,
-                        "{s}({e},\"{name}\",\"{unit}\",()=>({m})(({f})()));"
-                    );
+            let modes = crate::modes::active(plan);
+            let channel = crate::modes::CHANNELS
+                .iter()
+                .position(|(_, p)| {
+                    *p == name || name == "-webkit-text-stroke" && *p == "-webkit-text-stroke-color"
+                })
+                .filter(|_| modes);
+            let map = match map {
+                Some(m) if modes && name == "--exact-accent" => Some(format!(
+                    "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
+                    serde_json::to_string(&crate::modes::accent_properties(plan)).unwrap()
+                )),
+                map => map,
+            };
+            let value = match map {
+                Some(m) => format!("()=>({m})(({f})())"),
+                None => f.to_string(),
+            };
+            match channel {
+                Some(j) => {
+                    let _ = write!(self.out, "Sx({s},{e},\"{name}\",\"{unit}\",{value},{j});");
                 }
                 None => {
-                    let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{f});");
+                    let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{value});");
                 }
             }
         }

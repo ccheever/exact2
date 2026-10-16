@@ -257,9 +257,33 @@ line to add when none is.
 A standalone macOS app treats `kill -TERM <pid>` as an orderly quit: its
 `beforeunload` handlers can cancel, pending storage gets the same five-second
 hold, and each session's native module is destroyed before exit. Repeated SIGTERM
-requests share that hold's original deadline. A module's `destroy()` still runs
-synchronously on the main thread; the storage deadline does not bound it.
-SIGKILL cannot run this cleanup.
+requests share that hold's original deadline. SIGKILL cannot run this cleanup.
+
+A native module whose work must finish before the app exits (a child process
+to stop, a socket to flush) overrides `willQuit(done:)`. On every orderly
+quit (⌘Q, the app menu, an Apple Event, SIGTERM, the last window closing),
+once no `beforeunload` has kept the app, the host calls it once, on the main
+thread (a module first made during the hold, when it is made); start the work off the main thread and call `done` from any thread
+when it has finished. The quit waits for every module's `done` and for
+pending storage, five seconds at most for all of it together, and the window
+stays responsive meanwhile; then `destroy()` runs, whether or not the work
+finished. A repeated quit neither asks again nor extends the deadline. Letting
+`done` go uncalled counts as calling it. iOS and tvOS have no quit and never
+call it. `destroy()` runs synchronously on the main thread with no deadline,
+so do not wait in it: force-end there whatever the deadline cut short, or a
+child process outlives the app.
+
+```swift
+override func willQuit(done: @escaping () -> Void) {
+    helper.terminationHandler = { _ in done() }
+    guard helper.isRunning else { return done() } // a second `done` is ignored
+    helper.terminate()                            // SIGTERM; it exits in its own time
+}
+override func destroy() {
+    // After the deadline, finished or not: end a helper that ignored SIGTERM.
+    if helper.isRunning { kill(helper.processIdentifier, SIGKILL) }
+}
+```
 
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
@@ -338,7 +362,32 @@ a private subtree of `Resources/`, `Helpers/` or `Frameworks/`. Mach-O helpers
 and libraries are signed before the outer bundle; `exact release` signs them
 with its release identity. Resource changes require a new binary, not an asset
 update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
-module. This field applies only to macOS bundles.
+module. This field applies only to macOS bundles. A file written before the
+build (a build stamp, a channel name) goes in such a tree under `Resources/`:
+it is copied before the bundle is sealed, so it is inside the seal. Only code
+goes under `Helpers/`, where `codesign` refuses a file that is not.
+
+A helper that needs a hardened-runtime exception (a JavaScript runtime's JIT,
+say) declares it as a grant beside the app's others, naming the exception and
+the one executable it is for, by its path under `Contents` (LLP 1069.008 D9):
+
+```ts
+export const grants = `
+runtime.allow-jit Helpers/node/bin/node
+runtime.disable-library-validation Helpers/node/bin/node
+`;
+```
+
+The exceptions are `allow-jit`, `allow-unsigned-executable-memory` and
+`disable-library-validation`; `exact release` signs that executable with
+`com.apple.security.cs.<exception>` and nothing else in the bundle with it.
+Only helpers take an exception: a line naming `app`, the app's own executable,
+is refused (deferred until it has a consumer). A target must be a Mach-O
+executable inside a `host.macos.resources` destination, not reached through a
+link; a nested `.app`'s executable gives its grant to that
+bundle. `mac --bundle` refuses one that is not, and other hosts ignore the
+lines. Adding a line changes the grant ceiling, so the deploy classifier calls
+for a binary release.
 
 Mach-O code in content-addressed `assets/`, `deck/` or `shaders/` is refused
 when assembling a Mac bundle: place helpers in `host.macos.resources` instead.
@@ -631,8 +680,8 @@ returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped now (the
 mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
 URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
-WebSocket under `net.websocket` alone. Except for the JS-target TypeScript
-adapter described below, sockets remain receive-only. An event is
+WebSocket under `net.websocket` alone. Except for TypeScript sources on the
+web JS target and native hosts, described below, sockets are receive-only. An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
@@ -647,8 +696,8 @@ target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
 
-On the **web JS target, TypeScript sources** receive `(event, socket)` for a
-WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
+On the **web JS target and on macOS, iOS and Linux, TypeScript sources**
+receive `(event, socket)` for a WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
 module state. Its events are `open`, ordered `message` (string or ArrayBuffer
 `data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
 Every protocol frame reaches the mapper; `coalesced` is zero. The mapper must
@@ -678,9 +727,16 @@ Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
 reason of at most 123 UTF-8 bytes. Both methods are allowed only during the
 mutation source's synchronous call. A source that stages socket operations
-must answer synchronously. A thrown source, wrong-shaped answer or refused
+must answer now with a value: not a promise, not a stream answer, and with
+no `fetch` in the same mutation. Whichever of a socket operation and a
+`fetch` comes second throws `a mutation cannot both send on a socket and
+fetch`, and the mutation is refused before either takes effect: no frame is
+sent and no request starts. A thrown source, wrong-shaped answer or refused
 commit sends none of them. The handle exposes read-only `readyState` (0–3)
-and `bufferedAmount`. It cannot extend the resource's lifetime.
+and `bufferedAmount`: the transport's buffered bytes as this turn of the
+module began, plus what this mutation has staged on the socket, so a turn
+that sends nothing still sees a buffer that has drained. It cannot extend
+the resource's lifetime.
 
 A mutation stages at most 256 operations and 1 MiB, including bytes already
 buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
@@ -692,10 +748,12 @@ server acknowledgement. The receive queue is bounded by 256 frames and
 frames in order before ending with a `Refused` error.
 `state.streams` adds `readyState`, `bufferedAmount` and `sent` for these sockets.
 
-**Remaining host gap:** the web wasm target, Rust sources, macOS, iOS,
-Linux and worker-placed TypeScript do not yet provide this handle or send
-path; do not use it in a cross-platform app yet. No ambient `WebSocket`
-constructor is admitted. SSE remains unchanged.
+Natively `readyState` follows the events the mapper has seen, and
+publication also bounds the transport's buffer at 256 frames; LLP 1016.000
+D7 lists the differences. **Remaining host gap:** the web wasm target, Rust
+sources and worker-placed TypeScript do not provide the send path (on wasm
+the handle never opens). No ambient `WebSocket` constructor is admitted. SSE
+remains unchanged.
 
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
@@ -1233,7 +1291,7 @@ a secret: keep it in app storage.
 
 ```sh
 cargo build --all-targets --keep-going                                  # build
-cargo test --lib --bins --tests --no-fail-fast                          # test
+cargo test --tests --no-fail-fast                                       # test
 cargo clippy --all-targets --keep-going -- -D warnings                  # lint, and
 cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps

@@ -268,6 +268,8 @@ thread_local! {
     /// the runner sets it from the plan it boots, on the thread that drives
     /// it, so two runners on two threads (and two tests) keep their own.
     static OVERRIDES: std::cell::RefCell<Vec<(u8, ColorValue)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The wide colours the overrides hold, kept from the table's sweep.
+    static KEPT: std::cell::RefCell<super::wide::Keep> = std::cell::RefCell::new(super::wide::Keep::default());
 }
 
 /// The overridden roles as set, for a caller that puts them back.
@@ -287,6 +289,15 @@ pub fn set_overrides(next: Vec<(u8, ColorValue)>) -> bool {
         let mut table = t.borrow_mut();
         let changed = *table != next;
         let replaced = changed && !table.is_empty();
+        if changed {
+            KEPT.with(|k| {
+                *k.borrow_mut() = super::wide::Keep::of(|m| {
+                    for (_, c) in &next {
+                        m.color(*c);
+                    }
+                });
+            });
+        }
         *table = next;
         (changed, replaced)
     });
@@ -411,6 +422,74 @@ pub fn overridden_canvas_text() -> bool {
 /// theme may replace only `AccentColor`, which is the app's tint.
 pub fn tint(id: u8) -> bool {
     follows_accent(id, false) || follows_accent(id, true)
+}
+
+thread_local! {
+    /// The authored `accent-color` around what a painting host paints now
+    /// ([`authored_accent`]).
+    static AUTHORED: std::cell::Cell<Option<ColorValue>> = const { std::cell::Cell::new(None) };
+}
+
+/// A painting host's scope: the nearest `accent-color` its node or an
+/// ancestor authored (the inherited row), which the roles the browser draws
+/// in the accent ([`web_accent`]: `AccentColor`, `LinkText`, `-exact-link`,
+/// `-exact-symbol`) resolve to while it lasts, as the web's
+/// `var(--exact-accent, AccentColor)` reads the nearest one. Restored when
+/// the scope ends.
+///
+/// `accent-color="AccentColor"` keeps the one around, as css.rs leaves
+/// `--exact-accent` inherited for exactly that and Apple's tint stays the
+/// ancestor's; another role (`LinkText`) is the platform's colour, read with
+/// no scope ([`painted_accent`]).
+///
+/// The scope holds a copy of a wide colour id, unmarked (LLP 1121 stage 4):
+/// it lasts only inside one paint call, and the id is the painted node's,
+/// which the kernel the host borrows to paint marks for that whole time.
+pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
+    let accent = match accent {
+        Some(ColorValue::Role(id)) if id == self::accent() => AUTHORED.with(|a| a.get()),
+        other => other,
+    };
+    AccentScope(
+        AUTHORED.with(|a| a.replace(accent)),
+        std::marker::PhantomData,
+    )
+}
+
+/// What [`authored_accent`] restores; the thread's, so it stays on it.
+pub struct AccentScope(
+    Option<ColorValue>,
+    std::marker::PhantomData<std::rc::Rc<()>>,
+);
+
+impl Drop for AccentScope {
+    fn drop(&mut self) {
+        AUTHORED.with(|a| a.set(self.0));
+    }
+}
+
+/// `c` with a role drawn in the accent replaced by `accent`, where the
+/// node's accent is one it or an ancestor authored: what a host keeps to
+/// resolve later, outside the painting scope ([`authored_accent`]).
+pub fn accented(c: ColorValue, accent: Option<ColorValue>) -> ColorValue {
+    let _scope = authored_accent(accent);
+    match (c, AUTHORED.with(|a| a.get())) {
+        (ColorValue::Role(id), Some(a)) if role_of(id).is_some_and(web_accent) => a,
+        _ => c,
+    }
+}
+
+/// `c` under the scope's authored accent, when it is a role drawn in the
+/// accent; the accent itself is resolved with none around (the scope never
+/// holds such a role, [`authored_accent`]).
+pub(crate) fn painted_accent(c: ColorValue, dark: bool) -> Option<super::Color> {
+    let ColorValue::Role(id) = c else { return None };
+    if !role_of(id).is_some_and(web_accent) {
+        return None;
+    }
+    let accent = AUTHORED.with(|a| a.get())?;
+    let _none = authored_accent(None);
+    Some(accent.resolve(dark))
 }
 
 /// What a painting host resolves for `c` under the theme: a replaced

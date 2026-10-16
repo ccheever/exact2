@@ -95,6 +95,32 @@ extension Presenter {
     func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "") -> Bool {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
     }
+    /// What an event (a key, a clipboard edit) bubbles to from `view`: its
+    /// authored parent. A subtree a container shows in a view of its own
+    /// bubbles to the node it is declared under: on the Mac a block's root to
+    /// its authored parent (BlockHostMac.swift), on iOS a route to its tab
+    /// panel or the routes' owner (LLP 1123 D2).
+    func eventParent(of view: KeyPlatformView) -> KeyPlatformView? {
+        #if os(macOS)
+        if let node = view as? NodeView { return blocks.parent(of: node) }
+        #else
+        if let node = view as? NodeView, navigation.controllers[node.id]?.node === node,
+           let parent = navigation.logicalParent(of: node) ?? navigation.container {
+            return parent
+        }
+        #endif
+        return view.superview
+    }
+    /// Whether `view` is `ancestor` or under it through authored parents
+    /// (`eventParent`), a presented route's content under its route's logical
+    /// ancestors included.
+    func logicallyWithin(_ view: KeyPlatformView, _ ancestor: KeyPlatformView) -> Bool {
+        logicalAncestry(of: view).contains { $0 === ancestor }
+    }
+    /// `view` and its authored ancestors (`eventParent`).
+    func logicalAncestry(of view: KeyPlatformView) -> UnfoldFirstSequence<KeyPlatformView> {
+        sequence(first: view, next: { self.eventParent(of: $0) })
+    }
     private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress, inline: UInt32? = nil) -> Bool {
         var path: [(id: UInt32, handlers: Set<String>)] = []
         var run = inline.flatMap(inlineText)
@@ -104,15 +130,17 @@ extension Presenter {
         }
         var next: KeyPlatformView? = target
         while let view = next {
-            if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !node.inert {
+            // An event out of a presentation still reaches the document's
+            // ancestors, which only an authored `inert` silences
+            #if os(iOS) || os(tvOS)
+            let silenced = (view as? NodeView)?.authoredInert == true
+            #else
+            let silenced = (view as? NodeView)?.inert == true
+            #endif
+            if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !silenced {
                 path.append((node.id, node.handlers))
             }
-            #if os(macOS)
-            if let node = view as? NodeView { next = blocks.parent(of: node) }
-            else { next = view.superview }
-            #else
-            next = view.superview
-            #endif
+            next = eventParent(of: view)
         }
         var prevented = false
         func deliver(_ node: (id: UInt32, handlers: Set<String>), _ press: KeyPress) -> Bool {
@@ -147,9 +175,10 @@ extension Presenter {
     /// A key event's route, for the session's local monitor and the agent
     /// alike, in the web's order: the shortcuts (input-glue's capture
     /// listener), the focus's `key` handlers, then the key's defaults here —
-    /// Escape closing a popover or dialog, a dialog's Tab — which a prevented
-    /// key never reaches. True when taken. `focused`: the window's focus is
-    /// in this session (the shortcuts and handlers are its).
+    /// Escape closing a popover or dialog, a dialog's Tab, Tab from a window
+    /// that is its own first responder — which a prevented key never
+    /// reaches. True when taken. `focused`: the window's focus is in this
+    /// session (the shortcuts and handlers are its).
     func routeKey(_ event: NSEvent, focused: Bool, in window: NSWindow? = nil) -> Bool {
         if focused {
             keyboardUsed(event, in: window)
@@ -159,7 +188,7 @@ extension Presenter {
             if keyDown(event, in: window) { return true }
             if contextMenuKey(event, in: window) { return true }
         }
-        return menus.key(event) || dialogs.key(event)
+        return menus.key(event) || dialogs.key(event) || tabFromStart(event, focused: focused, in: window)
     }
     /// A keydown at the window's first responder, before AppKit delivers
     /// it: true when a handler prevented its default, and the caller drops

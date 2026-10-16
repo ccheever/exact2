@@ -100,7 +100,8 @@ enum Payload {
     Image(Arc<Bitmap>, ObjectFit, Option<[u8; 4]>),
     Text(Rc<Paragraph>, Vec<RunPaint>),
     /// An `svg`'s scene as resolved at capture (LLP 1055.000 §4: SVG in a
-    /// retained region; the instant is the capture's).
+    /// retained region; the instant is the capture's), its wide colours
+    /// settled for the capture's appearance (LLP 1121 stage 4).
     Svg(Rc<exact_kernel::svg::Scene>),
 }
 struct NodePaint {
@@ -251,6 +252,8 @@ impl Picture {
                 return Err("content mounted node limit".into());
             }
             let frame = publication.frames()[ordinal].frame;
+            // The node's accent for all it captures (its box, its image's tint).
+            let _accent = super::accent_scope(&node);
             let paint = BoxPaint::capture(&node, scene.kernel, painter.dark);
             let geometry = paint.geometry(paint_rect(frame, (0., 0.)));
             let axes = effective_overflow(&node);
@@ -279,11 +282,11 @@ impl Picture {
                             super::image_tint(&node, &(scene.presented)(id), painter.dark),
                         )
                     }),
-                    NodeType::Svg => Payload::Svg(Rc::new(super::svg::resolve_svg(
-                        scene,
-                        &node,
-                        geometry.content,
-                    ))),
+                    NodeType::Svg => {
+                        let mut svg = super::svg::resolve_svg(scene, &node, geometry.content);
+                        exact_kernel::style::wide::Settle::settle(&mut svg);
+                        Payload::Svg(Rc::new(svg))
+                    }
                     _ => Payload::Empty,
                 }
             };

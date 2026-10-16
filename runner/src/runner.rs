@@ -7,9 +7,11 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
 mod admission;
+mod advance;
 mod background;
 mod commit;
 mod control;
+mod errors;
 mod event;
 pub mod faults;
 mod field;
@@ -24,10 +26,12 @@ mod reorder;
 mod reorder_codec;
 mod reorder_group;
 pub use intersect::Intersection;
+pub use shown::BlockPlacement;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod mode;
 mod root_font;
+mod shown;
 mod sounds;
 mod theme;
 pub use event::{
@@ -75,6 +79,8 @@ pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
+mod sockets;
+pub use sockets::{SocketReader, SocketState};
 mod split;
 mod surface_record;
 mod time;
@@ -112,10 +118,10 @@ pub struct Timed {
     pub receipt: CommitReceipt,
 }
 
-/// What one `advance_timed` or collection feedback call did: the commits in order, each at its due
-/// time; the clock afterwards — the requested time, or the last time reached
-/// before a refusal (or, advancing until a request, the due time of the timer
-/// that sent it); and that refusal, if any. Commits before a refusal are
+/// What one `advance_timed` or collection feedback call did: the commits in order, each at the time
+/// it committed (on a seek clock its due time); the clock afterwards — the requested time, or the
+/// last time reached before a refusal or, advancing until a request, at the timer that sent it
+/// (on a live clock, the last sample if later); and that refusal, if any. Commits before a refusal are
 /// kept: they are in the kernel, and a host must show them.
 #[derive(Debug)]
 pub struct Advanced {
@@ -226,27 +232,6 @@ pub enum RunnerError {
     },
 }
 
-impl From<Trap> for RunnerError {
-    fn from(t: Trap) -> Self {
-        RunnerError::Trap(t)
-    }
-}
-
-impl From<InstanceError> for RunnerError {
-    fn from(e: InstanceError) -> Self {
-        match e {
-            InstanceError::SlotType { slot } => RunnerError::SlotType { slot },
-            other => RunnerError::Instance(other),
-        }
-    }
-}
-
-impl From<KernelError> for RunnerError {
-    fn from(e: KernelError) -> Self {
-        RunnerError::Kernel(e)
-    }
-}
-
 #[derive(Clone)]
 struct ResourceState {
     args: Vec<Value>,
@@ -327,6 +312,8 @@ pub struct StreamCount {
     pub messages: u64,
     /// Messages the host dropped for a newer one before delivery.
     pub coalesced: u64,
+    /// A two-way socket's state (LLP 1016.000 D7); `None` for a listener.
+    pub socket: Option<SocketState>,
 }
 
 impl PendingReq {
@@ -372,6 +359,8 @@ pub struct Runner<D: DataSource> {
     tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
+    /// The wide colours the queued patches hold, kept from the table's sweep.
+    reorder_kept: exact_kernel::style::wide::Keep,
     /// The session the owner's token names (LLP 1094 D4).
     reorder_session: Option<Box<reorder_group::Session>>,
     /// A grouped drop's source while its `reorderdrop` runs (D2).
@@ -379,8 +368,7 @@ pub struct Runner<D: DataSource> {
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
-    /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4).
-    presenting: bool,
+    clock: advance::Clock,
     batch: u64,
     commands: Vec<Command>,
     /// `scrollIntoView` commands an action stated, run after its update.
@@ -433,6 +421,10 @@ pub struct Runner<D: DataSource> {
     held_edges: Vec<u32>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
+    /// Socket operations of commits that stood, since the last take (D7).
+    sockets: Vec<crate::SocketSend>,
+    /// The host's live count of a socket's buffered bytes (D7), if it has one.
+    socket_reader: Option<sockets::SocketReader>,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
@@ -825,12 +817,13 @@ impl<D: DataSource> Runner<D> {
             tree: None,
             reorder_owner: None,
             reorder_ops: Vec::new(),
+            reorder_kept: Default::default(),
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),
             now_ms,
             timers: Vec::new(),
-            presenting: false,
+            clock: Default::default(),
             batch: 0,
             commands: Vec::new(),
             sounds: Default::default(),
@@ -865,6 +858,8 @@ impl<D: DataSource> Runner<D> {
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),
+            sockets: Vec::new(),
+            socket_reader: None,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),
             overlays: Vec::new(),
@@ -1401,8 +1396,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
-        if !self.reorder_ops.is_empty() {
-            let mut prefix = std::mem::take(&mut self.reorder_ops);
+        // The queued patches' colours stay kept until this commit marks them.
+        let (mut prefix, _queued) = self.take_reorder_ops();
+        if !prefix.is_empty() {
             prefix.append(&mut ops);
             ops = prefix;
         }

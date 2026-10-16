@@ -90,26 +90,22 @@ lto = "fat"
 
 [profile.dev]
 opt-level = 0
-debug = true
+# File and line for panics and backtraces, without variables and types for a
+# debugger: a one-line kernel edit rebuilds the workspace's targets in about a
+# third less CPU, and `target/debug` is half the size. For lldb, build with
+# `CARGO_PROFILE_DEV_DEBUG=true`.
+debug = "line-tables-only"
 
-# The logic data sources' wasm interpreter: a test spends a source's whole fuel
-# budget (tens of millions of instructions), which unoptimized takes seconds.
-[profile.dev.package.wasmi]
-opt-level = 3
-[profile.dev.package.wasmi_core]
-opt-level = 3
-[profile.dev.package.wasmi_ir]
-opt-level = 3
-[profile.dev.package.wasmi_collections]
-opt-level = 3
-
-# Keep the CPU rasterizer's per-pixel loops fast during development and tests.
-[profile.dev.package.tiny-skia]
-opt-level = 3
-
-# Keep WGSL translation fast: each GPU painter translates vello's shaders
-# through naga, which unoptimized was a third of the Linux host's test CPU.
-[profile.dev.package.naga]
+# Every dependency outside the workspace is optimized, as the game workspace's
+# are: tests spend much of their time in them, and nobody steps through them.
+# That covers the logic sources' wasm interpreter (a test spends a source's
+# whole fuel budget), the CPU rasterizer's per-pixel loops, naga translating
+# vello's shaders for every GPU painter, PNG and image bytes, font discovery and
+# parsing, and the filesystem helper's base64 JSON. Across the heaviest test
+# binaries it saved 16% of their CPU; a cold, uncached build of the Linux host's
+# tests takes 63% more CPU, paid once per dependency change. The workspace's
+# own crates stay unoptimized for debugging, except the three below.
+[profile.dev.package."*"]
 opt-level = 3
 
 # Keep number text's own tests fast: they hold its parsing and printing to
@@ -122,27 +118,9 @@ opt-level = 3
 [profile.dev.package.exact-route]
 opt-level = 3
 
-# Keep PNG screenshot and image byte loops fast in the same development loop.
-[profile.dev.package.png]
-opt-level = 3
-[profile.dev.package.miniz_oxide]
-opt-level = 3
-[profile.dev.package.crc32fast]
-opt-level = 3
-
-# Keep font discovery and parsing fast for headless development and tests.
-[profile.dev.package.fontique]
-opt-level = 3
-[profile.dev.package.read-fonts]
-opt-level = 3
-
 # The tooling filesystem helper carries every dev generation's bytes as
 # base64 JSON; unoptimized, decoding a megabyte is most of an edit's latency.
 [profile.dev.package.exact-filesystem]
-opt-level = 3
-[profile.dev.package.serde_json]
-opt-level = 3
-[profile.dev.package.base64]
 opt-level = 3
 
 # Development native builds — an Apple app (`host/apple/build.mjs` unless the

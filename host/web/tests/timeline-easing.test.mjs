@@ -341,10 +341,16 @@ check('a real commit rebinds a spring follower on the wasm and JS runtimes', asy
   try {
     writeFileSync(resolve(tmp, 'follower.contract'), FOLLOWER_SOURCE);
     run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'follower.contract'), '-o', plan]);
-    run(process.execPath, ['host/web/build.mjs', 'interaction-gallery', '--render', 'none'], { EXACT_WEB_DIST: jsDist });
-    run(process.execPath, ['host/web/build.mjs', 'interaction-gallery', '--wasm'], { EXACT_WEB_DIST: wasmDist });
-    for (const [target, dist] of [['wasm', wasmDist], ['js', jsDist]]) {
-      session = await open({ host: 'web', plan, app: 'interaction-gallery', webDist: dist });
+    // Use the lane's prepared Caltrain builds when both paths are set (the plan reads no app data), else build
+    // Interaction Gallery's
+    const { EXACT_MOTION_DIST: preparedWasm, EXACT_WEB_JS_DIST: preparedJs } = process.env;
+    const prepared = Boolean(preparedWasm && preparedJs), app = prepared ? 'caltrain' : 'interaction-gallery';
+    if (!prepared) {
+      run(process.execPath, ['host/web/build.mjs', app, '--render', 'none'], { EXACT_WEB_DIST: jsDist });
+      run(process.execPath, ['host/web/build.mjs', app, '--wasm'], { EXACT_WEB_DIST: wasmDist });
+    }
+    for (const [target, dist] of [['wasm', prepared ? resolve(preparedWasm) : wasmDist], ['js', prepared ? resolve(preparedJs) : jsDist]]) {
+      session = await open({ host: 'web', plan, app, webDist: dist });
       await session.clock('settle');
       const read = () => session.carrier.evaluate(`(() => {
         const vector = id => { const v=getComputedStyle(document.querySelector('[data-testid="'+id+'"]')).translate.trim().split(/\\s+/); return v[0]==='none'?[0,0]:[parseFloat(v[0]),parseFloat(v[1]??'0')]; };

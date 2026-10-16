@@ -24,6 +24,9 @@ import UIKit
 
 final class PointerRecognizer: UIGestureRecognizer {
     weak var node: NodeView?
+    /// A sheet mount's observer for the presented route's logical
+    /// ancestors: its node is the listener each touch resolves to.
+    weak var relay: MountRelay?
     private var touch: UITouch?
     /// The held touch's id, DOM's `pointerId`: the mouse is 1, so a touch
     /// counts on from 2, a new one for each contact.
@@ -47,7 +50,8 @@ final class PointerRecognizer: UIGestureRecognizer {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
-        guard touch == nil, let first = touches.first, let node, !node.disabled, !nearer(first.view) else { return }
+        if touch == nil, let relay { node = relay.listener(touches.first?.view) { $0.wantsPointer } }
+        guard touch == nil, let first = touches.first, let node, !node.disabled, relay != nil || !nearer(first.view) else { return }
         touch = first
         touchId += 1
         buttons = first.type == .indirectPointer ? Self.domButtons(event.buttonMask) : 1
@@ -95,6 +99,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         guard let held = touch, touches.contains(held) else { return }
         touch = nil
         if let node, node.handlers.contains("pointerup") { node.presenter?.pointer(node.id, .up, sample(held, lifted: true)) }
+        if relay != nil { node = nil }
         state = .failed
     }
     override func reset() {
@@ -150,6 +155,11 @@ final class PressContact {
     var responderUsesCanvas = false
     var cancelled = false
     var cancelledByReparenting = false
+    /// Bubbled in from a presentation's mount to a logical ancestor behind
+    /// it, which is inert behind the presentation but still hears a click
+    /// bubbling from it (HTML: inertness keeps a node from being the target,
+    /// not its listeners from the bubbling), unless authored inert.
+    var bubbled = false
     init(_ touch: UITouch, incarnation: UInt64) {
         self.touch = touch; self.incarnation = incarnation
     }
@@ -180,15 +190,28 @@ extension NodeView {
     /// UIView forwards to `next`. Only Exact's inserted overflow wrapper is
     /// skipped: UIScrollView otherwise swallows the authored ancestor's down.
     private var pressResponder: UIResponder? {
+        // A presented route's touches go on to its logical parent, as a
+        // click bubbles to the document's ancestors (LLP 1123 D2): UIKit's
+        // chain leaves the session at the sheet's controllers
+        if let presenter, let parent = presenter.touchParent(of: self), parent !== superview { return parent }
         var responder = next
         while let plain = responder as? PlainView { responder = plain.next }
         if let scroll = responder as? ScrollView, let owner = scroll.superview as? NodeView, owner.scroll === scroll { return owner }
         return responder
     }
+    /// Whether a touch is inside what it presses this node through: its own
+    /// box (`pressInside`), or, bubbled out of a sheet, the content it hit
+    /// (`Presenter.pressBox`).
+    private func pressLands(_ touch: UITouch) -> Bool {
+        guard let start = touch.view.map({ Self.innermost($0) ?? $0 }), let box = presenter?.pressBox(of: self, from: start), box !== self else {
+            return pressInside(touch)
+        }
+        return box.bounds.contains(touch.location(in: box))
+    }
     private func currentPressContact(_ touches: Set<UITouch>) -> PressContact? {
         guard let contact = pressContact, contact.incarnation == incarnation, let held = contact.touch,
               touches.contains(where: { $0 === held }) else { return nil }
-        if disabled || inert { cancelPressContact() }
+        if disabled || (contact.bubbled ? authoredInert : inert) { cancelPressContact() }
         return contact.cancelled ? nil : contact
     }
     /// Retirement, reparenting and disable cancel the old chain while its
@@ -223,8 +246,9 @@ extension NodeView {
         guard let touch = touches.first else { return }
         cancelPressContact()
         let contact = PressContact(touch, incarnation: incarnation)
+        contact.bubbled = touch.view.map { !$0.isDescendant(of: self) && presenter?.modals.mounts($0) == true } ?? false
         pressContact = contact
-        guard !disabled, !inert else { cancelPressContact(); return }
+        guard !disabled, !(contact.bubbled ? authoredInert : inert) else { cancelPressContact(); return }
         if let touch = touches.first, let target = presenter?.svg.target(id, at: local(touch.location(in: nil))) {
             svgPressed = target; return
         }
@@ -248,7 +272,7 @@ extension NodeView {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self, event: event) == true { return }
         guard let contact = currentPressContact(touches) else { return }
         inlinePressed = nil; linkPressed = nil
-        if pressed { pressFollows(inside: touches.first.map(pressInside) ?? false) } else { contact.destination?.touchesMoved(touches, with: event) }
+        if pressed { pressFollows(inside: touches.first.map(pressLands) ?? false) } else { contact.destination?.touchesMoved(touches, with: event) }
     }
     package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self, event: event) == true { return }
@@ -275,7 +299,7 @@ extension NodeView {
         // it lowers the keyboard, and under `resizes-content` that moves this
         // control (a composer's toolbar) out from under the finger at once.
         let ownsPress = pressed
-        let inside = ownsPress && (touches.first.map(pressInside) ?? false)
+        let inside = ownsPress && (touches.first.map(pressLands) ?? false)
         // The press's target settles the focus, its hit resolved, from the
         // node the touch landed in; a touch that presses nothing settles it
         // where it landed (`focusForPress`).
@@ -332,7 +356,7 @@ extension NodeView {
     /// from the one it hit up; `activationTarget` resolves it.
     var takesPress: Bool {
         handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || isSurfaceControl
-            || isNativeButton && (props["commandfor"]?.isEmpty == false || props["popovertarget"]?.isEmpty == false)
+            || isNativeButton && presenter?.invocation(of: self) != nil
     }
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {
@@ -341,10 +365,11 @@ extension NodeView {
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }
             if let n = cur as? NodeView, n.takesPress {
-                guard n.bounds.contains(n.local(windowPoint)) else { return nil }
+                let box = presenter?.pressBox(of: n, from: self) ?? n
+                guard box.bounds.contains(box === n ? n.local(windowPoint) : box.convert(windowPoint, from: nil)) else { return nil }
                 return n
             }
-            v = cur.superview
+            v = presenter?.touchParent(of: cur) ?? cur.superview
         }
         return nil
     }
@@ -372,12 +397,12 @@ extension NodeView {
             }
             at = view.superview
         }
-        if presenter.hasKeyboardEditor { presenter.viewport.endEditing(true) }
+        if presenter.hasKeyboardEditor { presenter.endEditing() }
     }
     /// A finger's touch bubbling from this node reaches a node it pressed
     private var pressesAnAncestor: Bool {
-        var at = superview
-        while let view = at { if (view as? NodeView)?.pressed == true { return true }; at = view.superview }
+        var at = presenter?.touchParent(of: self) ?? superview
+        while let view = at { if (view as? NodeView)?.pressed == true { return true }; at = presenter?.touchParent(of: view) ?? view.superview }
         return false
     }
     /// The node a touch landed in: its view, or that view's nearest node

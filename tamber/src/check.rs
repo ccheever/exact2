@@ -23,6 +23,12 @@ pub struct Checked {
     pub values: Vec<Folded>,
     /// The dials it depends on, in declaration order.
     pub dials: Vec<String>,
+    /// The tokens its values name, the default's and every `when` line's,
+    /// by their names here, in declaration order.
+    pub names: Vec<String>,
+    /// Marked `scheme=fixed`: one colour in every scheme by design, which the
+    /// one-scheme warning leaves alone.
+    pub fixed: bool,
 }
 
 /// A dial's folded default.
@@ -47,6 +53,8 @@ struct Checker<'a> {
     /// Folded (token, tuple), or `None` when it refused.
     memo: HashMap<(usize, usize), Option<Folded>>,
     used: Vec<BTreeSet<usize>>,
+    /// Per token, the tokens its values named as they folded.
+    refs: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
     /// Tokens refused as declared, which are not folded.
     refused: Vec<bool>,
@@ -72,6 +80,7 @@ pub(crate) fn check(
         radix: Vec::new(),
         memo: HashMap::new(),
         used: vec![BTreeSet::new(); design.tokens.len()],
+        refs: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
         refused: vec![false; design.tokens.len()],
         refused_names: HashSet::new(),
@@ -105,6 +114,7 @@ pub(crate) fn check(
             }
         }
         c.unselected(i);
+        let fixed = c.scheme(t, &values);
         let role = c.role_key(&t.name.value).map(|(name, _)| name);
         out.push((
             i,
@@ -115,6 +125,8 @@ pub(crate) fn check(
                 role,
                 values,
                 dials: Vec::new(),
+                names: Vec::new(),
+                fixed,
             },
         ));
     }
@@ -130,6 +142,13 @@ pub(crate) fn check(
             token.dials = c.used[i]
                 .iter()
                 .map(|&d| design.dials[d].name.value.clone())
+                .collect();
+            token.names = c.refs[i]
+                .iter()
+                .map(|&j| {
+                    let name = &design.tokens[j].name.value;
+                    c.role_key(name).map_or(name.clone(), |(_, row)| row)
+                })
                 .collect();
             token
         })
@@ -151,6 +170,59 @@ pub(crate) fn check(
 }
 
 impl<'a> Checker<'a> {
+    /// Whether `t` is marked `scheme=fixed`, refusing the mark on a token
+    /// whose value differs between the schemes in some tuple (a pair with two
+    /// sides, a role or a platform colour, which follow the scheme) and any
+    /// other `scheme=` word.
+    fn scheme(&mut self, t: &Token, values: &[Folded]) -> bool {
+        let words: Vec<&String> = t
+            .meta
+            .iter()
+            .filter(|(k, _)| k == "scheme")
+            .map(|(_, v)| v)
+            .collect();
+        let Some(&word) = words.first() else {
+            return false;
+        };
+        let (line, col) = (t.name.line, t.name.col);
+        if words.len() > 1 {
+            self.errors.push(Diagnostic::new(
+                "tamber-scheme-fixed",
+                format!(
+                    "`{}` says `scheme=` more than once: write `scheme=fixed` once",
+                    t.name.value
+                ),
+                line,
+                col,
+            ));
+            return false;
+        }
+        if word != "fixed" {
+            self.errors.push(Diagnostic::new(
+                "tamber-scheme-fixed",
+                format!("`scheme={word}`: the one mark is `scheme=fixed`, a token one colour in every scheme"),
+                line,
+                col,
+            ));
+            return false;
+        }
+        let differs = values.iter().any(|v| match v {
+            Folded::One(_) => false,
+            Folded::Pair(light, dark) => !same(*light, *dark),
+            Folded::Host(_) => true,
+        });
+        if differs {
+            self.errors.push(Diagnostic::new(
+                "tamber-scheme-fixed",
+                format!("`{}` is marked `scheme=fixed` but its value differs between light and dark: drop the mark, or give it one colour", t.name.value),
+                line,
+                col,
+            ));
+            return false;
+        }
+        true
+    }
+
     fn finish(mut self) -> Vec<Diagnostic> {
         self.errors
             .sort_by(|a, b| (a.line, a.col, a.id).cmp(&(b.line, b.col, b.id)));
@@ -880,6 +952,9 @@ impl Names for Scope<'_, '_> {
                 .copied()
         });
         if let Some(j) = token {
+            if let Some(&i) = c.stack.last() {
+                c.refs[i].insert(j);
+            }
             return c.value(j, self.tuple).map(Named::Color).ok_or_else(quiet);
         }
         if let Some((_, value)) = c.dials.get(name) {

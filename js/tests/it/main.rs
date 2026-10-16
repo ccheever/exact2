@@ -16,6 +16,7 @@ mod overlay;
 mod pinned_engines;
 mod pure;
 mod render;
+mod socket;
 mod storage;
 mod superseded;
 mod windows_lean;

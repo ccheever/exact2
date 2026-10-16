@@ -25,7 +25,7 @@ extension Presenter {
     /// Whether `node`'s shortcut may take `key` (the web's name) with the
     /// modifiers `held` (`KeyCodes.held`), the focus being `focus`.
     func shortcutAdmits(_ node: NodeView, key: String, held: String, focus: NodeView?) -> Bool {
-        if let modal = shortcutModal, node !== modal, !node.isDescendant(of: modal) { return false }
+        if let modal = shortcutModal, !logicallyWithin(node, modal) { return false }
         if held.isEmpty, key == "Enter" || key == " " || key == "Space", let focus, focus !== node,
            focus.isButton || focus.handlers.contains("press") { return false }
         return true

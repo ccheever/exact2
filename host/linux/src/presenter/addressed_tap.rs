@@ -169,13 +169,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node(id) else {
             return false;
         };
-        let invoker = (node.node_type == NodeType::Pressable
-            || exact_kernel::ControlKind::of(node.node_type, node.props)
-                == Some(exact_kernel::ControlKind::Button))
-            && node
-                .props
-                .str(PropId::Popovertarget)
-                .is_some_and(|t| !t.is_empty());
+        let invoker = exact_kernel::Invocation::of(self.host.kernel(), &node).is_some();
         let control = node.node_type == NodeType::Control
             && !matches!(node.props.str(PropId::Type), Some("button" | "progress"));
         invoker

@@ -422,6 +422,7 @@ fn theme_map(plan: &Plan) -> Option<String> {
             .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
     );
     let (mut names, mut roles) = (Vec::new(), Vec::new());
+    let varying = crate::modes::properties(plan);
     for row in &plan.theme {
         let value = plan.str(row.value);
         let Some(colour) = exact_kernel::ColorValue::parse_light_dark(value)
@@ -437,6 +438,10 @@ fn theme_map(plan: &Plan) -> Option<String> {
         }
         let mut css = String::new();
         exact_kernel::gradient::color_css(&mut css, colour);
+        // A token that varies by an app axis is its property (LLP 1121 D7).
+        if let Some((_, prop)) = varying.iter().find(|(n, _)| n == plan.str(row.name)) {
+            css = format!("var({prop})");
+        }
         names.push(format!(
             "{}:{}",
             serde_json::to_string(plan.str(row.name)).unwrap(),
@@ -456,9 +461,14 @@ fn theme_map(plan: &Plan) -> Option<String> {
     // gradient's stops and a shadow's colour are components, read as names.
     // A comment, a `url()` or a quoted string is copied through whole.
     Some(format!(
-        r#"((N,R)=>{{const F=/\/\*[\s\S]*?\*\/|url\(\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w.\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{if(m[0].slice(-1)!=="("){{o+=M(v.slice(at,m.index))+m[0];at=F.lastIndex;continue}}let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}const f=v.slice(m.index,j);o+=M(v.slice(at,m.index))+(Object.hasOwn(N,f)?N[f]:f);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}})"#,
+        r#"((N,R,H)=>{{const F=/\/\*[\s\S]*?\*\/|url\(\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^)]*)\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w.\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?H(N[t]):Object.hasOwn(R,t.toLowerCase())?H(R[t.toLowerCase()]):t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{if(m[0].slice(-1)!=="("){{o+=M(v.slice(at,m.index))+m[0];at=F.lastIndex;continue}}let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}const f=v.slice(m.index,j);o+=M(v.slice(at,m.index))+(Object.hasOwn(N,f)?H(N[f]):f);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}},{})"#,
         names.join(","),
-        roles.join(",")
+        roles.join(","),
+        // Whether a row read a token, which a mode boundary asks (modes.js).
+        match crate::modes::active(plan) {
+            true => "v=>((globalThis.exact??={}).$th=1,v)",
+            false => "v=>v",
+        }
     ))
 }
 
@@ -1123,6 +1133,55 @@ pub(crate) mod tests {
                 "{id:?}: {observed}"
             );
         }
+    }
+
+    #[test]
+    fn grid_refusals_keep_declarations_but_absent_values_remove_them() {
+        let cases: Vec<_> = [
+            (StyleId::GridTemplateColumns, "40px 1fr", "subgrid [rails]"),
+            (StyleId::GridTemplateRows, "40px 1fr", "repeat(10001, 1px)"),
+            (StyleId::GridColumn, "1 / span 2", "10001"),
+            (StyleId::GridRow, "1 / span 2", "span 10001"),
+            (StyleId::GridAutoFlow, "row dense", "inherit"),
+            (StyleId::JustifyItems, "center", "left legacy"),
+        ]
+        .into_iter()
+        .map(|(id, valid, refused)| {
+            let writes = style_writes(id as u16, false).unwrap();
+            (writes[0].map.unwrap(), valid, refused)
+        })
+        .collect();
+        let script = format!(
+            r#"import {{ mock }} from 'bun:test';
+import {{ strict as assert }} from 'node:assert';
+const journal = [];
+mock.module('./rt.js', () => ({{ normal: (_, v) => v, say: line => journal.push(line) }}));
+const {{ gridValue }} = await import('./grid.js');
+for (const [source, valid, refused] of {}) {{
+  const map = eval(`(${{source}})`);
+  assert.equal(map(null), null);
+  assert.equal(map(undefined), undefined);
+  assert.equal(map(valid), valid);
+  for (const value of [refused, '']) {{
+    const before = journal.length;
+    assert.equal(map(value), 'unset', source);
+    assert.equal(journal.length, before + 1);
+    assert.ok(journal.at(-1).startsWith('unset '));
+    assert.ok(journal.at(-1).includes(JSON.stringify(value)));
+  }}
+}}"#,
+            serde_json::to_string(&cases).unwrap()
+        );
+        let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]

@@ -135,17 +135,16 @@ package class ScrollView: UIScrollView {
             target = view.superview
         }
         super.touchesEnded(touches, with: event)
-        // A blur is the session's (LLP 1035.001 D5): its viewport's, never the
-        // window's — found through the nearest node above a nested scroller;
-        // the viewport itself has none above it and is its own.
+        // A blur is the session's (LLP 1035.001 D5): wherever it is mounted,
+        // never the window's — found through the nearest node above a nested
+        // scroller; the viewport itself has none above it and is its own.
         if let t = touches.first, bounds.contains(t.location(in: self)) {
-            var viewport: UIView = self
             var above = superview
             while let current = above {
-                if let node = current as? NodeView, let owned = node.presenter?.viewport { viewport = owned; break }
+                if let node = current as? NodeView, let presenter = node.presenter { presenter.endEditing(); return }
                 above = current.superview
             }
-            viewport.endEditing(true)
+            endEditing(true)
         }
     }
 }
@@ -360,7 +359,7 @@ extension NodeView {
         writeScrollPosition(in: sv, left: pendingScrollLeft, top: pendingScrollTop, animated: smooth, titleSlack: true)
     }
 
-    /// Convert a logical write only after native layout. A collection can
+    /// Convert a logical write only after native layout. UIKit can
     /// invalidate its offset when that write collapses the navigation title;
     /// settle that one inset transition and apply the same intent once more.
     private func writeScrollPosition(in sv: UIScrollView, left: Double?, top: Double?, animated: Bool, titleSlack: Bool) {
@@ -376,7 +375,7 @@ extension NodeView {
         guard sv.contentOffset != initial else { return }
         let inset = sv.adjustedContentInset.top
         sv.setContentOffset(initial, animated: animated)
-        if groupedOwner, !animated, sv.adjustedContentInset.top != inset {
+        if !animated, sv.adjustedContentInset.top != inset {
             sv.layoutIfNeeded()
             let settled = target()
             if sv.contentOffset != settled { sv.setContentOffset(settled, animated: false) }

@@ -11,7 +11,12 @@ use exact_plan::Value;
 impl<D: DataSource> Runner<D> {
     /// The window's app modes: each axis of the plan with its value.
     pub fn modes(&self) -> Vec<(String, String)> {
-        let mut rest = self.ids.theme.window;
+        self.modes_of(self.ids.theme.window)
+    }
+
+    /// Tuple `tuple`'s modes: each axis of the plan with its value.
+    fn modes_of(&self, tuple: u32) -> Vec<(String, String)> {
+        let mut rest = tuple;
         let mut out: Vec<(String, String)> = Vec::new();
         for axis in self.plan.axes.iter().rev() {
             let values: Vec<&str> = self.plan.str(axis.values).split('|').collect();
@@ -168,6 +173,53 @@ impl<D: DataSource> Runner<D> {
         value: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         self.set_modes(&[(axis, value)])
+    }
+
+    /// `view`'s `style` row as D7's index holds it, for `layout <node>`:
+    /// the tokens it read (the theme's names its text names), its text, the
+    /// tuple it was set in as `axis=value` by commas, and whether a boundary
+    /// set it (an implied row) rather than a binding. `None` when it read no
+    /// token.
+    pub fn row_token(
+        &self,
+        view: exact_kernel::ViewId,
+        style: exact_kernel::StyleId,
+    ) -> Option<(Vec<String>, String, String, bool)> {
+        let row = self.ids.theme.row(view, style)?;
+        let text = match &row.text {
+            t @ exact_plan::str_value!() => t.text().to_string(),
+            other => {
+                let mut s = String::new();
+                crate::agent::untyped_json(other, &mut s);
+                s
+            }
+        };
+        // The entries a parse of its text reads in its tuple, each by its
+        // token's name (an override read by a role's spelling too).
+        let tuple = crate::bridge::set_tuple(row.tuple);
+        let mut scratch = exact_kernel::StyleProps::default();
+        let (_, read) = exact_kernel::style::theme::recorded(|| {
+            crate::bridge::set_plan_style(&mut scratch, style as u16, &row.text, &self.plan)
+        });
+        crate::bridge::set_tuple(tuple);
+        let mut names: Vec<String> = Vec::new();
+        for entry in read {
+            let token = self.plan.theme.iter().find(|t| {
+                *self.plan.str(t.name) == *entry
+                    || self.plan.str(t.role).eq_ignore_ascii_case(&entry)
+            });
+            let name = token.map_or(entry.to_string(), |t| self.plan.str(t.name).to_string());
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let modes = self
+            .modes_of(row.tuple)
+            .into_iter()
+            .map(|(a, v)| format!("{a}={v}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        Some((names, text, modes, row.implied))
     }
 
     /// The window's modes as JSON, `{"axis": "value", …}`, for a host's reply.

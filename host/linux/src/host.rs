@@ -754,6 +754,7 @@ impl<D: DataSource> Host<D> {
         }
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
+        self.runner.set_socket_reader(executor.socket_reader());
         executor
     }
 
@@ -907,14 +908,7 @@ impl<D: DataSource> Host<D> {
                 || visibility.1
                 || node.style.display == exact_kernel::Display::None
                 || node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
-                || node
-                    .props
-                    .str(exact_kernel::PropId::Commandfor)
-                    .is_some_and(|target| !target.is_empty())
-                || node
-                    .props
-                    .str(exact_kernel::PropId::Popovertarget)
-                    .is_some_and(|target| !target.is_empty())
+                || exact_kernel::Invocation::of(self.kernel(), &node).is_some()
             {
                 return false;
             }
@@ -1324,10 +1318,13 @@ impl<D: DataSource> Host<D> {
         // bits (LLP 1002 D3; LLP 1012 §2).
         for t in receipts {
             // A pointer sample may advance presentation past an overdue timer.
-            // Keep runner due-time order, but never replay the engine backwards.
+            // Keep runner due-time order, but never replay the engine backwards,
+            // nor run it past the host's clock: a live runner observes an
+            // input's commit at a sample after the input's time, and the
+            // gesture that follows (a release ending its hold) runs on at it.
             let seek = self
                 .engine
-                .advance((t.at_ms / 1000.0).max(self.engine.now()));
+                .advance((t.at_ms.min(self.now_ms) / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let sync = self.runner.kernel().motion_sync(&t.receipt);
             let applied = sync.apply(&mut self.engine);

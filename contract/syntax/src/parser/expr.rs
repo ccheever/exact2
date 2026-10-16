@@ -157,6 +157,7 @@ impl Parser {
                     let mut args = vec![e];
                     args.extend(self.call_args()?);
                     self.built(below.max(self.last), span)?;
+                    self.methods.push((field.clone(), span));
                     e = Expr::Call(field, args, span);
                     continue;
                 }
@@ -172,6 +173,7 @@ impl Parser {
             self.built(self.last, span)?;
             // `xs.length` is `length(xs)`; a shape declares no field of that name.
             e = if field == "length" {
+                self.methods.push((field.clone(), span));
                 Expr::Call(field, vec![e], span)
             } else {
                 Expr::Member(Box::new(e), field, span)
@@ -442,9 +444,11 @@ impl Parser {
                 view_depth: self.view_depth,
                 last: 0,
                 free: Vec::new(),
+                methods: Vec::new(),
             };
             let e = sub.expr()?;
             self.free.append(&mut sub.free);
+            self.methods.append(&mut sub.methods);
             deepest = deepest.max(sub.last);
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
                 return sub.err("syntax-template-expr", "unexpected token in `${…}`");

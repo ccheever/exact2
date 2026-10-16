@@ -66,7 +66,7 @@ impl<D: DataSource> Host<D> {
             .iter()
             .rev()
             .find(|(_, r)| r.contains(x, y))
-            .map(|(id, _)| *id);
+            .map(|(id, ..)| *id);
         found.is_some_and(|id| self.press_run(id))
     }
 
@@ -106,7 +106,7 @@ impl<D: DataSource> Host<D> {
             .iter()
             .rev()
             .find(|(_, r)| r.contains(x, y))
-            .map(|(id, _)| *id)
+            .map(|(id, ..)| *id)
     }
 
     /// A mouse press at a screen cell. With a layer open, a press anywhere
@@ -115,7 +115,7 @@ impl<D: DataSource> Host<D> {
     pub fn click(&mut self, x: i32, y: i32) {
         let Some(local) = self.local(y) else { return };
         let hit = self.hit(x, y);
-        if let Some((top, _)) = self.layers.last().copied() {
+        if let Some((top, ..)) = self.layers.last().copied() {
             let inside = self.presented.layer.is_some_and(|r| r.contains(x, local));
             if !inside {
                 let any = self

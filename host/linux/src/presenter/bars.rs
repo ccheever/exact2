@@ -231,6 +231,7 @@ impl<D: DataSource> Presenter<D> {
         let row = shape::row(kernel, &node, false);
         // The colour its author wrote on it wins (LLP 1115: author >
         // platform); one it only inherits leaves Material's.
+        let _accent = crate::paint::accent_scope(&node);
         let tint = (node.style.written.has(exact_kernel::StyleId::TextColor))
             .then(|| crate::paint::rgba(node.text_color().resolve(dark)));
         Some(Button {
@@ -480,7 +481,9 @@ impl<D: DataSource> Presenter<D> {
                 // Read before the tab's press, scrolled after it.
                 let root = self.reselected_root(node);
                 if (self.host.runner().handlers_of(node)).contains(&EventKind::Press) {
-                    self.dispatch_press(node, now_ms, true);
+                    self.press_then_follow(node, now_ms, true);
+                } else if let Some(key) = self.host.kernel().node(node).map(|n| n.key) {
+                    self.follow_invocation(key, node, now_ms);
                 }
                 let scroller = root
                     .filter(|route| self.reselected_root(node) == Some(*route))

@@ -15,8 +15,10 @@ final class ClickFocusMacTests: XCTestCase {
     /// A page (1) holding a field (2, `field`), a native button (3), a custom
     /// `button` (4), a pressable box (5, a card), a box with a `key` handler
     /// (6), a pressable box with a `tabindex` (7), a `key` box under a
-    /// `retainFocus` box (9 in 8), a disabled custom button (10) and, below
-    /// them all, empty ground.
+    /// `retainFocus` box (9 in 8), a disabled custom button (10), a native
+    /// button with a `tabindex` (12), a custom button with `tabindex=-1` (13,
+    /// a dialog's backdrop as it is written) and, below them all, empty
+    /// ground.
     private func fixture() -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
@@ -46,7 +48,8 @@ final class ClickFocusMacTests: XCTestCase {
                 ["op": "children", "id": 8, "ids": [9]]]
         ops += row(10, "button", ["id": "off", "disabled": "true"], handlers: ["press"], y: 290)
         ops += row(12, "control", ["type": "button", "id": "nativeStop", "tabIndex": "0"], handlers: ["press"], style: ["appearance": "auto"], y: 330)
-        ops += [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 10, 12]], ["op": "roots", "ids": [1]]]
+        ops += row(13, "button", ["id": "backdrop", "tabIndex": "-1"], handlers: ["press"], y: 370)
+        ops += [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 10, 12, 13]], ["op": "roots", "ids": [1]]]
         p.apply(wireBatch(ops))
         p.flushKeyViewLoop()
         // The window server routes a click to a window that is on screen; it is never made key.
@@ -265,17 +268,35 @@ final class ClickFocusMacTests: XCTestCase {
         // And a click on a button from there leaves it on the box.
         click(try XCTUnwrap(p.views[4]))
         XCTAssertTrue(window.firstResponder === stop)
-        // A native button whose author wrote a `tabindex` takes a click's focus too; one without does not.
-        let native = try XCTUnwrap(p.controls.controls[12] as? NativeButtonMac)
-        XCTAssertTrue(native.needsPanelToBecomeKey)
-        XCTAssertFalse(try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac).needsPanelToBecomeKey)
+        XCTAssertEqual(pressed, [7, 4])
+    }
+
+    /// A button takes no click's focus whatever its `tabindex`, custom or
+    /// native, as a clicked `NSButton` takes none: a dialog's backdrop
+    /// written `button tabindex=-1` leaves the field its editor, and the
+    /// press still runs.
+    func testAButtonWithATabindexTakesNoClicksFocus() throws {
+        let p = fixture()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let backdrop = try XCTUnwrap(p.views[13]), native = try XCTUnwrap(p.controls.controls[12] as? NativeButtonMac)
+        XCTAssertFalse(backdrop.takesClickFocus)
+        XCTAssertFalse(native.needsPanelToBecomeKey)
+        let editor = try edit(p)
+        click(backdrop)
+        XCTAssertTrue(window.firstResponder === editor, "the field keeps its editor")
         click(try XCTUnwrap(p.views[12]))
-        XCTAssertTrue(window.firstResponder === native, "the author's tabindex wins on a native button")
-        XCTAssertEqual(pressed, [7, 4, 12])
-        click(try XCTUnwrap(p.views[3]))
-        XCTAssertTrue(window.firstResponder === native, "and a plain one leaves the focus there")
-        p.apply(wireBatch([["op": "props", "id": 12, "set": ["retainFocus": "true"]]]))
-        XCTAssertFalse(native.needsPanelToBecomeKey, "retainFocus keeps the focus where it was")
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertEqual(pressed, [13, 12])
+        // With nothing focused, the click focuses neither.
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        click(backdrop)
+        click(try XCTUnwrap(p.views[12]))
+        XCTAssertNil(p.focusedNode)
+        XCTAssertEqual(pressed, [13, 12, 13, 12])
+        // `focus()` still reaches it.
+        p.focusElement(["backdrop"])
+        XCTAssertTrue(window.firstResponder === backdrop)
     }
 
     func testAnActionsFocusStillMovesTheFocusToAButton() throws {

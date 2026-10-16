@@ -191,6 +191,22 @@ queues, reconnect and account retirement. There is no Snapback asset-upload API
 in this checkout: the deterministic losing-cancellation output witness is Exact's
 native storage adapter. No new Snapback media feature or qualification is claimed.
 
+## Local patch, upstream-bound: a socket's buffered message count
+
+Exact's runner-owned sockets (LLP 1016.000 D7) refuse a mutation's batch
+whole when the transport could not queue it. Both transports bound their
+outbound queue at 256 messages as well as 16 MiB and, past either, close the
+connection while `send_*` returns `Ok` (WHATWG's "full"), so a caller cannot
+refuse first without the count. The patch adds
+`MessageSender::buffered_messages()` (default 0) in
+`crates/ibex2/src/stdlib/websocket.rs`, implemented by the portable
+`TcpSender` (`queued_messages`) and by `DarwinSender` through a new
+`ibex2_darwin_ws_buffered_messages` in `transport/darwin_websocket.mm`
+(`pendingMessages`, read under the socket's lock). It is additive; no
+existing behaviour changes. To go upstream to expo/ibex; replay it on a
+refresh until it is there. Consumer: `host/apple/src/executor_socket.rs`
+(`Core::socket`) and its scripted test.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

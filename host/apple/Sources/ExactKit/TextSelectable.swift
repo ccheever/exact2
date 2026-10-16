@@ -36,7 +36,8 @@ extension NodeView {
         var document = false, chrome = false
         var current: AncestorView? = self
         while let view = current {
-            current = view.superview
+            // Through a presented route's logical parents (LLP 1123 D2)
+            current = presenter?.eventParent(of: view) ?? view.superview
             guard let node = view as? NodeView else { continue }
             switch node.style["user_select"]?.string {
             case "none": return false
@@ -62,7 +63,7 @@ extension NodeView {
     #if !os(macOS)
     /// Whether a press here does something: its own action, its link, or
     /// the popover or command a button names (the Mac's `pressable`).
-    var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
+    var pressable: Bool { handlers.contains("press") || defaultLink != nil || presenter?.invocation(of: self) != nil }
     #endif
     #if os(tvOS)
     // tvOS has no text selection (`TextSelectionIOS.swift` is iOS's).

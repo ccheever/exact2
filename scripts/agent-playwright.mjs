@@ -196,6 +196,22 @@ export function playwrightPointer({ name, move, down, up, wait }) {
   return phase;
 }
 
+/** Idle browsers that `poolBrowsers` keeps between drives, by engine and launch options; null when not pooling. */
+let pool = null;
+const shut = async ({ browser, server }) => { await browser?.close().catch(() => {}); await server?.close().catch(() => {}); };
+
+/** Keep each engine's browser between this process's drives. Every drive still gets its own context (cookies,
+ * storage, cache, permissions) and page, and a browser that disconnected is replaced. Conformance's targets share
+ * browsers this way; every other drive launches its own. The returned function closes the kept browsers. */
+export function poolBrowsers() {
+  pool ??= new Map();
+  return async () => {
+    const idle = [...(pool?.values() ?? [])].flat();
+    pool = null;
+    await Promise.all(idle.map(shut));
+  };
+}
+
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
  * deterministic runner/motion clock; Playwright carries only browser IO. */
 export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '' }) {
@@ -203,7 +219,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   const facts = givenFacts ?? launchFacts({});
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
   const hosted = await files({ plan, pageURL, app, webDist });
-  let browserServer, browser, context, page;
+  let browserServer, browser, context, page, poolKey;
   // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
   const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
   const closeFiles = () => {
@@ -213,19 +229,31 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   try {
     const playwright = await import('playwright-core');
     const net = netOptions();
-    browserServer = await playwright[name].launchServer({ headless: true, ...net.launch,
-      ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
-    onProcess?.(browserServer.process());
-    browser = await playwright[name].connect(browserServer.wsEndpoint());
+    poolKey = JSON.stringify([name, net.launch]);
+    let held = pool?.get(poolKey)?.pop();
+    while (held && !held.browser.isConnected()) { await shut(held); held = pool?.get(poolKey)?.pop(); }
+    if (held) ({ server: browserServer, browser } = held);
+    else {
+      browserServer = await playwright[name].launchServer({ headless: true, ...net.launch,
+        ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
+      onProcess?.(browserServer.process());
+      browser = await playwright[name].connect(browserServer.wsEndpoint());
+    }
     context = await browser.newContext({ ...net.context, viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: false /* fine pointer and hover, as Chrome's oracle; input is the mouse's */, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
     page = await context.newPage();
   } catch (error) {
-    await browser?.close().catch(() => {});
-    await browserServer?.close().catch(() => {});
+    await context?.close().catch(() => {});
+    await shut({ browser, server: browserServer });
     closeFiles();
     throw unavailable(name, error);
   }
-  const close = async () => { await browser.close().catch(() => {}); await browserServer.close().catch(() => {}); closeFiles(); };
+  // Return a pooled browser for the next drive once this drive's context is gone
+  const close = async () => {
+    await context.close().catch(() => {});
+    if (pool && browser.isConnected()) pool.set(poolKey, [...(pool.get(poolKey) ?? []), { server: browserServer, browser }]);
+    else await shut({ browser, server: browserServer });
+    closeFiles();
+  };
   try {
     page.on('console', msg => hostLines.push(`console.${msg.type()}: ${msg.text()}`));
     page.on('pageerror', error => hostLines.push(`exception: ${error.stack ?? error.message}`));

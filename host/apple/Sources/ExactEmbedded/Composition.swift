@@ -12,6 +12,12 @@ import ExactSurfaces
 #if EXACT_LINK_DRAG
 import ExactDrag
 #endif
+#if EXACT_LINK_MEDIA_PICKER
+import ExactMediaPicker
+#endif
+#if EXACT_LINK_AUTH_SESSION
+import ExactAuthSession
+#endif
 public enum ExactComposition {
     public static let app: ExactApp = {
         // The linked capabilities' Swift halves (LLP 1047.001 D4), before
@@ -27,6 +33,12 @@ public enum ExactComposition {
         #endif
         #if EXACT_LINK_DRAG
         ExactDrag.install()
+        #endif
+        #if EXACT_LINK_MEDIA_PICKER
+        ExactMediaPicker.install()
+        #endif
+        #if EXACT_LINK_AUTH_SESSION
+        ExactAuthSession.install()
         #endif
         let app = ExactApp.shared
         return app

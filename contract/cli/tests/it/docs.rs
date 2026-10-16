@@ -2,7 +2,9 @@
 //! `contract` block in `docs/*.md`, the recipes (`docs/recipes/*.md`, LLP
 //! 1116 D3) and `README.md` compiles with no diagnostics, and each
 //! `contract-test` block parses. A deliberately partial block is fenced
-//! `text`. Every failure is reported in one run. So does every starter
+//! `text`. A `tamber` block is checked as a design, and is the design of
+//! the `contract` blocks after it in its section (LLP 1121 D2). Every
+//! failure is reported in one run. So does every starter
 //! pattern (`docs/patterns/<name>/`, LLP 1116.001 D3), and the async lane
 //! runs each one's tests in an app `exact new` made.
 
@@ -17,6 +19,9 @@ pub(crate) struct Block {
     pub(crate) info: String,
     pub(crate) body: String,
     pub(crate) contract: Option<String>,
+    /// The nearest `tamber` block before it in the same section: the app's
+    /// design (`app.tamber`, LLP 1121 D2), which a `contract` block names.
+    pub(crate) design: Option<String>,
     /// The `<!-- check: … -->` marker on the line before the fence, if any:
     /// `app`, `route <name>` or `file`. Marked blocks are parts of one app
     /// and are compiled assembled, not one by one.
@@ -58,6 +63,7 @@ pub(crate) fn blocks() -> Vec<Block> {
             .to_path_buf();
         let mut open: Option<(usize, String, String)> = None;
         let mut contract: Option<String> = None;
+        let mut design: Option<String> = None;
         let mut marker: Option<String> = None;
         let mut pending: Option<String> = None;
         let mut split: Vec<(String, String)> = Vec::new();
@@ -72,6 +78,7 @@ pub(crate) fn blocks() -> Vec<Block> {
                             info: std::mem::take(info),
                             body: std::mem::take(body),
                             contract: contract.clone(),
+                            design: design.clone(),
                             check: pending.take(),
                         };
                         if block.info == "ts" && after_split {
@@ -80,6 +87,9 @@ pub(crate) fn blocks() -> Vec<Block> {
                                 .map(|(c, b)| (c.as_str(), b.as_str()))
                                 .collect();
                             block.contract = Some(assemble(&parts).0);
+                        }
+                        if block.info == "tamber" {
+                            design = Some(block.body.clone());
                         }
                         if block.info == "contract" {
                             contract = Some(block.body.clone());
@@ -107,6 +117,7 @@ pub(crate) fn blocks() -> Vec<Block> {
                             .map(|m| m.trim().to_string());
                         if line.starts_with('#') {
                             contract = None;
+                            design = None;
                             after_split = false;
                         }
                     }
@@ -202,9 +213,26 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
                         std::fs::write(&file, wav()).unwrap();
                     }
                 }
+                // A design shown before it in its section is the app's.
+                let tamber = dir.join("app.tamber");
+                match &block.design {
+                    Some(design) => std::fs::write(&tamber, design).unwrap(),
+                    None => {
+                        let _ = std::fs::remove_file(&tamber);
+                    }
+                }
                 if let Err(all) = contract::compile_path_source_all(&path, &block.body, false) {
                     for e in all {
                         failures.push(format!("{}: [{}] {}", at(e.span.line), e.id, e.message));
+                    }
+                }
+            }
+            "tamber" => {
+                parsed += 1;
+                if let Err(all) = exact_tamber::check(&block.body, &contract_lower::tamber_vocab())
+                {
+                    for d in all {
+                        failures.push(format!("{}: [{}] {}", at(d.line), d.id, d.message));
                     }
                 }
             }

@@ -347,6 +347,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     if let Some(e) = error {
         eprintln!("exact: {e}");
     }
+    // The display's clock owns time (the timers RFC, D1)
+    p.set_live_clock(Some(crate::presenter::wall_since(started)));
     let mut input = Input::open();
     let mut vnc = match config.vnc.as_deref() {
         Some(addr) => match Vnc::start(addr, pw, ph) {

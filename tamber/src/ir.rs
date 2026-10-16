@@ -122,6 +122,9 @@ pub(crate) fn write(f: &Folding) -> String {
             Some(r) => string(r, &mut body),
             None => body.push_str("null"),
         }
+        if t.fixed {
+            body.push_str(", \"scheme\": \"fixed\"");
+        }
         // D5's mode key: distinct values, and per full tuple an index into
         // them when the token varies.
         let mut values: Vec<String> = Vec::new();

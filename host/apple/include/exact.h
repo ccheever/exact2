@@ -438,8 +438,14 @@ typedef struct { double x, y, width, height; uint32_t available; } ExactInlineFr
 typedef ExactInlineFrame (*ExactInlineFrameFn)(void *ctx, uint32_t view);
 void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, void *ctx);
 /* Open top-layer views in back-to-front order, with viewport x/y/width/height
- * in four doubles per id. Structural reads use their actual presentation. */
-void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, uint32_t count);
+ * in four doubles per id: where the host shows each, a block's root by its
+ * block's rectangle (the root sits in it by its own frame) and any other view
+ * by its border box, before its own CSS transform, which the runner applies.
+ * Structural reads use their actual presentation. `modal` is the index of
+ * the first view of the frontmost modal presentation, or UINT32_MAX while
+ * none is open: it and the views after it are live, and the views before it
+ * and the page are inert behind it. */
+void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, uint32_t count, uint32_t modal);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
@@ -540,6 +546,10 @@ uint32_t exact_start_on_frame(ExactRuntime rt, uint32_t on, double at_ms);
 /* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
  * agent's clock takes over, whose advances then fire virtual frames. */
 uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
+/// The presenter's clock owns time (`wall`, milliseconds in the runner's
+/// domain), or the agent's seekable one does (NULL): the timers RFC, D1.
+typedef double (*ExactWallFn)(void);
+uint32_t exact_set_live_clock(ExactRuntime rt, ExactWallFn wall);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */

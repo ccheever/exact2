@@ -42,9 +42,14 @@ its time counts too.
   - Browsers: an event or a promise, or the agent's `clock settle` and virtual
     time.
 - **Poll only when nothing notifies, and poll cheaply.** Every 50–100 ms, with a
-  limit of tens of seconds that only stops hanging tests. A check that something
-  did *not* happen should wait until the work it watches has ended (a count of
-  operations in flight, a join) and then check.
+  limit of tens of seconds that only stops hanging tests. A shorter interval can
+  be considered for state that is cheap to read in the test's own process, when
+  the poll significantly affects the test's speed. In a browser,
+  `setTimeout(fn, 0)` is already throttled and coalesced: HTML clamps it to at
+  least 4 ms once nested five deep, and browsers slow and batch the timers of a
+  hidden page. A check that something did *not* happen should wait until the
+  work it watches has ended (a count of operations in flight, a join) and then
+  check.
 - **Keep waits simple.** A wait reads as one condition and one bound. If
   observing an event needs a new hook, the hook is small and read-only (for
   example `Module::storage_in_flight`).
@@ -79,6 +84,15 @@ its time counts too.
   fixture with the debug `contract` binary the lane's build step has built, run
   directly; not `cargo run --release`, and not a `cargo run` per fixture. The
   compiler's output does not depend on its build profile.
+- **An app's Rust tests are its data crate's.** An app's logic and its Rust tests
+  live in `apps/<app>/data`; its `web`, `linux`, `apple` and `android` crates are
+  host shells, tested mainly by driving the app (conformance, the smokes,
+  `scripts/agent.mjs`). A workspace package without tests sets `test = false`
+  and `bench = false` on its library and each binary target, so `cargo test
+  --tests` and `cargo build --all-targets` build no empty test binary for it;
+  remove both settings when adding the package's first test. `bun scripts/caps.mjs` checks this both ways from
+  a scan of the package's sources, so a test that a macro or a generated file
+  produces needs a reviewer's eye.
 
 ## UI tests
 
@@ -111,6 +125,15 @@ its time counts too.
   at background QoS, where the kernel coalesces timers: a 10 ms sleep takes
   60–90 ms and every wait inflates. Measure from a terminal or an interactive
   launchd job.
+- **Measure with a pruned `target/`.** Cargo never deletes old object files
+  from `target/debug/deps`, and on macOS a test that touches the main bundle
+  lists that directory, so hundreds of thousands of files there cost seconds
+  of system time per test process.
+- **Gatekeeper scans each newly built binary when it first runs.** After a
+  kernel edit, the scans added about 95–130% to the wall time of rebuilding
+  and running ten packages' Rust tests. Adding the program that starts the
+  test processes (a terminal, say) to System Settings → Privacy & Security →
+  Developer Tools skips them.
 - **Find the bottleneck first.** Time each binary and each test (`cargo test`
   binaries with `-Zunstable-options --report-time` under `RUSTC_BOOTSTRAP=1`;
   the XCTest per-case lines; `bun test`'s per-test times). A binary's wall time

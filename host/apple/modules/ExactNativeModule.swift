@@ -216,6 +216,17 @@ open class ExactModule {
     }
     /// The session is ending; its views are already gone.
     open func destroy() {}
+    /// The Mac app is quitting (⌘Q, the app menu, an Apple Event, SIGTERM,
+    /// the last window closing) and no `beforeunload` kept it: start the
+    /// work the quit must wait for (stop a child process, flush a socket),
+    /// off the main thread, and call `done` when it has finished, from any
+    /// thread. The quit waits for every session's module and the storage
+    /// in flight, five seconds at most in all (LLP 1097 D10, LLP 1069.010
+    /// Q4); `destroy()` follows whether or not the work finished, and
+    /// force-ends what is still running (SIGKILL a child) without waiting.
+    /// Called once, on the main thread, never on iOS or tvOS. Dropping
+    /// `done` uncalled counts as calling it. By default, done at once.
+    open func willQuit(done: @escaping () -> Void) { done() }
     /// The host's side of the hatches, once it has connected (LLP 1075.003).
     var hatches: ExactHatches?
     /// A node the Contract marks `hatch="word"` (LLP 1075.003.000), on every
@@ -1098,6 +1109,32 @@ private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<
     }
 }
 
+/// `done(ctx)` exactly once: when the module calls it, or when it lets the
+/// closure go without calling it.
+private final class QuitDone: @unchecked Sendable {
+    private let lock = NSLock()
+    private var called = false
+    private let ctx: UnsafeMutableRawPointer?
+    private let fn: @convention(c) (UnsafeMutableRawPointer?) -> Void
+    init(ctx: UnsafeMutableRawPointer?, fn: @escaping @convention(c) (UnsafeMutableRawPointer?) -> Void) { self.ctx = ctx; self.fn = fn }
+    func call() {
+        let first = lock.withLock { () -> Bool in
+            defer { called = true }
+            return !called
+        }
+        if first { fn(ctx) }
+    }
+    deinit { call() }
+}
+
+/// `will_quit(module, ctx, done)`: the quit's work (macOS); `done(ctx)` once, any thread.
+private let moduleWillQuit: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, (@convention(c) (UnsafeMutableRawPointer?) -> Void)?) -> Void = { raw, ctx, fn in
+    guard let fn else { return }
+    let done = QuitDone(ctx: ctx, fn: fn)
+    guard let m = module(raw) else { return done.call() }
+    m.willQuit { done.call() }
+}
+
 private let prepareForReuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { raw in
     guard let h = handle(raw) else { return 1 }
     do { try h.instance.prepareForReuse(); return 0 } catch { return 1 }
@@ -1344,7 +1381,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 208
+    let size = 216
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1373,6 +1410,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleApp, to: UnsafeRawPointer.self), toByteOffset: 184, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleWindow, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleTick, to: UnsafeRawPointer.self), toByteOffset: 200, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleWillQuit, to: UnsafeRawPointer.self), toByteOffset: 208, as: UnsafeRawPointer.self)
     return t
 }()
 

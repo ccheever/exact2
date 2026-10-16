@@ -18,6 +18,9 @@ mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+mod modes;
+#[cfg(test)]
+mod modes_tests;
 mod paint;
 #[cfg(test)]
 mod paint_tests;

@@ -158,11 +158,10 @@ extension TextArea {
 
 #if os(iOS) || os(tvOS)
 extension Presenter {
-    /// Applies a `fieldContent` op, in its batch or replayed when a sheet that
-    /// held it closes (`ModalHost.deferGeometry`). A content box touches its
-    /// node here, where it takes effect: the paragraph laid out in it, and a
-    /// native button's face, whose padding the kernel resolved with it, asked
-    /// for again at the next controls sync (a batch's, or the replay's).
+    /// Applies a `fieldContent` op. A content box touches its node here,
+    /// where it takes effect: the paragraph laid out in it, and a native
+    /// button's face, whose padding the kernel resolved with it, asked for
+    /// again at the next controls sync.
     func applyContentGeometry(_ v: NodeView, _ op: BatchOp) {
         v.applyFieldContent(op.payload)
         touched(v.id, textChanged: true)

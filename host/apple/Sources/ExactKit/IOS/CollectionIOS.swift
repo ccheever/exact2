@@ -348,6 +348,18 @@ extension CollectionHost {
         }
         return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
     }
+    /// Pins the row under a finger in `port`, the viewport or a presentation's
+    /// mount (LLP 1123 D2), so a list's window keeps it for the contact.
+    @discardableResult
+    func watchContacts(in port: UIView) -> UIGestureRecognizer {
+        let recognizer = CollectionContact(target: nil, action: nil)
+        recognizer.collections = self
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        port.addGestureRecognizer(recognizer)
+        return recognizer
+    }
     func focusedView() -> UInt32? {
         presenter?.views.values.first(where: {
             $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true
@@ -355,12 +367,7 @@ extension CollectionHost {
     }
     func startTracking() {
         guard let viewport = presenter?.viewport else { return }
-        let recognizer = CollectionContact(target: nil, action: nil)
-        recognizer.collections = self
-        recognizer.cancelsTouchesInView = false
-        recognizer.delaysTouchesBegan = false
-        recognizer.delaysTouchesEnded = false
-        viewport.addGestureRecognizer(recognizer)
+        let recognizer = watchContacts(in: viewport)
         let observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
             object: nil, queue: .main) { [weak self] _ in self?.releaseInteractionLater() }
         stopTracking = { [weak viewport] in

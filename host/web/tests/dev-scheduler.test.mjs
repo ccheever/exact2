@@ -1,6 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, watchFile, unwatchFile, statSync, utimesSync, symlinkSync} from 'node:fs';
+import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync, watch, renameSync, statSync, utimesSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {open, Cdp} from '../../../scripts/agent.mjs';
@@ -451,49 +451,60 @@ test('GPU reloads refresh their includes while retaining the current app input g
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test('declared source files report in-place edits after inclusion and replacement', async () => {
+test('declared source files report in-place edits after inclusion and replacement', () => {
+  // The dev loop polls each declared file's metadata (`watchFile`) and debounces a build (`setTimeout`). The test
+  // stats the real files itself and runs the debounce at once, so what it checks holds at any machine speed
   const dir=mkdtempSync(join(tmpdir(),'exact-source-watch-'));
   let api;
   try {
     const src=join(dir,'logic'), main=join(src,'lib.rs'), extra=join(src,'extra.rs');
     mkdirSync(src);mkdirSync(join(dir,'target'));writeFileSync(join(dir,'app.json'),'{}');
     writeFileSync(main,'one');writeFileSync(extra,'unused');
+    const polled=new Map(), timers=new Map();
+    const stats=path=>statSync(path,{bigint:true,throwIfNoEntry:false})??{dev:0n,ino:0n,size:0n,mtimeNs:0n,ctimeNs:0n};
+    const fakeWatchFile=(path,_options,listener)=>polled.set(path,{listener,previous:stats(path)});
+    const fakeUnwatchFile=path=>polled.delete(path);
+    let nextTimer=0;
+    const fakeSetTimeout=fn=>{timers.set(++nextTimer,fn);return nextTimer;}, fakeClearTimeout=id=>timers.delete(id);
+    // Poll every watched file, then run the pending build timers
+    const settle=()=>{
+      for(const [path,record] of polled){const previous=record.previous;record.previous=stats(path);record.listener(record.previous,previous);}
+      for(const [id,fn] of [...timers]){timers.delete(id);fn();}
+    };
     const start=source.indexOf('const watched=new Map();'),end=source.indexOf('\nwatchCompilerInputs();',start);
-    api=new Function('app','main','watch','resolve','existsSync','watchFile','unwatchFile',`
+    api=new Function('app','main','watch','resolve','existsSync','watchFile','unwatchFile','setTimeout','clearTimeout',`
       const source=resolve(app.dir,'app.contract'),skipped=/(^|\\/)(target|dist)(\\/|$)/;
       const builtReceipts=[{binary:{inputs:[{path:main}],directories:[],missing:[]}}];
       const contractGraph=()=>({files:new Set()});
       const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
-      let built=()=>{};const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();built();};let timer;
+      const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();};let timer;
       ${source.slice(start,end)}
       watchCompilerInputs();
-      return {changed,builds,build:()=>new Promise(r=>{built=r;}),add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
-        has:path=>watched.has(path),close(){clearTimeout(timer);for(const record of watched.values())record.close();}};
-    `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,watchFile,unwatchFile);
-    const edit=async(path,text,atomic=false)=>{
-      const count=api.builds.length,build=api.build();
+      return {changed,builds,add(path){gpuInputs.add(path);watchCompilerInputs();},remove(path){gpuInputs.delete(path);watchCompilerInputs();},
+        has:path=>watched.has(path),close(){for(const record of watched.values())record.close();}};
+    `)({dir,manifest:{game:{}}},main,watch,resolve,existsSync,fakeWatchFile,fakeUnwatchFile,fakeSetTimeout,fakeClearTimeout);
+    const edit=(path,text,atomic=false)=>{
+      const count=api.builds.length;
       if(text===null)unlinkSync(path);
       else if(atomic){const temp=path+'.new';writeFileSync(temp,text);renameSync(temp,path);}
       else writeFileSync(path,text);
-      await build; // the build the save requests; the test's timeout is the hang bound
-      assert.deepEqual(api.builds[count],[path],`save was not observed: ${path}`);
-      await Bun.sleep(1000);
-      assert.equal(api.builds.length,count+1,'one save requests one build');
+      settle();
+      assert.deepEqual(api.builds.slice(count),[[path]],`one save of ${path} requests one build of it`);
     };
     api.add(extra);
-    await edit(extra,'included');
-    await edit(extra,'replaced',true);
-    await edit(extra,'edited again');
-    await edit(extra,null);
-    await edit(extra,'recreated',true);
-    await edit(extra,'edited after recreation');
+    edit(extra,'included');
+    edit(extra,'replaced',true);
+    edit(extra,'edited again');
+    edit(extra,null);
+    edit(extra,'recreated',true);
+    edit(extra,'edited after recreation');
     api.remove(extra);assert.equal(api.has(extra),false,'obsolete file watches close');
     const count=api.builds.length;writeFileSync(extra,'no longer included');
     writeFileSync(join(dir,'target/output.rs'),'output');
-    writeFileSync(join(dir,'notes.txt'),'unrelated');await Bun.sleep(1000);
+    writeFileSync(join(dir,'notes.txt'),'unrelated');settle();
     assert.deepEqual([...api.changed],[],'output and unrelated files do not rebuild');
     assert.equal(api.builds.length,count,'ignored edits do not build');
   } finally {api?.close();rmSync(dir,{recursive:true,force:true});}
-},60_000); // a hang bound: six one-second quiet windows plus waits on the builds themselves
+});

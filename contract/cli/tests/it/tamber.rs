@@ -859,3 +859,136 @@ fn a_mode_is_written_axis_equals_value_and_a_colon_is_refused() {
         "{journal:?}"
     );
 }
+
+/// LLP 1121 D7 — `layout <node>` shows the token beside each row's value,
+/// from the runner's index: what it named, its text, the tuple it was set
+/// in, and whether a boundary set it.
+#[test]
+fn layout_of_a_node_names_the_token_each_row_read() {
+    let path = app(
+        "layout",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      column testId=\"card\" -exact-mode=\"dark-style=dim\"\n        text \"b\"\n"),
+        ],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    let node = |id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        let view = r.kernel().node_by_key(key).unwrap().id;
+        exact_runner::agent::handle(&r, &format!("{{\"op\":\"node\",\"id\":{view}}}"))
+    };
+    let page = node("page");
+    assert!(
+        page.contains("\"token\":{\"names\":[\"page\"],\"text\":\"page\",\"modes\":\"dark-style=black\",\"implied\":false}"),
+        "{page}"
+    );
+    let card = node("card");
+    assert!(
+        card.contains("\"token\":{\"names\":[\"ink\"],\"text\":\"ink\",\"modes\":\"dark-style=dim\",\"implied\":true}"),
+        "{card}"
+    );
+}
+
+/// The names `layout` shows are the entries the row's parse read, each by its
+/// token's name: never another whose bit or text it shares, and an override
+/// read by its role's spelling under the name the design gave it.
+#[test]
+fn layout_names_exactly_the_tokens_a_row_read() {
+    let path = app(
+        "layout-names",
+        &[
+            ("app.tamber", "tamber t\n\ntheme\n  brand = #c8102e\n  brand.label = #00aa00\n  secondary-label = light-dark(#111111, #eeeeee)\n"),
+            ("app.contract", "component App\n  view\n    column\n      text \"a\" testId=\"label\" color=\"brand.label\"\n      text \"b\" testId=\"role\" color=\"-exact-secondary-label\"\n"),
+        ],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    let node = |id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        let view = r.kernel().node_by_key(key).unwrap().id;
+        exact_runner::agent::handle(&r, &format!("{{\"op\":\"node\",\"id\":{view}}}"))
+    };
+    let label = node("label");
+    assert!(label.contains("\"names\":[\"brand.label\"]"), "{label}");
+    let role = node("role");
+    assert!(role.contains("\"names\":[\"secondary-label\"]"), "{role}");
+}
+
+/// LLP 1121 stage 4, commit 1 (theme2's condition): what publishing a
+/// kernel's wide-colour mark after every changed commit costs on the normal
+/// write path. Run in release, by hand: `cargo test --release -p contract
+/// --test it wide_mark_cost -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn wide_mark_cost() {
+    use exact_kernel::style::wide::{Holder, WideMark};
+    // `WIDE_MARK_HEX=1` runs the same app in 8-bit colours, so no mark is
+    // ever taken: the baseline.
+    let hex = std::env::var("WIDE_MARK_HEX").is_ok_and(|v| v == "1");
+    let p3 = if hex {
+        MODES.to_string()
+    } else {
+        MODES
+            .replace("#ffffff", "color(display-p3 1 1 1)")
+            .replace("#000000", "color(display-p3 0 0 0)")
+            .replace("#161e27", "color(display-p3 0.09 0.12 0.15)")
+            .replace("#111111", "color(display-p3 0.07 0.07 0.07)")
+            .replace("#eeeeee", "color(display-p3 0.93 0.93 0.93)")
+            .replace("#cccccc", "color(display-p3 0.8 0.8 0.8)")
+    };
+    let border = if hex {
+        "`#${i % 10}0${i % 7}0${i % 9}0`"
+    } else {
+        "`color(display-p3 ${i / 1000} 0.5 0.5)`"
+    };
+    let window = if hex {
+        "`#${j % 10}0${j % 7}0${j % 9}0`"
+    } else {
+        "`color(display-p3 0.5 ${j / 1000} 0.5)`"
+    };
+    let rows: Vec<String> = (0..1000).map(|i| i.to_string()).collect();
+    // Each row also carries its own wide colour: 1,000 distinct styles. A
+    // second list of 200 windowed rows shifts by 10 a commit, as a scroll
+    // mounts and retires rows.
+    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  state n = 0\n  action flip\n    dim = not dim\n  action bump\n    n = n + 1\n  state start = 0\n  action shift\n    start = start + 10\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      button press=bump testId=\"bump\"\n        text `${{n}}`\n      button press=shift testId=\"shift\"\n        text \"shift\"\n      for j in rows.slice(start, start + 200) key=j\n        text `w${{j}}` border-color={window} border-width=1\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\" border-color={border} border-width=1\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
+    let path = app(
+        "wide-mark-cost",
+        &[("app.tamber", &p3), ("app.contract", &view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let id = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    let (flip, bump, shift) = (id(&r, "flip"), id(&r, "bump"), id(&r, "shift"));
+    let time = |f: &mut dyn FnMut()| {
+        let started = std::time::Instant::now();
+        for _ in 0..50 {
+            f();
+        }
+        started.elapsed() / 50
+    };
+    let switch = time(&mut || {
+        r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    });
+    let small = time(&mut || {
+        r.dispatch(bump, exact_runner::Event::Press).unwrap();
+    });
+    let scroll = time(&mut || {
+        r.dispatch(shift, exact_runner::Event::Press).unwrap();
+    });
+    let k = r.kernel_mut();
+    let mark = time(&mut || {
+        std::hint::black_box(k.wide_mark());
+    });
+    // The union rebuilt from every style's cached slots, as after styles go.
+    let rebuild = time(&mut || {
+        k.trim();
+    });
+    let holder = Holder::new();
+    let publish = time(&mut || holder.publish(WideMark::default()));
+    eprintln!(
+        "wide colours {}; Dim switch {switch:?}; one-text commit {small:?}; window shift {scroll:?}; mark (cached) {mark:?}; trim incl. rebuilt mark {rebuild:?}; publish {publish:?}",
+        exact_kernel::style::wide::used()
+    );
+}

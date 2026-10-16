@@ -384,8 +384,9 @@ final class NavigationBarIOSTests: XCTestCase {
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
-    /// image item drawn from it; a popover's invoker is an item whose menu
-    /// holds the popover's rows, each pressing its authored button.
+    /// image item drawn from it; a popover's invoker is an item whose menu,
+    /// titled by the popover's `aria-label`, holds the popover's rows, each
+    /// pressing its authored button.
     func testABadgeButtonIsAnImageItemAndAPopoverInvokerAMenuItem() throws {
         let session = try fixture("bar-badge-menu", module: false)
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
@@ -401,7 +402,10 @@ final class NavigationBarIOSTests: XCTestCase {
         let more = try XCTUnwrap(left.first { $0.accessibilityLabel == "More" }, "the popover's invoker is an item")
         let menu = try XCTUnwrap(more.menu, "with the popover as its menu")
         XCTAssertNil(more.action, "UIKit opens the menu on a tap")
-        XCTAssertTrue(menu.children.first is UIDeferredMenuElement, "rows read as it opens")
+        let section = try XCTUnwrap(menu.children.first as? UIMenu, "the popover's `aria-label` titles a section")
+        XCTAssertEqual(section.title, "Actions")
+        XCTAssertTrue(section.options.contains(.displayInline), "an inline section's heading, not the taller top-level title")
+        XCTAssertTrue(section.children.first is UIDeferredMenuElement, "rows read as it opens")
         let pop = try XCTUnwrap(session.presenter.carrying("popover").first { $0.props["id"] == "bar-menu" })
         let rows = session.presenter.menus.items(of: pop)
         let row = try XCTUnwrap(rows.first as? UIAction)

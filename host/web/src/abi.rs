@@ -45,10 +45,13 @@ pub struct Bridge<D: DataSource> {
     links: crate::HostLinks<D>,
     /// A `pan` contact's samples, for its release velocity (LLP 1057 §10.6).
     pan: crate::pan_velocity::PanVelocity,
+    /// The page's clock while it owns time, kept for every boot (`clock.rs`)
+    live_clock: Option<fn() -> f64>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
 
+mod clock;
 mod mode;
 
 impl<D: DataSource> Bridge<D> {
@@ -64,6 +67,7 @@ impl<D: DataSource> Bridge<D> {
             launch_facts: exact_runner::time::Launch::NONE,
             links: crate::HostLinks::CORE,
             pan: crate::pan_velocity::PanVelocity::new(),
+            live_clock: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -310,6 +314,7 @@ impl<D: DataSource> Bridge<D> {
         match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
+                self.give_clock();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -347,6 +352,7 @@ impl<D: DataSource> Bridge<D> {
         match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
+                self.give_clock();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -1150,6 +1156,8 @@ macro_rules! host {
                 b.boot_plan(len as usize, ($new)(), width, height, &launch)
             })
         }
+
+        $crate::live_clock_export!(EXACT_BRIDGE);
 
         /// Metadata for the optional browser module loader.
         #[no_mangle]

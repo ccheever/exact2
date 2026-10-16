@@ -204,6 +204,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
+    /// What `setAccessibilityHidden` last wrote (`Accessibility.swift`).
+    var accessibilityHiddenWritten = false
     package var inert: Bool { inert(forAccessibility: false) }
     var accessibilityInert: Bool { inert(forAccessibility: true) }
     private func inert(forAccessibility: Bool) -> Bool {
@@ -229,14 +231,14 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package var canvases: Canvases? { presenter?.session?.canvases }
 
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
-    var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
+    var pressable: Bool { handlers.contains("press") || defaultLink != nil || presenter?.invocation(of: self) != nil }
     /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
     var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged() } } }
     /// A focused field whose ring Exact draws (LLP 1104 D6; `showFieldFocus`).
     var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
     /// A key down's default action at a focused node; its `key` handlers
     /// heard it before AppKit delivered it (`Presenter.keyDown`, KeyEvents.swift).
-    /// Space on a pressable fires `press`; Return is the default button's (LLP 1115.000 D7.3), and here only follows a focused link, as Safari does.
+    /// Space on a pressable fires `press`; Return is the default button's (LLP 1115.000 D7.3), and here only follows a focused link, as Safari does, or chooses a menu's row (`choosesOnReturn`).
     package override func keyDown(with event: NSEvent) {
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
@@ -256,11 +258,12 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
-        if isButton, !pressable, name == " " {
+        let presses = name == " " || name == "Enter" && choosesOnReturn
+        if isButton, !pressable, presses {
             activateNative()
             return
         }
-        if pressable, props["href"] == nil ? name == " " : name == "Enter" {
+        if pressable, props["href"] == nil ? presses : name == "Enter" {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
@@ -361,9 +364,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// child as on the web (`controlAccessibilityChildren`). An image or a
     /// range is a leaf.
     package override func accessibilityChildren() -> [Any]? {
-        if props["accessibilityElementsHidden"] == "true" { return [] }
+        if props["accessibilityElementsHidden"] == "true" || accessibilityHiddenWritten { return [] }
         if actsAsButton { return controlAccessibilityChildren() }
-        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? exposed(super.accessibilityChildren())
     }
     /// The viewport's projected children must point back to it. Otherwise
     /// moving to a modal's authored container exposes the page behind it.
@@ -894,6 +897,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         guard pendingScrollTop != nil || pendingScrollLeft != nil else { return }
+        cancelElementScroll()
         let y = pendingScrollTop.map { CGFloat($0) == sv.contentView.bounds.minY ? sv.contentView.bounds.minY : min(max(CGFloat($0), 0), max(0, doc.bounds.height - sv.contentView.bounds.height)) } ?? sv.contentView.bounds.minY
         let x = pendingScrollLeft.map { CGFloat($0) == sv.contentView.bounds.minX ? sv.contentView.bounds.minX : min(max(CGFloat($0), 0), max(0, doc.bounds.width - sv.contentView.bounds.width)) } ?? sv.contentView.bounds.minX
         let target = NSPoint(x: x, y: y)
@@ -1369,10 +1373,13 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // pressable leaves the first responder where it is, as a click on an
     // `NSButton` does, and so does one nothing consumes, which reaches the
     // viewport (LLP 1115.000 D7.1; `takesClickFocus`, FocusMac.swift).
+    // An assistive app's press runs once AppKit's request has returned, as an
+    // inline run's does (`InlineAccessibility.accessibilityPerformPress`).
     package override func accessibilityPerformPress() -> Bool {
         if isSurfaceControl { return control("down") && control("up") }
         guard !disabled, !inert, pressable else { return false }
-        presenter?.press(id); return true
+        DispatchQueue.main.async { [weak self] in if let self { self.presenter?.press(self.id) } }
+        return true
     }
     package override func mouseDown(with event: NSEvent) {
         guard !inert else { return }

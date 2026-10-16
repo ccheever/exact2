@@ -368,6 +368,28 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(commands.count, 3)
     }
 
+    /// A native button that invokes a popover answers its shortcut with no
+    /// handler, as on the Mac; one whose target names nothing does not.
+    func testAHandlerlessNativeInvokersShortcutIsAKeyCommand() throws {
+        let native: [String: Any] = ["appearance": "auto", "text_color": [0, 0, 0, 255]]
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "control", "handlers": [], "style": native,
+             "props": ["type": "button", "accessibilityRole": "button", "accessibilityKeyShortcuts": "Meta+k", "popovertarget": "more"]],
+            ["op": "create", "id": 3, "kind": "control", "handlers": [], "style": native,
+             "props": ["type": "button", "accessibilityRole": "button", "accessibilityKeyShortcuts": "Meta+j", "popovertarget": "nothing"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["id": "more", "popover": "auto"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 44.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 50.0, "w": 100.0, "h": 44.0],
+        ])
+        let commands = p.shortcutCommands(#selector(UIResponder.resignFirstResponder))
+        XCTAssertNotNil(commands.first { $0.input == "k" }, "it invokes the popover")
+        XCTAssertNil(commands.first { $0.input == "j" }, "it invokes nothing")
+    }
+
     /// LLP 1115.000 D12.5: the bar's title is a heading by its role. An
     /// `aria-level` with no `role="heading"` gets no heading style from the
     /// compiler (which warns, `lower-level-without-heading`), and the bar

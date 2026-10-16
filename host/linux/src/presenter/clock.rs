@@ -1,6 +1,16 @@
 //! The agent's clock (LLP 1012 `clock`): the runner's timers and the
-//! motion engine's seek, moved to one instant.
+//! motion engine's seek, moved to one instant; and the display's live clock
+//! while it owns time (the timers RFC, D1), given to every host booted.
 use super::*;
+
+/// A live clock: milliseconds since the loop's start, the domain of the
+/// times the loop passes the host.
+pub type Wall = std::rc::Rc<dyn Fn() -> f64>;
+
+/// The live clock of a loop that started at `started`.
+pub fn wall_since(started: std::time::Instant) -> Wall {
+    std::rc::Rc::new(move || started.elapsed().as_secs_f64() * 1000.0)
+}
 
 impl<D: DataSource> Presenter<D> {
     /// Move the clock: timers fire, motion is seeked to where the clock
@@ -23,6 +33,19 @@ impl<D: DataSource> Presenter<D> {
         self.clocked(e)
     }
 
+    /// The display's clock owns time (`Some`), or a driver's seekable one
+    /// does (`None`): the running runner and every one booted later take it.
+    pub fn set_live_clock(&mut self, wall: Option<Wall>) {
+        self.live_clock = wall;
+        self.give_clock();
+    }
+
+    pub(super) fn give_clock(&mut self) {
+        let wall = self.live_clock.clone();
+        let sample = wall.map(|wall| Box::new(move || wall()) as Box<dyn FnMut() -> f64>);
+        self.host.runner_mut().set_live_clock(sample);
+    }
+
     fn clocked(&mut self, e: Option<String>) -> (f64, Option<String>) {
         let landed = self.host.now();
         self.host.tick(landed);
@@ -30,3 +53,7 @@ impl<D: DataSource> Presenter<D> {
         (landed, e.or(after))
     }
 }
+
+#[cfg(test)]
+#[path = "live_clock_tests.rs"]
+mod live_clock_tests;

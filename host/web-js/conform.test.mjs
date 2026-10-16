@@ -10,7 +10,7 @@ test('conformance selects menus without treating the job count as an app', () =>
 test('conformance consumes every value option between named apps', () => {
   const values = {
     '--wasm-root': 'wasm', '--out': 'report', '--steps': '0', '--browser': 'firefox',
-    '--only': 'menus', '--label': 'probe', '--jobs': '2',
+    '--only': 'menus', '--label': 'probe', '--jobs': '2', '--js-from': 'earlier',
   };
   const { options, named } = conformArgs(['caltrain', ...Object.entries(values).flat(), 'menus']);
   expect(named).toEqual(['caltrain', 'menus']);

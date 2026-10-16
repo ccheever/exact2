@@ -890,6 +890,9 @@ impl Painter {
         {
             return;
         }
+        // The roles drawn in the accent read the nearest authored
+        // `accent-color`, for this node and, until one authors its own, below.
+        let _accent = accent_scope(&node);
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
@@ -1312,6 +1315,18 @@ pub fn page_color(dark: bool) -> [u8; 4] {
     PAGE.map_or([255; 4], |id| {
         rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
     })
+}
+
+/// The painting scope for `node` (`roles::authored_accent`): the roles drawn
+/// in the accent read the nearest `accent-color` it or an ancestor authored,
+/// as Apple's tint and the web's `var(--exact-accent, AccentColor)` do.
+pub(crate) fn accent_scope(node: &NodeRef<'_>) -> exact_kernel::style::roles::AccentScope {
+    exact_kernel::style::roles::authored_accent(accent_of(node))
+}
+
+/// The nearest `accent-color` `node` or an ancestor authored.
+pub(crate) fn accent_of(node: &NodeRef<'_>) -> Option<exact_kernel::ColorValue> {
+    node.computed_row(StyleId::AccentColor, |s| s.accent_color)
 }
 
 /// A kernel color's channels.

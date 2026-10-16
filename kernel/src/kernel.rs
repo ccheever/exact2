@@ -32,6 +32,7 @@ mod intrinsic;
 mod row_memo;
 mod sticky;
 mod trim;
+mod wide;
 
 pub(crate) use block::{apply as apply_block, publication_start, Blocks};
 pub use block::{BlockAxis, HostBlock};
@@ -303,6 +304,8 @@ pub struct Kernel {
     /// before this kernel's measurer measured any: a new one asks about
     /// every symbol again (`measure_symbols`).
     symbol_revision: Option<u64>,
+    /// This kernel as a holder of wide colours, for the table's sweep.
+    wide: crate::style::wide::Holder,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -369,6 +372,7 @@ impl Kernel {
             detached: false,
             awaiting: Default::default(),
             symbol_revision: None,
+            wide: Default::default(),
         }
     }
 
@@ -1000,6 +1004,7 @@ impl Kernel {
         self.receipts.clear();
         self.incarnation += 1;
         self.epoch += 1;
+        self.wide_changed();
     }
 
     /// A second kernel built from this one's columns alone — the layout engine
@@ -1030,7 +1035,9 @@ impl Kernel {
             detached: self.detached,
             awaiting: Default::default(),
             symbol_revision: None,
+            wide: Default::default(),
         }
+        .published()
     }
 }
 

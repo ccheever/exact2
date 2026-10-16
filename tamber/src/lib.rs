@@ -11,14 +11,22 @@
 mod check;
 mod color_fn;
 mod css;
+mod edit;
+mod fmt;
 mod fold;
+pub mod history;
+pub mod import;
 mod ir;
 mod lex;
+mod session;
 mod syntax;
 
 pub use check::{Checked, MAX_TUPLES};
+pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
+pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use ir::FORMAT;
+pub use session::{plan, Class, Planned, Refused, Synthetic};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
 
 /// A refusal, at a line and column of the source.
@@ -115,7 +123,7 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
 }
 
 /// A value's fallback pair (D7): light and dark, roles at theirs.
-fn fallback(value: &Folded, vocab: &Vocab) -> Option<[String; 2]> {
+pub fn fallback(value: &Folded, vocab: &Vocab) -> Option<[String; 2]> {
     match value {
         Folded::One(h) => Some([h.clip(), h.clip()]),
         Folded::Pair(l, d) => Some([l.clip(), d.clip()]),

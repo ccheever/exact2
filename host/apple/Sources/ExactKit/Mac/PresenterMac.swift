@@ -19,7 +19,9 @@ package final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
-    var announcedModal: ObjectIdentifier?
+    var announcedModal: ObjectIdentifier?, shownMenus: [NodeView] = []
+    /// The page-drawn dialogs announced as they opened that are still up (`syncAccessibility`).
+    var announcedDialogs: [NodeView] = []
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -27,6 +29,8 @@ package final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     package let viewport = PageScrollView(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
+    /// The page viewport's programmatic element reveal, while AppKit owns its interpolation.
+    var pageElementAnimation: UUID?
     lazy var focusEvents = FocusEvents(self)
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
@@ -583,6 +587,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
         pointerHeld = nil
         pointerSource = nil
@@ -811,6 +816,8 @@ package final class Presenter {
         transformBindings.removeValue(forKey: id)
         transformGeometry.retire(id)
         session?.text.readerParagraphs.removeValue(forKey: id)
+        // A view made later may have this one's identifier: its `autofocus` is its own to offer.
+        if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)) }
         let gone = views.removeValue(forKey: id)
         chrome.forget(id)
         scrollers.remove(id)
@@ -1345,6 +1352,11 @@ package final class Presenter {
     var keyViewLoopStale = false
     var keyViewLoopMode: Bool?
     let keyViewBefore = NSMapTable<NSView, NSView>.weakToWeakObjects()
+    /// The control that lost the focus by becoming disabled, while nothing
+    /// has taken it since: HTML's sequential focus navigation starting
+    /// point, which its focus fixup rule leaves there, so Tab goes on from
+    /// the control's place (`tabFromStart`).
+    weak var tabStart: NSView?
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above

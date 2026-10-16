@@ -46,6 +46,8 @@ pub struct ThemedRow {
     pub tuple: u32,
     /// Its author wrote it (LLP 1115.000 D2); a boundary's implied row not.
     pub written: bool,
+    /// A boundary set it (D7's implied row), not a binding.
+    pub implied: bool,
     /// The tokens it read, as `theme::name_bit`s.
     pub tokens: u64,
 }
@@ -67,6 +69,11 @@ impl ThemeIndex {
     /// `view`'s `row`, which read a token.
     pub(super) fn put(&mut self, view: ViewId, row: ThemedRow) {
         self.rows.insert((view, row.style as u16), row);
+    }
+
+    /// `view`'s `style`, when it read a token.
+    pub fn row(&self, view: ViewId, style: StyleId) -> Option<&ThemedRow> {
+        self.rows.get(&(view, style as u16))
     }
 
     /// `view`'s `style` reads no token now.
@@ -244,6 +251,7 @@ impl super::NodeInst {
                     text: text.clone(),
                     tuple: self.tuple,
                     written: binding.written,
+                    implied: false,
                     tokens,
                 },
             ),
@@ -296,6 +304,7 @@ impl super::NodeInst {
                                 text: text.clone(),
                                 tuple: self.tuple,
                                 written: false,
+                                implied: true,
                                 tokens,
                             },
                         );

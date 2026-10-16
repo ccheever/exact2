@@ -26,6 +26,8 @@ thread_local! {
     /// The entries parses read since [`take_named`] last asked, by
     /// [`name_bit`].
     static NAMED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Inside [`recorded`]: the entries parses read, by name.
+    static RECORD: RefCell<Option<Vec<Box<str>>>> = const { RefCell::new(None) };
 }
 
 /// The entries parses read since the last call, as [`name_bit`]s; 0 for
@@ -33,6 +35,19 @@ thread_local! {
 /// it again when one's slice or value changes.
 pub fn take_named() -> u64 {
     NAMED.with(|n| n.replace(0))
+}
+
+/// `f`, and the entries its parses read, by name as the table has them (a
+/// role's spelling for an override read so): what an inspection shows, where
+/// [`take_named`]'s bits may stand for more than one name.
+/// What [`take_named`] would answer is left as it was.
+pub fn recorded<T>(f: impl FnOnce() -> T) -> (T, Vec<Box<str>>) {
+    let named = NAMED.with(|n| n.get());
+    let previous = RECORD.with(|r| r.replace(Some(Vec::new())));
+    let out = f();
+    let names = RECORD.with(|r| r.replace(previous)).unwrap_or_default();
+    NAMED.with(|n| n.set(named));
+    (out, names)
 }
 
 /// One bit of 64 standing for an entry's name, as it is in a table: what a
@@ -118,6 +133,13 @@ pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T
         **name == *text || !synthetic && *role && name.eq_ignore_ascii_case(text)
     })?;
     NAMED.with(|n| n.set(n.get() | name_bit(name)));
+    RECORD.with(|r| {
+        if let Some(names) = r.borrow_mut().as_mut() {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+    });
     INSIDE.with(|i| i.set(true));
     struct Out;
     impl Drop for Out {

@@ -56,7 +56,7 @@ fn parses(text: &str) -> bool {
 }
 
 /// The schema's roles, as the crate checks a design against them.
-fn vocab() -> tamber::Vocab {
+pub fn vocab() -> tamber::Vocab {
     let hex = |c: u32| format!("#{c:08x}");
     tamber::Vocab {
         roles: exact_kernel::COLOR_ROLES
@@ -154,10 +154,18 @@ impl Lowerer<'_> {
         root: &Component,
     ) -> exact_kernel::style::theme::ThemeScope {
         AXES.with(|axes| axes.borrow_mut().clear());
+        CANDIDATES.with(|c| c.borrow_mut().clear());
         let Some((mut design, origin)) = self.design(file) else {
             return exact_kernel::style::theme::declarations([]);
         };
         let mut said = Said::of(file, root, &design);
+        CANDIDATES.with(|c| {
+            *c.borrow_mut() = said
+                .synthetic
+                .iter()
+                .map(|s| (s.expr.clone(), s.strict))
+                .collect();
+        });
         let profiled = self.profiles(&mut design, &origin);
         // An expression over a profile's colour is not the build's to fold.
         said.synthetic.retain(|s| {
@@ -186,6 +194,7 @@ impl Lowerer<'_> {
                     kind: None,
                     value: at(s.expr.clone()),
                     whens: Vec::new(),
+                    meta: Vec::new(),
                 });
             }
             match tamber::check_design(checked, &vocab()) {
@@ -328,36 +337,7 @@ impl Lowerer<'_> {
             };
         }
         let theme = file.theme.as_ref()?;
-        let names: Vec<&str> = theme.entries.iter().map(|e| e.name.as_str()).collect();
-        let mut tokens = Vec::new();
-        for (i, entry) in theme.entries.iter().enumerate() {
-            let Expr::Str(text, _) = &entry.value else {
-                continue;
-            };
-            let text = text.trim();
-            // LLP 1095 D4's bare role (`"secondary-grouped-background"`), as
-            // the crate spells it, unless an entry is called that.
-            let value = match role_named(text) {
-                Some((_, row)) if !names.contains(&text) => row,
-                _ => text.to_string(),
-            };
-            let at = |value: String| tamber::At {
-                value,
-                line: i as u32 + 1,
-                col: 1,
-            };
-            tokens.push(tamber::Token {
-                name: at(entry.name.clone()),
-                kind: None,
-                value: at(value),
-                whens: Vec::new(),
-            });
-        }
-        let design = tamber::Design {
-            name: "app".into(),
-            tokens,
-            ..Default::default()
-        };
+        let design = inline_design(theme);
         let spans = theme.entries.iter().map(|e| e.span).collect();
         Some((design, Origin::Inline(spans)))
     }
@@ -519,6 +499,20 @@ thread_local! {
     /// The app's axes while its styles are lowered, each with its values:
     /// what a `-exact-mode` pin may name.
     static AXES: std::cell::RefCell<Vec<(String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The synthetic tokens the last design lowered on this thread could
+    /// have (D3), each its expression, before those that do not fold are
+    /// dropped: what the design server re-folds (LLP 1121 stage 4).
+    static CANDIDATES: std::cell::RefCell<Vec<(String, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The synthetic tokens the last build on this thread could have, folding
+/// or not, each its expression and whether a colour row writes it (then
+/// the build refuses it unfolded, where another is dropped), taken: a build
+/// that stops before its design leaves none, never an earlier build's. A
+/// value edit that changes which fold changes the plan's table, so it is a
+/// rebuild.
+pub fn synthetic_candidates() -> Vec<(String, bool)> {
+    CANDIDATES.with(|c| std::mem::take(&mut *c.borrow_mut()))
 }
 
 /// Bind `file`'s design's axes for the pins a pass checks before lowering
@@ -665,6 +659,104 @@ pub(crate) fn theme_decl(file: &File) -> Option<contract_syntax::ThemeDecl> {
         entries,
         span: Span::default(),
     })
+}
+
+/// The inline `theme` as the crate reads it: one token an entry, a bare
+/// role name (LLP 1095 D4's `"secondary-grouped-background"`) in the crate's
+/// spelling unless an entry is called that.
+fn inline_design(theme: &contract_syntax::ThemeDecl) -> tamber::Design {
+    let names: Vec<&str> = theme.entries.iter().map(|e| e.name.as_str()).collect();
+    let mut tokens = Vec::new();
+    for (i, entry) in theme.entries.iter().enumerate() {
+        let Expr::Str(text, _) = &entry.value else {
+            continue;
+        };
+        let text = text.trim();
+        let value = match role_named(text) {
+            Some((_, row)) if !names.contains(&text) => row,
+            _ => text.to_string(),
+        };
+        let at = |value: String| tamber::At {
+            value,
+            line: i as u32 + 1,
+            col: 1,
+        };
+        tokens.push(tamber::Token {
+            name: at(entry.name.clone()),
+            kind: None,
+            value: at(value),
+            whens: Vec::new(),
+            meta: Vec::new(),
+        });
+    }
+    tamber::Design {
+        name: "app".into(),
+        tokens,
+        ..Default::default()
+    }
+}
+
+/// The app's tokens that are one opaque colour in light and dark in some app
+/// tuple and not marked `scheme=fixed` (LLP 1121 D3), each by its name as
+/// declared with that colour's text and whether it is one colour in every
+/// tuple (only then may it be marked): what `lower-colour-one-scheme` reports
+/// at a token's declaration. Folded by the crate, so a `light-dark()` over a
+/// one-colour token is two colours and an expression is its result. A
+/// profile's colour (`color(--…)`) is the plan's, not judged here.
+pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
+    let mut design = match (&file.design, &file.theme) {
+        (None, Some(theme)) => inline_design(theme),
+        (Some(source), _) => match tamber::parse(&source.text) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        },
+        (None, None) => return Vec::new(),
+    };
+    for t in &mut design.tokens {
+        let profiled = |v: &str| v.to_ascii_lowercase().contains("color(--");
+        if profiled(&t.value.value) || t.whens.iter().any(|w| profiled(&w.value.value)) {
+            // As the build stands one in (`profiles`): nothing to judge.
+            t.value.value = "transparent".into();
+            t.whens.clear();
+            t.meta.clear();
+        }
+    }
+    let Ok(folding) = tamber::check_design(design, &vocab()) else {
+        return Vec::new();
+    };
+    // A token fixed, or an alias of one (`ink = -exact-label` of a fixed
+    // `label`), by every name it answers to.
+    let pairs: Vec<_> = folding.tokens.iter().zip(&folding.design.tokens).collect();
+    let mut fixed: Vec<String> = Vec::new();
+    loop {
+        let before = fixed.len();
+        for (t, declared) in &pairs {
+            let value = declared.value.value.trim();
+            // Only a whole alias with no `when` of its own is the mark's.
+            let alias = declared.whens.is_empty() && fixed.iter().any(|f| same_name(f, value));
+            if (t.fixed || alias) && !fixed.contains(&declared.name.value) {
+                fixed.push(declared.name.value.clone());
+                fixed.push(t.name.clone());
+            }
+        }
+        if fixed.len() == before {
+            break;
+        }
+    }
+    pairs
+        .into_iter()
+        .filter(|(_, declared)| !fixed.contains(&declared.name.value))
+        .filter_map(|(t, declared)| {
+            // Opaque only: a translucent one is an overlay, which reads over
+            // either scheme's ground, and a transparent one paints nothing.
+            let one = t
+                .values
+                .iter()
+                .find(|v| matches!(v, tamber::Folded::One(h) if h.wide().alpha >= 1.0 - 1e-9))?;
+            let every = t.values.iter().all(|v| matches!(v, tamber::Folded::One(_)));
+            Some((declared.name.value.clone(), one.css(), every))
+        })
+        .collect()
 }
 
 /// `tamber-unknown-token` and `tamber-kind` (LLP 1121 D3) for a row's

@@ -46,7 +46,7 @@ struct HeaderRule {
         if node.kind == "input", node.props["type"] == "search" { facts |= 2 }
         if node.props["accessibilityRole"] == "tablist" { facts |= 4 }
         if node.handlers.contains("press") { facts |= 8 }
-        if node.isButton, node.props["popovertarget"] != nil, node.props["popovertargetaction"] != "hide" { facts |= 16 }
+        if node.presenter?.invocation(of: node)?.opensPopover == true { facts |= 16 }
         if back != nil, node.props["id"] == back { facts |= 32 }
         if node.props["semanticTag"] == "header" { facts |= 64 }
         if node.style["display"]?.string == "none" { facts |= 128 }
