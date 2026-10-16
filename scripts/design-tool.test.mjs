@@ -421,10 +421,10 @@ test('commit takes the session\'s writes, leaves other staging and never pushes;
     expect(git('show', '--name-only', '--format=', 'HEAD').stdout.trim()).toBe('app.tamber');
     expect(git('ls-files', '-s', 'notes.txt').stdout).toBe(staged);
     expect(spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout).toBe(pushed);
-    expect(states[1].slots.committed).toEqual({ ok: true, error: '', commit: made.slice(0, 12), files: ['app.tamber'], refused: [], edits: [entry.text] });
+    expect(states[1].slots.committed).toEqual({ ok: true, error: '', commit: made.slice(0, 12), files: ['app.tamber'], refused: [], edits: [{ n: 0, text: entry.text }] });
     expect(states[1].resources.changeset.entries[0].committed).toBe(true);
     // Nothing left to commit: Commit is off.
-    expect(states[1].resources.scope).toEqual({ open: 0, refused: false });
+    expect(states[1].resources.scope).toEqual({ open: 0, refused: false, unavailable: false });
     const history = states[2].resources.history;
     expect(history.commits[0]).toMatchObject({ subject: 'design: 1 change by design-tool:Ada', files: [{ file: 'app.tamber', refused: '', edits: ['hue 200 → 210'] }] });
     expect(history.commits.find(c => c.commit === past).files[0].edits).toEqual(['surface.inset light-dark(#f8f9fa, #101214) → light-dark(#f8f9fb, #101214)']);

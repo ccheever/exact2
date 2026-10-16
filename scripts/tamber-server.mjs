@@ -491,12 +491,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // before it, and any gone), is a hand edit, said first and apart.
         const others = Object.fromEntries(Object.entries(v.ok.files).filter(([path]) => !written.has(path)));
         publish({ ...others, ...v.ok.before }, { changed: null, client: null }, [...known.keys()].filter(path => !(path in v.ok.files)));
-        for (const path of written) {
-          session.wrote(path, { before: v.ok.before[path], after: v.ok.files[path], client: v.ok.client, tokens: (v.ok.changed ?? []).filter(c => c.file === path).map(c => c.token) });
-        }
-        // A number for the write, on its reply and its event, so a client can
-        // tell its own write's event from another's that left the same bytes.
+        // A number for the write, on its reply, its event and the session's
+        // edits, so a client can tell its own write's event from another's
+        // that left the same bytes, and which write a commit's edit is.
         v.ok.write = ++writes;
+        for (const path of written) {
+          session.wrote(path, { before: v.ok.before[path], after: v.ok.files[path], client: v.ok.client, tokens: (v.ok.changed ?? []).filter(c => c.file === path).map(c => c.token), write: v.ok.write });
+        }
         publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client, write: v.ok.write, ...extra });
       }
       session.release(holds.filter(path => !written.has(path)));

@@ -545,13 +545,16 @@ function moved(token: string, a: { stored: Map<string, Stored[][]>; axes: Axis[]
   if (!before) return `added ${token} = ${after![0]?.[0]?.value ?? ''}`;
   if (!after) return `removed ${token} (was ${before[0]?.[0]?.value ?? ''})`;
   const was = new Map(tupleKeys(a.axes).map(t => [t.key, before[t.tuple]?.[0]?.value]));
-  for (const [i, t] of tupleKeys(b.axes).entries()) {
+  const keys = tupleKeys(b.axes);
+  for (const [i, t] of keys.entries()) {
     const now = after[t.tuple]?.[0]?.value, then = was.get(t.key);
     if (now === then) continue;
     const where = i === 0 ? '' : ` (${t.label.replace(/^Dark · /, '')})`;
     return then === undefined ? `${token} = ${now}${where}, a mode it had not` : `${token} ${then} → ${now}${where}`;
   }
-  return null;
+  // A mode the design no longer has.
+  const gone = tupleKeys(a.axes).find(t => !keys.some(k => k.key === t.key));
+  return gone ? `${token} (${gone.label.replace(/^Dark · /, '')}) removed, was ${before[gone.tuple]?.[0]?.value ?? ''}` : null;
 }
 
 /** Each entry's files not yet measured whose states either side have been
@@ -572,6 +575,9 @@ function measure() {
     }
   }
 }
+/** One file of an entry in plain words: what moved in it (its tokens
+ * named, until measured), who. */
+const fileWords = (n: Noted, f: string) => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}`;
 /** An entry in plain words: each file and what moved in it (its tokens
  * named, until measured), who. */
 const plain = (n: Noted) => `${n.files.map(f => `${f}: ${n.values.get(f)?.join('; ') || tokensIn(n, f).join(', ') || 'edited'}`).join('; ') || 'the design: edited'} · ${n.who}${n.acceptedBy ? `, accepted by ${n.acceptedBy}` : ''}`;
@@ -830,12 +836,14 @@ const sources: Sources = {
     return { seq: lit[0]?.seq ?? since, epoch: place.epoch, names: [...by.keys()], whos: [...by.values()], tints: [...by.values()].map(tintOf) };
   },
   loadScope: async ([client]) => {
-    // What a commit would take now (a dry run), so Commit is on when there
-    // is something, writes from before the tool opened among them, or a
-    // refusal to say.
-    const dry = await call('/__tamber', { method: 'commit', client, dry: true });
+    // What a commit would take now (a dry run, of the run the poll is on),
+    // so Commit is on when there is something, writes from before the tool
+    // opened among them, a refusal to say, or no answer (it says why when
+    // pressed). Read again with each poll answer.
+    const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
-    return { open: dry.error ? 0 : ((dry.reply.ok as { edits?: unknown[] })?.edits ?? []).length, refused: refused > 0 };
+    const nothing = /nothing to commit|written nothing/.test(dry.error);
+    return { open: dry.error ? 0 : ((dry.reply.ok as { edits?: unknown[] })?.edits ?? []).length, refused: refused > 0, unavailable: !!dry.error && !refused && !nothing };
   },
   loadChangeset: async () => (measure(), {
     ok: true, error: '',
@@ -843,27 +851,27 @@ const sources: Sources = {
   }),
   commitSession: async ([client]) => {
     // What the commit takes is the server's session, which can hold writes
-    // from before the tool opened: a dry run says it, and the message is
-    // composed from that, each edit in plain words where the changeset has
-    // it (each row once). The commit goes to the run the dry run read, with
-    // its scope, so a write in between is refused, not committed under a
-    // message that leaves it out. The server adds each edit's author and
+    // from before the tool opened: a dry run, of the run the poll is on,
+    // says it, and the message is composed from that, each edit by its
+    // write's number in the words of that write's row (for its file), else
+    // its tokens and client. The commit goes to the run the dry run read,
+    // with its scope, so a write in between is refused, not committed under
+    // a message that leaves it out. The server adds each edit's author and
     // file, and never pushes.
     const at = session;
     const refusedOf = (reply: Reply) => ((reply.error as { refused?: { file: string; why: string }[] } | undefined)?.refused ?? []).map(r => ({ file: String(r.file), why: String(r.why) }));
     const fail = (error: string, refused: { file: string; why: string }[]) => ({ ok: false, error: refused.length ? 'Not committed: these files are not only the session\'s. Commit them by hand.' : error, commit: '', files: [], refused, edits: [] });
-    const dry = await call('/__tamber', { method: 'commit', client, dry: true });
+    const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
+    if (dry.error === RESTARTED) forget();
+    if (session !== at) return fail(RESTARTED, []);
     if (dry.error) return fail(dry.error, refusedOf(dry.reply));
-    const scope = dry.reply.ok as { files: string[]; edits: { file: string; client: string; tokens: string[] }[]; scope: string };
-    const describe = (edits: { file: string; client: string; tokens: string[] }[]) => {
-      const open = changeset.filter(n => !n.committed && n.who !== 'changed on disk').reverse(), used = new Set<Noted>();
-      return edits.map(e => {
-        const n = open.find(m => !used.has(m) && m.who === e.client && m.files.includes(e.file) && (!e.tokens.length || tokensIn(m, e.file).some(t => e.tokens.includes(t))));
-        if (n) used.add(n);
-        return n ? plain(n) : `${e.file}: ${e.tokens.join(', ') || 'edited'} · ${e.client}`;
-      });
+    type Edit = { file: string; client: string; tokens: string[]; write?: number };
+    const scope = dry.reply.ok as { files: string[]; edits: Edit[]; scope: string };
+    const words = (e: Edit) => {
+      const n = e.write ? changeset.find(m => m.write === e.write) : undefined;
+      return n ? fileWords(n, e.file) : `${e.file}: ${e.tokens.join(', ') || 'edited'} · ${e.client}`;
     };
-    const lines = describe(scope.edits);
+    const lines = scope.edits.map(words);
     const authors = [...new Set(scope.edits.map(e => e.client))];
     const message = `design: ${scope.edits.length} change${scope.edits.length === 1 ? '' : 's'} by ${authors.join(', ')}\n\n${lines.map(l => `- ${l}`).join('\n')}`;
     const sent = changeset[0]?.seq ?? 0;
@@ -871,12 +879,11 @@ const sources: Sources = {
     if (error === RESTARTED) forget();
     if (session !== at) return fail(RESTARTED, []);
     if (error) return fail((reply.error as { stale?: boolean } | undefined)?.stale ? 'Something was written while the commit was being composed: nothing was committed. Commit again.' : error, refusedOf(reply));
-    const ok = reply.ok as { commit: string; files: string[]; edits?: { file: string; client: string; tokens: string[] }[] };
+    const ok = reply.ok as { commit: string; files: string[] };
     // What was written before it was sent, in its files; a write since is
-    // not in it.
-    const edits = describe(ok.edits ?? scope.edits);
+    // not in it. The edits it took are the scope's, as composed.
     for (const n of changeset) if (n.seq <= sent && n.files.some(f => ok.files.includes(f))) n.committed = true;
-    return { ok: true, error: '', commit: ok.commit.slice(0, 12), files: ok.files, refused: [], edits };
+    return { ok: true, error: '', commit: ok.commit.slice(0, 12), files: ok.files, refused: [], edits: lines.map((text, n) => ({ n, text })) };
   },
   loadHistory: async ([shown, pages]) => {
     const none = { ok: true, error: '', commits: [], more: false };

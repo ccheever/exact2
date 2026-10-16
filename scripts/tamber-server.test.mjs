@@ -379,14 +379,19 @@ test("commit takes the session's files only, keeps other staging, and never push
   const stream = await subscribe();
   await stream.until(e => e[0]?.event === 'subscribed');
   const before = head();
+  const first = await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#161616' }] });
+  expect(first.status).toBe(200);
+  // A scope read before a further write no longer holds.
+  const early = await post({ method: 'commit', client: 'person', dry: true });
   const done = await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#171717' }] });
   expect(done.status).toBe(200);
-  // A dry run: what the commit would take, and nothing written.
+  expect((await post({ method: 'commit', client: 'person', scope: early.ok.scope })).error.stale).toBe(true);
+  // A dry run: what the commit would take, each edit with its write's
+  // number, and nothing written.
   const dry = await post({ method: 'commit', client: 'person', dry: true });
   expect(dry.status, JSON.stringify(dry)).toBe(200);
-  expect(dry.ok).toMatchObject({ files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent', tokens: ['edge'] }] });
+  expect(dry.ok).toMatchObject({ files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent', tokens: ['edge'], write: first.ok.write }, { file: 'app.tamber', client: 'agent', tokens: ['edge'], write: done.ok.write }] });
   expect(head()).toBe(before);
-  expect((await post({ method: 'commit', client: 'person', scope: 'not-it' })).error.stale).toBe(true);
   const committed = await post({ method: 'commit', client: 'person', message: 'design: a darker edge', scope: dry.ok.scope });
   expect(committed.status, JSON.stringify(committed)).toBe(200);
   expect(committed.ok.files).toEqual(['app.tamber']);

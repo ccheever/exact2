@@ -239,6 +239,8 @@ shape Changeset
 shape Scope
   open: number
   refused: bool
+  // No answer: Commit stays on, and says why when pressed.
+  unavailable: bool
 
 shape Refusal
   file: string
@@ -246,13 +248,17 @@ shape Refusal
 
 // A `commit`: its sha and files and the edits it took, or each file it
 // refused and why.
+shape EditLine
+  n: number
+  text: string
+
 shape Committed
   ok: bool
   error: string
   commit: string
   files: string[]
   refused: Refusal[]
-  edits: string[]
+  edits: EditLine[]
 
 // The design files' git log, read as edits.
 shape HistoryFile
@@ -335,7 +341,7 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
-  resource scope = loadScope(client, since, epoch) as shape Scope else empty(open=0, refused=false)
+  resource scope = loadScope(client, changes.answer) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
   state picked: string[] = []
@@ -344,7 +350,7 @@ component DesignTool
   resource lit = loadLit(file, design.answer, faded, fadedEpoch) as shape Lit else empty(seq=0)
   state historyShown = false
   state historyPages = 1
-  resource history = loadHistory(historyShown, historyPages, since) as shape History else empty(ok=true)
+  resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
   mutation committed as shape Committed refreshes changeset, scope
   // The importer for a picked file: shadcn CSS, a Tailwind v4 sheet, DTCG
   // JSON (several files, a mode each).
@@ -802,7 +808,7 @@ component DesignTool
                   if e.mine and e.diff != ""
                     text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
               row gap=8 align-items="center"
-                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused)) buttonStyle="bordered" testId="commit"
+                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused and not scope.unavailable)) buttonStyle="bordered" testId="commit"
                   text "Commit"
                 text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
               match committed
@@ -810,8 +816,8 @@ component DesignTool
                   if c.ok
                     column gap=2 testId="committed"
                       text `Committed ${c.commit}: ${c.files.join(", ")}` testId="committed-summary"
-                      for t in c.edits key=t
-                        text t color="-exact-secondary-label" font="-exact-footnote"
+                      for t in c.edits key=`${t.n}`
+                        text t.text color="-exact-secondary-label" font="-exact-footnote"
                   else
                     column gap=2 testId="commit-refused"
                       text c.error color="-exact-system-red" white-space="pre-wrap" testId="commit-error"
