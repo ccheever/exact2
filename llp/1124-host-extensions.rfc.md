@@ -1,7 +1,7 @@
-# LLP 1123: Host extensions
+# LLP 1124: Host extensions
 
 **Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built in exact2 until Charlie has read it)
-**Status:** Draft r1, 2026-10-14 (drafted 2026-10-13 as 1121, renumbered when LLP 1121, Tamber, landed). Not reviewed. Proposed from outside the working set; it needs Charlie's ruling and, if accepted, a take or a waiver under `rules/DEFERRED.md` (§7, question 1). Not in `llp/current/`, which holds 15 of 15; adding it means archiving one, which is Charlie's choice.
+**Status:** Draft r1, 2026-10-14 (drafted 2026-10-13 as 1121; renumbered 1123 when LLP 1121, Tamber, landed, and 1124 on 2026-10-16 when LLP 1123, content owners, landed). Round 1 reviewed blind by GPT-6 Astra (high) and Grok 4.7 (xhigh), verdicts MERGE AFTER FIXES and MERGE AFTER FIXES (`llp/reviews/1124-host-extensions.{astra,grok}.md`): their findings on a `sync` source on the web (D5 against D6), `prefer extension` re-answering readers, and an additive change without a version bump are open for r2. Proposed from outside the working set; it needs Charlie's ruling and, if accepted, a take or a waiver under `rules/DEFERRED.md` (§7, question 1). Not in `llp/current/`, which holds 15 of 15; adding it means archiving one, which is Charlie's choice.
 **Systems:** the app manifest (`scripts/app.schema.json`, `contract/cli/src/manifest.rs`), the bake's checks (`contract/cli`), the plan's record of what an app needs (`plan/`), the runner's native slot and topics (`runner/src/runner/source.rs`, `commit.rs`), the agent's `prefer` and `state` (`runner/src/agent.rs`, each host's agent), each host's module build (`host/apple/build.mjs`, `host/web/native-glue.js`, `host/linux`, `host/windows`, `host/android`)
 **Author:** Douglas Lowder, with Claude (Opus 5.5)
 **Date:** 2026-10-14
