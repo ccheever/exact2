@@ -799,14 +799,19 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   the wall's time, which the agent's clock cannot seek: a native module's
   `UIView.animate` (euxy's boot overlay, a view added to the window and
   faded out) ran on, but `clock +N` took no real time and a tap came while
-  the overlay still covered the app ("UIView covers its middle"). Now
-  `clock +N` lets a finite Core Animation animation in flight on a running
-  layer of the app's window run, up to N ms and at most 1.5 s, and `clock
-  settle` waits up to 1.5 s for one, its completion's work then checked as
-  any native completion's (`awaitWallMotion`, `AgentMotionIOS.swift`). A
-  tap waits up to 3 s while a view the app laid on the window outside every
-  session and every UIKit presentation is over its target, or is fading,
-  and then refuses what still covers it, naming it. Motion a display link
+  the overlay still covered the app ("UIView covers its middle"). Now a
+  Core Animation animation still running on a running layer of the app's
+  window (finite, not held at speed 0, not kept on its layer past its end)
+  is waited for, its completion then run, once per command: `clock +N`
+  gives it up to N ms and at most 1.5 s, after its last step (the driver
+  marks a long seek's other steps `step` and sends the whole `jump`, and
+  `+N real` waits on none, real time passing anyway); `clock settle` gives
+  it 1.5 s for the whole call and, past that, answers `settled: false` with
+  reason `motion` (`awaitWallMotion`, `AgentMotionIOS.swift`). A tap, at the
+  point it will press, waits up to 3 s while a view the app laid on the
+  window, outside every session and every UIKit presentation, covers that
+  point and moves (or fades there, no longer hit-tested); one that has held
+  still for half a second is refused at once, named. Motion a display link
   draws frame by frame has no animation to see: `clock +N real` lets it run.
   Driving the window layer's time from the agent's clock (`speed` 0, a
   `timeOffset`) was not chosen: it would hold UIKit's own animations as
@@ -816,21 +821,33 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   animation stays on its layer at speed 0 for the clock to seek; it had
   counted as native geometry in flight, so every `clock settle` while one
   was on screen (euxy's tip) waited 2 s and answered `settled: false`.
+  Geometry repeating for ever, or kept past its end, no longer holds
+  `clock settle` either.
 - **A tap on a module's native view is refused, not swallowed.** The
   agent's press reaches no control, gesture recognizer or `touchesBegan` of
   a native module's view (UIKit has no public touch synthesis): a plain tap
-  landing on one with no Contract press reaching it, and no responder there
-  for it to focus, answers `unsupported`, naming `--touch platform`, where
-  it is a real touch (`moduleTouch`, `AgentIOS.swift`).
+  landing on one with no Contract press reaching it, no pointer listener
+  around it and no responder there for it to focus answers `unsupported`,
+  naming `--touch platform`, where it is a real touch (`moduleTouch`,
+  `AgentIOS.swift`). With a pointer listener, its pointer events are
+  delivered and the reply's `unreached` says what was not.
 - **UIKit's menus and tab bar under real touches.** `--touch platform`
   launches with `EXACT_AGENT_PRESENTATION=native` (LLP 1080.000 D7): a
   popover a person sees as UIKit's menu (LLP 1021 D3), a bar item's
-  pull-down included, is UIKit's. A tap on its invoker opens it; a tap naming
-  a row aims at UIKit's row, found as VoiceOver finds it (the accessibility
-  element outside every session whose label is the row's title), and the
-  reply's `native` names it (`{"kind":"menuItem","label":…}`); a row of a
-  closed menu is refused. A screenshot while a menu is up is the window's
-  (`presented: "menu"`). Under `--chrome platform` a tab aims at the item
-  UIKit's tab bar shows with its title. Context menus and confirmations are
-  as before. The dispatch log records a touch a system recognizer took
-  without a view (iOS 26's tab bar) where the window's hit test put it.
+  pull-down included, is UIKit's. A tap on its invoker opens it. A tap
+  naming a row aims at that row: UIKit puts no identifier on the element it
+  shows for an action, so the host keeps the rows it gave each menu, in
+  order, finds the one run of shown rows (accessibility elements outside
+  every session, by list, in reading order) whose labels are those, and
+  aims at the row's place in it. A duplicate title, a label that is
+  another's prefix or another open menu picks nothing else; a row of a
+  menu that is not shown, or of two menus that read the same, is refused
+  before any touch. The reply's `native` names it
+  (`{"kind":"menuItem","label":…,"row":…}`). A screenshot while such a menu
+  shows is the window's (`presented: "menu"`), however UIKit presents it.
+  Under `--chrome platform` a tab aims at the one element UIKit shows with
+  its item's identifier (its tab's test id), refusing none or several.
+  Context menus stay painted and confirmations UIKit's alerts, refused to a
+  real touch as before. The dispatch log records a touch a system
+  recognizer took without a view (iOS 26's tab bar) where the window's hit
+  test put it.
