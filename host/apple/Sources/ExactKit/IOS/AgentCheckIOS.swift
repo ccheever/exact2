@@ -359,7 +359,13 @@ extension Agent {
             while let cur = held, !(cur is NodeView), !(cur is UIButton) { held = cur.superview }
             var up: UIView? = held is UIButton ? held : label.superview
             while let cur = up {
-                if let button = cur as? NativeButtonIOS { if let o = button.owner { item["of"] = Int(o.id) }; item["label"] = true; break }
+                if let button = cur as? NativeButtonIOS {
+                    if let o = button.owner { item["of"] = Int(o.id) }
+                    item["label"] = true
+                    // UIKit's white on a fill of the accent (LLP 1116.019 D3): what reads on it is the accent's choice.
+                    if ButtonConfigurationIOS.filledStyles.contains(button.drawn), button.configuration?.baseForegroundColor == nil { item["onAccent"] = true }
+                    break
+                }
                 if cur is UIButton {
                     var owner = cur.superview
                     while let o = owner, !(o is NodeView) {

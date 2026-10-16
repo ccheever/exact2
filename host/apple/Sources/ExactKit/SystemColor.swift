@@ -114,6 +114,13 @@ package enum SystemColor {
     private typealias Native = NSColor
     #endif
 
+    /// The platform's own colour a row names (`{"sys": "systemTealColor"}`),
+    /// which the platform resolves for each trait itself; nil for any other row.
+    static func native(_ row: BatchValue?) -> PlatformColor? {
+        guard case .object(let o)? = row, let name = o["sys"]?.string, !name.hasPrefix("@") else { return nil }
+        return lookup(name)
+    }
+
     /// The colour a name looks up: an asset, or a zero-argument class method
     /// of `UIColor`/`NSColor` that returns a colour. The name is already
     /// checked (`roles.rs`'s `native_name_ok`), so no private or allocating

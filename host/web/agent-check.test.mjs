@@ -267,6 +267,10 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const pale = judge(obs([{ ...white, bg: [142, 140, 240], on: 7 }]), png);
   expect(pale.map((f) => [f.kind, f.detail.bg, f.detail.on])).toEqual([['contrast', '#8e8cf0', 7]]);
   expect(judge(obs([{ ...white, bg: [142, 140, 240], on: 'own' }]), null).length).toBe(1); // no capture needed
+  // LLP 1116.019 D3: UIKit's white on a filled button's teal (2.1:1) is still found, and its hint names the accent, not a label colour.
+  const teal = judge(obs([{ ...white, bg: [0, 195, 208], on: 'own', label: true, onAccent: true }]), null);
+  expect(teal.map((f) => f.kind)).toEqual(['contrast']);
+  expect(teal[0].hint).toContain('leave the accent unsaid');
   // Overlap is judged on what is presented of each box: a row its scroller cuts at y = 10 overlaps nothing below.
   const row = { id: 6, x: 0, y: 0, w: 40, h: 20, control: 'press', sized: 'platform' }, tab = { id: 7, x: 0, y: 10, w: 40, h: 20, control: 'press', sized: 'platform' };
   expect(found([row, tab])).toEqual(['overlap:6']);
