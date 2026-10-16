@@ -253,3 +253,38 @@ check('a prompt commits Return without blur and keeps focus chosen by change', (
   expect(await heard()).toEqual(['key 9', 'key Enter', 'change Kick789', 'press Kick789']);
   expect(await evaluate('document.activeElement.id')).toBe('name');
 }), 60000);
+
+for (const [eventName, target, capture] of [['beforeinput', 'field', true], ['beforeinput', 'window', false], ['keydown', 'window', false]])
+check(`cancelling a prompt Return at ${target} ${eventName} cancels its action`, () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.innerHTML = '<input id="name" value="Kick"><button data-exact-on="press">Save</button>';
+    document.getElementById('exact-root').append(dialog);
+    window.events = []; window.committed = 'Kick'; window.blockCommit = true;
+    const field = dialog.querySelector('input');
+    field.addEventListener('change', () => { committed = field.value; events.push('change ' + committed); });
+    field.addEventListener('blur', () => events.push('blur'));
+    dialog.querySelector('button').addEventListener('click', () => events.push('press ' + committed));
+    ${target}.addEventListener('${eventName}', e => {
+      if (e.target === field && (e.inputType === 'insertLineBreak' || e.key === 'Enter') && blockCommit) {
+        events.push('prevent commit'); e.preventDefault();
+      }
+    }, ${capture});
+    dialog.showModal(); field.focus(); field.setSelectionRange(4, 4);
+  })()`);
+  const key = async (key, text) => {
+    for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', {
+      type, key, windowsVirtualKeyCode: key === 'Enter' ? 13 : 55, ...(type === 'keyDown' ? { text } : {}),
+    });
+  };
+  const heard = () => evaluate('new Promise(ok => setTimeout(() => ok(events)))');
+  await key('7', '7');
+  await key('Enter', '\r');
+  expect(await heard()).toEqual(['prevent commit']);
+  expect(await evaluate('committed')).toBe('Kick');
+  expect(await evaluate('document.activeElement.id')).toBe('name');
+  await evaluate('blockCommit = false; events = []');
+  await key('Enter', '\r');
+  expect(await heard()).toEqual(['change Kick7', 'press Kick7']);
+}), 60000);

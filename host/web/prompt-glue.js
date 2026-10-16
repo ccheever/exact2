@@ -15,13 +15,16 @@ addEventListener("keydown", ev => {
   if (!dialog) return;
   // Enter's native default commits `change` without blurring. Choose after
   // it, but before another key or edit can change what this Return submits.
-  // Its own `insertLineBreak` arrives before that `change`.
+  // Its own `insertLineBreak` arrives before that `change`; retain the event
+  // so cancellation by any later listener also cancels the action.
+  let commit;
   const run = next => {
-    if (next?.type === "beforeinput" && next.inputType === "insertLineBreak") return;
+    if (next?.type === "beforeinput" && next.inputType === "insertLineBreak") { commit = next; return; }
     if (run.done) return;
     run.done = true;
     field.removeEventListener("keydown", run, true);
     field.removeEventListener("beforeinput", run, true);
+    if (ev.defaultPrevented || commit?.defaultPrevented) return;
     if (!dialog.isConnected || !(dialog.open || dialog.matches(":popover-open")) || !dialog.contains(field)) return;
     const action = [...dialog.querySelectorAll("button")].find(b => b.matches('[data-exact-on~="press"]:not([data-destructive="true"])'));
     if (action && !action.disabled) action.click();
