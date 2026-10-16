@@ -1,0 +1,6 @@
+// Idle real-owner intrinsic regression: deliberately no task/resource/event.
+component IntrinsicWake
+  view
+    main testId="witness-root" viewport-fit="cover" width="100%" height="100%" display="flex" flex-direction="column" align-items="flex-start" background-color="#ffffff"
+      async-size-probe testId="probe" width=80 flex-shrink=0
+      box testId="follower" width=80 height=10 flex-shrink=0 background-color="#00ff00"

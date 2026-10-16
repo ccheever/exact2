@@ -123,8 +123,11 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         if (applying) pending.add(deliver) else deliver()
     }
     private fun queueIntrinsic(id: Int, width: Float, height: Float) {
+        if (closed) return
         val owner = presenter.intrinsicOwner(id) ?: return
         intrinsicSizes.put(id, owner, width, height)
+        // Async reporters may arrive after the final owner turn.
+        if (!applying) requestPump()
     }
     private fun notifyTitle(value: String) {
         val notify = { if (!closed) onTitle?.invoke(value); Unit }

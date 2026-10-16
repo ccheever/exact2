@@ -87,7 +87,7 @@ function project(folder, variant, config, tool, feed) {
   if (variant === 'c9') {
     cpSync(resolve(root, 'host/android/kotlin'), sources, { recursive: true });
     cpSync(resolve(root, 'host/android/benchmark'), sources, { recursive: true });
-    cpSync(resolve(root, 'host/android/tests'), sources, { recursive: true });
+    cpSync(resolve(root, 'host/android/tests'), sources, { recursive: true, filter: path => path !== resolve(root, 'host/android/tests/fixtures') });
   }
   if (variant === 'main') {
     const environment = resolve(sources, 'com/exact/android/NativeEnvironment.kt');

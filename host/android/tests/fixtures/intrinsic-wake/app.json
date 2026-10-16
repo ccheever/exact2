@@ -1,0 +1,8 @@
+{
+  "name": "Android intrinsic wake SDK test",
+  "app": { "id": "com.exact.android.intrinsicwake", "name": "Android intrinsic wake SDK test" },
+  "rust": { "platforms": { "android": false } },
+  "host": { "android": { "minSdk": 29, "targetSdk": 36 } },
+  "deploy": { "store": { "android": "0" } },
+  "modules": ["async-size-probe"]
+}

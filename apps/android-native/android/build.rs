@@ -1,7 +1,10 @@
 //! Bake the same native-control Contract into the Android archive and the web artifact.
 
 fn main() {
-    let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let app = std::env::var_os("EXACT_APP_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".."));
+    println!("cargo:rerun-if-env-changed=EXACT_APP_DIR");
     for path in ["app.contract", "app.json", "data", "build.rs"] {
         println!("cargo:rerun-if-changed={}", app.join(path).display());
     }

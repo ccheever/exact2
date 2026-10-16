@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // Build optimized Android carriers and independent Compose/platform Views references.
 // bun host/android/build.mjs android-core [--run] [--bench] [--compare] [--serial emulator-5554]
+// --test intrinsic-wake [--run] builds/runs only the idle real-owner SDK regression.
 // --compare [--heavy-list] [--scroll-samples 900] [--frame-rounds 3] [--scroll-speeds 240,1200,4800]
 // JDK17, Gradle9.3.1, SDK37.0/build-tools36 and NDK28.2 are external build tools.
 import { spawnSync } from 'node:child_process';
@@ -93,7 +94,9 @@ function copyBenchmarkSources(out) {
 }
 
 export function buildAndroid(app, options = {}) {
-  if (app.hasGpu || app.manifest.game || app.modules.tags.length) throw new Error('Android does not yet support GPU or native module artifacts');
+  const intrinsicTest = options.test === 'intrinsic-wake' && app.name === 'android-native' && app.dir === resolve(root, 'host/android/tests/fixtures/intrinsic-wake');
+  if (options.test && !intrinsicTest) throw new Error('Unknown Android SDK test fixture');
+  if (app.hasGpu || app.manifest.game || (app.modules.tags.length && !intrinsicTest)) throw new Error('Android does not yet support GPU or native module artifacts');
   if (rustPolicy(app.manifest, 'android') !== 'off') throw new Error('Android currently requires rust.platforms.android=false (embedded Rust only)');
   const abi = options.abi ?? 'arm64-v8a', target = targets[abi];
   if (!target) throw new Error(`unsupported Android ABI ${abi}; use ${Object.keys(targets).join(' or ')}`);
@@ -121,8 +124,10 @@ export function buildAndroid(app, options = {}) {
     [`CARGO_TARGET_${targetKey.toUpperCase()}_LINKER`]: clang,
     [`CC_${targetKey}`]: clang.replace(/-clang\+\+(\.cmd)?$/, '-clang$1'),
     [`CXX_${targetKey}`]: clang, [`AR_${targetKey}`]: resolve(dirname(clang), 'llvm-ar') };
-  const out = resolve(app.target, 'apps', app.name, 'android', abi);
+  const out = intrinsicTest ? resolve(app.target, 'android-sdk-tests/intrinsic-wake', abi) : resolve(app.target, 'apps', app.name, 'android', abi);
+  if (intrinsicTest) { env.EXACT_APP_DIR = app.dir; env.EXACT_BAKE_OUTPUT = resolve(out, 'bake'); }
   const release = claimBuildOutput(app, resolve(out, '.build.lock'));
+  const testToken = intrinsicTest ? crypto.randomUUID() : undefined;
   try {
     const receipt = buildBake(app, 'android', target.rust, { env, profile: 'release' });
     if (receipt.compat.inputs.store.L !== '0') throw new Error('Android requires deploy.store.android="0"; delivery is not implemented');
@@ -151,6 +156,11 @@ export function buildAndroid(app, options = {}) {
     cpSync(resolve(root, 'host/android/kotlin'), kotlinSources, { recursive: true });
     copyBenchmarkSources(out);
     const identity = writeProject(app, out, env, { abi, minSdk, targetSdk, versionCode, host });
+    if (intrinsicTest) {
+      copyFileSync(resolve(app.dir, 'IntrinsicWakeTest.kt'), resolve(kotlinSources, 'com/exact/android/ExactActivity.kt'));
+      const keep = resolve(out, 'app/proguard-rules.pro');
+      write(keep, readFileSync(keep, 'utf8') + '-keepclassmembers class com.exact.android.ExactView { long handle; }\n');
+    }
     run(gradle, ['--no-daemon', '--console=plain', '-p', out, ':app:assembleRelease'], env);
     const apk = resolve(out, `${app.name}.apk`);
     copyFileSync(resolve(out, 'app/build/outputs/apk/release/app-release.apk'), apk);
@@ -158,10 +168,11 @@ export function buildAndroid(app, options = {}) {
     if (options.run || options.bench) {
       const adb = resolve(sdk, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb');
       const serial = options.serial ? ['-s', options.serial] : [];
+      if (intrinsicTest) run(adb, [...serial, 'shell', 'am', 'force-stop', app.id], env);
       run(adb, [...serial, 'install', '-r', apk], env);
-      if (!options.bench) run(adb, [...serial, 'shell', 'am', 'start', '-W', '-n', `${app.id}/com.exact.android.ExactActivity`], env);
+      if (!options.bench) run(adb, [...serial, 'shell', 'am', 'start', '-W', '-n', `${app.id}/com.exact.android.ExactActivity`, ...(intrinsicTest ? ['--es', 'exact_sdk_token', testToken] : [])], env);
     }
-    return { apk, library: lib, receipt, ...identity, versions, footprint: apkFootprint(apk),
+    return { apk, library: lib, receipt, ...identity, ...(intrinsicTest ? { testToken } : {}), versions, footprint: apkFootprint(apk),
       release: { debuggable: false, minified: true, resourceShrunk: true, rustProfile: 'release', signing: 'local-development' } };
   } finally { release(); }
 }
@@ -229,6 +240,23 @@ export async function benchmarkAndroid(app, product, options = {}) {
   throw new Error('Android benchmark did not complete within 120s; inspect adb logcat');
 }
 
+async function verifyIntrinsicWake(product, options) {
+  const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
+  const adb = resolve(sdk, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb');
+  const serial = options.serial ? ['-s', options.serial] : [];
+  try {
+    const pid = run(adb, [...serial, 'shell', 'pidof', product.appId], process.env, root, true);
+    if (!/^\d+$/.test(pid)) throw new Error('SDK test has no single live owner');
+    for (let i = 0; i < 40; i++) {
+      const log = run(adb, [...serial, 'logcat', '-d', '--pid', pid, '-v', 'brief', '-s', 'ExactSDKTest:I', 'AndroidRuntime:E', 'libc:F', '*:S'], process.env, root, true);
+      if (log.includes(`IntrinsicWakeTest: FAIL ${product.testToken}`) || log.includes('FATAL EXCEPTION') || log.includes('Fatal signal')) throw new Error(log);
+      if (log.includes(`IntrinsicWakeTest: PASS ${product.testToken}`)) { console.log('IntrinsicWakeTest: PASS'); return; }
+      await Bun.sleep(200);
+    }
+    throw new Error('SDK intrinsic wake test did not complete');
+  } finally { run(adb, [...serial, 'shell', 'am', 'force-stop', product.appId], process.env); }
+}
+
 if (import.meta.main) {
   try {
     const args = process.argv.slice(2), options = {};
@@ -237,6 +265,10 @@ if (import.meta.main) {
       if (args[i] === '--run') options.run = true;
       else if (args[i] === '--bench') options.bench = true;
       else if (args[i] === '--compare') options.compare = true;
+      else if (args[i] === '--test') {
+        options.test = args[++i];
+        if (options.test !== 'intrinsic-wake') throw new Error('--test requires intrinsic-wake');
+      }
       else if (args[i] === '--heavy-list') options.heavyList = true;
       else if (args[i] === '--scroll-samples' || args[i] === '--frame-rounds') {
         const flag = args[i], raw = args[++i], value = Number(raw);
@@ -265,9 +297,14 @@ if (import.meta.main) {
     if (options.heavyList && (options.scrollSamples === 0 || options.scrollSpeeds?.some(value => value === 0))) {
       throw new Error('--heavy-list requires positive scroll samples and velocities');
     }
-    const app = resolveApp(name ?? (process.env.EXACT_APP_DIR ? undefined : 'android-core'));
+    if (options.test) {
+      if (name || options.bench || options.compare) throw new Error('--test is a dedicated SDK assembly');
+      process.env.EXACT_APP_DIR = resolve(root, 'host/android/tests/fixtures/intrinsic-wake');
+    }
+    const app = resolveApp(options.test ? 'android-native' : name ?? (process.env.EXACT_APP_DIR ? undefined : 'android-core'));
     const product = buildAndroid(app, options);
-    if (options.compare) {
+    if (options.test && options.run) await verifyIntrinsicWake(product, options);
+    else if (options.compare) {
       const compose = buildCompose(app, options);
       const views = buildViews(app, options);
       const { compareAndroid } = await import('./compare.mjs');
