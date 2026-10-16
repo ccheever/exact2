@@ -988,16 +988,16 @@ async function main(args) {
   // Each is written under this process's name and renamed, since another
   // app's build may compile the same arm at once. A cached arm is copied out
   // at once and marked used, so another build's `evictArms` keeps it.
-  const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers false
+  const arm = (args, source, built, extra = '', own = false, optional = false) => { // optional: placing a failed one answers its log
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
     try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => true; } catch {} // none, or evicted meanwhile
     mkdirSync(dir, { recursive: true });
     const making = `${cached}.${process.pid}.tmp`;
-    const compile = startApple('xcrun', args.map(a => a === built ? making : a), resolve(webBuildDir, `arm-${beside.length}.log`));
+    const log = resolve(webBuildDir, `arm-${beside.length}.log`), compile = startApple('xcrun', args.map(a => a === built ? making : a), log);
     beside.push(compile);
     return async () => {
-      if (!await compile.done({ repeated: optional })) return false;
+      if (!await compile.done({ repeated: optional })) return readFileSync(log, 'utf8');
       // Place this build's result before publishing it to the shared eviction pool.
       copyFileSync(making, built);
       renameSync(making, cached);
@@ -1042,14 +1042,14 @@ async function main(args) {
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
   // variant, architectures), never guessed from a directory name; Mac
-  // Catalyst is a variant of its own and never matches. A static library's
+  // Catalyst is a variant of its own, matched only for the roster probe. A static library's
   // slice gives `-I` its headers, `-L` it and `-l` each archive in it; a
   // framework's slice gives `-F` it and `-framework` its name.
   const frameworkSlice = (fw, forIos, simulator, arch) => {
     const read = spawnSync('plutil', ['-convert', 'json', '-o', '-', resolve(fw, 'Info.plist')], { encoding: 'utf8' });
     if (read.status !== 0) throw new Error(`host/apple: ${basename(fw)} has no readable Info.plist: ${(read.stderr || '').trim()}`);
     let plist; try { plist = JSON.parse(read.stdout || '{}'); } catch (e) { throw new Error(`host/apple: ${basename(fw)}'s Info.plist is not a dictionary: ${e.message}`); }
-    const platform = forIos ? 'ios' : 'macos', variant = forIos && simulator ? 'simulator' : undefined;
+    const platform = forIos ? 'ios' : 'macos', variant = forIos && simulator ? (simulator === true ? 'simulator' : simulator) : undefined;
     const lib = (plist.AvailableLibraries ?? []).find(l => l.SupportedPlatform === platform && (l.SupportedPlatformVariant || undefined) === variant && (l.SupportedArchitectures ?? []).includes(arch));
     if (!lib) throw new Error(`host/apple: ${basename(fw)} has no ${platform}${variant ? ' ' + variant : ''} ${arch} slice in its Info.plist`);
     const dir = resolve(fw, lib.LibraryIdentifier), framework = lib.LibraryPath.endsWith('.framework');
@@ -1075,15 +1075,14 @@ async function main(args) {
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
   if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', tv ? iosTripleFor(app, device, true) : device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
-  // The roster the artifact serves is read from its table: a macOS slice (the
-  // one this process can load) of the same sources for an iOS build. That
-  // probe is a macOS build of the same Swift, so an iOS build whose
-  // xcframework has no macOS slice cannot be probed: its roster is taken from
-  // the manifest, as it is without Bun or for Swift that is iOS's alone (`import UIKit`).
-  const probeable = !ios || (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
-  let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, unprobed = false;
-  const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
-  if (probed && ios) { const placed = arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true, true); arms.push(async () => { if (!await placed()) { probed = false; unprobed = true; console.warn(`host/apple: the module's Swift does not compile for macOS, where an iOS build reads its roster; the manifest's roster stands. A module for macOS too imports AppKit there (docs/recipes/native-views.md)`); } }); }
+  // The roster the artifact serves (which tags, and which join the first frame) is read from its
+  // table: for an iOS build, from a Mac Catalyst executable of the same sources, which compiles their
+  // iOS code and runs here. An xcframework with no Catalyst slice cannot be probed: then, as without
+  // Bun, the roster is the manifest's. A probe that does not compile is named, and fails a production build.
+  const probeable = !ios || (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, true, 'maccatalyst', macArch); return true; } catch { return false; } });
+  let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, probeFailure = null, rosterKeys = {};
+  const probe = ios ? resolve(webBuildDir, 'probe-roster') : modulesBuilt, probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && ios && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
+  if (probed && ios) { writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n'); const placed = arm(moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], probe, frameworkStamp(true, 'maccatalyst', macArch), true, true); arms.push(async () => { const placedOk = await placed(); if (placedOk !== true) { probed = false; probeFailure = placedOk; } }); }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
@@ -1140,13 +1139,20 @@ async function main(args) {
   for (const placed of arms) await placed();
   if (modules.tags.length) {
     let provided = [];
-    if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no macOS slice, so the iOS module roster is not probed; the manifest's roster stands`);
-    if (probed) {
-      const { dlopen, read, CString } = import.meta.require('bun:ffi');
-      const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
-      provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));
-    } else if (modulesBuilt && !unprobed) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
-    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable || unprobed) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
+    if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no Mac Catalyst slice, so the iOS module roster is not probed; the manifest's roster stands`);
+    if (probeFailure) {
+      const why = `host/apple: the module's Swift does not compile for Mac Catalyst, where an iOS build reads its roster:\n${probeFailure.split('\n').filter(l => / error: /.test(l)).slice(0, 3).join('\n')}`;
+      if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why);
+      console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
+    } else if (probed) {
+      const { dlopen, read: at, CString } = import.meta.require('bun:ffi');
+      const roster = JSON.parse(ios ? read(probe, []).stdout : new CString(at.ptr(dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString());
+      provided = Object.keys(roster);
+      // LLP 1024 D3's first-frame tags, which the host reads before it loads the module.
+      const firstFrame = provided.filter(tag => roster[tag].firstFrame === true);
+      if (firstFrame.length) rosterKeys = { ExactFirstFrameModules: firstFrame };
+    } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
+    checkModuleRoster(app, modulesBuilt && (typeof Bun === 'undefined' || !probeable || probeFailure) ? modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
   }
   const tArms = Date.now();
   // The SVG island module (@ref LLP 1055.000 §8 ruling 4: exact-svg-raster,
@@ -1229,7 +1235,7 @@ async function main(args) {
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
     const { NSAccentColorName } = appleAssets(app, binDir, { platform: 'macos', kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [] }), accent = NSAccentColorName ? { NSAccentColorName } : {};
-    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
     if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
     if (hasSvg) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
@@ -1250,11 +1256,11 @@ async function main(args) {
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
       for (const file of [paths.executable, ...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
       copyAppleStaticTrees(paths.capture, resources);
       if (existsSync(resolve(binDir, 'Assets.car'))) copyFileSync(resolve(binDir, 'Assets.car'), resolve(resources, 'Assets.car'));
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...appIcon(app, resources, 'macos'), ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...rosterKeys, ...appIcon(app, resources, 'macos'), ...accent, ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
       writeUsageStrings(bakedCompat.reach, resources);
       const whole = readFileSync(resolve(binDir, 'receipt.json'), 'utf8');
       writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
@@ -1295,7 +1301,7 @@ async function main(args) {
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   const assetKeys = iosAssets(app, bundle, device, { tv, catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [], launch: buildReceipt.graph.launchBackground });
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: assetKeys, distribution: { ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: assetKeys, distribution: { ...rosterKeys, ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
   writeUsageStrings(appleReach, bundle);
   copyAppleGpuProducts(libDir, resolve(bundle, 'Frameworks'), gpuArtifacts, !!ipa);
   if (hasWeb) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));

@@ -260,14 +260,16 @@ the paint stamp). A node created after the gate opens attaches immediately.
 **First-frame tags (2026-10-15, Apple).** A factory may say `firstFrame`
 in the roster (`{"tag": {…, "firstFrame": true}}`): its view belongs in the
 frame its node first shows in. A node of such a tag attaches at the end of
-the batch that made it, before that batch's Core Animation commit, and the
-session's module is made then. It is for a cheap view that a person would
-otherwise see arrive a frame late over a bare one, a boot splash; a slow view
-(a map) stays behind the gate, which still holds every other tag. To read the
-roster without a load on the boot path, the artifact is `dlopen`ed on a
-background queue when the session installs the app module, beside the
-runner's first layout; the main thread reads the table, and runs no module
-code until a first-frame node needs it. Measured on an iPhone 17 simulator
+the batch that made it, before that batch's Core Animation commit: the
+artifact loads and the session's module is made then, on the main thread:
+that cost, first pixel's, is the opt-in. The module's hatches are still
+called from first pixel on (LLP 1075.003.000.001 D5); its frame clock works
+from its creation. It is for a cheap view that a person would otherwise see
+arrive a frame late over a bare one, a boot splash; a slow view (a map) stays
+behind the gate, which still holds every other tag. The host learns which
+tags opted in without loading the artifact: the build reads the roster (from
+a Mac Catalyst build of the module's sources for iOS) and writes the tags to
+Info.plist (`ExactFirstFrameModules`). Measured on an iPhone 17 simulator
 (iOS 27), nine cold launches each: a splash attached at the gate drew 70 ms
 (median) after the first frame, which showed the page without it; with
 `firstFrame` it drew in the first frame's commit.

@@ -89,11 +89,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
         : `(() => { const glueEnd = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/glue.js'))?.responseEnd ?? 0; const paint = performance.getEntriesByType('paint')[0]?.startTime ?? (glueEnd + Number(document.getElementById('exact-root').dataset.frameCallbackMs ?? NaN)); const glue = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/native-glue.js'))?.startTime; const table = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/modules/index.js'))?.startTime; return { paint, glue, table }; })()`);
       check(Number.isFinite(order.paint) && order.glue > order.paint && order.table > order.glue, `${host} native: the adapter and the module load after first paint: ${JSON.stringify(order)}`);
     } else {
-      // Apple loads the artifact off the main thread at launch and may read
-      // its roster for the first frame (first-frame tags, LLP 1024 D3); no
-      // tag here is one, so the module itself is made after first pixel.
-      const m = /native module instance made .* (-?[\d.]+) ms after first pixel/.exec(lines);
-      check(m && Number(m[1]) >= 0, `${host} native: the module is made after first pixel: ${m?.[0] ?? 'no module line'}`);
+      const m = /native loading .*libexact_modules\.dylib (-?[\d.]+) ms after first pixel/.exec(lines);
+      check(m && Number(m[1]) >= 0, `${host} native: the artifact loads after first pixel: ${m?.[0] ?? 'no load line'}`);
     }
     // A module's natural content size uses ordinary CSS layout: decoration
     // adds to the content box, growth moves a sibling, and clearing forgets it.

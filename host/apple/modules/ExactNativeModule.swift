@@ -89,8 +89,8 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// scoped `module`. It records once the hatches have connected, in a
     /// development build; before that, and in production, each call returns.
     public let diagnostics: ExactDiagnostics
-    // The frame clock (§2.4): the host's entries, there once the hatches
-    // connect, and what each token calls.
+    // The frame clock (§2.4): the host's entries, there once the module
+    // has the hatch table (before its hatches are called), and what each token calls.
     typealias FramesFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Int32) -> Void
     typealias AfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Double) -> Void
     var framesFn: FramesFn?, afterFn: AfterFn?
@@ -942,8 +942,10 @@ open class ExactNativeScreen: ExactNativeInstance {
 /// Every other tag's view attaches after the first frame has painted (LLP
 /// 1024 D3), so a slow view (a map) never delays it. `firstFrame` is for a
 /// cheap view that must be there from the first frame, such as a boot
-/// splash: its view and the session's module are made before that frame
-/// commits, and their init's time is first pixel's.
+/// splash: the artifact loads, and its view and the session's module are
+/// made, before that frame commits, so their time is first pixel's. Its
+/// `context.frames` and `after` work from then; the module's hatches are
+/// called from first pixel on. The build reads the flag from this roster.
 public struct ExactNativeFactory {
     public let snapshot: Bool
     public let reuse: Bool

@@ -713,6 +713,7 @@ final class NodePoolIOSTests: XCTestCase {
         let p = Presenter()
         let natives = NativeViews()
         natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+        natives.firstFrameTags = ["fake-splash"] // as the build writes Info.plist from the roster
         for (id, tag) in [(UInt32(1), "fake-plain"), (2, "fake-splash")] {
             let v = NodeView(id: id, kind: "native", presenter: p)
             v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
