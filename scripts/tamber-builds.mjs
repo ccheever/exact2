@@ -3,8 +3,9 @@
 // down, for the design server's clients.
 //
 // - **Registration.** Each dev stream a build opens (`/__dev`; a Linux build,
-//   which holds no stream, `GET /__dev/hello` and then a poll) is given a
-//   nonce in its hello. The build answers with one `POST /__dev/report`
+//   which holds no stream, `GET /__dev/hello` and then acknowledged polls of
+//   `GET /__dev/commands`) is given a nonce in its hello, while fewer than
+//   256 streams are open: past that a stream has none and a hello is 503. The build answers with one `POST /__dev/report`
 //   `{nonce, kind: "register", id, host, capabilities, plan, design}`; `id`
 //   is the build's own, stable across its reconnects (a tab's, a process's),
 //   so its pins are replayed when it registers again. A report whose nonce
@@ -28,10 +29,15 @@ import { randomBytes } from 'node:crypto';
 
 const ID = /^[\w.:-]{1,64}$/;
 // A polled stream unpolled this long is gone; at most this many are open,
-// and this many builds remembered (the oldest gone first): the routes take
-// no token, so what they keep is bounded.
+// this many streams of both kinds (so as many builds connected), and this
+// many builds remembered (the oldest disconnected gone first): the routes
+// take no token, so what they keep is bounded.
 // A Linux build polls twice a second: unpolled 5 s, it is disconnected.
-const POLLED_MS = 5_000, POLLED = 64, BUILDS = 256;
+const POLLED_MS = 5_000, POLLED = 64, STREAMS = 256, BUILDS = 256;
+// A polled stream's queue: at most this many frames and bytes, past which
+// its live-table frames collapse into one notice (only the latest pin is
+// ever queued).
+const QUEUED = 64, QUEUE_BYTES = 128 * 1024;
 // One poll's answer, and so any frame in it, is at most this many bytes:
 // Linux reads a commands response of at most 64 KiB, and the resident loop
 // writes each frame it relays as one event, which Apple bounds at 64 KiB
@@ -56,12 +62,34 @@ function pinRefused(pin) {
   return null;
 }
 
+const live = f => String(f.kind).startsWith('tamber-');
+// A live-table frame's notice: no tokens, so a build at another design asks
+// for the snapshot.
+const notice = f => ({ kind: 'tamber-batch', structure: f.structure, base: f.design, design: f.design, tokens: [] });
 /** A frame as one poll may carry it: a live-table frame over the bound as
- * its notice (no tokens, so a build at another design asks for the
- * snapshot); any other, which is never that large, as it is. */
+ * its notice; any other, which is never that large, as it is. */
 function bounded(f) {
-  if (Buffer.byteLength(JSON.stringify(f)) <= POLL_BYTES || !String(f.kind).startsWith('tamber-')) return f;
-  return { kind: 'tamber-batch', structure: f.structure, base: f.design, design: f.design, tokens: [] };
+  return Buffer.byteLength(JSON.stringify(f)) <= POLL_BYTES || !live(f) ? f : notice(f);
+}
+
+const text = (v, max) => typeof v === 'string' && v.length <= max;
+const maybe = (v, ok) => v == null || ok(v);
+const object = v => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** A report's fields, each of its type and bounded: a peer on the LAN may
+ * send any JSON, which is never coerced. The refusal's text, or null. */
+function reportRefused(r) {
+  if (r.kind === 'register') {
+    if (!text(r.id, 64) || !ID.test(r.id)) return '`id` is the build\'s own, 1–64 of [A-Za-z0-9_.:-]';
+    if (!text(r.host, 32) || !r.host || !Array.isArray(r.capabilities) || r.capabilities.length > 32 || !r.capabilities.every(c => text(c, 64))) return 'a registration names its `host` and its `capabilities` (strings)';
+  }
+  if (!maybe(r.plan, v => text(v, 1024)) || !maybe(r.design, v => text(v, 1024))) return '`plan` and `design` are strings, or null';
+  if (r.kind === 'status') {
+    if (!maybe(r.scheme, v => text(v, 32)) || !maybe(r.contrast, v => text(v, 32))) return '`scheme` and `contrast` are strings, or null';
+    if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
+    if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
+  }
+  if (r.kind === 'unsupported' && (!maybe(r.what, v => text(v, 256)) || !maybe(r.detail, v => text(v, 4096)))) return '`what` and `detail` are strings';
+  return null;
 }
 
 /** One dev loop's builds. `send(event)` tells the design server's clients
@@ -74,11 +102,11 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
   // A bearer credential for the report route: unguessable.
   const nonce = () => randomBytes(16).toString('hex');
   /** Polled streams past their time, and the oldest over the cap, closed. */
-  const sweep = () => {
+  const sweep = (room = 0) => {
     const polled = [...streams].filter(([, s]) => s.seen !== undefined);
     for (const [k, s] of polled) if (Date.now() - s.seen > POLLED_MS) close(k);
     const open = polled.filter(([k]) => streams.has(k)).sort((a, b) => a[1].seen - b[1].seen);
-    for (const [k] of open.slice(0, Math.max(0, open.length - POLLED))) close(k);
+    for (const [k] of open.slice(0, Math.max(0, open.length - POLLED + room))) close(k);
   };
   const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
   const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null });
@@ -91,55 +119,76 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
 
   return {
     /** A build's stream opened; `write(frame)` sends it one. Its nonce, for
-     * its hello; `close()` when the stream ends. */
+     * its hello, and `close()` when the stream ends; null with 256 open. */
     open(write) {
+      if (streams.size >= STREAMS) return null;
       const n = nonce();
       streams.set(n, { write, build: null });
       return { nonce: n, close: () => close(n) };
     },
     /** A stream for a build that polls (Linux, the resident loop's relay):
-     * frames queue until it polls; unpolled for 5 s it is gone. */
+     * frames queue until it polls; unpolled for 5 s it is gone. The oldest
+     * polled stream gives way to it past 64; null with 256 open. */
     openPolled() {
-      sweep();
-      const queue = [];
-      const opened = this.open(f => queue.push(f));
+      sweep(1);
+      let queue = []; // [{f, n}], n its bytes
+      const opened = this.open((f) => {
+        f = bounded(f);
+        // Only the latest pin matters: it replaces the whole set.
+        if (f.kind === 'pin') queue = queue.filter(q => q.f.kind !== 'pin');
+        queue.push({ f, n: Buffer.byteLength(JSON.stringify(f)) });
+        if (queue.length <= QUEUED && queue.reduce((sum, q) => sum + q.n, 0) <= QUEUE_BYTES) return;
+        // Over its bound: the live-table frames pending are one notice of
+        // the latest's design, and the build fetches the snapshot.
+        const latest = queue.findLast(q => live(q.f));
+        queue = queue.filter(q => !live(q.f));
+        if (latest) { const f = notice(latest.f); queue.push({ f, n: Buffer.byteLength(JSON.stringify(f)) }); }
+      });
+      if (!opened) return null;
       const s = streams.get(opened.nonce);
       s.seen = Date.now();
-      // As many queued frames as fit one answer; the rest wait for the next.
-      s.poll = () => {
+      // An answer is kept until a poll acknowledges its seq, and sent again
+      // to one that does not (its response was lost); the next takes as many
+      // queued frames as fit one answer, the rest waiting for the one after.
+      let last = null, seq = 0;
+      s.poll = (ack) => {
         s.seen = Date.now();
+        if (last && ack < last.seq) return last;
         let size = 2, n = 0;
         for (; n < queue.length; n++) {
-          queue[n] = bounded(queue[n]);
-          size += Buffer.byteLength(JSON.stringify(queue[n])) + (n ? 1 : 0);
+          size += queue[n].n + (n ? 1 : 0);
           // (A frame that fits no answer, which `bounded` leaves none, would
           // go alone rather than hold the queue.)
           if (size > POLL_BYTES) { n ||= 1; break; }
         }
-        return queue.splice(0, n);
+        last = { seq: ++seq, frames: queue.splice(0, n).map(q => q.f) };
+        return last;
       };
       // The design to run, as a stream's hello says it (a notice).
       const hello = greeting();
-      if (hello) queue.push(hello);
+      if (hello) s.write(hello);
       return opened;
     },
-    /** A polled build's frames since its last poll; null for a nonce no
-     * stream holds. */
-    poll(n) {
+    /** A polled build's answer, `{seq, frames}`, to a poll acknowledging
+     * answer `ack` (0 for none yet): the last one again when `ack` is below
+     * its seq, else the frames since. Null for a nonce no stream holds. */
+    poll(n, ack = 0) {
       sweep();
-      return streams.get(n)?.poll?.() ?? null;
+      const k = Number(ack);
+      return streams.get(n)?.poll?.(Number.isSafeInteger(k) && k >= 0 ? k : 0) ?? null;
     },
     /** `POST /__dev/report`'s body: `{status, body}`. */
-    report(text) {
+    report(body) {
       let r;
-      try { r = JSON.parse(text); } catch { return { status: 400, body: { message: 'a report is a JSON object' } }; }
+      try { r = JSON.parse(body); } catch { r = null; }
+      if (!object(r)) return { status: 400, body: { message: 'a report is a JSON object' } };
       sweep();
-      const s = typeof r?.nonce === 'string' && streams.get(r.nonce);
+      const s = typeof r.nonce === 'string' && streams.get(r.nonce);
       if (!s) return { status: 403, body: { message: 'no open dev stream holds this nonce' } };
-      if (!KINDS.has(r.kind)) return { status: 400, body: { message: `a report's kind is one of ${[...KINDS].join(', ')}` } };
+      if (typeof r.kind !== 'string' || !KINDS.has(r.kind)) return { status: 400, body: { message: `a report's kind is one of ${[...KINDS].join(', ')}` } };
+      const why = reportRefused(r);
+      if (why) return { status: 400, body: { message: why } };
       if (r.kind === 'register') {
-        if (typeof r.id !== 'string' || !ID.test(r.id)) return { status: 400, body: { message: '`id` is the build\'s own, 1–64 of [A-Za-z0-9_.:-]' } };
-        if (typeof r.host !== 'string' || !Array.isArray(r.capabilities)) return { status: 400, body: { message: 'a registration names its `host` and its `capabilities`' } };
         // The same build on a new stream: the old one's is no longer it.
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
@@ -147,7 +196,7 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
-        builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities.filter(c => typeof c === 'string'), plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
+        builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
         for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
@@ -166,7 +215,7 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         send({ event: 'build-status', build: shown(b) });
       } else if (r.kind === 'unsupported') {
         log(`build ${b.id}: unsupported ${r.what ?? '?'}`);
-        send({ event: 'unsupported', build: b.id, what: String(r.what ?? ''), detail: r.detail ?? null });
+        send({ event: 'unsupported', build: b.id, what: r.what ?? '', detail: r.detail ?? null });
       } else {
         send({ event: 'selected', build: b.id, selected: r.selected ?? null });
       }
@@ -239,35 +288,66 @@ export async function serveReport(channel, req, res) {
     req.on('close', () => end(null));
   });
   if (text == null || res.destroyed) return;
-  const answer = channel.report(text);
-  res.writeHead(answer.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-  res.end(answer.body == null ? undefined : JSON.stringify(answer.body));
+  // Nothing a report does escapes: an exception in the server's handler
+  // would end the loop.
+  let answer;
+  try { answer = channel.report(text); } catch { answer = { status: 500, body: { message: 'the report could not be handled' } }; }
+  try {
+    res.writeHead(answer.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(answer.body == null ? undefined : JSON.stringify(answer.body));
+  } catch { res.destroy(); }
+}
+
+/** `GET /__dev/hello` and `GET /__dev/commands` on `channel` (both dev
+ * loops), for a build that holds no stream: the hello's nonce (with
+ * `hello`'s fields), 503 with 256 streams open; a poll's answer `{seq,
+ * frames}` to `?nonce=&ack=`, 404 with `null` for a nonce no stream holds
+ * (its build says hello again). */
+export function serveCommands(channel, url, res, hello = {}) {
+  let status = 200, answer;
+  if (url.pathname === '/__dev/hello') {
+    const opened = channel.openPolled();
+    answer = opened ? { hello: true, ...hello, nonce: opened.nonce } : { message: 'the dev loop holds as many streams as it keeps' };
+    if (!opened) status = 503;
+  } else {
+    answer = channel.poll(url.searchParams.get('nonce') ?? '', url.searchParams.get('ack') ?? 0);
+    if (!answer) status = 404;
+  }
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(answer));
 }
 
 /** Serving as another loop's producers (`--serve-as`, host/web/dev.mjs): a
  * device's stream here takes its nonce from that loop's build channel
- * (`main`, its origin), and that loop's commands for it are polled and
- * written to it (`write(frame)`). Its reports go to that loop directly: the
- * device's origin is that loop's. Batches are this loop's own, as it watches
- * the same files. Its nonce and `close()`, or null when that loop keeps no
- * channel; `ended()` when that loop no longer holds the nonce. */
+ * (`main`, its origin), and that loop's commands for it are polled, each
+ * answer acknowledged by the next poll, and written to it (`write(frame)`).
+ * Its reports go to that loop directly: the device's origin is that loop's.
+ * Batches are this loop's own, as it watches the same files. Its nonce and
+ * `close()`, or null when that loop keeps no channel; `ended()` when that
+ * loop no longer holds the nonce. */
 export async function relayChannel(main, write, every = 250, ended = () => {}) {
   try {
     const opened = await (await fetch(`${main}/__dev/hello`, { signal: AbortSignal.timeout(5000) })).json();
-    if (typeof opened.nonce !== 'string') return null;
-    let live = true;
+    if (typeof opened?.nonce !== 'string') return null;
+    let going = true, ack = 0;
     (async () => {
-      while (live) {
+      while (going) {
         try {
-          const frames = await (await fetch(`${main}/__dev/commands?nonce=${encodeURIComponent(opened.nonce)}`, { signal: AbortSignal.timeout(5000) })).json();
+          const response = await fetch(`${main}/__dev/commands?nonce=${encodeURIComponent(opened.nonce)}&ack=${ack}`, { signal: AbortSignal.timeout(5000) });
           // The nonce gone (that loop restarted, or the poll lapsed): the
           // device's stream ends, so it connects again for a new one.
-          if (!Array.isArray(frames)) { live = false; ended(); return; }
-          for (const f of frames) write(f);
+          if (response.status === 404) { going = false; ended(); return; }
+          const answer = await response.json();
+          // An answer read whole is acknowledged by the next poll; one lost
+          // on the way is sent again, under the same seq.
+          if (going && Number.isSafeInteger(answer?.seq) && answer.seq > ack && Array.isArray(answer.frames)) {
+            ack = answer.seq;
+            for (const f of answer.frames) write(f);
+          }
         } catch { /* that loop restarting: asked again */ }
         await new Promise(ok => setTimeout(ok, every));
       }
     })();
-    return { nonce: opened.nonce, close: () => { live = false; } };
+    return { nonce: opened.nonce, close: () => { going = false; } };
   } catch { return null; }
 }

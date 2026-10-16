@@ -8,7 +8,8 @@ import XCTest
 // The build channel's host half (LLP 1122 D4): a pin read as the server
 // sends it (scripts/tamber-builds.mjs `pinRefused`), the commands dispatched
 // before generation handling, the process id the server accepts, a live
-// batch's design digest, and the plan's own after a boot.
+// batch's design digest, a batch's moved facts, and the plan's own design
+// after a boot.
 final class BuildChannelTests: XCTestCase {
     private func parse(_ json: String) -> (pin: BuildPin?, refused: String?) {
         let frame = try! JSONSerialization.jsonObject(with: Data("{\"pin\":\(json)}".utf8)) as! [String: Any]
@@ -62,6 +63,13 @@ final class BuildChannelTests: XCTestCase {
         let other = Batch.decode(Data(#"{"design":{"x":1},"ops":[]}"#.utf8))
         XCTAssertNil(other.design)
         XCTAssertNotEqual(other.error, "unreadable batch")
+    }
+
+    /// A batch whose root font size or modes moved says so, whoever moved
+    /// them: the app's `setMode` reaches the host as no command.
+    func testABatchSaysItsFactsMoved() {
+        XCTAssertTrue(Batch.decode(Data(#"{"ops":[],"facts":true}"#.utf8)).facts)
+        XCTAssertFalse(Batch.decode(Data(#"{"ops":[]}"#.utf8)).facts)
     }
 
     #if os(macOS)

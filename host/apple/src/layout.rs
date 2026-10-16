@@ -15,6 +15,7 @@ impl<D: DataSource> Host<D> {
         if self.layout_withheld {
             batch.withhold(!batch.layout_provisional);
         }
+        batch.facts = self.facts_moved();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),

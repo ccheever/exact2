@@ -22,7 +22,7 @@ extension BatchReader {
         var images: [String] = []
         var seq: (UInt64, UInt64)?
         var modes: [String: String]?
-        var live: String?, unsupported = false, design: String?
+        var live: String?, unsupported = false, design: String?, facts = false
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -46,6 +46,7 @@ extension BatchReader {
             case "live": live = try r.string()
             case "unsupported": unsupported = try r.bool()
             case "design": design = try r.value().string
+            case "facts": facts = try r.bool()
             case "seq":
                 let range = try r.array { try $0.number() }
                 if range.count == 2, range.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) { seq = (UInt64(range[0]), UInt64(range[1])) }
@@ -65,6 +66,7 @@ extension BatchReader {
         batch.live = live
         batch.unsupported = unsupported
         batch.design = design
+        batch.facts = facts
         return batch
     }
 

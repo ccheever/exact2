@@ -46,7 +46,7 @@ import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
-import { relayChannel, serveReport } from '../../scripts/tamber-builds.mjs';
+import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
@@ -241,8 +241,8 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 // plan; its batch goes to every build, and its snapshot is kept for a build
 // that connects (or missed a batch) until the next plan.
 let designSnapshot = null;
-// A frame larger than this goes as a notice instead: a native host's event
-// frames are bounded (PlanURL.swift's 64 KiB).
+// A frame larger than this, in UTF-8 bytes, goes as a notice instead: a
+// native host's event frames are bounded (PlanURL.swift's 64 KiB).
 const DESIGN_FRAME = 32 * 1024;
 const designNotice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
 // The TypeScript producer's last design (`{structure, digest, tokens}`).
@@ -264,7 +264,7 @@ function pushDesign({ batch, snapshot }) {
   if (servedAs != null) return;
   designSnapshot = snapshot;
   let frame = JSON.stringify(batch);
-  if (frame.length > DESIGN_FRAME) frame = JSON.stringify(designNotice(snapshot));
+  if (Buffer.byteLength(frame) > DESIGN_FRAME) frame = JSON.stringify(designNotice(snapshot));
   for (const res of clients) res.write(`data: ${frame}\n\n`);
   tamber?.channel.broadcast(JSON.parse(frame));
 }
@@ -1154,11 +1154,7 @@ const server = createServer(async (req, res) => {
   }
   if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {
     if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-    const answer = url.pathname === '/__dev/hello'
-      ? { hello: true, ...announcement(), nonce: tamber.channel.openPolled().nonce }
-      : tamber.channel.poll(url.searchParams.get('nonce') ?? '');
-    res.writeHead(answer ? 200 : 403, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(JSON.stringify(answer ?? { message: 'no open dev stream holds this nonce' }));
+    serveCommands(tamber.channel, url, res, url.pathname === '/__dev/hello' ? announcement() : {});
     return;
   }
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;

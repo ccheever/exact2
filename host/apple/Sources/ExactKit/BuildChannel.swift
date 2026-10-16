@@ -149,8 +149,10 @@ extension ExactApp {
     }
 
     /// A status at the end of this run-loop turn, one however many facts
-    /// changed in it (a pin, a design, a generation, the system's scheme or
-    /// contrast: `tellPreferences`), and none that says what the last did.
+    /// changed in it (a pin, a design, a generation, the scheme, the system's
+    /// or the app's `setScheme`, the contrast, the app's `setMode` or
+    /// `setRootFontSize`: a batch's `facts`), and none that says what the
+    /// last did.
     func scheduleStatus() {
         guard BuildChannel.enabled, connection?.nonce != nil, !BuildChannel.statusOwed else { return }
         BuildChannel.statusOwed = true

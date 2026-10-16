@@ -3,9 +3,15 @@
 //! `/__dev/hello` for a nonce, registers with it (`POST /__dev/report`), and
 //! on each tick sends what the presenter queued and takes the frames queued
 //! for it (`GET /__dev/commands`). A 404 hello is a dev loop with no design
-//! server: the channel is quiet a while, then asks again. A 403 is an
-//! expired nonce (5 s unpolled, or a restarted loop): hello again and
-//! register again, under the same id, so the loop replays this build's pins.
+//! server: the channel is quiet a while, then asks again. A 403 report or a
+//! 404 poll is an expired nonce (5 s unpolled, or a restarted loop): hello
+//! again and register again, under the same id, so the loop replays this
+//! build's pins.
+//!
+//! The poll is acknowledged: each answer is `{seq, frames}`, and the next
+//! poll's `ack` names the last `seq` taken whole. An answer lost on the way
+//! (a reset, a timeout) is answered again until acknowledged; one that comes
+//! twice (its `seq` already taken) is acknowledged and its frames dropped.
 //! Only the worker touches the network; the presenter applies the frames
 //! (`presenter/build_channel.rs`).
 
@@ -43,6 +49,9 @@ pub(crate) struct Pinned {
 pub(crate) struct Link {
     id: String,
     nonce: Option<String>,
+    /// The `seq` of the last commands answer taken whole on this nonce; 0
+    /// before the first.
+    ack: u64,
     quiet_until: Option<Instant>,
     /// Reports for the next exchange.
     outbox: Vec<Value>,
@@ -74,6 +83,7 @@ impl Link {
         Self {
             id: build_id().to_string(),
             nonce: None,
+            ack: 0,
             quiet_until: None,
             outbox: Vec::new(),
             frames: Vec::new(),
@@ -138,6 +148,7 @@ impl Link {
         Some(Exchange {
             id: self.id.clone(),
             nonce: self.nonce.clone(),
+            ack: self.ack,
             reports: std::mem::take(&mut self.outbox),
             plan: self.plan.clone(),
             design: self.design.clone(),
@@ -147,6 +158,7 @@ impl Link {
     /// Take a tick's answer back.
     pub fn settle(&mut self, answer: Answer) {
         self.nonce = answer.nonce;
+        self.ack = answer.ack;
         self.quiet_until = answer.off.then(|| Instant::now() + QUIET);
         self.registered |= answer.registered;
         self.snapshot |= answer.registered;
@@ -169,6 +181,7 @@ impl Link {
 pub(crate) struct Exchange {
     id: String,
     nonce: Option<String>,
+    ack: u64,
     reports: Vec<Value>,
     plan: Option<String>,
     design: Option<String>,
@@ -177,6 +190,7 @@ pub(crate) struct Exchange {
 /// What a tick brings back.
 pub(crate) struct Answer {
     nonce: Option<String>,
+    ack: u64,
     frames: Vec<Value>,
     registered: bool,
     off: bool,
@@ -219,6 +233,7 @@ impl Exchange {
     pub fn run(mut self, page: &str) -> Answer {
         let mut answer = Answer {
             nonce: self.nonce.take(),
+            ack: self.ack,
             frames: Vec::new(),
             registered: false,
             off: false,
@@ -260,6 +275,7 @@ impl Exchange {
                     }
                     answer.registered = true;
                     answer.nonce = Some(nonce.to_string());
+                    answer.ack = 0;
                     nonce.to_string()
                 }
             };
@@ -279,20 +295,34 @@ impl Exchange {
                 }
             }
             if !expired {
-                let url = format!("{commands}?nonce={}", encode(&nonce));
+                let url = format!("{commands}?nonce={}&ack={}", encode(&nonce), answer.ack);
                 match send(&url, None) {
+                    // One not read whole keeps the ack: it comes again.
                     Some((200, body)) => {
-                        if let Ok(Value::Array(frames)) = serde_json::from_slice(&body) {
-                            answer.frames.extend(frames);
+                        if let Some((seq, frames)) = commands_answer(&body) {
+                            if seq != answer.ack {
+                                answer.frames.extend(frames);
+                            }
+                            answer.ack = seq;
                         }
                         return;
                     }
-                    Some((403, _)) => {}
+                    Some((403 | 404, _)) => {}
                     _ => return,
                 }
             }
             answer.nonce = None;
         }
+    }
+}
+
+/// A commands answer's `seq` and frames; `None` for one not whole.
+fn commands_answer(body: &[u8]) -> Option<(u64, Vec<Value>)> {
+    let mut answer: Value = serde_json::from_slice(body).ok()?;
+    let seq = answer["seq"].as_u64()?;
+    match answer["frames"].take() {
+        Value::Array(frames) => Some((seq, frames)),
+        _ => None,
     }
 }
 
@@ -470,15 +500,18 @@ mod tests {
                     } else {
                         (403, "{}".into())
                     }
-                } else if path.starts_with("/__dev/commands?nonce=n1") && polls == 0 {
+                } else if path == "/__dev/commands?nonce=n1&ack=0" && polls == 0 {
                     polls += 1;
                     (
                         200,
-                        json!([{"kind": "pin", "revision": 1, "pin": {"scheme": "dark"}}])
-                            .to_string(),
+                        json!({"seq": 1, "frames":
+                            [{"kind": "pin", "revision": 1, "pin": {"scheme": "dark"}}]})
+                        .to_string(),
                     )
-                } else if path == format!("/__dev/commands?nonce=n{hellos}") && hellos > 1 {
-                    (200, "[]".into())
+                } else if path == format!("/__dev/commands?nonce=n{hellos}&ack=0") && hellos > 1 {
+                    (200, json!({"seq": 1, "frames": []}).to_string())
+                } else if path.starts_with("/__dev/commands") {
+                    (404, "null".into())
                 } else {
                     (403, "{}".into())
                 };
@@ -582,7 +615,7 @@ mod tests {
                             (200, "{}".into())
                         }
                     }
-                    _ => (200, "[]".into()),
+                    _ => (200, json!({"seq": 1, "frames": []}).to_string()),
                 };
                 let _ = write!(
                     stream,
@@ -637,6 +670,7 @@ mod tests {
         assert!(link.take_design(), "off: polled");
         link.settle(Answer {
             nonce: Some("n".into()),
+            ack: 1,
             frames: vec![
                 json!({"kind": "tamber-batch", "n": 1}),
                 json!({"kind": "pin"}),
@@ -659,7 +693,7 @@ mod tests {
     }
 
     /// A dev loop answering each request on its own thread, by path; a
-    /// `None` reply holds the request open.
+    /// `None` reply holds the request open, a status 0 breaks off its answer.
     fn serve(reply: impl Fn(&str) -> Option<(u16, String)> + Send + Sync + 'static) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let page = format!("http://{}/", listener.local_addr().unwrap());
@@ -690,6 +724,13 @@ mod tests {
                         std::thread::sleep(Duration::from_secs(30));
                         return;
                     };
+                    if status == 0 {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 200 X\r\nContent-Length: 64\r\n\r\n{{\"seq\""
+                        );
+                        return;
+                    }
                     let _ = write!(
                         stream,
                         "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -729,10 +770,12 @@ mod tests {
             "/__dev/hello" => Some((200, json!({"nonce": "n"}).to_string())),
             "/__dev/report" => Some((200, "{}".into())),
             p if p.starts_with("/__dev/commands") => {
-                *counted.lock().unwrap() += 1;
+                let mut seq = counted.lock().unwrap();
+                *seq += 1;
                 Some((
                     200,
-                    json!([{"kind": "pin", "revision": 1, "pin": null}]).to_string(),
+                    json!({"seq": *seq, "frames": [{"kind": "pin", "revision": 1, "pin": null}]})
+                        .to_string(),
                 ))
             }
             _ => Some((503, "{}".into())),
@@ -763,7 +806,9 @@ mod tests {
                     (200, "{\"s\":1}".into())
                 })
             }
-            p if p.starts_with("/__dev/commands") => Some((200, "[]".into())),
+            p if p.starts_with("/__dev/commands") => {
+                Some((200, json!({"seq": 1, "frames": []}).to_string()))
+            }
             _ => Some((404, String::new())),
         });
         let mut poller = crate::fetch::Poller::new(page, "{}".into(), None);
@@ -783,6 +828,65 @@ mod tests {
         // And no third.
         poll_until(&mut poller, Duration::from_secs(4), |_, finished| finished);
         assert_eq!(*designs.lock().unwrap(), 2);
+    }
+
+    /// An answer lost on the way is answered again, as the ack still names
+    /// the one before; one that comes twice is acknowledged, not dispatched
+    /// again; a 404 poll is a forgotten nonce, and the ack starts over.
+    #[test]
+    fn a_lost_commands_answer_is_replayed_and_a_repeat_is_dropped() {
+        let pin = |revision: u64| json!({"kind": "pin", "revision": revision, "pin": null});
+        let polls = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = polls.clone();
+        let hellos = Arc::new(Mutex::new(0));
+        let page = serve(move |path| match path {
+            "/__dev/hello" => {
+                let mut n = hellos.lock().unwrap();
+                *n += 1;
+                Some((200, json!({"nonce": format!("n{n}")}).to_string()))
+            }
+            "/__dev/report" => Some((200, "{}".into())),
+            p if p.starts_with("/__dev/commands") => {
+                let mut polls = seen.lock().unwrap();
+                polls.push(p.trim_start_matches("/__dev/commands?").to_string());
+                Some(match polls.len() {
+                    1 => (200, json!({"seq": 1, "frames": [pin(1)]}).to_string()),
+                    // Answered seq 2, lost on the way.
+                    2 => (0, String::new()),
+                    3 | 4 => (200, json!({"seq": 2, "frames": [pin(2)]}).to_string()),
+                    5 => (404, "null".into()),
+                    _ => (200, json!({"seq": 1, "frames": [pin(3)]}).to_string()),
+                })
+            }
+            _ => Some((503, "{}".into())),
+        });
+        let mut link = Link::new(None);
+        let tick = |link: &mut Link| {
+            let answer = link.exchange().unwrap().run(&page);
+            link.settle(answer);
+            let revisions: Vec<_> = std::mem::take(&mut link.frames)
+                .iter()
+                .map(|f| f["revision"].as_u64().unwrap())
+                .collect();
+            revisions
+        };
+        assert_eq!(tick(&mut link), [1]);
+        assert_eq!(tick(&mut link), [] as [u64; 0], "lost");
+        assert_eq!(tick(&mut link), [2], "answered again");
+        assert_eq!(tick(&mut link), [] as [u64; 0], "a repeat");
+        assert_eq!(tick(&mut link), [3], "a new nonce");
+        assert_eq!(
+            *polls.lock().unwrap(),
+            [
+                "nonce=n1&ack=0",
+                "nonce=n1&ack=1",
+                "nonce=n1&ack=1",
+                "nonce=n1&ack=2",
+                "nonce=n1&ack=2",
+                "nonce=n2&ack=0",
+            ]
+        );
+        assert_eq!(link.ack, 1);
     }
 
     #[test]

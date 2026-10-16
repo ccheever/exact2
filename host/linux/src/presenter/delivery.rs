@@ -42,7 +42,14 @@ impl<D: DataSource> Presenter<D> {
         if let Some(generation) = self.pending_dev.take() {
             match self.reload_module(&generation.plan, data(), generation.module.clone()) {
                 Ok(_) => {
-                    self.dev.as_mut().unwrap().identity = Some(generation.identity);
+                    let dev = self.dev.as_mut().unwrap();
+                    dev.identity = Some(generation.identity);
+                    // The generation runs the design it was built with; one
+                    // applied live while it downloaded is newer. The next
+                    // tick's snapshot (or 204, the plan's own) converges.
+                    if let Some(link) = dev.link.as_mut() {
+                        link.snapshot = true;
+                    }
                     self.repin();
                     self.report_status();
                 }

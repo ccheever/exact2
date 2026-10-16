@@ -226,6 +226,8 @@ pub struct Host<D: DataSource> {
     /// The reported colours' generation this session last presented; `None`
     /// before its first report, which corrects without motion (LLP 1095 D9).
     colors_seen: Option<u64>,
+    /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
+    facts_told: Option<(f64, Vec<(String, String)>)>,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -525,6 +527,7 @@ impl<D: DataSource> Host<D> {
             update_line: None,
             delivery,
             colors_seen: None,
+            facts_told: None,
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;

@@ -324,6 +324,8 @@ public final class ExactView: NSView {
         super.viewDidChangeEffectiveAppearance()
         session.controlTextChanged()
         session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        // The app's `setScheme` arrives here, as the system's does; iOS's, through `tellPreferences` (LLP 1122 D4).
+        session.app.scheduleStatus()
     }
 }
 

@@ -463,21 +463,36 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
     no plan, sends none), and `design` its design digest.
   - The nonce is 128 random bits. A stream is one build: another `id` registered on it replaces
-    the build it was, and that build's pin. Builds a registration names are kept, at most 256;
-    polled streams at most 64.
+    the build it was, and that build's pin.
+  - **Caps.** At most 256 streams are open, stream and polled together, so at most 256 builds
+    are connected; polled streams at most 64, the oldest giving way to a new one. Past the cap a
+    stream's hello has no nonce, so its build can't register, and `GET /__dev/hello` is 503.
+    Builds a registration names are kept, at most 256, the oldest disconnected forgotten first.
   - A report whose nonce is no open stream's is refused (403): the dev loop takes other POSTs
     with no token. A report before a registration is 409. A report's body is at most 64 KiB,
-    read within 10 s.
+    read within 10 s. Its fields are typed and bounded (strings strings, `mode` an object of
+    strings, numbers numbers); any other is 400, and one the loop fails to handle 500.
   - A build with no stream opens a polled one: `GET /__dev/hello` gives a nonce, and `GET
-    /__dev/commands?nonce=` answers the frames since its last poll, at most 32 KiB of them (the
-    rest wait for the next poll, and a batch larger alone goes as its notice). A polled stream
-    unpolled for 5 seconds is disconnected. Linux does this, and so does the JS loop's resident `--serve-as`
-    producer, which relays the frames onto its devices' streams; their reports go to the main
-    loop directly.
+    /__dev/commands?nonce=<n>&ack=<k>` answers `{"seq": s, "frames": [...]}`. Linux does this,
+    and so does the JS loop's resident `--serve-as` producer, which relays the frames onto its
+    devices' streams; their reports go to the main loop directly.
+    - **Acknowledged.** `k` is the `seq` of the last answer the client read whole: 0 at first,
+      and a missing `ack` is 0. The loop keeps its last answer until a poll acknowledges it. A
+      poll whose `ack` is below that answer's `seq` gets it again (the same `seq` and frames), so
+      a response lost on the way loses no command; one that acknowledges it gets the next frames
+      under `seq + 1`. The first answer's `seq` is 1.
+    - An answer holds at most 32 KiB of frames (the rest wait for the next poll, and a batch
+      larger alone goes as its notice).
+    - **Bounded.** Only the latest `pin` waits in a stream's queue. Past 64 frames or 128 KiB
+      queued, the live-table frames waiting collapse into one notice of the latest design, and
+      the build fetches the snapshot.
+    - A nonce no stream holds is 404 with the body `null`: the stream is gone (the loop
+      restarted, or it went unpolled 5 seconds), and the build says hello again.
 - **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
   - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
-    the `plan` and `design` digests, and the pin `revision` it applied. Sent on connect and on
-    any change.
+    the facts that paint, the `plan` and `design` digests, and the pin `revision` it applied.
+    Sent on connect and on any change, the app's own `setScheme`, `setMode` and
+    `setRootFontSize` included (at most once a turn).
   - `unsupported`: a command or batch it can't apply, by name (`what`).
   - `selected`: LLP 1122 D5's; its route is here, its sender comes with T2b.
 - **Commands down**, each a frame whose `kind` the host dispatches before any generation:
@@ -498,9 +513,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - Each is journaled with its client on the dev loop's output (LLP 1122 D4).
 - **On each host:**
   - the web page and the JS target set the mode and the root font size as `prefer` does (the
-    root's size and `--exact-host-font-size`, which an app's percentage is of), and the scheme
-    through the root's `color-scheme`. They answer a contrast pin `unsupported`, since a page
-    can't override the browser's `prefers-contrast`;
+    root's size and `--exact-host-font-size`, which an app's percentage is of). A pinned scheme
+    is the system's, beneath the app's: a `:root { color-scheme }` rule over the page's `light
+    dark`, which the app's `setScheme` (the root's own style) overrides, and the system scheme
+    the runtimes read for `prefers-color-scheme`. They answer a contrast pin `unsupported`,
+    since a page can't override the browser's `prefers-contrast`;
   - a mode a pin names that the build refuses leaves the modes from before the first pin, and is
     reported `unsupported` (`pin.mode`);
   - Apple and Linux pin what the agent's `prefer` pins, on every session, and set a held pin

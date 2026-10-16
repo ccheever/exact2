@@ -437,5 +437,20 @@ mod tests {
         let reports = link(&mut p).exchange().unwrap().reports_for_test();
         assert_eq!(reports.len(), 1, "one status for the tick");
         assert_eq!(reports[0]["design"], json!(p.host.runner().design()));
+        // A generation built on `a` before those edits puts `a` back: the
+        // snapshot is asked for, and the loop's design is applied over it.
+        p.painted = true;
+        p.pending_dev = Some(crate::fetch::Generation {
+            identity: "gen-a".into(),
+            plan: a.encode(),
+            module: None,
+        });
+        p.poll_development(|| ());
+        assert!(p.pending_dev.is_none(), "installed");
+        assert_ne!(p.host.runner().design(), last);
+        assert!(link(&mut p).snapshot, "a snapshot is asked for");
+        p.dev.as_mut().unwrap().design = Some(design::snapshot(&s, &design::tokens(&c)).json());
+        p.serve_live();
+        assert_eq!(p.host.runner().design(), last);
     }
 }

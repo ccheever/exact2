@@ -304,7 +304,7 @@ if (es) {
   // nonce, reports its effective facts, and takes `pin` from the design
   // server's clients; the other commands are reserved, and answered
   // unsupported. Every report waits for the stream's registration.
-  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, plan: null };
+  const channel = { nonce: null, registered: null, revision: null, before: null, held: null, plan: null, told: null };
   // The tab's own id, kept across its reloads (sessionStorage); a duplicated
   // tab, which copies that storage, takes another when this one answers.
   const buildId = (async () => {
@@ -339,20 +339,46 @@ if (es) {
   const designNow = async () => { const x = globalThis.exact; await x.ready; if (typeof x.wasm?.exact_design_rows !== "function") return null; const out = JSON.parse(x.readOut(x.wasm.exact_design_rows(x.writeIn(JSON.stringify({ kind: "tamber-batch", structure: "", base: "", design: "", tokens: [] })))));  return out.design ?? null; };
   // The root's own size, the app's `setRootFontSize` rule set aside (navigation.js `beneathApp`).
   const hostSize = () => { const rule = document.getElementById("exact-root-font-size"); if (rule) rule.disabled = true; try { return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16; } finally { if (rule) rule.disabled = false; } };
-  const status = async () => {
-    const rootStyle = getComputedStyle(document.documentElement);
-    const scheme = /dark/.test(rootStyle.colorScheme) && !/light/.test(rootStyle.colorScheme) ? "dark" : /light/.test(rootStyle.colorScheme) && !/dark/.test(rootStyle.colorScheme) ? "light" : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // The facts as they paint: the root's `color-scheme` (the app's
+  // `setScheme` over the pin's, over the browser's `light dark`), resolved by
+  // the system's scheme, which is a pin's while one is held.
+  const facts = async () => {
+    const rootStyle = getComputedStyle(document.documentElement), cs = rootStyle.colorScheme;
+    const scheme = /dark/.test(cs) && !/light/.test(cs) ? "dark" : /light/.test(cs) && !/dark/.test(cs) ? "light" : globalThis.exact.systemScheme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
-    report({ kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision });
+    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
   };
-  // The facts change under the page too.
+  const status = async () => { const body = await facts(); channel.told = JSON.stringify(body); report(body); };
+  // The facts change under the page too, and by the app's own `setScheme`,
+  // `setMode` and `setRootFontSize`: after its commits, once a turn, a status
+  // when they moved.
   for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)"]) matchMedia(query).addEventListener?.("change", () => { if (channel.nonce) status(); });
+  let due = false;
+  const committed = () => {
+    if (due || !channel.nonce) return;
+    due = true;
+    setTimeout(() => {
+      designing = designing.then(async () => {
+        due = false;
+        const body = await facts();
+        if (JSON.stringify(body) !== channel.told) { channel.told = JSON.stringify(body); report(body); }
+      }).catch((error) => console.error("exact dev:", String(error)));
+    }, 0);
+  };
+  globalThis.exact.ready?.then?.(() => { globalThis.exact.committed = committed; });
   const pin = async (frame) => {
     const root = document.documentElement.style, p = frame.pin;
     // What it was before the first pin, handed back by `none`; each pin
     // replaces the whole set.
-    channel.before ??= { scheme: root.colorScheme, fontSize: root.fontSize, hostFont: root.getPropertyValue("--exact-host-font-size"), mode: await modes() };
-    root.colorScheme = p?.scheme ?? channel.before.scheme;
+    channel.before ??= { fontSize: root.fontSize, hostFont: root.getPropertyValue("--exact-host-font-size"), mode: await modes() };
+    const x = globalThis.exact, pins = (m) => Object.entries(m).map(([a, v]) => `${a}=${v}`).join(",");
+    // The scheme is the system's, beneath the app's `setScheme` (the root's
+    // own style): a rule over the page's `light dark`, and the system scheme
+    // the runner's `prefers-color-scheme` reads (navigation.js
+    // `preferences`), told as the browser's change is.
+    const sheet = document.getElementById("exact-dev-pin") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-dev-pin" }));
+    sheet.textContent = p?.scheme ? `:root{color-scheme:${p.scheme}}` : "";
+    if ((x.systemScheme ?? null) !== (p?.scheme ?? null)) { x.systemScheme = p?.scheme ?? null; dispatchEvent(new Event("resize")); }
     // The root font size as `prefer` sets it (navigation.js): the size an
     // app's percentage is of, too.
     root.fontSize = p?.rootFontSize ? `${p.rootFontSize}px` : channel.before.fontSize;
@@ -360,7 +386,6 @@ if (es) {
     else if (channel.before.hostFont) root.setProperty("--exact-host-font-size", channel.before.hostFont);
     else root.removeProperty("--exact-host-font-size");
     await wasmCall("exact_set_root_font_size", hostSize());
-    const x = globalThis.exact, pins = (m) => Object.entries(m).map(([a, v]) => `${a}=${v}`).join(",");
     const mode = pins({ ...(channel.before.mode ?? {}), ...(p?.mode ?? {}) });
     if (mode) {
       // A mode refused leaves the modes before the first pin, not the last pin's.
