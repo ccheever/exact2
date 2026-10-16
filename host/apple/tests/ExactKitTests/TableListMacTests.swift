@@ -356,8 +356,9 @@ extension TableListMacTests {
                     border-top=(r % 10 == 4 or (r == 6 and edge == 2) ? "none" : none)
                     border-top-width=(r == 6 and edge == 3 ? 0 : none)
                     \(windowed ? "" : "display=(r == 6 and edge == 3 ? \"none\" : \"flex\")")
-                    margin-bottom=\(windowed ? "8" : "(r % 10 == 1 ? 8 : 0)")
-                    text `Row ${r}` flex=1
+                    margin-bottom=\(windowed ? "8" : "(r % 10 == 0 or r % 10 == 1 ? 8 : 0)")
+                    if r % 10 != 8
+                      text `Row ${r}` flex=1
                     if r % 10 == 7
                       button press=bump testId=`control-${r}`
                         text "Bump"
@@ -413,6 +414,32 @@ extension TableListMacTests {
             }
         }
         return count
+    }
+
+    private func separatorColor(_ appearance: NSAppearance) throws -> NSColor {
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance { resolved = NSColor.separatorColor.usingColorSpace(.deviceRGB) }
+        return try XCTUnwrap(resolved)
+    }
+
+    private func lineColor(_ rep: NSBitmapImageRep, y: CGFloat) throws -> NSColor {
+        return try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 2, y: Int(y.rounded()) - 1)?.usingColorSpace(.deviceRGB))
+    }
+
+    private func lineSpan(_ rep: NSBitmapImageRep, y: CGFloat, near expected: ClosedRange<Int>) throws -> ClosedRange<Int> {
+        let y = Int(y.rounded()) - 1
+        let from = max(0, expected.lowerBound - 2), through = min(rep.pixelsWide - 1, expected.upperBound + 2)
+        let ink = try (from...through).filter { try XCTUnwrap(rep.colorAt(x: $0, y: y)).alphaComponent > 0.02 }
+        let first = try XCTUnwrap(ink.first), last = try XCTUnwrap(ink.last)
+        return first...last
+    }
+
+    private func assertSameColor(_ actual: NSColor, _ expected: NSColor, _ note: String,
+                                 file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 1.0 / 255.0, note, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 1.0 / 255.0, note, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 1.0 / 255.0, note, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 1.0 / 255.0, note, file: file, line: line)
     }
 
     private func assertSeparator(_ f: TableFixture, _ rep: NSBitmapImageRep, row: String, present: Bool, note: String, list: NodeView? = nil,
@@ -474,6 +501,34 @@ extension TableListMacTests {
             XCTAssertEqual(f.presenter.tables.feeds[f.list.id] == nil, painted)
             for (i, row) in retained.enumerated() { XCTAssertTrue(try f.node("edge-\(i)") === row, "changing chrome retains the authored rows") }
             try checkInteriorSeparators(f, name: name, last: true)
+            let gapped = try f.node("edge-0"), view = try XCTUnwrap(f.list.scroll)
+            let authoredEnd = gapped.convert(gapped.bounds, to: view).maxY
+            let boundary = try separatorBoundary(f, row: gapped)
+            XCTAssertEqual(boundary - authoredEnd, painted ? 0 : 4, accuracy: 0.01,
+                           "\(name): native owns the middle of positive room; painted owns the authored edge")
+            let textless = try f.node("edge-8")
+            let textlessBoundary = try separatorBoundary(f, row: textless)
+            let picture = try separatorPicture(f, name: "\(name)-textless-inset")
+            XCTAssertGreaterThan(try boundaryInk(picture, y: boundary), 0, "\(name): the gapped row has its separator at the claimed boundary")
+            if painted {
+                XCTAssertEqual(try boundaryInk(picture, y: authoredEnd + 4), 0, "\(name): painted chrome does not move the line into CSS room")
+            } else {
+                XCTAssertEqual(try boundaryInk(picture, y: authoredEnd), 0, "\(name): native chrome leaves the authored edge clear")
+            }
+            let authored = textless.convert(textless.bounds, to: view)
+            let expected = Int(authored.minX.rounded())...Int(authored.maxX.rounded()) - 1
+            let span = try lineSpan(picture, y: textlessBoundary, near: expected)
+            XCTAssertEqual(span.lowerBound, Int(authored.minX.rounded()), "\(name): a textless separator starts at the row")
+            XCTAssertEqual(span.upperBound + 1, Int(authored.maxX.rounded()), "\(name): a textless separator ends at the row")
+            if let cell = textless.superview as? TableRowCell {
+                let start = cell.convert(NSPoint(x: try XCTUnwrap(cell.textField).frame.minX + 2, y: 0), to: textless).x
+                XCTAssertEqual(start, textless.bounds.minX, accuracy: 0.01, "\(name): a textless native row begins its separator at the authored row edge")
+            } else {
+                let line = try XCTUnwrap(textless.layer?.sublayers?.first {
+                    $0.backgroundColor != nil && abs($0.frame.height - 1) < 0.01 && abs($0.frame.maxY - textless.bounds.maxY) < 0.01
+                })
+                XCTAssertEqual(line.frame.minX, textless.bounds.minX, accuracy: 0.01, "\(name): a textless painted row begins its separator at the authored row edge")
+            }
         }
     }
 
@@ -579,6 +634,48 @@ extension TableListMacTests {
         }
     }
 
+    func testSeparatorColorFollowsTheWindowAndAnAuthoredLocalScheme() throws {
+        let source = """
+        component SeparatorSchemes
+          view
+            column width="100%" height="100%" gap=12 padding=12 box-sizing="border-box"
+              list height=100 width="100%" testId="rows"
+                text "Inherited first" height=40 padding="8px 16px" box-sizing="border-box" testId="inherited-0"
+                text "Inherited last" height=40 padding="8px 16px" box-sizing="border-box" testId="inherited-1"
+              list height=100 width="100%" color-scheme="light" testId="fixed-list"
+                text "Fixed first" height=40 padding="8px 16px" box-sizing="border-box" testId="fixed-0"
+                text "Fixed last" height=40 padding="8px 16px" box-sizing="border-box" testId="fixed-1"
+
+        """
+        let f = try TableFixture(count: 0, source: source)
+        fixture = f
+        let inherited = try f.node("inherited-0"), fixed = try f.node("fixed-0"), fixedList = try f.node("fixed-list")
+        for (mode, painted) in [("native", false), ("painted", true)] {
+            f.presenter.tables.painted = painted
+            f.window.appearance = NSAppearance(named: .aqua)
+            f.settle()
+            let inheritedLightPicture = try separatorPicture(f, name: "\(mode)-scheme-light")
+            let fixedLightPicture = try separatorPicture(f, name: "\(mode)-fixed-light", list: fixedList)
+            let light = try lineColor(inheritedLightPicture, y: separatorBoundary(f, row: inherited))
+            let fixedBefore = try lineColor(fixedLightPicture, y: separatorBoundary(f, row: fixed, list: fixedList))
+            try assertSameColor(light, separatorColor(inherited.effectiveAppearance), "\(mode): inherited light separator")
+            try assertSameColor(fixedBefore, separatorColor(fixed.effectiveAppearance), "\(mode): fixed light separator")
+
+            f.window.appearance = NSAppearance(named: .darkAqua)
+            f.settle()
+            let inheritedDarkPicture = try separatorPicture(f, name: "\(mode)-scheme-dark")
+            let fixedDarkPicture = try separatorPicture(f, name: "\(mode)-fixed-dark", list: fixedList)
+            let dark = try lineColor(inheritedDarkPicture, y: separatorBoundary(f, row: inherited))
+            let fixedAfter = try lineColor(fixedDarkPicture, y: separatorBoundary(f, row: fixed, list: fixedList))
+            try assertSameColor(dark, separatorColor(inherited.effectiveAppearance), "\(mode): inherited dark separator")
+            try assertSameColor(fixedAfter, separatorColor(fixed.effectiveAppearance), "\(mode): fixed light separator under a dark window")
+            let changed = abs(light.redComponent - dark.redComponent) + abs(light.greenComponent - dark.greenComponent)
+                + abs(light.blueComponent - dark.blueComponent) + abs(light.alphaComponent - dark.alphaComponent)
+            XCTAssertGreaterThan(changed, 1.0 / 255.0, "\(mode): the inherited platform color changes with the window")
+            try assertSameColor(fixedAfter, fixedBefore, "\(mode): authored color-scheme keeps its platform color")
+        }
+    }
+
     func testWindowedShadowIntentBelongsToTheWrapperAndPaintedLinesTearDown() throws {
         let f = try TableFixture(count: 0, source: Self.separatorSource(windowed: true))
         fixture = f
@@ -632,6 +729,89 @@ extension TableListMacTests {
         f.settle()
         XCTAssertTrue(try f.node("edge-1") === retained)
         try checkInteriorSeparators(f, name: "windowed-native-again", last: false)
+    }
+
+    func testInteriorOrderRemovalAndListRemovalRefreshAndTearDownSeparators() throws {
+        let source = """
+        component SeparatorChanges
+          state rows = [0, 1, 2, 3]
+          state shown = true
+          action reorder
+            rows = [0, 2, 1, 3]
+          action remove
+            rows = rows.filter(r => r != 1)
+          action hide
+            shown = false
+          view
+            column width="100%" height="100%"
+              row gap=8
+                button press=reorder testId="reorder"
+                  text "Reorder"
+                button press=remove testId="remove-row"
+                  text "Remove"
+                button press=hide testId="remove-list"
+                  text "Remove list"
+              if shown
+                list flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
+                  for r in rows key=`k${r}`
+                    row height=40 width="100%" border-top=(r == 1 ? "none" : none) testId=`changing-${r}`
+                      text `Row ${r}`
+
+        """
+        for (mode, painted) in [("native", false), ("painted", true)] {
+            let f = try TableFixture(count: 0, source: source)
+            fixture = f
+            f.presenter.tables.painted = painted
+            f.settle()
+            let listID = f.list.id
+            let original = try (0..<4).map { try f.node("changing-\($0)") }
+            let oldTable = f.feed.table
+            var picture = try separatorPicture(f, name: "\(mode)-changes-initial")
+            try assertSeparator(f, picture, row: "changing-0", present: false, note: "\(mode): row 1 initially owns row 0's boundary")
+
+            f.presenter.press(try f.node("reorder").id)
+            f.settle()
+            for (index, row) in original.enumerated() { XCTAssertTrue(try f.node("changing-\(index)") === row) }
+            let positions = try [0, 2, 1, 3].map { index in
+                let row = try f.node("changing-\(index)")
+                return row.convert(row.bounds, to: f.document).minY
+            }
+            XCTAssertEqual(positions, positions.sorted(), "\(mode): the retained rows follow the authored reorder")
+            picture = try separatorPicture(f, name: "\(mode)-changes-reordered")
+            try assertSeparator(f, picture, row: "changing-0", present: true, note: "\(mode): row 0's new neighbour leaves its boundary unowned")
+            try assertSeparator(f, picture, row: "changing-2", present: false, note: "\(mode): moved row 1 owns row 2's boundary")
+
+            f.presenter.press(try f.node("remove-row").id)
+            f.settle()
+            XCTAssertFalse(f.presenter.views.values.contains { $0.props["testId"] == "changing-1" })
+            if painted {
+                XCTAssertNil(f.presenter.tables.feeds[listID])
+            } else {
+                XCTAssertEqual(f.presenter.tables.feeds[listID]?.rows.map { $0.node.props["testId"] ?? "" },
+                               ["changing-0", "changing-2", "changing-3"])
+            }
+            picture = try separatorPicture(f, name: "\(mode)-changes-removed")
+            try assertSeparator(f, picture, row: "changing-2", present: true, note: "\(mode): removing the owning neighbour restores the separator")
+            let remaining = try f.node("changing-2")
+            let paintedLine = painted ? try XCTUnwrap(remaining.layer?.sublayers?.first {
+                $0.backgroundColor != nil && abs($0.frame.height - 1) < 0.01 && abs($0.frame.maxY - remaining.bounds.maxY) < 0.01
+            }) : nil
+            if painted {
+                XCTAssertNil(oldTable.superview, "painted chrome already returned the list from its native table")
+                XCTAssertNotNil(paintedLine?.superlayer, "the retained row owns its painted separator before removal")
+            } else {
+                XCTAssertNotNil(oldTable.superview, "native chrome still owns the table before list removal")
+            }
+
+            f.presenter.press(try f.node("remove-list").id)
+            f.settle()
+            XCTAssertNil(f.presenter.tables.feeds[listID], "\(mode): a removed ordinary list has no feed")
+            XCTAssertNil(oldTable.superview, "\(mode): its native table is detached")
+            XCTAssertNil(paintedLine?.superlayer, "\(mode): its painted separator layer is detached")
+            XCTAssertFalse(f.presenter.views.values.contains { $0.id == listID }, "\(mode): the authored list is gone")
+            f.close()
+            fixture = nil
+        }
     }
 
     func testPaintedSeparatorsRequireTheContractRowMark() throws {
