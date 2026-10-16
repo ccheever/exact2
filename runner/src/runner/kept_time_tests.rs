@@ -66,9 +66,12 @@ fn launch(time: Option<WallTime>) -> Runner<Source> {
     .unwrap()
 }
 
+/// The launch's epoch in these tests.
+const EPOCH: f64 = 1_790_000_000_000.0;
+
 fn at(utc_offset: f64) -> Option<WallTime> {
     Some(WallTime {
-        epoch_at_zero: 1_790_000_000_000.0,
+        epoch_at_zero: EPOCH,
         utc_offset,
     })
 }
@@ -89,16 +92,22 @@ fn a_kept_answer_keyed_on_the_offset_is_admitted_when_the_boot_knows_it() {
     }
 }
 
-/// `time = exactTime()` and `answer(time.<field>)`, kept, over the parent's source.
-fn keyed_on(field: u16) -> Plan {
+/// `time = exactTime()` and `answer(time.<field>)`, kept, over the parent's
+/// source; with no field, `answer(<the launch's epoch>)`, a constant.
+fn keyed_on(field: Option<u16>) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let string = b.primitive(TypeKind::String);
     let number = b.primitive(TypeKind::Number);
     let shape = b.record("Time", &[("epochAtZero", number), ("utcOffset", number)]);
     let time = b.resource("time", crate::time::SOURCE, &[], shape, None);
-    let mut k = Asm::new();
-    k.load_resource(time).field(field);
-    let k = b.code(k);
+    let k = match field {
+        Some(field) => {
+            let mut k = Asm::new();
+            k.load_resource(time).field(field);
+            b.code(k)
+        }
+        None => b.constant(&Value::Number(EPOCH)),
+    };
     let answer = b.resource(
         "answer",
         "answer",
@@ -130,18 +139,21 @@ fn an_answer_kept_under_the_launchs_clock_is_said_never_to_be_shown() {
         r.data_ready().unwrap();
         assert!(r.store.kept(&kept::kept_name("answer")).is_some());
         r.journal()
-            .filter(|l| l.contains("kept answer is never shown at launch"))
+            .filter(|l| l.contains("kept answer may never be shown at launch"))
             .map(str::to_string)
             .collect::<Vec<_>>()
     };
-    let lines = said(0);
+    let lines = said(Some(0));
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
-        lines[0].contains("`answer`'s kept answer is never shown at launch because its identifying argument 1 is a time of this launch")
-            && lines[0].contains("pass it after `with` (`resource answer = answer(…) with …`)"),
+        lines[0].contains("`answer`'s kept answer may never be shown at launch: its identifying argument 1 reads `exactTime()` and is a time of this launch")
+            && lines[0].contains("If it does not identify the answer, pass it after `with` (`resource answer = answer(…) with …`)"),
         "{}",
         lines[0]
     );
-    // The zone's offset is the same at the next launch: its answer is shown then.
-    assert_eq!(said(1), Vec::<String>::new());
+    // The zone's offset is the same at the next launch; a time of this
+    // launch the clock did not give (a record made now, saved) may be what
+    // identifies the answer: neither is said.
+    assert_eq!(said(Some(1)), Vec::<String>::new());
+    assert_eq!(said(None), Vec::<String>::new());
 }

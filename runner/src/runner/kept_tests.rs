@@ -759,3 +759,44 @@ fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
         "{lines:?}"
     );
 }
+
+/// Three store readers of one source, none with arguments.
+fn three() -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    for name in ["a", "b", "c"] {
+        let r = b.resource(name, "answer", &[], string, Some(&Value::str("loading")));
+        b.set_resource_reader(r, true);
+        b.set_resource_initial_args(r, &[]);
+    }
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+#[test]
+fn kept_answers_over_their_total_forget_the_longest_other() {
+    let source = Source {
+        value: Value::str(&"x".repeat(200 * 1024)),
+        ..Source::default()
+    };
+    let mut r = boot(three(), source, Vec::new());
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    let kept: Vec<_> = ["a", "b", "c"]
+        .into_iter()
+        .filter(|n| r.store.kept(&kept::kept_name(n)).is_some())
+        .collect();
+    assert_eq!(kept, ["b", "c"], "the first kept is forgotten for the last");
+    let total: usize = r.store.kept_lengths().iter().map(|(_, n)| n).sum();
+    assert!(total <= kept::KEPT_TOTAL_BYTES, "{total}");
+    let said: Vec<_> = r
+        .journal()
+        .filter(|l| l.contains("kept answers are at most 512 KiB together"))
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("forgot `a`'s (204810 bytes) to keep `c`'s"),
+        "{}",
+        said[0]
+    );
+}

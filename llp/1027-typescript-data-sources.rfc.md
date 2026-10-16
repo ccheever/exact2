@@ -575,17 +575,29 @@ median of 100 rounds of `ibex2`'s kv `FileStore` and the runner's
   write, a fresh file synced and renamed, is the writer thread's and costs
   its `fsync`, about 9 ms at any size.
 - *Disk and the writer's memory.* One file per store-reading resource, and
-  at most one waiting value per key: each at most the bound.
+  at most one waiting value per key: each at most the bound, and all of
+  them at most the total below.
 - *Staleness.* Unchanged by size: admission is still by identity and shape,
   and `data_ready` still asks again.
 - *Page storage.* The wasm web target keeps answers in `localStorage` as
   base64 (`exact.secret.exact.kept.<resource>`), in the origin's quota of
-  about 5 MB that the app's secrets share; a 256 KiB answer takes about
-  350 K characters of it. A write the quota refuses is warned in the
-  console and never fails the commit; the next launch shows the entry kept
-  before it, if any, until `data_ready` answers.
-  The default JS target keeps none. Linux keeps them in the same kv scope as
-  Apple (LLP 1027.007 D13), written with the commit.
+  about 5 M characters that the app's secrets and persisted states share; a
+  256 KiB answer takes about 350 K of it. The default JS target keeps none.
+  Linux keeps them in the same kv scope as Apple (LLP 1027.007 D13),
+  written with the commit.
+
+The kept answers are also bounded together, at twice one answer's bound
+(512 KiB): the runner, which knows every entry, forgets the longest others
+when keeping one would pass it, in the same commit, and says so (`kept
+answers are at most 512 KiB together: forgot …`). That bounds a boot's read
+and decode in all (1.2 to 1.4 ms on the simulator), a native host's disk
+beside the app's own files, and the page's share of its quota (about 700 K
+characters). The page also treats the kept answers as the cache they are
+(`navigation.js`, `storeInPage`): a secret or persisted state the quota
+refuses forgets every kept answer and is written again, and a kept answer
+it refuses forgets the older one, which would otherwise show stale at the
+next launch. Native stores are files under the app's container, with no
+quota a cache could exhaust before a secret: the total is their bound.
 
 So the bound is 256 KiB of identifying arguments and value: four times what
 a first screen like euxy's needs, and under a millisecond at boot on the

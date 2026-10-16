@@ -378,13 +378,48 @@ fn a_launch_relative_time_in_a_persisted_state_is_named() {
 #[test]
 fn an_identifying_argument_of_the_launch_is_named_with_with() {
     let library = |call: &str| {
-        format!("shape Time\n  epochAtZero: number\n  seed: number\n  utcOffset: number\nshape Library\n  ready: bool\ncomponent App\n  resource time = exactTime() as shape Time\n  derive origin = time.epochAtZero\n  state minute = 0\n  resource lib = {call} as shape Library\n  view\n    text \"x\"\n")
+        format!("shape Time\n  epochAtZero: number\n  seed: number\n  utcOffset: number\nshape Library\n  ready: bool\ncomponent App\n  resource time = exactTime() as shape Time\n  resource recording = saved() as shape Time\n  derive origin = time.epochAtZero\n  derive clock = time\n  state minute = 0\n  resource lib = {call} as shape Library\n  view\n    text \"x\"\n")
     };
-    for (call, said, rest) in [
-        ("library(time.epochAtZero)", "time.epochAtZero", ""),
-        ("library(time.seed)", "time.seed", ""),
-        ("library(origin)", "origin", ""),
-        ("library(minute, time.epochAtZero)", "time.epochAtZero", "…"),
+    const KEPT: &str = "the source receives it where it did";
+    const MOVED: &str = "so change `library`'s parameters to that order too";
+    for (call, said, declaration, order) in [
+        (
+            "library(time.epochAtZero)",
+            "time.epochAtZero",
+            "library() with time.epochAtZero",
+            KEPT,
+        ),
+        (
+            "library(time.seed)",
+            "time.seed",
+            "library() with time.seed",
+            KEPT,
+        ),
+        ("library(origin)", "origin", "library() with origin", KEPT),
+        (
+            "library(clock.seed)",
+            "clock.seed",
+            "library() with clock.seed",
+            KEPT,
+        ),
+        (
+            "library(minute, time.epochAtZero)",
+            "time.epochAtZero",
+            "library(minute) with time.epochAtZero",
+            KEPT,
+        ),
+        (
+            "library(time.epochAtZero) with minute",
+            "time.epochAtZero",
+            "library() with time.epochAtZero, minute",
+            KEPT,
+        ),
+        (
+            "library(time.epochAtZero, minute, \"all\")",
+            "time.epochAtZero",
+            "library(minute, \"all\") with time.epochAtZero",
+            MOVED,
+        ),
     ] {
         let (result, warnings) = contract::compile_warned(&library(call));
         result.unwrap();
@@ -392,21 +427,24 @@ fn an_identifying_argument_of_the_launch_is_named_with_with() {
             .iter()
             .map(|w| (w.id.as_str(), w.span.line))
             .collect();
-        assert_eq!(ids, [("lower-resource-launch-identity", 11)], "{call}");
+        assert_eq!(ids, [("lower-resource-launch-identity", 13)], "{call}");
         let message = &warnings[0].message;
         assert!(
             message.contains(&format!("because `{said}` changes every launch"))
-                && message.contains(&format!("`resource lib = library({rest}) with {said} …`")),
+                && message.contains(&format!("(`resource lib = {declaration}`)"))
+                && message.contains(order),
             "{message}"
         );
     }
-    // After `with`, a time made from the epoch, and what stays from one
-    // launch to the next are not named.
+    // After `with`; a time made from the epoch; what stays from one launch
+    // to the next; and a field of that name on the app's own record.
     for call in [
         "library() with time.epochAtZero, time.seed",
         "library(time.epochAtZero + minute)",
         "library(time.utcOffset)",
         "library(minute)",
+        "library(recording.epochAtZero)",
+        "library(recording.seed)",
     ] {
         assert_eq!(warned(&library(call)), [], "{call}");
     }

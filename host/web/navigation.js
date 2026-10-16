@@ -965,10 +965,10 @@ const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navig
 let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
 let pagePlace;
-export function reportPlace() {
-  pagePlace ??= placeReporter(launched());
-  return pagePlace();
-}
+export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
+// A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses forgets the kept answers, a cache the runner bounds together, and is tried once more; a kept answer it refuses forgets the older one, which would show stale.
+export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, kept = name.startsWith("exact.kept."), write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
+  try { try { write(); } catch (e) { if (kept || !/quota/i.test(e?.name ?? "")) throw e; for (const k of Array.from({ length: storage.length }, (_, i) => storage.key(i))) if (k?.startsWith("exact.secret.exact.kept.")) storage.removeItem(k); write(); } } catch (e) { warn("exact: store", name, String(e)); if (kept) try { storage.removeItem(key); } catch {} } }
 
 // An iframe guest's origin as authored when its `src` or `sandbox` was
 // committed (an opaque sandbox posts as "null"), which a `message` from it must match.

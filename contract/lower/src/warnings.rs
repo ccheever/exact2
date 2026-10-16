@@ -20,6 +20,7 @@ use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
 mod counts;
+mod launch;
 mod miswiring;
 mod nested_header;
 mod parts;
@@ -117,6 +118,8 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
     performance_now(root, &checked.file.fns, &mut out);
+    // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
+    launch::launch_identity(root, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
@@ -790,7 +793,6 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
         }
         (clock.marks, clock.epochs) = (marks, epochs);
     }
-    launch_identity(root, &clock, out);
     let mut found = Vec::new();
     for a in &root.actions {
         sent(&clock, &a.body, &mut Vec::new(), &mut found);
@@ -821,54 +823,6 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
             ),
             span,
         });
-    }
-}
-
-/// Each identifying argument of a resource that is this launch's own: the
-/// `epochAtZero` or `seed` of an `exactTime()` resource, or a name holding
-/// the epoch. It differs at every launch, so the answer a store-reading
-/// resource kept at the last launch never matches it, and its first frame
-/// never shows that answer (LLP 1027 D4); after `with` it still reaches the
-/// source but does not identify the answer (LLP 1027.005 D6). A time made
-/// from it, `epochAtZero + performanceNow()`, is not named: it may be what
-/// a fetch is about, and the runner names it at the first kept write.
-fn launch_identity(root: &Component, clock: &Clock<'_>, out: &mut Vec<LowerError>) {
-    let clocks: BTreeSet<&str> = root
-        .resources
-        .iter()
-        .filter(|r| r.source == "exactTime")
-        .map(|r| r.name.as_str())
-        .collect();
-    for r in &root.resources {
-        let identity = &r.args[..r.identity.unwrap_or(r.args.len())];
-        for arg in identity {
-            let seed = matches!(arg, Expr::Member(inner, field, _)
-                if field == "seed" && matches!(&**inner, Expr::Ident(n, _) if clocks.contains(n.as_str())));
-            if !seed && !clock.epoch(arg, &[]) {
-                continue;
-            }
-            let said = written(arg);
-            let rest = if identity.len() > 1 { "…" } else { "" };
-            out.push(LowerError {
-                id: "lower-resource-launch-identity",
-                message: format!(
-                    "`{name}`'s kept answer is never shown at launch because `{said}` changes every launch: a store-reading resource's first frame shows the answer kept at the last launch only when its identifying arguments match (LLP 1027 D4). Pass it after `with` (`resource {name} = {source}({rest}) with {said} …`), which still reaches the source but is not counted",
-                    name = r.name,
-                    source = r.source,
-                ),
-                span: arg.span(),
-            });
-        }
-    }
-}
-
-/// A name or a member as written: `time.epochAtZero`, `since`.
-fn written(e: &Expr) -> String {
-    match e {
-        Expr::Member(inner, field, _) => format!("{}.{field}", written(inner)),
-        Expr::Ident(n, _) => n.clone(),
-        Expr::Typed(inner, _, _) => written(inner),
-        _ => "…".into(),
     }
 }
 

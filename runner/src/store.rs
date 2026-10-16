@@ -301,6 +301,15 @@ impl Store {
         self.values.get(name).map(Vec::as_slice)
     }
 
+    /// Every kept answer's name and length, by the runner.
+    pub(crate) fn kept_lengths(&self) -> Vec<(String, usize)> {
+        self.values
+            .iter()
+            .filter(|(name, _)| Store::is_kept(name))
+            .map(|(name, value)| (name.clone(), value.len()))
+            .collect()
+    }
+
     /// Keep an answer for the next boot, by the runner: a write for the host
     /// to persist that bumps no revision, so store-reading resources do not
     /// re-answer because one of them was answered.

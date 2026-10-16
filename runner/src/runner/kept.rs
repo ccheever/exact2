@@ -21,6 +21,12 @@ use exact_plan::Value;
 const KEPT_DATA_BYTES: usize = 256 * 1024;
 /// The longest kept entry: the data, with the arguments' list header
 pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
+/// The longest the kept entries are together: what a boot reads and
+/// decodes in all (about 1.2 ms on an iPhone simulator), what a native
+/// host keeps on disk beside the app's own files, and, as base64, about
+/// 700 K of the characters a web page's `localStorage` shares with the
+/// app's secrets and persisted states (LLP 1027 D4, 2026-10-16).
+pub(super) const KEPT_TOTAL_BYTES: usize = 2 * MAX_KEPT_BYTES;
 
 /// Whether answers are kept, and the resources an answer too big to keep was said of, once each
 #[derive(Debug, Default)]
@@ -307,14 +313,46 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         self.say_of_launch(i, args);
-        self.store.keep(&name, encode(args, value));
+        let entry = encode(args, value);
+        self.make_room(&name, entry.len());
+        self.store.keep(&name, entry);
+    }
+
+    /// Forget other kept answers, the longest first, until `len` more bytes
+    /// under `name` keep the entries within [`KEPT_TOTAL_BYTES`]: a kept
+    /// answer is a cache, which its resource fills again when it answers.
+    fn make_room(&mut self, name: &str, len: usize) {
+        let mut others: Vec<(String, usize)> = self
+            .store
+            .kept_lengths()
+            .into_iter()
+            .filter(|(other, _)| other != name)
+            .collect();
+        let mut total = len + others.iter().map(|(_, n)| n).sum::<usize>();
+        others.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+        for (other, n) in others {
+            if total <= KEPT_TOTAL_BYTES {
+                break;
+            }
+            total -= n;
+            self.store.forget_kept(&other);
+            let line = format!(
+                "kept answers are at most {} KiB together: forgot `{}`'s ({n} bytes) to keep `{}`'s, so the next launch shows `{0}`'s placeholder until it answers (LLP 1027 D4)",
+                KEPT_TOTAL_BYTES / 1024,
+                &other[Store::KEPT.len()..],
+                &name[Store::KEPT.len()..],
+            );
+            self.log(line);
+        }
     }
 
     /// Say once that resource `i` is kept under an identifying argument of
-    /// this launch's own — a time since its clock began, or its seed — so
-    /// the next launch never matches it (LLP 1027.005). The compiler names
-    /// the argument where it is written as the epoch or the seed; a time
-    /// made from the epoch is found here, by its value.
+    /// this launch's own, so the next launch may never match it (LLP
+    /// 1027.005): one that reads an `exactTime()` resource and is a time
+    /// since this launch's clock began, or its seed. The compiler names one
+    /// written as the epoch or the seed; a time made from the epoch is found
+    /// here. A time read elsewhere (a record's creation, saved) may identify
+    /// the answer, so the line says what to do only if it does not.
     fn say_of_launch(&mut self, i: usize, args: &[Value]) {
         if self.keeping.of_launch.contains(&i) {
             return;
@@ -323,28 +361,55 @@ impl<D: DataSource> Runner<D> {
         let seed = self.place().seed;
         let Some((k, what)) = args.iter().enumerate().find_map(|(k, arg)| {
             let &Value::Number(v) = arg else { return None };
-            if epoch > 0.0 && (epoch..=epoch + self.now_ms + 1000.0).contains(&v) {
-                Some((
-                    k,
-                    "a time of this launch (`epochAtZero`, or a time made from it)",
-                ))
+            let what = if epoch > 0.0 && (epoch..=epoch + self.now_ms + 1000.0).contains(&v) {
+                "a time of this launch"
             } else if seed > 0.0 && v == seed {
-                Some((k, "this launch's `seed`"))
+                "this launch's seed"
             } else {
-                None
-            }
+                return None;
+            };
+            self.reads_clock(i, k).then_some((k, what))
         }) else {
             return;
         };
         self.keeping.of_launch.push(i);
         let row = &self.plan.resources[i];
         let line = format!(
-            "`{name}`'s kept answer is never shown at launch because its identifying argument {n} is {what}, which changes every launch; pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted (LLP 1027.005)",
+            "`{name}`'s kept answer may never be shown at launch: its identifying argument {n} reads `exactTime()` and is {what}, which changes every launch. If it does not identify the answer, pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted (LLP 1027.005)",
             name = self.plan.str(row.name),
             source = self.plan.str(row.source),
             n = k + 1,
         );
         self.log(line);
+    }
+
+    /// Whether resource `i`'s argument `k` reads, directly or through
+    /// derives, an `exactTime()` resource.
+    fn reads_clock(&self, i: usize, k: usize) -> bool {
+        use crate::instance::Input;
+        let deps = self.sites.deps();
+        let Some(arg) = self.plan.resources[i].args.iter().nth(k) else {
+            return false;
+        };
+        let mut work = vec![deps.reads_of(&self.plan, self.plan.arg(arg).expr)];
+        let mut derives = vec![false; self.plan.derives.len()];
+        while let Some(reads) = work.pop() {
+            for input in deps.inputs(&reads) {
+                match input {
+                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
+                        if self.plan.str(self.plan.resources[r].source) == crate::time::SOURCE =>
+                    {
+                        return true;
+                    }
+                    Input::Derive(d) if !derives[d] => {
+                        derives[d] = true;
+                        work.push(deps.derives[d].clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
     }
 
     /// The data source is ready — a host loaded its TypeScript module after
