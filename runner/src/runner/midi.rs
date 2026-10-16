@@ -471,11 +471,12 @@ impl<D: DataSource> Runner<D> {
         let now = self.now_ms;
         let mut batch = Vec::new();
         for m in list.as_array().map_or(&[][..], Vec::as_slice) {
-            let f = |k: usize| m.get(k).and_then(serde_json::Value::as_f64);
+            let a = m.as_array().map_or(&[][..], Vec::as_slice);
+            let f = |k: usize| a.get(k).and_then(serde_json::Value::as_f64);
             let byte = |k: usize| f(k).filter(|b| b.fract() == 0.0 && (0.0..128.0).contains(b));
-            let data = match (f(1), byte(2), byte(3)) {
-                (Some(b), None, None) if [248.0, 250.0, 251.0, 252.0].contains(&b) => vec![b as u8],
-                (Some(242.0), Some(lsb), Some(msb)) => vec![0xF2, lsb as u8, msb as u8],
+            let data = match (a.len(), f(1), byte(2), byte(3)) {
+                (2, Some(b), ..) if [248.0, 250.0, 251.0, 252.0].contains(&b) => vec![b as u8],
+                (4, Some(242.0), Some(lsb), Some(msb)) => vec![0xF2, lsb as u8, msb as u8],
                 _ => {
                     return (
                         Vec::new(),

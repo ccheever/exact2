@@ -749,6 +749,11 @@ impl Transport {
         if self.owner.is_none() || self.state == State::Waiting {
             return -1.0;
         }
+        // Following a clock, by the one segment hits are issued under: its
+        // segments do not join (D9).
+        if self.follow.is_some() {
+            return self.segments.back().map_or(-1.0, |g| g.beat_at(t));
+        }
         self.segments
             .iter()
             .rev()
