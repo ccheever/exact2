@@ -318,8 +318,8 @@ test('test web advances time only for mutation requests and preserves action tim
       button "Save" press=save testId="save"
       button "Idle" press=idle testId="idle"
       button "Enable timer" press=enable testId="enable"
-      text (match saved { case some(n) => toString(n), case none => "-" }) testId="reply"
-      text toString(performanceNow()) testId="time"
+      text (match saved { case some(n) => n.toString(), case none => "-" }) testId="reply"
+      text performanceNow().toString() testId="time"
 `);
     writeFileSync(join(app,'app.ts'),`import type {Answer} from './app.contract.d.ts';
 export const appId='com.example.app'; export const grants='';

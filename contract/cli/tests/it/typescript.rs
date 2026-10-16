@@ -474,6 +474,34 @@ fn build_reports_all_reachable_ambient_apis_before_bake() {
 }
 
 #[test]
+fn ambient_check_resolves_extensionless_mounted_modules() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write(
+        "app.json",
+        r#"{"typescript":{"sources":{"backend":"generated"}}}"#,
+    );
+    std::fs::create_dir_all(fixture.0.join("generated")).unwrap();
+    fixture.write("generated/api.ts", "export const value = 42;\n");
+    for import in ["./backend/api", "./backend/api.ts"] {
+        fixture.write(
+            "app.ts",
+            &format!("import {{value}} from '{import}';\nexport const answer = () => value;\n"),
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["build", "app.contract", "--json"])
+            .current_dir(&fixture.0)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{import}: {output:?}");
+        assert_eq!(output.stdout, b"[]\n");
+    }
+}
+
+#[test]
 fn unknown_handlers_continue_through_siblings_children_and_timer_targets() {
     let source="component App\n  action save\n    let done = true\n  task first mount\n    every(1000, saev)\n  task second mount\n    every(2000, svae)\n  view\n    column\n      button \"Save\" press=saev\n      column\n        button \"Save again\" press=svae\n";
     let timers = source
@@ -545,7 +573,8 @@ fn types_check_is_read_only_and_build_reports_only_changed_declarations() {
     let built = run(&["build", "app.contract", "--json"]);
     assert!(built.status.success(), "{built:?}");
     assert_eq!(built.stdout, b"[]\n");
-    assert!(String::from_utf8_lossy(&built.stderr).contains("refreshed app.contract.d.ts"));
+    assert!(String::from_utf8_lossy(&built.stderr)
+        .contains("app.contract.d.ts: regenerated, since a source's signature changed"));
     assert!(check().status.success());
     let repeated = run(&["build", "app.contract", "--json"]);
     assert!(repeated.status.success());

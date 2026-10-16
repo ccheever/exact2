@@ -489,10 +489,10 @@ export async function ambientDiagnostics(app) {
   let mounts={};
   try { mounts=JSON.parse(readFileSync(resolve(app,'app.json'),'utf8')).typescript?.sources ?? {}; } catch { /* plain Contract directory */ }
   const bundle=await rolldown({input:resolve(app,'app.ts'), logLevel:'silent', external:source=>!!packageName(source),
-    plugins:[{name:'contract-ambient', resolveId(source,importer) {
+    plugins:[{name:'contract-ambient', async resolveId(source,importer) {
       if (!importer || !source.startsWith('.')) return null;
       const path=resolve(dirname(importer),source), child=relative(app,path).split(sep);
-      return mounts[child[0]] ? resolve(app,mounts[child[0]],...child.slice(1)) : null;
+      return mounts[child[0]] ? this.resolve(resolve(app,mounts[child[0]],...child.slice(1)), importer, {skipSelf:true}) : null;
     }, transform(code,id) { found.push(...ambientRefusals(app,id,code,(c,o)=>this.parse(c,o))); return null; }}]});
   try { await bundle.generate({format:'esm'}); } finally { await bundle.close(); }
   return found.map(line=>{

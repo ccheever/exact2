@@ -143,7 +143,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             if let Err(error) = write_output(&declaration, types.as_bytes()) {
                 return report(&error, json, 1);
             }
-            eprintln!("refreshed {declaration}");
+            eprintln!("{declaration}: regenerated, since a source's signature changed (the types app.ts imports)");
         }
     }
     let bytes = plan.encode();
