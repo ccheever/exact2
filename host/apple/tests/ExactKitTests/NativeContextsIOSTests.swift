@@ -589,7 +589,8 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertTrue(sections.allSatisfy { $0.options.contains(.displayInline) })
     }
 
-    /// A menu is titled by its popover's `aria-label`; a row whose image is
+    /// A menu is titled by its popover's `aria-label`, as an inline section's
+    /// heading; a row whose image is
     /// an `img` shows it as its item's image, a symbol's as itself and a
     /// bitmap fitted to the row's icon box.
     func testAMenuIsTitledByItsLabelAndShowsARowsImg() throws {
@@ -605,7 +606,10 @@ final class NativeContextsIOSTests: XCTestCase {
             faces: [3: face("Waze")])
         let invoker = try XCTUnwrap(p.views[1])
         let button = try XCTUnwrap(invoker.subviews.compactMap { $0 as? UIButton }.first { $0.showsMenuAsPrimaryAction })
-        XCTAssertEqual(button.menu?.title, "Open location in")
+        let section = try XCTUnwrap(button.menu?.children.first as? UIMenu)
+        XCTAssertEqual(button.menu?.title, "", "no top-level title: its header is taller than a section's")
+        XCTAssertEqual(section.title, "Open location in")
+        XCTAssertTrue(section.options.contains(.displayInline), "an inline section's heading, as a hand-built pull-down has it")
         func row() throws -> UIAction { try XCTUnwrap(p.menus.items(of: try XCTUnwrap(p.views[2])).compactMap { $0 as? UIAction }.first) }
         XCTAssertEqual(try row().title, "Waze")
         XCTAssertNil(try row().image, "no image until it has loaded")

@@ -401,7 +401,7 @@ component NativeFixture
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
                 if e.name == "home"
-                  column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
+                  column id="bar-menu" popover="auto" position="absolute" role="menu" aria-label="Actions" width=200 padding=8 background-color="#ffffff"
                     button appearance="none" press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
                       text "Bump from the bar"
                     // Rows that open a confirmation, with no handler or after one: it presents

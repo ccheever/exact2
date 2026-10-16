@@ -953,9 +953,8 @@ extension NavigationHost {
         let item: UIBarButtonItem
         if i.menu, let button = presenter.views[i.id] {
             // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
-            let deferred = presenter.menus.pullDown(of: button, inBar: true)
-            item = image.map { UIBarButtonItem(image: $0, menu: UIMenu(title: i.menuTitle, children: [deferred])) }
-                ?? UIBarButtonItem(title: i.title, menu: UIMenu(title: i.menuTitle, children: [deferred]))
+            let menu = presenter.menus.pullDown(of: button, titled: i.menuTitle, inBar: true)
+            item = image.map { UIBarButtonItem(image: $0, menu: menu) } ?? UIBarButtonItem(title: i.title, menu: menu)
         } else {
             item = image.map { UIBarButtonItem(image: $0, style: .plain, target: press, action: action) }
                 ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
