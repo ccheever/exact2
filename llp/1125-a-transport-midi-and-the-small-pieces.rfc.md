@@ -769,3 +769,105 @@ otherwise.
   clock in stage 4. A plan whose sequence has haptics and no declared sound
   sends its haptic ops through the sound batch, which the Apple bake's
   sound arm need not load for; that path was not driven.
+
+## As built (stage 5, 2026-10-16)
+
+D12 as written, except where this says otherwise.
+
+- **Compiler.** `share` takes `files=`, a list of strings, beside
+  `title=`, `text=` and `url=`; one of `text`, `url` and `files` is
+  required. A literal entry is an `app:/` path or a non-empty `"#id"`, and
+  a literal `files=[]` is refused (`type-share-argument`, three new reject
+  fixtures). Lowering orders the arguments `(title, text, url, files)`, so
+  every host's `share` now has four. A literal `"#id"` that no element of
+  the whole expanded view carries is `lower-share-picture`; where any
+  element's id is computed, a node is not expanded, or a `markdown` draws
+  elements of its own, the check stands back and the runner refuses a
+  missing id when the share runs.
+- **Runner** (`runner/src/share.rs`). One rule on every host, before the
+  agent's hold: an `app:/` entry must be a plain app path that the app's
+  `fs.read` grant covers (`covered`, as `saveFile` checks it; LLP 1069.008
+  D3), and an `#id` must name an element in the kernel now (`no element
+  with id "card"`). What a host cannot share is a `Reach`, refused by name
+  before the hold too, since the host would refuse it for real: the web's
+  pictures, Android's files. The present reply carries the files in order,
+  `{"path":…}` or `{"id":…,"view":N}`; the hold's summary gains `files`
+  (always present, `[]` when none).
+- **Page facts.** `exactPage()` gains `canShareFiles` (bit 8) and
+  `canSharePictures` (bit 9). iOS and macOS: both true (tvOS: false). The
+  web: `canShareFiles` is `navigator.canShare({files})` for a one-byte
+  `text/plain` File, read once; `canSharePictures` is false. Linux and
+  Android: false. Under the agent both are true on every native host, as
+  `canShare` is (the substitute answers there); on the web `canShareFiles`
+  is true and `canSharePictures` false, since the web refuses a picture
+  under the agent as well. `prefer can-share-files` and
+  `prefer can-share-pictures` set them on every host.
+- **Apple** (`Share.swift`). A path is resolved by the library
+  (`appFile`) and goes as its file URL; a missing file is `share: refused:
+  <path> does not exist`. A picture is `ShareSheet.picture(of:)`: on iOS
+  `UIGraphicsImageRenderer` at the view's `displayScale`, drawing with
+  `drawHierarchy(afterScreenUpdates: false)` on screen and `layer.render`
+  off it; on macOS `bitmapImageRepForCachingDisplay` and `cacheDisplay`,
+  at the window's backing scale. The PNG is written as `<id>.png` in a
+  fresh temporary directory, removed when the sheet reports its outcome or
+  fails to present, and journaled `share: picture of #card: W×H px, N
+  bytes`. A node with no view or no area is `share: refused: #card is not
+  drawn`.
+- **Deviation: `EXACT_DEVICE=real` now reaches `share` on Apple.** The
+  session asked the runner with `agent` set to agent mode, so a real sheet
+  could not be seen under the driver; it now sends `PageFacts.substituted`,
+  which LLP 1069.007 D8 already defines.
+- **Web.** The runner (wasm glue) or `files.js` (JS target) rules; then
+  `picker-glue.js`'s `share` reads each file (a picked File, else the app's
+  store) into a `File` named by its last segment and typed by its
+  extension, and calls `navigator.share` when `navigator.canShare` takes
+  them, else `share: refused: this browser cannot share these files`. A
+  share without files still calls `navigator.share` synchronously in the
+  dispatch.
+- **Deviation: the web reads files after the press.** Reading the store is
+  asynchronous, so `navigator.share` runs after awaits, inside the press's
+  transient activation rather than synchronously in it. Chromium keeps
+  activation for about five seconds; a browser whose window is shorter, or
+  a large file, gets `share: refused: NotAllowedError`. Chromium's
+  `canShare` also refuses types outside its share list (JSON among them),
+  so Fieldnotes' backup is refused there by name.
+- **Ruling: Android refuses files** (`share: refused: files are not
+  carried to Android's share sheet yet`). Carrying them needs a
+  `FileProvider` in the Canvas host's manifest, the presenter's app roots
+  mapped to content URIs, and a picture from the Canvas renderer rather than
+  a platform view: not a contained change. Text and links still go to the
+  Sharesheet. Desktop Linux refuses `unavailable` as before.
+- **Consumers.** Metronome: a tempo card (`id="card"`: the tempo and the
+  pattern) and **Share as image**, `share(title=, text=, files=["#card"])`,
+  shown where `canSharePictures` holds. Fieldnotes: **Share backup file…**
+  beside Export, `files=["app:/data/backups/fieldnotes.json"]`, where
+  `canShareFiles` holds.
+- **Tests.** `runner/src/share.rs` (files alone, strings, the JSON
+  door's list); `contract/cli/tests/it/share.rs` (the four-argument order;
+  Apple presents a picture by its view and a granted path in order; the
+  web refuses the picture, under the agent too; an ungranted path is
+  refused everywhere; the hold records the entries; the JSON reply; the
+  compile-time `#id`); `host/web-js/files.test.js` (the JS twin's hold and
+  refusals; `picker-glue.js` with a fake navigator: typed Files, `shared`,
+  `dismissed`, `NotAllowedError`, `canShare` false, no store);
+  `host/web/agent.test.mjs` (bits 8 and 9, `canShare({files})`);
+  `ShareMacTests`/`ShareIOSTests.testPicture` (a red node drawn to a PNG of
+  its points times the display's scale, red at its centre; no area, no
+  picture).
+- **Measured.** Driven under the agent: Metronome on macOS, the iOS 27
+  simulator and the web (`prefer can-share-pictures true` then the button:
+  the web's refusal by name); Fieldnotes on the web (the hold lists
+  `files: ["app:/data/backups/fieldnotes.json"]`). With `EXACT_DEVICE=real`
+  (on the simulator through `SIMCTL_CHILD_EXACT_DEVICE`): macOS drew the
+  card at 139×94 px (a scale-1 window), the iOS simulator at 497×339 px
+  (3×), and both presented with no refusal.
+- **Not done here.** No one picked an activity in a real sheet, so the
+  outcome lines of a file share were not seen; the window screenshots do not
+  include the sheet. A real browser's `navigator.share({files})` was not
+  run (the glue was tested with a fake navigator). A scratch directory
+  whose sheet is still open when the app quits stays in the temporary
+  directory until the system clears it. euxy's `ShareCard.swift` was not
+  touched (its port is outside this repo). The wasm glue's share path
+  (`host/web/glue.js`) was tested through the runner's JSON door, not
+  driven in a page. `contract-difftest quick` was not run: Lean is not
+  installed on this machine.

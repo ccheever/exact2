@@ -2218,6 +2218,8 @@ native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
 browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
 `exactPage` answers `visibilityState`, `onLine`, `canShare`,
+`canShareFiles` and `canSharePictures` (whether `share(files=…)` takes
+`app:/` files and an element's `"#id"`; the web never takes a picture),
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
 choose an in-window message over a system notification). A reminder that should
