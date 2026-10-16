@@ -2526,3 +2526,22 @@ live-table edit.
   thread is a development assertion and one journal line per call site, and every host binds
   where it resolves.
 - Apple's and Linux's `unsupported` for a refused pin name its revision.
+
+### Stage 5, commit 3: the binding core (`3e1603cef`..`49c4df257`)
+
+D12's runtime side, under every language's generated names.
+- **`session.tamber()`** (`Runner::tamber`): `color(name, place)` reads what a row naming that token
+  reads at the place. That takes in its app tuple, the live table's edits and the session's role
+  overrides.
+  - Identity is the name. A name the plan lacks, or a value that isn't a colour, is `None` and one
+    journal line.
+  - `Place::{Root, Node(view)}`: a node's tuple is the window's under the nearest `-exact-mode`
+    pin, and its scheme is the nearest `color-scheme`'s, else the window's.
+- **`inputs(place)`** is one number that moves when anything a value at that place depends on moves:
+  its tuple, a token's value (an edit, a live batch, a role override), the platform's reported
+  colours, the scheme, the contrast, and the root font size. Hosts compare it after each batch for
+  `observe`. It may fire when nothing a binding reads changed, but it never misses a change. An
+  update or a dev reload is a new runner. Bold Text and an editor swap come with commit 5.
+- **Apple** has one ABI entry, `exact_tamber(rt, len)`: `{view, names}` → `{inputs, colors}`.
+  Linux and Android's entry comes with commit 5.
+- Two sessions with different designs answer differently, in the runner and through the export.
