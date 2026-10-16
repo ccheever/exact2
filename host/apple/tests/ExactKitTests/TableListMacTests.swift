@@ -745,6 +745,115 @@ extension TableListMacTests {
         }
     }
 
+    func testWindowedSeparatorUsesItsAuthoredRowsLocalAppearanceAcrossReuse() throws {
+        let source = """
+        component WindowedRowScheme
+          state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          derive d1 = seed.concat(seed)
+          derive d2 = d1.concat(d1)
+          derive d3 = d2.concat(d2)
+          derive d4 = d3.concat(d3)
+          derive rows = d4.map((n, i) => i)
+          state scheme = 0
+          action setScheme(next: number)
+            scheme = next
+          view
+            column width="100%" height="100%" gap=12 padding=12 box-sizing="border-box"
+              row gap=8
+                button press=setScheme(1) testId="windowed-light"
+                  text "Row light"
+                button press=setScheme(2) testId="windowed-dark"
+                  text "Row dark"
+                button press=setScheme(0) testId="windowed-clear"
+                  text "Clear row scheme"
+              list virtualized=true estimated-item-height=40 flex=1 min-height=0 width="100%" testId="rows"
+                for r in rows key=`k${r}`
+                  row height=40 width="100%" padding="8px 16px" box-sizing="border-box"
+                    color-scheme=(scheme == 1 ? "light" : (scheme == 2 ? "dark" : none)) testId=`windowed-${r}`
+                    text `Row ${r}`
+
+        """
+        let f = try TableFixture(count: 0, source: source)
+        fixture = f
+        let first = try f.node("windowed-0")
+        let firstRow = try XCTUnwrap(f.feed.rows.first { $0.root == first.id })
+        XCTAssertFalse(firstRow.node === first, "the table mounts the runner's wrapper while appearance belongs to its authored root")
+        XCTAssertNotNil(firstRow.node.props["listItemKey"])
+
+        let before = Dictionary(uniqueKeysWithValues: f.feed.rows.map {
+            ($0.node.id, (key: $0.node.props["listItemKey"], root: $0.root))
+        })
+        var rebound: TableFeed.Row?
+        for y in stride(from: CGFloat(400), through: 4_000, by: 400) where rebound == nil {
+            f.scroll(to: y)
+            let portRows = f.table.rows(in: f.table.convert(f.clip.bounds, from: f.document))
+            rebound = f.feed.rows.first { row in
+                guard NSLocationInRange(row.index, portRows), let old = before[row.node.id] else { return false }
+                return old.key != row.node.props["listItemKey"] && old.root == row.root
+            }
+        }
+        let rebound = try XCTUnwrap(rebound, "a visible wrapper and its authored root were rebound to another item")
+        let row = try XCTUnwrap(f.presenter.views[rebound.root])
+        XCTAssertTrue(row.isDescendant(of: rebound.node))
+
+        func press(_ id: String) throws {
+            f.presenter.press(try f.node(id).id)
+            f.settle()
+        }
+        func distance(_ a: NSColor, _ b: NSColor) -> CGFloat {
+            abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
+                + abs(a.blueComponent - b.blueComponent) + abs(a.alphaComponent - b.alphaComponent)
+        }
+        func colors(_ mode: String) throws -> [NSColor] {
+            f.window.appearance = NSAppearance(named: .darkAqua)
+            try press("windowed-clear")
+            var picture = try separatorPicture(f, name: "\(mode)-windowed-inherited-dark")
+            let inheritedDark = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(inheritedDark, separatorColor(row.effectiveAppearance), "\(mode): the wrapper inherits its authored row's dark appearance")
+
+            try press("windowed-light")
+            picture = try separatorPicture(f, name: "\(mode)-windowed-light-in-dark")
+            let lightInDark = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(lightInDark, separatorColor(row.effectiveAppearance), "\(mode): the authored row's light scheme owns its wrapper's separator")
+            XCTAssertGreaterThan(distance(inheritedDark, lightInDark), 1.0 / 255.0)
+
+            f.window.appearance = NSAppearance(named: .aqua)
+            try press("windowed-dark")
+            picture = try separatorPicture(f, name: "\(mode)-windowed-dark-in-light")
+            let darkInLight = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(darkInLight, separatorColor(row.effectiveAppearance), "\(mode): the authored row's dark scheme owns its wrapper's separator")
+
+            try press("windowed-clear")
+            picture = try separatorPicture(f, name: "\(mode)-windowed-cleared-light")
+            let restoredLight = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(restoredLight, separatorColor(row.effectiveAppearance), "\(mode): clearing the authored row restores the light window")
+            XCTAssertGreaterThan(distance(darkInLight, restoredLight), 1.0 / 255.0)
+            return [inheritedDark, lightInDark, darkInLight, restoredLight]
+        }
+
+        let native = try colors("native")
+        f.presenter.tables.painted = true
+        f.settle()
+        let painted = try colors("painted")
+        for (index, pair) in zip(native, painted).enumerated() {
+            try assertSameColor(pair.1, pair.0, "painted and native windowed rows agree at step \(index)")
+        }
+
+        f.scroll(to: 0)
+        let returned = try f.node("windowed-0")
+        f.window.appearance = NSAppearance(named: .darkAqua)
+        try press("windowed-light")
+        var picture = try separatorPicture(f, name: "painted-windowed-returned-light")
+        let paintedReturn = try lineColor(picture, y: separatorBoundary(f, row: returned))
+        try assertSameColor(paintedReturn, separatorColor(returned.effectiveAppearance), "painted: the current authored source owns the returned row's separator")
+        f.presenter.tables.painted = false
+        f.settle()
+        picture = try separatorPicture(f, name: "native-windowed-returned-light")
+        let nativeReturn = try lineColor(picture, y: separatorBoundary(f, row: returned))
+        try assertSameColor(nativeReturn, separatorColor(returned.effectiveAppearance), "native: the current authored source owns the returned row's separator")
+        try assertSameColor(nativeReturn, paintedReturn, "native and painted returned-row associations agree")
+    }
+
     func testWindowedShadowIntentBelongsToTheWrapperAndPaintedLinesTearDown() throws {
         let f = try TableFixture(count: 0, source: Self.separatorSource(windowed: true))
         fixture = f
