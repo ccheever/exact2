@@ -25,7 +25,8 @@ pub fn accepts(prop: PropId) -> Option<&'static str> {
 /// detents from shortest to tallest. A point height and a share of the
 /// sheet's maximum (`medium`, which is half, or a percentage) cross on some
 /// screen, so the words before `large` are of one kind and ascend; `large`,
-/// the maximum, goes last. `fit-content` has its own rule.
+/// the maximum, goes last, and `100%` is `large` (the same height, so one
+/// of them only). `fit-content` has its own rule.
 pub fn detent_out_of_order<'a>(words: &[&'a str]) -> Option<&'a str> {
     let mut last: Option<(bool, f64)> = None;
     let mut large = false;
@@ -41,7 +42,14 @@ pub fn detent_out_of_order<'a>(words: &[&'a str]) -> Option<&'a str> {
             "fit-content" => continue,
             "medium" => (true, 50.0),
             w => match w.strip_suffix('%') {
-                Some(p) => (true, p.parse().ok()?),
+                Some(p) => {
+                    let p: f64 = p.parse().ok()?;
+                    if p >= 100.0 {
+                        large = true;
+                        continue;
+                    }
+                    (true, p)
+                }
                 None => (false, w.parse().ok()?),
             },
         };

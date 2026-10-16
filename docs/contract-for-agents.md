@@ -1762,7 +1762,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   the screen as a percentage, never points computed from a measure. Heights go
   shortest to tallest on every screen, as UIKit takes them: before `large`, which
   goes last, use one kind (points, or percentages with `medium` as half), each
-  taller than the one before; `"300 45%"` crosses on a small screen. A literal with
+  taller than the one before; `"300 45%"` crosses on a small screen. `"100%"` is
+  `large`, and a point height a screen's maximum reaches, with a taller detent after
+  it, is left out there. A percentage, like a point height, leaves out the bottom
+  safe area, which UIKit adds below. A literal with
   another word or order is refused; a bound one iOS cannot use is journaled (`logs`)
   with the route, and the sheet keeps its other detents or opens `large`.
   `fit-content` measures the route laid out alone, its

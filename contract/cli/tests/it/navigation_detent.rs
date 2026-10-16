@@ -25,6 +25,7 @@ fn the_detent_words_lower_and_others_are_refused() {
         "100%",
         "300 500 large",
         "45% medium large",
+        "45% 100%",
     ] {
         compile(value).unwrap_or_else(|e| panic!("{value:?}: {e}"));
     }
@@ -39,6 +40,9 @@ fn the_detent_words_lower_and_others_are_refused() {
         ("50% medium", "medium"),
         ("large medium", "medium"),
         ("large 300", "300"),
+        // `100%` is `large`: the same height, so one of them.
+        ("100% large", "large"),
+        ("45% 100% large", "large"),
     ] {
         let error = compile(value).unwrap_err().to_string();
         assert!(

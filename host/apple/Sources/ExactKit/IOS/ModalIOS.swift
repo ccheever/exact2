@@ -317,44 +317,60 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// detents shortest to tallest, and a point height, a share of the
     /// maximum (`medium` is half) and the content's height cross on some
     /// screen. Each is skipped and handed to `refused`, so what is kept
-    /// ascends on any screen. `content` is the route's laid-out content
-    /// height, nil or zero before it is measured.
+    /// ascends on any screen; `100%` is `large`. `content` is the route's
+    /// laid-out content height, nil or zero before it is measured.
     static func detents(_ value: String?, refused: ((Substring, DetentRefusal) -> Void)? = nil, content: @escaping () -> CGFloat?) -> [UISheetPresentationController.Detent] {
-        enum Kind: Equatable { case points, share, content }
-        var last: (kind: Kind, height: Double)?, large = false
-        return (value ?? "").split(separator: " ").enumerated().compactMap { index, word in
-            // Each word's kind and its height within it, and the detent.
-            let kind: Kind, height: Double, detent: UISheetPresentationController.Detent
+        enum Kind: Equatable { case points, share, content, large }
+        // The words kept, each with its kind and its height within the kind.
+        var kept: [(index: Int, word: Substring, kind: Kind, height: Double)] = []
+        for (index, word) in (value ?? "").split(separator: " ").enumerated() {
+            let kind: Kind, height: Double
             switch word {
-            case "large":
-                guard !large else { refused?(word, .order); return nil }
-                large = true
-                return .large()
-            case "medium":
-                (kind, height, detent) = (.share, 50, .medium())
-            case "fit-content":
+            case "large": (kind, height) = (.large, 100)
+            case "medium": (kind, height) = (.share, 50)
+            case "fit-content": (kind, height) = (.content, 0)
+            case _ where word.hasSuffix("%"):
+                guard let share = Double(word.dropLast()), share.isFinite, share > 0, share <= 100 else { refused?(word, .unknown); continue }
+                // All of the maximum is UIKit's `large`, and is the same
+                // detent: one rest, and the status bar's (LLP 1105 D2).
+                (kind, height) = share == 100 ? (.large, 100) : (.share, share)
+            default:
+                guard let points = Double(word), points.isFinite, points > 0 else { refused?(word, .unknown); continue }
+                (kind, height) = (.points, points)
+            }
+            if let last = kept.last, last.kind == .large || kind != .large && (last.kind != kind || height <= last.height) {
+                refused?(word, .order)
+                continue
+            }
+            kept.append((index, word, kind, height))
+        }
+        return kept.enumerated().map { place, word in
+            let followed = place < kept.count - 1
+            switch word.kind {
+            case .large: return .large()
+            case .share where word.word == "medium": return .medium()
+            case .share:
+                // @ref LLP 1075.003 §9.13 — a share of the sheet's maximum,
+                // as `.custom { $0.maximumDetentValue * 0.45 }` is in UIKit.
+                let share = CGFloat(word.height)
+                return .custom(identifier: .init("authored-\(word.index)")) { context in context.maximumDetentValue * share / 100 }
+            case .points:
+                // Stopped at the maximum; where a taller detent follows, a
+                // height the maximum reaches is inactive (nil), as UIKit's
+                // resolver allows, so no two rests tie on a small screen.
+                let points = CGFloat(word.height)
+                return .custom(identifier: .init("authored-\(word.index)")) { context in
+                    followed && points >= context.maximumDetentValue ? nil : min(points, context.maximumDetentValue)
+                }
+            case .content:
                 // @ref LLP 1075.003 §9.11 — the route's content, which its
                 // box (the sheet) does not change; before it is measured,
                 // the sheet's maximum.
-                (kind, height) = (.content, 0)
-                detent = .custom(identifier: .init("fit-content-\(index)")) { context in
+                return .custom(identifier: .init("fit-content-\(word.index)")) { context in
                     guard let height = content(), height > 0 else { return context.maximumDetentValue }
                     return min(height.rounded(.up), context.maximumDetentValue)
                 }
-            case _ where word.hasSuffix("%"):
-                // @ref LLP 1075.003 §9.13 — a share of the sheet's maximum,
-                // as `.custom { $0.maximumDetentValue * 0.45 }` is in UIKit.
-                guard let share = Double(word.dropLast()), share.isFinite, share > 0, share <= 100 else { refused?(word, .unknown); return nil }
-                (kind, height) = (.share, share)
-                detent = .custom(identifier: .init("authored-\(index)")) { context in context.maximumDetentValue * CGFloat(share) / 100 }
-            default:
-                guard let points = Double(word), points.isFinite, points > 0 else { refused?(word, .unknown); return nil }
-                (kind, height) = (.points, points)
-                detent = .custom(identifier: .init("authored-\(index)")) { context in min(CGFloat(points), context.maximumDetentValue) }
             }
-            if large || last.map({ $0.kind != kind || height <= $0.height }) == true { refused?(word, .order); return nil }
-            last = (kind, height)
-            return detent
         }
     }
 

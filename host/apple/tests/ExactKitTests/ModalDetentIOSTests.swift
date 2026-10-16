@@ -37,11 +37,31 @@ final class ModalDetentIOSTests: XCTestCase {
     /// LLP 1075.003 §9.13: a percentage is that share of UIKit's maximum
     /// detent value, as RN's `sheetAllowedDetents: [0.45]` is.
     func testAPercentageIsAShareOfTheMaximum() {
-        let detents = ModalHost.detents("45% 100% large") { nil }
-        XCTAssertEqual(detents.map(\.identifier.rawValue), ["authored-0", "authored-1", UISheetPresentationController.Detent.Identifier.large.rawValue])
+        let large = UISheetPresentationController.Detent.Identifier.large.rawValue
+        let detents = ModalHost.detents("45% 70%") { nil }
+        XCTAssertEqual(detents.map(\.identifier.rawValue), ["authored-0", "authored-1"])
         XCTAssertEqual(detents[0].resolvedValue(in: Context(700)), 315)
         XCTAssertEqual(detents[0].resolvedValue(in: Context(600)), 270, "read at each resolution, as the maximum changes")
-        XCTAssertEqual(detents[1].resolvedValue(in: Context(700)), 700)
+        XCTAssertEqual(detents[1].resolvedValue(in: Context(700)), 490)
+        // All of the maximum is `large` itself (Grok's review): one rest, not
+        // two at one height, and the status bar's covering sheet (LLP 1105 D2).
+        XCTAssertEqual(ModalHost.detents("100%") { nil }.map(\.identifier.rawValue), [large])
+        var refused: [Substring] = []
+        XCTAssertEqual(ModalHost.detents("45% 100% large", refused: { word, _ in refused.append(word) }) { nil }.map(\.identifier.rawValue), ["authored-0", large])
+        XCTAssertEqual(refused, ["large"])
+    }
+
+    /// A point height stops at the maximum. Where a taller detent follows, a
+    /// height the maximum reaches is inactive (UIKit's resolver answers nil),
+    /// so "900 large" on a phone is `large` alone, not two rests at one
+    /// height; on a taller screen it is 900 then `large`.
+    func testAPointHeightNeverTiesTheDetentAfterIt() {
+        let followed = ModalHost.detents("900 large") { nil }[0]
+        XCTAssertNil(followed.resolvedValue(in: Context(800)))
+        XCTAssertNil(followed.resolvedValue(in: Context(900)))
+        XCTAssertEqual(followed.resolvedValue(in: Context(1000)), 900)
+        XCTAssertEqual(ModalHost.detents("300 900") { nil }[0].resolvedValue(in: Context(800)), 300)
+        XCTAssertEqual(ModalHost.detents("900") { nil }[0].resolvedValue(in: Context(800)), 800, "alone, it stops at the maximum")
     }
 
     /// A bound value can carry what the compiler refuses in a literal; the
