@@ -1,5 +1,4 @@
-//! The runner wrapped for a presenter: receipts → batches, with layout and
-//! motion.
+//! The runner wrapped for a presenter: receipts → batches, with layout and motion.
 //!
 //! @ref LLP 1008 §1
 //!
@@ -1061,7 +1060,7 @@ impl<D: DataSource> Host<D> {
         self.commit(&receipts, error)
     }
 
-    /// that moved.
+    /// The viewport's new size, in one batch.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
         self.resize_inner(width, height, Batch::new(), None)
     }
