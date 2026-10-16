@@ -1248,13 +1248,20 @@ and browser history.
 A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent`
 sets its resting heights, space-separated: `large` (the default), `medium`, a
 point height (`"300"`), a percentage of the sheet's tallest (`"45%"`, above 0%
-and at most 100%), or `fit-content`, the route's content height, which
-follows the content as rows arrive or text wraps. A point height and
-`fit-content` stop at the sheet's tallest and leave out the bottom safe area,
-which UIKit adds below; so under `viewport-fit="cover"` a route that pads
-`env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
+and at most 100%; `"100%"` is `large`), or `fit-content`, the route's content
+height, which follows the content as rows arrive or text wraps. A point height, a
+percentage and `fit-content` stop at the sheet's tallest and leave out the bottom
+safe area, which UIKit adds below; so under `viewport-fit="cover"` a route that
+pads `env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
 expand and shows no grabber; with several (`"300 large"`) it is dragged between
-them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
+them, the first to start. UIKit takes them shortest to tallest, and a point height
+and a share of the tallest cross on some screen (`"300 45%"` is 300 then 360 on an
+800-point sheet, 300 then 270 on a 600-point one), so the heights before `large`
+are of one kind, points or percentages (`medium` is half), each taller than the
+one before, and `large` goes last; a literal that breaks this is refused. A point
+height that a small screen's tallest reaches, with a taller detent after it, is
+left out there, so `"900 large"` on a phone is `large` alone.
+`fit-content` goes alone or as `"fit-content large"`.
 It measures the route laid out on its own with its height left to its
 content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
 rows do not shrink into it, and a percentage `height` or `flex-grow` takes
