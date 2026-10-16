@@ -390,16 +390,12 @@ could not, the comment at the fix says what happened and why the code is so.
 
 ## Work left
 
-As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646
-and #647) and a session with real keys on the terminal. Each item says what is wrong or missing;
-the open framework issues that someone using the app runs into are in the section above.
+As of 2026-10-16, after merging main's macOS fixes of that day (exact2 PRs #636 to #640, #646,
+#647 and #651) and a session with real keys on the terminal. Each item says what is wrong or
+missing; the open framework issues that someone using the app runs into are in the section above.
 
 **Fails:**
 
-- Terminal, Korean 2-Set: right after switching to 2-Set in a newly launched app, the first
-  syllable can reach the terminal as separate jamo (ㅎㅏㄴ). The input method starts by inserting
-  text without marking it, and the surface empties its input after each insert. Kotoeri's ⌃K has
-  not been run: no Japanese input source is installed.
 - The flat sidebar opens no context menu on a background environment's row, and dragging a
   background row does not reorder it on its environment.
 - The image preview's zoomable image is a labelled group, read as "group"; the reference's
@@ -426,17 +422,33 @@ VoiceOver.
   the origin, so the image moves back only once the pointer passes where the edge was hit.
   Measured on the reference's own ZoomableImage.tsx in Chrome for Testing 154;
   `composer-preview-keys.test.ts` pins it.
+- Escape on an existing binding's recorder brings back its pill and leaves the focus on no
+  element (KeybindingKeyControl's showPill).
+- After the accent picker closes, a second Escape in Create theme leaves Settings and the
+  floating theme editor stays open (ThemeEditorPanel has no Escape handler; Settings'
+  useEscapeToGoBack takes it).
 
-**Checked with real keys** (2026-10-16): Terminal, Korean 2-Set. ⌥Return while a syllable
-composes opens the Hanja list, as in T3 Code: the syllable goes to the shell when the input
-method commits it, and the candidate picked (or the syllable again, on Escape) follows it, as
-under T3 Code's Chromium page. ⌃C while a syllable composes
-commits it alone, and a second ⌃C is the shell's. ⌃L while a syllable composes commits it
-without clearing, as T3 Code does: its drawer reads the "Process" key's `key` ("ㅣ"), so a ⌃
-chord typed during a terminal composition is no longer re-issued with its Latin letter
-(R10Connect). A composing syllable is not drawn, in the clone as in T3 Code, whose terminal
-input is a hidden textarea. Real-input sessions should type IME rows with held keys: orca's
-zero-dwell press-key can make the input method commit a jamo at once.
+**Checked with real keys** (2026-10-16):
+
+- Terminal, Korean 2-Set, first syllable: in an app it has not yet met, macOS's Korean input
+  method edits Hangul in place without marked text (it inserts the jamo and then replaces the
+  syllable before the caret). It switches to marked text only once the app's text stops holding
+  what it inserted, and remembers that app until logout. The terminal page now keeps that text in
+  its input and sends each syllable once, when the next one starts, so the first word after a
+  launch composes whole (한, not ㅎㅏㄴ). ⌃C, ⌃L and ⌥Return behave as they do during a
+  composition. This goes further than T3 Code: its surface under Chromium, in an app the input
+  method has not met, sends ㅎ 하 ㅏ ㄴ한 (Chrome for Testing under a fresh bundle id). Re-checking
+  needs a bundle id the input method has not seen.
+- Terminal, Korean 2-Set, while a syllable composes: ⌥Return opens the Hanja list, as in T3
+  Code: the syllable goes to the shell when the input method commits it, and the candidate picked
+  (or the syllable again, on Escape) follows it, as under T3 Code's Chromium page. ⌃C commits the
+  syllable alone, and a second ⌃C is the shell's. ⌃L commits it without clearing, as T3 Code
+  does: its drawer reads the "Process" key's `key` ("ㅣ"), so a ⌃ chord typed during a terminal
+  composition is no longer re-issued with its Latin letter (R10Connect). A composing syllable is
+  not drawn, in the clone as in T3 Code, whose terminal input is a hidden textarea.
+
+Real-input sessions should type IME rows with held keys: orca's zero-dwell press-key can make the
+input method commit a jamo at once.
 
 **Fixed, not checked with real input or VoiceOver:**
 
@@ -508,15 +520,53 @@ zero-dwell press-key can make the input method commit a jamo at once.
   reference's green "Completed" status (checked by sending `thread.mark-unread` through the
   server); Mark unread from the native context menu is still to choose by pointer.
 - The keybinding recorder (Settings › Keybindings and the project action editor) is an editable
-  text field (AXTextField) named "Keybinding for <command>" with the placeholder "Press
-  shortcut", as the reference's Input is; whether VoiceOver announces it on open is unchecked.
+  field named "Keybinding for <command>" with the placeholder "Press shortcut", as the
+  reference's Input is. Other processes read it as a text field (AXTextField) only since exact2
+  PR #651 (below); before, they read AXUnknown. Whether VoiceOver announces it on open is
+  unchecked.
+- macOS VoiceOver (exact2 PR #651): every text field, including "Search fonts", the keybinding
+  recorder and Rename project's "Project title", is a text field (AXTextField) to VoiceOver.
+  Before, other processes read it as AXUnknown, so VoiceOver did not say "edit text". A field with
+  `role="combobox"` (the font picker's "Search fonts", the palette's input, Settings' search) is
+  read as a text field, not a combo box (QUEUE.md). A modal dialog drawn in the page, such as Add
+  Environment or Rename project, is announced as it opens ("Add Environment, dialog"), before its
+  first field is read, and only once while it stays open, even after a dialog opened over it
+  closes. A dialog in a popover, such as the font picker, is still not announced. In a painted
+  menu, the focused row is the menu's selected child (AXSelectedChildrenChanged), the way an
+  NSMenu reports its highlighted item; when the menu closes it posts AXMenuClosed, and after
+  Escape gives the focus back to the trigger, that focus is posted as well, so VoiceOver follows
+  it. Checked only by AX reads and notification observers, not by VoiceOver.
+- Settings › Keybindings: the new binding's field is a text field from the start ('Unassigned').
+  The focus stays on Add keybinding, as in T3 Code; taking the focus starts recording. Escape
+  restores the binding and keeps the field focused, and a press outside the field ends recording
+  (KeybindingsSettings.tsx's Input).
+- The git dialogs and the Merge confirmation are modal, so over a narrow window's right panel
+  sheet Escape closes the dialog and not the sheet. The Thread details project scripts menu is an
+  anchored popover that closes on Escape or a press outside it (ProjectScriptsControl's Menu).
+- Opening a thread marked unread clears it on a background environment too. The clone asks for
+  the open thread's visit after every refresh, as ChatView's visit effect does, so a thread
+  opened from another environment's row (which moves the window to that environment) sends
+  `thread.visit` there. Checked in agent drives of the flat and legacy sidebars against lane
+  servers.
+- The composer's image thumbnails are 'Preview <name>' buttons (pressing one opens the expanded
+  preview over the draft's images), each followed by its Remove, before the prompt in
+  VoiceOver's order. The strip scrolls sideways only once it holds a SnapShot frame, so plain
+  images are no longer behind a scroll area.
 
 **Next real-input session:** VoiceOver rows 1, 2, 3, 4, 6, 25 and 28 of realinput-1015c (the
 `aria-modal` views and dialogs); rows 22 and 24 (VO-Right from the text area reaches every chip
 in text order, `sample.py` included, and none before the text area); rows 5, 10, 13 and 15 of
 realinput-1016a (VoiceOver's speech for an opening confirmation, a menu, a group and the font
 picker's search); rows 2 and 26 of session C and session D's Tab from the window (with Keyboard
-Navigation on, open a menu with the pointer, close it, then press Tab and Shift-Tab).
+Navigation on, open a menu with the pointer, close it, then press Tab and Shift-Tab). For
+exact2 PR #651, with VoiceOver: "edit text" on "Search fonts", a keybinding recorder and Rename
+project's "Project title"; "Add Environment, dialog" and Rename project's announcement as each
+opens, before the first field, and not again after a dialog over it closes; a painted menu's
+focused row read as its selection as ↓/↑ move it, its close, and the trigger read again after
+Escape. With real keys: a new binding in Settings › Keybindings (focus stays on Add keybinding,
+recording starts on focus, Escape restores, a press outside ends it), Escape on a git dialog
+over a narrow window's right panel sheet, and the project scripts menu's Escape and outside
+press. With the pointer and VoiceOver: a composer image thumbnail's Preview button and its Remove.
 
 **Passed with real keys, pointer or VoiceOver** (2026-10-15): the keybinding recorder's Escape,
 Snooze's focus return, Return on the fixed menus, the launcher's letters after a remount, the
@@ -541,6 +591,7 @@ and italic font faces, the permission helper's real grant (the user's), and a ta
   and AX reads pass); Escape on a git dialog or the Merge confirmation over the thread-details
   popover in a narrow window.
 - VO-Space on each chip kind.
+- Kotoeri's ⌃K in the terminal has not been run: no Japanese input source is installed.
 - Tab in the legacy Rename project dialog, now that the accessibility tree no longer collapses
   under a modal popup.
 
