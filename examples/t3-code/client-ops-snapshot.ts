@@ -26,6 +26,8 @@ export async function snapshotOps(this: T3Client, op: string, id: string, value:
       try { await this.persist(storage); } catch (error) { this.local.snapshotDrafts[key] = previous; if (prompt !== undefined) this.local.drafts[key] = prompt; throw error; }
       this.local.snapshotReleases.push(id);
       await this.flushSnapshotReleases(native, storage);
+      // A confirmed removal from a focused Remove names the element the focus moves to now that the tile is gone.
+      if (value) resultMessage = `focus:${value}`;
       if (str(image.uploadId)) {
         try { await this.request(native, 'attachments.delete', { attachmentId: image.uploadId }); }
         catch { resultMessage = 'Removed from draft. Server upload cleanup failed; the server will expire unused uploads.'; }

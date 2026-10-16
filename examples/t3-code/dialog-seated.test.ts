@@ -107,8 +107,8 @@ describe('a focused Remove on the shelf hands the focus on', () => {
 
   test('each Remove reports its focus and presses removeNow; the next tile\'s buttons carry the ids it names', async () => {
     const editor = await source('composer-editor.contract'), snapshot = await source('snapshot.contract'), video = await source('r4-composer.contract');
-    expect(editor).toContain('button press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}`');
-    expect(snapshot).toContain('button press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${image.name}`');
+    expect(editor).toContain('button id=`remove-snapshot-${id}` press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}`');
+    expect(snapshot).toContain('button id=`remove-snapshot-${image.id}` press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${image.name}`');
     expect(video).toContain('button press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${video.name}`');
     expect(editor).toContain('id=`preview-image-${id}`');
     expect(video).toContain('title="" id=`play-video-${video.id}`');
