@@ -101,6 +101,7 @@ mod reorder_binding;
 mod reorder_collection;
 mod reorder_group;
 mod routes;
+mod row_lookup;
 mod rust_shapes;
 mod scope_review;
 mod scrollend;

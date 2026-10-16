@@ -1156,7 +1156,12 @@ fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
         ("popover", format!("column id=\"p\" popover=\"auto\"\n  {}", swap.replace('\n', "\n  "))),
     ] {
         let src = finder(&choice);
-        assert_eq!(warned(&src), [], "{case}\n{src}");
+        // The row case walks `chosen` in each meal's row: `lower-row-lookup`'s, not this one's.
+        let named: Vec<_> = warned(&src)
+            .into_iter()
+            .filter(|(id, _)| id != "lower-row-lookup")
+            .collect();
+        assert_eq!(named, [], "{case}\n{src}");
     }
     // A kept setting: a `persist` state.
     let kept = finder(
