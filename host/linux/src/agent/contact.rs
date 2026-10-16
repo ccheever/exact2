@@ -1,4 +1,5 @@
-//! Bounded, seekable contact synthesis through the same presenter as evdev/VNC.
+//! Bounded contact synthesis through the same presenter as evdev/VNC.
+//! Moves timestamp samples without seeking the runner; holds seek its clock.
 //! This is not OS input injection or evidence of physical frame delivery.
 use super::*;
 use serde_json::Value;
@@ -128,25 +129,16 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
                 };
                 let (tx, ty) = (coordinate(tx)?, coordinate(ty)?);
                 let ms = duration(request)?;
-                // Fixed upper bound; no real-time sleeps, queued work, or second clock.
+                let event_from = p.contact_event_ms().unwrap();
+                // Fixed upper bound; no real-time sleeps or queued work.
                 let steps = ((ms / 16.).ceil() as usize).clamp(1, 256);
                 for i in 1..=steps {
                     let f = i as f64 / steps as f64;
-                    let now = from + ms * f;
-                    let (_, failure) = p.clock(now);
-                    if let Some(error) = failure {
-                        return Err(error.into());
-                    }
-                    // A receipt during the seek can retire this contact before
-                    // delivery. Report the last delivered sample, not the endpoint.
-                    if p.contact_position().is_none() {
-                        break;
-                    }
                     let sample = (
                         (x as f64 + (tx as f64 - x as f64) * f) as f32,
                         (y as f64 + (ty as f64 - y as f64) * f) as f32,
                     );
-                    p.pointer_move(sample.0, sample.1, now)?;
+                    p.pointer_move_at(sample.0, sample.1, from, event_from + ms * f)?;
                     at = sample;
                     if p.contact_position().is_none() {
                         break;
@@ -159,9 +151,10 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
                 if let Some(error) = failure {
                     return Err(error.into());
                 }
+                p.delay_contact_event(ms);
             }
             "up" => {
-                p.pointer_up(x, y, from)?;
+                p.pointer_up_at(x, y, from, p.contact_event_ms().unwrap() + 8.)?;
             }
             "cancel" => p.pointer_lost(from)?,
             _ => unreachable!(),
@@ -174,7 +167,7 @@ fn reply<D: DataSource>(p: &Presenter<D>, phase: &str, at: Option<(f32, f32)>) -
         "phase": phase, "contact": p.contact_position().is_some(), "at": at,
         "clock": p.host().now(),
         "delivery": "presenter", "carrier": "linux", "mode": "headless",
-        "native": "Presenter.pointer_*", "timing": "seekable; physical delivery unobserved"
+        "native": "Presenter.pointer_*", "timing": "moves timestamped; holds seek; physical delivery unobserved"
     })
     .to_string()
 }

@@ -64,6 +64,7 @@ pub(super) struct Contact {
     origin: (f32, f32),
     position: (f32, f32),
     last_ms: f64,
+    event_ms: f64,
     pub(super) hold: Option<Hold>,
     /// A grouped row lifted: its ghost follows (`group.rs`).
     group: bool,
@@ -230,6 +231,14 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn contact_position(&self) -> Option<(f32, f32)> {
         self.contact.as_ref().map(|c| c.position)
     }
+    pub(crate) fn contact_event_ms(&self) -> Option<f64> {
+        self.contact.as_ref().map(|c| c.event_ms)
+    }
+    pub(crate) fn delay_contact_event(&mut self, ms: f64) {
+        if let Some(contact) = &mut self.contact {
+            contact.event_ms += ms;
+        }
+    }
 
     /// Every candidate of a contact on `hit`: innermost first, then reorder >
     /// transform > height > pan > swipe on one node (LLP 1057.001 §1).
@@ -328,6 +337,7 @@ impl<D: DataSource> Presenter<D> {
                     origin: (x, y),
                     position: (x, y),
                     last_ms: now_ms,
+                    event_ms: now_ms,
                     hold: None,
                     group: false,
                     retained: Some(retained),
@@ -378,6 +388,7 @@ impl<D: DataSource> Presenter<D> {
                 origin: (x, y),
                 position: (x, y),
                 last_ms: now_ms,
+                event_ms: now_ms,
                 hold: None,
                 group: false,
                 panning: false,
@@ -416,6 +427,7 @@ impl<D: DataSource> Presenter<D> {
             origin: (x, y),
             position: (x, y),
             last_ms: now_ms,
+            event_ms: now_ms,
             hold: None,
             group: false,
             panning: false,
@@ -439,8 +451,19 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        self.pointer_move_at(x, y, now_ms, now_ms)
+    }
+    // Agent events have timestamps for pan velocity while dispatch and held
+    // motion use the frozen runner clock, as on the page.
+    pub(crate) fn pointer_move_at(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        event_ms: f64,
+    ) -> Result<bool, String> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Move, x, y);
-        let moved = self.pointer_moved(x, y, now_ms);
+        let moved = self.pointer_moved(x, y, now_ms, event_ms);
         // The device's motion belongs to this move alone, sent or not.
         self.clear_raw_motion();
         // A node's `pointermove` (LLP 1056 §3 stage 3), as pan's, per move.
@@ -452,7 +475,13 @@ impl<D: DataSource> Presenter<D> {
         self.hatch_pointer(mark, crate::hatches::Phase::Move, x, y);
         over.map_or(moved, Err)
     }
-    fn pointer_moved(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+    fn pointer_moved(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        event_ms: f64,
+    ) -> Result<bool, String> {
         self.retire_pointer();
         // A finger hovers nothing, down or lifted (LLP 1115.001 D7.4): what
         // a mouse hovered before it came is left.
@@ -471,6 +500,7 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
+        contact.event_ms = event_ms;
         if let Some(canvas) = contact.canvas {
             // At the screen's edge the position stops; the device's motion does not.
             let moved = (x, y) != contact.position || self.has_raw_motion();
@@ -480,7 +510,7 @@ impl<D: DataSource> Presenter<D> {
         }
         contact
             .pan_velocity
-            .push(now_ms / 1000., Value::new(x as f64, y as f64));
+            .push(event_ms / 1000., Value::new(x as f64, y as f64));
         if let Some((key, box_)) = contact.press {
             self.host.press_feedback(key, box_.contains(x, y), now_ms);
             self.dirty = true;
@@ -674,13 +704,22 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Accepted final sample, typed action while held, end once, pin released last.
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        self.pointer_up_at(x, y, now_ms, now_ms)
+    }
+    pub(crate) fn pointer_up_at(
+        &mut self,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+        event_ms: f64,
+    ) -> Result<bool, String> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Up, x, y);
-        let result = self.pointer_lift(x, y, now_ms);
+        let result = self.pointer_lift(x, y, now_ms, event_ms);
         self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Up, x, y);
         result
     }
-    fn pointer_lift(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+    fn pointer_lift(&mut self, x: f32, y: f32, now_ms: f64, event_ms: f64) -> Result<bool, String> {
         // DOM's order: the node's `pointerup`, then any click.
         if let Some(error) = self.pointer_lifted(Some((x, y)), now_ms) {
             return Err(error);
@@ -689,7 +728,7 @@ impl<D: DataSource> Presenter<D> {
         if self.contact.is_some() {
             self.pointer_sample(x, y, now_ms)?;
         }
-        let accepted = match self.pointer_move(x, y, now_ms) {
+        let accepted = match self.pointer_move_at(x, y, now_ms, event_ms) {
             Ok(accepted) => accepted,
             Err(error) => {
                 let _ = self.pointer_cancel(now_ms);
@@ -766,7 +805,7 @@ impl<D: DataSource> Presenter<D> {
             }
         } else if contact.panning {
             // The last delta went out above; then the release, once.
-            let velocity = contact.pan_velocity.estimate(now_ms / 1000.);
+            let velocity = contact.pan_velocity.estimate(event_ms / 1000.);
             match contact.candidate {
                 Some(Candidate::Pan(key)) => self
                     .release_pan(key, (velocity.x, velocity.y), now_ms)
