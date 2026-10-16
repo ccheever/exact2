@@ -150,6 +150,10 @@ struct Open {
     /// A menu's anchor in the window, points.
     anchor: Rect4,
     layout: Layout,
+    /// The shell's frame in window pixels, its display scale and motion origin.
+    frame: [i32; 4],
+    scale: f32,
+    origin: u32,
     /// The row under the finger, and the row a keyboard focused.
     pressed: Option<usize>,
     focused: Option<usize>,
@@ -392,6 +396,9 @@ impl<D: DataSource> Presenter<D> {
             inputs,
             anchor: (0.0, 0.0, 0.0, 0.0),
             layout,
+            frame: [0; 4],
+            scale: self.brush.scale,
+            origin: 0,
             pressed: None,
             focused: None,
             epoch: self.host.kernel().epoch(),
@@ -400,6 +407,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(open) = self.top.open.as_mut() {
             open.anchor = anchor;
         }
+        self.place_surface();
         self.queue_toggle(key, true);
         self.surface_changed();
         true
@@ -971,7 +979,34 @@ impl<D: DataSource> Presenter<D> {
             open.anchor = anchor;
             open.revision += 1;
         }
+        self.place_surface();
         self.report_top_layer();
+    }
+
+    fn place_surface(&mut self) {
+        let (window, margins) = self.surface_window();
+        let scale = self.brush.scale;
+        let Some(open) = self.top.open.as_mut() else {
+            return;
+        };
+        let (at, origin) = match open.kind {
+            SurfaceKind::Alert => ((0.0, 0.0), 0),
+            SurfaceKind::Menu => {
+                let at = look::place(open.anchor, open.layout.size, window, margins);
+                (at, look::origin(open.anchor, at, open.layout.size))
+            }
+        };
+        let px = |v: f32| (v * scale).round() as i32;
+        let frame = [
+            px(at.0),
+            px(at.1),
+            px(open.layout.size.0),
+            px(open.layout.size.1),
+        ];
+        if (frame, scale, origin) != (open.frame, open.scale, open.origin) {
+            (open.frame, open.scale, open.origin) = (frame, scale, origin);
+            open.revision += 1;
+        }
     }
 
     /// The shell makes the page inert under either kind of surface. Its
@@ -985,17 +1020,9 @@ impl<D: DataSource> Presenter<D> {
         let rect = match open.kind {
             SurfaceKind::Alert => [0.0; 4],
             SurfaceKind::Menu => {
-                let (window, margins) = self.surface_window();
-                let (x, y) = look::place(open.anchor, open.layout.size, window, margins);
                 let [px, py, ..] = self.chrome().frame;
-                let scale = self.brush.scale;
-                let points = |v: f32| f64::from((v * scale).round() / scale);
-                [
-                    points(x) - f64::from(px),
-                    points(y) - f64::from(py),
-                    points(open.layout.size.0),
-                    points(open.layout.size.1),
-                ]
+                let [x, y, w, h] = open.frame.map(|v| f64::from(v) / f64::from(open.scale));
+                [x - f64::from(px), y - f64::from(py), w, h]
             }
         };
         let frames = [(open.node, rect)];
@@ -1005,24 +1032,15 @@ impl<D: DataSource> Presenter<D> {
     /// The open surface as the shell is told it: its frame in the window
     /// and its picture, recorded by the shell's painter.
     fn surface_statement(&mut self) -> Option<Surface> {
-        let scale = self.brush.scale;
-        let (window, margins) = self.surface_window();
         let text = self.text.clone();
         let open = self.top.open.as_ref()?;
+        let scale = open.scale;
         let layout = &open.layout;
         let lit: Vec<usize> = open.pressed.into_iter().chain(open.focused).collect();
         let painter = self.top.painter.as_mut()?;
         let stream = painter.record(layout.size, scale, &mut |backend| {
             layout.paint(backend, &mut text.borrow_mut(), &lit)
         });
-        let (at, origin) = match open.kind {
-            SurfaceKind::Alert => ((0.0, 0.0), 0),
-            SurfaceKind::Menu => {
-                let at = look::place(open.anchor, layout.size, window, margins);
-                (at, look::origin(open.anchor, at, layout.size))
-            }
-        };
-        let px = |v: f32| (v * scale).round() as i32;
         let cancellable = match &open.plan {
             Plan::Alert { cancellable, .. } => *cancellable,
             Plan::Menu(_) => true,
@@ -1030,8 +1048,8 @@ impl<D: DataSource> Presenter<D> {
         Some(Surface {
             serial: open.serial,
             kind: Some(open.kind),
-            flags: u32::from(cancellable) | u32::from(open.outside()) << 1 | origin << 2,
-            frame: [px(at.0), px(at.1), px(layout.size.0), px(layout.size.1)],
+            flags: u32::from(cancellable) | u32::from(open.outside()) << 1 | open.origin << 2,
+            frame: open.frame,
             shape: (layout.radius * scale, layout.elevation * scale),
             stream,
         })
