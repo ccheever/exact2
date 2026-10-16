@@ -583,11 +583,13 @@ impl<D: DataSource> Presenter<D> {
             return Some(select);
         }
         let hit = self.hit(x, y)?;
+        self.note_press(hit, false);
+        let focus = !self.pointerdown_prevents_focus(hit);
         // A popover's invoker, or a dialog's button: the top layer's, where
         // a shell presents one (`presenter/top.rs`); else refused.
         if let Some(invoker) = self.top_invoker(hit) {
-            if self.has_windows() {
-                self.focus_for_press(hit, now_ms);
+            if self.has_windows() && focus {
+                self.focus_for_press(hit, now_ms, self.direct());
             }
             return self.invoke(invoker, now_ms, true);
         }
@@ -602,7 +604,9 @@ impl<D: DataSource> Presenter<D> {
             }
             return Some(control);
         }
-        self.focus_for_press(hit, now_ms);
+        if focus {
+            self.focus_for_press(hit, now_ms, self.direct());
+        }
         if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
             return Some(hit);
         }
@@ -628,9 +632,7 @@ impl<D: DataSource> Presenter<D> {
     /// gives the focus without its ring (LLP 1115.001 D7.6: no focus ring in
     /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
     /// did, and so does a focus a key or the app moves there after.
-    fn focus_for_press(&mut self, hit: ViewId, now_ms: f64) {
-        // What a route this press pushes came from (`presenter/arrive.rs`).
-        self.note_press(hit, false);
+    pub(crate) fn focus_for_press(&mut self, hit: ViewId, now_ms: f64, direct: bool) {
         let mut focus = Some(hit);
         while let Some(id) = focus {
             if self.focusable(id) {
@@ -638,7 +640,7 @@ impl<D: DataSource> Presenter<D> {
             }
             focus = self.host.kernel().node(id).and_then(|n| n.parent);
         }
-        let ringless = focus.filter(|_| self.direct());
+        let ringless = focus.filter(|_| direct);
         self.dirty |= self.brush.ringless != ringless;
         self.brush.ringless = ringless;
         let editing = self.surfaces.wants_input(hit)
@@ -679,7 +681,8 @@ impl<D: DataSource> Presenter<D> {
     /// A held contact's down on its canvas: focus as a press does, then the
     /// pointer's `down`. False when the canvas refuses it.
     pub(crate) fn canvas_contact_down(&mut self, hit: ViewId, x: f32, y: f32, at: f64) -> bool {
-        self.focus_for_press(hit, at);
+        self.note_press(hit, false);
+        self.focus_for_press(hit, at, self.direct());
         self.input_surface(hit)
             .is_some_and(|view| self.canvas_pointer(view, "down", 1, x, y, at))
     }

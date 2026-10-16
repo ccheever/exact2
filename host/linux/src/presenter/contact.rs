@@ -291,6 +291,90 @@ impl<D: DataSource> Presenter<D> {
         }
         None
     }
+
+    /// Whether the web host prevents pointerdown's default focus for this hit.
+    /// Swipe and reorder prevent moves, not the down.
+    pub(crate) fn pointerdown_prevents_focus(&self, hit: ViewId) -> bool {
+        let kernel = self.host.kernel();
+        let Some(hit_key) = kernel.node(hit).map(|n| n.key) else {
+            return true;
+        };
+        let (mut editor, mut press, mut button) = (None, None, None);
+        let (mut retain, mut interactive, mut height) = (false, false, false);
+        let mut at = Some(hit);
+        while let Some(id) = at {
+            let Some(n) = kernel.node(id) else { break };
+            let kind = exact_kernel::ControlKind::of(n.node_type, n.props);
+            let field = n.node_type == NodeType::TextInput
+                || kind.is_some_and(|kind| {
+                    !matches!(
+                        kind,
+                        exact_kernel::ControlKind::Button
+                            | exact_kernel::ControlKind::Progress
+                            | exact_kernel::ControlKind::ProgressBar
+                    )
+                });
+            if field && editor.is_none() {
+                editor = Some(n.key);
+            }
+            let control = n.node_type == NodeType::Pressable
+                || kind == Some(exact_kernel::ControlKind::Button);
+            interactive |= field || control;
+            if control && n.props.str(PropId::Href).is_none() && button.is_none() {
+                button = Some(id);
+            }
+            if press.is_none()
+                && (control
+                    || self
+                        .host
+                        .runner()
+                        .handlers_of(id)
+                        .contains(&EventKind::Press))
+            {
+                press = Some(n.key);
+            }
+            retain |= n.props.bool(PropId::RetainFocus) == Some(true);
+            // Unlike transform drag, height drag does not exclude an inner
+            // generic press handler; only HTML controls and editors exclude it.
+            height |= self.input_live(n.key) && self.host.height_drag_target(n.key).is_some();
+            at = n.parent;
+        }
+        if retain && editor.is_none() {
+            return true;
+        }
+        if let Some(button) = button.filter(|_| kernel.has_prop(PropId::ContextTarget)) {
+            for preview in kernel.preorder_where(&kernel.roots(), |_, props| {
+                props.str(PropId::ContextTarget).is_some()
+            }) {
+                let mut at = kernel.node(preview).and_then(|n| n.parent);
+                while let Some(id) = at {
+                    let Some(n) = kernel.node(id).filter(|n| n.parent.is_some()) else {
+                        break;
+                    };
+                    if n.style.position_type == exact_kernel::PositionType::Absolute {
+                        if self.is_inside(button, id) {
+                            return true;
+                        }
+                        break;
+                    }
+                    at = n.parent;
+                }
+            }
+        }
+        if !interactive && (height || self.transform_candidate(hit_key).is_some()) {
+            return true;
+        }
+        if let Some(Candidate::Pan(pan)) = self.pan_candidate(hit_key) {
+            let inside = |key| self.depth(key, pan).is_some_and(|depth| depth > 0);
+            let own_editor = editor == Some(pan)
+                && kernel.node_by_key(pan).is_some_and(|n| {
+                    exact_kernel::ControlKind::of(n.node_type, n.props)
+                        != Some(exact_kernel::ControlKind::Select)
+                });
+            return !own_editor && !editor.is_some_and(inside) && !press.is_some_and(inside);
+        }
+        false
+    }
     /// Primary down shared by evdev, VNC, and explicitly labeled agent
     /// synthesis; then the node's `pointerdown` (LLP 1005 §3), which the
     /// contact never waits for.
@@ -814,8 +898,16 @@ impl<D: DataSource> Presenter<D> {
             }
         } else if let Some((key, box_)) = contact.press {
             if box_.contains(x, y) && self.input_live(key) {
-                if let Some(node) = self.host.kernel().node_by_key(key) {
-                    self.activate(node.id, now_ms);
+                if let Some(id) = self.host.kernel().node_by_key(key).map(|n| n.id) {
+                    // Focus is decided from what the finger touched, as
+                    // `press_at` decides it: a `retainFocus` child counts.
+                    let hit = self.host.kernel().node_by_key(contact.hit).map(|n| n.id);
+                    let hit = hit.unwrap_or(id);
+                    self.note_press(hit, false);
+                    if !self.pointerdown_prevents_focus(hit) {
+                        self.focus_for_press(hit, now_ms, self.contact_is_direct());
+                    }
+                    self.activate(id, now_ms);
                 }
             }
             Ok(false)
