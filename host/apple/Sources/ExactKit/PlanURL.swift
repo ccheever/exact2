@@ -365,12 +365,15 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, program: String? = nil, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
         let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, design: design, channel: channel, apply: apply)
+        // The program the app already runs (a connection replaced): the one
+        // this connection takes.
+        connection.adopted = program
         connection.resolveAndBoot()
         return connection
     }
@@ -387,8 +390,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private let preparationPending: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
-    /// The program of the last generation this host took: one it waits for
-    /// (`terminal`) is taken again only when a generation names it.
+    /// The program of the last generation this host took (or the app ran
+    /// when this connection opened): the only one it takes again.
     private var adopted: String?
     private var observed: Revision?
     private var retiredEpochs = Set<String>()
@@ -550,17 +553,15 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     /// All fetch completions also carry a local resolution, so a response
     /// started before a newer announcement cannot commit afterward.
     private func observe(_ revision: Revision) -> Bool {
-        guard acceptProgram(revision.program) else {
+        // Its program, once known, is the only one it takes; until then the
+        // session pins the first (`acceptProgram`), except while it waits,
+        // when an unknown program cannot be checked and is not pinned.
+        if let known = adopted {
+            guard revision.program == known else { waitForProgram(); return false }
+        } else if terminal != nil || !acceptProgram(revision.program) {
             waitForProgram()
             return false
         }
-        if terminal != nil {
-            // Only its own program, known: none named, or none known, waits on.
-            guard let program = revision.program, program == adopted else { return false }
-            terminal = nil
-            status("dev: the server runs this host's native code again")
-        }
-        if let program = revision.program { adopted = program }
         if let old = observed {
             if old.epoch == revision.epoch {
                 guard revision.seq >= old.seq, revision.seq != old.seq || revision.identity == old.identity else { return false }
@@ -570,6 +571,11 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             }
         }
         observed = revision
+        if let program = revision.program { adopted = program }
+        if terminal != nil {
+            terminal = nil
+            status("dev: the server runs this host's native code again")
+        }
         return true
     }
 
@@ -649,21 +655,19 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let canonical = "{\"assets\":[" + assets.map(\.canonical).joined(separator: ",") + "]" + moduleCanonical + ",\"plan\":" + plan.canonical + rustCanonical + "}"
         let identity = PlanURL.hash(Data(canonical.utf8))
         if let dev = json["dev"] as? [String: Any] {
-            // Built for other native code: no generation, but the stream, so
-            // the build stays registered and takes the next one for its own.
-            // (Read without adopting: a refused envelope pins nothing.)
-            if let revision = PlanURL.revision(dev),
-               terminal != nil ? !(revision.program != nil && revision.program == adopted) : (adopted != nil && revision.program != adopted),
-               let path = dev["events"] as? String, let events = URL(string: path, relativeTo: base)?.absoluteURL,
-               PlanURL.sameOrigin(events, page) {
-                waitForProgram()
-                if shouldSubscribe { subscribe(events) }
-                return
-            }
+            // A valid envelope first, so a refused one pins no program.
             guard let revision = PlanURL.revision(dev), revision.identity == identity,
                   expected == nil || revision == expected,
                   let path = dev["events"] as? String, let events = URL(string: path, relativeTo: base)?.absoluteURL,
-                  PlanURL.sameOrigin(events, page), observe(revision) else {
+                  PlanURL.sameOrigin(events, page) else {
+                failed("invalid or obsolete dev generation at \(base)", generation: generation)
+                return
+            }
+            guard observe(revision) else {
+                // Built for other native code: no generation, but the
+                // stream, so the build stays registered and takes the next
+                // one for its own.
+                if terminal != nil { if shouldSubscribe { subscribe(events) }; return }
                 failed("invalid or obsolete dev generation at \(base)", generation: generation)
                 return
             }
