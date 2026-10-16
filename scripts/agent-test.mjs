@@ -202,7 +202,7 @@ export function backendClockNote(epoch, now, origin) {
 }
 
 export function rosterRefusalNote(reset, schema, refusals) {
-  if (!reset || reset.seed != null || !refusals?.size || !/^\s+insert\s*<-\s*deny\s*$/m.test(schema)) return null;
+  if (!reset || reset.seed != null || !refusals?.size || !/^[ \t]+insert[ \t]*<-[ \t]*deny[ \t]*(?:--[^\n]*)?\r?$/m.test(schema)) return null;
   const authorization = /\b(?:E_RULE|E_AUTH|E_PERMISSION|E_FORBIDDEN|FORBIDDEN|DENIED|NOT_(?:OWNER|ADMIN|MANAGER|MEMBER|STAFF|AUTHORIZED|ALLOWED))\b/;
   if (![...refusals.values()].every(why => authorization.test(why))) return null;
   return `possible cause: every privileged operation refused after \`fresh\`: seed roster tables. Authorization refusals: ${[...refusals.values()].map(why => authorization.exec(why)[0]).join(', ')}. Bare \`fresh\` removed the insert <- deny rows; use \`fresh "seed.json"\` with [{"table":"…","row":{…}}], resolved from the test file’s directory.`;

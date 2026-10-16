@@ -34,6 +34,8 @@ test('bare fresh refusals explain roster seeding only when a deny-insert roster 
   expect(rosterRefusalNote({seed:'seed.json'},schema,refused)).toBe(null);
   expect(rosterRefusalNote(null,schema,refused)).toBe(null);
   expect(rosterRefusalNote({},schema,new Map())).toBe(null);
+  expect(rosterRefusalNote({},'table owners:\n    person: principal\n    insert <- deny -- roster\n',refused)).toContain('seed roster tables');
+  expect(rosterRefusalNote({},'table owners:\r\n    insert <- deny -- roster\r\n',refused)).toContain('seed roster tables');
   expect(rosterRefusalNote({},'',refused)).toBe(null);
   expect(rosterRefusalNote({},schema,new Map([['approve','invalid reply shape']]))).toBe(null);
   expect(rosterRefusalNote({},schema,new Map([['approve','E_OFFLINE: offline']]))).toBe(null);
