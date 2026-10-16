@@ -90,3 +90,13 @@ private extension ISO8601DateFormatter {
         return f
     }()
 }
+
+extension ExactEnv {
+    /// Whether this binary is a build that ships: baked with production
+    /// trust, or stamped `release` or `archive` by `build.mjs`. An app with
+    /// no updater (`deploy.store` "0") records no trust in `compat.json`, so
+    /// the stamp is what says its `--release` build is one. Such a build
+    /// measures nothing for the agent's `perf` (LLP 1079): no frame sampler
+    /// display link, no hatch timing.
+    static let releaseBuild = productionBake || ["release", "archive"].contains(appMetadata["ExactBuildKind"] as? String ?? "")
+}
