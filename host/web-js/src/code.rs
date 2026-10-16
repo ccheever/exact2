@@ -367,7 +367,11 @@ impl Translator<'_> {
                     let s = self.plan.str(exact_plan::StrId(x.args[0] as u32));
                     let s = serde_json::to_string(s).unwrap();
                     // A long one (an icon's path) once, however many sites read it.
-                    let s = if s.len() >= LONG_STRING { self.uses.share('s', s) } else { s };
+                    let s = if s.len() >= LONG_STRING {
+                        self.uses.share('s', s)
+                    } else {
+                        s
+                    };
                     self.push(s)
                 }
                 Opcode::None | Opcode::Unit => self.push("null".into()),

@@ -131,7 +131,10 @@ impl Em<'_> {
             && style::literal(plan, plan.code(b.expr)).is_none())
         .then(|| {
             self.uses.rt("say");
-            format!("()=>{}(({f})())", self.uses.share('m', style::corner_list(id)))
+            format!(
+                "()=>{}(({f})())",
+                self.uses.share('m', style::corner_list(id))
+            )
         });
         let f = corner.as_deref().unwrap_or(f);
         if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
@@ -173,7 +176,14 @@ impl Em<'_> {
         use exact_kernel::StyleCodec as C;
         let cm = matches!(
             id.codec(),
-            C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow | C::Filter
+            C::ColorValue
+                | C::KeywordColor
+                | C::Paint
+                | C::BackgroundImage
+                | C::MaskImage
+                | C::BoxShadow
+                | C::TextShadow
+                | C::Filter
         )
         .then(|| self.uses.constant("$cm", || style::color_map(plan)));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
@@ -864,8 +874,20 @@ mod tests {
             "the plan admits the literal"
         );
         assert!(
-            js.contains(&format!("\nconst $cm={map};\n")) && js.contains(",\"filter\",\"\",()=>($cm)(blank(("),
+            js.contains(&format!("\nconst $cm={map};\n"))
+                && js.contains(",\"filter\",\"\",()=>($cm)(blank(("),
             "the bound filter is not mapped:\n{js}"
+        );
+        // One constant, however many sites; none where no site maps a colour.
+        assert_eq!(js.matches("const $cm=").count(), 1);
+        let plain = contract::compile(
+            "component App\n  state on = false\n  view\n    text \"Plain\" opacity=(on ? 0.5 : 1)\n",
+        )
+        .unwrap();
+        let plain = crate::emit::emit(&plain, false, false).unwrap().js;
+        assert!(
+            plain.contains("\"opacity\"") && !plain.contains("$cm"),
+            "{plain}"
         );
         assert_eq!(
             run(
