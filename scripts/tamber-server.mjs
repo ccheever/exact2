@@ -8,7 +8,8 @@
 // - `POST /__tamber`: one request (`hello`, `describe`, `resolve`, `explain`,
 //   `propose`, `transaction`, `undo`), its reply as the server gave it. A
 //   write names its `client`: the clients share one server, so a hello's
-//   name is no write's.
+//   name is no write's. The wire adds to `hello` the `app` it serves and
+//   its run's `epoch`, the events' (`tamber/1.1`).
 // - The change stream, an event per change whoever made it: a client's
 //   write (its client, the files it wrote), a hand edit or a `git checkout`
 //   (seen by the watcher, `client` null). Each event has a sequence number;

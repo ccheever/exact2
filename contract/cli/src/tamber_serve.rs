@@ -36,7 +36,9 @@
 //! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
 //!   of files it does not edit but was planned on, checked with the rest.
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
-//!   design or of the `file` it names.
+//!   design or of the `file` it names. `resolve`'s tuples carry `srgb
+//!   {light, dark}`, each side's 8-bit clip, and `resolve` and `explain`
+//!   the `files` digests they read (`tamber/1.1`).
 //! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
 //!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
 //!   and `import-plan` plans an import from a source's text against the
