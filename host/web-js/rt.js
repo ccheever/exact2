@@ -689,8 +689,7 @@ export function P(e, name, f) {
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
-    v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
-    const sandboxChanged = name === "sandbox" && e.localName === "iframe" && e.getAttribute(name) !== v;
+    v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v)); const sandboxChanged = name === "sandbox" && e.localName === "iframe" && e.getAttribute(name) !== v;
     // A URL that navigates is written only if the web host's policy takes it (navigation.js `navigableURL`,
     // `frameURL`): a refused link loses its `href`, an iframe shows about:blank and keeps its source for its sandbox to decide.
     if (name === "src" && e.localName === "iframe") { e.$src = v; if (frame(e, v)) return; if (v != null && !navigable(v, e)) v = "about:blank"; } else if (name === "href" && v != null && (!navigable(v) || v === "")) v = null;
@@ -703,7 +702,7 @@ export function P(e, name, f) {
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
-    if (name === "sandbox" && e.$src != null && e.localName === "iframe" && !e.exactAppFrame) { const s = navigable(e.$src, e) ? e.$src : "about:blank"; if (sandboxChanged || e.getAttribute("src") !== s) e.setAttribute("src", s); } // a new sandbox takes effect on navigation, even to the same source; a refused `data:` source stays in $src
+    if (name === "sandbox" && e.localName === "iframe" && !e.exactAppFrame) { const source = e.$src ?? e.getAttribute("src"); if (source != null) { const s = navigable(source, e) ? source : "about:blank"; if (sandboxChanged || e.getAttribute("src") !== s) e.setAttribute("src", s); } } // a new sandbox takes effect on navigation, even to the same source; a literal source stays in src, a refused `data:` source in $src
   });
 }
 /** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built

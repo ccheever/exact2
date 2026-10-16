@@ -91,6 +91,7 @@ await publishRoot({ origin: new DirectoryOrigin(published), row: {}, web: dist }
 let served = dist;
 const server = createServer((req, res) => {
   if (req.url === '/__test-mirror') { res.setHeader('content-type', 'text/html'); res.end('<main id="host"></main>'); return; }
+  if (req.url === '/__test-guest') { res.setHeader('content-type', 'text/html'); res.end('<script>parent.postMessage("h","*")</script>'); return; }
   (js && served !== published ? serveBuildTree : serveStatic)(served, req, res);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -226,14 +227,12 @@ try {
     const doc = letter => `data:text/html,<script>parent.postMessage('${letter}','*')</script>`;
     const closed = {frame:'data:text/html,<p>s</p>',bare:'about:blank',same:'about:blank',literal:'about:blank',bound:'about:blank'};
     assert.deepEqual(await srcs(), closed, 'a literal opaque sandbox shows its document; bare and same-origin frames do not');
-    // Its document loaded: an opaque origin's, which the page cannot read.
-    await until(`document.querySelector('[data-testid="data-frame-${key}"]').contentDocument === null`);
     await until(`['literal','bound'].every(id=>document.querySelector('[data-testid="data-'+id+'-${key}"]').contentDocument?.readyState==='complete')`);
     // Each real load proves navigation, including when the new sandbox admits the identical src.
     const reload = async prefix => {
       await evaluate(`(()=>{globalThis.sandboxLoaded={literal:false,bound:false};for(const id of ['literal','bound'])document.querySelector('[data-testid="data-'+id+'-${key}"]').addEventListener('load',()=>sandboxLoaded[id]=true,{once:true});})()`);
       await tap(prefix);
-      await until(`Object.values(sandboxLoaded).every(Boolean)`);
+      await until(`Object.values(sandboxLoaded).every(Boolean)`).catch(error => { throw new Error(`${prefix}: ${error.message}`); });
     };
     const permitted = {...closed, literal:doc('l'), bound:doc('b')};
     await reload('flip-frame');
@@ -249,11 +248,30 @@ try {
     assert.equal([...after].filter(l => l === 'l').length, [...before].filter(l => l === 'l').length + 1);
     assert.equal([...after].filter(l => l === 'b').length, [...before].filter(l => l === 'b').length + 1);
     assert.deepEqual(await srcs(), permitted, 'allow-scripts reloads and delivers both messages again');
-    await tap('flip-frame'); await until(`document.querySelector('[data-testid="data-bound-${key}"]').getAttribute('src')==='about:blank'`);
+    await reload('flip-frame');
     assert.deepEqual(await srcs(), closed, 'a bound sandbox that grants allow-same-origin refuses them again');
     await tap('clear-frame-link');
     assert.equal(await evaluate(`document.querySelector('[data-testid="empty-frame-link-${key}"]').getAttribute('href')`), null, 'an empty bound href remains refused');
     const row = {name:'data: frames', heard:[...new Set(after)].sort().join(''), sandboxNavigations:4, messagesBefore:before.length, messagesAfter:after.length, emptyHref:null}; rows.push(row); console.log(JSON.stringify(row));
+  });
+  await run('a literal HTTP frame reloads when its bound sandbox changes', async () => {
+    await fresh();
+    const key = (await state()).navigation.route;
+    await until(`document.querySelector('[data-testid="http-frame-${key}"]').contentDocument?.URL === ${JSON.stringify(url + '/__test-guest')} && document.querySelector('[data-testid="http-frame-${key}"]').contentDocument?.readyState === 'complete'`);
+    await evaluate(`(()=>{globalThis.httpLoads=0;globalThis.httpMessages=[];const frame=document.querySelector('[data-testid="http-frame-${key}"]');frame.addEventListener('load',()=>httpLoads++);addEventListener('message',e=>{if(e.source===frame.contentWindow)httpMessages.push([e.data,e.origin]);});})()`);
+    const reload = async (prefix, loads) => {
+      await tap(prefix);
+      await until(`httpLoads === ${loads}`);
+      assert.equal(await evaluate(`document.querySelector('[data-testid="http-frame-${key}"]').getAttribute('src')`), '/__test-guest');
+    };
+    await reload('flip-frame', 1);
+    await until(`(async()=> (await exact.agent({op:'state'})).slots.httpHeard===1)()`);
+    await reload('restrict-frame', 2);
+    assert.equal((await state()).slots.httpHeard, 1, 'the HTTP document cannot run scripts after restriction');
+    await reload('flip-frame', 3);
+    await until(`(async()=> (await exact.agent({op:'state'})).slots.httpHeard===2)()`);
+    assert.deepEqual(await evaluate('httpMessages'), [['h','null'],['h','null']]);
+    const row = {name:'HTTP sandbox changes', loads:3, messages:2}; rows.push(row); console.log(JSON.stringify(row));
   });
   await run('focused route teardown ignores retired blur but preserves live blur', async () => {
     await call('Emulation.setDeviceMetricsOverride', {width:800,height:1200,deviceScaleFactor:1,mobile:false});

@@ -502,9 +502,11 @@ inner frame remain only where one document cannot keep that parity:
   `about:blank`. A `blob:` source is refused, because an app cannot name one
   the page made. The rule is `frameURL` (`host/web/navigation.js`), `navigable`
   (`host/web-js/rt.js`) and `frame_navigable` (`host/web/src/document.rs`,
-  which the render host and the JS target's literal attributes share). A bound
-  `sandbox` decides the `data:` source again when it changes. Apple serves a
-  `data:` source through the wrapper whatever its `sandbox` (the row above),
+  which the render host and the JS target's literal attributes share). A changed
+  `sandbox` navigates a `data:` or HTTP(S) frame again, even when it admits the same
+  URL, so the loaded document takes the new permissions. Both web targets retain
+  the authored source and reconsider a refused `data:` URL when its sandbox changes.
+  Apple serves a `data:` source through the wrapper whatever its `sandbox` (the row above),
   so an app that wants one `src` string for every host gives that frame an
   opaque `sandbox`.
 
