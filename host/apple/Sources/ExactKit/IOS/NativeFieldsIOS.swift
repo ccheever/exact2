@@ -50,7 +50,8 @@ extension NodeView {
         let keyboard: UIKeyboardType = switch props["inputMode"] ?? type {
         case "email": .emailAddress
         case "numeric": .numberPad
-        case "decimal", "number": .decimalPad
+        case "number": wholeNumbers ? .numberPad : .decimalPad
+        case "decimal": .decimalPad
         case "tel": .phonePad
         case "url": .URL
         case "search": .webSearch
@@ -62,10 +63,12 @@ extension NodeView {
         // A keyboard that is up takes the field's traits, type and bar at once
         if traitsChanged || keyboardChanged || barChanged, f.isFirstResponder { f.reloadInputViews() }
         // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
-        // has no `previous`, which keeps the default. Unsaid, the label
-        // is the system's, with a `submit` handler too: Go for a field
-        // that submits was Safari's rule for a form (LLP 1115.000 D9.3).
-        // The system's for a search field is Search, as `UISearchBar`'s.
+        // has no `previous`, which keeps the default. Unsaid, it is Done
+        // (Search on a search field, as `UISearchBar`'s), a `submit`
+        // handler or not: Return puts the keyboard away from a single-line
+        // field unless the action focuses it again (D9.2), so Done says
+        // what it does (LLP 1116.019 D5). The document keeps no hint, so
+        // the web's keyboard stays its own.
         switch props["enterKeyHint"] {
         case "done": f.returnKeyType = .done
         case "go": f.returnKeyType = .go
@@ -73,12 +76,26 @@ extension NodeView {
         case "search": f.returnKeyType = .search
         case "send": f.returnKeyType = .send
         case "enter", "previous": f.returnKeyType = .default
-        default: f.returnKeyType = type == "search" ? .search : .default
+        default: f.returnKeyType = type == "search" ? .search : .done
         }
         f.isEnabled = !disabled
         if headerField != nil { presenter?.menus.promptInputChanged(self) } // a prompt's field stands in for it (PromptFieldIOS.swift)
         if isNativeTextControl { styleNativeField() }
         updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
+    }
+    /// Whether a `type="number"` field takes only whole numbers, so the
+    /// number pad, with no decimal point, serves it (LLP 1116.019 D5): its
+    /// `step` is unsaid (HTML's default is 1) or whole, and its `min`, the
+    /// step's base, is unsaid or whole; a value HTML cannot parse counts as
+    /// unsaid, as an invalid step is HTML's 1. `step="any"`, a fractional
+    /// step or a fractional min keeps the decimal pad. A negative min gets
+    /// the bar's ± either way (`PadBarIOS`).
+    var wholeNumbers: Bool {
+        func whole(_ key: String) -> Bool {
+            guard let n = props[key].flatMap({ Double($0.trimmingCharacters(in: .whitespaces)) }), n.isFinite else { return true }
+            return n == n.rounded()
+        }
+        return props["step"]?.trimmingCharacters(in: .whitespaces).lowercased() != "any" && whole("step") && whole("min")
     }
     /// The style an `input`'s field shows.
     func applyFieldStyle() {

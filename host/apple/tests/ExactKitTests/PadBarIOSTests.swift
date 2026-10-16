@@ -86,6 +86,25 @@ final class PadBarIOSTests: XCTestCase {
         XCTAssertEqual(keys(node), ["padDone"])
     }
 
+    /// LLP 1116.019 D5: `type="number"` takes the number pad when it holds only whole numbers (`step` unsaid,
+    /// HTML's 1, or whole, from a whole or unsaid `min`), and the decimal pad when it may hold a fraction.
+    func testANumberFieldOfWholeNumbersGetsTheNumberPad() throws {
+        let (_, node, window) = field(["type": "number"])
+        defer { window.isHidden = true }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertEqual(field.keyboardType, .numberPad, "unsaid step: HTML's 1")
+        for (set, pad) in [(["step": "5", "min": "0"], UIKeyboardType.numberPad), (["step": "2.0", "min": "-10"], .numberPad),
+                           (["step": "any"], .decimalPad), (["step": "0.5"], .decimalPad), (["step": "1", "min": "0.5"], .decimalPad),
+                           (["step": "nonsense", "min": "1"], .numberPad)] {
+            node.applyProps(set: set, clear: ["step", "min"].filter { set[$0] == nil })
+            XCTAssertEqual(field.keyboardType, pad, "\(set)")
+        }
+        node.applyProps(set: ["step": "1", "min": "-40"], clear: [])
+        XCTAssertEqual(keys(node), ["toggleSign", "padDone"], "a negative min on the number pad: ± and Done")
+        node.applyProps(set: ["inputMode": "decimal"], clear: [])
+        XCTAssertEqual(field.keyboardType, .decimalPad, "an authored inputmode wins")
+    }
+
     /// The keys' top, their accessory bar's included: an iPhone 17 Pro's
     /// number pad and the bar, 350 points over the screen's bottom.
     private let keys: CGFloat = 524
