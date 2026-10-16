@@ -508,7 +508,7 @@ extension NavigationHost {
     /// font, spacing) stays, and so does a colour it set over the theme's.
     func titleInk(_ nav: UINavigationController) {
         guard let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) else { return }
-        let bar = nav.navigationBar, before = titleInks[ObjectIdentifier(bar)]
+        let bar = nav.navigationBar, before = titleInks.object(forKey: bar)
         func themed(_ attributes: [NSAttributedString.Key: Any]?) -> [NSAttributedString.Key: Any] {
             var attributes = attributes ?? [:]
             let now = attributes[.foregroundColor] as? UIColor
@@ -519,7 +519,7 @@ extension NavigationHost {
         #if !os(tvOS)
         bar.largeTitleTextAttributes = themed(bar.largeTitleTextAttributes)
         #endif
-        titleInks[ObjectIdentifier(bar)] = ink
+        titleInks.setObject(ink, forKey: bar)
     }
 
     /// Every bar this host made, its titles' ink set again, and each rich

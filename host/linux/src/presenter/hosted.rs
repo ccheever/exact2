@@ -221,6 +221,8 @@ impl<D: DataSource> Presenter<D> {
     ///
     /// A field the reader knew that a statement leaves out is gone.
     pub fn reader_fields(&mut self, scale: f32) -> Option<Vec<i32>> {
+        // The fields' colours resolve its session's roles (LLP 1121 stage 5).
+        let _roles = self.host.runner().bind_roles();
         let ids = self.hosted_ids();
         if ids.is_empty() {
             if !self.hosted.known.is_empty() {

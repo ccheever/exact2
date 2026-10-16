@@ -171,6 +171,8 @@ struct GroupedListModel: Equatable {
 final class GroupedListHost: GroupedLists {
     unowned let presenter: Presenter
     private(set) var lists: [UInt32: GroupedListView] = [:]
+    /// The theme's generation the lists last drew from (`sync`).
+    private var theme = ThemeRoles.generation
     /// A list's model: the kernel's, through the runtime; a test's own.
     lazy var model: (UInt32) -> GroupedListModel? = { [unowned self] id in presenter.session?.runtime.groupedList(id) }
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -190,9 +192,13 @@ final class GroupedListHost: GroupedLists {
     /// list outside it keeps its model and only carries its rows again.
     func sync(changed: Set<UInt32>? = nil) {
         var live = Set<UInt32>()
+        // A live edit of the theme's roles (LLP 1121 stage 5) changes no row,
+        // but every list draws from them: each one updates.
+        let rethemed = theme != ThemeRoles.generation
+        theme = ThemeRoles.generation
         for owner in presenter.carrying("listStyle") where owner.kind == "list" {
             live.insert(owner.id)
-            if let list = lists[owner.id], list.owner === owner, let changed, !changed.contains(owner.id) {
+            if let list = lists[owner.id], list.owner === owner, let changed, !changed.contains(owner.id), !rethemed {
                 list.mount()
                 continue
             }

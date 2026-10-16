@@ -141,5 +141,27 @@ extension Presenter {
             }
         }
         #endif
+        // What resolved a role into a surface it keeps (a field's placeholder
+        // or ground) sets it again: no style op says so, as the rows did not
+        // change (a live edit, LLP 1121 stage 5).
+        func retheme(_ view: PlatformView) {
+            (view as? NodeView)?.rethemeSurfaces()
+            view.subviews.forEach(retheme)
+        }
+        ([root] + ThemeRoles.adopted(by: root)).forEach(retheme)
+    }
+}
+
+extension NodeView {
+    /// A field's placeholder and ground, and what draws from the theme's
+    /// roles, set again from the presenter's table.
+    func rethemeSurfaces() {
+        #if os(macOS)
+        if field != nil || textArea != nil { reapplyColors() }
+        #else
+        if field != nil { applyFieldStyle() }
+        textArea?.setNeedsDisplay()
+        setNeedsLayout()
+        #endif
     }
 }

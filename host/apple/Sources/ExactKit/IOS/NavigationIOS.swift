@@ -158,8 +158,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
     }
     private(set) var presentedNavigations: [UINavigationController] = []
-    /// The theme's title ink each bar was last given (`titleInk`), by bar.
-    var titleInks: [ObjectIdentifier: UIColor] = [:]
+    /// The theme's title ink each bar was last given (`titleInk`), held no
+    /// longer than its bar.
+    let titleInks = NSMapTable<UINavigationBar, UIColor>.weakToStrongObjects()
     var modalNavigation: UINavigationController? { presentedNavigations.last }
     private var navigation: UINavigationController? { modalNavigation ?? primaryNavigation }
     /// The route on top of the stack in front: the one the person sees.
