@@ -786,6 +786,15 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(natives.speaksForItself(v), "an element in it")
         label.isHidden = true
         XCTAssertFalse(natives.speaksForItself(v))
+        let chart = Counted()
+        view.addSubview(chart)
+        XCTAssertTrue(natives.speaksForItself(v), "a container by count and index")
+    }
+
+    /// A drawn chart's virtual elements, by count and index.
+    private final class Counted: UIView {
+        override func accessibilityElementCount() -> Int { 3 }
+        override func accessibilityElement(at index: Int) -> Any? { UIAccessibilityElement(accessibilityContainer: self) }
     }
 
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {

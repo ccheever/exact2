@@ -1081,14 +1081,18 @@ final class NativeViews {
         return view.hitTest(owner.convert(point, to: view), with: nil) == nil
     }
     /// Whether `owner`'s module view says something to accessibility itself:
-    /// it or a view in it is an element, or lists elements of its own
-    /// (`accessibilityElements`). Then those are what VoiceOver reads, not
+    /// it or a view in it is an element, or has elements of its own
+    /// (`accessibilityElements`, or `accessibilityElementCount()` and
+    /// `accessibilityElement(at:)`). Then those are what VoiceOver reads, not
     /// the box.
     func speaksForItself(_ owner: NodeView) -> Bool {
         guard let entry = entries[owner.id], entry.owner === owner, let view = entry.view, view.superview === owner else { return false }
         func speaks(_ view: UIView) -> Bool {
             guard !view.isHidden, !view.accessibilityElementsHidden else { return false }
             if view.isAccessibilityElement || view.accessibilityElements?.isEmpty == false { return true }
+            // A container that answers by count and index (a drawn chart's virtual elements).
+            let count = view.accessibilityElementCount()
+            if count > 0, count != NSNotFound { return true }
             return view.subviews.contains(where: speaks)
         }
         return speaks(view)

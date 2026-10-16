@@ -59,7 +59,8 @@ extension NodeView {
     /// role is `button` or `link`, as the web's tree has a `div` with one
     /// (chat F14: a message bubble with `role="button"` was no button natively).
     /// A box with a checkable role is one too: the web's tree has a `div`
-    /// with `role="checkbox"` as a checkbox (habits F16).
+    /// with `role="checkbox"` as a checkbox (habits F16). A native module's
+    /// box takes these roles as a box does.
     /// On the Mac a menu's row (`menuitem`, `menuitemcheckbox`,
     /// `menuitemradio`) is one too, as AppKit's menu item is.
     var actsAsButton: Bool {
@@ -68,7 +69,7 @@ extension NodeView {
         #else
         let menuItem = false
         #endif
-        return kind == "button" || kind == "view" && (["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") || menuItem)
+        return kind == "button" || (kind == "view" || kind == "native") && (["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") || menuItem)
     }
     /// ARIA's menu item roles, each AppKit's `AXMenuItem` (Core-AAM).
     static let menuItemRoles: Set<String> = ["menuitem", "menuitemcheckbox", "menuitemradio"]

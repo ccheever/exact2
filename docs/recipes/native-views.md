@@ -51,8 +51,9 @@ final class Strip: ExactNativeInstance {
   box blocks nothing; the box keeps it with `press=` or `isUserInteractionEnabled = false`.
   The agent's plain `tap` runs no recognizer: drive with `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored `width`, `height` wins.
-- **Accessibility:** `aria-label` (and `role`) make the box one element when the view says
-  nothing to VoiceOver. A view with parts sets `accessibilityElements`
+- **Accessibility:** `aria-label` makes the box one element when the view says nothing to
+  VoiceOver, and a `role` of `button`, `link`, `img`, `switch` or `checkbox` (`aria-checked`)
+  or `slider` (`aria-valuenow`) its traits. A view with parts sets `accessibilityElements`
   (`UIAccessibilityElement`s with a label, `.button` and `accessibilityActivate`); the box is
   then a group under the label.
 - **First frame:** a view attaches after first paint, so a slow one never delays it. A cheap
