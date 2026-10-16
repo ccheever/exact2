@@ -224,6 +224,18 @@ fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
 }
 
 #[test]
+fn a_derive_that_reads_a_refused_one_is_not_called_a_cycle() {
+    let src = "component App\n  state text = \"1\"\n  derive bill = Number(text)\n  derive tip = bill / 10\n  derive total = bill + tip\n  view\n    text `${total}`\n";
+    let Err(errors) =
+        contract::compile_path_source_all(std::path::Path::new("app.contract"), src, false)
+    else {
+        panic!("`Number` compiled");
+    };
+    let all: Vec<_> = errors.iter().map(|e| e.id.to_string()).collect();
+    assert_eq!(all, ["type-refused-idiom"]);
+}
+
+#[test]
 fn a_row_initializer_must_conform_before_the_row_is_published() {
     let plan = contract::compile(&corpus("instance.contract")).unwrap();
     let slot = plan
