@@ -143,6 +143,25 @@ describe('Files surface', () => {
     expect(view.files.rows.find(row => row.path === 'src/index.ts')!.selected).toBe(true);
     expect(view.files.crumbs.map(crumb => crumb.label)).toEqual(['surface-fixture', 'src', 'index.ts']);
   });
+  // FileBreadcrumbs' Menu is a popover: its toggle opens a crumb's listing and closes it. Another crumb's menu can open
+  // before the first one's close arrives, which then leaves the new listing alone.
+  test("a crumb's popover opens its listing; a late close of another crumb's leaves it", async () => {
+    const { client, replies } = fakeClient();
+    replies['projects.listEntries'] = payload => ({ entries: payload.directoryPath === '' ? entries : [{ path: 'src/index.ts', kind: 'file' }, { path: 'src/util', kind: 'directory' }], truncated: false });
+    replies['projects.readFile'] = () => ({ relativePath: 'src/index.ts', contents: 'export const a = 1;\n', byteLength: 20, truncated: false });
+    await surfaceLocal(client, native, 'file', 'src/index.ts', '');
+    const menu = async () => { const crumbMenu = (await panelView(client, native, 0)).files.crumbMenu; return [crumbMenu.open, crumbMenu.root]; };
+    expect(await menu()).toEqual([false, '']);
+    await surfaceLocal(client, native, 'files-crumb', 'src', 'open');
+    expect(await menu()).toEqual([true, 'src']);
+    await surfaceLocal(client, native, 'files-crumb', 'src', 'open');
+    expect(await menu()).toEqual([true, 'src']);
+    await surfaceLocal(client, native, 'files-crumb', '.', 'open');
+    await surfaceLocal(client, native, 'files-crumb-close', 'src', '');
+    expect(await menu()).toEqual([true, '.']);
+    await surfaceLocal(client, native, 'files-crumb-close', '.', '');
+    expect(await menu()).toEqual([false, '']);
+  });
   // FilePreviewPanel showsRawText and canOpenInBrowser: word wrap only over source text; a page or a PDF opens in the Browser.
   test('the subheader offers word wrap only for source text and "Open file in preview browser" for a page or a PDF', async () => {
     const rpcs: { method: string; payload: Record<string, unknown> }[] = [];
