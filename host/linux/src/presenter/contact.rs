@@ -987,15 +987,18 @@ impl<D: DataSource> Presenter<D> {
         result
     }
     fn pointer_abandon(&mut self, now_ms: f64) -> Result<(), String> {
+        let contact = if self.contact.is_some() {
+            self.pointer_sample(0., 0., now_ms)?;
+            self.contact.take()
+        } else {
+            None
+        };
         // A cancel is an up (LLP 1005 §3).
-        if let Some(error) = self.pointer_lifted(None, now_ms) {
-            return Err(error);
-        }
-        if self.contact.is_none() {
-            return Ok(());
-        }
-        self.pointer_sample(0., 0., now_ms)?;
-        let contact = self.contact.take().unwrap();
+        let at = contact.as_ref().map(|contact| contact.position);
+        let mut result = self.pointer_lifted(at, now_ms).map_or(Ok(()), Err);
+        let Some(contact) = contact else {
+            return result;
+        };
         if let Some(canvas) = contact.canvas {
             let (x, y) = contact.position;
             self.cancel_canvas(canvas, x, y, now_ms);
@@ -1004,9 +1007,10 @@ impl<D: DataSource> Presenter<D> {
             self.host.press_feedback(key, false, now_ms);
             self.dirty = true;
         }
-        let mut result = contact.hold.as_ref().map_or(Ok(()), |held| {
+        let ended = contact.hold.as_ref().map_or(Ok(()), |held| {
             self.end_contact(held, HoldEnd::Cancel, now_ms)
         });
+        result = result.and(ended);
         if contact.group {
             result = self.end_group(false, now_ms).map(|_| ());
         }

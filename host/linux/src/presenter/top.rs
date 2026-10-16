@@ -208,6 +208,11 @@ pub struct Shown<'a> {
 }
 
 impl<D: DataSource> Presenter<D> {
+    pub(super) fn next_surface_serial(&mut self) -> u32 {
+        self.top.last += 1;
+        self.top.last
+    }
+
     /// A shell makes this presenter's top layer as windows from now on,
     /// drawn through `painter` (LLP 1115.001 D10). A host with no such
     /// shell keeps what it did: no top layer.
@@ -387,11 +392,11 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(None, now_ms) {
             self.host.log(e);
         }
-        self.top.last += 1;
+        let serial = self.next_surface_serial();
         let inputs = self.surface_inputs();
         let layout = Layout::of(&mut self.text.borrow_mut(), &plan, id, &inputs);
         self.top.open = Some(Open {
-            serial: self.top.last,
+            serial,
             revision: 0,
             key,
             node: id,
@@ -454,7 +459,7 @@ impl<D: DataSource> Presenter<D> {
     /// a surface was open to take it.
     pub(super) fn dismiss_surface(&mut self, now_ms: f64) -> bool {
         if self.alert.is_some() {
-            return self.alert_key("Escape", now_ms);
+            return self.alert_close_request(now_ms);
         }
         let Some(open) = &self.top.open else {
             return false;

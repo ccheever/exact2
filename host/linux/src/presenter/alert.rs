@@ -4,6 +4,7 @@ use super::*;
 use exact_kernel::{BlockAxis, HostBlock, NodeKey, StyleMask};
 
 pub(super) struct Open {
+    serial: u32,
     key: NodeKey,
     restore: Option<NodeKey>,
     title: Option<(String, Rect4)>,
@@ -116,7 +117,9 @@ impl<D: DataSource> Presenter<D> {
         if self.host.kernel().node_by_key(key).is_none() || !self.alert_admitted(id) {
             return false;
         }
+        let serial = self.next_surface_serial();
         self.alert = Some(Open {
+            serial,
             key,
             restore,
             title: None,
@@ -135,9 +138,18 @@ impl<D: DataSource> Presenter<D> {
         true
     }
     pub(super) fn alert_close(&mut self, now: f64) {
-        let Some(open) = self.alert.take() else {
+        let Some(serial) = self.alert.as_ref().map(|open| open.serial) else {
             return;
         };
+        if let Err(e) = self.pointer_cancel(now) {
+            self.host.log(e);
+        }
+        // A pointerup handler can remove, replace or reopen the dialog. Its
+        // new opening owns its own host layout and focus.
+        if self.alert.as_ref().is_none_or(|open| open.serial != serial) {
+            return;
+        }
+        let open = self.alert.take().unwrap();
         self.brush.alert = None;
         if let Some(node) = self.host.kernel().node_by_key(open.key) {
             let id = node.id;
@@ -161,6 +173,20 @@ impl<D: DataSource> Presenter<D> {
         }
         self.dirty = true;
         self.back_changed();
+    }
+    pub(super) fn alert_close_request(&mut self, now: f64) -> bool {
+        let Some(root) = self.alert_root() else {
+            return false;
+        };
+        if self
+            .host
+            .kernel()
+            .node(root)
+            .is_some_and(|node| node.props.str(PropId::Closedby) != Some("none"))
+        {
+            self.alert_close(now);
+        }
+        true
     }
     pub(super) fn alert_sync(&mut self) {
         if self.alert.is_none() {
@@ -285,7 +311,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(_) = self.alert_root() else {
             return false;
         };
-        let opening = self.alert.as_ref().unwrap().key;
+        let opening = self.alert.as_ref().unwrap().serial;
         let focus = self
             .focus
             .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
@@ -294,7 +320,7 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(error);
         }
         if prevented
-            || self.alert.as_ref().is_none_or(|a| a.key != opening)
+            || self.alert.as_ref().is_none_or(|a| a.serial != opening)
             || name != "Escape"
                 && self
                     .focus
@@ -305,13 +331,7 @@ impl<D: DataSource> Presenter<D> {
         }
         match name {
             "Escape" => {
-                if self
-                    .alert_root()
-                    .and_then(|id| self.host.kernel().node(id))
-                    .is_some_and(|n| n.props.str(PropId::Closedby) != Some("none"))
-                {
-                    self.alert_close(now);
-                }
+                self.alert_close_request(now);
             }
             "Tab" => {
                 if let Some(e) = self.move_focus(self.modifiers().shift, now) {
