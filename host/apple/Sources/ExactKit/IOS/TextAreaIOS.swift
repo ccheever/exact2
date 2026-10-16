@@ -454,6 +454,7 @@ extension NodeView {
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()
+        presenter?.revealCaret(of: self)
     }
     package func textViewDidChangeSelection(_ textView: UITextView) {
         presenter?.fieldSelections.changed(self) // a plain textarea's `select` (x2apps codeedit #2)
