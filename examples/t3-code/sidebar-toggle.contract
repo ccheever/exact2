@@ -1,0 +1,24 @@
+// SidebarControl (AppSidebarLayout.tsx; MIT, see LICENSE-T3): the main sidebar's one trigger, fixed at the window
+// controls over whichever sidebar or page is beside it, after the page in tab order. The sidebar's header and the
+// pages leave its place empty. One node, whether the sidebar is open or closed: a VoiceOver press (AXPress) answers
+// for the element it was sent to, and a button replaced by the toggle it ran left VoiceOver saying "no action
+// available". SidebarTrigger is a toggle (`aria-pressed`) whose icon is PanelLeftClose open and PanelLeft closed.
+use Icon from "./icons.contract"
+use Tip from "./shell-tip.contract"
+
+component SidebarToggle
+  props
+    open: bool
+    controlsLeft: number
+    keySidebar: string
+    artwork: bool
+    inert: bool
+    toggle: action
+  view
+    box position="absolute" left=(controlsLeft + 1) top="0.75rem" inert=inert testId="sidebar-control"
+      Tip(label=(keySidebar == "" ? "Toggle main sidebar" : `Toggle main sidebar (${keySidebar})`), side="bottom", align="center", offset=32)
+        button cursor="pointer" press=toggle width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle main sidebar" aria-pressed=open aria-keyshortcuts=keySidebar testId="toggle-sidebar" title=""
+          if open
+            Icon(name="sidebar", color=(artwork ? "#ffffffe6" : "light-dark(#71717b, #a3a3a3)"), size=16)
+          else
+            Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
