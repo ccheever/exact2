@@ -452,13 +452,21 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// `share(…)`: the runner's rule, then the shell's sheet where there
-    /// is one. Its outcome arrives by the request's id.
+    /// is one. Its outcome arrives by the request's id. The request carries
+    /// no files: Android's sheet would take them as content URIs from a
+    /// `FileProvider`, which the shell does not have (LLP 1125 D12).
     pub(super) fn share(&mut self, args: &[exact_plan::Value], source: Option<ViewId>) {
+        const ANDROID: &str = "files are not carried to Android's share sheet yet";
         let share = Share::from_args(args);
         let (agent, shell) = (self.agent, self.requests.shell);
+        let reach = exact_runner::share::Reach {
+            sheet: shell,
+            files: shell.then_some(ANDROID),
+            pictures: shell.then_some(ANDROID),
+        };
         let runner = self.host.runner_mut();
-        if let exact_runner::share::Arm::Present(share) =
-            exact_runner::share::arm(runner, share, source, agent, shell)
+        if let exact_runner::share::Arm::Present(share, _) =
+            exact_runner::share::arm(runner, share, source, agent, reach)
         {
             let id = self.request(Request::Share(share));
             self.requests.waiting.insert(id, Waiting::Share);

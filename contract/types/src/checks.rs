@@ -614,12 +614,14 @@ fn save_file_args(
     Ok(())
 }
 
-/// `share(title=, text=, url=)` (LLP 1069.003 D1): the Web Share API's
-/// member names, named only, each a string, at least one of `text` and
-/// `url`. Whether `url` is absolute is the host's to refuse: a value is not
-/// known here.
+/// `share(title=, text=, url=, files=)` (LLP 1069.003 D1; LLP 1125 D12):
+/// the Web Share API's member names, named only, at least one of `text`,
+/// `url` and `files`; each a string but `files`, a list of strings. A
+/// literal file is an `app:/` path or an element's `"#id"`. Whether `url`
+/// is absolute and whether the grants cover a path are the host's to
+/// refuse: a value is not known here.
 fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
-    const NAMES: [&str; 3] = ["title", "text", "url"];
+    const NAMES: [&str; 4] = ["title", "text", "url", "files"];
     let mut seen = BTreeSet::new();
     for arg in args {
         let Expr::NamedArg(name, value, at) = arg else {
@@ -632,7 +634,9 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
         if !NAMES.contains(&name.as_str()) {
             return err(
                 "type-share-argument",
-                format!("`share` has no argument `{name}`; it takes title=, text= and url="),
+                format!(
+                    "`share` has no argument `{name}`; it takes title=, text=, url= and files="
+                ),
                 *at,
             );
         }
@@ -644,6 +648,10 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
             );
         }
         let t = infer(value, scope, shapes)?;
+        if name == "files" {
+            share_files(value, &t)?;
+            continue;
+        }
         if Ty::String.unify(&t).is_none() {
             return err(
                 "type-share-argument",
@@ -652,12 +660,44 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
             );
         }
     }
-    if !seen.contains("text") && !seen.contains("url") {
+    if !seen.contains("text") && !seen.contains("url") && !seen.contains("files") {
         return err(
             "type-share-argument",
-            "`share` needs `text=` or `url=`",
+            "`share` needs `text=`, `url=` or `files=`",
             span,
         );
+    }
+    Ok(())
+}
+
+/// `files=`: a list of strings; a literal list shares something, and each
+/// literal entry is an `app:/` path or an `"#id"` (LLP 1125 D12).
+fn share_files(value: &Expr, t: &Ty) -> Result<(), TypeError> {
+    if Ty::List(Box::new(Ty::String)).unify(t).is_none() {
+        return err(
+            "type-share-argument",
+            format!(
+                "`files=` is a list of strings, `app:/` paths and `\"#id\"` entries, not `{t}`"
+            ),
+            value.span(),
+        );
+    }
+    let Expr::List(items, at) = value else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return err("type-share-argument", "`files=[]` shares nothing", *at);
+    }
+    for item in items {
+        let Expr::Str(s, at) = item else { continue };
+        let id = s.strip_prefix('#');
+        if id.is_some_and(str::is_empty) || (id.is_none() && !s.starts_with("app:/")) {
+            return err(
+                "type-share-argument",
+                format!("`files=` takes `app:/` paths and an element's `\"#id\"`, not \"{s}\""),
+                *at,
+            );
+        }
     }
     Ok(())
 }

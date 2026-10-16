@@ -120,7 +120,7 @@ impl SaveFile {
 }
 
 /// `app:/<root>/<file…>` with no empty, `.` or `..` segment.
-fn plain_app_path(path: &str) -> bool {
+pub(crate) fn plain_app_path(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("app:/") else {
         return false;
     };

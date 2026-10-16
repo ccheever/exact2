@@ -1087,7 +1087,7 @@ component A
       text "a"
 ---
 == type-share-argument
-# Neither text nor url.
+# Neither text, url nor files.
 component A
   action go
     share(title="Journal")
@@ -1100,6 +1100,42 @@ component A
 component A
   action go
     share(text=3)
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# `files=` is a list of strings (LLP 1125 D12).
+component A
+  action go
+    share(files="app:/data/a.png")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# A literal file is an `app:/` path or an element's `#id`.
+component A
+  action go
+    share(files=["/tmp/a.png"])
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# An empty list shares nothing.
+component A
+  action go
+    share(files=[])
+  view
+    button press=go
+      text "a"
+---
+== lower-share-picture
+# A picture of an element no view carries.
+component A
+  action go
+    share(files=["#card"])
   view
     button press=go
       text "a"

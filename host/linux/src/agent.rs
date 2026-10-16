@@ -630,6 +630,8 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("visibility-state", v @ ("visible" | "hidden")) => page.hidden = v == "hidden",
             ("online", v @ ("true" | "false")) => page.on_line = v == "true",
             ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
+            ("can-share-files", v @ ("true" | "false")) => page.can_share_files = v == "true",
+            ("can-share-pictures", v @ ("true" | "false")) => page.can_share_pictures = v == "true",
             ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
             ("has-focus", v @ ("true" | "false")) => page.has_focus = v == "true",
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
@@ -693,6 +695,8 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "visibility-state": page.visibility_state(),
         "online": page.on_line,
         "can-share": page.can_share,
+        "can-share-files": page.can_share_files,
+        "can-share-pictures": page.can_share_pictures,
         "can-open-files": page.can_open_files,
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),

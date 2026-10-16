@@ -351,10 +351,12 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         }
         // @ref LLP 1069.000 D2, D6 — this host has no share sheet and no
         // document picker; under the agent the drive's substitute answers
-        // both, as on every host.
+        // each, files and pictures in a share too, as on every host.
         if std::env::var("EXACT_AGENT").as_deref() == Ok("1") {
             let page = exact_runner::Page {
                 can_share: true,
+                can_share_files: true,
+                can_share_pictures: true,
                 can_open_files: true,
                 ..Default::default()
             };
