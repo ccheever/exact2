@@ -707,7 +707,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
-  const launched = Date.now(), crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
+  const crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
   const crashes = crashWatch(crashName, bundle, { bundleId: id, udid: dev.udid }), crashed = (why, died) => new Error([why, ...crashes(died ? 3000 : 0)].join('\n')); // `logs`, a failed launch: this build's crash here
   const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   onProcess?.(console_);
@@ -735,7 +735,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const lines = jsonLines(socket, socket, hostLines);
   const exited = new Promise((r) => socket.on('close', async () => {
     const exit = closing ? null : await waitAtMost(consoleExited, 1000);
-    lines.fail(closing ? 'the app was closed' : hangup({ what: 'the app hung up', pid, exit, hostLines, reports: crashReports(crashName, launched, { bundleId: id, udid: dev.udid }) })); r();
+    lines.fail(closing ? 'the app was closed' : crashed(hangup({ what: 'the app hung up', pid, exit, hostLines }), exit != null).message); r(); // its report lands seconds after the exit
   }));
   const close = async () => {
     closing = true;
