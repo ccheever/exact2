@@ -18,14 +18,14 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
-let mediaModule, soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
+let mediaModule, mediaAttaching = new Set(), soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
   el.exactMedia ??= { props: {}, handlers: [] };
   Object.assign(el.exactMedia.props, set);
   for (const name of clear) delete el.exactMedia.props[name];
   mediaModule ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./media-glue.js', 'installMedia'))));
-  mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn(payload), now())); }); }).catch(console.error);
+  const attach = Promise.all([mediaModule, moduleReady]).then(([install]) => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) !== el || !inputReady) return false; send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn(payload), now())); }); }).catch(console.error); mediaAttaching.add(attach); attach.finally(() => mediaAttaching.delete(attach)); // Attached once the data executor settles (a report before then is dropped), reporting what the element has then; `clock settle` waits for it, not `inflight`, which a module replacement drains during activation.
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
@@ -1071,6 +1071,7 @@ function tree(request) {
   return reply;
 }
 const SETTLE_DEADLINE_MS = 20_000;
+const mediaAttached = deadline => Promise.race([Promise.all(mediaAttaching).then(() => true), new Promise(resolve => setTimeout(() => resolve(false), Math.max(0, deadline - performance.now())))]); // the media glue's attaches (syncMedia), bounded as requests are
 async function waitForInflight(deadline) {
   if (!waiting().length) return true;
   let timer;
@@ -1221,13 +1222,13 @@ async function clock(request) {
   // land, the clock unmoved and no timer fired (Runner::land_then). `clock data` (web-js agent.js) first
   // waits for activation and every request in flight, landing until a landing sends nothing (a test's first step).
   if (request.land || request.data) { if (request.data) await moduleReady; const deadline = performance.now() + SETTLE_DEADLINE_MS, unsettled = { clock: agentClock, settled: false, reason: "requests" };
-    for (let round = 0; round < 16; round++) { if (request.data && !(await waitForInflight(deadline))) return unsettled; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock }; if (!request.data) return { clock: agentClock }; if (!waiting().length) return { clock: agentClock, settled: true }; } return unsettled; }
+    for (let round = 0; round < 16; round++) { if (request.data && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return unsettled; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock }; if (!request.data) return { clock: agentClock }; if (!waiting().length && !mediaAttaching.size) return { clock: agentClock, settled: true }; } return unsettled; }
   const settle = !!request.settle; if (imageHold) await (await imageHold).ready(); // an animated image starts on the clock it lands at
   const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
+    if (settle && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
@@ -1245,7 +1246,7 @@ async function clock(request) {
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
     if (!settle) { if (imageHold) await (await imageHold).ready(); const n = waiting().length, b = n ? ask({ op: "state" }).background : null, background = b ? b.queued + b.inFlight : 0; return { ...reply(), ...(n ? { inflight: n } : {}), ...(background ? { background } : {}) }; } // what a jump leaves in flight on real time, which the driver names (calendar F10), and the module's storage (LLP 1097 D9)
     collections.settle(); // every list built and measured where it shows (LLP 1070 G3)
-    if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
+    if (waiting().length || mediaAttaching.size) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
     if (next <= agentClock && !world.pending) { if (imageHold) await (await imageHold).ready(); const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : reply(true); } // a hold is never waited on (LLP 1069.007 D3)
     if (rounds >= 15) return reply(false);
@@ -1347,8 +1348,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";
   for (const controller of controllers) controller.abort();
-  controllers.clear(); forgettable.clear();
-  inflight.clear();
+  controllers.clear(); forgettable.clear(); inflight.clear(); mediaAttaching.clear();
   if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); // the last plan's theme (LLP 1095 D4): this boot's batch sets its own
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
