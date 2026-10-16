@@ -439,6 +439,38 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   and height (LLP 1116.005 D2), as `apps/shelf`'s add sheet shows. (Shelf recipe,
   2026-10-10; round 7, 2026-10-11.)
 
+## Porting a React Native app
+
+What the original's style objects say is not always what its iOS screen shows. Port
+what the screenshot shows. (euxy port against its Expo original, judged screen by
+screen, 2026-10-16.)
+
+- **Rows with a `minHeight` come out taller.** `padding="13px 16px" min-height=24` made
+  every settings row 50 points where the original's were about 46, and the sections drifted
+  down. Cause: React Native's boxes are all `border-box`, so its `minHeight: 24` counted
+  the padding and did nothing; a Contract box is `content-box`, as CSS's is. Fix: drop a
+  `minHeight` or `height` that the padding already passes, or write
+  `box-sizing="border-box"` on that box.
+- **A floating button's shadow is heavier than the original's.** Cause: on iOS React
+  Native drops the shadow of a view with `overflow: "hidden"` (its layer masks to its
+  bounds), so the shadow its style declares was never drawn; CSS draws a `box-shadow`
+  outside `overflow: hidden`. Fix: port only a shadow the original draws. One it does
+  draw converts as `box-shadow="<x> <y> <2 × shadowRadius>px <color at shadowOpacity>"`:
+  a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
+  `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
+  capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A sheet sits a few points low, or ends short of the screen with its bottom corners
+  showing.** Cause: a computed `navigationDetent` (`(screen height − 100) × 0.45`)
+  guesses UIKit's maximum; and the original's `sheetCornerRadius` set the sheet's corner
+  radius, which also seats a large sheet flat on the bottom edge, where an iOS 26 sheet
+  left to the platform floats inset with the display's corners. Fix:
+  `sheetAllowedDetents: [0.45]` is `navigationDetent="45%"`, `[1.0]` is `"large"`; and
+  `sheetCornerRadius: 40` is `border-radius=40` on the route.
+- **Slider rows are shorter than the original's.** Cause: React Native's `height: 28` on
+  an `@expo/ui` slider did not bound the SwiftUI slider it hosts, which took about 32
+  points; `height=28` on a ported `input type="range"` is 28. Fix: write the height the
+  original's screenshot shows (UIKit's own slider, left unsaid, is taller than either).
+
 ## Actions
 
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
