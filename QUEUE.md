@@ -1423,3 +1423,9 @@ and the Linux headless CPU renderer without claiming display frame timing.
   Rust observes `slot s0 []`, Lean ends with no oracle answer for `load1`;
   Rust also reports `UnknownView(0)`. Reproduced on plain `3f384b0fd` and EX9;
   inspect the generated fixture and oracle coverage before changing either VM.
+
+- **Verification suite transients** (2026-10-16): a combined run of
+  `scripts/port-lock.test.mjs` and `scripts/verify.test.mjs` failed the
+  server-app drive on a page-port bind and the new-app JSON report on exit
+  status. Both named tests passed alone on EX9 and plain `416e4c782`;
+  investigate contention before treating either observation as a product bug.
