@@ -921,6 +921,21 @@ when the app goes to the background (`exactTransport().reason` is
 that last played, how far its hits are issued (`issuedTo`), its last 16 tempo
 segments, and its last 64 haptics with their states.
 
+**Clock in** (`play(…, clock="<input id>")`, LLP 1125 D9) follows a MIDI
+input's clock. The input's ticks, Start, Continue, Stop and Song Position
+reach the runner with their arm timestamps in its ordinary input deliveries:
+ticks alone at most 50 ms after the oldest, anything else at once with the
+ticks ahead of it. The runner takes the tempo from the last 48 tick stamps,
+counts the position in ticks, and issues hits only to 100 ms past each
+delivery (the batch plus the 50 ms hold), so a hit is timed from the newest
+estimate; a new tempo or phase that moves a hit not yet within the hold by
+more than 2 ms takes the hits back (`by clock`) and issues them again. The
+record is a function of the deliveries, so a replay of them is the same take.
+Only the followed input's ticks are passed on (Apple's hub and midi-glue.js
+drop the rest, and Active Sensing always); nothing ends a lost clock but the
+hits running out. `state.transport.follow` shows the input, the ticks heard,
+the window, the estimate, the ticks since Start and where Stop held it.
+
 **MIDI** (`exactMIDI()`, `requestMIDIAccess()`, `sendMIDI`, a step's note and
 `clockOut=`, `midimessage`; LLP 1125 D6–D8) needs the grant `device.midi` on
 every host. The runner keeps one queue for every message, a sequence's notes and
@@ -949,7 +964,8 @@ messages wait; note-offs, Stop and ticks are never refused. Per host:
 - **Linux, Windows**: the record; a request finds `unavailable`.
 
 Under the driver nothing is sent: `prefer midi.*` names the ports a request
-finds, `tap midi` delivers a message, and `state.midi` is the record — the ports,
+finds, `tap midi` delivers a message (`tap midi "<input>" clock <bpm> <ms>`
+its clock, a 50 ms slice at a time), and `state.midi` is the record — the ports,
 the inputs the listeners open, how many messages wait, the last 64 queued with
 their states (`waiting`, `handed`, `retracted` and why), the last 64 heard with
 their beat, and clock out's tick count.

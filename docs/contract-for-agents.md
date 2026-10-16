@@ -1511,11 +1511,15 @@ note-on, and a note-off `duration` beats later), `clockOut=output` on `play`
 sends clock, Start and Stop, and `sendMIDI(output, [144, 60, 100], at=…)` sends
 whole messages from an action. Hear a controller with `midimessage=heard
 midiinputs=[id]` (the action may take a `MIDIMessageEvent`: `input`, `data`,
-`timeStamp`, `beat`). Nothing to schedule by hand: a host hands each message to the
+`timeStamp`, `beat`). To keep a device's time instead, `clock=input` on `play`
+(a `select` of `midi.inputs`): it waits (`transport.state == "waiting"`) until the
+device sends Start, then plays at the device's tempo (`transport.bpm`), and its
+Stop leaves it waiting again. Nothing to schedule by hand: a host hands each message to the
 device 50 ms before it is due, so an edit or a stop takes back what has not gone.
 Test it with no device: `prefer midi.outputs "OP-XY"` then `tap "connect"`, and
 `expect midi sent "OP-XY" 99 4c 7f at 0` (bytes in hex) or `expect midi missing …`;
-`tap midi "keys" 90 3c 64` is a message from an input; `state midi` lists the
+`tap midi "keys" 90 3c 64` is a message from an input, `tap midi "keys" clock 125
+1000` a second of its clock at 125 bpm; `state midi` lists the
 queue ([Metronome](../apps/metronome/app.contract) is whole).
 
 `audio` stays HTML's player for long media

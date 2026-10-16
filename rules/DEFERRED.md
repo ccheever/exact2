@@ -586,7 +586,7 @@ reading. Nothing that isn't HTML is added by it.
   app-owned audio thread. Take: none offered; waived by that instruction.
   Still out: on-demand decoding, web pictures of an element, QR in exact2,
   SysEx, Bluetooth MIDI pairing, MIDI 2.0, Continue and Song Position out,
-  Ableton Link, swing, Linux, Windows and Android output, synthesis (LLP 1125
+  clock thru (sending clock while following one), Ableton Link, swing, Linux, Windows and Android output, synthesis (LLP 1125
   §8).
 - **Expanded (LLP 1098; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** the media session,

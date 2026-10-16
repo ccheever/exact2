@@ -256,7 +256,8 @@ a millisecond interval is a literal whole number of at least 1.
 
 A `sequence` (LLP 1125 D2) declares what should play, as a value, and the
 runner plays it: the gate is a task's, and its body is exactly one
-`play(tracks, bpm=, from=, countIn=, ended=)` (`contract-sequence-body`).
+`play(tracks, bpm=, from=, countIn=, clock=, clockOut=, ended=)`
+(`contract-sequence-body`).
 `tracks` is a list of a shape whose fields are, in order, `beats: number`
 (the track's length, which it loops at), `loops: number` (0 is forever),
 `offset: number`, `output: string` and `steps: S[]`; a step's shape `S` has,
@@ -266,7 +267,7 @@ in order, `beat: number` (from the track's start, in quarter notes),
 `haptic: string` (a `haptic()` kind, or `""`), then optionally
 `playbackRate: number` and `pan: number` (`type-sequence-play`, which also
 types the options and refuses an unknown or repeated one). `bpm=` is
-required; `from=` (default 0) is the beat at the commit that armed it, and
+required unless `clock=` is given; `from=` (default 0) is the beat at the commit that armed it, and
 below 0 it is a count-in: `countIn=`'s steps play once over `[from, 0)`, their
 beats counted from `from`. `ended=` names a parameterless action run when the
 last finite track ends, at that time. The gate, key and arguments read no
@@ -281,16 +282,29 @@ output, is a note-on there (`velocity` 1–127, `channel` 0–15) and a note-off
 samples', notes' and haptics' times, as a latency is lined up by ear.
 `clockOut="<output id>"` sends Timing Clock 24 times a beat, Start before the
 first tick at a beat at or after 0, and Stop at the stop or the end
-([MIDI](#midi-exactmidi-sendmidi-midimessage)); `clock=` (following a clock,
-LLP 1125 stage 4) is refused for now (`lower-sequence-clock`). One
+([MIDI](#midi-exactmidi-sendmidi-midimessage)). `clock="<input id>"`
+follows that input's MIDI clock instead (LLP 1125 D9): the sequence is
+`waiting` until the input sends Start, which puts beat `from` at the next
+tick; its tempo comes from the last 48 ticks' timestamps (`bpm=`, default
+120, until 13 have come), its position counts ticks, and a hit not yet within
+50 ms of being due that a new tempo or phase moves by more than 2 ms is taken
+back (`by clock`) and played again. Stop silences it as the gate would and
+leaves it `waiting` (reason `clock`); Continue resumes at the Song Position
+sent since, else where Stop held it. The input is opened whether or not an
+element hears it, and its Start, Continue, Stop and Song Position are still
+heard as `midimessage`. A sequence that follows a clock sends none
+(`clockOut=` is ignored and journaled), and a changed `clock=` restarts it,
+as a changed key does. One
 sequence plays at a time; leaving the foreground on iOS stops it (reason
 `background`) unless `audio_session` is `playback` with `audio` in
 `host.ios.backgroundModes`. `resource t = exactTransport() as shape T` reads
-it: `state` (`stopped`, `countin`, `playing`), `reason` (`gate`, `ended`,
-`background`, `bpm`, or `""`), `bpm`, `anchorAt` and `anchorBeat` (the beat
-now is `anchorBeat + (performanceNow() - anchorAt) * bpm / 60000`) and
-`clock` (`internal`); it is answered by a commit of its own after each
-change, as an answer's `then` runs.
+it: `state` (`stopped`, `waiting`, `countin`, `playing`), `reason` (`gate`,
+`ended`, `background`, `bpm`, `clock`, or `""`), `bpm`, `anchorAt` and
+`anchorBeat` (the beat now is `anchorBeat + (performanceNow() - anchorAt) *
+bpm / 60000`) and `clock` (`internal`, or `midi` while following, when the
+tempo is rounded to 0.1 and it and the anchor are said again only when they
+move by 0.5 bpm or 1/48 of a beat, or the state does); it is answered by a
+commit of its own after each change, as an answer's `then` runs.
 
 ### MIDI: `exactMIDI`, `sendMIDI`, `midimessage`
 
@@ -319,11 +333,12 @@ notes and clock go through the same queue.
 each message from those inputs; every mounted element that declares it hears
 it, in tree order, each in its own commit. Its action may take a
 `MIDIMessageEvent`: `input`, `data` (`number[]`), `timeStamp` (runner
-milliseconds) and `beat` (the sequence's beat then, −1 while stopped).
-Control Change, pitch bend and pressure keep only their latest value within
-one delivery, never across a note of the same input and channel; notes and
-transport messages are never dropped or reordered; Timing Clock and Active
-Sensing are not dispatched. `onMIDIMessage` and `midiInputs` are refused with
+milliseconds) and `beat` (the sequence's beat then, −1 while stopped or
+waiting for a clock). Control Change, pitch bend and pressure keep only their
+latest value within one delivery, never across a note of the same input and
+channel; notes and transport messages are never dropped or reordered; Timing
+Clock and Active Sensing are not dispatched (a followed input's ticks go to
+its sequence). `onMIDIMessage` and `midiInputs` are refused with
 these names.
 
 `else if c` is `else` around one nested `if c`, in an action and in a view
@@ -651,7 +666,11 @@ granted midi.outputs "OP-XY, IAC" midi.inputs "keys"` sets what a request
 finds under the driver (granted unless named) and the ports, by name (a port
 named no longer is disconnected); `tap midi "keys" 90 3c 64` is one delivery
 from that input now, refused unless the input is connected and a mounted
-element hears it; `expect midi sent "OP-XY" 99 4c 7f at 500` passes when the
+element hears it or a sequence follows it; `tap midi "keys" clock 125 2000`
+sends Timing Clock from that input at that tempo for that long from now, as
+an arm does, a delivery every 50 ms with the clock moved to each (a tempo
+whose tick is a whole number of milliseconds, such as 125 or 100, keeps
+every stamp exact); `expect midi sent "OP-XY" 99 4c 7f at 500` passes when the
 runner queued that message for that output and has not taken it back (at
 that time, when given), `missing` the negation. Each byte is two hex digits.
 `tap "audio" mediasession "seekforward"` calls the
