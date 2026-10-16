@@ -745,7 +745,7 @@ extension TableListMacTests {
         }
     }
 
-    func testWindowedSeparatorUsesItsAuthoredRowsLocalAppearanceAcrossReuse() throws {
+    func testWindowedSeparatorUsesItsAuthoredRowsLocalAppearanceAcrossRemounting() throws {
         let source = """
         component WindowedRowScheme
           state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -780,21 +780,14 @@ extension TableListMacTests {
         XCTAssertFalse(firstRow.node === first, "the table mounts the runner's wrapper while appearance belongs to its authored root")
         XCTAssertNotNil(firstRow.node.props["listItemKey"])
 
-        let before = Dictionary(uniqueKeysWithValues: f.feed.rows.map {
-            ($0.node.id, (key: $0.node.props["listItemKey"], root: $0.root))
-        })
-        var rebound: TableFeed.Row?
-        for y in stride(from: CGFloat(400), through: 4_000, by: 400) where rebound == nil {
-            f.scroll(to: y)
-            let portRows = f.table.rows(in: f.table.convert(f.clip.bounds, from: f.document))
-            rebound = f.feed.rows.first { row in
-                guard NSLocationInRange(row.index, portRows), let old = before[row.node.id] else { return false }
-                return old.key != row.node.props["listItemKey"] && old.root == row.root
-            }
-        }
-        let reusedRow = try XCTUnwrap(rebound, "a visible wrapper and its authored root were rebound to another item")
-        let row = try XCTUnwrap(f.presenter.views[reusedRow.root])
-        XCTAssertTrue(row.isDescendant(of: reusedRow.node))
+        f.scroll(to: 4_000)
+        XCTAssertNil(f.presenter.views[first.id], "the old authored row left the mounted window")
+        XCTAssertNil(f.presenter.views[firstRow.node.id], "the old wrapper left the mounted window")
+        let portRows = f.table.rows(in: f.table.convert(f.clip.bounds, from: f.document))
+        let mountedRow = try XCTUnwrap(f.feed.rows.first { NSLocationInRange($0.index, portRows) }, "a visible row is mounted after scrolling")
+        let row = try XCTUnwrap(f.presenter.views[mountedRow.root])
+        XCTAssertTrue(row.isDescendant(of: mountedRow.node))
+        XCTAssertFalse(mountedRow.node === row, "the new wrapper and its authored appearance source remain distinct")
 
         func press(_ id: String) throws {
             f.presenter.press(try f.node(id).id)
@@ -841,6 +834,7 @@ extension TableListMacTests {
 
         f.scroll(to: 0)
         let returned = try f.node("windowed-0")
+        XCTAssertFalse(returned === first, "returning creates the current authored row again")
         f.window.appearance = NSAppearance(named: .darkAqua)
         try press("windowed-light")
         var picture = try separatorPicture(f, name: "painted-windowed-returned-light")
