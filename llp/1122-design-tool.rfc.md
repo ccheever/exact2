@@ -1048,7 +1048,7 @@ the iOS simulator and the Mac.
 |---|---|
 | The clone runs in the tool's frame and on the iOS simulator and the Mac | **Met.** |
 | A token or dial scrub, chosen explicitly, updates all three with no reload whenever `live` | **Met.** `primary_500`: about 0.6 s per preview, all three design digests moved, no reload, the file untouched until Keep wrote one line. |
-| A structural edit hot-reloads all three and keeps their slots | **Met on iOS and the Mac; not met on the web page.** The wasm page holds its generation while the app has requests pending, which was so before T2 (queued). |
+| A structural edit hot-reloads all three and keeps their slots | **Met.** iOS and the Mac in the run. The wasm page held its generation while the app had requests pending, which was so before T2. reload1's `777c5e526`..`7a71e5bf7` (LLP 1007 §6) has the dev loop swap after a 1 s settle window, and the clone then shows a Contract edit 2.8–4.7 s after the save, with its slots, navigation stack and URL kept. |
 | A cancelled scrub restores every copy | **Met.** |
 | `pin` shows Dim on one copy, and the tool shows each copy's effective mode | **Met.** |
 | Closing the tool clears its pins on every build, and a reloaded build gets its pins back | **Met.** The pins were handed back 38 s after the tool closed. |
