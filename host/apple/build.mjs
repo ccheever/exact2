@@ -1422,6 +1422,12 @@ async function test(args) {
     mkdirSync(paths.namespace, { recursive: true });
     env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
     if (ios) env.TEST_RUNNER_EXACT_SVG_METALLIB = env.EXACT_SVG_METALLIB;
+    // The optional modules tests drive, built for the tests' platform as a build embeds them and named to the runner: the
+    // video arm, and on iOS the WebKit arm and the Canvas 2D GPU module. A test without one is a missing prerequisite (Coverage.swift).
+    const armDir = resolve(paths.namespace, 'arms');
+    const arm = (name, sources, frameworks, out = resolve(armDir, `lib${name}.dylib`)) => (runApple('xcrun', ['--sdk', ios ? 'iphonesimulator' : 'macosx', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-module-name', name,
+      '-module-cache-path', resolve(armDir, 'cache'), ...sources, ...frameworks.flatMap(f => ['-framework', f]), '-target', ios ? iosTriple : `${macTriple}14.0`, '-o', out]), out);
+    env[`${ios ? 'TEST_RUNNER_' : ''}EXACT_VIDEO_DYLIB`] = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
     if (!ios) {
       // Tests that compile their own Contract source run this compiler, built
       // here as `cargo build` would, never assumed from an earlier build.
@@ -1451,17 +1457,7 @@ async function test(args) {
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     compileFixtures(env, fixtureDir, 'TEST_RUNNER_EXACT');
-    // The optional modules tests drive, built for the simulator as a build embeds them and named
-    // to the runner: the WebKit arm, the video arm and the Canvas 2D GPU module. A test without
-    // one is a missing prerequisite, which fails under EXACT_REQUIRED (Coverage.swift).
-    const arm = (name, sources, frameworks) => {
-      const out = resolve(fixtureDir, `lib${name}.dylib`);
-      runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-module-name', name,
-        '-module-cache-path', resolve(fixtureDir, 'cache'), ...sources, ...frameworks.flatMap(f => ['-framework', f]), '-target', iosTriple, '-o', out]);
-      return out;
-    };
     env.TEST_RUNNER_EXACT_TEST_WEB_MODULE = arm('ExactWebArm', [resolve(root, 'host/apple/webarm/WebArm.swift'), '-D', 'EXACT_DEVELOPMENT'], ['WebKit']);
-    env.TEST_RUNNER_EXACT_VIDEO_DYLIB = arm('ExactVideoArm', ['VideoArm.swift', 'NowPlaying.swift'].map(f => resolve(root, 'host/apple/videoarm', f)), ['AVKit', 'MediaPlayer']);
     const modules = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
     run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-canvas-vello', '--lib', '--target', iosTarget, '--target-dir', modules, '--manifest-path', resolve(root, 'Cargo.toml')],
       { env: { ...cargoEnv, [`CARGO_PROFILE_${HOST_DEV.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
