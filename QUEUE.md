@@ -1383,9 +1383,8 @@ and the Linux headless CPU renderer without claiming display frame timing.
   executors (including exactBodyFrom); keep current progress indeterminate until then.
 
 - **EX7 broader game verification (2026-10-14):** three `game/new.test.mjs`
-  failures reproduce against `6c00a417e`: the new-game file list omits the emitted
-  `.vscode`, the shell CLI fixture omits `scripts/app.mjs`, and the SDK union lock
-  is stale. Repair those fixtures/lock in the game lane. Root gates and the
-  affected app/tooling suites pass; baseline evidence is in
-  `target/ex7-verification/game-baseline.log` in the farm's Exact checkout.
+  failures reproduce without the EX7 changes: the new-game file list omits the
+  emitted `.vscode`, the shell CLI fixture omits `scripts/app.mjs`, and the SDK
+  union lock is stale. Repair those fixtures/lock in the game lane. Root gates
+  and the affected app/tooling suites pass.
 - **macOS: an `input` with `role="combobox"` is `AXTextField`, not `AXComboBox`** (2026-10-16). Core-AAM maps `combobox` to `AXComboBox`, and WebKit serves an input with that role so, with `AXExpanded`. `Field.accessibilityRole()` (`host/apple/Sources/ExactKit/Mac/TextAreaMac.swift`) answers with its cell's role for every field but a number's; the role and its cell's attributes (`FieldCell`) would both need to say combo box, and VoiceOver's reading of it checked.
