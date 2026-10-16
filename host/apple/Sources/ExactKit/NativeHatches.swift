@@ -152,21 +152,23 @@ private typealias HatchTamberFn = @convention(c) (UnsafeMutableRawPointer?, Unsa
 /// `tamber(host, view, request, len, out, cap) → len` (LLP 1121 D12): a
 /// native module's `ExactTamber`. `request` is `{"names": [..]}`; the answer,
 /// `{"inputs", "colors": {name: [[r, g, b, a] × 8] | null}}`, each colour
-/// resolved for the eight sides a view draws in (light and dark, then with
-/// more contrast, then elevated: bit 0 dark, bit 1 contrast, bit 2
-/// elevated), as the library cannot read a row's value. Written into `out`
-/// when `cap` holds it; its length either way.
+/// resolved for the eight sides a view draws in (bit 0 dark, bit 1 more
+/// contrast, bit 2 elevated) under the view's tint, as extended sRGB
+/// (0–1, past it for a wide colour), as the library cannot read a row's
+/// value. Written into `out` when `cap` holds it; its length either way.
 private let hatchTamber: HatchTamberFn = { host, view, request, length, out, cap in
     guard let session = hatchSession(host), let request,
           let asked = try? JSONSerialization.jsonObject(with: Data(bytes: request, count: Int(length))) as? [String: Any] else { return 0 }
     var at = view.map { Unmanaged<PlatformView>.fromOpaque($0).takeUnretainedValue() }
     while let v = at, !(v is NodeView) { at = v.superview }
-    let place = (at as? NodeView)?.id ?? 0
-    guard let answer = session.runtime.tamber(view: place, names: asked["names"] as? [String] ?? []) else { return 0 }
+    let node = at as? NodeView
+    guard let answer = session.runtime.tamber(view: node?.id ?? 0, names: asked["names"] as? [String] ?? []) else { return 0 }
+    let tint = ExactTamber.tint(node, session: session)
     let colors = answer.colors.mapValues { value -> Any in
         guard let value else { return NSNull() }
         return (0..<8).map { side in
-            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0) ?? [0, 0, 0, 0]
+            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0, tint: tint)
+                .map { ExactTamber.extended(TextEngine.color($0)) } ?? []
         }
     }
     guard let data = try? JSONSerialization.data(withJSONObject: ["inputs": answer.inputs, "colors": colors]) else { return 0 }

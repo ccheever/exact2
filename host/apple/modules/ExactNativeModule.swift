@@ -1313,6 +1313,8 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     }
     element.data = ExactData(object["data"] as? [String: String] ?? [:])
     element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
+    // A hatched node's view is a place a binding finds, as a module view is (LLP 1121 D12).
+    if let view = element.view { Tambers.made(view, by: m) }
     element.platform = platform.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
     m.element(element)
     return element.reusable ? 1 : 0

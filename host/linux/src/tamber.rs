@@ -53,7 +53,17 @@ impl<D: DataSource> Host<D> {
         let _accent = exact_kernel::style::roles::authored_accent(accent);
         let mut tamber = runner.tamber();
         let dark = tamber.dark(place);
-        let mut out = format!("{{\"inputs\":\"{}\",\"colors\":{{", tamber.inputs(place));
+        // The accent above is an input here too: an answer resolves under it.
+        let inputs = match accent {
+            Some(accent) => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                format!("{accent:?}").hash(&mut h);
+                format!("{}-{:x}", tamber.inputs(place), h.finish())
+            }
+            None => tamber.inputs(place).to_string(),
+        };
+        let mut out = format!("{{\"inputs\":\"{inputs}\",\"colors\":{{");
         for (i, name) in names.iter().enumerate() {
             if i > 0 {
                 out.push(',');

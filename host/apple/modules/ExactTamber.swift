@@ -1,11 +1,13 @@
 // The binding core in a native module's library (LLP 1121 D12, stage 5):
-// `ExactTamber(view).color(.surfaceCard)` on a view the module made, as
-// ExactKit's own `ExactTamber` is in the process. The host answers over the
-// hatches' host table (`tamber`, at 96), resolving each colour for the
-// eight sides a view draws in, as the library cannot read a row's value; the
-// colour is a dynamic provider over the view's traits. After a batch that
-// moved what a binding reads, the host calls the module's `tamber` entry
-// (at 216) and each observed place is asked again.
+// `ExactTamber(view).color(.surfaceCard)` on a view the module made or a
+// hatched node's view, as ExactKit's own `ExactTamber` is in the process.
+// The host answers over the hatches' host table (`tamber`, at 96), resolving
+// each colour for the eight sides a view draws in, under the view's tint, as
+// extended sRGB (the library cannot read a row's value); the colour is a
+// dynamic provider over the view's traits. After each batch the host calls
+// the module's `tamber` entry (at 216): every place asks again, when next
+// read, whether what it read moved, and each observed place whose inputs
+// moved tells its observers.
 #if os(macOS)
 import AppKit
 public typealias ExactTamberColor = NSColor
@@ -37,9 +39,17 @@ public struct ExactTamber {
     /// answer (its hatches connect after the first frame).
     public func color(_ token: ExactTamberToken, fallback: ExactTamberColor = .clear) -> ExactTamberColor {
         let place = place
+        // Asked now, on the main thread, so a provider called off it (a
+        // renderer's) finds the answer kept: the host answers on the main
+        // thread only.
+        if Thread.isMainThread { _ = place?.sides(token.name) }
         let side = { (side: Int) -> ExactTamberColor? in
             guard let c = place?.sides(token.name)?[side], c.count == 4 else { return nil }
-            return ExactTamberColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+            #if os(macOS)
+            return NSColor(colorSpace: .extendedSRGB, components: c.map { CGFloat($0) }, count: 4)
+            #else
+            return UIColor(red: c[0], green: c[1], blue: c[2], alpha: c[3])
+            #endif
         }
         #if os(macOS)
         return NSColor(name: nil) { appearance in
@@ -85,10 +95,16 @@ final class TamberPlace {
     weak var module: ExactModule?
     /// The inputs the answer read, and each name's eight sides.
     private var known: (inputs: String, colors: [String: [[Double]]?])?
+    /// The host's batch count this place last asked its inputs at.
+    private var checked = -1
     init(view: ExactPlatformView, module: ExactModule) { self.view = view; self.module = module }
 
     func sides(_ name: String) -> [[Double]]? {
+        // A batch since: what it read may have moved (off the main thread,
+        // the answer kept is what there is).
+        if checked != Tambers.batches, Thread.isMainThread { _ = inputs() }
         if let known, let colors = known.colors[name] { return colors }
+        guard Thread.isMainThread else { return nil }
         let names = Array(Set(known?.colors.keys.map { $0 } ?? []).union([name]))
         guard let answer = ask(names) else { return nil }
         known = answer
@@ -98,6 +114,7 @@ final class TamberPlace {
     /// The inputs now, keeping what was asked when they have not moved;
     /// whether they moved.
     func inputs() -> Bool {
+        checked = Tambers.batches
         guard let answer = ask([]) else { return false }
         let moved = known.map { $0.inputs != answer.inputs } ?? false
         if known == nil || moved { known = (answer.inputs, [:]) }
@@ -127,6 +144,8 @@ final class TamberPlace {
 
 /// The library's binding state: each view the module made, and the observers.
 enum Tambers {
+    /// The batches the host has said were applied: a place asks again when it moves.
+    nonisolated(unsafe) static var batches = 0
     nonisolated(unsafe) static var made: [ObjectIdentifier: (view: Weak<ExactPlatformView>, module: Weak<ExactModule>)] = [:]
     nonisolated(unsafe) static var observers: [(place: TamberPlace, observation: Weak<ExactTamberObservation>)] = []
 
@@ -136,11 +155,19 @@ enum Tambers {
         made[ObjectIdentifier(view)] = (Weak(view), Weak(module))
     }
 
-    /// The host's `tamber` entry: each observed place whose inputs moved
-    /// tells its observers.
+    /// The host's `tamber` entry, after each batch: each observed place
+    /// asks once whether its inputs moved, and if so every observer of it
+    /// hears.
     static func moved() {
+        batches += 1
         observers.removeAll { $0.observation.value?.body == nil || $0.place.view == nil }
-        for (place, observation) in observers where place.inputs() { observation.value?.body?() }
+        var asked: [ObjectIdentifier: Bool] = [:]
+        for (place, observation) in observers {
+            let id = ObjectIdentifier(place)
+            let moved = asked[id] ?? place.inputs()
+            asked[id] = moved
+            if moved { observation.value?.body?() }
+        }
     }
 }
 

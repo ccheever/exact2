@@ -35,25 +35,28 @@ public struct ExactTamberToken: Hashable, Sendable {
 public struct ExactTamber {
     private let place: Place
 
-    /// The place `view` is in: its nearest node's, in that node's session.
+    /// The place `view` is in, found each time it is asked (it may be
+    /// mounted, or moved, after this): its nearest node's, in that node's
+    /// session.
     public init(_ view: ExactTamberView) {
-        var at: ExactTamberView? = view
-        while let v = at, !(v is NodeView) { at = v.superview }
-        let node = at as? NodeView
-        place = Place(session: node?.presenter?.session, view: node?.id ?? 0)
+        place = Place(view: view)
     }
 
     /// The session's root: the window's app tuple.
     public init(session: ExactSession) {
-        place = Place(session: session, view: 0)
+        place = Place(session: session)
     }
 
     /// `token`'s colour here, dynamic over the traits it is drawn with;
     /// `fallback` where the plan lacks it (said once in the session's log).
     public func color(_ token: ExactTamberToken, fallback: ExactTamberColor = .clear) -> ExactTamberColor {
         let place = place
+        // Asked now, on the main thread, so a provider called off it finds
+        // the answer kept.
+        if Thread.isMainThread { _ = place.value(token.name) }
         let side = { (dark: Bool, contrast: Bool, elevated: Bool) -> ExactTamberColor? in
-            place.value(token.name)?.textChannels(dark: dark, contrast: contrast, elevated: elevated).map(TextEngine.color)
+            let tint = Thread.isMainThread ? place.found.flatMap { ExactTamber.tint($0.session.presenter.views[$0.view], session: $0.session) } : nil
+            return place.value(token.name)?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint).map(TextEngine.color)
         }
         #if os(macOS)
         return NSColor(name: nil) { appearance in
@@ -79,15 +82,55 @@ public struct ExactTamber {
         return observation
     }
 
+    /// The tint a row naming the tint resolves by at `node` (none: the
+    /// session's root): the view's inherited tint on UIKit, the nearest
+    /// authored accent else the theme's on AppKit.
+    static func tint(_ node: NodeView?, session: ExactSession) -> PlatformColor? {
+        #if os(macOS)
+        return node?.nearestAccent ?? ThemeRoles.color("AccentColor", in: session.presenter.root)
+        #else
+        return (node ?? session.presenter.root).tintColor
+        #endif
+    }
+
+    /// `color`'s components in extended sRGB: 0–1, past it for a wide colour.
+    static func extended(_ color: PlatformColor) -> [Double] {
+        #if os(macOS)
+        guard let c = color.usingColorSpace(.extendedSRGB) else { return [0, 0, 0, 0] }
+        return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent].map(Double.init)
+        #else
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map(Double.init)
+        #endif
+    }
+
     /// A place, and what its session answered for it.
     final class Place {
-        weak var session: ExactSession?
-        let view: UInt32
-        init(session: ExactSession?, view: UInt32) { self.session = session; self.view = view }
+        private weak var root: ExactSession?
+        private weak var view: ExactTamberView?
+        init(view: ExactTamberView) { self.view = view }
+        init(session: ExactSession) { root = session }
+
+        /// Where the view was last found, for a provider called off the main thread.
+        private weak var lastSession: ExactSession?
+        private var lastView: UInt32 = 0
+
+        /// The session and node it is in now: a root's session, or the view's
+        /// nearest node's; off the main thread, where it was last found.
+        var found: (session: ExactSession, view: UInt32)? {
+            if let root { return (root, 0) }
+            guard Thread.isMainThread else { return lastSession.map { ($0, lastView) } }
+            var at = view
+            while let v = at, !(v is NodeView) { at = v.superview }
+            guard let node = at as? NodeView, let session = node.presenter?.session else { return nil }
+            (lastSession, lastView) = (session, node.id)
+            return (session, node.id)
+        }
 
         /// `name`'s value as a row crosses it, asked once per inputs.
         func value(_ name: String) -> BatchValue? {
-            guard let session else { return nil }
+            guard let (session, view) = found else { return nil }
             let known = Tambers.of(session).known[view]
             if let known, known.colors.keys.contains(name) { return known.colors[name] ?? nil }
             let asked = Array(Set((known?.colors.keys).map(Array.init) ?? []).union([name]))
@@ -97,7 +140,7 @@ public struct ExactTamber {
         }
 
         func observe(_ observation: ExactTamberObservation) {
-            guard let session else { return }
+            guard let (session, view) = found else { return }
             let tambers = Tambers.of(session)
             tambers.observers.append((view, Weak(observation)))
             if tambers.known[view] == nil, let answer = session.runtime.tamber(view: view, names: []) { tambers.known[view] = answer }
@@ -138,7 +181,8 @@ final class Tambers {
         tambers.observers.removeAll { $0.observation.value?.body == nil }
         var moved: Set<UInt32> = []
         for (view, known) in tambers.known {
-            guard let now = session.runtime.tamber(view: view, names: []) else { continue }
+            // A place gone (its node retired) is forgotten.
+            guard let now = session.runtime.tamber(view: view, names: []) else { tambers.known[view] = nil; continue }
             if now.inputs != known.inputs { moved.insert(view); tambers.known[view] = now }
         }
         for (view, observation) in tambers.observers where moved.contains(view) { observation.value?.body?() }
