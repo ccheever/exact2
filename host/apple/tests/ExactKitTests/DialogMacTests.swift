@@ -69,6 +69,7 @@ class DialogMacTests: XCTestCase {
         front.makeFirstResponder(opener)
         click(opener)
         XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertEqual(p.openTopLayer.modal, p.openTopLayer.frames.firstIndex { $0.0 == dialog.id })
         XCTAssertFalse(dialog.isHidden)
         XCTAssertTrue(field.currentEditor() === front.firstResponder)
         XCTAssertTrue(opener.inert)

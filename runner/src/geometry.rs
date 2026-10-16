@@ -27,6 +27,8 @@
 #[cfg(test)]
 mod inline_tests;
 mod intersection;
+#[cfg(test)]
+mod modal_tests;
 pub(crate) use intersection::intersection;
 
 use exact_kernel::{
@@ -769,9 +771,8 @@ fn data_matches(
     let mut out = Vec::new();
     while let Some(slot) = stack.pop() {
         let props = arena.props(slot);
-        let blocked = arena.style(slot).display == Display::None
-            || arena.flags(slot).has(NodeFlags::HIDDEN)
-            || props.bool(PropId::Inert) == Some(true);
+        let blocked =
+            arena.style(slot).display == Display::None || arena.flags(slot).has(NodeFlags::HIDDEN);
         if blocked {
             continue;
         }
@@ -779,27 +780,34 @@ fn data_matches(
             if !id.is_empty()
                 && crate::agent::field_str(dataset, word)
                     .is_some_and(|words| words.split_ascii_whitespace().any(|v| v == value))
+                && props.bool(PropId::Inert) != Some(true)
+                && inherited_hit_state(kernel, slot).is_some()
                 && shown(kernel, scrolled, arena.local_id(slot))
             {
                 out.push(id.to_owned());
             }
         }
+        // An inert ancestor can contain a modal dialog that escapes it.
         stack.extend(arena.children(slot).iter().rev());
     }
     out
 }
 
-/// The live part of the top layer while a presentation is open: the boxes
-/// from the first of the frontmost presentation's, as its host reports
-/// them (`top_layer_frames`): whichever of its routes it shows (a route
-/// pushed in a sheet, or two mid-transition), and what is open above it.
+/// The live part of the top layer starts at the frontmost modal dialog or
+/// the first box of the host's frontmost presentation (`top_layer_frames`):
+/// whichever of its routes it shows, and what is open above it.
 /// Everything else, below it in the top layer or in the document, is
 /// behind it and inert to structural reads, as UIKit's dimming view and
 /// the host's `inertBehind` make it to touch. None while no presentation
 /// is open.
 fn modal_live(kernel: &Kernel, scrolled: &Scrolled) -> Option<Vec<u32>> {
     let arena = kernel.arena();
-    let from = scrolled.modal?;
+    let dialog = scrolled.top_layer.iter().rposition(|&(key, _)| {
+        arena
+            .resolve(key)
+            .is_some_and(|slot| modal_dialog(kernel, slot))
+    });
+    let from = scrolled.modal.into_iter().chain(dialog).max()?;
     Some(
         scrolled.top_layer[from.min(scrolled.top_layer.len())..]
             .iter()
@@ -937,16 +945,12 @@ fn kernel_hits(
 fn inherited_hit_state(kernel: &Kernel, slot: u32) -> Option<(PointerEvents, Visibility)> {
     let arena = kernel.arena();
     let (mut pointer, mut visibility) = (None, None);
-    let dialog = |s: u32| {
-        let props = arena.props(s);
-        props.str(PropId::SemanticTag) == Some("dialog") && props.str(PropId::Popover).is_none()
-    };
-    let mut escaped = dialog(slot);
+    let mut escaped = modal_dialog(kernel, slot);
     for p in std::iter::successors(arena.parent(slot), |&p| arena.parent(p)) {
         if !escaped && arena.props(p).bool(PropId::Inert) == Some(true) {
             return None;
         }
-        escaped = escaped || dialog(p);
+        escaped = escaped || modal_dialog(kernel, p);
         let style = arena.style(p);
         if pointer.is_none() && style.mask.has(StyleId::PointerEvents) {
             pointer = Some(style.pointer_events);
@@ -959,6 +963,11 @@ fn inherited_hit_state(kernel: &Kernel, slot: u32) -> Option<(PointerEvents, Vis
         pointer.unwrap_or(PointerEvents::Auto),
         visibility.unwrap_or(Visibility::Visible),
     ))
+}
+
+fn modal_dialog(kernel: &Kernel, slot: u32) -> bool {
+    let props = kernel.arena().props(slot);
+    props.str(PropId::SemanticTag) == Some("dialog") && props.str(PropId::Popover).is_none()
 }
 
 struct Point<'a> {

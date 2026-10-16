@@ -63,10 +63,7 @@ mod structural_read_tests {
         assert_eq!(ids(&host), Some(Value::list(vec![Value::str("other")])));
         host.act("openDialog");
         host.act("probe");
-        assert_eq!(
-            ids(&host),
-            Some(Value::list(vec![Value::str("other"), Value::str("save")]))
-        );
+        assert_eq!(ids(&host), Some(Value::list(vec![Value::str("save")])));
         let menu = host
             .find(|n| n.props.str(PropId::Id) == Some("menu"))
             .unwrap();
@@ -75,7 +72,6 @@ mod structural_read_tests {
         assert_eq!(
             ids(&host),
             Some(Value::list(vec![
-                Value::str("other"),
                 Value::str("save"),
                 Value::str("menu-save")
             ]))
