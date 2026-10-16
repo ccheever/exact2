@@ -236,6 +236,9 @@ fn a_replaced_header_that_cleared_the_status_bar_hands_that_inset_to_the_bar() {
 
 /// LLP 1001 §2 (2026-10-07): a header padded by a comparison that reads
 /// the top inset cleared it too; one that reads only another inset did not.
+/// The corner-adapted safe area's top is never less than the inset (LLP 1123
+/// D10), so it clears it; the margins' top can lie above the safe area where
+/// an app turns `insetsLayoutMarginsFromSafeArea` off, so it does not.
 #[test]
 fn a_replaced_header_padded_by_a_comparison_of_the_top_inset_hands_it_over() {
     let mut kernel = header_padded();
@@ -246,6 +249,9 @@ fn a_replaced_header_padded_by_a_comparison_of_the_top_inset_hands_it_over() {
     for (padding, y) in [
         ("clamp(0px, env(safe-area-inset-top), 200px)", 106.0),
         ("max(12px, env(safe-area-inset-bottom))", 44.0),
+        ("env(-exact-safe-area-corners-inset-top)", 106.0),
+        ("max(12px, env(-exact-safe-area-corners-inset-top))", 106.0),
+        ("env(-exact-layout-margins-inset-top)", 44.0),
     ] {
         let op = Op::SetStyle {
             id: 3,

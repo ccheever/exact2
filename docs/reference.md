@@ -1164,7 +1164,10 @@ hatch returns. There is no dispatch and no state write.
 `exact.hatches.frames(frame => …)`) ticks once a frame after that frame's
 tasks, and `context.after(ms) { … }` waits on the session clock. Under the
 agent both run on the virtual display, so a drive repeats. They are for
-behaviour, not for measuring the display.
+behaviour, not for measuring the display. A view animated on the wall clock
+(`UIView.animate`, a display link) is not on the agent's: `clock +N` leaves it
+where it was, and only `clock +N real` lets it run, so a splash drawn from
+`frames` or `after` is the one a drive can step past.
 
 **Whose window.** `window.window` is nil unless the embedder set
 `session.hatchesOwnWindow`, and `app.application` unless it set

@@ -105,7 +105,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.1");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.2");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -353,7 +353,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.1");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.2");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -576,6 +576,72 @@ fn compare_revert_plan_and_import_plan() {
     assert_eq!(
         std::fs::read_to_string(dir.join("app.tamber")).unwrap(),
         v2.replace("#202020", "#2a2a2a")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Live or rebuild by the edit's closure (LLP 1121 D13, stage 4): a token a
+/// Contract row's expression reads is live, the synthetic token's new value
+/// in the answer; a role override, or a token one reads, is rebuild; so is
+/// structure.
+#[test]
+fn propose_judges_live_or_rebuild_by_the_closure() {
+    let design = "tamber app\n\ntheme\n  brand = #c8102e\n  ink = #111111\n  Canvas = ink\n  CanvasText = #000000\n";
+    let dir = app("closure", design);
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"color-mix(in srgb, brand 60%, white)\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let set = |name: &str, value: &str| json!({"method": "propose", "ops": [{"op": "set-token", "name": name, "value": value}]});
+    let (live, _) = s.ask(set("brand", "#0a7aff"));
+    assert_eq!(live["ok"]["class"], "live", "{live}");
+    let synthetic = live["ok"]["synthetic"].as_array().unwrap();
+    assert_eq!(synthetic.len(), 1, "{live}");
+    assert_eq!(synthetic[0]["expr"], "color-mix(in srgb, brand 60%, white)");
+    let folded = exact_tamber::check(
+        "tamber x\n\ntheme\n  brand = #0a7aff\n  t = color-mix(in srgb, brand 60%, white)\n",
+        &contract_lower::tamber_vocab(),
+    )
+    .unwrap();
+    assert_eq!(
+        synthetic[0]["values"],
+        json!([folded.tokens[1].values[0].css()])
+    );
+    // A role override, and a token a role override names: the hosts take
+    // their role tables at boot.
+    let (role, _) = s.ask(set("CanvasText", "#101010"));
+    assert_eq!(role["ok"]["class"], "rebuild", "{role}");
+    let (through, _) = s.ask(set("ink", "#222222"));
+    assert_eq!(through["ok"]["class"], "rebuild", "{through}");
+    // Structure.
+    let (added, _) = s.ask(json!({"method": "propose", "ops": [{"op": "add-token", "name": "fresh", "value": "#123456"}]}));
+    assert_eq!(added["ok"]["class"], "rebuild", "{added}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A synthetic token that comes to fold is a rebuild (the plan's table
+/// gains it), and the server still knows it after a build that refused it:
+/// the next value edit is live and carries it.
+#[test]
+fn a_synthetic_token_that_comes_to_fold_is_rebuild_then_live() {
+    let dir = app("gained", "tamber app\n\ntheme\n  brand = AccentColor\n");
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"color-mix(in srgb, brand 60%, white)\"\n",
+    )
+    .unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let op = |value: &str| json!([{"op": "set-token", "name": "brand", "value": value}]);
+    let (fixed, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": op("#0a7aff")}));
+    assert_eq!(fixed["ok"]["class"], "rebuild", "{fixed}");
+    let (next, _) = s.ask(json!({"method": "propose", "ops": op("#123456")}));
+    assert_eq!(next["ok"]["class"], "live", "{next}");
+    assert_eq!(
+        next["ok"]["synthetic"][0]["expr"],
+        "color-mix(in srgb, brand 60%, white)"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

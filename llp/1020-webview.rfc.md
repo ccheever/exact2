@@ -190,7 +190,8 @@ symlink-resolved containment check and inlines it as the inner frame's
 This is not the Contract-facing `srcdoc` §5 cuts — no author writes it —
 and it carries a declared limit: a multi-file local bundle's subresources
 do not resolve; multi-file local decks wait for scheme-handler serving
-(the shipped Castle mechanism, §8 Q1).
+(the shipped Castle mechanism, §8 Q1), which LLP 1020.001 builds: `assets/`
+and `deck/` served at `exact-app://app`.
 
 Guest→app: the guest calls `window.parent.postMessage(data, …)` exactly
 as it would on castle.xyz; the wrapper (native) or the host page (web)
@@ -491,6 +492,8 @@ inner frame remain only where one document cannot keep that parity:
 | Local document (a schemeless `src`) | direct | direct when its viewport `<meta>` asks for `width=device-width` at scale 1; otherwise the wrapper |
 | Remote http(s), no `sandbox` | direct | the wrapper |
 | Remote with `sandbox`, and `data:`/`about:`/`blob:` | the wrapper | the wrapper |
+
+LLP 1020.001 D4 amends this table for a bundled HTML page under `assets/` or `deck/`.
 
 - **`data:` on the web (2026-10-08).** The web host's `iframe` is the guest
   itself, and its `src` takes the page's scheme allowlist (http, https, mailto,

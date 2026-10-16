@@ -2,11 +2,11 @@
 #if os(iOS)
 import UIKit
 
-/// What a presented route's logical ancestors listen for, carried by the
-/// view its sheet mounts the route in. UIKit gives a touch to the
-/// recognizers of the views it falls in, and a sheet's routes are mounted
-/// out of the document they are declared in, so an ancestor's own
-/// recognizers no longer see them. As a DOM event bubbles to an ancestor,
+/// What a presented route's or a modal dialog's authored ancestors listen
+/// for, carried by the view its sheet mounts it in. UIKit gives a touch to
+/// the recognizers of the views it falls in, and a sheet's content is
+/// mounted out of the document it is declared in, so an ancestor's own
+/// recognizers no longer see it. As a DOM event bubbles to an ancestor,
 /// the mount's recognizers give a touch to the nearest ancestor that listens
 /// — a pointer observer, a long press (`contextmenu`), a double tap
 /// (`dblclick`) — unless a nearer listener in the sheet takes it with its
@@ -43,7 +43,7 @@ final class MountRelay: NSObject, UIGestureRecognizerDelegate {
         var view = touched
         while let v = view {
             if let n = v as? NodeView, listens(n), !n.disabled { return n.isDescendant(of: mount) ? nil : n }
-            view = presenter?.eventParent(of: v) ?? v.superview
+            view = presenter?.pointerParent(of: v) ?? v.superview
         }
         return nil
     }

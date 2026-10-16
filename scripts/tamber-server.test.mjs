@@ -73,6 +73,76 @@ test('the token goes only to a local request, and every request needs it', async
   tamber.close();
 });
 
+// LLP 1121 stage 4: a dev loop's wire says its builds take a value-only edit
+// live; a write is held until the server answers, however long (a read
+// still times out), so a write never lands after its client was told it
+// failed.
+test('hello says live, and a slow write is answered, not timed out', async () => {
+  const port = 8803;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  // Answers a transaction after 300 ms, a describe never.
+  const slowServe = () => {
+    const child = fakeServe();
+    child.stdin.removeAllListeners('data');
+    let buf = '';
+    child.stdin.on('data', chunk => {
+      buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        const r = JSON.parse(line);
+        const answer = () => child.stdout.write(`${JSON.stringify({ id: r.id, ok: { files: {}, written: [], changed: [] } })}\n`);
+        if (r.method === 'transaction') setTimeout(answer, 300);
+        else if (r.method !== 'describe') answer();
+      }
+    });
+    return child;
+  };
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: slowServe, log: () => {}, live: true, answerMs: 100 });
+  const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
+  const post = body => ask(tamber, gate, { path: '/__tamber', method: 'POST', headers, body: JSON.stringify(body) });
+  expect((await post({ method: 'hello' })).body.ok.live).toBe(true);
+  const write = await post({ method: 'transaction', client: 'agent', files: {}, ops: [] });
+  expect(write.status).toBe(200);
+  expect((await post({ method: 'describe' })).status).toBe(504);
+  tamber.close();
+});
+
+// LLP 1122 D4: the dev loop's builds in `hello`, and a pin a client may
+// set only while it subscribes by name, cleared on every build when it goes.
+test('a pin is its client\'s while it is present, and builds are in hello', async () => {
+  const port = 8804;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
+  const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
+  const post = body => ask(tamber, gate, { path: '/__tamber', method: 'POST', headers, body: JSON.stringify(body) });
+  const frames = [];
+  const build = tamber.channel.open(f => frames.push(f));
+  tamber.channel.report(JSON.stringify({ nonce: build.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin'] }));
+  expect((await post({ method: 'hello' })).body.ok.builds.map(b => b.id)).toEqual(['web-1']);
+  // Not present: refused.
+  expect((await post({ method: 'pin', client: 'tool', build: 'web-1', pin: { scheme: 'dark' } })).status).toBe(409);
+  // A long poll naming the client makes it present for 35 s after it is answered.
+  const polled = await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ wait: false, client: 'poller' }) });
+  expect(polled.status).toBe(200);
+  expect((await post({ method: 'pin', client: 'poller', build: 'web-1', pin: { scheme: 'light' } })).status).toBe(200);
+  // 35 s on with no poll: absent, and its pin handed back.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 36_000;
+  try { await post({ method: 'hello' }); } finally { Date.now = realNow; }
+  expect(frames.at(-1)).toMatchObject({ kind: 'pin', pin: null });
+  // Subscribed by name: taken, and a frame goes to that build.
+  const req = Object.assign(new PassThrough(), { method: 'POST', headers, socket: { remoteAddress: '127.0.0.1' } });
+  const res = Object.assign(new EventEmitter(), { destroyed: false, writableEnded: false, writeHead() {}, write() {}, end() {} });
+  queueMicrotask(() => req.end(JSON.stringify({ client: 'tool' })));
+  await tamber.handle(req, res, new URL('/__tamber/subscribe', 'http://x'), gate.check(req));
+  const taken = await post({ method: 'preview', client: 'tool', build: 'web-1', axis: 'dark-style', value: 'dim' });
+  expect(taken.status).toBe(200);
+  expect(frames.at(-1)).toMatchObject({ kind: 'pin', pin: { mode: { 'dark-style': 'dim' } } });
+  // The client goes: its pin is handed back.
+  res.emit('close');
+  expect(frames.at(-1)).toMatchObject({ kind: 'pin', pin: null });
+  tamber.close();
+});
+
 // The real server (`contract tamber serve`, built once by cargo) behind an
 // HTTP listener and the development gate, as a dev loop mounts it.
 let dir, server, tamber, origin, headers;
@@ -262,7 +332,7 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
     const base = `http://127.0.0.1:${port}`;
     const { token } = await (await fetch(`${base}/__tamber/token`)).json();
     const hello = await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
-    expect(hello.ok.protocol).toBe('tamber/1.1');
+    expect(hello.ok.protocol).toBe('tamber/1.2');
     expect(Object.keys(hello.ok.files)).toContain('app.tamber');
   } finally {
     if (dev.exitCode === null && dev.signalCode === null) {
@@ -375,6 +445,22 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
+  // A held proposal checks the files its client requires, as a transaction
+  // does, and so does a part of it accepted later.
+  const guarded = await post({ method: 'propose', hold: true, client: 'agent', requires: { 'brand.tamber': 'f'.repeat(64) }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }] });
+  expect(guarded.status).toBe(409);
+  const brand = disk('brand.tamber');
+  // A `requires` digest and a `files` one for the same file must agree.
+  const clash = await post({ method: 'propose', hold: true, client: 'agent', files: { 'brand.tamber': brand }, requires: { 'brand.tamber': 'f'.repeat(64) }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }] });
+  expect(clash.status).toBe(400);
+  const kept = await post({ method: 'propose', hold: true, client: 'agent', requires: { 'brand.tamber': brand }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
+  expect(kept.status).toBe(200);
+  const before = readFileSync(join(dir, 'brand.tamber'), 'utf8');
+  writeFileSync(join(dir, 'brand.tamber'), `${before}// moved\n`);
+  await stream.until(e => e.some(x => x.client === null && x.edited?.includes('brand.tamber') && x.files['brand.tamber'] !== brand));
+  expect((await post({ method: 'accept', client: 'person', proposal: kept.ok.proposal, items: [1] })).status).toBe(409);
+  writeFileSync(join(dir, 'brand.tamber'), before);
+  await stream.until(e => e.at(-1)?.files?.['brand.tamber'] === brand);
   // In part: the one item kept is a new proposal.
   const two = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
   const part = await post({ method: 'accept', client: 'person', proposal: two.ok.proposal, items: [1] });

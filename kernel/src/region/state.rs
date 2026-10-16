@@ -946,3 +946,10 @@ fn publish(
         }
     }
 }
+
+impl RegionState {
+    /// Mark the colours it holds: the content's inherited style.
+    pub(crate) fn wide_colors(&self, m: &mut crate::style::wide::WideMark) {
+        crate::style::wide::Colors::colors(&self.inherited, m);
+    }
+}

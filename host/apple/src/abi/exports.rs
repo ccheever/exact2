@@ -628,6 +628,19 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_mode(len), |n| n)
         }
 
+        /// A live design batch or snapshot in the input buffer (LLP 1121
+        /// stage 4); development builds only.
+        #[no_mangle]
+        pub extern "C" fn exact_design_rows(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.design_rows(len), |n| n)
+        }
+
+        /// The design digest the running app runs, UTF-8; empty before boot.
+        #[no_mangle]
+        pub extern "C" fn exact_design_digest(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.design_digest(), |_| 0)
+        }
+
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_set_place(rt: u32, len: usize) -> u32 {
@@ -671,6 +684,18 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_insets(rt: u32, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
+        }
+
+        /// The layout regions' insets (LLP 1123 D10): `count` is 20 (five
+        /// regions of top, right, bottom, left) or 0 (every region is the safe
+        /// area); returns the batch's length.
+        #[no_mangle]
+        pub unsafe extern "C" fn exact_regions(rt: u32, insets: *const f32, count: u32) -> u32 {
+            let insets = if count == 0 || insets.is_null() { &[] } else {
+                // SAFETY: the caller keeps `count` floats live for this synchronous call.
+                unsafe { std::slice::from_raw_parts(insets, count as usize) }
+            };
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.regions(insets), |n| n)
         }
 
         /// The window's size, which every viewport unit resolves

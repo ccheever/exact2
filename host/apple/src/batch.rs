@@ -47,6 +47,8 @@ pub struct Batch {
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
     images: Vec<String>,
+    /// The root font size or the window's modes moved (`Host::facts_moved`).
+    pub facts: bool,
 }
 
 pub use exact_runner::agent::quote;
@@ -770,6 +772,9 @@ impl Batch {
         }
         if self.controls {
             s.push_str(",\"controls\":true");
+        }
+        if self.facts {
+            s.push_str(",\"facts\":true");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

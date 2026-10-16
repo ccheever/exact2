@@ -519,6 +519,11 @@ impl Lowerer<'_> {
             );
         }
         for a in attrs {
+            // A module tag's own prop named like an SVG attribute (`fx`)
+            // is the module's (LLP 1024 D1).
+            if crate::native::leftover(tag, a) {
+                continue;
+            }
             if a.name == "transform" && !element && tag != "svg" {
                 return err(
                     "lower-attr-tag",

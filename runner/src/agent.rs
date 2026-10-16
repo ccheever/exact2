@@ -733,6 +733,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     );
     s.push_str(",\"displayMode\":");
     quote(media.display_mode.keyword(), &mut s);
+    s.push_str(",\"navigationType\":");
+    quote(page.navigation_type(), &mut s);
     s.push('}');
     // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
     if !runner.faults().is_empty() {

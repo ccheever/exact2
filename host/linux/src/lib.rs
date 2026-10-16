@@ -45,6 +45,7 @@ pub mod android;
 #[cfg(target_os = "android")]
 pub mod android_hint;
 pub mod app;
+mod build_channel;
 #[cfg(target_os = "android")]
 pub mod canvas;
 mod canvas2d;

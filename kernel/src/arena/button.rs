@@ -267,3 +267,12 @@ impl NodeArena {
         })
     }
 }
+
+impl crate::style::wide::Colors for ButtonInputs {
+    fn colors(&self, m: &mut crate::style::wide::WideMark) {
+        for node in &self.nodes {
+            node.style.colors(m);
+            node.inherited.colors(m);
+        }
+    }
+}

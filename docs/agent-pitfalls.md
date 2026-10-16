@@ -816,24 +816,24 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
   `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/<Name>`; the driver then skips its
   stale-build check, so rebuild the bundle before each drive. An app's own page
-  (`src="assets/…"`) is a document at `http://exact.localhost`, which no server
-  answers: an absolute `http:` sub-resource on loopback loads, one on a named host
-  follows the same ATS setting, and a relative one does not load (the next entry).
-  A sub-resource that fails is logged (`exact: iframe assets/…: <url> did not load
-  (<reason>)`) (#135).
+  (`src="assets/…"`) is served at `exact-app://app/assets/…` (the next entry): an
+  absolute `http:` sub-resource on loopback loads, and one on a named host follows
+  the same ATS setting. A sub-resource that fails is logged (`exact: iframe
+  assets/…: <url> did not load (<reason>)`, or `… is not an app asset under assets/
+  or deck/`) (#135).
   (Issue #106, 2026-10-06.)
 
-- **A multi-file web page in `assets/` runs on the web and not on Apple.** An
-  `iframe src="assets/editor/index.html"` whose page loads `./app.js`, a stylesheet,
-  fonts or lazy chunks works on the web, where the build copies `assets/` beside the
-  app's page, and is blank or unstyled on macOS and iOS. Cause: the Apple host reads
-  the one HTML file and gives it to WebKit as a document at
-  `http://exact.localhost/frame/<id>/index.html`; nothing serves that origin, so
-  every relative URL in it fails (`localBytes` in `host/apple/webarm/WebArm.swift`).
-  Fix: build the page as one self-contained HTML file (scripts, styles and fonts
-  inlined, no lazy chunks), or serve it from a local server and set `src` to its
-  `http://127.0.0.1:<port>/` URL (the next entry says what that server sees). LLP
-  1020.001 proposes serving the tree. (Exact Draw, 2026-10-15.)
+- **A bundled web page that works on the web can break on Apple if it reaches its
+  parent, sets cookies or registers a service worker.** An `iframe` of an HTML page
+  under `assets/` or `deck/` (a built web app: scripts, styles, fonts, chunks,
+  workers, wasm) loads with its files on the web, macOS and iOS. On the web it is same-origin
+  with the app's page; on Apple it is `exact-app://app/<path>`, a secure context
+  with no app page above it, where WebKit refuses `navigator.serviceWorker.register`
+  and drops `document.cookie`. Fix: talk to the app by `postMessage` only, keep
+  saved data in `localStorage`, IndexedDB or OPFS (kept across launches on all
+  three), and treat a service worker as optional. Untrusted content belongs at its
+  own URL, or under a `sandbox` without `allow-same-origin`. (LLP 1020.001 D5;
+  Exact Draw, 2026-10-15.)
 
 - **A local server behind an `iframe` is loaded from the frame's parent, not the
   app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's

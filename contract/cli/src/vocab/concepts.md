@@ -743,6 +743,44 @@ along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 `local` remains deferred. Each row paints its own background, so a repeated
 hatch on separate rows does not establish one pattern across the list.
 
+## menu: a pull-down menu of actions, and a long-press one
+names: menus, dropdown, pulldown, pull-down, popupmenu, contextPopover, UIMenu
+
+A menu is HTML's: a `column popover="auto" role="menu"` of `button`s, opened by a button's
+`popovertarget` (on iOS a `UIMenu`; in a `header`, the bar item's pull-down). A long-press
+menu is the same column, named by `contextPopover` on what is pressed, with
+`contextmenu=` an action that notes which item it was. Each button closes it with
+`popovertarget="<menu id>" popovertargetaction="hide"`.
+
+```contract
+component App
+  state picked = ""
+  state aimed = ""
+  action sort(by: string)
+    picked = by
+  action aim(id: string)
+    aimed = id
+  action remove
+    picked = `removed ${aimed}`
+  view
+    column
+      button popovertarget="sort-menu" aria-label="Sort" testId="sort"
+        image "symbol:more"
+      column id="sort-menu" popover="auto" role="menu"
+        button press=sort("name") popovertarget="sort-menu" popovertargetaction="hide" testId="by-name"
+          text "Name"
+        button press=sort("date") popovertarget="sort-menu" popovertargetaction="hide"
+          text "Date"
+      text "Row 1" contextmenu=aim("1") contextPopover="row-menu" testId="row-1"
+      column id="row-menu" popover="auto" role="menu"
+        button press=remove destructive=true popovertarget="row-menu" popovertargetaction="hide"
+          text "Remove"
+      text picked testId="picked"
+```
+
+A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
+taps the item. A row whose `popovertarget` names another menu is its submenu.
+
 ## menubar: adding commands to the Mac menu bar
 names: -exact-menu, -exact-menu-remove
 

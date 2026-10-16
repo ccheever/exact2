@@ -39,6 +39,7 @@ mod arrange_geometry;
 mod arrive;
 mod back;
 pub mod bars;
+mod build_channel;
 mod clock;
 mod collection;
 mod commands;
@@ -69,6 +70,9 @@ mod content_region;
 #[cfg(test)]
 #[path = "content_region/presenter_tests.rs"]
 mod content_region_tests;
+#[cfg(test)]
+#[path = "content_region/wide_tests.rs"]
+mod content_region_wide_tests;
 #[cfg(target_os = "android")]
 mod feed;
 mod height;
@@ -191,8 +195,16 @@ pub struct Presenter<D: DataSource> {
     /// Where the pointer last moved for hover (`hover_at`): a frame that
     /// moves content under it hovers again there (`follow_pointer`).
     hover_point: Option<(f32, f32)>,
-    /// The node holding the pointer's `pointerdown` until it lifts.
+    /// The node holding the pointer's `pointerdown` until it lifts: the
+    /// innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
+    /// The nodes from the held one up that hear `pointerdown` or
+    /// `pointerup`, innermost first: each hears the up.
+    pointer_path: Vec<exact_kernel::NodeKey>,
+    /// A pointer or wheel walk is under way: a contact its handler retired
+    /// (the pressed node removed or disabled) is cancelled when it ends, so
+    /// no other walk runs inside it ([`Presenter::retire_pointer`]).
+    pointer_walking: bool,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
     /// secondary, 4 middle (review b5-b 1).
     pointer_buttons: u8,
@@ -232,7 +244,7 @@ pub struct Presenter<D: DataSource> {
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
     /// A failed painter's blank fallback cannot bless an update generation.
-    last_frame_succeeded: bool,
+    pub(crate) last_frame_succeeded: bool,
     pub(crate) display: display_frame::State,
     /// Which painter was asked for (`Auto` may change its mind after a
     /// failed frame).
@@ -466,6 +478,8 @@ impl<D: DataSource> Presenter<D> {
             hovered: Vec::new(),
             hover_point: None,
             pointer_held: None,
+            pointer_path: Vec::new(),
+            pointer_walking: false,
             pointer_buttons: 0,
             control_contact: None,
             control_bindings: BTreeMap::new(),
@@ -692,6 +706,7 @@ impl<D: DataSource> Presenter<D> {
             return error;
         }
         let geometry_changed = self.viewport != (width, height);
+        self.dirty |= geometry_changed;
         self.viewport = (width, height);
         self.images.fit(self.viewport, self.brush.scale);
         if geometry_changed {
@@ -704,7 +719,7 @@ impl<D: DataSource> Presenter<D> {
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
     pub(crate) fn after_commit(&mut self) -> Option<String> {
-        self.dirty = true;
+        self.dirty |= self.brush.paint_epoch != Some(self.host.kernel().epoch());
         self.finish_commit()
     }
 
@@ -1352,6 +1367,7 @@ impl<D: DataSource> Presenter<D> {
         self.menu = None;
         self.hovered.clear();
         self.pointer_held = None;
+        self.pointer_path.clear();
         self.hatch_reset();
         self.top_replaced();
         self.hosts += 1;
@@ -1363,6 +1379,8 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn measure(&mut self) {
         let on = !exact_runner::delivery::production(&self.compat);
         self.host.runner_mut().measure(on, true);
+        // The live table is development's too (LLP 1121 stage 4).
+        self.host.runner_mut().admit_live(Some(&self.compat));
     }
 
     /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:
@@ -1396,8 +1414,13 @@ impl<D: DataSource> Presenter<D> {
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
+        let animating = self.host.motion()
+            || self.arrange.is_some()
+            || self.group.is_some()
+            || self.focus.is_some();
         if self.host.tick(now_ms) {
             self.hatches.stale = true;
+            self.dirty = true;
             self.clamp_scroll();
             self.queue_collections();
             if let Some(error) = self.refresh_transform_geometry() {
@@ -1405,7 +1428,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.tick_arrange(self.host.now());
-        self.dirty = true;
+        self.dirty |= animating;
     }
 
     /// The pixels, as a PNG at `path`.

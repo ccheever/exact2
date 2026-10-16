@@ -45,10 +45,14 @@ mod frame;
 #[cfg(all(test, target_os = "macos"))]
 mod hdr_tests;
 mod input;
+#[cfg(not(target_arch = "wasm32"))]
+mod readback;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
 pub mod shaders;
 mod uniform;
+#[cfg(windows)]
+mod window;
 pub use uniform::FrameUniform;
 
 /// One frame's context.
@@ -361,6 +365,8 @@ pub struct Registry {
 
 /// The device and every canvas's surface.
 pub struct Module {
+    #[cfg(windows)]
+    window: Option<window::WindowFrame>,
     registry: &'static Registry,
     gpu: Option<Gpu>,
     instance: Option<wgpu::Instance>,
@@ -401,6 +407,8 @@ struct Instance {
     /// The next texture, acquired off the presenter's thread (`acquire`).
     #[cfg(not(target_arch = "wasm32"))]
     acquire: acquire::Acquire,
+    #[cfg(not(target_arch = "wasm32"))]
+    readback: Option<readback::Readback>,
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     layer: Option<usize>,
     outstanding: BTreeSet<String>,
@@ -460,6 +468,8 @@ impl Module {
     /// A module with no device yet.
     pub fn new(registry: &'static Registry) -> Module {
         Module {
+            #[cfg(windows)]
+            window: None,
             registry,
             gpu: None,
             instance: None,
@@ -475,7 +485,15 @@ impl Module {
 
     /// Adopt a device (the platform-specific loader made it).
     pub fn set_gpu(&mut self, gpu: Gpu) {
+        #[cfg(windows)]
+        {
+            self.window = None;
+        }
         self.check_device();
+        #[cfg(not(target_arch = "wasm32"))]
+        for inst in self.instances.values_mut() {
+            inst.readback = None;
+        }
         // A frame recorded on another device is never submitted on this one.
         self.open = None;
         self.instance = Some(gpu.instance.clone());
@@ -721,6 +739,7 @@ impl Module {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 inst.acquire = Default::default();
+                inst.readback = None;
             }
             inst.presentation = None;
             inst.config = None;
@@ -808,6 +827,8 @@ impl Module {
                 ring: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 acquire: Default::default(),
+                #[cfg(not(target_arch = "wasm32"))]
+                readback: None,
                 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
                 layer: None,
                 outstanding: BTreeSet::new(),
@@ -827,6 +848,10 @@ impl Module {
 
     /// Release presentation resources while preserving every surface's state.
     pub fn lose_device(&mut self) {
+        #[cfg(windows)]
+        {
+            self.window = None;
+        }
         // The recorded frame and its drawables go before their surfaces do.
         self.open = None;
         for inst in self.instances.values_mut() {
@@ -838,6 +863,7 @@ impl Module {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 inst.acquire = Default::default();
+                inst.readback = None;
             }
             inst.surface.device_lost();
             inst.answered.clear();
@@ -1286,72 +1312,20 @@ impl Module {
     /// surface wants another frame. Nothing before the first bind.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
-        self.check_device();
-        if let Some(why) = shaders::missing(self.registry.shaders) {
-            self.error = why;
-            return None;
-        }
-        self.flush();
-        let gpu = self.gpu.as_ref()?;
-        let Some(inst) = self.instances.get_mut(&id) else {
-            self.error = "no such canvas".into();
-            return None;
-        };
-        if !inst.bound {
-            return None;
-        }
-        let format = inst
-            .config
-            .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
-        inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
-        let frame = Frame {
-            seekable: self.seekable,
-            period_ms: self.period_ms,
-            children_generation: inst.children_generation,
-            shader_generation: shaders::shader_generation(),
-            headroom: 1.0,
-            ..*frame
-        };
         let (width, height) = frame.pixels();
-        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("canvas readback"),
-            size: wgpu::Extent3d {
+        let len = (width as usize)
+            .checked_mul(height as usize)?
+            .checked_mul(4)?;
+        let mut data = vec![0; len];
+        let wants = self.readback_into(id, frame, &mut data)?;
+        Some((
+            fixture::Pixels {
                 width,
                 height,
-                depth_or_array_layers: 1,
+                data,
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&Default::default());
-        let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        let wants =
-            inst.surface
-                .render(&frame, &gpu.device, &gpu.queue, &mut encoder, &view, format);
-        gpu.queue.submit([encoder.finish()]);
-        inst.surface.submitted();
-        let result = fixture::read(gpu, &texture).map(|pixels| (pixels, wants));
-        inst.drain();
-        if let Some(SurfaceError(e)) = inst.surface.take_error() {
-            self.error = e;
-            return None;
-        }
-        match result {
-            Ok((pixels, wants)) => {
-                // The picture was taken: nothing is unshown any more.
-                inst.dirty = false;
-                Some((pixels, wants))
-            }
-            Err(e) => {
-                self.error = e;
-                None
-            }
-        }
+            wants,
+        ))
     }
 }
 

@@ -600,6 +600,45 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
     assert_eq!(r.take_commands()[0].name, "setScheme");
 }
 
+/// LLP 1024 D1: a module tag's prop named like an SVG element's own
+/// attribute (`fx`) is the module's, and a name refused for what it means
+/// elsewhere (a renamed spelling, another element's attribute, an event)
+/// says to give the module prop another name.
+#[test]
+fn a_module_tag_keeps_svg_names_and_names_the_fix_for_known_ones() {
+    let src = "component A\n  view\n    step-strip testId=\"strip\" width=320 fx=\"bloom\" offset=\"2\"\n";
+    let r = Runner::boot(
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}")),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("strip")[0])
+        .unwrap();
+    assert_eq!(
+        node.props.str(PropId::NativeViewProps),
+        Some(r#"{"fx":"bloom","offset":"2"}"#)
+    );
+    for attr in [
+        "size=\"3\"",
+        "label=\"x\"",
+        "name=\"x\"",
+        "rows=2",
+        "playing=true",
+    ] {
+        let src = format!("component A\n  view\n    step-strip width=320 {attr}\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert!(
+            e.message.contains("give the module prop another name"),
+            "{attr}: {e}"
+        );
+    }
+}
+
 /// LLP 1024 D1: a module tag's leftover attributes are its props, one
 /// object; a known row its box never uses is refused by name instead of
 /// being bound to nothing, and a class's rows on the tag stay the style's.

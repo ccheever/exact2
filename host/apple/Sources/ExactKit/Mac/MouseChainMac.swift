@@ -27,6 +27,9 @@ extension MouseSwipe: MouseRecognizer {
 final class MouseChain {
     weak var presenter: Presenter?
     private weak var downEvent: NSEvent?
+    /// The click last asked for its `dblclick`: one a view passes up its
+    /// superviews is one double click (`NodeView.dblclickTarget`).
+    weak var doubled: NSEvent?
     private(set) var order: [MouseRecognizer] = []
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -86,39 +89,55 @@ final class MouseChain {
 }
 
 extension NodeView {
-    /// The innermost enabled `dblclick` from here up; dispatched after this
-    /// click's own `press`, the web's order (LLP 1057.001 §1 rule 5).
+    /// The innermost enabled `dblclick` from here up the authored tree
+    /// (`eventParent`); dispatched after this click's own `press`, the web's
+    /// order (LLP 1057.001 §1 rule 5). Once an event, however many of the
+    /// views on the way pass its up along.
     func dblclickTarget(_ event: NSEvent) -> NodeView? {
-        guard event.clickCount == 2 else { return nil }
+        guard event.clickCount == 2, let presenter, presenter.mouseChain.doubled !== event else { return nil }
+        presenter.mouseChain.doubled = event
         var next: NSView? = self
         while let view = next {
             if let node = view as? NodeView, !node.disabled, node.handlers.contains("dblclick") { return node }
-            next = view.superview
+            next = presenter.eventParent(of: view)
         }
         return nil
     }
-    /// `pointerdown` (LLP 1005 §3): the primary button down on the innermost
-    /// enabled node from here up that hears `pointerdown`, `pointerup` or
-    /// `pointermove`; it is held until the button comes up, wherever that is,
-    /// and its drags are that node's moves (LLP 1056 §3 stage 3). Up the
-    /// authored tree: a press in an open popover reaches its ancestors,
-    /// though its view is in the top layer.
+    /// `pointerdown` (LLP 1005 §3): the button down, heard by every enabled
+    /// node from here up that hears `pointerdown`, innermost first, as DOM's
+    /// bubbles (Charlie, 2026-10-15). Each node from here up that hears it
+    /// or `pointerup` is held until the button comes up, wherever that is;
+    /// the innermost hearing any of the three, `pointermove` included, also
+    /// holds its drags as its moves (LLP 1056 §3 stage 3). Up the authored
+    /// tree (`eventParent`): a press in an open popover or a modal dialog
+    /// reaches its ancestors, though its view is in the top layer.
     func pointerPressed(_ event: NSEvent?) {
         presenter?.focusByPointer = true
         presenter?.flushHoverMove()
-        guard let presenter, presenter.pointerHeld == nil else { return }
+        guard let presenter, presenter.pointerHeld == nil, presenter.pointerPath.isEmpty else { return }
+        var path: [NodeView] = []
         var next: NSView? = self
         while let view = next {
             if let node = view as? NodeView, !node.disabled, node.wantsPointer {
-                presenter.pointerHeld = node.id
-                presenter.pointerSource = self
-                if node.handlers.contains("pointerdown") { presenter.pointer(node.id, .down, node.pointerSample(event)) }
-                return
+                if presenter.pointerHeld == nil {
+                    presenter.pointerHeld = node.id
+                    presenter.pointerSource = self
+                }
+                if node.handlers.contains("pointerdown") || node.handlers.contains("pointerup") { path.append(node) }
             }
-            next = presenter.menus.parent(of: view)
+            next = presenter.eventParent(of: view)
+        }
+        presenter.pointerPath = path.map(\.id)
+        // A handler may remove or disable a node further up before its turn,
+        // or stop this down there; the up's path and the hold stay.
+        presenter.propagating {
+            for node in path where node.handlers.contains("pointerdown") && presenter.views[node.id] === node && !node.disabled {
+                presenter.pointer(node.id, .down, node.pointerSample(event))
+                if presenter.propagationStopped { break }
+            }
         }
     }
-    /// `pointerup` for the node the button went down on.
+    /// `pointerup` for every node the button's down was held by, innermost first.
     func pointerReleased(_ event: NSEvent?) {
         holdPresenter?.flushHoverMove()
         // The button is up: what lies under the pointer now is what is
@@ -133,9 +152,16 @@ extension NodeView {
         let source = presenter.pointerSource
         presenter.pointerSource = nil
         defer { source?.releaseHold() }
-        guard let held = presenter.pointerHeld else { return }
+        let path = presenter.pointerPath
         presenter.pointerHeld = nil
-        if let node = presenter.views[held], node.handlers.contains("pointerup") { presenter.pointer(held, .up, node.pointerSample(event, lifted: true)) }
+        presenter.pointerPath = []
+        presenter.propagating {
+            for id in path {
+                guard let node = presenter.views[id], node.handlers.contains("pointerup") else { continue }
+                presenter.pointer(id, .up, node.pointerSample(event, lifted: true))
+                if presenter.propagationStopped { break }
+            }
+        }
     }
     /// A drag of the held pointer: its node's `pointermove`. AppKit
     /// coalesces drags to one a frame.
@@ -147,17 +173,18 @@ extension NodeView {
         presenter.pointer(held, .move, node.pointerSample(event))
     }
     /// A free pointer moving over this node: its `pointermove`, when no
-    /// node under it nearer hears one (every tracking area's owner is told),
+    /// node under it nearer in the authored tree (`eventParent`) hears one,
     /// at most one a display frame, the latest, as the web host sends it
     /// (`input-glue.js`; LLP 1056 §3). A mouse can report several a frame.
+    /// The hit is in the event's window: a popover's or a sheet's own.
     func pointerHovered(_ event: NSEvent) {
         guard let presenter, presenter.pointerHeld == nil, handlers.contains("pointermove"), !disabled,
-              let content = window?.contentView,
-              let hit = content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) else { return }
+              let content = (event.window ?? window)?.contentView,
+              let hit = TableRowCell.whatIsThere({ content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) }) else { return }
         var view: NSView? = hit
         while let v = view, v !== self {
-            if let n = v as? NodeView, n.handlers.contains("pointermove"), !n.disabled { return }
-            view = v.superview
+            if let n = v as? NodeView, n.handlers.contains("pointermove"), !n.disabled, !n.inert { return }
+            view = presenter.eventParent(of: v)
         }
         guard view === self else { return }
         presenter.hoverMoved(id, pointerSample(event))
@@ -177,7 +204,7 @@ extension NodeView {
     /// pen has its pressure; a mouse, DOM's 0.5 while a button is down.
     func pointerSample(_ event: NSEvent?, lifted: Bool = false) -> PointerSample {
         let e = event ?? NSApp.currentEvent
-        let point = e.map { local($0.locationInWindow) } ?? .zero
+        let point = e.map { local(Self.point($0, in: window)) } ?? .zero
         let box = contentBox()
         let pen = e?.subtype == .tabletPoint
         // The event's own button too: a synthesized one (the agent's) moves
@@ -192,10 +219,16 @@ extension NodeView {
         }
         if lifted { buttons = 0 }
         let pressure = lifted || buttons == 0 ? 0 : pen ? Double(e?.pressure ?? 0) : 0.5
-        let client = e.flatMap { presenter?.client($0.locationInWindow) } ?? .zero
+        let client = e.flatMap { e in presenter.map { $0.client(Self.point(e, in: $0.viewport.window)) } } ?? .zero
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: buttons,
                              pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1,
                              clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(e?.modifierFlags ?? []))
+    }
+    /// `event`'s point in `window`'s coordinates: a press in a native
+    /// popover, its own window, bubbles to authored ancestors in the page's.
+    static func point(_ event: NSEvent, in window: NSWindow?) -> NSPoint {
+        guard let from = event.window, let window, from !== window else { return event.locationInWindow }
+        return window.convertPoint(fromScreen: from.convertPoint(toScreen: event.locationInWindow))
     }
     func dispatchDblclick(_ node: NodeView?) {
         guard let node, let presenter = node.presenter, presenter.views[node.id] === node, !node.disabled else { return }
@@ -203,6 +236,9 @@ extension NodeView {
     }
 }
 extension Presenter {
+    /// A node still holds the button that went down: the held one, or an
+    /// ancestor its down bubbled to, waiting for the up.
+    var pointerHolds: Bool { pointerHeld != nil || !pointerPath.isEmpty }
     /// A window point from the viewport's top-left, the page scroll applied:
     /// DOM's `clientX`/`clientY`, `frame()`'s space (LLP 1094 D11).
     func client(_ windowPoint: NSPoint) -> NSPoint {
@@ -298,19 +334,24 @@ extension Presenter {
         guard trackedPointerEvent !== event else { return }
         trackedPointerEvent = event
         trackedCanvas = nil
+        // A move in a popover's or a sheet's own window is that window's
+        // (`BlockView.pointerTracking`); the page's hover is left as it is.
+        let apart = event.window.map { $0 !== viewport.window && hosts($0) } ?? false
         // A held contact owns move delivery, but leaving the window still
         // ends hover. Other tracking areas may exit inside the window; hit
         // testing there keeps the subtree currently under the pointer.
-        if event.type == .mouseExited { _ = hoverAt(event.locationInWindow); return }
+        if event.type == .mouseExited { if !apart { _ = hoverAt(event.locationInWindow) }; return }
         guard pointerHeld == nil, pointerSource == nil else { return }
-        let leaf = hoverAt(event.locationInWindow)
+        let leaf = apart ? event.window.flatMap { Self.node(at: event.locationInWindow, in: $0) } : hoverAt(event.locationInWindow)
         guard let leaf else { return }
+        // The `pointermove` nearest it in the authored tree: out of a popover
+        // or a dialog to its ancestors, never to a page node under it.
         var view: NSView? = leaf
         while let current = view {
             if let node = current as? NodeView, !node.disabled, node.handlers.contains("pointermove") {
                 node.pointerHovered(event); break
             }
-            view = current.superview
+            view = eventParent(of: current)
         }
         view = leaf
         while let current = view {
@@ -321,6 +362,17 @@ extension Presenter {
             }
             view = current.superview
         }
+    }
+    /// The innermost node under `point` in `window` that is not inert.
+    static func node(at point: NSPoint, in window: NSWindow) -> NodeView? {
+        guard let content = window.contentView else { return nil }
+        // A table's row included, as `hoverAt` reads the page's.
+        var view = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(point, from: nil) ?? point) }
+        while let current = view {
+            if let node = current as? NodeView, !node.inert { return node }
+            view = current.superview
+        }
+        return nil
     }
     func hoverUnderPointer() {
         followLink?.isPaused = true
@@ -351,7 +403,7 @@ extension NodeView {
     /// (`-[NSView _finalize]`), which a view that stayed would outlive,
     /// pointing at it (the T3 Code clone's crash in `releaseHold`).
     package override func removeFromSuperview() {
-        if let presenter = holdPresenter, presenter.pointerHeld != nil, presenter.pointerSource === self, window != nil {
+        if let presenter = holdPresenter, presenter.pointerHolds, presenter.pointerSource === self, window != nil {
             // Transparent, not hidden: AppKit sends a hidden view no drags either.
             let box = holdBox(presenter)
             if !box.hid { box.hid = true; box.alpha = alphaValue; alphaValue = 0 }
@@ -367,7 +419,7 @@ extension NodeView {
     }
     /// Leaving the tree while it is the source of a hold (`forget`).
     func keepHold() {
-        guard let presenter, presenter.pointerHeld != nil, presenter.pointerSource === self else { return }
+        guard let presenter, presenter.pointerHolds, presenter.pointerSource === self else { return }
         _ = holdBox(presenter)
     }
     /// A batch that removed the held source puts it in a parent again (a
