@@ -130,6 +130,9 @@ bunx snapback4 check
 without editing sources, mounts, tests or notes. It works with custom mounts;
 `--port` and `--online` cannot accompany it. Ordinary `snapback --rebuild` also
 refreshes wiring and refuses divergent mounts. No restamping step is needed.
+The `app.json` `typescript.sources` entries are virtual module mounts: imports
+such as `./backend/api.ts` and `./snapback4/snapback.ts` resolve to their mapped
+directories during the bake. They need no matching directories inside the app.
 An online app needs no wasm rebuild: upgrade the package and run `check`.
 
 Production `serve` answers unauthenticated `GET /` with `401 E_AUTH`.
@@ -209,6 +212,12 @@ const viewers = Snapback.switcher((key: string) => ({ app: appId, origin,
 // The password name matches the `name: 'account'` auth opening above.
 // In a source: viewers.use(key, storage, native, db => db.read(api.recent, {}, now)).
 ```
+
+Bare `use identity` permits guests: call `await db.guest()` before any read,
+then keep its session in the same `auth` store as a password session.
+`await db.authConfig()` reads `GET /auth/config` and reports `guests`, `password`
+and `development`. `use identity password` removes guests. A complete tested guest
+and mixed persona/password recipe is [here](../docs/recipes/snapback-auth.md).
 
 ### Time
 
@@ -304,6 +313,7 @@ component Guestbook
   resource time = exactTime() as shape Clock
   resource board = notes(persona, time.epochAtZero + sampledAt) as shape Board else empty(message="Connecting…")
   mutation posted as shape Ack queue refreshes board then afterPost
+  derive postProblem = match failure(posted) { case some(f) => "Couldn't post. Try again.", case none => "" }
   derive banner = match failure(board) {
     case some(f) => (f.code == "offline" || f.code == "E_OFFLINE") ? "You're offline" : f.reason != "" ? `Couldn't load notes (${f.reason})` : `Couldn't load notes (${f.message})`,
     case none => ""
@@ -343,6 +353,7 @@ component Guestbook
           input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
           button appearance="auto" press=postNote disabled=(draft.trim() == "") testId="post"
             text "Post"
+        text postProblem testId="post-problem"
         text notice testId="notice"
         text board.latest testId="latest"
         for note, i in board.notes key=note.id
@@ -371,7 +382,7 @@ const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `gu
 // undeclared field fails the build (TS2353 names it); on the outer arrow, a
 // callback's literal is never checked for extra fields.
 function ack(fate: Sent<{id: string} | null>): Result<'post'> {
-  if (fate.state === 'failed') return {ok: false, message: `Refused: ${fate.why.code}`, id: ''};
+  if (fate.state === 'failed') throw refused(fate.why);
   if (fate.state === 'sent') return {ok: true, message: 'Posted.', id: fate.result?.id ?? ''};
   return {ok: true, message: 'Saved on this device; it sends when online.', id: ''};
 }
@@ -502,7 +513,9 @@ component App
   state draft = ""
   resource board = notes(persona) as shape Board else empty()
   mutation posted as shape Post refreshes board
-  derive problem = match failure(posted) { case some(f) => f.code, case none => "" }
+  derive problem = match failure(posted) { case some(f) => f.code == "FULL" ? "The guestbook is full." : "Couldn't post. Try again.", case none => "" }
+  derive problemCode = match failure(posted) { case some(f) => f.code, case none => "" }
+  derive problemMessage = match failure(posted) { case some(f) => f.message, case none => "" }
   action choosePersona(value: string)
     persona = value
   action edit(value: string)
@@ -534,7 +547,7 @@ component App
 
 ```ts
 import type { Answer, Result, Sources, ArgsOf } from './app.contract.d.ts';
-import { Snapback, refused } from './snapback4/snapback.ts';
+import { Snapback, refused, pick } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';
 export const appId = 'com.example.app'; // app.json's app.id
 const origin = 'http://127.0.0.1:30100';
@@ -545,7 +558,8 @@ const sources: Sources = {
   notes: async ([persona]): Promise<Result<'notes'>> => {
     const page = await client(persona).read(api.recent, {});
     if (page.denied) throw refused(page.denied);
-    const notes = (page.data ?? []).map(({id, author, body}) => ({id, author, body}));
+    const note = pick<Result<'notes'>['notes'][number]>();
+    const notes = (page.data ?? []).map(row => note(row, 'id', 'author', 'body'));
     return {complete: page.complete === true, notes,
       latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : ''};
   },
@@ -581,7 +595,8 @@ test "a refused write exposes its domain code"
   type "draft" "refused"
   tap "post"
   clock data
-  expect text "problem" == "FULL"
+  expect text "problem" == "The guestbook is full."
+  expect state problemCode == "FULL"
   expect text "notice" == ""
 ```
 
@@ -683,7 +698,7 @@ component App
 
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
-import { Snapback, refused } from './snapback4/snapback.ts';
+import { Snapback, refused, pick } from './snapback4/snapback.ts';
 export const appId = 'com.example.app';
 const origin = 'http://127.0.0.1:30100';
 export const grants = `net.fetch ${origin}\nsecret.keep snapback-session`;
@@ -697,7 +712,7 @@ const sources: Sources = {
     const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
     if (db.session?.principal !== principal) throw refused({code: 'E_AUTH', message: 'Sign in again.'});
     const rows = await db.readAll(api.recent, {});
-    return {principal, complete: rows.complete, notes: rows.map(({id, author, body}) => ({id, author, body}))};
+    return {principal, complete: rows.complete, notes: rows.map(row => pick<Result<'notes'>['notes'][number]>()(row, 'id', 'author', 'body'))};
   },
   signup: async ([email, password, now], store): Promise<Result<'signup'>> => {
     const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
@@ -853,6 +868,7 @@ origin is refused when overriding it; declare one top-level literal instead.
 
 `bun exact.mjs snapback --port N` stores a local development selection in
 `.exact/backend-origin` (ignored), used by builds and `bun exact.mjs backend`.
+The authored `app.ts` `origin` constant is overridden at bake by that file.
 `EXACT_BACKEND_ORIGIN` wins over that selection. Existing sources and literal
 test prefixes are preserved; use the `backend` alias in portable tests.
 A compatible stamped wasm is reused for a port-only change; `--rebuild` forces
@@ -865,6 +881,45 @@ for temporary tests; no remembered development
 page or temporary-store hash supplies it. Reload keeps the same page origin. It never changes the origin the app fetches, and `--port` on `test web`
 is the page's, not the server's. On a machine that assigns you ports, take
 one for `snapback4 dev --port` and the origin, and another for `EXACT_PORT`.
+
+### Contract answers and vocabulary
+
+| Resource kind | What `app.ts` returns |
+| --- | --- |
+| `as shape Board` | A record object, such as `{notes, complete}` |
+| `as shape Note[]` | The list array itself, such as `rows.map(row => note(row, 'id', 'body'))` |
+| A mutation `as shape Ack` | The declared record on success; throw `refused(why)` on refusal |
+
+A list source returns an array, without a `{data: …}` or `{notes: …}` wrapper.
+A backend point lookup returns an object; a list query returns an array. Unwrap
+the adapter's `read.data` and project it before returning the Contract answer.
+
+`match` is an expression; use it inside `fn`, a derive, or an `if` condition
+(`if (match failure(posted) { case some(f) => f.code == "FULL", case none => false })`).
+The indented statement form in an action matches only `some`/`none`. Write
+`refreshes board, feed` with commas. A grouped platform list needs both
+`appearance="auto"` and `listStyle="inset-grouped"`; its `section`s hold the rows.
+
+An optional argument is `none` (or `some(value)`), rather than an empty string:
+`send posted = post(draft.trim() == "" ? none : some(draft.trim()))`.
+The source receives `string | null`; send `{note}` to an optional Snapback
+`note: text 1..200 ?` argument. For an omitted property instead, build the
+arguments in TypeScript: `const args = note === null ? {} : {note}`.
+
+`navigate=follow` belongs on the first root outside regions, alongside
+``navigationKey=`${top(nav).id}```; `navigationBack="back"` is optional.
+`top(nav).params.id` reads the current entry. `params(nav, "id")` returns the
+selected stack's nonempty ids, bottom first. Tests read slot paths, such as
+`expect state board.notes.0.body == "hello"`, rather than DOM ids in `expect state`.
+See [navigation](../docs/recipes/navigation-stack.md).
+
+A PDF picker needs `input type="file" accept="application/pdf"` and an app manifest
+handler such as `"file_handlers": [{"action":"/", "accept":{"application/pdf":[".pdf"]}}]`.
+Give the input an `id` for `showPicker` and a `testId` for `pick`.
+
+A generic helper forwarding record arguments needs the same constraint as the
+adapter: `function helper<A extends Record<string, unknown>>(args: A) { … }`.
+A plain unconstrained `A` cannot stand for a JSON argument record.
 
 ### Typed operations
 
@@ -891,9 +946,9 @@ them from the `snapback4` package installed above `snapback/generated`
 (the backend's), so nothing else is installed in the app. With no
 `snapback4` above it the build fails with `backend/api.ts: error TS2307:
 Cannot find module 'snapback4/contract'` (listed after the errors it causes
-in `app.ts`: install the package, not types by hand). Rows still map onto
-the Contract shape field by field: the generated row has fields (`at`,
-`pending`) the shape may not.
+in `app.ts`: install the package, not types by hand). Use `pick<T>()` to project
+backend rows onto Contract shapes: generated rows carry fields (`at`, `pending`)
+the view may not declare.
 
 Both adapters export a checked projection helper:
 `const note = pick<Result<'notes'>['notes'][number]>();`
@@ -1032,7 +1087,9 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   throw too. This helper does not paginate; use `readAll` for a complete list.
   `readAll` throws a page's (where `read` answers `denied`), and a first
   read that cannot reach the server throws `E_OFFLINE`. A mutation's
-  refusal is not a failure: it is the outcome's `why`. A mutation source's
+  refusal is the outcome's `why`: throw `refused(fate.why)` from the source
+  to fill `failure(slot)`. The Snapback bake refuses a literal `{ok: false}`
+  answer on this mutation path and names that rewrite. A mutation source's
   answer outside its shape (a field the shape does not declare) is refused
   too: the slot keeps what it had and its `then` never runs. A failing
   `test web` expect and an `agent` drive name it (``mutation posted's reply
@@ -1065,6 +1122,8 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 - **In tests.** Let the app sync once (`clock data`) before `fail fetch`: a
   partition that has never synced cannot open offline. Assert a write's
   fate (`outcome`), not a notice the app shows while it is still pending.
+- **Device and server ids have different minting orders.** Use an explicit order
+  column (for example `at: now` with an index) for creation order on both.
 - **Ids the server mints are unique, not ordered.** A row's `id` does not
   sort in creation order (a later row's can sort first), so never take the
   largest id as the newest: give the table a `time` the mutation sets (`at:
