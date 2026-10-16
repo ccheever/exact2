@@ -109,12 +109,39 @@ final class ComposerChipAccessibilityTests: XCTestCase {
         // Each is on its chip.
         let pill = fixture.base.window.convertToScreen(fixture.view.convert(fixture.styler.chipRect(fixture.styler.chips[0])!, to: nil))
         XCTAssertEqual(elements[0].accessibilityFrame().midX, pill.midX, accuracy: 0.5)
-        // With no chip left the scroll view is an element again, holding the text area.
+        // With no chip left the text area still stands for its scroll view, and is still there.
         fixture.view.string = "plain"
         fixture.view.didChangeText()
         fixture.base.tick()
-        XCTAssertTrue(scroller.isAccessibilityElement())
-        XCTAssertFalse(NSAccessibility.unignoredChildren(from: scroller.accessibilityChildren() ?? []).contains { $0 is T3ComposerChipElement })
+        XCTAssertFalse(scroller.isAccessibilityElement())
+        XCTAssertEqual(NSAccessibility.unignoredChildren(from: [scroller]).count, 1)
+        XCTAssertTrue(NSAccessibility.unignoredChildren(from: [scroller]).first as AnyObject === fixture.view)
+    }
+
+    func testAnEmptyPromptIsTheTextAreaItselfNotAScrollArea() {
+        // The reference's empty prompt is Chromium's contenteditable: VO-Right reads "Message, edit text". A scroll view
+        // AppKit serves as an element read "empty, scroll area", the text area reachable only by interacting.
+        let base = EditorFixture()
+        base.tick()
+        XCTAssertFalse(base.scroller.isAccessibilityElement())
+        let children = NSAccessibility.unignoredChildren(from: [base.scroller])
+        XCTAssertEqual(children.count, 1)
+        XCTAssertTrue(children.first as AnyObject === base.editor)
+        XCTAssertEqual(base.editor.accessibilityRole(), .textArea)
+        // A chip comes and goes: the text area stays listed.
+        base.type("[notes.md](notes.md) ")
+        base.tick()
+        XCTAssertEqual(NSAccessibility.unignoredChildren(from: [base.scroller]).count, 2)
+        base.editor.selectAll(nil)
+        base.editor.deleteBackward(nil)
+        base.tick()
+        let after = NSAccessibility.unignoredChildren(from: [base.scroller])
+        XCTAssertEqual(after.count, 1)
+        XCTAssertTrue(after.first as AnyObject === base.editor)
+        // The editor leaving gives the scroll view back as AppKit made it: an element holding the text area.
+        base.composer.remove(base.element)
+        XCTAssertTrue(base.scroller.isAccessibilityElement())
+        XCTAssertTrue((base.scroller.accessibilityChildren() ?? []).first as AnyObject === base.editor)
     }
 
     func testTheTerminalExcerptPressOpensItsDetailsByPointerAndByVoiceOver() {
