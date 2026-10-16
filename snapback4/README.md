@@ -422,9 +422,10 @@ opens the app fresh, but the server keeps what earlier tests wrote, so each
 test creates what it asserts on (["Tests share the server"](#tests-share-the-server)). A `--memory` server starts empty: rows the
 app cannot write itself (an `owners` or `staff` table a rule reads) go in
 before the run, as the system, with `POST <origin>/seed` and a body such as
-`[{"table":"owners","row":{"id":"o1","person":"dev:alice"}}]` (`snapback4
+`[{"table":"owners","row":{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","person":"dev:alice"}}]` (`snapback4
 guide wire`, "Development doors"), or before each test with a `fresh
-"seed.json"` line through `POST /dev/reset`. A `select` is driven with
+"seed.json"` line through `POST /dev/reset`. Resolve the seed path from the test file's directory; each entry is
+`{table, row}` and an explicit row `id` must have 26 characters. A `select` is driven with
 `type`; the offline test proves delivery after `pass fetch`, not only that
 the write was kept:
 
@@ -837,7 +838,7 @@ those from earlier tests in it. Two ways out:
   `POST /dev/reset` (the app's tables and derived data; it answers
   `{reset, seeded, generation}`); `fresh "seed.json"` then seeds it, as the
   system, with that file's rows, a path from the test file:
-  `[{"table": "owners", "row": {"id": "o1", "person": "dev:alice"}}]`.
+  `[{"table": "owners", "row": {"id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "person": "dev:alice"}}]`.
 
   ```
   epoch now
@@ -1272,6 +1273,16 @@ while let Step::Fetch(fetch) = step {
 `ts/snapback.test.ts` drives the TypeScript and the wasm the same way.
 
 ## Checks
+
+`node scripts/retest-snapback-readme.mjs --version <v> [--registry <url>]`
+executes all three complete apps above and the mixed-auth recipe twice against
+that registry's package. Pass `--revision <published-source-sha>` when the registry
+omits `gitHead`. A failure restores the candidate pins and leaves the claims
+unchanged. Only a successful run updates the npm and Cargo pins, lockfiles,
+tested-against dates and `readme-tested.json`; it makes no commit.
+`node scripts/check-snapback-readme.mjs` refuses claims whose source or pin has
+changed since that run. Run the retest command when repinning, rather than editing
+the tested-against claims.
 
 This workspace is outside the root's; its lock carries the private Snapback
 source. Run `cargo test -p exact-snapback4 -p exact-snapback4-client`
