@@ -153,11 +153,22 @@ package enum PageFacts {
         #endif
     }
 
+    /// The system is about to suspend the app (LLP 1125 D4): iOS and tvOS
+    /// in the background, unless a `playback` session keeps it running. A
+    /// Mac app is never suspended for being hidden.
+    static var suspended: Bool {
+        #if os(macOS)
+        return false
+        #else
+        return hidden && !AudioSession.playsInBackground
+        #endif
+    }
+
     /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
-    /// pickers, bit 4 without focus.
+    /// pickers, bit 4 without focus, bit 7 about to be suspended.
     static func bits(_ window: FocusWindow?) -> UInt32 {
-        (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16)
+        (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0)
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;

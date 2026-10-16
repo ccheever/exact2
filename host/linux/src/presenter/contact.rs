@@ -81,7 +81,10 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node_by_key(key) else {
             return false;
         };
-        if self.host.route_visibility(node.id).1 || self.brush.region_blocks_action(node.id) {
+        if !self.alert_allows(node.id)
+            || self.host.route_visibility(node.id).1
+            || self.brush.region_blocks_action(node.id)
+        {
             return false;
         }
         let mut at = Some(node.id);
@@ -406,7 +409,7 @@ impl<D: DataSource> Presenter<D> {
         // A hatch observes after this dispatch, and claims nothing
         // (LLP 1075.003.000.001 §2.2.2); so for a move, an up and a cancel.
         // Under an open surface of the top layer the page takes no touch.
-        if self.top_takes_pointer(now_ms) {
+        if self.alert_pointer(x, y, now_ms) || self.top_takes_pointer(now_ms) {
             return Ok(false);
         }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
@@ -984,15 +987,18 @@ impl<D: DataSource> Presenter<D> {
         result
     }
     fn pointer_abandon(&mut self, now_ms: f64) -> Result<(), String> {
+        let contact = if self.contact.is_some() {
+            self.pointer_sample(0., 0., now_ms)?;
+            self.contact.take()
+        } else {
+            None
+        };
         // A cancel is an up (LLP 1005 §3).
-        if let Some(error) = self.pointer_lifted(None, now_ms) {
-            return Err(error);
-        }
-        if self.contact.is_none() {
-            return Ok(());
-        }
-        self.pointer_sample(0., 0., now_ms)?;
-        let contact = self.contact.take().unwrap();
+        let at = contact.as_ref().map(|contact| contact.position);
+        let mut result = self.pointer_lifted(at, now_ms).map_or(Ok(()), Err);
+        let Some(contact) = contact else {
+            return result;
+        };
         if let Some(canvas) = contact.canvas {
             let (x, y) = contact.position;
             self.cancel_canvas(canvas, x, y, now_ms);
@@ -1001,11 +1007,12 @@ impl<D: DataSource> Presenter<D> {
             self.host.press_feedback(key, false, now_ms);
             self.dirty = true;
         }
-        let mut result = contact.hold.as_ref().map_or(Ok(()), |held| {
+        let ended = contact.hold.as_ref().map_or(Ok(()), |held| {
             self.end_contact(held, HoldEnd::Cancel, now_ms)
         });
+        result = result.and(ended);
         if contact.group {
-            result = self.end_group(false, now_ms).map(|_| ());
+            result = result.and(self.end_group(false, now_ms).map(|_| ()));
         }
         if let (true, Some(Candidate::Pan(key))) = (contact.panning, contact.candidate) {
             if let Some(error) = self.release_pan(key, (0., 0.), now_ms) {

@@ -41,13 +41,15 @@ For shared server data, `bun <exact2>/scripts/exact.mjs new app --snapback
 driver, generated operations and device. The origin defaults to 4400.
 `bun exact.mjs snapback` wires an existing app. With an existing schema, the
 untouched greeting becomes a typed query and mutation explorer with `--online`.
-`snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
-together. Password sign-in, stored sessions and refresh with Contract time are
+`snapback --port <n>` records an ignored local backend selection.
+`EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin and matching
+grant at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
 For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
 grants. A computed origin or grants declaration needs an explicit edit.
-After upgrading Snapback4 or Exact's device, run `bun exact.mjs snapback --rebuild`.
+After upgrading Snapback4, run `bun exact.mjs snapback --rebuild`.
+`bun exact.mjs update` also rebuilds a mounted device after updating Exact.
 Custom mounts: add `--artifact-only` to rebuild without rewiring.
 The device's embedded `snapback4.engine` section records its identity;
 `assets/snapback4.wasm.json` is derived diagnostic output.
@@ -67,11 +69,15 @@ shell commands have no such help, so keep one directory.
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
+`contract build` refreshes that declaration after a successful compile and reports
+the change on stderr. `contract types --check app.contract` checks freshness without writing.
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
-each tap a real touch, `--timing platform` gives UIKit its own timing, and `ios --release` builds
+each tap a real touch, which opens UIKit's menus and reaches a native module's own controls: drive
+with it to compare a port's screens with the original's ([recipe](recipes/ios-driving.md)).
+`--timing platform` gives UIKit its own timing, and `ios --release` builds
 what ships (`--prebuild --release` early: its first build is minutes; `EXACT_UPDATE_TRUST=production
 bun exact.mjs agent ios …` drives it).
 
@@ -241,12 +247,20 @@ none listens. Start `snapback4 dev` on that origin’s port, seeded if needed;
 
 Each test opens empty app storage; backend rows survive tests and runs unless
 `fresh` at the file’s top (or leading a test) empties `snapback4 dev` before each
-test. This uses `POST /dev/reset` (Snapback4 **0.4.28**, `dev` only).
+test. This uses `POST /dev/reset` (Snapback4 **0.4.29**, `dev` only).
 `fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
 relative to the test file. A server lacking reset fails the test.
 
 Server ids are unique, not ordered. Sort by time; tests can reach rows by text
 or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
+
+Interactive web drives also accept `reload` (keeps storage and fetch faults) and
+`pick <input-id> <path>`. `agent web --help all` lists driver capabilities.
+
+Each mutation source request adds one millisecond of UI virtual time after the
+step, including timer mutations issued during that advance. Reads and
+continuations add none; arguments within an atomic action keep its clock
+snapshot. The backend’s clock stays its own.
 
 | To assert | Write | Not |
 | --- | --- | --- |
@@ -297,3 +311,7 @@ The others are named for their topic (`timers`, `money`…).
 text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
 data, test. A lookup is for a name the card lacks (`contract vocab <name> …`) or a compile error;
 `docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.
+
+Consecutive `match` blocks in an action all run in order. Nest a match in the
+selected arm, or use `if`/`else`, for exclusive paths. Action reads still see
+the state from the action’s start.

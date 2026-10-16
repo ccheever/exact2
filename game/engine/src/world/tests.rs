@@ -1,6 +1,61 @@
 use super::*;
 
 #[test]
+fn named_index_preserves_duplicates_recycling_and_restored_state() {
+    let mut w = World::new(60, 7);
+    let names = ["", "part", "part-tail", "part", "λ", "part#2"];
+    let mut live: Vec<_> = (0..1024)
+        .map(|i| w.spawn_named(names[i % names.len()], ()))
+        .collect();
+    let check = |w: &World| {
+        let saved = w.save();
+        let hash = w.hash();
+        for name in names.into_iter().chain(["absent", "part-tail-extra"]) {
+            let expected = w.entities().find(|&e| w.name(e) == Some(name));
+            assert_eq!(w.named(name), expected);
+        }
+        assert_eq!(w.save(), saved);
+        assert_eq!(w.hash(), hash);
+    };
+    check(&w);
+    let saved = w.save();
+    for round in 0..128 {
+        let slot = round * 7 % live.len();
+        let old = live[slot];
+        assert!(w.despawn(old));
+        check(&w);
+        let new = w.spawn_named(names[(round + 2) % names.len()], ());
+        assert_eq!(old.index(), new.index());
+        assert_ne!(old.generation(), new.generation());
+        live[slot] = new;
+        check(&w);
+    }
+    w.load(&saved).unwrap();
+    check(&w);
+}
+
+#[test]
+fn named_index_checks_full_names_within_a_hash_collision() {
+    let mut w = World::new(60, 0);
+    let other = w.spawn_named("other", ());
+    let first = w.spawn_named("target", ());
+    let second = w.spawn_named("target", ());
+    // Force unrelated text into the same bucket without relying on a naturally
+    // occurring 64-bit collision. The smallest matching slot must still win.
+    let key = name_key("target");
+    *w.names.borrow_mut() = Some(vec![
+        (key, other.index()),
+        (key, first.index()),
+        (key, second.index()),
+    ]);
+    assert_eq!(w.named("target"), Some(first));
+    w.despawn(first);
+    assert_eq!(w.named("target"), Some(second));
+    w.despawn(second);
+    assert_eq!(w.named("target"), None);
+}
+
+#[test]
 fn fresh_membership_tracks_first_poses_recycling_and_tick_boundaries() {
     let mut w = World::new(60, 0);
     let a = w.spawn(());

@@ -10,7 +10,7 @@ import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { TOOL_ORIGIN } from './tamber-server.mjs';
+import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
@@ -61,7 +61,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.2', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.3', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -76,6 +76,11 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     const reused = again(app);
     expect(reused.status, reused.stderr).toBe(0);
     expect(reused.stdout).toContain('already running');
+    // Through a dev loop, it is not: it holds the design server, so --via
+    // to any loop is refused rather than given its page (none).
+    const through = spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', 'http://127.0.0.1:9', '--no-open'], { cwd: ROOT, encoding: 'utf8' });
+    expect(through.status, through.stderr).toBe(1);
+    expect(through.stderr).toContain(`already serves this design, not through http://127.0.0.1:9; stop it first`);
   } finally {
     if (drive) await stop(drive);
     await stop(tool);
@@ -111,6 +116,15 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     const hello = await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
     expect(hello.ok.app).toBe(mine);
     expect((await fetch(`${TOOL_ORIGIN}/__tamber/tool/`)).status).toBe(200);
+    // The same --via again reuses it (it forwards to that server's run);
+    // another is refused, and the tool's own port never taken.
+    const again = run([mine, '--via', at]);
+    expect(again.status, again.stderr).toBe(0);
+    expect(again.stdout).toContain('already running');
+    const elsewhere = run([mine, '--via', 'http://127.0.0.1:9']);
+    expect(elsewhere.status).toBe(1);
+    expect(elsewhere.stderr).toContain('already serves this design, not through http://127.0.0.1:9; stop it first');
+    expect(run([mine, '--via', TOOL_ORIGIN]).status).toBe(2);
   } finally {
     if (tool) await stop(tool);
     await stop(serve);
@@ -644,6 +658,243 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+/** A build that holds no stream, as Linux's does, on the dev loop at
+ * `base`: it registers as `id`, polls its commands, and reports each pin's
+ * scheme as applied with the pin's revision, its mode always its own
+ * (dark-style=dim: an app's own choice beats a pin). After its first pin
+ * it reloads once (a new document, a new nonce, the same id) and keeps the
+ * frames it got. */
+async function polledBuild(base, id) {
+  let nonce = '', ack = 0, stopped = false, reloaded = false;
+  const frames = [];
+  const report = body => fetch(`${base}/__dev/report`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nonce, ...body }) });
+  const hello = async () => {
+    ({ nonce } = await (await fetch(`${base}/__dev/hello`)).json());
+    ack = 0;
+    expect((await report({ kind: 'register', id, host: 'linux', capabilities: ['pin'] })).status).toBe(200);
+  };
+  await hello();
+  const loop = (async () => {
+    while (!stopped) {
+      const answer = await fetch(`${base}/__dev/commands?nonce=${nonce}&ack=${ack}`);
+      if (answer.status === 404) { await hello(); continue; }
+      const { seq, frames: got } = await answer.json();
+      ack = seq;
+      for (const f of got.filter(f => f.kind === 'pin')) {
+        frames.push({ ...f, reloaded, at: Date.now() });
+        await report({ kind: 'status', scheme: f.pin?.scheme ?? 'light', contrast: 'no-preference', mode: { 'dark-style': 'dim' }, rootFontSize: 16, revision: f.revision });
+        if (f.pin && !reloaded) { reloaded = true; await hello(); }
+      }
+      await new Promise(ok => setTimeout(ok, 200));
+    }
+  })();
+  return { frames, stop: async () => { stopped = true; await loop; } };
+}
+
+test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen; builds are listed with their effective facts, a pin on one moves only it, a reloaded build gets it back, and the tool gone hands it back', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const listener = (await import('node:http')).createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-canvas-dist-'));
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let tool, other;
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const devSaid = lines(dev);
+    await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    other = await polledBuild(base, 'linux-1');
+    // A build's report reaches the tool on its long poll.
+    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    const replies = await drive(url, `design-tool-canvas-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'tree canvas', 'layout', 'type canvas-size tablet', 'layout', 'type canvas-size desktop', 'layout', 'clock +2000 real',
+      ...wait, 'state',
+      // Dark and Black pinned on the other build only.
+      'type pin-build linux-1', 'type pin-scheme dark', 'type pin-mode-dark-style black', 'tap pin-apply', 'clock data', ...wait, 'state',
+      // Open past one presence lease (35 s, each real-clock step at least
+      // 2 s): its polls keep the pin.
+      ...Array(18).fill('clock +2000 real'), 'clock data', 'state',
+    ]);
+    const closed = Date.now();
+    const [tree] = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
+    const of = id => tree.nodes.find(n => n.props.testId === id);
+    expect(of('canvas-frame')).toMatchObject({ type: 'WebView', url: base });
+    expect(of('canvas-open').type).toBe('Pressable');
+    // Its size, inside a 1px border: a phone's, a tablet's, a desktop's.
+    const sizes = replies.filter(r => r.nodes?.some(n => 'x' in n)).map(r => r.nodes.find(n => n.testId === 'canvas-frame')).map(n => [n.w - 2, n.h - 2]);
+    expect(sizes).toEqual([[390, 844], [820, 1180], [1280, 800]]);
+    // The sandbox the tool built: scripts, its own origin, forms, popups
+    // (sandboxed too), dialogs and downloads, never navigating the tool.
+    expect(readFileSync(resolve(TOOL_DIST, 'app.plan'), 'latin1')).toContain('allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads');
+    // The framed page ran: it opened its dev stream (while the tool was
+    // open: the drive waits on the real clock for it).
+    await devSaid.until(l => l.startsWith('page connected'), 1);
+    // The page itself lets the tool's origin frame it.
+    expect((await fetch(`${base}/`, { headers: { accept: 'text/html' } })).headers.get('content-security-policy')).toBe(`frame-ancestors 'self' ${TOOL_ORIGIN}`);
+    const states = replies.filter(r => r.resources);
+    expect(states[0].resources.hello.page).toBe(base);
+    // The frame's build and the other, each with the facts it reports.
+    const builds = states[0].resources.changes.builds;
+    const frame = builds.find(b => b.host === 'web-js');
+    expect(frame).toMatchObject({ pin: '', caughtUp: true });
+    expect(['light', 'dark']).toContain(frame.scheme);
+    expect(builds.find(b => b.id === 'linux-1')).toMatchObject({ host: 'linux', scheme: 'light', mode: 'dark-style=dim', pin: '' });
+    expect(states[1].slots.pinned).toMatchObject({ ok: true, note: 'Pinned on 1 build(s).' });
+    // The pinned build shows its effective mode, its own Dim, beside the
+    // pin's Black; the frame's build is as it was.
+    const after = new Map(states[1].resources.changes.builds.map(b => [b.id, b]));
+    expect(after.get('linux-1')).toMatchObject({ scheme: 'dark', mode: 'dark-style=dim', pin: 'dark, dark-style=black', caughtUp: true });
+    expect(after.get(frame.id)).toEqual(frame);
+    // Reloaded, the build was sent its pin again.
+    expect(states[2].resources.changes.builds.find(b => b.id === 'linux-1')).toMatchObject({ pin: 'dark, dark-style=black', caughtUp: true });
+    expect(other.frames.filter(f => f.pin).map(f => [f.reloaded, f.pin])).toEqual([[false, { scheme: 'dark', mode: { 'dark-style': 'black' } }], [true, { scheme: 'dark', mode: { 'dark-style': 'black' } }]]);
+    // The tool closed (its page gone, no unload request): the pin holds a
+    // while (its last long poll counts 35 s), then the server hands it back.
+    const until = Date.now() + 60_000;
+    while (other.frames.at(-1)?.pin && Date.now() < until) await new Promise(ok => setTimeout(ok, 500));
+    expect(other.frames.at(-1)).toMatchObject({ pin: null });
+    const held = other.frames.at(-1).at - closed;
+    expect(held).toBeGreaterThan(10_000);
+    // The lease (35 s) and the server's sweep (5 s), with a little room.
+    expect(held).toBeLessThan(45_000);
+    // While the tool was open, more than a lease went by with no hand-back.
+    const pinnedAt = other.frames.find(f => f.pin).at;
+    expect(closed - pinnedAt).toBeGreaterThan(36_000);
+    expect(other.frames.filter(f => !f.pin && f.at > pinnedAt && f.at < closed)).toEqual([]);
+  } finally {
+    await other?.stop();
+    if (tool) await stop(tool);
+    await stop(dev);
+    rmSync(app, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('T2: a scrub chosen on a token previews on the frame\'s build with no reload and no file written, Keep writes one line, Cancel restores, and an edit that rebuilds has no scrub', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const listener = (await import('node:http')).createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-scrub-dist-'));
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: app, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let tool;
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const devSaid = lines(dev);
+    await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
+    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    // What the dev loop serves its builds now (`/__dev/design`), the frame's
+    // build (its id, and the design it reports running), how many pages
+    // have connected, and the file: read while the drive holds each moment
+    // (a `tree` op, then a real-clock pause), waiting there until the frame
+    // reports the design the loop serves.
+    const seen = [];
+    const connects = () => devSaid.seen.filter(l => l.startsWith('page connected')).length;
+    const look = async () => {
+      const end = Date.now() + 5000;
+      for (;;) {
+        const design = await fetch(`${base}/__dev/design`);
+        const snapshot = design.status === 200 ? await design.json() : null;
+        const builds = (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': (await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
+        const frame = builds.find(b => b.host === 'web-js');
+        if ((snapshot && frame?.design === snapshot.design) || Date.now() > end) {
+          seen.push({ connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
+          return;
+        }
+        await Bun.sleep(100);
+      }
+    };
+    const wait = Array.from({ length: 2 }, () => ['clock +2000 real', 'clock data']).flat();
+    const drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-scrub-${process.pid}`, '--json',
+      'type name Ada', 'tap save-name', 'clock data', ...wait,
+      // accent.fill, the default branch: a value, its proposal live (the
+      // moment before any scrub), then scrubbed to another.
+      'tap cell-accent.fill-0-light', 'clock data', 'type branch-value #ff0000', 'type branch-value key Enter', 'clock data', 'state', 'tree proposal', 'clock +6000 real',
+      // (A scrub with no move for 30 s ends: no long waits while one is open.)
+      'tap scrub-start', 'clock data', 'type branch-value #ff1100', 'type branch-value key Enter', 'clock data', 'state',
+      'tree scrub', 'clock +6000 real',
+      'tap scrub-keep', 'clock data', ...wait, 'state', 'tree undo-bar', 'clock +2000 real',
+      // Undone, in one step.
+      'tap undo', 'clock data', ...wait, 'state',
+      // Again, cancelled.
+      'tap cell-accent.fill-0-light', 'clock data', 'type branch-value #00ff00', 'type branch-value key Enter', 'clock data',
+      'tap scrub-start', 'clock data', 'tree scrub', 'clock +6000 real', 'tap scrub-cancel', 'clock data', ...wait, 'state',
+      // AccentColor is a role override: its edit rebuilds, and offers no scrub.
+      'tap cell-AccentColor-0-light', 'clock data', 'type branch-value #ff0000', 'type branch-value key Enter', 'clock data', 'state',
+      'tree proposal', 'clock +6000 real',
+      // Applied, it reloads the frame.
+      'tap apply', 'clock data', ...wait,
+    ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    let driveSaid = '';
+    drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
+    const out = lines(drive);
+    // Looked at each `tree` op: before the scrub, during it, after Keep,
+    // during the second, and after its cancel (before the last edit applies).
+    for (const n of [1, 2, 3, 4, 5]) {
+      await out.until(() => out.seen.filter(l => l.startsWith('{"nodes"')).length >= n, 600_000).catch(e => { throw new Error(`${e.message}\n${driveSaid}`); });
+      await look();
+    }
+    await new Promise(ok => drive.once('exit', ok));
+    expect(drive.exitCode, driveSaid).toBe(0);
+    const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
+    const states = replies.filter(r => r.resources);
+    const trees = replies.filter(r => r.nodes);
+    const [before, during, kept, cancelling, after] = seen;
+    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true, chip: 'live' });
+    expect(states[1].resources.scrub).toMatchObject({ ok: true, live: true, ready: true });
+    expect(states[1].resources.scrub.open).toMatch(/^scrub-/);
+    expect(trees[1].nodes.some(n => n.props.text === 'Previewing: the running copies show this value, and the files are unchanged until Keep.')).toBe(true);
+    // While it previews: the frame's build runs the scrub's design (the one
+    // the loop serves, with the scrubbed value), not the committed one; the
+    // same build, no page connected since before the scrub (no reload); the
+    // file untouched.
+    expect(before.frame.design).toBe(before.snapshot?.design ?? before.frame.design);
+    expect(JSON.stringify(during.snapshot)).toContain('ff1100');
+    expect(during.frame.design).toBe(during.snapshot.design);
+    expect(during.frame.design).not.toBe(before.frame.design);
+    expect(during.frame.id).toBe(before.frame.id);
+    expect(during.connects).toBe(before.connects);
+    expect(during.file).toBe(original);
+    // Keep: one line written, the value previewed; Undo: the bytes back.
+    expect(states[2].slots.written).toMatchObject({ ok: true });
+    const line = '  accent.fill = #1d9bf0';
+    expect(edit(original, kept.file)).toEqual({ at: original.split('\n').indexOf(line), removed: [line], added: [line.replace('#1d9bf0', '#ff1100')] });
+    // The frame runs the kept design, the same build, no reload.
+    expect(JSON.stringify(kept.snapshot)).toContain('ff1100');
+    expect(kept.frame.design).toBe(kept.snapshot.design);
+    expect([kept.frame.id, kept.connects]).toEqual([before.frame.id, before.connects]);
+    expect(states[2].resources.changes.undo).toBe(1);
+    expect(states[3].resources.changes.undo).toBe(0);
+    // The second scrub previews too; Cancel: nothing written, and the frame
+    // back on the committed design (the original's, after the undo).
+    expect(JSON.stringify(cancelling.snapshot)).toContain('00ff00');
+    expect(cancelling.frame.design).toBe(cancelling.snapshot.design);
+    expect(cancelling.file).toBe(original);
+    expect(states[4].slots.written).toMatchObject({ ok: true, note: 'Cancelled: nothing was written, and the running copies have the committed value back.' });
+    expect(after.file).toBe(original);
+    expect(after.frame.design).toBe(before.frame.design);
+    expect([cancelling.frame.id, after.frame.id]).toEqual([before.frame.id, before.frame.id]);
+    expect(after.connects).toBe(before.connects);
+    // The role override: rebuilds, and Scrub live is not offered (said
+    // why); applied, the frame's page reloads (it connects again).
+    expect(states[5].resources.proposal).toMatchObject({ ok: true, chip: 'rebuild' });
+    expect(trees[4].nodes.some(n => n.props.testId === 'scrub-unavailable' || n.props.text === "This edit rebuilds the app, so it can't be scrubbed: Apply writes it.")).toBe(true);
+    await devSaid.until(() => connects() > after.connects, 60_000);
+  } finally {
+    if (tool) await stop(tool);
+    await stop(dev);
+    rmSync(app, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
   }
 }, 900_000);
 

@@ -6,9 +6,9 @@
 //!
 //! **Who has one.** A shell that makes windows says so
 //! ([`Presenter::serve_windows`]: the Canvas host's reader, as it boots).
-//! With no such shell (desktop Linux, a headless run, the agent) nothing
-//! here runs: a popover's invoker and a dialog's button are refused as they
-//! were; action dialog commands journal their refusal, and nothing is presented.
+//! Desktop Neutral confirmations use `alert.rs` and the ordinary subtree
+//! painter instead. Menus and other unsupported dialog shapes remain refused
+//! without a windowed shell.
 //!
 //! **How a surface is painted.** Not by the kernel's layout of the authored
 //! rows, which no native host shows either. The shape rule (`top/shape.rs`)
@@ -40,7 +40,7 @@ use exact_kernel::invocation::Action;
 use exact_kernel::NodeKey;
 
 pub(super) mod look;
-pub(super) mod shape;
+pub(crate) mod shape;
 pub use look::Target;
 use look::{Inputs, Layout};
 pub use shape::{Plan, Row};
@@ -150,6 +150,10 @@ struct Open {
     /// A menu's anchor in the window, points.
     anchor: Rect4,
     layout: Layout,
+    /// The shell's frame in window pixels, its display scale and motion origin.
+    frame: [i32; 4],
+    scale: f32,
+    origin: u32,
     /// The row under the finger, and the row a keyboard focused.
     pressed: Option<usize>,
     focused: Option<usize>,
@@ -204,6 +208,11 @@ pub struct Shown<'a> {
 }
 
 impl<D: DataSource> Presenter<D> {
+    pub(super) fn next_surface_serial(&mut self) -> u32 {
+        self.top.last += 1;
+        self.top.last
+    }
+
     /// A shell makes this presenter's top layer as windows from now on,
     /// drawn through `painter` (LLP 1115.001 D10). A host with no such
     /// shell keeps what it did: no top layer.
@@ -233,12 +242,14 @@ impl<D: DataSource> Presenter<D> {
 
     /// Whether a surface is open: the page is then inert.
     pub(super) fn top_open(&self) -> bool {
-        self.top.open.is_some()
+        self.top.open.is_some() || self.alert.is_some()
     }
 
     /// The host was replaced (a reload): its tree is another, and the new
     /// one is told again whether a top layer is presented.
     pub(super) fn top_replaced(&mut self) {
+        self.alert = None;
+        self.brush.alert = None;
         self.host.top_layer(self.top.painter.is_some());
         if self.top.open.take().is_some() {
             self.surface_changed();
@@ -251,6 +262,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn surface_changed(&mut self) {
+        self.report_top_layer();
         self.back_changed();
         // The shell comes for the statement whether or not a frame follows.
         self.executor.notify();
@@ -313,9 +325,11 @@ impl<D: DataSource> Presenter<D> {
     /// How `target` is open: `Some(true)` modally, `Some(false)` as a
     /// popover, `None` when it is not the open surface.
     fn open_mode(&self, target: NodeKey) -> Option<bool> {
-        (self.top.open.as_ref())
-            .filter(|open| open.key == target)
-            .map(|open| open.modal)
+        self.alert_mode(target).or_else(|| {
+            (self.top.open.as_ref())
+                .filter(|open| open.key == target)
+                .map(|open| open.modal)
+        })
     }
 
     /// The element an action's command names by `id`, by a button's rule
@@ -335,6 +349,13 @@ impl<D: DataSource> Presenter<D> {
         modal: bool,
         now_ms: f64,
     ) -> bool {
+        if self.neutral_alerts() {
+            if modal {
+                return self.alert_present(target, name, invoker, now_ms);
+            }
+            self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
+            return false;
+        }
         let kernel = self.host.kernel();
         let pop = (target.and_then(|key| kernel.node_by_key(key)))
             .map(|node| (node.id, node.key, node.parent));
@@ -363,6 +384,7 @@ impl<D: DataSource> Presenter<D> {
             }
             None => self.focus.or(invoker),
         };
+        self.report_top_layer();
         if let Err(e) = self.pointer_cancel(now_ms) {
             self.host.log(e);
         }
@@ -370,11 +392,11 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(None, now_ms) {
             self.host.log(e);
         }
-        self.top.last += 1;
+        let serial = self.next_surface_serial();
         let inputs = self.surface_inputs();
         let layout = Layout::of(&mut self.text.borrow_mut(), &plan, id, &inputs);
         self.top.open = Some(Open {
-            serial: self.top.last,
+            serial,
             revision: 0,
             key,
             node: id,
@@ -390,6 +412,9 @@ impl<D: DataSource> Presenter<D> {
             inputs,
             anchor: (0.0, 0.0, 0.0, 0.0),
             layout,
+            frame: [0; 4],
+            scale: self.brush.scale,
+            origin: 0,
             pressed: None,
             focused: None,
             epoch: self.host.kernel().epoch(),
@@ -398,6 +423,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(open) = self.top.open.as_mut() {
             open.anchor = anchor;
         }
+        self.place_surface();
         self.queue_toggle(key, true);
         self.surface_changed();
         true
@@ -406,9 +432,14 @@ impl<D: DataSource> Presenter<D> {
     /// Close the open surface, running nothing: the focus returns to the
     /// node that held it, where that is still one the page can focus.
     fn close_surface(&mut self, now_ms: f64) {
+        if self.alert.is_some() {
+            self.alert_close(now_ms);
+            return;
+        }
         let Some(open) = self.top.open.take() else {
             return;
         };
+        self.report_top_layer();
         self.queue_toggle(open.key, false);
         let back = open.restore.filter(|id| {
             self.host.kernel().node(*id).is_some()
@@ -427,6 +458,9 @@ impl<D: DataSource> Presenter<D> {
     /// go: a menu always, an alert unless its `closedby` is `none`. Whether
     /// a surface was open to take it.
     pub(super) fn dismiss_surface(&mut self, now_ms: f64) -> bool {
+        if self.alert.is_some() {
+            return self.alert_close_request(now_ms);
+        }
         let Some(open) = &self.top.open else {
             return false;
         };
@@ -538,6 +572,9 @@ impl<D: DataSource> Presenter<D> {
     /// Escape dismisses it, Tab and the arrows move its own focus, Enter
     /// and Space choose the focused row. Whether a surface took the key.
     pub(super) fn surface_key(&mut self, name: &str, now_ms: f64) -> bool {
+        if self.alert.is_some() {
+            return self.alert_key(name, now_ms);
+        }
         if self.top.open.is_none() {
             return false;
         }
@@ -660,7 +697,7 @@ impl<D: DataSource> Presenter<D> {
     /// ([`Presenter::invoke`]), as it always was.
     pub(crate) fn top_invoker(&self, hit: ViewId) -> Option<ViewId> {
         let kernel = self.host.kernel();
-        if !self.has_windows() {
+        if !self.has_windows() && !self.neutral_alerts() {
             return crate::navigation::popover_invoker(kernel, hit).then_some(hit);
         }
         let mut at = Some(hit);
@@ -684,7 +721,7 @@ impl<D: DataSource> Presenter<D> {
     /// The node pressed, or `None` on a host with no top layer, which
     /// refuses it.
     pub(crate) fn invoke(&mut self, invoker: ViewId, now_ms: f64, pointer: bool) -> Option<ViewId> {
-        if !self.has_windows() {
+        if !self.has_windows() && !self.neutral_alerts() {
             self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
             return None;
         }
@@ -703,7 +740,7 @@ impl<D: DataSource> Presenter<D> {
     /// closes by `close`; a popover command leaves a surface open modally
     /// alone, and `close` one open as a popover.
     pub(crate) fn follow_invocation(&mut self, key: NodeKey, invoker: ViewId, now_ms: f64) {
-        if !self.has_windows() {
+        if !self.has_windows() && !self.neutral_alerts() {
             return;
         }
         let kernel = self.host.kernel();
@@ -749,7 +786,7 @@ impl<D: DataSource> Presenter<D> {
     /// `id` activated by a pointer or by a key (Enter, Space, a shortcut):
     /// an invoker's `press` and then what it invokes, else its `press`.
     pub(super) fn activate_with(&mut self, id: ViewId, now_ms: f64, pointer: bool) {
-        if self.has_windows() && self.top_invoker(id) == Some(id) {
+        if (self.has_windows() || self.neutral_alerts()) && self.top_invoker(id) == Some(id) {
             self.invoke(id, now_ms, pointer);
         } else {
             self.press_then_follow(id, now_ms, pointer);
@@ -928,7 +965,7 @@ impl<D: DataSource> Presenter<D> {
     /// route no longer shows or whose rows are no longer its shape closes,
     /// running nothing; one that says something else, or is shown under
     /// another scheme, font scale or window, is measured again.
-    fn sync_surface(&mut self) {
+    pub(super) fn sync_surface(&mut self) {
         let Some(open) = &self.top.open else {
             return;
         };
@@ -968,29 +1005,69 @@ impl<D: DataSource> Presenter<D> {
             open.anchor = anchor;
             open.revision += 1;
         }
+        self.place_surface();
+        self.report_top_layer();
+    }
+
+    fn place_surface(&mut self) {
+        let (window, margins) = self.surface_window();
+        let scale = self.brush.scale;
+        let Some(open) = self.top.open.as_mut() else {
+            return;
+        };
+        let (at, origin) = match open.kind {
+            SurfaceKind::Alert => ((0.0, 0.0), 0),
+            SurfaceKind::Menu => {
+                let at = look::place(open.anchor, open.layout.size, window, margins);
+                (at, look::origin(open.anchor, at, open.layout.size))
+            }
+        };
+        let px = |v: f32| (v * scale).round() as i32;
+        let frame = [
+            px(at.0),
+            px(at.1),
+            px(open.layout.size.0),
+            px(open.layout.size.1),
+        ];
+        if (frame, scale, origin) != (open.frame, open.scale, open.origin) {
+            (open.frame, open.scale, open.origin) = (frame, scale, origin);
+            open.revision += 1;
+        }
+    }
+
+    /// Report the shell's frame in viewport points and whether it opened
+    /// modally. A popover leaves the document reachable to structural reads.
+    /// Native alerts, as on Apple, report no authored geometry.
+    fn report_top_layer(&mut self) {
+        let Some(open) = &self.top.open else {
+            self.host.runner_mut().top_layer_frames(&[], None);
+            return;
+        };
+        let rect = match open.kind {
+            SurfaceKind::Alert => [0.0; 4],
+            SurfaceKind::Menu => {
+                let [px, py, ..] = self.chrome().frame;
+                let [x, y, w, h] = open.frame.map(|v| f64::from(v) / f64::from(open.scale));
+                [x - f64::from(px), y - f64::from(py), w, h]
+            }
+        };
+        let frames = [(open.node, rect)];
+        let modal = open.modal.then_some(0);
+        self.host.runner_mut().top_layer_frames(&frames, modal);
     }
 
     /// The open surface as the shell is told it: its frame in the window
     /// and its picture, recorded by the shell's painter.
     fn surface_statement(&mut self) -> Option<Surface> {
-        let scale = self.brush.scale;
-        let (window, margins) = self.surface_window();
         let text = self.text.clone();
         let open = self.top.open.as_ref()?;
+        let scale = open.scale;
         let layout = &open.layout;
         let lit: Vec<usize> = open.pressed.into_iter().chain(open.focused).collect();
         let painter = self.top.painter.as_mut()?;
         let stream = painter.record(layout.size, scale, &mut |backend| {
             layout.paint(backend, &mut text.borrow_mut(), &lit)
         });
-        let (at, origin) = match open.kind {
-            SurfaceKind::Alert => ((0.0, 0.0), 0),
-            SurfaceKind::Menu => {
-                let at = look::place(open.anchor, layout.size, window, margins);
-                (at, look::origin(open.anchor, at, layout.size))
-            }
-        };
-        let px = |v: f32| (v * scale).round() as i32;
         let cancellable = match &open.plan {
             Plan::Alert { cancellable, .. } => *cancellable,
             Plan::Menu(_) => true,
@@ -998,8 +1075,8 @@ impl<D: DataSource> Presenter<D> {
         Some(Surface {
             serial: open.serial,
             kind: Some(open.kind),
-            flags: u32::from(cancellable) | u32::from(open.outside()) << 1 | origin << 2,
-            frame: [px(at.0), px(at.1), px(layout.size.0), px(layout.size.1)],
+            flags: u32::from(cancellable) | u32::from(open.outside()) << 1 | open.origin << 2,
+            frame: open.frame,
             shape: (layout.radius * scale, layout.elevation * scale),
             stream,
         })

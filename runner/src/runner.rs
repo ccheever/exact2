@@ -4,7 +4,6 @@
 //! Each event settles derives and changed resource arguments, evaluates all
 //! sites, and applies one atomic kernel batch; hosts then lay out and paint.
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
-
 mod admission;
 mod advance;
 mod background;
@@ -85,6 +84,9 @@ pub use sockets::{SocketReader, SocketState};
 mod split;
 mod surface_record;
 mod time;
+mod transport;
+#[cfg(test)]
+mod transport_tests;
 mod viewport;
 mod writes;
 pub use carry::Carried;
@@ -366,6 +368,8 @@ pub struct Runner<D: DataSource> {
     design: Option<String>,
     /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
     live: bool,
+    /// Its role overrides, its own (LLP 1121 stage 5; [`Runner::roles`]).
+    roles: exact_kernel::style::roles::Installed,
     /// The session the owner's token names (LLP 1094 D4).
     reorder_session: Option<Box<reorder_group::Session>>,
     /// A grouped drop's source while its `reorderdrop` runs (D2).
@@ -431,6 +435,7 @@ pub struct Runner<D: DataSource> {
     sockets: Vec<crate::SocketSend>,
     /// The host's live count of a socket's buffered bytes (D7), if it has one.
     socket_reader: Option<sockets::SocketReader>,
+    mutation_requests: u64,
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
@@ -518,6 +523,8 @@ pub struct Runner<D: DataSource> {
     notifications: Vec<crate::notify::Notice>,
     /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
     sounds: crate::sound::Sounds,
+    /// The transport (LLP 1125 D3): the sequence playing and its record.
+    transport: crate::transport::Transport,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
     fonts: std::rc::Rc<std::cell::RefCell<crate::bridge::RuntimeFonts>>,
@@ -782,11 +789,7 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .map(|resource| {
                 resource.reader
-                    || plan.str(resource.source) == crate::delivery::SOURCE
-                    || plan.str(resource.source) == crate::viewport::SOURCE
-                    || plan.str(resource.source) == crate::time::SOURCE
-                    || plan.str(resource.source) == crate::page::SOURCE
-                    || plan.str(resource.source) == crate::surface_record::SOURCE
+                    || exact_plan::runner_owned_source(plan.str(resource.source))
                     || (same_logic
                         && carried.is_some_and(|carried| {
                             let name = plan.str(resource.name);
@@ -803,12 +806,14 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let launched_place = crate::time::launch_place();
-        // A refused boot puts back the overrides it took (a session still running keeps its own).
-        let (mut restore, replaced) = crate::bridge::RestoreOverrides::set(&plan);
+        // Its own role overrides (LLP 1121 stage 5): bound while it boots, installed once it has.
+        let roles = exact_kernel::style::roles::Roles::new(crate::bridge::role_overrides(&plan));
+        let booting = exact_kernel::style::roles::bind(&roles);
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
             failed_mut: vec![None; plan.mutations.len()],
+            transport: crate::transport::Transport::new(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
@@ -825,6 +830,7 @@ impl<D: DataSource> Runner<D> {
             reorder_kept: Default::default(),
             design: None,
             live: false,
+            roles: exact_kernel::style::roles::Installed::new(roles.clone()),
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),
@@ -867,6 +873,7 @@ impl<D: DataSource> Runner<D> {
             requests: Vec::new(),
             sockets: Vec::new(),
             socket_reader: None,
+            mutation_requests: 0,
             refresh_next: Vec::new(),
             writes: writes::Writes::default(),
             overlays: Vec::new(),
@@ -1028,6 +1035,7 @@ impl<D: DataSource> Runner<D> {
             })
             .collect();
         runner.gate_step()?;
+        runner.transport_stood();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces, notes, shown) = {
@@ -1065,13 +1073,8 @@ impl<D: DataSource> Runner<D> {
             let line = format!("{why}; nothing is granted");
             runner.log(line);
         }
-        if replaced {
-            // @ref LLP 1121 §10 — the overridden roles are the thread's until
-            // per-session tables (stage 5): a second plan with other ones
-            // takes them over from the first, which is said, not silent.
-            runner.log("theme: this plan's role overrides replace another plan's on this thread; a session still running the other now shows these (per-session tables are owed)".to_string());
-        }
-        restore.0 = None;
+        drop(booting);
+        runner.roles.install();
         Ok(runner)
     }
 
@@ -1185,28 +1188,6 @@ impl<D: DataSource> Runner<D> {
 
     pub(crate) fn notifications_mut(&mut self) -> &mut Vec<crate::notify::Notice> {
         &mut self.notifications
-    }
-
-    /// The voice table (LLP 1096 D5), for `state.sounds` and a test.
-    pub fn sounds(&self) -> &crate::sound::Sounds {
-        &self.sounds
-    }
-
-    /// What the output plays since the last take: a `Play` per new voice,
-    /// an `End` per voice that now ends earlier (LLP 1096 D5).
-    pub fn take_sounds(&mut self) -> Vec<crate::sound::SoundOp> {
-        self.sounds.take()
-    }
-
-    /// End every live voice before this runner is replaced (a dev reload,
-    /// LLP 1096 D5); the host drains `take_sounds` before the restart.
-    pub fn end_sounds(&mut self) {
-        if self.plan.sounds.is_empty() {
-            return;
-        }
-        let mut lines = Vec::new();
-        self.sounds.reload(self.now_ms, &mut lines);
-        lines.into_iter().for_each(|l| self.log(l));
     }
 
     /// Current value of a slot by name.
@@ -1401,7 +1382,6 @@ impl<D: DataSource> Runner<D> {
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }
-
     fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
         // The queued patches' colours stay kept until this commit marks them.
         let (mut prefix, _queued) = self.take_reorder_ops();
@@ -1464,7 +1444,6 @@ impl<D: DataSource> Runner<D> {
         self.retire_holds();
         Ok(receipt)
     }
-
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {
             plan: &self.plan,
@@ -1488,12 +1467,10 @@ impl<D: DataSource> Runner<D> {
             store_dependent_resources: &[],
         }
     }
-
     fn eval(&self, code: Code, params: &[Value], frames: &[Frame]) -> Result<Value, RunnerError> {
         let env = self.env(params, frames);
         Ok(vm::eval(self.plan.code(code), &env, &[])?.value)
     }
 }
-
 #[cfg(test)]
 mod stream_tests;

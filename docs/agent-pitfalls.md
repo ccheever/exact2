@@ -62,8 +62,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
   28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
   `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
-  `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
-  LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
+  `line-height=1.3` (28.6 px at 22 px). A bare 4 or more is warned
+  (`lower-line-height-multiplier`). (Authoring bench, LLP 1087: three Codex
+  builders, caught only by a screenshot, 2026-10-05; the euxy port, 2026-10-16.)
 
 - **A `\n` in a text runs its two lines together.** ``text `${ref}\nResults rounded.` ``
   showed one line on the web and in an iOS grouped footer. Cause: `white-space:
@@ -1346,3 +1347,10 @@ screen, 2026-10-16.)
   The complete online password example in `snapback4/README.md` demonstrates this
   alongside reload, logout and sign-in tests; an empty successful list would hide
   an authentication failure.
+
+
+- **A picker path can contain spaces.** Use `pick "attachment" "my photo.png"`
+  after the button opens `showPicker("attachment")`. Quote the whole path in
+  the interactive command. `type @attachment a.png b.png` deliberately names
+  two files; authored-test `pick` and the interactive alias preserve one quoted
+  path through both web and native delivery. (EX8, 2026-10-16.)

@@ -982,8 +982,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-core"
-version = "0.4.28"
-source = "git+https://github.com/expo/snapback.git?rev=af4b256a31f5266577d5c014bd96b7827386c9db#af4b256a31f5266577d5c014bd96b7827386c9db"
+version = "0.4.29"
+source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
 dependencies = [
  "argon2",
  "getrandom 0.3.4",
@@ -1000,8 +1000,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-device"
-version = "0.4.28"
-source = "git+https://github.com/expo/snapback.git?rev=af4b256a31f5266577d5c014bd96b7827386c9db#af4b256a31f5266577d5c014bd96b7827386c9db"
+version = "0.4.29"
+source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
 dependencies = [
  "rusqlite",
  "serde",
@@ -1012,8 +1012,8 @@ dependencies = [
 
 [[package]]
 name = "snapback4-lang"
-version = "0.4.28"
-source = "git+https://github.com/expo/snapback.git?rev=af4b256a31f5266577d5c014bd96b7827386c9db#af4b256a31f5266577d5c014bd96b7827386c9db"
+version = "0.4.29"
+source = "git+https://github.com/expo/snapback.git?rev=59fb4ead1ba18569369523bba55b56713cc275e9#59fb4ead1ba18569369523bba55b56713cc275e9"
 dependencies = [
  "serde",
  "serde_json",

@@ -981,6 +981,7 @@ public final class ExactSession {
     /// the agent's clock seeks native animations through it. Slices published
     /// before it land first (T4), and it is asked again (a fling's fills).
     func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
+        guard !batch.busy else { return }
         guard !applying else { apply(batch); return }
         if !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
             // What the slices leave owed is asked after this batch, as in `apply`.
@@ -1015,9 +1016,8 @@ public final class ExactSession {
 
     /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
-
     package func apply(_ batch: Batch) {
-        guard state != .destroyed else { return }
+        guard state != .destroyed, !batch.busy else { return }
         appliedBatches += 1
         // A slice the owner committed before this batch applies first (T4).
         if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
@@ -1054,8 +1054,8 @@ public final class ExactSession {
             DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { authOp(payload) } }
         }
         // Each presenter takes its boot's table, a second one with the same too.
-        ThemeRoles.apply(batch); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }
-        presenter.apply(batch)
+        ThemeRoles.apply(batch, root: presenter.root); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }
+        ThemeRoles.within(presenter.root) { presenter.apply(batch) }
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }
@@ -1241,7 +1241,7 @@ public final class ExactSession {
     // or one distant wake. Runner retains ordered catch-up and its 4096-commit cap.
     func scheduleClock(due: Double?) {
         let agent = ExactEnv.agentMode || clock != nil
-        let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent)
+        let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent, hidden: PageFacts.hidden)
         // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
         frames.timerSoon = wake == .frame || (frames.tasks && !agent)
         // Keep a timer already armed for this deadline; most batches leave it unchanged.

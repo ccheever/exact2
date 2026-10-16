@@ -10,7 +10,8 @@
 //
 //   bun scripts/agent-android.mjs build <app>              build the app's Linux crate for Android
 //   bun scripts/agent.mjs android --app <app> …            drive it on the first adb device or emulator
-//   bun scripts/agent-android.mjs build <app> --apk        the app on the Canvas reader, as an APK (host/android/README.md)
+//   bun scripts/agent-android.mjs build <app> --apk        the app on the Canvas reader, as an APK (host/android/README.md;
+//                                                          --release: the release profile, for measuring)
 //   bun scripts/agent.mjs android --reader --app <app> …   drive that APK (EXACT_ANDROID_BIN names another)
 //
 // An app with a TypeScript data module also needs the Android Hermes bundle:
@@ -27,7 +28,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, injectedProfiles, linuxBuild, resolveApp } from './app.mjs';
+import { HOST_DEV, buildBake, injectedProfiles, linuxBuild, resolveApp } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 
@@ -138,7 +139,7 @@ const readerApk = (app) => resolve(READER, 'app/build', app.name, 'outputs/apk/r
 function readerDeploy(app, apk, env) {
   for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_DEV_PLAN', 'a development plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
     if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
-  const serial = androidDevice(env), tool = adb(env), id = app.id + (env.ORG_GRADLE_PROJECT_idSuffix ?? '');
+  const serial = androidDevice(env), tool = adb(env), id = app.id.replaceAll('-', '_') + (env.ORG_GRADLE_PROJECT_idSuffix ?? ''); // as the Gradle shell names the package
   const dir = `/data/local/tmp/exact/${id}`, shot = `${dir}/reader-shot-${process.pid}.png`;
   const run = (args, what) => {
     const r = spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
@@ -217,21 +218,35 @@ async function relay([serial, id, vars]) {
   process.stdin.on('end', () => { turn.then(() => done(0)); });
 }
 
-/** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`) built
- * for the phone's ABI and put, with the app's assets, where the Gradle shell packages them (host/android/app), then
- * `:app:assembleRelease`. Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
-function buildApk(app, env) {
+/** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`; a game's
+ * is generated under `.shells/`) built for the phone's ABI and put, with the app's assets, where the Gradle shell
+ * packages them (host/android/app), then `:app:assembleRelease`. An app with a GPU module (LLP 1009) is built as a
+ * Linux bake is (`buildBake`): the module first, then the library with the module's digest baked in, so the module
+ * ships beside it and must reach the device byte for byte (the Gradle shell extracts it and keeps its symbols).
+ * Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
+function buildApk(app, env, profile) {
   const crate = app.crate('android');
-  if (!existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
-  const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--target', ANDROID_TARGET], { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
-  if (cargo.status !== 0) return null;
+  if (!app.manifest.game && !existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
+  const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
+  let gpu = null;
+  if (app.manifest.game || app.hasGpu) {
+    try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
+    catch (error) { console.error(error.message); return null; }
+    gpu = built(app.crate('gpu'));
+  } else {
+    const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', profile, '-p', crate, '--target', ANDROID_TARGET], { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
+    if (cargo.status !== 0) return null;
+  }
   const staged = resolve(READER, 'app/build', app.name, 'rust');
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(resolve(staged, 'jniLibs/arm64-v8a'), { recursive: true });
   // The reader loads one name whatever the app; the plan names `assets/…` under the APK's `app/`.
-  copyFileSync(resolve(app.target, ANDROID_TARGET, HOST_DEV, `lib${crate.replaceAll('-', '_')}.so`), resolve(staged, 'jniLibs/arm64-v8a/libexactcanvas.so'));
+  copyFileSync(built(crate), resolve(staged, 'jniLibs/arm64-v8a/libexactcanvas.so'));
+  // The host opens the module by the name its bake recorded, in the APK's extracted library directory.
+  if (gpu) copyFileSync(gpu, resolve(staged, 'jniLibs/arm64-v8a', basename(gpu)));
   if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(staged, 'assets/app/assets'), { recursive: true });
-  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.dir}`], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+  // A game's resolved manifest (with its `app` identity) is the one its shells were generated with.
+  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : [])], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
   return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
 }
 
@@ -253,7 +268,7 @@ if (import.meta.main && process.argv[2] === 'relay') {
   }
   const app = resolveApp(name), env = { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target };
   if (args.includes('--apk')) {
-    const apk = buildApk(app, env);
+    const apk = buildApk(app, env, args.includes('--release') ? 'release' : HOST_DEV);
     if (apk) console.log(apk);
     process.exit(apk ? 0 : 1);
   }

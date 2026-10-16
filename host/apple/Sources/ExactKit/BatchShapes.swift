@@ -17,12 +17,12 @@ extension BatchReader {
 
     mutating func batch() throws -> Batch {
         var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false, frames = false, canvasOwed = false, controls = false
-        var layoutProvisional = false
+        var layoutProvisional = false, busy = false
         var clock: Double?, due: Double?, error: String?
         var images: [String] = []
         var seq: (UInt64, UInt64)?
         var modes: [String: String]?
-        var live: String?, unsupported = false, design: String?, facts = false
+        var live: String?, unsupported = false, design: String?, facts = false, wakelock: Bool?
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -38,6 +38,7 @@ extension BatchReader {
             case "layoutProvisional": layoutProvisional = try r.bool()
             case "canvasImages": images = try r.array { try $0.string() }
             case "pending": pending = try r.bool()
+            case "busy": busy = try r.bool()
             case "spatial": spatial = try r.bool()
             case "clock": clock = try r.number()
             case "timer_due_ms": due = try r.number()
@@ -47,13 +48,14 @@ extension BatchReader {
             case "unsupported": unsupported = try r.bool()
             case "design": design = try r.value().string
             case "facts": facts = try r.bool()
+            case "wakelock": wakelock = try r.bool()
             case "seq":
                 let range = try r.array { try $0.number() }
                 if range.count == 2, range.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) { seq = (UInt64(range[0]), UInt64(range[1])) }
             default: try r.skip()
             }
         }
-        var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending)
+        var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending, busy: busy)
         batch.spatial = spatial
         batch.canvas = canvas
         batch.frames = frames
@@ -67,6 +69,7 @@ extension BatchReader {
         batch.unsupported = unsupported
         batch.design = design
         batch.facts = facts
+        batch.wakelock = wakelock
         return batch
     }
 

@@ -351,6 +351,7 @@ impl<D: DataSource> Runner<D> {
         let ty = self.plan.mutations[m].ty;
         let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
         self.snapshot_sockets();
+        self.mutation_requests += 1;
         let answer = self
             .data
             .answer_for(Target::Mutation(m), &mut self.store, source, args);
@@ -398,5 +399,13 @@ impl<D: DataSource> Runner<D> {
             }
             Answer::Later(request) => Ok(Asked::Later(request)),
         }
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Mutation source requests issued this incarnation, excluding continuations and reads.
+    /// Monotonic across a refused commit: the source was actually asked.
+    pub fn mutation_requests(&self) -> u64 {
+        self.mutation_requests
     }
 }

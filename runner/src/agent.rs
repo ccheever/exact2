@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 mod row;
 mod schedule;
 mod sound;
+mod transport;
 mod tree;
 
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
@@ -788,6 +789,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     // Why each failed resource failed (app farm round 1: a shape refusal
     // showed only in the journal while the view kept its placeholder).
+    let _ = write!(s, ",\"mutationRequests\":{}", runner.mutation_requests());
     let failed = runner.failed_resources();
     if !failed.is_empty() {
         s.push_str(",\"failed\":{");
@@ -904,6 +906,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     }
     s.push(']');
     sound::state(runner, request, &mut s);
+    crate::wakelock::state(runner.kernel(), &mut s);
+    transport::state(runner, &mut s);
     // The store's names, never its values (LLP 1018 D5).
     s.push_str(",\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {

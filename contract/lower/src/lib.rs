@@ -511,6 +511,7 @@ fn lower_with_sites(
         }
     }
     l.timers(&root.tasks, &scope)?;
+    l.sequences(&root.sequences, &scope)?;
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.is_empty() {
@@ -1010,8 +1011,10 @@ impl<'a> Lowerer<'a> {
                 if rows == [StyleId::FontFamily] {
                     let stacks = self.family_stacks(&a.value)?;
                     let (code, ty) = self.typed_code(&stacks, scope, locals)?;
+                    // Literal families are stack numbers, an empty one `none`.
+                    let literal = Self::literal_family_arms(&a.value);
                     if ty != Ty::String
-                        && !(ty == Ty::Number && Self::literal_family_arms(&a.value))
+                        && !(literal && matches!(ty, Ty::Number | Ty::Option(_)))
                         && !matches!(ty, Ty::Option(ref inner) if **inner == Ty::String)
                     {
                         return err("lower-attr-type", "`font-family` needs a string", a.span);
@@ -1021,6 +1024,8 @@ impl<'a> Lowerer<'a> {
                 }
                 // CSS's one-to-four-value box shorthands: a binding a side.
                 if values::four_sided(rows) {
+                    let fns = &self.fns;
+                    values::computed_list(&a.name, &a.value, &|f| fns.get(f).map(|(_, b)| *b))?;
                     if let Some(sides) = values::sides(&a.name, &a.value)? {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;

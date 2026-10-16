@@ -285,12 +285,7 @@ impl<D: DataSource> Runner<D> {
         }
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
         let source = self.plan.str(self.plan.resources[i].source);
-        if source == crate::viewport::SOURCE
-            || source == crate::time::SOURCE
-            || source == crate::page::SOURCE
-            || source == crate::delivery::SOURCE
-            || source == crate::surface_record::SOURCE
-        {
+        if exact_plan::runner_owned_source(source) {
             return;
         }
         // @ref LLP 1027.005 D6 — context reaches the source but does not
@@ -511,6 +506,7 @@ impl<D: DataSource> Runner<D> {
         for (m, source, args) in std::mem::take(&mut self.unsent) {
             let target = super::Target::Mutation(m);
             let name = self.plan.str(self.plan.mutations[m].name).to_string();
+            self.mutation_requests += 1;
             let refused = match self
                 .data
                 .answer_for(target, &mut self.store, &source, &args)

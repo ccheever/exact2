@@ -56,9 +56,9 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.4.28**: the CLI is pinned in `bun.lock`;
+Snapback4 consumers use release **0.4.29**: the CLI is pinned in `bun.lock`;
 Cargo pins the device and its client to the matching release source commit
-`af4b256a31f5266577d5c014bd96b7827386c9db`. `snapback4/` is one client for an
+`59fb4ead1ba18569369523bba55b56713cc275e9`. `snapback4/` is one client for an
 app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
 the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
@@ -899,6 +899,28 @@ out (`_ReportRPCTimeout`, seen on iOS simulators whose audio is wedged), it
 aborts the process inside `AVAudioEngine`; opening at the first voice keeps
 that from launch and from an app that plays nothing.
 
+**A sequence** (`sequence NAME when cond` holding `play(tracks, bpm=…)`, LLP
+1125 D2–D5) is expanded by the runner, never by a host: its steps become
+voices in the same table a second ahead of the runner's clock, refilled when
+half a second is left on a wake of its own that runs no action and that
+`clock settle` does not wait for, so a main-thread stall of up to 500 ms
+loses no step. The bound is the same for a sequence's voices and a tap's: at
+most 32 voices sound at any voice's start (another is dropped and journaled),
+and at most 256 wait to start (another tap is dropped; a sequence stops
+expanding early and wakes when the first starts, dropping nothing). The
+Apple mixer has 288 slots and a ring of 1024 ops for it (a Play that finds no free slot takes one whose voice ends inside the buffer, mixing that voice's last frames first), and frees a voice
+retracted before it starts at once; the web lets its node go. A step's haptic
+plays on the main thread at its time (Apple's feedback generators;
+`navigator.vibrate` on the web, where it exists): a blocked main thread makes
+it late, and `state.sounds.output.hapticsLate` counts those more than 10 ms
+late. Linux and Windows keep the record. On iOS and tvOS a sequence stops
+when the app goes to the background (`exactTransport().reason` is
+`background`), unless `audio_session` is `"playback"` and
+`host.ios.backgroundModes` has `"audio"`; a Mac app and a web page play on.
+`state.transport` is the record: what `exactTransport()` answers, the sequence
+that last played, how far its hits are issued (`issuedTo`), its last 16 tempo
+segments, and its last 64 haptics with their states.
+
 ### Media session
 
 An `audio` or `video` with `metadata=MediaMetadata(…)` claims the platform's
@@ -932,6 +954,36 @@ an app whose plan claims the media session states both in `app.json`, or
 declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
 not published. `tap <element> mediasession <action> [seconds]` calls the handler
 the platform would call (`delivery: "substituted"`).
+
+### Keep the screen awake
+
+`wakelock="screen"` on any element keeps the display from dimming or locking
+for idleness while that element is mounted and displayed: neither it nor an
+ancestor is `display: none` (or laid out so by its host, as an unopened tab
+is), and it is under no tab the navigation leaves unselected and no screen a
+stack keeps under its top, so a screen kept mounted in a hidden tab panel
+holds nothing; the screen a sheet covers is still shown, and holds. An exit
+animation's ghost holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
+D11). Natively an element the host shows as its own control (a header in the
+navigation bar, a confirmation as a native alert, a menu as a native menu)
+holds nothing, because a whole host cover marks both what the host hides and
+what it shows natively and the kernel cannot tell them apart; the web holds
+there. `"none"` is the default. Bind it to what needs the screen:
+`wakelock=(playing ? "screen" : "none")`. A literal other than the two words
+is refused; a computed one is journaled (`view N: invalid wakelock value …;
+unset`) and holds nothing. The runner decides which elements hold it
+(`exact_runner::wakelock`), so the rule is one on every host.
+
+| host | held through |
+| --- | --- |
+| web (both targets) | `navigator.wakeLock.request("screen")`, asked again on `visibilitychange` when the page is visible again (a hidden page loses it) and released when no element holds it; `wakelock: unavailable: …` is journaled once where the API is missing or a request is refused |
+| iOS, tvOS | `UIApplication.isIdleTimerDisabled`, true while any session's element holds it; under the driver the timer stays disabled for the whole drive |
+| macOS | an `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep)` assertion, held while any session's element holds it |
+| Android | `View.setKeepScreenOn` on the reader's view (request kind 8) |
+| Linux, Windows | none: `wakelock: unavailable: this host keeps no display awake`, journaled once |
+
+`state.wakelock` is `{held, by}`: whether any element holds it and their view
+ids, on every host's driver.
 
 ### Pick a file of any type
 

@@ -535,7 +535,7 @@ impl<D: DataSource> Host<D> {
     /// A node's props as Swift gets them: a hatch word the plan does not give
     /// this platform is sent as `hatchOff`, so the node is an ordinary one
     /// there and Swift lists the word as unhandled.
-    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> BTreeMap<String, String> {
+    pub(crate) fn props_of(&self, node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
         let mut props = props_for(node);
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {

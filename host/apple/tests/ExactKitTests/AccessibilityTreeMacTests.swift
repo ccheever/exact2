@@ -43,15 +43,17 @@ final class AccessibilityTreeMacTests: XCTestCase {
     }
     private func elements(_ ax: [String: Any]) -> [[String: Any]] { ax["elements"] as? [[String: Any]] ?? [] }
 
-    private func assertModalParentChain(_ start: NSView, presenter p: Presenter, file: StaticString = #filePath, line: UInt = #line) throws {
-        var child = start
+    /// From `start` (a view, or an element such as a field's cell) up to the viewport, each parent serves its child.
+    private func assertModalParentChain(_ start: Any, presenter p: Presenter, file: StaticString = #filePath, line: UInt = #line) throws {
+        var child = start as AnyObject
         var visited: Set<ObjectIdentifier> = []
         while child !== p.viewport {
             guard visited.insert(ObjectIdentifier(child)).inserted else { return XCTFail("parent cycle", file: file, line: line) }
             guard visited.count < 20 else { return XCTFail("parent chain never reaches viewport", file: file, line: line) }
-            let parent = try XCTUnwrap(child.accessibilityParent() as? NSView, file: file, line: line)
-            XCTAssertTrue((parent.accessibilityChildren() ?? []).contains { ($0 as? NSView) === child }, "AXParent points back through AXChildren", file: file, line: line)
-            XCTAssertTrue((child.accessibilityAttributeValue(.parent) as? NSView) === parent, "legacy AXParent agrees", file: file, line: line)
+            let element = try XCTUnwrap(child as? NSAccessibilityProtocol, file: file, line: line)
+            let parent = try XCTUnwrap(element.accessibilityParent() as? NSView, file: file, line: line)
+            XCTAssertTrue((parent.accessibilityChildren() ?? []).contains { ($0 as AnyObject) === child }, "AXParent points back through AXChildren", file: file, line: line)
+            XCTAssertTrue(((child as? NSObject)?.accessibilityAttributeValue(.parent) as? NSView) === parent, "legacy AXParent agrees", file: file, line: line)
             XCTAssertFalse(elements(p.axElements(roots: [parent])).contains { $0["testId"] as? String == "named" }, "moving to a container cannot reach Play", file: file, line: line)
             child = parent
         }
@@ -308,9 +310,15 @@ final class AccessibilityTreeMacTests: XCTestCase {
         let presented = try XCTUnwrap(modal["presented"] as? [Int])
         let field = try XCTUnwrap(elements(ax).first { $0["testId"] as? String == "filter" })
         XCTAssertTrue(presented.contains(try XCTUnwrap(field["i"] as? Int)), "the driver can include this field in the modal boundary")
+        // The popover has no role: it is no element, and its field is served in its place.
+        XCTAssertFalse(pop.isAccessibilityElement())
+        let filter = try XCTUnwrap(NSAccessibility.unignoredChildren(from: [pop]).first as AnyObject?)
+        XCTAssertTrue((filter as? NSCell)?.controlView?.superview === p.views[13], "the element is the Filter field's")
         let contents = try XCTUnwrap(p.viewport.accessibilityContents())
-        XCTAssertTrue(contents.contains { ($0 as? NSView) === pop })
+        XCTAssertTrue(contents.contains { ($0 as AnyObject) === filter })
+        XCTAssertFalse(contents.contains { ($0 as? NSView) === pop })
         XCTAssertFalse(contents.contains { ($0 as? NSView) === p.views[2] })
+        try assertModalParentChain(filter, presenter: p)
     }
 
     func testExitingAndTransparentSiblingsDoNotCoverAnAuthoredModal() throws {
@@ -392,8 +400,12 @@ final class AccessibilityTreeMacTests: XCTestCase {
             XCTAssertTrue(presented.contains(try XCTUnwrap(field["i"] as? Int)))
         }
         XCTAssertFalse(all.contains { ["named", "other"].contains($0["testId"] as? String ?? "") })
-        try assertModalParentChain(pop, presenter: p)
-        try assertModalParentChain(more, presenter: p)
+        // Neither popover has a role: each is served by its elements, whose parent is the page's scroll view.
+        for popover in [pop, more] {
+            for element in NSAccessibility.unignoredChildren(from: [popover]) {
+                try assertModalParentChain(element, presenter: p)
+            }
+        }
         p.menus.close(more)
         p.menus.close(pop)
         XCTAssertFalse(elements(p.axElements(roots: [p.viewport])).contains { $0["testId"] as? String == "filter" })

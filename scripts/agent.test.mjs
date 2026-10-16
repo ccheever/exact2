@@ -67,7 +67,7 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
   carrier.ask = async req => { calls.push(req); return { clock: req.take ? 0 : req.to }; };
   s.now = Infinity;
   await s.clock('+0 real');
-  assert.deepEqual(calls.slice(-2), [{ op: 'clock', take: true }, { op: 'clock', to: 0 }]);
+  assert.deepEqual(calls.slice(-2), [{ op: 'clock', take: true }, { op: 'clock', to: 0, step: true }]); // real time passed: the host waits on no native motion
   for (const throws of [false, true]) {
     carrier.ask = async () => {
       const reply = { error: 'tap resize needs two dimensions', malformed: true };

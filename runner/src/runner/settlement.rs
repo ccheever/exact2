@@ -471,11 +471,7 @@ impl<D: DataSource> Runner<D> {
                             kept_seed
                                 || failed
                                 || (asked_args.unwrap_or(&s.args) == &args
-                                && self.plan.str(row.source) != crate::delivery::SOURCE
-                                && self.plan.str(row.source) != crate::viewport::SOURCE
-                                && self.plan.str(row.source) != crate::time::SOURCE
-                                && self.plan.str(row.source) != crate::page::SOURCE
-                                && self.plan.str(row.source) != crate::surface_record::SOURCE
+                                && !exact_plan::runner_owned_source(self.plan.str(row.source))
                                 && !forced
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
@@ -520,11 +516,7 @@ impl<D: DataSource> Runner<D> {
                     let value = match reuse {
                         Some(v) => v,
                         None if (boot || !self.data.ready())
-                            && self.plan.str(row.source) != crate::delivery::SOURCE
-                            && self.plan.str(row.source) != crate::viewport::SOURCE
-                            && self.plan.str(row.source) != crate::time::SOURCE
-                            && self.plan.str(row.source) != crate::page::SOURCE
-                            && self.plan.str(row.source) != crate::surface_record::SOURCE
+                            && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && row.initial.len > 0
                             && !self.secrets_unseen(i, &row, &resources)
                             && (!self.data.ready()

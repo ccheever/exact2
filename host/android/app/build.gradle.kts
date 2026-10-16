@@ -25,7 +25,8 @@ android {
     namespace = "dev.exact.app"
     compileSdk { version = release(37) { minorApiLevel = 2 } }
     defaultConfig {
-        applicationId = identity["id"] as String
+        // An Android package name's segments are Java identifiers: a manifest id's `-` becomes `_`.
+        applicationId = (identity["id"] as String).replace('-', '_')
         minSdk = 31
         targetSdk = 36
         versionCode = 1
@@ -46,7 +47,15 @@ android {
     // The app's Rust library (as libexactcanvas.so) and its assets (the reader copies `app/` out of the APK once).
     sourceSets["main"].jniLibs.directories.add("build/$app/rust/jniLibs")
     sourceSets["main"].assets.directories.add("build/$app/rust/assets")
-    packaging { jniLibs { useLegacyPackaging = false } }
+    // An app's GPU module (-PgpuModule=<file>) is opened by path from the extracted library directory and checked
+    // against the digest its bake recorded, so it is extracted and left unstripped.
+    val gpuModule = providers.gradleProperty("gpuModule").orNull
+    packaging {
+        jniLibs {
+            useLegacyPackaging = gpuModule != null
+            gpuModule?.let { keepDebugSymbols += "**/$it" }
+        }
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
 dependencies { implementation(project(":canvas")) }

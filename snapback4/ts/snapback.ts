@@ -1,3 +1,6 @@
+export { pick } from './projection.ts';
+import { ReleaseTracker, type ReleaseSnapshot } from './release.ts';
+export type { ReleaseSnapshot } from './release.ts';
 // Snapback4 for an Exact app's TypeScript: the client in Rust
 // (`exact-snapback4-client`), driven here over `fetch`. Natively it is the
 // app's native module (`exact_snapback4::Module` behind `native.call`); on
@@ -145,6 +148,8 @@ export interface Device { call(request: Request): Promise<Request>; close?(): Pr
 /** What the server established about an uploaded file (`POST /assets`):
  * pass `{ id }` as an `image` or `video` argument. */
 export interface Asset { id: string; type: string; bytes: number; name?: string; width?: number | null; height?: number | null; duration?: number | null }
+export interface UploadIntent {id: string; state: 'queued' | 'uploading' | 'blocked' | 'placing' | 'cancelling'; why?: Refusal | null; asset?: Asset | null}
+export interface UploadAndPlaceOptions extends UploadOptions { argument: string; id?: string }
 export interface UploadOptions { file?: { type: string; name: string } }
 /** `upload`'s answer: the asset, or why not (`E_ASSET_TYPE`,
  * `E_ASSET_TOO_LARGE`, `E_ASSET_BOUNDS`, `E_RATE_LIMIT`, `E_OFFLINE`, …). */
@@ -190,7 +195,7 @@ export interface Options {
   headers?: () => Record<string, string | undefined>;
   /** The dispatcher's `storage`, Exact's own (the web persists the partition
    * there); its `sqlite`, and its `fs` for `download`. */
-  storage: { readonly sqlite: { open(path: string): Promise<unknown> }; readonly fs?: { writeFile(path: string, data: Uint8Array): Promise<void> } };
+  storage: { readonly sqlite: { open(path: string): Promise<unknown> }; readonly fs?: { readFile?(path: string): Promise<ArrayBuffer | Uint8Array>; writeFile(path: string, data: Uint8Array): Promise<void> } };
   /** The dispatcher's `native`; absent on the web. */
   native?: NativeModule | null;
   /** Choose the web device when the dispatcher supplies an unrelated native
@@ -320,6 +325,21 @@ async function retirePartition(partition: Partition): Promise<void> {
 
 export class Snapback {
   private closed = false;
+  private releases = new ReleaseTracker();
+  /** Observed generation changes, from release() or ordinary traffic; unsubscribe on teardown. */
+  subscribeGeneration(listener: (generation: number) => void): () => void { return this.releases.subscribe(listener); }
+  /** Authenticated served catalog. Offline/malformed/stale catalogs keep every available() gate closed. */
+  async release(): Promise<ReleaseSnapshot> {
+    const check = this.fence(), headers = this.headers(), key = this.releases.identity(headers);
+    let response: Response;
+    try { response = await fetch(this.options.origin.replace(/\/+$/, '') + '/', {headers}); }
+    catch { check(); return {loading: true}; }
+    const value = await response.json().catch(() => null);
+    check();
+    this.releases.observe(response, key);
+    return this.releases.decode(response.ok || value?.denied ? value : null, key);
+  }
+
   private constructor(private held: Partition | undefined, readonly options: Options, private baseName = options.name) {}
   private get partition(): Partition {
     if (this.closed) throw new Error('Snapback4: this client is closed');
@@ -504,7 +524,7 @@ export class Snapback {
         if (partition?.origin === this.options.origin && partition.viewer === principal && !partition.cleaned)
           await retirePartition(partition);
       }
-      await this.release(true); this.closed = false; this.held = undefined;
+      await this.releaseHandle(true); this.closed = false; this.held = undefined;
       this.options.name = this.baseName;
       this.options.viewer = undefined;
     }
@@ -831,9 +851,9 @@ export class Snapback {
   /** Close this client. It refuses every call from now on and says it is not
    * open. The partition closes with the last client that has it open;
    * closing that one again retries a cleanup that failed. */
-  async close(): Promise<void> { await this.release(false); }
+  async close(): Promise<void> { await this.releaseHandle(false); }
 
-  private async release(force: boolean): Promise<void> {
+  private async releaseHandle(force: boolean): Promise<void> {
     const partition = this.held;
     if (!partition) { this.closed = true; return; }
     if (!this.closed) {
@@ -854,6 +874,41 @@ export class Snapback {
   async dismiss(ids?: string[]): Promise<void> {
     ok(await this.call(ids ? { op: 'dismiss', ids } : { op: 'dismiss' }));
   }
+
+  /** Durable bytes plus placing mutation, admitted offline after the first sync.
+   * The next sync round uploads and places them. The path may be removed after this resolves.
+   * argument names the omitted media argument; id is an optional stable intent key. */
+  async uploadAndPlace<A extends Args, R, K extends Extract<keyof A, string>>(op: MutationOp<A, R>, args: Omit<A, K>, path: string, now: number, options: UploadAndPlaceOptions & {argument: K}): Promise<Outcome<R>> {
+    const check = this.fence();
+    const selected = JSON.parse(JSON.stringify({args, options})) as {args: Args; options: UploadAndPlaceOptions};
+    const fs = this.options.storage?.fs;
+    if (!fs?.readFile) throw refusal('E_CLIENT', 'uploadAndPlace needs storage.fs.readFile under fs.read for the selected path');
+    await this.ready(); check();
+    const bytes = new Uint8Array(await fs.readFile(path)); check();
+    // Hex and the enclosing outbox record must fit Exact's 16 MiB storage/call boundary.
+    if (!bytes.length || bytes.length > 4 << 20) throw refusal('E_UPLOAD_BYTES', 'select a nonempty file of at most 4 MiB for Exact durable upload storage');
+    const upload = {bytes: Array.from(bytes, b => b.toString(16).padStart(2,'0')).join(''), argument: selected.options.argument,
+      ...(selected.options.file ? {file: selected.options.file} : {})};
+    return ok<Outcome<R>>(await this.call({op:'upload_and_place', name:op.name, args:selected.args as Json, now:clock(now), key:selected.options.id ?? crypto.randomUUID(), upload}));
+  }
+
+  /** Inspect a kept dependency or its terminal write; retry a blocked upload via retryUpload. */
+  async uploads(): Promise<UploadIntent[]> {
+    const entries = ok<Json[]>(await this.call({op:'queued'}));
+    return entries.filter(e => !!e && typeof e==='object' && !Array.isArray(e) && !!e.upload).map(e => {
+      const entry=e as Request, upload=entry.upload as Request;
+      return {id:entry.id, state:upload.state, why:upload.why ?? null, asset:upload.asset ?? null} as unknown as UploadIntent;
+    });
+  }
+  async retryUpload(id: string): Promise<void> {
+    ok(await this.call({op:'upload_state', id, viewer:this.partition.viewer, state:'queued'}));
+  }
+  /** Keep cancellation intent until the server acknowledges it; sync then retires local custody.
+   * Once placement dispatch began, recover its receipt instead of discarding it. */
+  async discardUpload(id: string): Promise<void> {
+    ok(await this.call({op:'upload_state', id, viewer:this.partition.viewer, state:'cancelling'}));
+  }
+
 
   /** Upload a file's bytes (`POST /assets`, under this client's `headers`):
    * an app file by path (the picked `app:/tmp/picked/…`; the host sends it,
@@ -916,8 +971,9 @@ export class Snapback {
   }
 
   private async exchange(fetchRequest: Request): Promise<Request> {
-    const { method, path, body } = fetchRequest as { method: string; path: string; body?: Json };
+    const { method, path, body, bodyBytes } = fetchRequest as { method: string; path: string; body?: Json; bodyBytes?: string };
     const headers = this.headers();
+    const releaseKey = this.releases.identity(headers);
     for (const key of Object.keys(headers)) if (key.toLowerCase() === 'x-snapback-device') delete headers[key];
     Object.assign(headers, fetchRequest.headers ?? {});
     if (body !== undefined) headers['content-type'] = 'application/json';
@@ -927,7 +983,8 @@ export class Snapback {
       headers['x-snapback-device'] = JSON.stringify(engine.ok);
     }
     try {
-      const response = await fetch(`${this.options.origin.replace(/\/+$/, '')}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      const response = await fetch(`${this.options.origin.replace(/\/+$/, '')}${path}`, { method, headers, ...(bodyBytes ? {body: Uint8Array.from(bodyBytes.match(/../g) ?? [], b => parseInt(b,16))} : body === undefined ? {} : { body: JSON.stringify(body) }) });
+      this.releases.observe(response, releaseKey);
       const text = await response.text();
       let parsed: Json = null;
       try { parsed = JSON.parse(text) as Json; } catch { parsed = null; }

@@ -369,6 +369,60 @@
       ]
     },
     {
+      "name": "sequences",
+      "_comment": "@ref LLP 1125 D2, D3: each `sequence NAME when gate key=key` and its `play(tracks, bpm=, from=, countIn=, clock=, clockOut=, ended=)`. The gate and key are a task's (LLP 1092 D9); the arguments are plan code the runner evaluates after each commit's settlement and compares by value. An omitted argument is a constant: `from` 0, `countIn` [], `clock` and `clockOut` \"\".",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "gated",
+          "codec": "bool"
+        },
+        {
+          "name": "gate",
+          "codec": "code"
+        },
+        {
+          "name": "keyed",
+          "codec": "bool"
+        },
+        {
+          "name": "key",
+          "codec": "code"
+        },
+        {
+          "name": "tracks",
+          "codec": "code"
+        },
+        {
+          "name": "bpm",
+          "codec": "code"
+        },
+        {
+          "name": "from",
+          "codec": "code"
+        },
+        {
+          "name": "count_in",
+          "codec": "code"
+        },
+        {
+          "name": "clock",
+          "codec": "code"
+        },
+        {
+          "name": "clock_out",
+          "codec": "code"
+        },
+        {
+          "name": "ended",
+          "codec": "opt:actions"
+        }
+      ]
+    },
+    {
       "name": "regions",
       "fields": [
         {
@@ -426,7 +480,10 @@
     {
       "name": "surfaces",
       "fields": [
-        { "name": "mode", "codec": "enum:SurfaceArgsMode" },
+        {
+          "name": "mode",
+          "codec": "enum:SurfaceArgsMode"
+        },
         {
           "name": "name",
           "codec": "str"
@@ -668,25 +725,46 @@
       "name": "hatches",
       "_comment": "@ref LLP 1075.003.000.001 §4.3: each hatch word app.json declares, with the platforms whose module handles it as a mask (bit 0 ios, 1 tvos, 2 macos, 3 web, 4 linux, 5 windows, 6 android; a plain list is every bit). A host calls a word only where its bit is set, so a platform taken off a word stops being called with the next bundle.",
       "fields": [
-        { "name": "word", "codec": "str" },
-        { "name": "platforms", "codec": "u16" }
+        {
+          "name": "word",
+          "codec": "str"
+        },
+        {
+          "name": "platforms",
+          "codec": "u16"
+        }
       ]
     },
     {
       "name": "texts",
       "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
       "fields": [
-        { "name": "key", "codec": "str" },
-        { "name": "text", "codec": "str" }
+        {
+          "name": "key",
+          "codec": "str"
+        },
+        {
+          "name": "text",
+          "codec": "str"
+        }
       ]
     },
     {
       "name": "locales",
       "_comment": "@ref LLP 1060 D3: one strings table per locale (BCP 47 name). Row 0 is the base; the rest are in name order. rtl is the CLDR script direction, compiled once. Table names remain for data-only strings. Only the keys the app's `t` calls name.",
       "fields": [
-        { "name": "name", "codec": "str" },
-        { "name": "rtl", "codec": "bool" },
-        { "name": "texts", "codec": "range:texts" }
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "rtl",
+          "codec": "bool"
+        },
+        {
+          "name": "texts",
+          "codec": "range:texts"
+        }
       ]
     }
   ],

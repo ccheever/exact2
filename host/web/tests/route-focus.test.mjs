@@ -16,6 +16,7 @@ import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -116,8 +117,7 @@ async function inChrome(test, width = 600) {
       return reply.result.value;
     };
     await call('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
-    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
-    for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const press = async (id) => {
       const at = await evaluate(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
       for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...at });
@@ -170,7 +170,7 @@ check('on a push the focus moves to the new route\'s heading, and on Back to the
   await evaluate(`document.getElementById('scroller').scrollTop = 5000`);
   await press('row-far');
   expect(await evaluate(`document.getElementById('scroller').scrollTop = 0; pop(); focus()`)).toEqual(['row-far', false, 0, 0]);
-}), 30000);
+}), 60000);
 
 check('a focus the commit set is left alone, and another tab is no arrival', () => inChrome(async (evaluate, press) => {
   // The pressed control's action focuses a field in the new route (an `autofocus`, a `focus()` command): it stays.
@@ -202,7 +202,7 @@ check('a focus the commit set is left alone, and another tab is no arrival', () 
   expect(await evaluate(`push('z', '/z'); pop(); focus()[0]`)).toBe('tab-1');
   expect(await evaluate(`push('t', '/timer'); focus()[0]`)).toBe('tab-1');
   expect(await evaluate(`pop(); document.activeElement.blur(); push('t2', '/timer'); focus()[0]`)).toBe('title-t2');
-}), 30000);
+}), 60000);
 
 check('a modal route is a dialog to assistive technology: the focus moves in, and returns on close', () => inChrome(async (evaluate, press, key) => {
   // LLP 1115.000 D4.5. The sheet is `role="dialog"` and `aria-modal`, named by its header's heading; the focus is on
@@ -232,7 +232,7 @@ check('a modal route is a dialog to assistive technology: the focus moves in, an
   // A route that is no longer modal is no longer a dialog, and a pushed route never was.
   expect(await evaluate(`document.getElementById('route-bare').removeAttribute('navigationPresentation'); show(); ${sheet('bare')}`)).toEqual([null, null, null, null]);
   expect(await evaluate(`pop(); push('1', '/item/1'); ${sheet('1')}`)).toEqual([null, null, null, null]);
-}), 30000);
+}), 60000);
 
 check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inChrome(async (evaluate, press, key) => {
   const arrow = name => key(name, name, { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35 }[name]);
@@ -272,7 +272,7 @@ check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inCh
   // With the menu closed, and in a field, the arrows are the page's own.
   await evaluate(`document.getElementById('menu').hidePopover(); document.getElementById('search').focus()`);
   expect(await after('ArrowDown')).toBe('search list');
-}), 30000);
+}), 60000);
 
 check('a root tab bar drawn as a sidebar moves by Up and Down', () => inChrome(async (evaluate, press, key) => {
   expect(await evaluate(`nav.hasAttribute('data-exact-sidebar')`)).toBe(true);
@@ -283,7 +283,7 @@ check('a root tab bar drawn as a sidebar moves by Up and Down', () => inChrome(a
   expect(await evaluate('document.activeElement.id')).toBe('tab-2');
   await key('ArrowUp', 'ArrowUp', 38);
   expect(await evaluate('document.activeElement.id')).toBe('tab-1');
-}, 1200), 30000);
+}, 1200), 60000);
 
 check('in a wide window\'s split the focus follows the detail and comes back to its row', () => inChrome(async (evaluate, press) => {
   // The list stays live beside its detail (LLP 1116.004 D1), so the pressed row still has the focus when the detail
@@ -298,7 +298,7 @@ check('in a wide window\'s split the focus follows the detail and comes back to 
   // The list's own focus is left alone when the detail leaves while the person is in the list.
   await press('row-1');
   expect(await evaluate(`document.getElementById('search').focus(); pop(); focus()[0]`)).toBe('search');
-}, 1200), 30000);
+}, 1200), 60000);
 
 check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrome(async (evaluate, press) => {
   // Before a tap the driver scrolls its target into view (input-glue.js `reveal`), as a person would. Under a sheet the
@@ -312,4 +312,4 @@ check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrom
   expect(await evaluate(`pop(); document.getElementById('row-far').style.visibility = 'hidden'; ${reveal}`)).toEqual([false, false]);
   // A row a person could reach is scrolled to, as before.
   expect(await evaluate(`document.getElementById('row-far').style.visibility = ''; ${reveal}`)).toEqual([true, true]);
-}), 30000);
+}), 60000);

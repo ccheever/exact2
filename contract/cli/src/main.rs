@@ -1,7 +1,7 @@
 //! `contract build <file.contract> [-o <file.plan>] [--json] [--map]` — compile, print a
 //! one-line summary, write the bytes. Baking needs the app's data crate and
 //! happens in the app's own build (see `apps/caltrain`), not here.
-//! `contract types <file.contract> [-o <app.d.ts>]` — generate TypeScript's
+//! `contract types <file.contract> [-o <app.d.ts>] [--check]` — generate TypeScript's
 //! data-source signatures from the same plan tables the executor reads.
 //! `contract rust <file.contract> [-o <shapes.rs>]` — the same shapes as Rust
 //! structs with their `Value` conversions, for a data crate's `build.rs`.
@@ -10,6 +10,7 @@
 
 use std::process::ExitCode;
 
+mod ambient;
 mod build;
 mod diff;
 mod tamber;
@@ -25,7 +26,7 @@ const USAGE: &str = "usage:
   contract sources <file.contract>
   contract fmt [--check | --stdout] <file.contract>
   contract fmt --uses <file.contract>
-  contract types <file.contract> [-o <app.d.ts>]
+  contract types <file.contract> [-o <app.d.ts>] [--check]
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
   contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
@@ -188,7 +189,22 @@ fn types(
     out: &str,
     generate: fn(&exact_plan::Plan) -> Result<String, String>,
 ) -> ExitCode {
-    let usage = format!("usage: contract {command} <file.contract> [-o <{out}>]");
+    let usage = format!(
+        "usage: contract {command} <file.contract> [-o <{out}>]{}",
+        if command == "types" { " [--check]" } else { "" }
+    );
+    let checks = args.iter().filter(|a| a.as_str() == "--check").count();
+    if checks > 1 || (checks > 0 && command != "types") {
+        eprintln!("{usage}");
+        return ExitCode::from(2);
+    }
+    let check = checks == 1;
+    let args: Vec<_> = args
+        .iter()
+        .filter(|a| a.as_str() != "--check")
+        .cloned()
+        .collect();
+    let args = args.as_slice();
     if matches!(args, [flag] if flag == "--help" || flag == "-h") {
         println!("{usage}");
         return ExitCode::SUCCESS;
@@ -215,6 +231,19 @@ fn types(
         .and_then(|(plan, _)| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
+            if check {
+                let default = format!("{}.d.ts", args[0]);
+                let output = args.get(2).unwrap_or(&default);
+                if std::fs::read(output).ok().as_deref() != Some(declarations.as_bytes()) {
+                    eprintln!(
+                        "types: {output} is missing or stale; run contract types {} -o {output}",
+                        args[0]
+                    );
+                    return ExitCode::from(1);
+                }
+                eprintln!("types: {output} is current");
+                return ExitCode::SUCCESS;
+            }
             if let Some(output) = args.get(2) {
                 if let Err(error) = std::fs::write(output, declarations) {
                     eprintln!("{output}: {error}");

@@ -2,7 +2,9 @@
 //! `every` or `frames` from mount — or, for a task with a gate or a key
 //! (LLP 1092 D7–D10), as `gated`, its gate and key compiled to functions
 //! the commit's gate step calls (schedule.js). Each carries the task's name
-//! for the agent's `state.tasks`.
+//! for the agent's `state.tasks`. Then each `sequence` (LLP 1125 D2), its
+//! gate, key and `play` arguments compiled to functions transport.js's
+//! gate step calls, after the `exactTransport` readers' fields.
 
 use super::Em;
 use crate::code::{self, Scope};
@@ -43,4 +45,69 @@ pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// The `exactTransport` readers and every sequence, for transport.js;
+/// whether the module imports it.
+pub(super) fn sequences(em: &mut Em<'_>, body: &mut String) -> Result<bool, String> {
+    use exact_runner::transport::{FIELDS, SOURCE};
+    let plan = em.plan;
+    let mut readers = Vec::new();
+    for r in plan
+        .resources
+        .iter()
+        .filter(|r| plan.str(r.source) == SOURCE)
+    {
+        let resource = plan.str(r.name);
+        let t = &plan.types[r.ty.0 as usize];
+        if t.kind != exact_plan::TypeKind::Record {
+            return Err(format!("resource {resource}: `{SOURCE}` answers a record"));
+        }
+        let mut names = Vec::new();
+        for f in t.fields.iter() {
+            let field = plan.str(plan.fields[f.0 as usize].name);
+            if !FIELDS.contains(&field) {
+                return Err(format!("resource {resource}: `{SOURCE}` has no `{field}`"));
+            }
+            names.push(serde_json::to_string(field).unwrap());
+        }
+        readers.push(format!(
+            "{}:[{}]",
+            serde_json::to_string(resource).unwrap(),
+            names.join(",")
+        ));
+    }
+    if plan.sequences.is_empty() && readers.is_empty() {
+        return Ok(false);
+    }
+    let _ = write!(body, "$transport({{{}}});", readers.join(","));
+    let top = Scope::default();
+    // One call for them all: transport.js reads every gate before it arms any.
+    let mut entries = Vec::new();
+    for q in plan.sequences.iter() {
+        let name = serde_json::to_string(plan.str(q.name)).unwrap();
+        let mut f = |c| {
+            code::expression(plan, plan.code(c), &top, &mut em.uses)
+                .map_err(|e| format!("sequence {name}: {e}"))
+        };
+        let gate = f(q.gate)?;
+        let key = if q.keyed {
+            format!("()=>{}", f(q.key)?)
+        } else {
+            "0".into()
+        };
+        let args = [q.tracks, q.bpm, q.from, q.count_in, q.clock, q.clock_out]
+            .into_iter()
+            .map(&mut f)
+            .collect::<Result<Vec<_>, _>>()?;
+        let ended = q.ended.map_or("null".into(), |a| format!("a_{}", a.0));
+        entries.push(format!(
+            "[()=>{gate},{key},()=>[{}],{ended},{name}]",
+            args.join(",")
+        ));
+    }
+    if !entries.is_empty() {
+        let _ = write!(body, "$sequence([{}]);", entries.join(","));
+    }
+    Ok(true)
 }

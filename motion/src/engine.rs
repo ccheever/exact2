@@ -17,7 +17,7 @@
 
 use crate::property::{Property, Value};
 use crate::transition::{Curve, Running, Transition, TransitionError, Transitions};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
 mod animate;
@@ -28,6 +28,7 @@ mod links;
 pub use links::EngineLinks;
 mod path;
 mod played;
+mod slots;
 pub use played::{PlayedCurve, PlayedTransition};
 mod timeline;
 pub use animate::AnimationPlay;
@@ -80,8 +81,9 @@ pub enum EngineError {
 /// receipt sync), and almost all are settled: presented at their target,
 /// nothing running, no hold. A settled slot is its target alone; the rest
 /// lives in a box made when the presentation leaves the target and dropped
-/// when it settles again. A list's peak of nodes is then 56 bytes a
-/// property here, not 104. Readers see the same values either way.
+/// when it settles again. One settled at its property's identity is not
+/// even that, but a bit ([`slots::Slots`]). Readers see the same values
+/// either way.
 #[derive(Debug, Clone, PartialEq)]
 struct Slot {
     target: Value,
@@ -253,11 +255,7 @@ pub struct Engine {
     // Keys whose running curve may be pending, for the frame that starts them.
     pending: BTreeSet<(u64, Property)>,
     transitions: BTreeMap<u64, Transitions>,
-    slots: HashMap<(u64, Property), Slot, BuildHasherDefault<SlotHasher>>,
-    // Which properties each node has a slot for, a bit a property: removing
-    // a node removes those slots, not a probe for every property there is
-    // (a list row rebound forgets each of its nodes, most holding four).
-    properties: HashMap<u64, u32, BuildHasherDefault<SlotHasher>>,
+    slots: slots::Slots,
     // Observed targets provide CSS's before-change style, but only live curves
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
@@ -314,12 +312,7 @@ impl Engine {
     /// holding more than twice what it needs shrinks, so a steady one never
     /// churns.
     pub fn trim(&mut self) {
-        if self.slots.capacity() > 2 * self.slots.len().max(256) {
-            self.slots.shrink_to_fit();
-        }
-        if self.properties.capacity() > 2 * self.properties.len().max(256) {
-            self.properties.shrink_to_fit();
-        }
+        self.slots.trim();
         if self.dirty.capacity() > 2 * self.dirty.len().max(256) {
             self.dirty.shrink_to_fit();
         }
@@ -376,7 +369,6 @@ impl Engine {
 
     /// Keep `slot` for `key`, noting that the node holds the property.
     fn keep(&mut self, key: (u64, Property), slot: Slot) {
-        *self.properties.entry(key.0).or_insert(0) |= 1 << key.1 as u32;
         self.slots.insert(key, slot);
     }
 
@@ -396,7 +388,7 @@ impl Engine {
                 .next()
                 .is_none_or(|key| key.0 != node)
         };
-        let mut held = self.properties.get(&node).copied().unwrap_or(0);
+        let mut held = self.slots.held(node);
         let mut settled = true;
         while held != 0 && settled {
             let property = Property::from_slot(held.trailing_zeros());
@@ -455,12 +447,7 @@ impl Engine {
         for key in pending {
             self.pending.remove(&key);
         }
-        let mut held = self.properties.remove(&node).unwrap_or(0);
-        while held != 0 {
-            let property = Property::from_slot(held.trailing_zeros());
-            held &= held - 1;
-            self.slots.remove(&(node, property));
-        }
+        self.slots.remove_node(node);
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -474,12 +461,6 @@ impl Engine {
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
         self.pending.remove(&(node, property));
-        if let Some(held) = self.properties.get_mut(&node) {
-            *held &= !(1 << property as u32);
-            if *held == 0 {
-                self.properties.remove(&node);
-            }
-        }
         self.slots.remove(&(node, property)).is_some()
     }
 
@@ -502,6 +483,12 @@ impl Engine {
     }
 
     pub(super) fn observe_full(&mut self, change: Change) -> Result<(), EngineError> {
+        let observed = self.observe_slot(change);
+        self.slots.compact(&(change.node, change.property));
+        observed
+    }
+
+    fn observe_slot(&mut self, change: Change) -> Result<(), EngineError> {
         validate_value(change.property, change.value)?;
         if let Some(velocity) = change.velocity {
             validate_value(change.property, velocity)?;
@@ -522,6 +509,13 @@ impl Engine {
         .filter(|t| t.starts())
         .map(|t| t.governing(change.property));
 
+        // An unchanged settled slot (most of a touched node's) changes
+        // nothing; asking for it mutably would make an entry of a bit.
+        let unchanged = |slot: &Slot| slot.live.is_none() && slot.target == change.value;
+        if self.slots.get(&key).is_some_and(unchanged) {
+            self.played.remove(&key);
+            return Ok(());
+        }
         let Some(slot) = self.slots.get_mut(&key) else {
             self.keep(key, Slot::settled(change.value));
             self.dirty.insert(key);
@@ -628,15 +622,16 @@ impl Engine {
     pub fn observe_settled(&mut self, change: Change) -> Result<(), EngineError> {
         validate_value(change.property, change.value)?;
         let key = (change.node, change.property);
-        match self.slots.get_mut(&key) {
-            Some(slot) if slot.running().is_none() && slot.owner().is_none() => {
-                slot.set_target(change.value);
-                slot.set_presented(change.value);
-                self.played.remove(&key);
-                Ok(())
-            }
-            _ => self.observe(change),
+        let idle = |slot: &Slot| slot.running().is_none() && slot.owner().is_none();
+        if !self.slots.get(&key).is_some_and(idle) {
+            return self.observe(change);
         }
+        let slot = self.slots.get_mut(&key).expect("an observed property");
+        slot.set_target(change.value);
+        slot.set_presented(change.value);
+        self.slots.compact(&key);
+        self.played.remove(&key);
+        Ok(())
     }
 
     /// Move the clock to `now` and sample every running transition there.
@@ -864,8 +859,15 @@ mod tests {
         assert!(engine.frame().is_empty());
         assert_eq!(engine.slots.len(), 4096);
         assert_eq!(engine.settle_time(), None);
-        // A settled slot is its target alone.
-        assert!(engine.slots.values().all(|slot| slot.live.is_none()));
+        // A settled slot is its target alone, and one settled at its
+        // identity is a bit.
+        assert!(engine.slots.entries().all(|slot| slot.live.is_none()));
+        assert_eq!(engine.slots.entry_count(), 0);
+        // Observing the same values again leaves them bits.
+        for node in 0..4096 {
+            engine.observe(change(node, 1.0)).unwrap();
+        }
+        assert_eq!(engine.slots.entry_count(), 0);
         assert_eq!(std::mem::size_of::<Slot>(), 48);
 
         engine

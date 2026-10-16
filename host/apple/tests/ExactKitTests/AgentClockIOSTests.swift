@@ -264,5 +264,35 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(session.clock ?? 0, r.wall, "the clock stays at the wall")
         XCTAssertTrue(r.held, "a hold after it is not refused (before §12: ClockWentBackwards)")
     }
+
+    /// The app's own native motion on the wall clock (LLP 1012, amended
+    /// 2026-10-16): `clock settle` waits for it once, up to 1.5 s, and says
+    /// `settled: false`, reason `motion`, when it runs past that; a seek's
+    /// steps wait for none, its last for up to the whole jump.
+    func testTheClockWaitsForTheAppsOwnMotionOnceAndSaysWhenItRunsOn() throws {
+        let session = try booted()
+        let window = try XCTUnwrap(self.window)
+        let agent = Agent(session: session)
+        _ = agent.clock(["settle": true])
+        let fade = UIView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+        window.addSubview(fade)
+        defer { fade.layer.removeAllAnimations(); fade.removeFromSuperview() }
+        UIView.animate(withDuration: 4) { fade.alpha = 0 }
+        var t = Date()
+        let settled = agent.clock(["settle": true])
+        XCTAssertEqual(settled["settled"] as? Bool, false, "\(settled)")
+        XCTAssertEqual(settled["reason"] as? String, "motion")
+        XCTAssertLessThan(Date().timeIntervalSince(t), 3, "one 1.5 s wait, not one per round")
+        let at = settled["clock"] as? Double ?? 0
+        t = Date()
+        _ = agent.clock(["to": at + 1000, "step": true])
+        XCTAssertLessThan(Date().timeIntervalSince(t), 0.5, "a step waits for nothing")
+        t = Date()
+        let jumped = agent.clock(["to": at + 1100, "jump": 300.0])
+        XCTAssertGreaterThan(Date().timeIntervalSince(t), 0.25, "the last step waits for up to the whole jump")
+        XCTAssertLessThan(Date().timeIntervalSince(t), 1, "and no longer")
+        XCTAssertEqual(jumped["settled"] as? Bool, false, "and says it still runs: \(jumped)")
+        XCTAssertEqual(jumped["reason"] as? String, "motion")
+    }
 }
 #endif

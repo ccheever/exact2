@@ -1401,11 +1401,7 @@ fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
                 id: "type-child-resource",
                 // The rule and the root lead (chess #3): a root written
                 // below its helpers reads as the child.
-                message: format!(
-                    "only the root, the root file's first component (`{root}`), may declare a `resource`, `mutation`, or `task`; `{child}` is a child, which may own state, derives, and actions. Move this declaration into `{root}` and pass what `{child}` needs as props; or, if `{child}` is the app, move it above `{root}`",
-                    root = file.components[0].name,
-                    child = c.name,
-                ),
+                message: tasks::child_owns(&file.components[0].name, c),
                 span,
             });
         }

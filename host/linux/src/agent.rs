@@ -245,9 +245,12 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 // The top layer's open surface (LLP 1115.001 D10): each row's
                 // authored node and its box in the surface's window, which
                 // `tap` takes by that node. No shell makes windows here.
-                let surface = match p.has_windows() {
-                    true => p.surface_json(),
-                    false => serde_json::json!({"unavailable": true}),
+                let surface = if p.neutral_alerts() {
+                    p.alert_json()
+                } else if p.has_windows() {
+                    p.surface_json()
+                } else {
+                    serde_json::json!({"unavailable": true})
                 };
                 s.push_str(&format!(",\"surface\":{surface}"));
                 // The shell's bars (LLP 1115.001 D11): each target's authored

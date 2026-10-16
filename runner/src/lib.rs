@@ -76,9 +76,11 @@ pub mod store;
 pub mod strings;
 pub mod surface_record;
 pub mod time;
+pub mod transport;
 pub mod uses;
 pub mod viewport;
 pub mod vm;
+pub mod wakelock;
 
 pub use delivery::Delivery;
 pub use exact_canvas;

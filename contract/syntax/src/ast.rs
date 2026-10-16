@@ -675,6 +675,8 @@ pub struct Component {
     pub actions: Vec<Action>,
     /// `task` declarations.
     pub tasks: Vec<Task>,
+    /// `sequence` declarations (LLP 1125 D2), the root's only.
+    pub sequences: Vec<crate::sequence::Sequence>,
     /// The view's top-level nodes.
     pub view: Vec<Node>,
     /// Where.

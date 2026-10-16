@@ -179,3 +179,39 @@ impl Targets {
         }
     }
 }
+
+/// A direct frame's 4x MSAA colour (the target's format) and depth, at the
+/// target's own size: the forward pass resolves into the target itself. Both are
+/// transient: neither is stored past the pass.
+pub(crate) struct DirectTargets {
+    pub format: wgpu::TextureFormat,
+    pub size: wgpu::Extent3d,
+    pub color: wgpu::TextureView,
+    pub depth: wgpu::TextureView,
+}
+
+impl DirectTargets {
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: wgpu::Extent3d) -> Self {
+        let texture = |format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("game direct"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 4,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TRANSIENT_ATTACHMENT,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        };
+        Self {
+            format,
+            size,
+            color: texture(format),
+            depth: texture(wgpu::TextureFormat::Depth32Float),
+        }
+    }
+}

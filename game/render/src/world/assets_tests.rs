@@ -216,3 +216,29 @@ fn removal_reuse_rejects_changed_models_looks_revisions_and_recycled_entities() 
     assert_ne!(replacement, c);
     compare(&mut assets, &w, &mut r, true);
 }
+
+#[test]
+fn sparse_model_removals_keep_entity_order_across_unloaded_models() {
+    let mut w = World::new(60, 0);
+    let ids: Vec<_> = (0..96)
+        .map(|i| {
+            w.spawn((
+                Transform::default(),
+                Mesh::asset(if i % 3 == 0 { "missing" } else { "model" }),
+            ))
+        })
+        .collect();
+    let (mut assets, mut r) = (Assets::default(), Recording::default());
+    compare(&mut assets, &w, &mut r, true);
+    for residue in [1, 4, 0, 3, 2] {
+        for (i, &entity) in ids.iter().enumerate() {
+            if i % 5 == residue {
+                w.insert(entity, Visible(false));
+            }
+        }
+        compare(&mut assets, &w, &mut r, false);
+    }
+    assert!(assets.records.is_empty());
+    assert!(assets.entities.is_empty());
+    assert!(assets.ranges.is_empty());
+}

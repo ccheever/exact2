@@ -12,6 +12,7 @@ pub mod dispatch;
 mod journal;
 pub mod partition;
 mod round;
+mod uploads;
 
 pub use client::{Client, Config, Core, Fetch, Reply, Step, NEEDS_BACKEND};
 pub use dispatch::dispatch;

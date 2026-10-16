@@ -538,7 +538,8 @@ pub(crate) fn bind_axes(file: &File) {
 pub(crate) fn mode_pins(a: &Attr) -> Result<(), LowerError> {
     let mut literals = Vec::new();
     scan::literal_leaves(&a.value, &mut literals);
-    for (text, span) in literals {
+    // An empty pin declares nothing: the tuple around (`StyleValue::text_unsets`).
+    for (text, span) in literals.into_iter().filter(|(t, _)| !t.trim().is_empty()) {
         AXES.with(|axes| check_pins(&text, &axes.borrow()))
             .map_err(|message| LowerError {
                 id: "tamber-mode",

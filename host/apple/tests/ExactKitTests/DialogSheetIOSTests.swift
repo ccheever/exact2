@@ -289,6 +289,65 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertEqual(closed, [20])
     }
 
+    func testAConfirmationOverASheetMovesTheModalBoundary() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        p.dialogCommand("showModal", "form")
+        let sheet = try sheet(controller)
+        settle { !p.menus.inTransition }
+        let previous = p.openTopLayer
+        p.dialogCommand("showModal", "confirm")
+        settle { !p.menus.inTransition }
+        XCTAssertTrue(sheet.presentedViewController is UIAlertController)
+        let open = p.openTopLayer
+        XCTAssertEqual(open.frames.last?.0, 20)
+        XCTAssertEqual(open.modal, open.frames.count - 1)
+        p.dialogCommand("close", "confirm")
+        settle { !p.menus.inTransition }
+        let restored = p.openTopLayer
+        XCTAssertEqual(restored.modal, previous.modal)
+        XCTAssertEqual(restored.frames.map { $0.0 }, previous.frames.map { $0.0 })
+    }
+
+    func testAConfirmationPopoverKeepsThePageOrSheetsModalBoundary() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        p.apply(wireBatch([
+            ["op": "props", "id": 20, "set": ["popover": "auto"], "clear": []],
+            ["op": "props", "id": 22, "set": ["command": "hide-popover"], "clear": []],
+            ["op": "props", "id": 23, "set": ["command": "hide-popover"], "clear": []],
+        ]))
+        for overSheet in [false, true] {
+            if overSheet {
+                p.apply(wireBatch([["op": "children", "id": 1, "ids": [8, 7, 2]],
+                                  ["op": "children", "id": 2, "ids": [3, 4, 5, 20]]]))
+                p.dialogCommand("showModal", "form")
+                settle { !p.menus.inTransition }
+            }
+            let previous = p.openTopLayer
+            let host = overSheet ? try sheet(controller) : controller
+            func checkBoundary() {
+                let open = p.openTopLayer
+                XCTAssertEqual(open.frames.last?.0, 20)
+                XCTAssertEqual(open.modal, previous.modal, "a confirmation popover adds no modal boundary")
+            }
+            p.menus.action("showPopover", ["confirm"])
+            settle { !p.menus.inTransition }
+            XCTAssertTrue(host.presentedViewController is UIAlertController)
+            checkBoundary()
+            p.menus.action("hidePopover", ["confirm"])
+            XCTAssertEqual(p.openTopLayer.frames.map { $0.0 }, previous.frames.map { $0.0 })
+            p.menus.action("togglePopover", ["confirm"])
+            checkBoundary()
+            settle { !p.menus.inTransition }
+            XCTAssertTrue(host.presentedViewController is UIAlertController)
+            checkBoundary()
+            p.menus.action("hidePopover", ["confirm"])
+            settle { !p.menus.inTransition }
+            XCTAssertEqual(p.openTopLayer.modal, previous.modal)
+        }
+    }
+
     /// Capture without presenting: UIKit may deliver the action callback
     /// after dismissing the alert. This tests that path without a scene.
     private final class DismissedAlertController: UIViewController {

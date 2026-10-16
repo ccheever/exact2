@@ -296,10 +296,14 @@ extension Presenter {
     /// Open top-layer views in viewport points, back to front: the presented
     /// routes a window shows (LLP 1123 D2), then the menus and popovers above
     /// them; a native confirmation has no frame of its own. And the index of
-    /// the top presentation's first route (`OwnerBlocks.presented`).
+    /// the top presentation's first route, or a modal confirmation above it.
     package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
         let routes = owners.presented
-        return (routes.frames + menus.presented.map { ($0.id, $0.topLayerFrame(in: viewport)) } + (menus.nativeConfirmation.map { [($0.id, CGRect.zero)] } ?? []), routes.modal)
+        let frames = routes.frames + menus.presented.map { ($0.id, $0.topLayerFrame(in: viewport)) }
+        if let confirmation = menus.nativeConfirmation {
+            return (frames + [(confirmation.id, CGRect.zero)], menus.openModally(confirmation) == true ? frames.count : routes.modal)
+        }
+        return (frames, routes.modal)
     }
     package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
 

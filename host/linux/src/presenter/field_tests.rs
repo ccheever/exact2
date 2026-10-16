@@ -3,7 +3,7 @@
 //! edits, moves and `select` events, `setSelectionRange` on an unfocused
 //! field; a radio's exclusive check, its arrows and Space, a refused
 //! action's snap back, and an unbound group's own state.
-use super::field::{byte_at, delete, moved, replace};
+use super::field::{byte_at, delete, fit, moved, replace};
 use super::*;
 use exact_runner::{FieldSelection, SelectionDirection, Value};
 
@@ -745,6 +745,122 @@ fn a_select_handler_that_moves_the_focus_takes_the_agents_insertion_with_it() {
         assert!(!reply.contains("\"error\""), "{reply}");
         assert_eq!(text(&p, "result"), expected, "to the button: {to_button}");
     }
+}
+
+#[test]
+fn the_agents_text_is_cut_to_the_room_maxlength_leaves_at_the_caret() {
+    // The select handler leaves a caret at the end, so the insertion keeps
+    // the value: Chrome cuts it to maxlength less the kept code units, and
+    // with no room fires `beforeinput` (the whole text) but no `input`.
+    for (body, typed, expected) in [
+        ("hello", "x", "hello|before:x|"),
+        ("hel", "xyz", "helxy|before:xyz|input:xy|"),
+    ] {
+        let end = body.len();
+        let source = format!(
+            r#"component App
+  state body = "{body}"
+  state events = ""
+  action before(e: InputEvent)
+    events = `${{events}}before:${{match e.data {{ case some(data) => data, case none => "null" }}}}|`
+  action edited(v: string, e: InputEvent)
+    body = v
+    events = `${{events}}input:${{match e.data {{ case some(data) => data, case none => "null" }}}}|`
+  action selected(e: InputEvent)
+    setSelectionRange("editor", {end}, {end})
+  view
+    column
+      textarea id="editor" testId="editor" maxlength=5 value=body beforeinput=before input=edited select=selected
+      text `${{body}}|${{events}}` testId="result"
+"#
+        );
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 600.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none());
+        p.run_commands(<()>::default);
+        let editor = id(&p, "editor");
+        let reply = crate::agent::handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{editor},"text":"{typed}"}}"#),
+        );
+        assert!(!reply.contains("\"error\""), "{reply}");
+        assert_eq!(text(&p, "result"), expected, "{body} + {typed}");
+    }
+}
+
+#[test]
+fn an_insertion_fits_the_room_the_replaced_selection_leaves() {
+    let range = |start, end| FieldSelection {
+        start,
+        end,
+        direction: SelectionDirection::None,
+    };
+    assert_eq!(fit("xyz", "hel", range(3, 3), Some(5)), "xy");
+    assert_eq!(fit("x", "hello", range(5, 5), Some(5)), "");
+    assert_eq!(
+        fit("x", "toolong", range(7, 7), Some(5)),
+        "",
+        "over the limit, it never grows"
+    );
+    assert_eq!(fit("xy", "toolong", range(0, 7), Some(5)), "xy");
+    assert_eq!(
+        fit("😀", "hel", range(3, 3), Some(4)),
+        "",
+        "a surrogate pair is not split"
+    );
+    // Inside a surrogate pair `replace` removes nothing, so nothing is room.
+    assert_eq!(fit("x", "😀", range(0, 1), Some(2)), "");
+    assert_eq!(fit("xyz", "hel", range(3, 3), None), "xyz");
+}
+
+#[test]
+fn a_focus_handler_that_redirects_once_loses_the_focus_to_select_all() {
+    // Chromium's `select()` focuses the field it selects: the editor takes
+    // the focus back (its handler hears `focus` again) and the text.
+    let source = r#"component App
+  state body = "old"
+  state note = "n"
+  state focuses = 0
+  action edited(v: string)
+    body = v
+  action noted(v: string)
+    note = v
+  action focused
+    focuses = focuses + 1
+    if focuses == 0
+      focus("other")
+  view
+    column
+      textarea id="editor" testId="editor" value=body input=edited focus=focused
+      input id="other" testId="other" value=note input=noted
+      text `${body}|${note}|${focuses}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    p.run_commands(<()>::default);
+    let editor = id(&p, "editor");
+    let reply = crate::agent::handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{editor},"text":"x"}}"#),
+    );
+    assert!(!reply.contains("\"error\""), "{reply}");
+    assert_eq!(p.focus(), Some(editor));
+    assert_eq!(text(&p, "result"), "x|n|2");
 }
 
 #[test]

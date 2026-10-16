@@ -10,6 +10,12 @@ pub(super) struct Resolved {
     pub retained: bool,
     /// Forward variant: shadowed + 2 × fogged.
     pub variant: usize,
+    /// Primitive forward bits beyond `variant` (pipeline.rs `LEAN`, `EARLY`, `DIRECT`,
+    /// `UNIFORM`).
+    pub primitive: usize,
+    /// Nothing reads the HDR image after the opaque pass: it draws tonemapped,
+    /// resolving into the target, and no tone pass follows.
+    pub direct: bool,
     /// CPU stage times: prepare, compute, opaque, background, surface, post.
     pub times: [Option<f64>; 6],
     /// Engine draws beyond the retained per-batch count.
@@ -191,6 +197,43 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         uniform[31] *= self.environment.ambient_scale();
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials());
+        // Direct: no hook, bloom, SSAO, scene copy, retained depth, quad, translucent
+        // or model draws, so nothing needs the HDR colour after the opaque pass. A
+        // tiling GPU then keeps half the bytes per MSAA sample and skips a full-screen
+        // read and write (on an Adreno 620, 6 ms of a 32,000-cube frame).
+        let direct = self.allow_direct
+            && !H::ENABLED
+            && !scene_copy
+            && !retained
+            && self.bloom.is_none()
+            && frame.ambient_occlusion.is_none()
+            && self.quads.draws.is_empty()
+            && self
+                .cull
+                .groups
+                .iter()
+                .all(|g| self.model_material(g.batch).is_none());
+        if direct {
+            let format = target.texture().format();
+            let extent = target.texture().size();
+            if self
+                .direct_targets
+                .as_ref()
+                .is_none_or(|t| t.format != format || t.size != extent)
+            {
+                self.direct_targets = Some(crate::buffers::DirectTargets::new(
+                    &self.device,
+                    format,
+                    extent,
+                ));
+                self.texture_creations += 2;
+            }
+        }
+        let lean = self.lights.info[0] == 0. && frame.fill.is_none() && self.grids == 0;
+        let early = self.pipelines.early && !self.lights.fading;
+        let e = &frame.environment;
+        let uniform =
+            frame.environment_map.is_none() && e.zenith == e.horizon && e.horizon == e.ground;
         let mut state = Resolved {
             size,
             needs,
@@ -198,6 +241,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             retained,
             variant: usize::from(self.shadows.is_some())
                 + 2 * usize::from(frame.environment.fog.is_some()),
+            primitive: if lean { crate::pipeline::LEAN } else { 0 }
+                | if early { crate::pipeline::EARLY } else { 0 }
+                | if direct { crate::pipeline::DIRECT } else { 0 }
+                | if uniform { crate::pipeline::UNIFORM } else { 0 },
+            direct,
             times,
             draws: 0,
         };
@@ -232,7 +280,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.encode_local_culls(encoder);
         state.draws += self.encode_shadows(encoder, frame, hooks.materials());
         state.draws += self.encode_local_shadows(encoder, hooks.materials(), frame.timestamps);
-        self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
+        self.encode_forward(encoder, target, &mut state, frame, hooks, &view)?;
         if self.quads.soft_active() {
             self.encode_translucent(encoder, &mut state, frame);
         }
@@ -267,7 +315,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         } else {
             self.ssao = None;
         }
-        self.encode_post(encoder, target, &mut state, frame, hooks, &view)?;
+        if !state.direct {
+            self.encode_post(encoder, target, &mut state, frame, hooks, &view)?;
+        }
         self.cull.copy_counts(&self.device, encoder);
         Ok(self.finish_stats(hooks, &state))
     }

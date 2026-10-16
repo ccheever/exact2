@@ -235,7 +235,7 @@ function fixture(agentMode = true) {
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),
-    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, inflight: new Set(), mediaAttaching: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
+    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, REPLACE_SETTLE_MS: 1000, inflight: new Set(), mediaAttaching: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
     // The page's own wait (http-body.js) races the deadline; here a request marked `stuck` is what a passed deadline finds.
     waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
     memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
@@ -975,18 +975,21 @@ test('initial flow loading cannot hold the first frame or module activation', as
   await boot;
 });
 
-test('module replacement drains current requests before swapping and rechecks supersession', async () => {
-  for (const result of ['accept', 'superseded', 'timeout']) {
-    const f = fixture(false), entered = deferred(), drained = deferred();
-    let current = true, swaps = 0;
+test('module replacement waits for requests, rechecks supersession; the dev loop swaps after its settle window, an update refuses', async () => {
+  for (const [result, letGo] of [['accept', true], ['superseded', true], ['pending', true], ['accept', false], ['pending', false]]) {
+    const f = fixture(false), entered = deferred(), drained = deferred(), lines = [];
+    let current = true, swaps = 0, flag = null;
     f.waitForInflight = async deadline => {
-      expect(deadline).toBe(20010);
+      expect(deadline).toBe(letGo ? 1010 : 20010);
       entered.resolve();
       return drained.promise;
     };
+    f.log = line => lines.push(line);
     f.setInputReady = value => { f.inputReady = value; };
-    f.wasm.exact_boot_module = () => { swaps++; return '{"ops":[],"timers":true}'; };
-    const candidate = {realm:{id:1},receipt:new Uint8Array([1])};
+    f.wasm.exact_boot_module = (...args) => { swaps++; flag = args[3]; return '{"ops":[],"timers":true}'; };
+    // An app that always has a request out (LLP 1007 §6): it never drains.
+    if (result === 'pending') f.inflight.add(new Promise(() => {}));
+    const candidate = {realm:{id:1},receipt:new Uint8Array([1]),letGo};
     const update = f.boot(new Uint8Array([1]), null, () => current, candidate);
     const outcome = update.then(value => ({value}), error => ({error}));
     await entered.promise;
@@ -994,18 +997,21 @@ test('module replacement drains current requests before swapping and rechecks su
     expect(f.views.size).toBe(1);
     expect(f.inputReady).toBe(true);
     if (result === 'superseded') current = false;
-    drained.resolve(result !== 'timeout');
+    drained.resolve(result !== 'pending');
     const reply = await outcome;
-    if (result === 'accept') {
-      expect(reply.error).toBeUndefined();
-      expect(swaps).toBe(1);
-      expect(f.activeModule).toBe(candidate);
-    } else {
+    if (result === 'superseded' || result === 'pending' && !letGo) {
       expect(swaps).toBe(0);
       expect(f.views.size).toBe(1);
       expect(f.activeModule).toBeNull();
-      if (result === 'timeout') expect(String(reply.error)).toContain('in-flight requests');
-      else expect(reply.value).toBeNull();
+      if (letGo) expect(reply.value).toBeNull();
+      else expect(String(reply.error)).toContain('in-flight requests');
+    } else {
+      expect(reply.error).toBeUndefined();
+      expect(swaps).toBe(1);
+      expect(flag).toBe(letGo ? 1 : 0);
+      expect(f.activeModule).toBe(candidate);
+      expect(f.inflight.size).toBe(0);
+      expect(lines.filter(l => l.startsWith('module replacement'))).toEqual(result === 'pending' ? ['module replacement let go of 1 request still in flight after 1000 ms'] : []);
     }
   }
 });
@@ -1325,9 +1331,9 @@ test('a hold is addressed by its node or capability, and an unclear name is refu
   expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
 });
 
-// Review A2: an authored test's `pick "photo" "my photo.png"` reaches the driver as one path per line, so a space
-// stays in its path; the CLI's `type @photo a.png b.png` still names two.
 test('a pick answer keeps a path with a space when it comes one per line', () => {
+  const paths = new Function(readFileSync(new URL('../web-js/files.js', import.meta.url), 'utf8').match(/^const paths = .*;$/m)[0] + ';return paths;')();
+  for (const input of ['/tmp/my photo.png\n', '/tmp/a b.png\n/tmp/c.png\n', 'a.png b.png', '']) expect(paths(input)).toEqual(pickedPaths(input));
   expect(pickedPaths('/tmp/my photo.png\n')).toEqual(['/tmp/my photo.png']);
   expect(pickedPaths('/tmp/a b.png\n/tmp/c.png\n')).toEqual(['/tmp/a b.png', '/tmp/c.png']);
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);

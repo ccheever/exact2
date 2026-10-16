@@ -284,6 +284,7 @@ export function parseFlags(argv) {
     if (argv[i] === '--json') flags.json = true;
     else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
+    else if (argv[i] === '--backend') { const value = argv[++i]; if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin'); process.env.EXACT_BACKEND_ORIGIN = value; }
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
@@ -736,15 +737,18 @@ export function webInputs(app, js, since = -Infinity) {
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
+  const backend = resolve(app.dir, '.exact/backend-origin');
   const appFiles = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
+  // Absence is an input too: removing a selection must invalidate its bake.
+  appFiles.push(backend);
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
 /** Content digests of every input of a web build, recorded in its marker. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+  return {...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), EXACT_BACKEND_ORIGIN: process.env.EXACT_BACKEND_ORIGIN ?? null};
 }
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
@@ -756,6 +760,7 @@ export function webChanges(dist, app) {
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
+  if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
@@ -833,6 +838,7 @@ export class Cdp {
     this.next = 1;
     this.pending = new Map();
     this.listeners = [];
+    this.closeListeners = new Set();
     this.closed = null;
     let buf = '';
     output.setEncoding('utf8');
@@ -857,6 +863,8 @@ export class Cdp {
   fail(why) {
     this.closed ??= why;
     for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`), 'transport'); }
+    for (const listener of this.closeListeners) listener(this.closed);
+    this.closeListeners.clear();
   }
   send(method, params = {}, sessionId, timeoutMs = 15000) {
     if (this.closed) return Promise.reject(finishCdpFailure(new Error(`${this.closed} (${method})`),

@@ -200,6 +200,12 @@ extension Presenter {
             keyUp(event, in: window)
             if event.type == .keyDown && shortcuts.perform(event) { return true }
             if keyDown(event, in: window) { return true }
+            // The alert's field already heard this key through the monitor.
+            // Consume Return here before AppKit sends it to the default button.
+            let source = window ?? event.window
+            if event.type == .keyDown, NodeView.keyName(event) == "Enter", source === alerts.sheet,
+               (source?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true,
+               let node = keyTarget(source?.firstResponder), alerts.fieldReturned(node, keyHeard: true) { return true }
             if contextMenuKey(event, in: window) { return true }
         }
         return menus.key(event) || dialogs.key(event) || tabFromStart(event, focused: focused, in: window)
@@ -376,6 +382,7 @@ extension NodeView {
     /// value the app wrote meanwhile lands); any other key is the
     /// composition's.
     func passesComposition(_ code: String, command: Bool, down: Bool) -> Bool {
+        let field = selectionField
         guard (field?.markedTextRange ?? textArea?.markedTextRange) != nil else { return true }
         if KeyCodes.modifier(code) { return true }
         guard command, down else { return false }

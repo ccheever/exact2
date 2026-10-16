@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.2`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.3`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.2"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.3"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -30,6 +30,11 @@ on macOS and Linux.
   - `uses`, scrub sessions (`scrub`, `scrub-release`, `scrub-cancel`, the `scrub` event) and
     `propose`'s `texts` (stage 4, commit 6);
   - the items marked *1.2* below.
+- `tamber/1.3` (LLP 1122 T2) added:
+  - `hello`'s `page`;
+  - `frame-ancestors` on a dev loop's HTML;
+  - a build's `pinRevision` and `unsupported`;
+  - the items marked *1.3* below.
 
 ## Where it runs
 
@@ -37,6 +42,11 @@ on macOS and Linux.
   at their own origin when the app has a design. The JS loop's resident `--serve-as` producer
   mounts none: it relays the main loop's batches and commands to its devices (see the build
   channel).
+- **Framed by the design tool.** Every HTML response a dev loop sends (the page, its install
+  pages, the auth callback, `/__dev/open`) carries
+  `Content-Security-Policy: frame-ancestors 'self' http://127.0.0.1:7740` (*1.3*): the tool's
+  origin and the page's own may frame it, no other. `'self'` lets a page the canvas shows frame
+  its own pages. No `X-Frame-Options`. Development only; the tool never scripts the frame.
 - **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]` runs it with no app running.
   It binds loopback unless `--lan`, and a client reaching it over the LAN still can't get the token.
 - **One writer per project.** The design process holds `.exact/tamber.lock`. When a second server
@@ -119,14 +129,19 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 **`hello`** answers:
 - `protocol` and `format`;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
-  capabilities, plan, design, status, pin}` (see [The build channel](#the-build-channel-llp-1122-d4-12));
+  capabilities, plan, design, status, pin, pinRevision, unsupported}` (`pinRevision` and
+  `unsupported` *1.3*; see
+  [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
 - `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
   False from a server no dev loop runs.
-- `design`: the app's design file, the one an operation with no `file` edits (*1.1*).
+- `design`: the app's design file, the one an operation with no `file` edits (*1.1*);
+- `page` (*1.3*): the dev loop's own origin (`http://127.0.0.1:<port>`), which the design tool
+  frames, or null from a server no dev loop runs (`tamber serve`, `tamber tool` without `--via`).
+  Through `tamber tool --via`, the forwarded `hello` is the loop's, so `page` is the loop's.
 
 A `client` given in a hello is not a write's attribution (see `transaction`).
 
@@ -590,7 +605,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
     the facts that paint, the `plan` and `design` digests, and the pin `revision` it applied.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn).
-  - `unsupported`: a command or batch it can't apply, by name (`what`).
+  - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
+    `revision` when it is one (*1.3*, optional).
   - `selected`: LLP 1122 D5's; its route is here, its sender comes with T2b.
 - **Commands down**, each a frame whose `kind` the host dispatches before any generation:
   - `pin` `{revision, pin}`: `pin` is `{scheme?: "light"|"dark", contrast?:
@@ -601,7 +617,20 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `unsupported`.
 - **`pin`** `{client, build?, pin}` (write scope, as the wire's POSTs are) sends one to a build, or
   to every registered build without `build`. `preview` `{client, build, axis, value}` is the
-  same as pinning that build's mode for that axis. Answered `{builds, revision}`.
+  same as pinning that build's mode for that axis (it replaces that build's pin, as any pin
+  does). Answered `{builds, revision}`.
+  - **Caught up** (*1.3*). A build in `builds` (hello's and the events') names `pinRevision`, the
+    revision of the last `pin` frame it was sent: a pin, a hand-back, or its pin again when it
+    registers (revision 0 when it has none), whoever sent it. Its status has caught up when its
+    `revision` reaches that. A status older than the one kept is dropped (it can't rewind the
+    row), and one naming a revision this registration was never sent (a report from before a
+    restart) is kept with `revision` null: it acknowledges nothing. A pin to no build sends
+    nothing and leaves the revision as it is.
+  - Its `unsupported` `{what, detail}` is the last command it could not apply, the frame's whose
+    `revision` the report names (the web hosts name it), or, from a host that names none, the
+    one whose status it reports next (a host answers a frame before its status for it). It is
+    kept while the status stays at that revision and null once it moves to another (or the build
+    registers again); one for a revision the status has passed is dropped.
   - **Ownership.** A pin is its client's while the client is present: it holds an open
     subscription naming it, or a long poll naming it is open or was answered in the last 35
     seconds (a client whose fetch reads a body whole holds the wire by the long poll). A pin from

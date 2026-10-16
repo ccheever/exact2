@@ -587,10 +587,10 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        WakeLock.hold(self, false) // the new host's first batch says it again
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
-        pointerHeld = nil; pointerPath = []
-        pointerSource = nil
+        pointerHeld = nil; pointerPath = []; pointerSource = nil
         elements.reset()
         resetFlights()
         viewport.invalidateDocumentFit()
@@ -1006,7 +1006,7 @@ package final class Presenter {
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
-        defer { applyLanguage(batch) }
+        defer { applyLanguage(batch); applyWakeLock(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }
@@ -1219,7 +1219,7 @@ package final class Presenter {
         // shows beyond a document shorter than the viewport, as a browser
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
-        let ground = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .windowBackgroundColor)
+        let ground = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
         let color = (root.subviews.first as? NodeView)?.color("background_color", ground) ?? ground
         if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
         let first = root.subviews.first as? NodeView

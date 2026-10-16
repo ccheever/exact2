@@ -641,6 +641,9 @@ public final class Agent {
         guard var to = target, to.isFinite else { return ["malformed": true, "error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
+        #if os(iOS) || os(tvOS)
+        var wallDeadline: Date?
+        #endif
         var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
@@ -678,7 +681,20 @@ public final class Agent {
             // (a store's, a worker's, the network's): the reply names how much,
             // as the web hosts' do (calendar F10, workout F6).
             guard settle else {
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock has as long as
+                // the whole jump (`jump`: the driver's seek in steps), up to
+                // 1.5 s, once: after its last step (`step` marks the others);
+                // still running then, the reply says so.
+                var runsOn = false
+                if req["step"] as? Bool != true {
+                    let jump = req["jump"] as? Double ?? landed - from
+                    runsOn = !awaitWallMotion(until: Date(timeIntervalSinceNow: min(1.5, max(0, jump) / 1000)))
+                }
+                var out = runsOn ? reply(landed, false, reason: "motion") : reply(landed)
+                #else
                 var out = reply(landed)
+                #endif
                 let inflight = pendingCount()
                 if inflight > 0 { out["inflight"] = inflight }
                 // The module's background storage still to land (LLP 1097 D9).
@@ -703,6 +719,14 @@ public final class Agent {
                 continue
             }
             if next <= landed && !world.pending {
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock ends first,
+                // within 1.5 s for the whole call, or the call is not settled;
+                // what its completion starts is checked below.
+                let wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
+                wallDeadline = wallUntil
+                if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                #endif
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
                 // after work finishes, including work created by that completion.
@@ -924,4 +948,9 @@ public extension ExactEnv {
     /// Whether the authored header and tablist paint instead of UIKit's
     /// bars: the agent's default chrome.
     static let authoredChrome = agentMode && agentChrome != "platform"
+    /// Whether the agent paints the popovers a person sees as UIKit's
+    /// menus (LLP 1021 D4). `EXACT_AGENT_PRESENTATION=native`, which
+    /// `--touch platform` launches with (LLP 1080.000 D7), shows UIKit's:
+    /// a real touch opens one and picks its item.
+    static let agentPaints = agentMode && environment["EXACT_AGENT_PRESENTATION"] != "native"
 }

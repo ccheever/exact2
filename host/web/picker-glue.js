@@ -76,7 +76,13 @@ export async function appFrame(el, state, appId, committed = () => {}) {
 }
 
 globalThis.exact.picker = function install(host) {
-  // host: { dispatch(id, kind, payload), pickedPath(name), appId, log(line) }
+  // host: { dispatch(id, kind, payload), generation() (none on the JS target), pickedPath(name), appId, log(line) }
+  // A view id names a view only in the generation that asked: an answer that
+  // outlives a restart, which reuses ids, is dropped. `at(g)` is these
+  // operations for generation `g`, the one the glue asked in (the module may
+  // load after a restart); each takes its `since()` before its first await.
+  let pinned;
+  const since = () => { const g = pinned ?? host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
   // What the last page picked is gone (D4).
   const pickStore = () => emptied ??= fileStore(host.appId).then(async s => {
     if (!s) return null;
@@ -105,7 +111,7 @@ globalThis.exact.picker = function install(host) {
     return size;
   }
   const clean = (s) => String(s).replace(/[\t\r\n]/g, ' ');
-  async function deliver(id, files) {
+  async function deliver(id, files, dispatch) {
     const s = await pickStore(), lines = [];
     for (const file of files) {
       const path = await host.pickedPath(file.name);
@@ -114,7 +120,7 @@ globalThis.exact.picker = function install(host) {
       const { width, height, duration } = await describe(file);
       lines.push([path, clean(file.name), clean(file.type || typeFor(file.name)), file.size, width, height, duration].join('\t'));
     }
-    host.dispatch(id, 26, lines.join('\n'));
+    dispatch(id, 26, lines.join('\n'));
   }
   // `saveFile` (LLP 1069.010 D3): the `app:/` file's bytes, from the store,
   // or the `text=` itself, as UTF-8.
@@ -124,56 +130,64 @@ globalThis.exact.picker = function install(host) {
     if (!s) throw new Error('this page has no app files');
     return new Uint8Array(await s.readFile(from));
   }
-  const saved = (view, name) => { host.log('saveFile: saved'); host.dispatch(view, 1, name); };
-  const unsaved = (view, line) => { host.log(line); host.dispatch(view, 27, ''); };
-  return {
+  const saved = (dispatch, view, name) => { host.log('saveFile: saved'); dispatch(view, 1, name); };
+  const unsaved = (dispatch, view, line) => { host.log(line); dispatch(view, 27, ''); };
+  const api = {
     /** `saveFile`'s ruling `r` (refused, or present) and, where the browser
      * has one, the save picker's pending handle: write the copy there, or
      * download it under the suggested name (Safari, Firefox). */
     async save(r, chosen) {
-      if (!r.present) return host.dispatch(r.view, 27, '');
+      const dispatch = since();
+      if (!r.present) return dispatch(r.view, 27, '');
       let bytes;
-      try { bytes = await appBytes(r.from, r.text); } catch (e) { return unsaved(r.view, `saveFile: refused: ${e.message ?? e}`); }
+      try { bytes = await appBytes(r.from, r.text); } catch (e) { return unsaved(dispatch, r.view, `saveFile: refused: ${e.message ?? e}`); }
       if (!chosen) {
         const url = URL.createObjectURL(new Blob([bytes])), a = document.createElement('a');
         a.href = url; a.download = r.suggestedName; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        return saved(r.view, r.suggestedName);
+        return saved(dispatch, r.view, r.suggestedName);
       }
       try {
         const handle = await chosen, w = await handle.createWritable();
         await w.write(bytes); await w.close();
-        saved(r.view, handle.name);
-      } catch (e) { unsaved(r.view, e?.name === 'AbortError' ? 'saveFile: cancelled' : `saveFile: refused: ${e?.name ?? e}`); }
+        saved(dispatch, r.view, handle.name);
+      } catch (e) { unsaved(dispatch, r.view, e?.name === 'AbortError' ? 'saveFile: cancelled' : `saveFile: refused: ${e?.name ?? e}`); }
     },
     /** The agent's answer to a held export: the bytes go back to the driver,
      * which writes them at its path; `change` carries that path's name. */
     async answerSave(r, path) {
-      if (r.answered === 'cancel') { unsaved(r.node, 'saveFile: cancelled'); return {}; }
+      const dispatch = since();
+      if (r.answered === 'cancel') { unsaved(dispatch, r.node, 'saveFile: cancelled'); return {}; }
       let bytes;
-      try { bytes = await appBytes(r.request.from, r.request.text); } catch (e) { unsaved(r.node, `saveFile: refused: ${e.message ?? e}`); return { error: `saveFile: ${e.message ?? e}` }; }
+      try { bytes = await appBytes(r.request.from, r.request.text); } catch (e) { unsaved(dispatch, r.node, `saveFile: refused: ${e.message ?? e}`); return { error: `saveFile: ${e.message ?? e}` }; }
       let raw = '';
       for (let i = 0; i < bytes.length; i += 0x8000) raw += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      saved(r.node, String(path).trim().split(/[\\/]/).filter(Boolean).pop());
+      saved(dispatch, r.node, String(path).trim().split(/[\\/]/).filter(Boolean).pop());
       return { bytes: btoa(raw) };
     },
     /** The element's own `change`: what the person chose. */
-    change: (el, id) => el.files?.length ? deliver(id, [...el.files]).finally(() => { el.value = ''; }) : Promise.resolve(),
-    cancel: (id) => host.dispatch(id, 27, ''),
+    change: (el, id) => el.files?.length ? deliver(id, [...el.files], since()).finally(() => { el.value = ''; }) : Promise.resolve(),
+    cancel: (id) => since()(id, 27, ''),
     appURL: (path) => appURL(path, host.appId),
     appFrame: (el, state, committed) => appFrame(el, state, host.appId, committed),
     /** The agent's answer (D9): `files` as the driver sent them, or null for `tap @t cancel`. */
     answer(id, files) {
-      if (!files) { host.dispatch(id, 27, ''); return Promise.resolve(); }
+      const dispatch = since();
+      if (!files) { dispatch(id, 27, ''); return Promise.resolve(); }
       const made = files.map(({ name, bytes }) => {
         const raw = atob(bytes), data = new Uint8Array(raw.length);
         for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
         return new File([data], name, { type: typeFor(name) });
       });
-      return deliver(id, made);
+      return deliver(id, made, dispatch);
     },
   };
+  return { ...api, at: g => pinnedTo(api, g, v => { pinned = v; }) };
 };
+
+function pinnedTo(api, g, pin) {
+  return Object.fromEntries(Object.entries(api).map(([name, f]) => [name, (...args) => { pin(g); try { return f(...args); } finally { pin(undefined); } }]));
+}
 
 // A browser's guess from the name, for the agent's files.
 function typeFor(name) {

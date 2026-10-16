@@ -643,17 +643,31 @@ export function layoutBoxes(views, gpu) {
 // driver's next input cannot overtake it and leave its handler reading the selection after the input. Its 2 s bound
 // only stops a hang where no `select` comes (a control disabled before it is dispatched).
 export function selectAll(el) {
-  // A type with no selection API reads null (or, in an engine that throws there, as Firefox once did, the same).
-  const at = () => { try { return `${el.selectionStart},${el.selectionEnd},${el.selectionDirection}`; } catch { return null; } }, was = at();
+  // Email and number fields keep a selection that `select()` sets and their getters do not show (HTML: `select()`
+  // applies to them, `selectionStart` does not); Chrome's document selection shows a focused field's. Elsewhere
+  // (Firefox's document selection does not) the two reads agree and nothing is awaited.
+  const at = () => {
+    try { if (el.selectionStart != null) return `${el.selectionStart},${el.selectionEnd},${el.selectionDirection}`; } catch {}
+    if (document.activeElement !== el) return null;
+    const s = getSelection();
+    return `${s.type}:${s.direction}:${s}`;
+  }, was = at();
   let heard, timer;
   const event = new Promise(resolve => {
     heard = () => { clearTimeout(timer); el.removeEventListener("select", heard); resolve(); };
     el.addEventListener("select", heard);
   });
   el.select?.();
-  if (at() !== was && !el.matches(":disabled")) { timer = setTimeout(heard, 2000); return event; }
-  el.removeEventListener("select", heard);
-  return null;
+  const now = at();
+  if (el.matches(":disabled") || (was !== null && now === was)) {
+    el.removeEventListener("select", heard);
+    return null;
+  }
+  timer = setTimeout(heard, 2000);
+  // An email or number field not focused before or after says nothing either way: a changed selection's `select`
+  // is dispatched by the next frame (Chromium queues it for one), so it is awaited for two.
+  if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
+  return event;
 }
 export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

@@ -42,10 +42,12 @@ mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
+mod alert;
 pub(crate) mod inline;
 mod layer;
 mod lift;
 pub(crate) mod look;
+pub(crate) use alert::Picture as AlertPicture;
 mod native;
 pub(crate) mod neutral;
 pub(crate) mod numerals;
@@ -489,6 +491,7 @@ pub use backend::{Backend, WindowLayer};
 /// The painter: the walk over one backend.
 pub struct Painter {
     pub(crate) window_canvas: Option<ViewId>,
+    pub(crate) alert: Option<alert::Picture>,
     /// The text engine, shared with the kernel's measurer.
     pub text: Shared,
     /// Device pixels per point.
@@ -568,6 +571,7 @@ struct Walk<'a, 'b> {
     /// row inherits from its wrapper shows, one its own nodes set does not
     /// (`lift.rs`; b6 review B4).
     reveal: Option<ViewId>,
+    dialog: Option<ViewId>,
 }
 
 impl Painter {
@@ -619,6 +623,7 @@ impl Painter {
             backend,
             #[cfg(test)]
             rank_passes: 0,
+            alert: None,
             paint_epoch: None,
             fresh_order: HashMap::new(),
             rank_increments: 0,
@@ -839,12 +844,14 @@ impl Painter {
             replay,
             ranks: self.ranks.clone(),
             reveal: None,
+            dialog: None,
         };
         self.rows_begin(&walk);
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
         self.paint_ghost(&mut walk);
+        self.paint_alert(&mut walk);
         self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
@@ -918,7 +925,7 @@ impl Painter {
         if (walk.scene.hidden)(id)
             || node.is_inline_run()
             || node.style.display == Display::None
-            || node.props.str(PropId::SemanticTag) == Some("dialog")
+            || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.dialog != Some(id))
         {
             return;
         }
@@ -1189,6 +1196,9 @@ impl Painter {
         } else {
             offset
         };
+        if paints_self {
+            self.alert_title(walk, node, ts, child_offset);
+        }
         self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
@@ -1301,7 +1311,16 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
 /// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
 /// unset axis beside a non-visible one is scrollable (CSS Overflow §3).
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
-    let s = node.style;
+    let resolved;
+    let s = if look::neutral()
+        && node.props.str(PropId::SemanticTag) == Some("dialog")
+        && node.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+    {
+        resolved = node.computed_style(StyleMask::EMPTY);
+        &resolved
+    } else {
+        node.style
+    };
     let mut y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {

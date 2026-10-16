@@ -219,7 +219,7 @@ package final class TextArea: UITextView {
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
-                .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", or: UIColor.placeholderText),
+                .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
             ])
         }
     }

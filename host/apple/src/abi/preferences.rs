@@ -9,6 +9,12 @@ use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// The running session's role overrides (LLP 1121 stage 5), bound
+    /// around each call to it (`registry::with_entry`).
+    pub fn roles(&self) -> Option<std::rc::Rc<exact_kernel::style::roles::Roles>> {
+        self.host.as_ref().map(|h| h.runner().roles().clone())
+    }
+
     /// App modes, `axis=value` pins comma-separated in the input buffer
     /// (LLP 1121 D5), set in one commit; after a `?`, only checked.
     pub fn set_mode(&mut self, len: usize) -> u32 {
@@ -27,7 +33,7 @@ impl<D: DataSource> Bridge<D> {
             })
             .collect();
         let Some(pins) = pins else {
-            return self.emit(exact_runner::agent::error("mode: expected axis=value pins"));
+            return self.refuse("mode: expected axis=value pins");
         };
         let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
         let out = self.host.as_mut().map_or_else(not_booted, |h| match check {

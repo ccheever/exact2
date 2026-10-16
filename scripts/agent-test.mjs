@@ -7,6 +7,7 @@ import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { faultRequest as rawFaultRequest } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
@@ -227,9 +228,8 @@ export function sweepTestStores(base, storage) {
 export function backendFetchPrefixes(tests, origins) {
   const unique = [...new Set(origins.map(o => o.replace(/\/+$/, '')))];
   for (const t of tests) for (const step of t.steps) {
-    if (!['fail-fetch', 'pass-fetch'].includes(step.op) || step.prefix !== 'backend') continue;
-    if (unique.length !== 1) throw new Error(`line ${step.line}: fetch "backend" needs exactly one net.fetch origin; found ${unique.length}. Use a literal URL for a multi-backend app.`);
-    step.prefix = unique[0];
+    if (!['fail-fetch', 'pass-fetch'].includes(step.op)) continue;
+    step.prefix = resolveFaultPrefix(step.prefix, unique);
   }
   return tests;
 }
@@ -274,7 +274,9 @@ export function driveNotes(s, { host, storage }) {
       if (Array.isArray(j?.lines)) replies = j.next;
       for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
-      for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}; it shows its placeholder or last value, and \`failed(${name})\` is true (\`state\` lists it under \`failed\`)`);
+      // Resource failures are normal authored states (failed/failure gates). Keep them in state/logs;
+      // request-shape refusals above and failing assertions below still get actionable notes.
+      if (process.env.EXACT_AGENT_DEBUG) for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}`);
       const pending = (state?.pending ?? []).filter((p) => !p.device).map((p) => p.name);
       if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
     } catch { /* advice only */ }
@@ -397,6 +399,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
     const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
+    const mutationClock = testMutationClock();
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
     // `before data` does not wait (what has landed then is the host's: a native app ran on real time before the
@@ -408,6 +411,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // It asks what persists, so storage the app started and did not await finishes first, as `clock data` lands it
     // (LLP 1097 D9): a write lost at `reload` is what a crash does. The next `logs` begins with what it waited for.
     const reload = async () => {
+      mutationClock.reset();
       const b = (await s.state().catch(() => ({}))).background, waiting = b ? b.queued + b.inFlight : 0;
       if (waiting) {
         const r = await s.clock('data');
@@ -607,6 +611,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             }
             default: failures.push(`${at}: unknown step ${st.op}`);
           }
+          if (closedAt == null) await mutationClock.advance(s);
         } catch (e) {
           failures.push(`${at}: ${e.message}`);
           break;
@@ -634,4 +639,61 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   }
   const failed = results.filter((r) => r.failures.length).length;
   return { passed: results.length - failed, failed, results };
+}
+
+/** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */
+export function resolveFaultPrefix(prefix, origins, say=console.warn) {
+  const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];
+  if (prefix==='backend') {
+    const loopback=unique.filter(origin=>/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin));
+    const candidates=loopback.length ? loopback : unique;
+    if (candidates.length!==1) throw new Error(`fetch "backend" needs exactly one net.fetch origin; found ${candidates.length}. Use a literal URL for a multi-backend app.`);
+    return candidates[0];
+  }
+  if (!unique.some(origin => origin.startsWith(prefix) || prefix.startsWith(origin+'/') || prefix===origin))
+    say(`warning: fetch fault prefix ${JSON.stringify(prefix)} matches no granted origin (${unique.join(', ') || 'none'}); it will not intercept the backend`);
+  return prefix;
+}
+
+export function faultRequest(op, args, origins = [], say = console.warn) {
+  if (args[0] !== 'fetch' || !args[1]) return rawFaultRequest(op, args);
+  return rawFaultRequest(op, [args[0], resolveFaultPrefix(args[1], origins, say), ...args.slice(2)]);
+}
+
+/** The same persistence/fault behavior as an authored test's web reload. */
+export async function reloadWeb(s) {
+  if (s.host!=='web') throw new Error('reload in an interactive drive supports web; native authored tests relaunch their host');
+  const state=await s.state(), background=state.background;
+  if (background && background.queued+background.inFlight) {
+    const result=await s.clock('data');
+    if (result.settled===false) throw new Error('reload: pending storage did not settle');
+  }
+  const now=await s.state();
+  await s.carrier.reset({keep:true, failFetch: now.faults ? faultSpecOf(now.faults) : undefined});
+  s.now=0; s.logCursor=0;
+  return {reloaded:true};
+}
+
+export { driverCapabilities } from './help.mjs';
+
+/** One millisecond per source mutation request, counted once across data continuations.
+ * Action arguments retain their atomic snapshot; the next action sees the advanced clock. */
+export function testMutationClock() {
+  let cursor=0;
+  return {
+    reset() { cursor=0; },
+    async advance(s) {
+      let total=0;
+      for(let round=0;round<16;round++) {
+        const requests=(await s.state()).mutationRequests;
+        if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
+        const mutations=requests-cursor;
+        cursor=requests;
+        if (!mutations) return total;
+        total+=mutations;
+        await s.clock('+'+mutations);
+      }
+      throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
+    },
+  };
 }

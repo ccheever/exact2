@@ -2482,3 +2482,21 @@ TypeScript producer's alone.
     the next generation of its own program.
   - A stub-server test of drop, restart and re-register is a follow-up; the path was driven on
     the clone.
+
+### Stage 5, commit 1: per-session role tables (`de05c0b2b`..`2ccbc448a`)
+
+Stage 1's known limit, "overrides are per thread, not per session", is lifted.
+- **Each runner owns its role overrides** (`roles::Roles`), and the wide colours they hold.
+- **Hosts bind their session** around every call that resolves a role. Apple binds per call, a
+  host's boot binds its new runner, and Android hands the roles from the boot thread to the
+  running one. A resolve with no bind falls back to the newest live session installed on the
+  thread. A session takes back only its own entry when it ends, so a refused candidate leaves the
+  live one. Commit 2 makes an unbound resolve with two live sessions on a thread a development
+  assertion.
+- **Swift's `ThemeRoles` is per presenter** (by root). Sheets, popovers and split panes adopt their
+  presenter's, and a sheet takes its presenter's tint. Boxed gradients carry the session's
+  overrides as colours.
+- **The colour report table stays process-global** (the platform's). Each session paints its own
+  overrides over it, and `generation()` mixes in the bound session's.
+- The "role overrides" journal line is gone. Two sessions on one thread, with different overrides,
+  answer differently both ways round (tested).

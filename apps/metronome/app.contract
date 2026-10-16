@@ -1,0 +1,110 @@
+// A metronome and drum machine, LLP 1125's stage 2 consumer: one `sequence`
+// declares what plays, and the runner plays it a second ahead on its own
+// clock. A tempo stepper, an accent on beat 1, a count-in of four, a haptic on
+// each beat, and a four-track drum pattern whose tracks loop at their own
+// lengths. No action runs per beat; the beat shown is drawn from
+// `exactTransport()` in a frame task that runs only while it plays.
+sound "assets/click-high.wav"
+sound "assets/click-low.wav"
+sound "assets/kick.wav"
+sound "assets/snare.wav"
+sound "assets/hat.wav"
+sound "assets/clap.wav"
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+shape Transport
+  state: string
+  reason: string
+  bpm: number
+  anchorAt: number
+  anchorBeat: number
+
+fn step(beat: number, src: string, gain: number, haptic: string): Step = Step(beat=beat, src=src, gain=gain, group="", note=-1, velocity=100, channel=0, duration=0.1, haptic=haptic)
+fn drum(beat: number, src: string, gain: number): Step = step(beat, src, gain, "")
+fn track(beats: number, steps: Step[]): Track = Track(beats=beats, loops=0, offset=0, output="", steps=steps)
+
+// A bar of four clicks: beat 1 high when accented, each beat's haptic when asked.
+fn bar(accent: bool, buzz: bool): Track = track(4, [step(0, accent ? "assets/click-high.wav" : "assets/click-low.wav", 1, buzz ? "impact-medium" : ""), step(1, "assets/click-low.wav", 0.6, buzz ? "impact-light" : ""), step(2, "assets/click-low.wav", 0.6, buzz ? "impact-light" : ""), step(3, "assets/click-low.wav", 0.6, buzz ? "impact-light" : "")])
+
+// Kick and snare over a bar, eighth-note hats, and a clap every three beats against them.
+fn drums(): Track[] = [track(4, [drum(0, "assets/kick.wav", 1), drum(2.5, "assets/kick.wav", 0.8)]), track(4, [drum(1, "assets/snare.wav", 0.9), drum(3, "assets/snare.wav", 0.9)]), track(1, [drum(0, "assets/hat.wav", 0.5), drum(0.5, "assets/hat.wav", 0.35)]), track(3, [drum(2, "assets/clap.wav", 0.7)])]
+
+component Metronome
+  state playing = false
+  state bpm = 120
+  state accent = true
+  state countIn = true
+  state haptics = false
+  state groove = false
+  state now = 0
+  resource transport = exactTransport() as shape Transport
+  derive tracks = groove ? [bar(accent, haptics)].concat(drums()) : [bar(accent, haptics)]
+  derive clicks = [step(0, "assets/click-high.wav", 1, ""), step(1, "assets/click-high.wav", 1, ""), step(2, "assets/click-high.wav", 1, ""), step(3, "assets/click-high.wav", 1, "")]
+  derive beat = transport.state == "stopped" ? 0 : floor(transport.anchorBeat + (now - transport.anchorAt) * transport.bpm / 60000)
+  derive shown = transport.state == "countin" ? `Count-in ${beat + 5}` : transport.state == "playing" ? `Beat ${beat % 4 + 1}` : "Stopped"
+
+  action toggle
+    playing = not playing
+  action slower
+    bpm = max(30, bpm - 1)
+  action faster
+    bpm = min(300, bpm + 1)
+  action setAccent(on: bool)
+    accent = on
+  action setCountIn(on: bool)
+    countIn = on
+  action setHaptics(on: bool)
+    haptics = on
+  action setGroove(on: bool)
+    groove = on
+  action draw
+    now = performanceNow()
+
+  sequence click when playing
+    play(tracks, bpm=bpm, from=countIn ? -4 : 0, countIn=clicks)
+  task playhead when playing
+    every(frame, draw)
+
+  view
+    main accent-color="-exact-system-orange" align-items="center" justify-content="center" flex=1 gap=24 padding=24 testId="app"
+      column align-items="center" gap=8 max-width=420
+        text `${bpm}` font="-exact-large-title" testId="bpm"
+        text "beats a minute" font="-exact-footnote" color="-exact-secondary-label"
+        row gap=12
+          button press=slower aria-label="Slower" testId="slower"
+            text "−"
+          button press=faster aria-label="Faster" testId="faster"
+            text "+"
+      text shown font="-exact-title-2" testId="beat"
+      button press=toggle buttonStyle="filled" testId="toggle"
+        text (playing ? "Stop" : "Start")
+      column gap=8 max-width=420
+        row gap=8 align-items="center"
+          input type="checkbox" checked=accent change=setAccent aria-label="Accent beat 1" testId="accent"
+          text "Accent beat 1"
+        row gap=8 align-items="center"
+          input type="checkbox" checked=countIn change=setCountIn aria-label="Count in" testId="count-in"
+          text "Count in"
+        row gap=8 align-items="center"
+          input type="checkbox" checked=haptics change=setHaptics aria-label="Haptic on the beat" testId="haptics"
+          text "Haptic on the beat"
+        row gap=8 align-items="center"
+          input type="checkbox" checked=groove change=setGroove aria-label="Drum pattern" testId="groove"
+          text "Drum pattern"

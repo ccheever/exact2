@@ -27,6 +27,8 @@
 #[cfg(test)]
 mod inline_tests;
 mod intersection;
+#[cfg(test)]
+mod modal_tests;
 pub(crate) use intersection::intersection;
 
 use exact_kernel::{
@@ -319,6 +321,13 @@ pub static KERNEL: GeometryLinks = GeometryLinks::new(
 );
 
 fn kernel_frame(kernel: &Kernel, scrolled: &Scrolled, view: ViewId) -> GeometryAnswer {
+    if let Some(frame) = kernel
+        .arena()
+        .slot_of(view)
+        .and_then(|slot| native_frame(kernel, scrolled, slot))
+    {
+        return client_rect(kernel, scrolled, view, frame, false);
+    }
     let arena = kernel.arena();
     if let Some(key) = arena
         .key_of(view)
@@ -491,6 +500,7 @@ pub(crate) enum Shown {
 }
 
 pub(crate) fn shown_in(kernel: &Kernel, scrolled: &Scrolled, slot: u32, frame: Frame) -> Shown {
+    let frame = native_frame(kernel, scrolled, slot).unwrap_or(frame);
     let arena = kernel.arena();
     let at = shift(f64::from(frame.x), f64::from(frame.y));
     if scrolled.is_open(arena.key(slot)) {
@@ -529,6 +539,25 @@ pub(crate) fn block_clip(kernel: &Kernel, slot: u32, frame: Frame) -> Option<[f6
     let (w, h) = kernel.host_block_size(kernel.arena().local_id(slot))?;
     let (x, y) = (f64::from(frame.x), f64::from(frame.y));
     Some([-x, -y, f64::from(w) - x, f64::from(h) - y])
+}
+
+/// A top-layer box replaced whole by its host has no kernel layout. Its
+/// reported border box supplies its size; no geometry is inferred for the
+/// authored children the native surface replaces.
+fn native_frame(kernel: &Kernel, scrolled: &Scrolled, slot: u32) -> Option<Frame> {
+    let arena = kernel.arena();
+    if arena.cover(slot) != Some(exact_kernel::HostCover::Whole)
+        || arena.flags(slot).has(NodeFlags::HIDDEN)
+        || arena.flags(slot).has(NodeFlags::CREATED)
+    {
+        return None;
+    }
+    let rect = scrolled.top_frame(arena.key(slot))?;
+    Some(Frame {
+        width: rect[2] as f32,
+        height: rect[3] as f32,
+        ..arena.frame(slot)
+    })
 }
 
 /// The transform from `slot`'s border box (`frame`) to the space `rect`
@@ -742,9 +771,8 @@ fn data_matches(
     let mut out = Vec::new();
     while let Some(slot) = stack.pop() {
         let props = arena.props(slot);
-        let blocked = arena.style(slot).display == Display::None
-            || arena.flags(slot).has(NodeFlags::HIDDEN)
-            || props.bool(PropId::Inert) == Some(true);
+        let blocked =
+            arena.style(slot).display == Display::None || arena.flags(slot).has(NodeFlags::HIDDEN);
         if blocked {
             continue;
         }
@@ -752,27 +780,34 @@ fn data_matches(
             if !id.is_empty()
                 && crate::agent::field_str(dataset, word)
                     .is_some_and(|words| words.split_ascii_whitespace().any(|v| v == value))
+                && props.bool(PropId::Inert) != Some(true)
+                && inherited_hit_state(kernel, slot).is_some()
                 && shown(kernel, scrolled, arena.local_id(slot))
             {
                 out.push(id.to_owned());
             }
         }
+        // An inert ancestor can contain a modal dialog that escapes it.
         stack.extend(arena.children(slot).iter().rev());
     }
     out
 }
 
-/// The live part of the top layer while a presentation is open: the boxes
-/// from the first of the frontmost presentation's, as its host reports
-/// them (`top_layer_frames`): whichever of its routes it shows (a route
-/// pushed in a sheet, or two mid-transition), and what is open above it.
+/// The live part of the top layer starts at the frontmost modal dialog or
+/// the first box of the host's frontmost presentation (`top_layer_frames`):
+/// whichever of its routes it shows, and what is open above it.
 /// Everything else, below it in the top layer or in the document, is
 /// behind it and inert to structural reads, as UIKit's dimming view and
 /// the host's `inertBehind` make it to touch. None while no presentation
 /// is open.
 fn modal_live(kernel: &Kernel, scrolled: &Scrolled) -> Option<Vec<u32>> {
     let arena = kernel.arena();
-    let from = scrolled.modal?;
+    let dialog = scrolled.top_layer.iter().rposition(|&(key, _)| {
+        arena
+            .resolve(key)
+            .is_some_and(|slot| modal_dialog(kernel, slot))
+    });
+    let from = scrolled.modal.into_iter().chain(dialog).max()?;
     Some(
         scrolled.top_layer[from.min(scrolled.top_layer.len())..]
             .iter()
@@ -910,16 +945,12 @@ fn kernel_hits(
 fn inherited_hit_state(kernel: &Kernel, slot: u32) -> Option<(PointerEvents, Visibility)> {
     let arena = kernel.arena();
     let (mut pointer, mut visibility) = (None, None);
-    let dialog = |s: u32| {
-        let props = arena.props(s);
-        props.str(PropId::SemanticTag) == Some("dialog") && props.str(PropId::Popover).is_none()
-    };
-    let mut escaped = dialog(slot);
+    let mut escaped = modal_dialog(kernel, slot);
     for p in std::iter::successors(arena.parent(slot), |&p| arena.parent(p)) {
         if !escaped && arena.props(p).bool(PropId::Inert) == Some(true) {
             return None;
         }
-        escaped = escaped || dialog(p);
+        escaped = escaped || modal_dialog(kernel, p);
         let style = arena.style(p);
         if pointer.is_none() && style.mask.has(StyleId::PointerEvents) {
             pointer = Some(style.pointer_events);
@@ -932,6 +963,11 @@ fn inherited_hit_state(kernel: &Kernel, slot: u32) -> Option<(PointerEvents, Vis
         pointer.unwrap_or(PointerEvents::Auto),
         visibility.unwrap_or(Visibility::Visible),
     ))
+}
+
+fn modal_dialog(kernel: &Kernel, slot: u32) -> bool {
+    let props = kernel.arena().props(slot);
+    props.str(PropId::SemanticTag) == Some("dialog") && props.str(PropId::Popover).is_none()
 }
 
 struct Point<'a> {
@@ -962,6 +998,9 @@ impl Point<'_> {
         let style = arena.style(slot);
         let flags = arena.flags(slot);
         let props = arena.props(slot);
+        let native = lifted
+            .then(|| native_frame(self.kernel, self.scrolled, slot))
+            .flatten();
         if style.display == Display::None
             || flags.has(NodeFlags::HIDDEN)
             || flags.has(NodeFlags::CREATED)
@@ -986,7 +1025,7 @@ impl Point<'_> {
         } else {
             inherited.1
         };
-        let f = arena.frame(slot);
+        let f = native.unwrap_or_else(|| arena.frame(slot));
         // A block's root and its subtree are reached only inside the block
         // its host shows them in
         if let Some(b) = block_clip(self.kernel, slot, f) {
@@ -1009,7 +1048,7 @@ impl Point<'_> {
                 width - f64::from(style.border_width_right),
                 height - f64::from(style.border_width_bottom),
             ]);
-        if !clipped {
+        if !clipped && native.is_none() {
             let mut children: Vec<(i64, usize, u32)> = arena
                 .children(slot)
                 .iter()

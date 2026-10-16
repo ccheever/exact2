@@ -148,7 +148,6 @@ impl Engine {
             timelines: Default::default(),
             clocks: Default::default(),
             paths: Default::default(),
-            properties: Default::default(),
             links,
         }
     }
@@ -168,11 +167,13 @@ fn settle_observe(engine: &mut Engine, change: Change) -> Answer<()> {
         validate_value(change.property, velocity)?;
     }
     let key = (change.node, change.property);
-    match engine.slots.get_mut(&key) {
+    match engine.slots.get(&key) {
         Some(slot) if slot.target == change.value => return Ok(()),
-        Some(slot) => {
+        Some(_) => {
+            let slot = engine.slots.get_mut(&key).expect("an observed property");
             slot.set_target(change.value);
             slot.set_presented(change.value);
+            engine.slots.compact(&key);
         }
         None => {
             engine.keep(key, Slot::settled(change.value));

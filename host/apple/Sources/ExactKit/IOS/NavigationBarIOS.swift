@@ -485,7 +485,7 @@ extension NavigationHost {
         // An item whose button only opens a menu is UIKit's pull-down, which
         // no public API opens and the agent does not paint over the bar.
         if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
-            return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which the agent cannot open; under --chrome agent the header is painted and `tap` opens the menu painted (LLP 1021 D4)"]
+            return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which only a real touch opens: under --touch platform `tap` opens it and `tap <row>` picks a row; under --chrome agent the header is painted and `tap` opens the menu painted (LLP 1021 D4)"]
         }
         guard node.handlers.contains("press"), !node.disabled else { return ["error": "bar item #\(id) is disabled or presses nothing"] }
         presenter.press(node.id)
@@ -513,7 +513,7 @@ extension NavigationHost {
         #endif
         // The theme's label colour on the bar's titles (LLP 1095 D4); its
         // glyphs take the app's tint, which the theme's `AccentColor` sets.
-        if let ink = ThemeRoles.color("label") ?? ThemeRoles.color("CanvasText") {
+        if let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) {
             nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
             #if !os(tvOS)
             nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
@@ -753,7 +753,7 @@ extension NavigationHost {
         // Unsaid, the placeholder is the search field's own, which UIKit
         // draws darker than an ordinary field's `placeholderText`; an
         // authored `::placeholder` colour or theme role wins (LLP 1104 D3).
-        if field.placeholderColor != nil || ThemeRoles.color("placeholder") != nil {
+        if field.placeholderColor != nil || ThemeRoles.color("placeholder", in: presenter.root) != nil {
             field.applyPlaceholder(bar.searchTextField)
             search.paintsPlaceholder = true
         } else if search.paintsPlaceholder || bar.placeholder != placeholder {

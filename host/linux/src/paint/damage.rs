@@ -79,6 +79,7 @@ impl Painter {
             return;
         };
         if changes.full
+            || self.alert.is_some()
             || self.damage.unsupported
             || !self.overlays.is_empty()
             || !changes.flow

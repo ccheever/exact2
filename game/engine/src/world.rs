@@ -143,6 +143,11 @@ struct Slot {
     #[data(skip)]
     fresh: bool,
 }
+fn name_key(name: &str) -> u64 {
+    let mut hash = hash::Hasher::default();
+    hash.string(name);
+    hash.finish()
+}
 #[derive(Default)]
 struct State {
     tick: u64,
@@ -219,8 +224,9 @@ pub struct World {
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
-    // Sorted named slots, populated on first lookup; strings remain owned by State.
-    names: RefCell<Option<Vec<u32>>>,
+    // Sorted (name hash, slot) pairs, populated on first lookup. Hash comparisons
+    // stay in this compact index; collisions still compare State's full strings.
+    names: RefCell<Option<Vec<(u64, u32)>>>,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
     registry: BTreeMap<&'static str, Registration>,
@@ -512,18 +518,18 @@ impl World {
                 .iter()
                 .enumerate()
                 .filter(|(_, s)| s.alive && s.name.is_some())
-                .map(|(i, _)| i as u32)
+                .map(|(i, s)| (name_key(s.name.as_deref().unwrap()), i as u32))
                 .collect();
-            names.sort_unstable_by_key(|&i| (&self.state.slots[i as usize].name, i));
+            names.sort_unstable();
             names
         });
-        let at = names
-            .partition_point(|&i| self.state.slots[i as usize].name.as_deref().unwrap() < name);
-        names
-            .get(at)
-            .copied()
-            .filter(|&i| self.state.slots[i as usize].name.as_deref() == Some(name))
-            .map(|i| self.entity_at(i as usize))
+        let key = name_key(name);
+        let at = names.partition_point(|&(hash, _)| hash < key);
+        names[at..]
+            .iter()
+            .take_while(|&&(hash, _)| hash == key)
+            .find(|&&(_, i)| self.state.slots[i as usize].name.as_deref() == Some(name))
+            .map(|&(_, i)| self.entity_at(i as usize))
     }
     fn index_name(&mut self, index: u32, insert: bool) {
         let slots = &self.state.slots;
@@ -533,10 +539,10 @@ impl World {
         let Some(names) = self.names.get_mut() else {
             return;
         };
-        let at = names
-            .partition_point(|&i| (slots[i as usize].name.as_deref().unwrap(), i) < (name, index));
+        let entry = (name_key(name), index);
+        let at = names.partition_point(|&value| value < entry);
         if insert {
-            names.insert(at, index);
+            names.insert(at, entry);
         } else {
             names.remove(at);
         }

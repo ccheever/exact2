@@ -39,16 +39,21 @@ It needs the Android SDK (`ANDROID_HOME`, else `~/Library/Android/sdk` or `~/And
 NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and the Rust target
 (`rustup target add aarch64-linux-android`). It:
 
-1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev`. The crate is a cdylib whose source is
-   `exact_linux::canvas_jni!(<the data source>)`, with a build script that bakes the plan; `apps/caltrain/android` is
-   the one to copy for an app whose data is Rust and `apps/shelf/android` for one whose data is TypeScript (three
-   files each, and a line in the root `Cargo.toml`'s `members`);
-2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so` and the app's `assets/` to
-   `app/build/<app>/rust/assets/app/assets/`;
-3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here,
+1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release`, for
+   measuring). The crate is a cdylib whose source is `exact_linux::canvas_jni!(<the data source>)`, with a build
+   script that bakes the plan; `apps/caltrain/android` is the one to copy for an app whose data is Rust and
+   `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
+   `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
+   every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
+   module's SHA-256;
+2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
+   its own name, and the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`;
+3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here (a game's `.shells/`, whose
+   `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
+   the module unstripped, since the host opens it by path and checks its digest,
 
 and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
-`app.json` (`app.id`, `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
+`app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
@@ -359,10 +364,11 @@ capability has a call of its own.
 | 5 | whether Back has somewhere to go in the app (D6) | one word: 1 or 0 | registers its `OnBackInvokedCallback` while it has, and unregisters it while it has not, so Back at the first screen is the system's own and leaves with its animation | none |
 | 6 | the software keyboard | two words: 0 hidden, 1 shown for an `input`, 3 for a `textarea`; then the hosted field it is for (D8), or 0 for a field exact2 paints | for a hosted field, that `EditText` takes the focus and shows its own keyboard (`Fields.focus`); else `Keys.show` | none |
 | 7 | the top layer's surface (D10, below) | its serial; what it is (0 it closed, 1 an alert, 2 a menu); flags (bit 0 Back and Escape dismiss it, bit 1 a tap outside does, bits 2 and 3 the corner a menu grows from: its right side, its bottom); where its window goes in the activity's window and its size (x, y, width, height, pixels; an alert's place is the platform's); its container's corner radius and elevation in pixels, as float bits; a count, then that many words: its picture, an op stream of its own | makes, repaints, moves or dismisses that surface's window (`Surfaces.told`) | none by id: what happens in the window is told by `Native.surface` |
+| 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
 
-Kinds 5, 6 and 7 are statements of the app's state, told when it changes and anew to a reader made again; exact2
-reads them as the queue is taken (`Presenter::tell_shell`), Back only after a commit or when a surface opens or
-closes, and none of them during a scroll's own frames.
+Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
+reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
+a surface opens or closes, and none of them during a scroll's own frames.
 
 **Haptics.** Android names occasions, not strengths. Under its constants are a texture tick, a tick, a click, a
 heavy click and a double click, and Exact's names choose by those: `selection` is `SEGMENT_TICK` (Android 14;
@@ -1007,8 +1013,8 @@ The cut was the smallest one. Left in the reader:
 - **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
   every app, and gives none a native module (LLP 1024) or a video player, which the benchmark's apps passed from an
   activity of their own.
-- **An app's GPU module** (LLP 1009) is not built or packaged, as the benchmark's `build.sh` did for its apps.
-  Caltrain's sky was not tried.
+- **A GPU canvas over children draws nothing**: Caltrain's sky (`glass`, which refracts the content inside it) is
+  blank with its module packaged, where a canvas without children (a game's world) draws (QUEUE.md).
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility
   record is computed as its Linux crate's is, and Caltrain's names both (`store.L` is `A`, `rustMode` is `native`).
 - **No picture from a URL.** The Linux host's pictures are files under the asset root (`host/linux/src/image`), on

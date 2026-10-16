@@ -1607,3 +1607,163 @@ component A
     seek = seek + 30
   view
     audio "assets/a.mp3" seekforward=skip
+---
+== contract-sequence-body
+# LLP 1125 D2: a sequence holds one `play(...)`, not a task's schedule.
+component A
+  state on = false
+  action go
+    on = true
+  sequence s when on
+    every(100, go)
+  view
+    text "a"
+---
+== syntax-task-start
+# A sequence starts at `mount` or while a condition holds.
+component A
+  sequence s
+    play([], bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# `play` needs `bpm=`.
+component A
+  state on = false
+  sequence s when on
+    play([])
+  view
+    text "a"
+---
+== type-sequence-play
+# A literal tempo of 0 is no tempo.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=0)
+  view
+    text "a"
+---
+== type-sequence-play
+# An option `play` does not take.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, swing=0.5)
+  view
+    text "a"
+---
+== type-sequence-play
+# A track is read by position: `loops` cannot be left out.
+shape Track
+  beats: number
+  offset: number
+  output: string
+fn noTracks(): Track[] = []
+component A
+  state on = false
+  state ts = noTracks()
+  sequence s when on
+    play(ts, bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# A step carries `playbackRate` and `pan` both or neither.
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+  playbackRate: number
+fn noSteps(): Step[] = []
+component A
+  state on = false
+  state steps = noSteps()
+  sequence s when on
+    play([], bpm=120, from=-4, countIn=steps)
+  view
+    text "a"
+---
+== analyze-sequence-clock
+# `play`'s arguments are read at commits, not as the clock moves.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=60 + performanceNow())
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+# A sequence's gate is a task's: it reads no clock.
+component A
+  sequence s when performanceNow() > 1000
+    play([], bpm=120)
+  view
+    text "a"
+---
+== lower-sequence-clock
+# Clock in is LLP 1125 stage 4.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, clock="op-xy")
+  view
+    text "a"
+---
+== lower-sequence-clock-out
+# Clock out is LLP 1125 stage 3.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, clockOut="op-xy")
+  view
+    text "a"
+---
+== analyze-unknown-action
+# `ended=` names an action.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== analyze-handler-arity
+# `ended=` runs as a timer does: with no arguments.
+component A
+  state on = false
+  action finished(n: number)
+    on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== type-child-resource
+# Only the root has a clock, so only the root declares a sequence.
+component A
+  view
+    B()
+component B
+  state on = false
+  sequence s when on
+    play([], bpm=120)
+  view
+    text "b"
+---
+== bake-transport-field
+# `exactTransport` answers its own fields only.
+shape T
+  state: string
+  beat: number
+component A
+  resource t = exactTransport() as shape T
+  view
+    text t.state

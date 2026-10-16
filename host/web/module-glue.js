@@ -234,6 +234,7 @@ export async function prepare(payload, admitted, id = nextId++) {
           continue;
         }
         if (answer.tag === 1 && answer.waiting) {
+          if (disposed) throw new Error('module environment disposed'); // dispose rejected what was parked then
           parked.push({answer, request, context, done});
           context = null;
           return;
@@ -246,6 +247,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     const resettle = async () => {
       const waiting = parked; parked = [];
       for (const p of waiting) {
+        if (disposed) { p.done.reject(new Error('module environment disposed')); continue; }
         context = p.context;
         try { await proceed(JSON.parse(win.__exact_settle(String(p.answer.call))), p.request, p.done); }
         catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; p.done.reject(error); }
@@ -370,6 +372,9 @@ export async function prepare(payload, admitted, id = nextId++) {
       dispose() {
         disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
         for (const [token,turn] of turns) if (turn.id === id) turns.delete(token);
+        // A parked answer settles too, or a wait raced against it (`clock settle`) runs out its deadline.
+        for (const p of parked) p.done.reject(new Error('module environment disposed'));
+        parked = [];
       },
     };
     realms.set(id, realm); return realm;

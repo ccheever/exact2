@@ -513,6 +513,31 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     assert_eq!(text(r"`a\${x}`"), "a${x}");
     assert_eq!(text(r"`a\tb\nc`"), "a\tb\nc");
     assert_eq!(text(r#"`\`\\\"\$`"#), "`\\\"$");
+    // A code point, as JavaScript and Swift write it (the euxy port's
+    // non-breaking hyphen), in a template and a string alike.
+    assert_eq!(
+        text(r"`a\u{2011}b\u2011\u{1F600}`"),
+        "a\u{2011}b\u{2011}\u{1F600}"
+    );
+    let file = parse("component A\n  view\n    text \"x\\u{2011}y\\u00e9\"\n").unwrap();
+    let Node::Element { positional, .. } = &file.components[0].view[0] else {
+        panic!()
+    };
+    assert!(
+        matches!(&positional[0], Expr::Str(s, _) if s == "x\u{2011}y\u{e9}"),
+        "{positional:?}"
+    );
+    for (bad, says) in [
+        (r"\u{}", "`\\u` takes a code point in hex"),
+        (r"\u{1234567}", "`\\u` takes a code point in hex"),
+        (r"\u12", "`\\u` takes a code point in hex"),
+        (r"\u{D800}", "`\\u{D800}` is no Unicode character"),
+        (r"\u{110000}", "`\\u{110000}` is no Unicode character"),
+    ] {
+        let e = parse(&format!("component A\n  view\n    text \"{bad}\"\n")).unwrap_err();
+        assert_eq!(e.id, "syntax-bad-escape", "{bad}: {e:?}");
+        assert!(e.message.starts_with(says), "{bad}: {}", e.message);
+    }
     // `\\` before `${` is an escaped backslash; the interpolation still runs.
     let p = parts(r"`a\\${x}\`b`");
     assert!(
@@ -528,7 +553,7 @@ fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_
     let e = parse("component A\n  view\n    text `ok \\q`\n").unwrap_err();
     assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
     assert_eq!((e.span.line, e.span.col), (3, 14), "{e:?}");
-    let accepted = r#"a string accepts \n \t \" \\ \` \$"#;
+    let accepted = r#"a string accepts \n \t \" \\ \` \$ and \u{…}, a Unicode code point in hex (`\u{2011}`, `\u2011`)"#;
     assert_eq!(e.message, format!("unknown escape `\\q`; {accepted}"));
     // A string's refusal names the escapes it accepts too.
     let e = parse("component A\n  view\n    text \"a\\rb\"\n").unwrap_err();

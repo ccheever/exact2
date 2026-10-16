@@ -11,6 +11,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         initial: bool,
         moved: Moved<'_>,
         poses: &[crate::world::PreparedPose],
+        // Feed supplies its complete, sorted reset list. Direct callers can
+        // omit it to resolve fresh ancestors from the world.
+        resets: Option<&[(u32, [f32; 10])]>,
     ) {
         if let Some(skinning) = &mut self.models.skinning {
             skinning.feed(&self.queue, world, entities, initial);
@@ -51,7 +54,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 touched.sort_unstable();
                 touched.dedup();
                 for &i in &touched {
-                    models.update_pose(world, i, None, poses);
+                    models.update_pose(world, i, None, poses, resets);
                 }
             }
             _ => {
@@ -71,7 +74,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                             })
                             .unwrap_or(0)
                     });
-                    models.update_pose(world, i, Some((digest, initial)), poses);
+                    models.update_pose(world, i, Some((digest, initial)), poses, resets);
                 }
             }
         }
@@ -101,6 +104,7 @@ impl Models {
         i: usize,
         full: Option<(u64, bool)>,
         poses: &[crate::world::PreparedPose],
+        resets: Option<&[(u32, [f32; 10])]>,
     ) {
         #[cfg(test)]
         POSE_STEPS.with(|n| n.set(n.get() + 1));
@@ -118,8 +122,14 @@ impl Models {
             pair.iter().any(|t| t.scale.cmplt(glam::Vec3::ZERO).any())
         };
         if full.is_some_and(|(_, initial)| initial)
+            || resets.map_or_else(
+                || crate::world::scene::snap(world, history.entity, false),
+                |rows| {
+                    rows.binary_search_by_key(&history.entity.index(), |r| r.0)
+                        .is_ok()
+                },
+            )
             || saved.0 != digest
-            || crate::world::scene::snap(world, history.entity, false)
         {
             saved.2 = [pose; 2];
         } else {
@@ -214,7 +224,7 @@ mod tests {
                 .iter()
                 .map(|h| h.entity)
                 .collect::<Vec<_>>();
-            renderer.model_poses(sim.world(), &active, false, Moved::All, &[]);
+            renderer.model_poses(sim.world(), &active, false, Moved::All, &[], None);
             assert_eq!(
                 renderer.models.poses, cached,
                 "visibility keeps the exact history"
@@ -248,5 +258,43 @@ mod tests {
             renderer.models.poses, saved,
             "showing static models restores active poses"
         );
+        let root = sim.world_mut().spawn(Transform::at(10., 0., 0.));
+        let other = sim.world_mut().spawn(Transform::at(-10., 0., 0.));
+        for entity in [entities[0], moving] {
+            sim.world_mut().insert(entity, exact_game::Parent(root));
+        }
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        sim.world_mut()
+            .get_mut::<Transform>(moving)
+            .unwrap()
+            .position
+            .y += 2.;
+        sim.world_mut()
+            .insert(entities[0], exact_game::Parent(other));
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        for (entity, snapped) in [(entities[0], true), (moving, false)] {
+            let at = renderer
+                .models
+                .pose_history
+                .iter()
+                .position(|h| h.entity == entity)
+                .unwrap();
+            let pair = renderer.models.poses[at];
+            assert_eq!(
+                pair[0] == pair[1],
+                snapped,
+                "only the reparented model snaps"
+            );
+            if snapped {
+                assert_eq!(pair[1].position.x, -10.);
+            } else {
+                assert_eq!(pair[0].position.y, 4.);
+                assert_eq!(pair[1].position.y, 6.);
+            }
+        }
     }
 }

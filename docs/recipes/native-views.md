@@ -50,10 +50,10 @@ final class Strip: ExactNativeInstance {
 ```
 
 - **Props are strings**, the whole object on each change. A name Contract knows
-  (`value`, `size`, `title`, `playing`) is the box's, not the module's: `contract vocab <name>`.
+  (`value`, `title`, `playing`) is the box's, not the module's: `contract vocab <name>`.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames`, `context.after(ms)`, never a
-  `CADisplayLink` or a timer, so `clock +N` moves the animation.
+  `CADisplayLink` or a timer, so `clock +N` moves it; timed audio is a `sequence`.
 - **Touches:** recognizers on the view; one its `point(inside:)` declines goes to what is
   under the box unless it has `press=`. Plain `tap` runs none: `agent ios --touch platform`.
 - **Size:** `intrinsicSize` is the natural size; an authored size wins.
@@ -61,6 +61,6 @@ final class Strip: ExactNativeInstance {
 - **Data:** `app.ts` asks: `native!.watch('state'); return native!.call({op: 'state'});`. The
   build has no module, so the resource shows its `else` row until launch: write no bake code.
 - **A crash:** `agent ios logs` shows this build's newest crash report on this simulator.
-- **First frame:** views attach after first paint. Only a cheap one it shows (a splash)
+- **First frame:** views attach after first paint. Only a cheap one (a splash)
   says `ExactNativeFactory(firstFrame: true)`, never an engine's. The module is made with
   it, on main: make an `AVAudioEngine` on first use, not in `init`.

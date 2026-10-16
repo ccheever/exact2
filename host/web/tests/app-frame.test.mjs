@@ -178,6 +178,60 @@ test('wasm iframe events before activation settle and dispatch once after activa
   expect(result.events).toEqual([[0, 8, 0, 0], [1, 19, 'error\nmissing app file', 0]]);
 }), 90000);
 
+test('wasm holds boot-frame posts until activation and discards retired or unauthorized guests', () => browserTest(async (page, server) => {
+  const glue = await Bun.file('host/web/glue.js').text();
+  const listener = glue.slice(glue.indexOf('function ensureMessageListener('), glue.indexOf('visualViewport?.addEventListener', glue.indexOf('function ensureMessageListener(')));
+  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  await page.goto(server.url.href);
+  const result = await page.evaluate(async ({listener, attach}) => {
+    const {commitGuestOrigin, guestMessageAuthorized} = await import('/navigation.js');
+    const fixture = new Function('guestMessageAuthorized', `
+      const views = new Map(), retiredViews = new WeakSet(), iframeLoading = new WeakMap(), page = null;
+      const messageFrames = new Set(), messageViews = new Set();
+      let inputReady = false, messageListening = false, ready;
+      const moduleReady = new Promise(r => ready = r), events = [];
+      const wasm = {exact_dispatch: (...args) => args}, send = e => events.push(e), writeIn = s => s, now = () => 0;
+      ${listener}
+      ${attach}
+      return {views, retiredViews, events, attach, activate() {inputReady = true; ready();}};
+    `)(guestMessageAuthorized);
+    const frames = [];
+    const arrived = [];
+    for (let id = 0; id < 4; id++) {
+      const el = document.createElement('iframe');
+      el.sandbox = 'allow-scripts';
+      el.src = `data:text/html,<script>parent.postMessage('first','*');parent.postMessage({second:2},'*')</script>`;
+      commitGuestOrigin(el);
+      fixture.views.set(id, el); fixture.attach(el, id, ['load', 'message']);
+      arrived.push(new Promise(resolve => el.addEventListener('load', resolve, {once: true})));
+      arrived.push(new Promise(resolve => {
+        const heard = event => {
+          if (event.source === el.contentWindow && event.data?.second === 2) {
+            window.removeEventListener('message', heard); resolve();
+          }
+        };
+        window.addEventListener('message', heard);
+      }));
+      document.querySelector('main').append(el); frames.push(el);
+    }
+    await Promise.all(arrived);
+    const early = [...fixture.events];
+    // Readiness must not revive a removed view or authorize a guest under a new origin.
+    fixture.views.delete(1); fixture.retiredViews.add(frames[2]);
+    frames[3].sandbox = 'allow-scripts allow-same-origin'; frames[3].removeAttribute('src');
+    commitGuestOrigin(frames[3]);
+    window.dispatchEvent(new MessageEvent('message', {source: frames[0].contentWindow, origin: location.origin, data: 'refused'}));
+    fixture.activate(); await Promise.resolve();
+    const delivered = [...fixture.events];
+    window.dispatchEvent(new MessageEvent('message', {source: frames[0].contentWindow, origin: 'null', data: 'after'}));
+    return {early, delivered, after: fixture.events.at(-1)};
+  }, {listener, attach});
+  expect(result.early).toEqual([]);
+  expect(result.delivered.filter(e => e[1] === 9)).toEqual([[0, 9, 'first', 0], [0, 9, '{"second":2}', 0]]);
+  expect(result.delivered.filter(e => e[1] === 8).sort((a, b) => a[0] - b[0])).toEqual([[0, 8, 0, 0], [3, 8, 0, 0]]);
+  expect(result.after).toEqual([0, 9, 'after', 0]);
+}), 90000);
+
 test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report error', () => browserTest(async (page, server) => {
   await page.goto(server.url.href);
   const literal = '<b>literal</b><script>window.executed = true</script>';

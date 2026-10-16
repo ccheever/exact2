@@ -105,7 +105,7 @@ export const deliveredType = (mime, accept) => {
   const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['*/*', 'image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
   return heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
 };
-const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return l.length === 1 ? l[0].split(/\s+/) : l; };
+const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return v.includes('\n') ? l : String(v).trim().split(/\s+/).filter(Boolean); };
 Hosts.showPicker = id => {
   const found = byId(String(id ?? ''));
   const el = found?.el.localName === 'input' && found.el.type === 'file' ? found.el : null;

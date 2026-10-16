@@ -11,11 +11,13 @@
 // destructive.
 #if os(iOS) || os(tvOS)
 import UIKit
+import ObjectiveC
 
 final class PromptField: NSObject, UITextFieldDelegate {
     private(set) weak var node: NodeView?
     private weak var presenter: Presenter?
     private weak var field: UITextField?
+    private var heard: String?
     /// The alert's own delegate for the field, which answers what this does
     /// not.
     private weak var alertDelegate: UITextFieldDelegate?
@@ -50,6 +52,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
         node.headerField = field
         alertDelegate = field.delegate
         field.delegate = self
+        Self.installKeys(on: field)
         field.addAction(UIAction { [weak self] _ in self?.typed() }, for: .editingChanged)
     }
 
@@ -89,7 +92,7 @@ final class PromptField: NSObject, UITextFieldDelegate {
     /// which is the author's to draw.
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard let node = live(), let presenter, !node.disabled else { return false }
-        if presenter.keyDown(at: node, "Enter") { return false }
+        if heard != "Enter", presenter.keyDown(at: node, "Enter") { return false }
         return returnHeard(textField)
     }
     /// Return once the input's `key` handlers have heard it unprevented (the
@@ -117,6 +120,64 @@ final class PromptField: NSObject, UITextFieldDelegate {
         node.typedText(field.text ?? "")
         // The page's value written while text was marked waited (`writeValue`).
         if field.markedTextRange == nil, let held = node.pendingValue { node.writeValue(held, into: field) }
+    }
+
+    private func presses(_ presses: Set<UIPress>, phase: UIPress.Phase) -> Set<UIPress> {
+        if phase != .began { heard = nil }
+        guard let node = live() else { return presses }
+        let remaining = node.pressedControls(presses, down: phase == .began)
+        guard !remaining.isEmpty else { return remaining }
+        if phase == .began {
+            if node.editorKeyDown(remaining) { return [] }
+            heard = remaining.first?.key.map(NodeView.keyName)
+        } else if phase == .ended { node.editorKeyUp(remaining) }
+        return remaining
+    }
+
+    private func deleteBackward(_ field: UITextField, perform: () -> Void) {
+        guard let node = live() else { perform(); return }
+        if heard != "Backspace", !node.disabled, presenter?.keyDown(at: node, "Backspace") == true { return }
+        if let selections = presenter?.fieldSelections {
+            selections.nativeEdit(node, replacement: "", marked: field.markedTextRange != nil, perform)
+        } else { perform() }
+    }
+
+    /// `addTextField` owns the field's class. Give this instance the same key
+    /// paths as `TextField`, retaining UIKit's implementations as its defaults.
+    /// No ivars or methods on UIKit's classes are changed.
+    private static func installKeys(on field: UITextField) {
+        let base: AnyClass = object_getClass(field)!
+        let name = "ExactPromptKeys_" + NSStringFromClass(base)
+        if let existing = NSClassFromString(name) { object_setClass(field, existing); return }
+        let subclass = objc_allocateClassPair(base, name, 0)!
+        typealias Presses = @convention(c) (UITextField, Selector, NSSet, UIPressesEvent?) -> Void
+        let phases: [(Selector, UIPress.Phase)] = [
+            (#selector(UIResponder.pressesBegan(_:with:)), .began),
+            (#selector(UIResponder.pressesEnded(_:with:)), .ended),
+            (#selector(UIResponder.pressesCancelled(_:with:)), .cancelled),
+        ]
+        for (selector, phase) in phases {
+            let method = class_getInstanceMethod(base, selector)!
+            let original = unsafeBitCast(method_getImplementation(method), to: Presses.self)
+            let replacement: @convention(block) (UITextField, NSSet, UIPressesEvent?) -> Void = { field, presses, event in
+                let values = presses as! Set<UIPress>
+                let remaining = (field.delegate as? PromptField)?.presses(values, phase: phase) ?? values
+                if !remaining.isEmpty { original(field, selector, remaining as NSSet, event) }
+            }
+            class_addMethod(subclass, selector, imp_implementationWithBlock(replacement), method_getTypeEncoding(method))
+        }
+        let selector = #selector(UITextField.deleteBackward)
+        let method = class_getInstanceMethod(base, selector)!
+        typealias Delete = @convention(c) (UITextField, Selector) -> Void
+        let original = unsafeBitCast(method_getImplementation(method), to: Delete.self)
+        let replacement: @convention(block) (UITextField) -> Void = { field in
+            let perform = { original(field, selector) }
+            if let prompt = field.delegate as? PromptField { prompt.deleteBackward(field, perform: perform) }
+            else { perform() }
+        }
+        class_addMethod(subclass, selector, imp_implementationWithBlock(replacement), method_getTypeEncoding(method))
+        objc_registerClassPair(subclass)
+        object_setClass(field, subclass)
     }
 
     /// The alert is going: the edit commits, and the authored field is its

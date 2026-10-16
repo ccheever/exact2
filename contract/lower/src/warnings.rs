@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 
 mod counts;
 mod launch;
+mod line_height;
 mod miswiring;
 mod nested_header;
 mod parts;
@@ -85,6 +86,9 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 out.extend(button.filter(|_| fresh));
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
+                if fresh {
+                    line_height::multiplier(attrs, &mut out);
+                }
                 let keyed = has(attrs, "navigationKey");
                 // @ref LLP 1116.010 D5 — a name or a key that meets nothing.
                 miswiring::swipe(attrs, children, fresh, &mut out);
@@ -126,6 +130,9 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
             Node::Children { .. } => (Vec::new(), in_root, back),
         };
         stack.extend(children.into_iter().rev().map(|n| (n, in_root, back)));
+    }
+    for style in &checked.file.styles {
+        line_height::multiplier(&style.attrs, &mut out);
     }
     out.extend(screens::screen_by_state(checked));
     out.extend(counts::count_plural(checked));

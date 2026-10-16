@@ -63,11 +63,12 @@ impl Parser {
                 }
                 "by" => {
                     let (how, how_span) = self.ident()?;
-                    if !["end", "group", "cut", "stop", "cancelled"].contains(&how.as_str()) {
+                    if !["end", "group", "cut", "stop", "cancelled", "edit"].contains(&how.as_str())
+                    {
                         return Err(SyntaxError {
                             id: "syntax-expected-step",
                             message: format!(
-                                "a voice ends by `end`, `group`, `cut`, `stop` or `cancelled`, not `{how}`"
+                                "a voice ends by `end`, `group`, `cut`, `stop`, `cancelled` or `edit`, not `{how}`"
                             ),
                             span: how_span,
                         });

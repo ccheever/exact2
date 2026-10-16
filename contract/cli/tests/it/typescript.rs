@@ -446,3 +446,145 @@ function mutation() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn build_reports_all_reachable_ambient_apis_before_bake() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write(
+        "app.ts",
+        "import './helper.ts';\nexport const answer = () => Date.now();\n",
+    );
+    fixture.write("helper.ts", "export const value = Math.random();\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", "app.contract", "--json"])
+        .current_dir(&fixture.0)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let found: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(found.iter().all(|d| d["id"] == "analyze-ambient-api"));
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("Date.now()"), "{text}");
+    assert!(text.contains("Math.random()"), "{text}");
+}
+
+#[test]
+fn ambient_check_resolves_extensionless_mounted_modules() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write(
+        "app.json",
+        r#"{"app":{"id":"com.example.mounted","name":"Mounted imports"},"typescript":{"sources":{"backend":"generated"}}}"#,
+    );
+    std::fs::create_dir_all(fixture.0.join("generated")).unwrap();
+    fixture.write("generated/api.ts", "export const value = 42;\n");
+    for import in ["./backend/api", "./backend/api.ts"] {
+        fixture.write(
+            "app.ts",
+            &format!("import {{value}} from '{import}';\nexport const answer = () => value;\n"),
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["build", "app.contract", "--json"])
+            .current_dir(&fixture.0)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{import}: {output:?}");
+        assert_eq!(output.stdout, b"[]\n");
+    }
+}
+
+#[test]
+fn unknown_handlers_continue_through_siblings_children_and_timer_targets() {
+    let source="component App\n  action save\n    let done = true\n  task first mount\n    every(1000, saev)\n  task second mount\n    every(2000, svae)\n  view\n    column\n      button \"Save\" press=saev\n      column\n        button \"Save again\" press=svae\n";
+    let timers = source
+        .replace("press=saev", "press=save")
+        .replace("press=svae", "press=save");
+    let errors = contract::compile_path_source_all(Path::new("app.contract"), &timers, false)
+        .err()
+        .expect("unknown actions refuse");
+    let unknown: Vec<_> = errors
+        .iter()
+        .filter(|e| e.id == "analyze-unknown-action")
+        .collect();
+    assert_eq!(unknown.len(), 2, "{errors:?}");
+    assert!(
+        unknown.iter().all(
+            |e| e.message.contains("save") || e.related.iter().any(|r| r.note.contains("save"))
+        ),
+        "{unknown:?}"
+    );
+}
+
+#[test]
+fn checked_backend_projection_requires_every_contract_key_and_narrows_nullable_values() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "projection.ts",
+        include_str!("../../../../snapback4/online/projection.ts"),
+    );
+    let checked = fixture.check(
+        r#"
+import {pick} from './projection';
+type Note={id:string;body:string;parent:string|null};
+const project=pick<Note>();
+const row={id:'one',body:'hello',parent:null,at:123};
+const note:Note=project(row,'id','body','parent');
+// @ts-expect-error all target keys are required
+project(row,'id','body');
+// @ts-expect-error extra server fields are not Contract keys
+project(row,'id','body','parent','at');
+// @ts-expect-error wrong field type
+project({...row,body:3},'id','body','parent');
+// @ts-expect-error a hidden-parent projection is nullable
+pick<{parent:string}>()(row,'parent');
+"#,
+    );
+    assert!(checked.status.success(), "{checked:?}");
+}
+
+#[test]
+fn types_check_is_read_only_and_build_reports_only_changed_declarations() {
+    let fixture = Fixture::new();
+    fixture.write("app.contract", CONTRACT);
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .current_dir(&fixture.0)
+            .output()
+            .unwrap()
+    };
+    let check = || run(&["types", "--check", "app.contract"]);
+    assert_eq!(check().status.code(), Some(1));
+    assert!(!fixture.0.join("app.contract.d.ts").exists());
+    fixture.write("app.contract.d.ts", "stale");
+    assert_eq!(check().status.code(), Some(1));
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("app.contract.d.ts")).unwrap(),
+        "stale"
+    );
+    let built = run(&["build", "app.contract", "--json"]);
+    assert!(built.status.success(), "{built:?}");
+    assert_eq!(built.stdout, b"[]\n");
+    assert!(String::from_utf8_lossy(&built.stderr)
+        .contains("app.contract.d.ts: regenerated, since a source's signature changed"));
+    assert!(check().status.success());
+    let repeated = run(&["build", "app.contract", "--json"]);
+    assert!(repeated.status.success());
+    assert!(repeated.stderr.is_empty());
+    assert!(run(&["types", "app.contract", "-o", "other.d.ts"])
+        .status
+        .success());
+    assert!(
+        run(&["types", "app.contract", "--check", "-o", "other.d.ts"])
+            .status
+            .success()
+    );
+}

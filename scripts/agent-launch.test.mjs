@@ -4,7 +4,27 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { Cdp, chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+import { PassThrough } from 'node:stream';
+
+test('CDP reports transport closure once to event waiters without a pending request', () => {
+  for (const [stream, event, reason] of [
+    ['output', 'end', 'the DevTools pipe closed'],
+    ['output', 'error', 'the DevTools pipe failed: read failed'],
+    ['input', 'error', 'the DevTools pipe failed: write failed'],
+  ]) {
+    const input = new PassThrough(), output = new PassThrough(), cdp = new Cdp(input, output), observed = [];
+    try {
+      cdp.closeListeners.add(why => observed.push(why));
+      ({ input, output })[stream].emit(event, new Error(stream === 'output' ? 'read failed' : 'write failed'));
+      cdp.fail('later failure');
+      expect(cdp.pending.size).toBe(0);
+      expect(cdp.closed).toBe(reason);
+      expect(observed).toEqual([reason]);
+      expect(cdp.closeListeners.size).toBe(0);
+    } finally { input.destroy(); output.destroy(); }
+  }
+});
 const engineVersion = () => '1.2.3';
 function stampedWasm(stamp = {format: 1, version: engineVersion(), capabilities: ['sync-generation-v1']}) {
   const leb = n => { const out = []; do { const b = n & 127; n >>>= 7; out.push(b | (n ? 128 : 0)); } while (n); return Buffer.from(out); };
@@ -355,4 +375,113 @@ test('backend fetch prefixes follow the built origin and refuse ambiguous grants
     .toEqual(['http://127.0.0.1:30125', 'http://127.0.0.1:30125', 'https://other.example']);
   expect(() => backendFetchPrefixes(tests(), [])).toThrow(/exactly one net.fetch origin/);
   expect(() => backendFetchPrefixes(tests(), ['https://one.example', 'https://two.example'])).toThrow(/literal URL/);
+});
+
+test('backend selection changes captured origin and grants while preserving unrelated literals', async () => {
+  const {backendOrigin, injectBackendOrigin} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const code = `// const origin = 'http://comment';
+const label = '☃';
+const origin = 'http://127.0.0.1:4400/';
+export const grants = [\`net.fetch \${origin}\`, 'net.fetch http://127.0.0.1:4400', 'net.fetch https://other.example'].join('\\n');
+const other = 'http://127.0.0.1:4400';`;
+  const next = injectBackendOrigin(code, 'https://backend.example', parseSync);
+  const template=injectBackendOrigin("const origin='http://old'; export const grants=`net.fetch http://old\\nfs.read app:/tmp`;", 'https://backend.example', parseSync);
+  expect(parseSync('app.ts',template).errors).toEqual([]);
+  expect(template).toContain('"net.fetch https://backend.example\\nfs.read app:/tmp"');
+
+  expect(next).toContain('const origin = "https://backend.example"');
+  expect(next).toContain('"net.fetch https://backend.example"');
+  expect(next).toContain('net.fetch https://other.example');
+  expect(next).toContain("const other = 'http://127.0.0.1:4400'");
+  expect(next).toContain("// const origin = 'http://comment'");
+  expect(() => injectBackendOrigin('const origin = compute();', 'http://new', parseSync)).toThrow(/top-level literal/);
+  for (const value of ['file:///tmp/a', 'https://user:pw@backend.example', 'http://backend.example/path', ''])
+    expect(() => backendOrigin('.', {EXACT_BACKEND_ORIGIN: value})).toThrow(/EXACT_BACKEND_ORIGIN/);
+  expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
+});
+
+test('interactive faults resolve backend, warn on impossible prefixes, and reload keeps storage and live faults', async () => {
+  const {faultRequest, reloadWeb, driverCapabilities} = await import('./agent-test.mjs');
+  const warnings=[];
+  expect(faultRequest('fail', ['fetch','backend','times','2'], ['http://127.0.0.1:30100'], s=>warnings.push(s)))
+    .toEqual({op:'prefer',faults:{fail:'http://127.0.0.1:30100',times:2}});
+  expect(faultRequest('pass',['fetch','backend'],['https://cdn.example','http://127.0.0.1:30100'])).toEqual({op:'prefer',faults:{pass:'http://127.0.0.1:30100'}});
+  faultRequest('fail', ['fetch','http://wrong'], ['http://127.0.0.1:30100'], s=>warnings.push(s));
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]).toContain('matches no granted origin');
+  expect(() => faultRequest('pass', ['fetch','backend'], [])).toThrow(/exactly one/);
+  const calls=[];
+  const session={host:'web', now:12, logCursor:9,
+    state: async()=>({background:{queued:1,inFlight:0},faults:[]}),
+    clock:async arg=>{calls.push(arg);return {settled:true};}, carrier:{reset:async options=>{calls.push(options);}}};
+  expect(await reloadWeb(session)).toEqual({reloaded:true});
+  expect(calls).toEqual(['data',{keep:true,failFetch:''}]);
+  expect(session.now).toBe(0);
+  expect(driverCapabilities()).toContain('reload (interactive)');
+});
+
+test('authored-test clock advances once per mutation request, not per input reply or resource', async()=>{
+  const {testMutationClock}=await import('./agent-test.mjs');
+  let requests=2;
+  const calls=[], clock=testMutationClock();
+  const session={state:async()=>({mutationRequests:requests}),clock:async value=>{calls.push(value);}};
+  expect(await clock.advance(session)).toBe(2);
+  expect(await clock.advance(session)).toBe(0);
+  requests++;
+  expect(await clock.advance(session)).toBe(1);
+  expect(calls).toEqual(['+2','+1']);
+  clock.reset(); requests=1;
+  expect(await clock.advance(session)).toBe(1);
+});
+
+test('a reused captured stage restores the authored backend after an override is removed',async()=>{
+  const {configure}=await import('../js/bake/src/typescript.mjs');
+  const {parseSync}=await import('rolldown/utils');
+  const {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  const root=mkdtempSync(join(tmpdir(),'exact-backend-stage-')),app=join(root,'app'),stage=join(root,'stage');
+  const env=process.env.EXACT_BACKEND_ORIGIN; delete process.env.EXACT_BACKEND_ORIGIN;
+  try {
+    mkdirSync(app);mkdirSync(stage);mkdirSync(join(app,'.exact'));
+    const source="const origin='http://127.0.0.1:4400'; export const grants=`net.fetch ${origin}`;";
+    writeFileSync(join(stage,'app.ts'),source);writeFileSync(join(stage,'__exact_backend_source.json'),JSON.stringify(source));
+    writeFileSync(join(stage,'__exact_paths.json'),JSON.stringify({app,mounts:[]}));
+    writeFileSync(join(app,'.exact/backend-origin'),'http://127.0.0.1:4412');
+    configure(stage,true,parseSync);
+    expect(readFileSync(join(stage,'app.ts'),'utf8')).toContain('4412');
+    rmSync(join(app,'.exact/backend-origin'));configure(stage,true,parseSync);
+    expect(readFileSync(join(stage,'app.ts'),'utf8')).toBe(source);
+    // An authored edit equal to the previous injection is still a new captured source.
+    const edited=source.replace('4400','4412');writeFileSync(join(stage,'__exact_backend_source.json'),JSON.stringify(edited));
+    configure(stage,true,parseSync);expect(readFileSync(join(stage,'app.ts'),'utf8')).toBe(edited);
+  } finally {if(env!==undefined) process.env.EXACT_BACKEND_ORIGIN=env;rmSync(root,{recursive:true,force:true});}
+});
+
+test('mutation requests issued by an automatic clock step receive their own millisecond',async()=>{
+  const {testMutationClock}=await import('./agent-test.mjs');
+  let requests=1,now=0;
+  const clock=testMutationClock();
+  const session={state:async()=>({mutationRequests:requests}),clock:async spec=>{now+=Number(spec.slice(1));if(requests===1)requests++;}};
+  expect(await clock.advance(session)).toBe(2);expect(now).toBe(2);
+  expect(await clock.advance(session)).toBe(0);expect(now).toBe(2);
+});
+
+
+test('web freshness tracks backend selection creation, edits and deletion',async()=>{
+  const {webChanges,webInputDigests}=await import('./agent-launch.mjs');
+  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  const dir=mkdtempSync(join(tmpdir(),'exact-origin-freshness-'));
+  const app={dir,manifest:{}},dist=join(dir,'dist'),selection=join(dir,'.exact/backend-origin');
+  try {
+    mkdirSync(dist);mkdirSync(join(dir,'.exact'));
+    const bake=()=>writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true)}));
+    bake();expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(selection,'http://127.0.0.1:4412');expect(webChanges(dist,app).app).toEqual([selection]);
+    bake();expect(webChanges(dist,app).all).toEqual([]);
+    writeFileSync(selection,'http://127.0.0.1:4413');expect(webChanges(dist,app).app).toEqual([selection]);
+    bake();rmSync(selection);expect(webChanges(dist,app).app).toEqual([selection]);
+    bake();expect(webChanges(dist,app).all).toEqual([]);
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

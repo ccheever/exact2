@@ -100,7 +100,11 @@ impl Kernel {
             .arena
             .iter_live()
             // A covered box too: its top cover can hold an inset (cover.rs).
-            .filter(|s| uses_env(self.arena.style(*s)) || self.arena.cover(*s).is_some())
+            .filter(|s| {
+                uses_env(self.arena.style(*s))
+                    || self.arena.cover(*s).is_some()
+                    || self.arena.neutral_alert(*s)
+            })
             .collect();
         for slot in &users {
             if let (Some(node), Some(layout)) =

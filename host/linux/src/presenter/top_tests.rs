@@ -1123,3 +1123,223 @@ fn focus_after_show_selects_the_shell_menu_row_and_escape_restores_the_trigger()
     p.key_down("Escape", 2.0);
     assert_eq!(p.focus(), Some(trigger));
 }
+
+#[test]
+fn shell_top_layer_reports_viewport_frames_and_modal_visibility_to_reads() {
+    let source = APP
+        .replace(
+            "  state said",
+            r#"  state hit = ""
+  state hits = []
+  state shown = []
+  state bounds = []
+  action probe(x: number, y: number)
+    hit = match elementFromPoint(x, y) { case some(id) => id, case none => "none" }
+    hits = elementsFromPoint(x, y)
+    shown = querySelectorAll("[data-paint~=\"accent\"]")
+    bounds = [frame("menu").x, frame("menu").y, frame("menu").width, frame("menu").height]
+  state said"#,
+        )
+        .replace(
+            "main navigationKey",
+            "main id=\"page\" data-paint=\"accent\" navigationKey",
+        )
+        .replace(
+            "id=\"menu\" popover",
+            "id=\"menu\" data-paint=\"accent\" popover",
+        )
+        .replace(
+            "id=\"confirm\" role",
+            "id=\"confirm\" data-paint=\"accent\" role",
+        )
+        .replace(
+            "dialog id=\"light\"",
+            "column id=\"light\" popover=\"auto\" data-paint=\"accent\"",
+        )
+        .replace(
+            "commandfor=\"light\" command=\"close\"",
+            "popovertarget=\"light\" popovertargetaction=\"hide\"",
+        );
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(&source),
+        (),
+        (400., 800.),
+        2.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.serve_requests();
+    p.serve_windows(Box::new(Pixels(Rc::new(RefCell::new(Vec::new())))));
+    let probe = |p: &mut Presenter<()>, x: f64, y: f64| {
+        p.host
+            .runner_mut()
+            .act("probe", vec![Value::Number(x), Value::Number(y)])
+            .unwrap();
+    };
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page")]))
+    );
+    tap(&mut p, "more").unwrap();
+    for (width, height) in [(400.0, 800.0), (320.0, 400.0)] {
+        assert!(p
+            .set_window(super::super::window::Window {
+                size: (width, height),
+                bars: [24.0, 0.0, 0.0, 13.0],
+                ..Default::default()
+            })
+            .is_none());
+        let frame = told(&mut p).into_iter().find(|s| s.1 == 2).unwrap().2;
+        let [px, py, ..] = p.chrome().frame;
+        let (x, y) = (
+            f64::from(frame[0]) / 2.0 - f64::from(px) + 1.0,
+            f64::from(frame[1]) / 2.0 - f64::from(py) + 1.0,
+        );
+        probe(&mut p, x, y);
+        assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("menu")));
+        assert_eq!(
+            p.host.runner().slot("bounds"),
+            Some(&Value::list(vec![
+                Value::Number(x - 1.0),
+                Value::Number(y - 1.0),
+                Value::Number(f64::from(frame[2]) / 2.0),
+                Value::Number(f64::from(frame[3]) / 2.0),
+            ]))
+        );
+        assert_eq!(
+            p.host.runner().slot("hits"),
+            Some(&Value::list(vec![Value::str("menu"), Value::str("page")]))
+        );
+        assert_eq!(
+            p.host.runner().slot("shown"),
+            Some(&Value::list(vec![Value::str("page"), Value::str("menu")]))
+        );
+        probe(&mut p, 1.0, 1.0);
+        assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
+    }
+    p.key_down("Escape", 1.0);
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page")]))
+    );
+    tap(&mut p, "ask").unwrap();
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("none")));
+    assert_eq!(p.host.runner().slot("hits"), Some(&Value::list(vec![])));
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("confirm")]))
+    );
+    let serial = p.surface().unwrap().serial;
+    p.surface_event(serial, event::REFUSED, 0.0, 0.0, 2.0);
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page")]))
+    );
+    p.popover_command("showPopover", &[Value::str("light")]);
+    assert_eq!(p.surface().unwrap().kind, SurfaceKind::Alert);
+    probe(&mut p, 1.0, 1.0);
+    assert_eq!(p.host.runner().slot("hit"), Some(&Value::str("page")));
+    assert_eq!(
+        p.host.runner().slot("shown"),
+        Some(&Value::list(vec![Value::str("page"), Value::str("light")]))
+    );
+}
+
+#[test]
+fn shell_surface_geometry_tracks_insets_cutouts_and_scale() {
+    let source = r#"component App
+  state bounds = []
+  state hit = ""
+  action probe(x: number, y: number)
+    bounds = [frame("menu").x, frame("menu").y, frame("menu").width, frame("menu").height]
+    hit = match elementFromPoint(x, y) { case some(id) => id, case none => "none" }
+  action done
+    hit = "done"
+  view
+    column viewport-fit="cover" width="100%" height="100%"
+      button popovertarget="menu" testId="more" position="absolute" left=20 top=0 width=100 height=40
+        text "More"
+      column id="menu" popover="auto" role="menu"
+        button press=done popovertarget="menu" popovertargetaction="hide"
+          text "Done"
+"#;
+    let mut failures = Vec::new();
+    for (name, anchor, bars, cutout, scale) in [
+        ("top bar", 0, [96., 0., 48., 0.], [0.; 4], 1.),
+        ("top cutout", 0, [48., 0., 48., 0.], [96., 0., 0., 0.], 1.),
+        ("bottom bar", 740, [48., 0., 160., 0.], [0.; 4], 1.),
+        (
+            "bottom cutout",
+            740,
+            [48., 0., 48., 0.],
+            [0., 0., 160., 0.],
+            1.,
+        ),
+        ("scale", 0, [48., 0., 48., 0.], [0.; 4], 2.),
+    ] {
+        let source = source.replace("top=0", &format!("top={anchor}"));
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 800.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.serve_requests();
+        p.serve_windows(Box::new(Pixels(Rc::new(RefCell::new(Vec::new())))));
+        let window = Window {
+            size: (400., 800.),
+            bars: [48., 0., 48., 0.],
+            ..Default::default()
+        };
+        assert!(p.set_window(window).is_none());
+        tap(&mut p, "more").unwrap();
+        let initial = told(&mut p).into_iter().find(|s| s.1 == 2).unwrap().2;
+        assert!(p
+            .set_window(Window {
+                bars,
+                cutout,
+                ..window
+            })
+            .is_none());
+        assert!(p.resize_scaled(400., 800., scale).is_none());
+        let sent = told(&mut p);
+        let updated = sent.iter().find(|s| s.1 == 2).map(|s| s.2);
+        // Compare with the last statement delivered, even when no update arrived.
+        let last = updated.unwrap_or(initial);
+        let rect = last.map(|v| f64::from(v) / f64::from(scale));
+        p.host
+            .runner_mut()
+            .act(
+                "probe",
+                vec![Value::Number(rect[0] + 1.), Value::Number(rect[1] + 1.)],
+            )
+            .unwrap();
+        let expected = Value::list(rect.into_iter().map(Value::Number).collect());
+        if updated.is_none()
+            || p.host.runner().slot("bounds") != Some(&expected)
+            || p.host.runner().slot("hit") != Some(&Value::str("menu"))
+        {
+            failures.push(format!(
+                "{name}: shell={last:?}, updated={updated:?}, runner={:?}, hit={:?}",
+                p.host.runner().slot("bounds"),
+                p.host.runner().slot("hit")
+            ));
+        }
+        assert!(
+            told(&mut p).is_empty(),
+            "an unchanged surface is not sent twice"
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
