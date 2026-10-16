@@ -63,6 +63,7 @@ export function simulators() {
 }
 
 /** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
+const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
 export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
@@ -79,7 +80,7 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
     const has = app ? booted.filter((d) => read('xcrun', ['simctl', 'get_app_container', d.udid, app]).status === 0) : [];
     if (has.length === 1) {
       dev = has[0];
-      console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, the one with ${app} installed; name another with ${hint}`);
+      if (!saidSimulator.has(dev.udid)) { saidSimulator.add(dev.udid); console.error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted; using ${dev.name} ${dev.udid}, the one with ${app} installed; name another with ${hint}`); }
     } else {
       const named = (d) => `${d.name} ${d.udid}${has.includes(d) ? ` (has ${app})` : ''}`;
       throw new Error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted (${booted.map(named).join(', ')})${app ? `, ${has.length ? 'several' : 'none'} with ${app} installed` : ''}: name one with ${hint}`);
