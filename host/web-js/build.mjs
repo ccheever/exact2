@@ -543,7 +543,7 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
   // clone's release page: runtime up at 1.7–1.9 s, 0.5 s with it; ~23 MB
   // more heap). Other browsers read a comment.
   const built = await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js',
-    postBanner: (chunk) => chunk.isEntry ? '//# allFunctionsCalledOnLoad' : '',
+    postBanner: (chunk) => chunk.isEntry ? '//# allFunctionsCalledOnLoad' : undefined,
     ...(devReload && ts ? { manualChunks: (id, { getModuleInfo }) => fromData(id, getModuleInfo) ? 'dev-data' : undefined } : {}) });
   if (devReload && ts) for (const chunk of built.output.filter(file => file.type === 'chunk' && Object.keys(file.modules).includes(appTs))) {
     devLogic.push(['typescript', createHash('sha256').update(readFileSync(resolve(out, chunk.fileName))).digest('hex')]);
