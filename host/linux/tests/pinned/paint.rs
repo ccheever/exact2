@@ -1143,13 +1143,13 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
     let mut reference = Raster::new();
     reference.begin(16., 8., 1.);
     reference.fill(&shape, [30, 60, 90, 255], ts);
-    reference.canvas(&game, rect, &[shape.clone()], ts);
+    reference.canvas(&game, rect, &[shape], ts);
     reference.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
     let expected = reference.finish().unwrap();
     let mut split = Raster::new();
     split.begin(16., 8., 1.);
     split.fill(&shape, [30, 60, 90, 255], ts);
-    assert!(split.split_window_canvas(rect, &[shape.clone()], ts));
+    assert!(split.split_window_canvas(rect, &[shape], ts));
     split.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
     let below = split.take_window_underlay().unwrap();
     let above = split.finish().unwrap();

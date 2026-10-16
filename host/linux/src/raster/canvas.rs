@@ -115,7 +115,7 @@ mod tests {
                 for _ in 0..2 {
                     actual.push_clip(&full, identity);
                     let bounds = reference.text_clip(&full, identity);
-                    let mask = reference.mask_with(&[full.clone()], identity).unwrap();
+                    let mask = reference.mask_with(&[full], identity).unwrap();
                     reference.clips.push(Some(Rc::new(mask)));
                     reference.text_clips.push(bounds);
                 }
@@ -141,7 +141,7 @@ mod tests {
         let full = Shape::rect((0., 0., 40., 24.));
         assert!(r.viewport_clip(&full, identity));
         assert!(!r.viewport_clip(&full, Transform::from_translate(0.25, 0.)));
-        let mut rounded = full.clone();
+        let mut rounded = full;
         rounded.radii = [(1., 1.); 4];
         assert!(!r.viewport_clip(&rounded, identity));
         assert!(!r.viewport_clip(&Shape::rect((0., 0., 39.75, 24.)), identity));
