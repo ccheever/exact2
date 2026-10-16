@@ -742,7 +742,6 @@ const LINUX_APART = {
   messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "the sheet's full stop is its bay's height (`frame`), under three rows of 12 px buttons whose text each host sets in its own sans: Chrome's system-ui, and on macOS the Linux host's Arial (text/fonts.rs, no fontconfig), a row 1 px shorter, so 521 against the page's 518"],
   'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
-  textflow: ['tap scene-orbs', "the orbs' positions are its data crate's sines and collisions, which the page runs as wasm (Rust's libm) and the Linux host natively (the system's libm), so their last digits differ"],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
 function linuxFor(t) {
