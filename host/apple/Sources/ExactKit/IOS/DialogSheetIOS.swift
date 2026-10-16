@@ -23,6 +23,11 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     /// The dialog's box as the kernel laid it out: the sheet's height.
     private(set) var box = CGSize.zero
     private var backdropTap: UITapGestureRecognizer?
+    #if os(iOS)
+    /// What the dialog's authored ancestors listen for: the sheet is out of
+    /// the page their recognizers see (`MountRelay`).
+    var relay: MountRelay?
+    #endif
 
     fileprivate init(host: DialogSheets) {
         self.host = host
@@ -142,6 +147,8 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
 
     /// Shown, or still on screen while its sheet leaves.
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
+    /// A dialog's authored parent while it is in its sheet; nil for any other node.
+    func authoredParent(of node: NodeView) -> UIView? { entries.first { $0.dialog === node }?.parent }
     func isOpen(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node && !$0.closing } }
     /// The sheet a new presentation goes over, and the dialog in it: while
     /// one is up only shortcuts inside it are heard (Shortcuts.swift).
@@ -185,6 +192,9 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         entries.append(entry)
         previous?.resignFirstResponder()
         controller.loadViewIfNeeded()
+        #if os(iOS)
+        controller.relay = MountRelay(presenter, mount: controller.view)
+        #endif
         controller.scroller.addSubview(dialog)
         dialog.isHidden = false
         controller.isModalInPresentation = refuses(dialog)

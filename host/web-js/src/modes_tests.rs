@@ -306,3 +306,62 @@ fn a_pinned_accent_naming_its_token_declares_the_accent_where_the_token_is_a_col
         out.js
     );
 }
+
+/// LLP 1121 stage 4, commit 4: a development build makes every token a
+/// property, varying or not, so the live table can set it in place; its
+/// design names each one's CSS per tuple. A release build folds a token
+/// that does not vary inline, as before.
+#[test]
+fn a_development_build_makes_every_token_a_property() {
+    let view = "component App\n  view\n    column background-color=\"surface.card\"\n      text \"a\" color=\"brand\"\n";
+    let dir = std::env::temp_dir().join(format!("exact-web-js-modes-dev-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    std::fs::write(dir.join("app.contract"), view).unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let release = crate::emit::emit(&plan, false, false).unwrap();
+    let dev = crate::emit::emit(&plan, false, true).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!release.css.contains("--x-brand"), "{}", release.css);
+    assert!(dev.css.contains("color:var(--x-brand)"), "{}", dev.css);
+    let root = dev
+        .css
+        .find(":root,[data-x-modes=\"dark-style=black\"]{")
+        .expect(&dev.css);
+    assert!(
+        dev.css[root..].contains("--x-brand:#c8102eff;"),
+        "{}",
+        dev.css
+    );
+    // The page knows the design it was built with: a batch's base.
+    let digest = exact_runner::design::digest(&exact_runner::design::tokens(&plan));
+    let structure = exact_runner::design::shape(&plan);
+    assert!(
+        dev.js.contains(&format!(",\"{digest}\",\"{structure}\");")),
+        "{}",
+        dev.js
+    );
+    assert!(!release.js.contains(&digest));
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    assert_eq!(design["digest"], digest);
+    let brand = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "brand")
+        .unwrap();
+    assert_eq!(brand["prop"], "--x-brand");
+    assert_eq!(brand["css"], serde_json::json!(["#c8102eff", "#c8102eff"]));
+    assert_eq!(brand["accent"], serde_json::json!([false, false]));
+    let card = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "surface.card")
+        .unwrap();
+    assert_eq!(card["css"][1], "light-dark(#ffffffff, #15202bff)");
+}

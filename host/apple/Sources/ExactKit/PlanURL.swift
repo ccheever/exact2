@@ -362,12 +362,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
 
     /// The app owns the identity: replacing a connection must not restart an
     /// already current app, while another kind of apply invalidates the identity.
-    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
+    static func open(_ page: String, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String = { _ in "unsupported" }, channel: @escaping ([String: Any]) -> Void = { _ in }, apply: @escaping (Generation, String) -> Bool) -> PlanURL? {
         guard let u = URL(string: page), u.host != nil, sameOrigin(u, u) else {
             fputs("exact url: not an HTTP app URL: \(page)\n", stderr)
             return nil
         }
-        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, apply: apply)
+        let connection = PlanURL(u, acceptProgram: acceptProgram, current: current, waiting: waiting, design: design, channel: channel, apply: apply)
         connection.resolveAndBoot()
         return connection
     }
@@ -375,6 +375,12 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     let page: URL
     private let currentGeneration: () -> String?
     private let applyGeneration: (Generation, String) -> Bool
+    /// A live design batch or snapshot (LLP 1121 stage 4) applied to the
+    /// app; answers applied, stale, structure or refused.
+    private let applyDesign: (String) -> String
+    /// A build-channel frame (LLP 1122 D4): a hello with a new nonce, or a
+    /// command (`BuildChannel.commands`).
+    private let channel: ([String: Any]) -> Void
     private let preparationPending: () -> Bool
     private let acceptProgram: (String?) -> Bool
     var terminal: String?
@@ -396,11 +402,13 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
-    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, apply: @escaping (Generation, String) -> Bool) {
+    private init(_ page: URL, acceptProgram: @escaping (String?) -> Bool, current: @escaping () -> String?, waiting: @escaping () -> Bool = { false }, design: @escaping (String) -> String, channel: @escaping ([String: Any]) -> Void, apply: @escaping (Generation, String) -> Bool) {
         self.page = page
         self.acceptProgram = acceptProgram
         currentGeneration = current
         applyGeneration = apply
+        applyDesign = design
+        self.channel = channel
         preparationPending = waiting
     }
 
@@ -411,6 +419,10 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         pending = nil
         Array(fetches.values).forEach { $0.cancel() }
         fetches.removeAll()
+        // A snapshot fetch cancelled with the rest: the generation this
+        // resolves syncs its design once applied.
+        syncing = false
+        waitingFrames.removeAll()
         return resolution
     }
 
@@ -419,6 +431,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         beginResolution()
         stream?.cancel()
         stream = nil
+        reports.removeAll()
+        reporting?.cancel()
         session.invalidateAndCancel()
     }
 
@@ -679,6 +693,8 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                         func commitCandidate() {
                             guard !self.closed, self.terminal == nil, generation == self.resolution else { return }
                             if applyGeneration(candidate, "generation ← " + (page.host ?? "")) {
+                                // Its plan carries its own design; value-only edits since are the server's.
+                                syncDesign()
                                 status(String(format: "generation %@: envelope %.1f ms, payloads %.1f ms, preparation %.1f ms", String(identity.prefix(12)), envelopeMs, (fetched - payloadStarted) * 1000, (ProcessInfo.processInfo.systemUptime - fetched) * 1000))
                             } else if preparationPending() {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: commitCandidate)
@@ -742,6 +758,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     private func subscribe(_ url: URL) {
         stream?.cancel()
         buffer.removeAll()
+        // A new stream's nonce comes with its hello; reports wait for it.
+        nonce = nil
+        reports.removeAll()
         var request = URLRequest(url: url)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         let task = session.dataTask(with: request)
@@ -782,7 +801,10 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard task === stream, !closed, terminal == nil else { return }
+        guard task === stream else { return }
+        // Its nonce ended with it: no report goes out under it again.
+        nonce = nil
+        guard !closed, terminal == nil else { return }
         if (error as? URLError)?.code == .cancelled { return }
         failed("events disconnected; resolving the current generation", generation: resolution)
     }
@@ -819,6 +841,19 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
             return
         }
         if let error = frame["error"] as? String { status("dev: \(error)"); return }
+        if let kind = frame["kind"] as? String, kind == "tamber-batch" || kind == "tamber-snapshot" {
+            design(frame)
+            return
+        }
+        // The build channel (LLP 1122 D4), development builds only: a command
+        // before any generation; a new stream's hello registers again, under
+        // the same id.
+        if let kind = frame["kind"] as? String, BuildChannel.commands.contains(kind) { if BuildChannel.enabled { channel(frame) }; return }
+        if BuildChannel.enabled, frame["hello"] as? Bool == true, let next = frame["nonce"] as? String, next != nonce, next.utf8.count <= 128 {
+            nonce = next
+            reports.removeAll()
+            channel(frame)
+        }
         if frame["ready"] as? Bool == false { return }
         guard let revision = PlanURL.revision(frame), terminal == nil, observe(revision) else { return }
         if currentGeneration() == revision.identity { beginResolution(); return }
@@ -828,6 +863,100 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
         let generation = beginResolution()
         pending = revision
         fetchEnvelope(url, subscribe: false, generation: generation, expected: revision)
+    }
+
+    // MARK: the live table (LLP 1121 D13, stage 4)
+
+    /// A batch (a notice is one with no tokens) applied on its base; a build
+    /// on another design fetches the snapshot. One at a time, in the stream's
+    /// order: a frame that arrives while a snapshot is fetched waits for it,
+    /// so a snapshot never lands over a newer batch.
+    private func design(_ frame: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: frame),
+              let text = String(data: data, encoding: .utf8) else { return }
+        if syncing { waitingFrames.append(text); return }
+        let answer = applyDesign(text)
+        if answer == "stale" { syncDesign() } else if answer.hasPrefix("refused") { status("live: \(answer)") }
+    }
+
+    private var syncing = false
+    private var waitingFrames: [String] = []
+
+    /// The design the server's builds run, when it is not the plan's own.
+    func syncDesign() {
+        guard !syncing, let url = URL(string: "/__dev/design", relativeTo: page)?.absoluteURL else { return }
+        syncing = true
+        var request = URLRequest(url: url)
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        fetch(request, limit: PlanURL.planLimit, generation: resolution) { [weak self] result in
+            guard let self else { return }
+            self.syncing = false
+            if case let .success((data, response)) = result, response.statusCode == 200, let text = String(data: data, encoding: .utf8) {
+                let answer = self.applyDesign(text)
+                if answer != "applied" { self.status("live: the snapshot was \(answer)") }
+            }
+            let frames = self.waitingFrames
+            self.waitingFrames.removeAll()
+            for text in frames {
+                if self.syncing { self.waitingFrames.append(text); continue }
+                if self.applyDesign(text) == "stale" { self.syncDesign() }
+            }
+        }
+    }
+
+    // MARK: the build channel (LLP 1122 D4)
+
+    /// The nonce the stream's hello gave, which every report carries; nil
+    /// once that stream ends.
+    private(set) var nonce: String?
+    /// The nonce a register succeeded on: no other report goes before it.
+    private var registered: String?
+    private var reports: [(nonce: String, body: [String: Any])] = []
+    private var reporting: BoundedFetch?
+    /// The generation identity the build runs (the reports' `plan`).
+    var plan: String? { currentGeneration() }
+
+    /// A `POST /__dev/report` with the nonce, and the plan for a register or
+    /// a status: one at a time, in order, at most 16 waiting, on the page's
+    /// origin. None before a hello; one whose nonce is no longer the
+    /// stream's, or that would go before its register succeeded, is dropped.
+    func report(_ body: [String: Any]) {
+        guard BuildChannel.enabled, let nonce, reports.count < 16 else { return }
+        var body = body
+        if body["plan"] == nil, body["kind"] as? String == "register" || body["kind"] as? String == "status" { body["plan"] = plan ?? NSNull() }
+        reports.append((nonce, body))
+        sendReport()
+    }
+
+    private func sendReport() {
+        guard reporting == nil, !closed, let url = URL(string: "/__dev/report", relativeTo: page)?.absoluteURL else { return }
+        while let next = reports.first, next.nonce != nonce || (next.body["kind"] as? String != "register" && registered != next.nonce) { reports.removeFirst() }
+        guard let first = reports.first else { return }
+        let (sent, body) = (first.nonce, first.body)
+        reports.removeFirst()
+        var payload = body
+        payload["nonce"] = sent
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { sendReport(); return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        let register = body["kind"] as? String == "register"
+        // Its own rung: a new generation's `beginResolution` does not cancel it.
+        let fetch = BoundedFetch(origin: page, limit: 4096) { [weak self] result in
+            guard let self else { return }
+            self.reporting = nil
+            switch result {
+            case let .success((_, response)) where response.statusCode < 300:
+                if register { self.registered = sent }
+            case let .success((data, response)):
+                self.status("build channel: report refused (\(response.statusCode)): \(String(decoding: data, as: UTF8.self))")
+            case let .failure(failure): self.status("build channel: report failed: \(failure.message)")
+            }
+            self.sendReport()
+        }
+        reporting = fetch
+        fetch.start(request)
     }
 
     private func status(_ message: String) { fputs("exact url: \(message)\n", stderr) }

@@ -3,6 +3,10 @@
 
 use super::*;
 
+// The live table (LLP 1121 stage 4), beside the modes it sets rows as.
+#[path = "live.rs"]
+mod live;
+
 impl<D: DataSource> Host<D> {
     /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's
     /// slice set again in one batch, which paints; the batch says the

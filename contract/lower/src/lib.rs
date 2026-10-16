@@ -70,6 +70,7 @@ use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
+pub use theme::synthetic_candidates;
 pub use theme::vocab as tamber_vocab;
 pub use warnings::{warnings, MAX_WARNINGS};
 
@@ -670,8 +671,9 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         match n {
             Node::Element { .. } => {
-                let step =
-                    self.prepare_element(n, parent, arm, order, scope, locals, parent_tag)?;
+                let step = self
+                    .prepare_element(n, parent, arm, order, scope, locals, parent_tag)
+                    .map_err(|e| native::name_the_fix(n, e))?;
                 self.svg_depth += step.enters as u32;
                 let parent_positioned =
                     std::mem::replace(&mut self.parent_positioned, step.positioned);

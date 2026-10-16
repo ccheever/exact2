@@ -88,10 +88,14 @@ fn serve(app: &Path) -> ExitCode {
             )?;
             let baked = producer.bake(app, seed.as_ref())?;
             baked.write_new(Path::new(destination))?;
-            serde_json::from_str::<serde_json::Value>(&baked.receipt).map_err(|e| e.to_string())
+            let receipt = serde_json::from_str::<serde_json::Value>(&baked.receipt)
+                .map_err(|e| e.to_string())?;
+            Ok((receipt, design(&baked.plan)?))
         });
         let reply = match result {
-            Ok(receipt) => serde_json::json!({"id":id,"ok":true,"receipt":receipt}),
+            Ok((receipt, design)) => {
+                serde_json::json!({"id":id,"ok":true,"receipt":receipt,"design":design})
+            }
             Err(error) => {
                 serde_json::json!({"id":id,"ok":false,"error":error.chars().take(65536).collect::<String>()})
             }
@@ -104,4 +108,18 @@ fn serve(app: &Path) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// The plan's structure digest and design (LLP 1121 stage 4), for the dev
+/// loop to send a value-only edit as a batch instead of a generation.
+fn design(plan: &[u8]) -> Result<serde_json::Value, String> {
+    use exact_runner::design;
+    let plan = exact_plan::Plan::decode(plan).map_err(|e| format!("{e:?}"))?;
+    let tokens = design::tokens(&plan);
+    Ok(serde_json::json!({
+        "structure": design::structure(&plan),
+        "shape": design::shape(&plan),
+        "digest": design::digest(&tokens),
+        "tokens": tokens.iter().map(|t| serde_json::json!({"name": t.name, "value": t.value, "slices": t.slices})).collect::<Vec<_>>(),
+    }))
 }

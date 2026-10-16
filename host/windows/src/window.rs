@@ -15,7 +15,8 @@ use winit::{
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, PhysicalKey},
-    window::{CursorIcon, Window, WindowId},
+    raw_window_handle::{HasWindowHandle, RawWindowHandle},
+    window::{CursorIcon, Fullscreen, Window, WindowId},
 };
 
 struct App<D: DataSource> {
@@ -42,6 +43,13 @@ struct App<D: DataSource> {
     samples: Vec<(f64, f64, f64)>,
     frame_limit: Option<u64>,
     first_tap: Option<String>,
+}
+
+impl<D: DataSource> Drop for App<D> {
+    fn drop(&mut self) {
+        // The module's GPU swapchain must release its HWND before the window.
+        self.presenter.take();
+    }
 }
 
 fn wheel_delta(delta: MouseScrollDelta, scale: f64) -> (f32, f32) {
@@ -157,15 +165,19 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     }
     exact_linux::set_event_waker(None);
     if state.frames > 0 {
-        eprintln!("exact-windows: {} frames; mean paint including GPU readback {:.2} ms; mean upload/present {:.2} ms",
-            state.frames, state.paint_ms / state.frames as f64, state.present_ms / state.frames as f64);
+        eprintln!(
+            "exact-windows: {} frames; mean render/present {:.2} ms; mean CPU upload {:.2} ms",
+            state.frames,
+            state.paint_ms / state.frames as f64,
+            state.present_ms / state.frames as f64
+        );
         let percentile = |column: fn(&(f64, f64, f64)) -> f64, fraction: f64| {
             let mut values: Vec<_> = state.samples.iter().map(column).collect();
             values.sort_by(f64::total_cmp);
             values[((values.len() - 1) as f64 * fraction).round() as usize]
         };
         if !state.samples.is_empty() {
-            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, paint+readback {:.2}/{:.2}, upload/present {:.2}/{:.2}",
+            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, render/present {:.2}/{:.2}, CPU upload {:.2}/{:.2}",
                 state.samples.len(), percentile(|s| s.0, 0.5), percentile(|s| s.0, 0.95),
                 percentile(|s| s.1, 0.5), percentile(|s| s.1, 0.95),
                 percentile(|s| s.2, 0.5), percentile(|s| s.2, 0.95));
@@ -235,26 +247,52 @@ impl<D: DataSource + Default + 'static> App<D> {
             p.sync_surfaces();
         }
         p.tick(now);
+        if self.frames == 0 {
+            eprintln!(
+                "exact-windows: {}x{} pixels, scale {}, monitor {:?} mHz",
+                window.inner_size().width,
+                window.inner_size().height,
+                self.scale,
+                window
+                    .current_monitor()
+                    .and_then(|m| m.refresh_rate_millihertz())
+            );
+        }
         let paint = Instant::now();
-        let frame = p.frame();
+        let RawWindowHandle::Win32(handle) =
+            window.window_handle().map_err(|e| e.to_string())?.as_raw()
+        else {
+            return Err("not a Windows window".into());
+        };
+        // SAFETY: App drops the presenter (and module swapchain) before the HWND.
+        #[allow(unsafe_code)]
+        let frame = unsafe {
+            p.window_frame(
+                handle.hwnd.get() as usize,
+                handle.hinstance.map_or(0, |h| h.get() as usize),
+            )
+        }?;
         let paint_ms = paint.elapsed().as_secs_f64() * 1000.;
         self.paint_ms += paint_ms;
         let present = Instant::now();
-        surface.resize(width, height).map_err(|e| e.to_string())?;
-        let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
-        if buffer.len() != frame.data().len() / 4 {
-            return Err(format!(
-                "frame extent {}x{} disagrees with window {}x{}",
-                frame.width(),
-                frame.height(),
-                width,
-                height
-            ));
+        if let Some(frame) = frame {
+            surface.resize(width, height).map_err(|e| e.to_string())?;
+            let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
+            if buffer.len() != frame.data().len() / 4 {
+                return Err(format!(
+                    "frame extent {}x{} disagrees with window {}x{}",
+                    frame.width(),
+                    frame.height(),
+                    width,
+                    height
+                ));
+            }
+            for (out, pixel) in buffer.iter_mut().zip(frame.data().chunks_exact(4)) {
+                *out =
+                    (u32::from(pixel[0]) << 16) | (u32::from(pixel[1]) << 8) | u32::from(pixel[2]);
+            }
+            buffer.present().map_err(|e| e.to_string())?;
         }
-        for (out, pixel) in buffer.iter_mut().zip(frame.data().chunks_exact(4)) {
-            *out = (u32::from(pixel[0]) << 16) | (u32::from(pixel[1]) << 8) | u32::from(pixel[2]);
-        }
-        buffer.present().map_err(|e| e.to_string())?;
         // A keyboard command can change the cursor while the mouse is still.
         // Re-resolve the painted hit after the frame, including unmounts and HUDs.
         let cursor = if self.pointer_inside && self.focused {
@@ -301,7 +339,20 @@ impl<D: DataSource + Default + 'static> App<D> {
         if self.frame_limit.is_some_and(|limit| self.frames >= limit) {
             events.exit();
         }
-        self.next_frame = frame_started + Duration::from_micros(16_667);
+        let period = window
+            .current_monitor()
+            .and_then(|m| m.refresh_rate_millihertz())
+            .map_or(Duration::from_micros(16_667), |rate| {
+                Duration::from_secs_f64(1000. / rate.max(1) as f64)
+            });
+        self.next_frame = frame_started
+            + if self.frame_limit.is_some()
+                && std::env::var_os("EXACT_AGENT_WINDOW_UNPACED").is_some()
+            {
+                Duration::ZERO
+            } else {
+                period
+            };
         events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
         Ok(())
     }
@@ -315,6 +366,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         let window = match events.create_window(
             Window::default_attributes()
                 .with_title(&self.name)
+                .with_fullscreen(
+                    (self.frame_limit.is_some()
+                        && std::env::var_os("EXACT_AGENT_WINDOW_FULLSCREEN").is_some())
+                    .then_some(Fullscreen::Borderless(None)),
+                )
                 .with_inner_size(LogicalSize::new(self.config.size.0, self.config.size.1)),
         ) {
             Ok(value) => Rc::new(value),

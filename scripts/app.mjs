@@ -32,7 +32,7 @@ import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
-import { filesystem, removePrivateTree } from './filesystem.mjs';
+import { filesystem, installedModules, removePrivateTree } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
@@ -174,15 +174,15 @@ export function patchLines(from) {
     `${name} = { path = ${JSON.stringify(pathFrom(from, resolve(ROOT, spec.path)))} }`);
 }
 
-/** How an outside workspace at `from` names a path in this checkout: relative
- * when the two share a directory below the filesystem root (a checkout beside
- * the app moves with it), absolute when they share nothing, where a relative
- * path would only climb to / and break the moment either moved. `from` must
- * exist; both are resolved through symlinks (macOS's /tmp is one). */
+/** How an outside workspace at `from` names a path in this checkout: relative, with `/`
+ * (Windows reads it; a Mac can't read Skirmish's `..\\exact2`), when the two share a directory
+ * below the root (a checkout beside the app moves with it), absolute when they share nothing,
+ * where a relative path would climb to / and break once either moved. `from` must exist;
+ * both are resolved through symlinks (macOS's /tmp is one). */
 export function pathFrom(from, to) {
   const [a, b] = [realpathSync(from), existsSync(to) ? realpathSync(to) : resolve(to)];
   const shared = a.split('/')[1] === b.split('/')[1] && a.split('/')[1] !== '';
-  return shared ? relative(a, b) || '.' : b;
+  return shared ? (relative(a, b) || '.').split(sep).join('/') : b;
 }
 
 /** An outside workspace's patches and toolchain, against this checkout's.
@@ -328,7 +328,7 @@ const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js'],
+    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js', 'prompt-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
@@ -479,7 +479,7 @@ export function resolveApp(nameOrCrate) {
   dir = realpathSync(dir);
   // The bake runs this checkout's TypeScript compiler and bundler (partial
   // fixture copies carry no package.json, as PINNED_BUN says).
-  if (PINNED_BUN && !existsSync(resolve(ROOT, 'node_modules'))) throw new Error(`${ROOT} has no node_modules: run \`bun install --frozen-lockfile\` there first`);
+  if (PINNED_BUN) installedModules();
   // Materialize defaults before Cargo inspects workspace members on a clean checkout.
   const manifest = readManifest(dir, name);
   if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
@@ -842,7 +842,9 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
   }
   if (result.error || result.status !== 0) {
     if (command === 'cargo') throwContractErrors(app, args, result, ROOT);
-    throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
+    // Said short: the profiles' `--config` pairs and a JSON build's artifact lines bury the diagnostics above.
+    const said = args.filter((arg, i) => arg !== '--config' && args[i - 1] !== '--config').join(' '), out = (result.stdout ?? '').split('\n').filter(line => !line.includes('"reason":')).join('\n').slice(-4000);
+    throw new Error(`${command} ${said} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}${out.trim() ? `\n${out}` : ''}`);
   }
   return result;
 }

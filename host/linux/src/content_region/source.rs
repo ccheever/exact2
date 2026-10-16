@@ -14,7 +14,10 @@ pub(super) struct PaintSource {
     pub dark: bool,
     pub runs: Box<[TextSourceRun]>,
     pub palette: Box<[RunPaint]>,
-    colors: Box<[exact_kernel::ColorValue]>,
+    /// Each run's colour under the other appearance, resolved at capture: it
+    /// keeps no `ColorValue`, so no wide colour id outlives the commit that
+    /// made it (the wide table's sweep, LLP 1121 stage 4).
+    other: Box<[[u8; 4]]>,
 }
 /// A run from the exact accepted source, including its original node generation.
 /// Reading this does not route an action to a current or recycled node.
@@ -35,13 +38,13 @@ impl PaintSource {
         if dark == self.dark {
             return std::borrow::Cow::Borrowed(&self.palette);
         }
-        // Resolve the immutable authored light/dark pair, not current nodes.
-        // This visits runs only; no source UTF-16 scan or paragraph work.
+        // The immutable authored pair's other side, not current nodes. This
+        // visits runs only; no source UTF-16 scan or paragraph work.
         self.palette
             .iter()
-            .zip(&self.colors)
-            .map(|(run, color)| RunPaint {
-                color: rgba(color.resolve(dark)),
+            .zip(&self.other)
+            .map(|(run, &color)| RunPaint {
+                color,
                 source: run.source,
             })
             .collect::<Vec<_>>()
@@ -69,7 +72,7 @@ impl PaintSource {
             dark,
             runs: Vec::new(),
             palette: Vec::new(),
-            colors: Vec::new(),
+            other: Vec::new(),
             bytes: 0,
             utf16: 0,
             link_bytes: 0,
@@ -84,7 +87,7 @@ impl PaintSource {
             dark,
             runs: capture.runs.into_boxed_slice(),
             palette: capture.palette.into_boxed_slice(),
-            colors: capture.colors.into_boxed_slice(),
+            other: capture.other.into_boxed_slice(),
         })
     }
 }
@@ -93,7 +96,7 @@ struct Capture<'a> {
     dark: bool,
     runs: Vec<TextSourceRun>,
     palette: Vec<RunPaint>,
-    colors: Vec<exact_kernel::ColorValue>,
+    other: Vec<[u8; 4]>,
     bytes: usize,
     utf16: usize,
     link_bytes: usize,
@@ -151,7 +154,7 @@ impl Capture<'_> {
                 },
                 source: node.id,
             });
-            self.colors.push(color);
+            self.other.push(rgba(color.resolve(!self.dark)));
             self.bytes = bytes;
             self.utf16 = utf16;
         } else {

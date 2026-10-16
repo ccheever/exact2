@@ -6,7 +6,9 @@
 // `-fill` symbol when selected — and takes no room while the bar shows; a
 // tab the bar selects presses its authored tab, so selection, history and
 // reselect-pops-to-root stay the router's (LLP 1038 D4, D12). Under the
-// agent the authored tablist paints and the bar stays hidden. Which tabs a
+// agent the authored tablist paints and the bar stays hidden. A tab not yet
+// selected holds its routes with nothing in them, as UIKit loads a tab's
+// view when it is first selected (host/apple/src/unopened.rs). Which tabs a
 // root has is NavigationTabs.swift's; what a tab shows, TabFace.swift's.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -203,6 +205,10 @@ extension NavigationHost {
                 recordOwned(nav)
             }
         }
+        // A tab selected for the first time brings what its routes hold
+        // (host/apple/src/unopened.rs): its bar is projected before it is
+        // shown, where nothing animates in.
+        if routerTab != p.at { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
         // @ref LLP 1038 D6 — a tab change swaps immediately.
         if let container = tabController, container.selectedIndex != p.at { container.selectedIndex = p.at }
         if routerTab != p.at {

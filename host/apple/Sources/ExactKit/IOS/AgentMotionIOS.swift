@@ -51,13 +51,14 @@ extension Agent {
     }
 
     /// Where UIKit's own controls that move by themselves are shown (a
-    /// segmented control, a switch, a slider, a stepper), in the window, or nil.
+    /// segmented control, a switch, a slider, a stepper, a tab bar, whose
+    /// selection glides to the tab pressed), in the window, or nil.
     static func ownControls(in window: UIWindow) -> CGRect? {
         var union: CGRect? = nil, pending: [UIView] = [window]
         while let v = pending.popLast() {
             guard !v.isHidden, v.alpha > 0.01 else { continue }
             #if os(iOS)
-            let moves = v is UISegmentedControl || v is UISwitch || v is UISlider || v is UIStepper
+            let moves = v is UISegmentedControl || v is UISwitch || v is UISlider || v is UIStepper || v is UITabBar
             #else
             let moves = v is UISegmentedControl
             #endif

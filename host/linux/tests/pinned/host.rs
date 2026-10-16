@@ -479,6 +479,7 @@ fn an_image_lays_out_from_its_decoded_size() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker() {
     let dir = std::env::temp_dir().join(format!("exact-linux-image-worker-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

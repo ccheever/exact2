@@ -171,8 +171,9 @@ impl<D: DataSource> Runner<D> {
                     }
                 },
             )?;
-        if !self.reorder_ops.is_empty() {
-            let mut prefix = std::mem::take(&mut self.reorder_ops);
+        // The queued patches' colours stay kept until this commit marks them.
+        let (mut prefix, _queued) = self.take_reorder_ops();
+        if !prefix.is_empty() {
             prefix.append(&mut ops);
             ops = prefix;
         }

@@ -281,7 +281,7 @@ final class HeaderSearch {
 
     /// The bar lets the field go: its input edits in its page again.
     func release(keeping kept: NodeView? = nil) {
-        if let node, node !== kept { node.reclaimFieldFromBar() }
+        if let node, node !== kept { node.reclaimLentField() }
         (item, node) = (nil, nil)
     }
 

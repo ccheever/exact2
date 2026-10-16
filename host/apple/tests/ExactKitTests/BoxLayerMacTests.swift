@@ -239,7 +239,7 @@ final class BoxLayerMacTests: XCTestCase {
         let handle = bytes.withUnsafeBufferPointer { exact_calc_parse($0.baseAddress, $0.count) }
         let padding = try XCTUnwrap(CalculatedLength([
             "calc": .number(Double(handle)),
-            "env": [0, 0, 0, 0, 300, 600, 1, 1]
+            "env": [0, 0, 0, 0, 300, 600, 1, 1, 0]
         ]))
         let knots: NodeStyle = ["padding_top": .calculation(padding)]
         var style = knots

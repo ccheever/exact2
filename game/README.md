@@ -28,7 +28,8 @@ once to refresh its runner. From the SDK root, the equivalent is
 The resulting `my-game/dist-windows` directory contains the standalone executable,
 game DLL and assets. Keep these files together; the executable resolves assets
 relative to itself and needs no web server. `--release` selects the release profile,
-and `--run` opens the game. The initial Windows host uses GPU canvas readback and
+and `--run` opens the game. A running copy holds its files open; `--out <dir>`
+packages into another directory instead. The initial Windows host uses GPU canvas readback and
 CPU UI composition, and reports mean and p50/p95 frame costs when its window closes.
 It supports store level 0; native update-store delivery is refused. Use
 `bun my-game/proof.mjs windows` for the native gameplay and pixel proof.
@@ -111,7 +112,9 @@ The generated workspace carries the SDK's Rust toolchain pin, including for game
 outside the SDK. Explicit `cargo +toolchain` and `RUSTUP_TOOLCHAIN` overrides still
 apply. Run direct Cargo commands from the game's `.shells/` directory so they also load its deterministic compiler
 flags and lint configuration; `--manifest-path` alone does not load that config
-when Cargo starts elsewhere. Regenerate the shells after updating the SDK.
+when Cargo starts elsewhere. That config also names an absolute `build-dir` (the
+game's `target/`), where Cargo keeps its intermediate artifacts: a build kept apart
+from it sets `CARGO_BUILD_BUILD_DIR` as well as `CARGO_TARGET_DIR`. Regenerate the shells after updating the SDK.
 
 ### Authored render hooks
 
@@ -580,7 +583,7 @@ graph needs, resolves with the SDK lock's versions first and prints what changed
 (`--update-lock` resolves offline from the cache alone); commit and review that lock.
 When exact2 moves under a captured lock, a build refuses it by name ("exact2 moved since
 this game's Cargo.lock was captured (added: …; updated: …)") and `lock` refreshes it;
-`bun exact.mjs update` says so too, and generating `.shells/` alone warns. SDK
+`bun exact.mjs update` says so too, and generating `.shells/` alone (`bun exact.mjs shells`) warns. SDK
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries

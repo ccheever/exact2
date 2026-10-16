@@ -5,12 +5,12 @@
 //! (`contract tamber serve`) owns the digests, the lock, the journal and
 //! every write; this owns none.
 //!
-//! `live` here is judged on the design alone: its shape (axes, dials, the
-//! tokens with their kinds and roles) unchanged. D13's closure through the
-//! compiler (Contract's synthetic consumers, a `color-mix()` over a token
-//! that becomes a role) waits for running builds to report what they
-//! consume (stage 4), and kinds substituted at build (durations, easings)
-//! for stage 6.
+//! `live` is judged by the edit's closure (D13, stage 4): the design's shape
+//! (axes, dials, the tokens with their kinds and roles) unchanged, no role
+//! override's value changed (the hosts take their role tables at boot), and
+//! the app's synthetic tokens (Contract rows' expressions over tokens,
+//! folded with the design) re-folded with it, their new values in the
+//! answer. Kinds substituted at build (durations, easings) wait for stage 6.
 
 use crate::edit::{self, Op};
 use crate::{Diagnostic, Folding, Vocab};
@@ -49,6 +49,21 @@ pub struct Planned {
     pub class: Class,
     /// A diff per edited file, the lines removed (`-`) and added (`+`).
     pub diff: String,
+    /// The app's synthetic tokens whose values change, each its expression
+    /// and its new value per full app tuple.
+    pub synthetic: Vec<(String, Vec<crate::Folded>)>,
+}
+
+/// The app's synthetic tokens (D3): Contract rows' expressions over tokens,
+/// folded with the design file `file`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Synthetic<'a> {
+    /// The design file they fold with.
+    pub file: &'a str,
+    /// Each one's expression, and whether a colour row writes it: then it
+    /// must fold (the build refuses it otherwise), where another that does
+    /// not is dropped.
+    pub exprs: &'a [(String, bool)],
 }
 
 /// A refusal: the file it is in, and the checker's or the edit's
@@ -58,15 +73,18 @@ pub type Refused = Vec<(String, Diagnostic)>;
 /// Plan `ops` (each with the file it edits) over `files` (each path with
 /// its text). Every file's operations are applied in order and the file
 /// checked whole; a refusal changes nothing. `undo` marks an inverse the
-/// server issued: its restores, and nothing else.
+/// server issued: its restores, and nothing else. `synthetic` is the app's
+/// synthetic tokens, re-folded with their file.
 pub fn plan(
     files: &[(String, String)],
     ops: &[(String, Op)],
     vocab: &Vocab,
     undo: bool,
+    synthetic: Synthetic,
 ) -> Result<Planned, Refused> {
     let mut out = Vec::new();
     let mut changed = Vec::new();
+    let mut moved = Vec::new();
     let mut structure = false;
     let mut diff = String::new();
     for (path, text) in files {
@@ -90,15 +108,48 @@ pub fn plan(
         if edited.text == *text {
             continue;
         }
-        let (before, after) = (
-            crate::check(text, vocab).ok(),
-            crate::check(&edited.text, vocab).ok(),
-        );
-        changed.extend(
-            changed_tokens(before.as_ref(), after.as_ref())
-                .into_iter()
-                .map(|t| (path.clone(), t)),
-        );
+        let exprs: &[(String, bool)] = if *path == synthetic.file {
+            synthetic.exprs
+        } else {
+            &[]
+        };
+        let (before, after, moved_set) = folded(text, &edited.text, exprs, vocab);
+        structure |= moved_set;
+        // A profile's colour (`color(--…)`) the compiler resolves itself, and
+        // folds the rest around it: an edit to a design with one either side
+        // is the build's (live editing of those waits).
+        structure |= [text.as_str(), edited.text.as_str()].iter().any(|t| {
+            crate::parse(t).map_or(true, |d| {
+                d.tokens.iter().any(|t| {
+                    std::iter::once(&t.value.value)
+                        .chain(t.whens.iter().map(|w| &w.value.value))
+                        .any(|v| v.to_ascii_lowercase().contains("color(--"))
+                })
+            })
+        });
+        let tokens = changed_tokens(before.as_ref(), after.as_ref());
+        // A role override's value is the hosts' at boot: a change reaches
+        // it, directly or through what it names, only by a rebuild.
+        structure |= tokens.iter().any(|t| {
+            [&before, &after].iter().any(|f| {
+                f.as_ref()
+                    .and_then(|f| f.tokens.iter().find(|c| c.name == *t))
+                    .is_some_and(|c| c.role.is_some())
+            })
+        });
+        for t in tokens {
+            match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
+                Some(i) => {
+                    let values = after
+                        .as_ref()
+                        .and_then(|f| f.tokens.iter().find(|c| c.name == t))
+                        .map(|c| c.values.clone())
+                        .unwrap_or_default();
+                    moved.push((exprs[i].0.clone(), values));
+                }
+                None => changed.push((path.clone(), t)),
+            }
+        }
         structure |= match (&before, &after) {
             (Some(b), Some(a)) => shape(b) != shape(a),
             _ => true,
@@ -130,8 +181,70 @@ pub fn plan(
             Class::Live
         },
         diff,
+        synthetic: moved,
     })
 }
+
+/// A file's fold before and after, each with the synthetic tokens that
+/// fold appended as `~<index>` (as the compiler folds them, dropping those
+/// that do not). `moved` says the two sides fold different ones: the plan's
+/// table would gain or lose an entry, which only a build makes.
+fn folded(
+    before: &str,
+    after: &str,
+    exprs: &[(String, bool)],
+    vocab: &Vocab,
+) -> (Option<Folding>, Option<Folding>, bool) {
+    let (b, kept_b) = foldable(before, exprs, vocab);
+    let (a, kept_a) = foldable(after, exprs, vocab);
+    let moved = b.is_some() && a.is_some() && kept_b != kept_a;
+    (b, a, moved)
+}
+
+/// `text` folded with each synthetic token that folds with it, and which;
+/// none when the file does not fold, or a strict one does not (the build
+/// would refuse it).
+fn foldable(text: &str, exprs: &[(String, bool)], vocab: &Vocab) -> (Option<Folding>, Vec<usize>) {
+    let Ok(design) = crate::parse(text) else {
+        return (None, Vec::new());
+    };
+    let mut kept: Vec<usize> = (0..exprs.len()).collect();
+    loop {
+        let mut checked = design.clone();
+        for &i in &kept {
+            let at = |value: String| crate::At {
+                value,
+                line: SYNTHETIC + i as u32,
+                col: 1,
+            };
+            checked.tokens.push(crate::Token {
+                name: at(format!("~{i}")),
+                kind: None,
+                value: at(exprs[i].0.clone()),
+                whens: Vec::new(),
+                meta: Vec::new(),
+            });
+        }
+        match crate::check_design(checked, vocab) {
+            Ok(f) => return (Some(f), kept),
+            Err(all) => {
+                let bad: Vec<usize> = all
+                    .iter()
+                    .filter(|d| d.line >= SYNTHETIC)
+                    .map(|d| (d.line - SYNTHETIC) as usize)
+                    .collect();
+                if bad.is_empty() || bad.len() < all.len() || bad.iter().any(|&i| exprs[i].1) {
+                    // The file itself does not fold.
+                    return (None, Vec::new());
+                }
+                kept.retain(|i| !bad.contains(i));
+            }
+        }
+    }
+}
+
+/// A synthetic token's line, past any file's (as the compiler numbers it).
+const SYNTHETIC: u32 = 1 << 30;
 
 /// The tokens whose values differ between two folds, or that one has and
 /// the other lacks.

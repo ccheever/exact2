@@ -184,6 +184,33 @@ final class ModalDetentIOSTests: XCTestCase {
         }
     }
 
+    /// `navigationGrabber` is the author's word over the platform's: a sheet
+    /// of one height shows the grabber it says `visible`, and one of several
+    /// hides it when it says `hidden`; `auto` is the platform's again.
+    func testASheetsGrabberIsWhatItsRouteSays() throws {
+        let session = try fixture("detent-grabber")
+        try tap(session, "menu")
+        until("the menu is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+        let controller = try XCTUnwrap(sheet()?.sheetPresentationController)
+        let route = try node(session, "route-menu")
+        XCTAssertFalse(controller.prefersGrabberVisible, "one detent, unsaid: none")
+        for (word, shown) in [("visible", true), ("hidden", false), ("auto", false)] {
+            route.props["navigationGrabber"] = word
+            session.presenter.modals.updatePermissions()
+            XCTAssertEqual(controller.prefersGrabberVisible, shown, word)
+        }
+        route.props["navigationDetent"] = "medium large"
+        session.presenter.modals.updatePermissions()
+        XCTAssertTrue(controller.prefersGrabberVisible, "several detents, auto: the platform's grabber")
+        // Dragged to large (a drag sets the selection): a grabber change
+        // leaves the sheet where the person put it.
+        controller.selectedDetentIdentifier = .large
+        route.props["navigationGrabber"] = "hidden"
+        session.presenter.modals.updatePermissions()
+        XCTAssertFalse(controller.prefersGrabberVisible, "several detents, hidden")
+        XCTAssertEqual(controller.selectedDetentIdentifier, .large, "still large")
+    }
+
     /// Mounted, its route in its block (LLP 1123 D2), the sheet still
     /// follows its rows: its content is measured at the block's width,
     /// whatever height the block has.

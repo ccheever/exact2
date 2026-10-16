@@ -504,6 +504,76 @@ fn rejected_pipeline_update_keeps_last_valid_set() {
     assert!(cache.error().is_none());
 }
 
+/// A hook whose one pipeline uses a shader by name, as generated `module()`s do.
+#[derive(Default)]
+struct Named<const REGISTERED: bool> {
+    gpu: exact_game_render::hooks::Pipelines<wgpu::ComputePipeline>,
+}
+impl<const R: bool> Hooks for Named<R> {
+    fn prepare(
+        &mut self,
+        gpu: &HookGpu<'_>,
+        view: &FrameView<'_>,
+        _: &RenderWorld<'_>,
+    ) -> Result<(), RenderError> {
+        self.gpu
+            .update(gpu.device, view.time.shader_generation, || {
+                let name = if R {
+                    "settle_cs"
+                } else {
+                    "settle_unregistered"
+                };
+                let module = gpu
+                    .device
+                    .create_shader_module(exact_gpu::shaders::shader_module(name));
+                gpu.device
+                    .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        label: Some(name),
+                        layout: None,
+                        module: &module,
+                        entry_point: Some("cs"),
+                        compilation_options: Default::default(),
+                        cache: None,
+                    })
+            });
+        Ok(())
+    }
+    fn needs(&self) -> Needs {
+        if self.gpu.pending() {
+            Needs::PENDING
+        } else {
+            Needs::NONE
+        }
+    }
+    fn drawable(&self) -> bool {
+        self.gpu.get().is_some()
+    }
+    fn error(&self) -> Option<&str> {
+        self.gpu.error()
+    }
+}
+
+#[test]
+fn settle_names_a_hook_whose_shader_was_never_registered() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let cs = "@compute @workgroup_size(1) fn cs() {}";
+    exact_gpu::shaders::set_shader("settle_cs", cs.into(), None).unwrap();
+    let mut registered = WorldSurface::<TestGame, (), false, Named<true>>::default();
+    registered.device_ready(wgpu::Features::empty());
+    registered.bind(&[], None).unwrap();
+    registered.settle(&gpu, &frame(), 8).unwrap();
+    // The trial's case: a fixture that never registered the hook's shader
+    // renders without it, and the surface's own error stays empty.
+    let mut unregistered = WorldSurface::<TestGame, (), false, Named<false>>::default();
+    unregistered.device_ready(wgpu::Features::empty());
+    unregistered.bind(&[], None).unwrap();
+    let refused = unregistered.settle(&gpu, &frame(), 8).unwrap_err();
+    assert!(refused.contains("render hook:"), "{refused}");
+    assert!(unregistered.error().is_none());
+}
+
 struct MaterialGame;
 #[derive(Default, Args)]
 struct MaterialArgs {

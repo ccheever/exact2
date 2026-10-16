@@ -900,7 +900,7 @@ pub(super) fn check_command(
     if name == "stopPropagation" && !args.is_empty() {
         return err(
             "type-stop-propagation",
-            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
+            "`stopPropagation()` takes no arguments: it stops the event that ran this action (a key, focus, the pointer's down or up, a wheel) at this handler, so no ancestor's handler hears it",
             span,
         );
     }

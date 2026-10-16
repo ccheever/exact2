@@ -59,7 +59,8 @@ extension NodeView {
     /// role is `button` or `link`, as the web's tree has a `div` with one
     /// (chat F14: a message bubble with `role="button"` was no button natively).
     /// A box with a checkable role is one too: the web's tree has a `div`
-    /// with `role="checkbox"` as a checkbox (habits F16).
+    /// with `role="checkbox"` as a checkbox (habits F16). A native module's
+    /// box takes these roles as a box does.
     /// On the Mac a menu's row (`menuitem`, `menuitemcheckbox`,
     /// `menuitemradio`) is one too, as AppKit's menu item is.
     var actsAsButton: Bool {
@@ -68,7 +69,7 @@ extension NodeView {
         #else
         let menuItem = false
         #endif
-        return kind == "button" || kind == "view" && (["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") || menuItem)
+        return kind == "button" || (kind == "view" || kind == "native") && (["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") || menuItem)
     }
     /// ARIA's menu item roles, each AppKit's `AXMenuItem` (Core-AAM).
     static let menuItemRoles: Set<String> = ["menuitem", "menuitemcheckbox", "menuitemradio"]
@@ -265,7 +266,10 @@ final class FieldCell: NSTextFieldCell {
     }
     /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
+        // Through its delegate, the node, wherever the field is: a prompt's
+        // alert holds it in its accessory view (AlertsMac.swift).
+        let node = (controlView as? NSTextField)?.delegate as? NodeView ?? controlView.superview as? NodeView
+        return node?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)

@@ -37,3 +37,19 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 }
+
+impl<D: DataSource> Bridge<D> {
+    /// A `tamber-batch` or `tamber-snapshot` frame from the dev stream in the
+    /// input buffer (LLP 1121 stage 4): applied in place; returns the batch.
+    pub fn design_rows(&mut self, len: usize) -> u32 {
+        let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
+            return self.emit(exact_runner::agent::error("live: invalid UTF-8"));
+        };
+        let text = text.to_owned();
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.apply_live(&text),
+        );
+        self.emit(out)
+    }
+}

@@ -4,11 +4,11 @@ mediasession episode seekbackward
 mediasession episode seekto 600
 mediasession episode nexttrack
 mediasession episode stop
-mediasession trailer nexttrack
-mediasession plain nexttrack
+refused mediasession trailer nexttrack
+refused mediasession plain nexttrack
 tap dropEpisode
 mediasession trailer nexttrack
-mediasession trailer seekforward
+refused mediasession trailer seekforward
 tap dropTrailer
 tap restore
 tap playTrailer

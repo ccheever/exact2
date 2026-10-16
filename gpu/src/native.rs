@@ -506,25 +506,9 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
         shader_generation: 0,
         headroom: 1.0,
     };
-    match with(|m| m.readback(id, &frame)).flatten() {
-        Some((px, wants)) if out.len() >= px.data.len() => {
-            out[..px.data.len()].copy_from_slice(&px.data);
-            if wants {
-                2
-            } else {
-                0
-            }
-        }
-        Some((px, _)) => {
-            ERROR.with(|s| {
-                *s.borrow_mut() = format!(
-                    "readback: {} bytes for {} pixels",
-                    out.len(),
-                    px.data.len() / 4
-                )
-            });
-            1
-        }
+    match with(|m| m.readback_into(id, &frame, out)).flatten() {
+        Some(true) => 2,
+        Some(false) => 0,
         None if with(|m| m.instances.contains_key(&id) && m.gpu().is_none()).unwrap_or(false) => 3,
         None => 1,
     }
@@ -533,6 +517,51 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Present between CPU UI layers without reading the game back.
+/// # Safety
+/// The HWND remains live until `window_detach`; slices contain premultiplied RGBA.
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn window_frame(
+    id: u32,
+    hwnd: usize,
+    hinstance: usize,
+    width: f32,
+    height: f32,
+    scale: f32,
+    now_ms: f64,
+    below: &[u8],
+    above: &[u8],
+    changed: bool,
+) -> u32 {
+    let frame = Frame {
+        width,
+        height,
+        scale,
+        now_ms,
+        children_generation: 0,
+        seekable: false,
+        period_ms: 0.,
+        shader_generation: 0,
+        headroom: 1.,
+    };
+    match with(|m| unsafe { m.present_window(id, hwnd, hinstance, &frame, below, above, changed) })
+    {
+        Some(Ok(())) => 0,
+        Some(Err(e)) => {
+            refuse(&e);
+            1
+        }
+        None => 1,
+    }
+}
+
+/// Release the native window before its HWND goes away.
+#[cfg(windows)]
+pub fn window_detach() {
+    with(|m| m.detach_window());
 }
 
 /// Whether a canvas draws above SDR white (LLP 1100 D12b).
@@ -900,6 +929,23 @@ macro_rules! module {
             let Some(out) = (unsafe { $crate::native::bytes_mut("gpu_readback", out, len) }) else { return 1 };
             $crate::native::readback(id, width, height, scale, now_ms, out)
         }
+
+        /// Present a canvas between CPU UI layers. The HWND outlives this attachment.
+        /// # Safety
+        /// Both layer pointers contain `len` bytes; HWND stays live until detach.
+        #[cfg(windows)]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_window_frame(id: u32, hwnd: usize, hinstance: usize, width: f32, height: f32,
+            scale: f32, now_ms: f64, below: *const u8, above: *const u8, len: usize, changed: u32) -> u32 {
+            let Some(below) = (unsafe { $crate::native::bytes("gpu_window_frame", below, len) }) else { return 1 };
+            let Some(above) = (unsafe { $crate::native::bytes("gpu_window_frame", above, len) }) else { return 1 };
+            unsafe { $crate::native::window_frame(id, hwnd, hinstance, width, height, scale, now_ms, below, above, changed != 0) }
+        }
+
+        /// Release the native window before its HWND goes away.
+        #[cfg(windows)]
+        #[no_mangle]
+        pub extern "C" fn gpu_window_detach() { $crate::native::window_detach(); }
 
         /// Whether a canvas wants raw input.
         #[no_mangle]
@@ -1426,74 +1472,5 @@ mod placement_abi_tests {
 }
 
 #[cfg(test)]
-mod device_loss_tests {
-    use crate::*;
-    struct Probe;
-    impl Surface for Probe {
-        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
-            Ok(())
-        }
-        fn render(
-            &mut self,
-            _: &Frame,
-            _: &wgpu::Device,
-            _: &wgpu::Queue,
-            _: &mut wgpu::CommandEncoder,
-            _: &wgpu::TextureView,
-            _: wgpu::TextureFormat,
-        ) -> bool {
-            panic!("lost device rendered")
-        }
-        fn agent(&mut self, _: &str) -> Option<String> {
-            Some("alive".into())
-        }
-    }
-    static REGISTRY: Registry = Registry {
-        surfaces: &[("probe", 0, || Box::new(Probe))],
-        shaders: &[],
-    };
-    #[test]
-    fn device_loss_guards_each_gpu_entry_before_any_other_call() {
-        for operation in 0..7 {
-            let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
-                return;
-            };
-            let mut m = Module::new(&REGISTRY);
-            m.set_gpu(gpu);
-            let id = m.create_headless("probe").unwrap();
-            m.bind(id, &[], None);
-            // Model the asynchronous callback, without calling lose_device first.
-            m.device_lost.store(true, Ordering::Release);
-            match operation {
-                0 => assert!(!m.child(id, 0, "", [0., 0., 1., 1.], [1, 1], &[0; 4])),
-                1 => assert!(!m.texture(id, 1, 1, &[0; 4])),
-                2 => assert!(m
-                    .readback(
-                        id,
-                        &Frame {
-                            width: 1.,
-                            height: 1.,
-                            scale: 1.,
-                            now_ms: 0.,
-                            seekable: true,
-                            period_ms: 0.,
-                            children_generation: 0,
-                            shader_generation: 0,
-                            headroom: 1.0,
-                        }
-                    )
-                    .is_none()),
-                3 => assert!(!m.dirty(id)),
-                4 => assert!(!m.sync()),
-                5 => assert!(m.gpu().is_none()),
-                _ => {
-                    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
-                    // A sentinel must never be retained/imported after loss.
-                    assert!(!unsafe { m.texture_from_metal(id, 1, 1, std::ptr::dangling_mut()) });
-                }
-            }
-            assert_eq!(m.agent(id, "state").as_deref(), Some("alive"));
-            assert!(!m.dirty(id));
-        }
-    }
-}
+#[path = "native_device_loss_tests.rs"]
+mod device_loss_tests;

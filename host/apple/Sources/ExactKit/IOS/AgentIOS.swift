@@ -294,6 +294,7 @@ extension Agent {
         // `env()` names.
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
+            .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
         #if os(iOS)
         // The status bar's style Exact asks for (LLP 1105 D7), and the node that decided it.
@@ -650,8 +651,9 @@ extension Agent {
                     } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
-                // What a finger reaches, out of a sheet's mount too
-                next = presenter.touchParent(of: node)
+                // What a finger reaches, out of a route's or a dialog's
+                // sheet too (`MountRelay`)
+                next = (node as? NodeView).flatMap { presenter.menus.sheets.authoredParent(of: $0) } ?? presenter.touchParent(of: node)
             }
             if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
@@ -827,7 +829,21 @@ extension Agent {
             return "its middle is under the software keyboard; dismiss it or scroll the target above it first (state shows keyboard.top)"
         }
         if hit === v || hit.isDescendant(of: v) || (hit is NodeView && v.isDescendant(of: hit)) { return nil }
-        return "\((hit as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: hit))) covers its middle"
+        return Agent.covers(hit)
+    }
+
+    /// What is over a target, named: a node by its id; another view by its
+    /// class and the node holding it. The app's own native view (a module's
+    /// splash) may be animating away on the wall clock, which the agent's
+    /// clock does not move.
+    static func covers(_ hit: UIView) -> String {
+        if let node = hit as? NodeView { return "node #\(node.id) covers its middle" }
+        var up = hit.superview
+        while let u = up, !(u is NodeView) { up = u.superview }
+        let cls: AnyClass = Swift.type(of: hit), name = String(describing: cls)
+        let held = (up as? NodeView).map { "\(name), in node #\($0.id)," } ?? name
+        // build.mjs compiles an app's native modules as one Swift module of this name.
+        return "\(held) covers its middle" + (String(reflecting: cls).hasPrefix("ExactAppModules.") ?"; it is the app's own view: one animating away on real time (UIView.animate, a display link) goes only with `clock +N real`, while one drawn from the module's `frames` or `after` follows `clock +N`" : "")
     }
 
     /// The web's rule for a phase-less wheel tick (LLP 1070 G2, Chrome's,
@@ -920,7 +936,7 @@ extension Agent {
         }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
-            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
+            guard phase == nil || phase == "down" || phase == "up" else { return ["malformed": true, "error":"key: not a phase: \(phase!)"] }
             guard v.focusSurfacePointer() else { return ["error":"control cannot take focus"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {
                 guard v.controlKey(code, down: step == "down") else { return ["error":"control \(v.props["action"] ?? "") refused input"] }
@@ -946,7 +962,7 @@ extension Agent {
             guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
             if let routed = canvasRouted(v, req) { return routed }
             let phase = req["phase"] as? String
-            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
+            guard phase == nil || phase == "down" || phase == "up" else { return ["malformed": true, "error":"key: not a phase: \(phase!)"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {
                 guard session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false]) else { return ["error":"surface refused key"] }
             }
@@ -968,8 +984,8 @@ extension Agent {
             // held a key types nothing, as a keyboard's shortcut does not.
             let (held, bare) = KeyCodes.split(key)
             // The same names as the web. A letter keeps the case the driver
-            // named (`P` is "P"); an unknown name is refused, not inserted.
-            guard let device = KeyCodes.device(bare) else { return ["error": "key: unsupported key \(bare)"] }
+            // named (`P` is "P"); an unknown name is never inserted as text.
+            guard let device = KeyCodes.device(bare) else { return ["malformed": true, "error": "key: unsupported key \(bare)"] }
             let name = bare.count == 1 && bare != " " ? bare : device.key
             let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
             // A release focuses nothing: a Tab's down has already moved the
@@ -1045,7 +1061,9 @@ extension Agent {
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
-        guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
+        // A prompt's field is UIKit's in the alert while it shows (`PromptField`).
+        let prompted = presenter.menus.nativeConfirmation.map { v.isDescendant(of: $0) } == true
+        guard let f = prompted ? v.selectionField : v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
@@ -1085,7 +1103,7 @@ extension Agent {
         if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         SvgFilterLive.waitForDraws()
-        guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
+        guard let path = req["path"] as? String else { return ["malformed": true, "error": "screenshot needs a path"] }
         let vp = presenter.viewport
         let scale = vp.window?.screen.scale ?? vp.traitCollection.displayScale
         let format = UIGraphicsImageRendererFormat()

@@ -49,16 +49,16 @@ class DialogMacTests: XCTestCase {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
             windowNumber: front.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
     }
-    private func click(_ node: NodeView) {
+    private func click(_ node: NodeView, clicks: Int = 1) {
         let point = node.convert(NSPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
         // Hit testing is AppKit's, in the node's own window (the page's, or its
         // dialog's sheet): no target-id activation can bypass the backdrop.
         let window: NSWindow = node.window ?? self.window
         let hit = window.contentView?.hitTest(point)
         let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: 1)!
         let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)!
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: 0)!
         hit?.mouseDown(with: down)
         hit?.mouseUp(with: up)
     }
@@ -218,6 +218,51 @@ class DialogMacTests: XCTestCase {
         XCTAssertTrue(pressed.isEmpty)
         XCTAssertNotNil(p.dialogs.active)
         XCTAssertNil(p.views[2]!.hitTest(.zero))
+    }
+    /// A press, a double click, a free move and a wheel in the open dialog
+    /// reach its authored ancestors' `pointerdown`, `pointerup`, `dblclick`,
+    /// `pointermove` and `wheel`, as DOM's events bubble out of the top
+    /// layer, though the dialog's view is over its backdrop or in its sheet
+    /// and its ancestors are inert behind it.
+    func testPointerEventsInTheDialogReachItsAuthoredAncestors() throws {
+        let p = fixture(), root = try XCTUnwrap(p.views[1])
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 6]],
+            ["op": "frame", "id": 6, "x": 120, "y": 80, "w": 80, "h": 30],
+        ]))
+        root.handlers = ["pointerdown", "pointerup", "dblclick", "pointermove"]
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        p.onDblclick = { log.append("dblclick \($0)") }
+        p.press(2)
+        let box = try XCTUnwrap(p.views[6]), window = try XCTUnwrap(box.window)
+        XCTAssertTrue(p.dialogs.active === p.views[3])
+        XCTAssertFalse(box.isDescendant(of: root), "the dialog's view is in the top layer")
+        click(box)
+        click(box, clicks: 2)
+        XCTAssertEqual(log, ["down 1", "up 1", "down 1", "up 1", "dblclick 1"])
+        log = []
+        let point = box.convert(NSPoint(x: box.bounds.midX, y: box.bounds.midY), to: nil)
+        p.trackPointer(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!)
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move 1"])
+        log = []
+        root.handlers.insert("wheel")
+        p.onClipboard = { id, kind, _ in if kind == 37 { log.append("wheel \(id)") } }
+        let wheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 14, wheel3: 0))
+        _ = box.wheel(try XCTUnwrap(NSEvent(cgEvent: wheel)))
+        XCTAssertEqual(log, ["wheel 1"])
+        // A stop in the dialog keeps the down from its ancestors there too.
+        log = []
+        box.handlers = ["pointerdown"]
+        p.onPointer = { [unowned p] id, kind, _ in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)")
+            if id == 6 { p.propagationStopped = true }
+        }
+        click(box)
+        XCTAssertEqual(log, ["down 6", "up 1"])
     }
     func testBatchesKeepEditorAndRemovalAndResetRetireOwnership() throws {
         let p = fixture()

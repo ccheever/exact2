@@ -33,7 +33,7 @@ use handles::calc_handle;
 pub(crate) use handles::{calc_handle_in, resolve_calc, tree_handle, LayoutEnv};
 pub mod env;
 pub use env::link as link_segments;
-pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Region, SegmentVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
@@ -78,6 +78,8 @@ pub enum Dimension {
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
+    /// A layout region's inset at an edge plus points (LLP 1123 D10; [`env`]).
+    Region(Region, Edge, f32),
     /// A viewport segment's length (LLP 1078 D3): `env(viewport-segment-<var>
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
@@ -100,6 +102,7 @@ impl Dimension {
             | Dimension::Percent(v)
             | Dimension::Viewport(_, v)
             | Dimension::Env(_, v)
+            | Dimension::Region(_, _, v)
             | Dimension::Segment(_, _, _, v) => v.is_finite(),
             Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
         }
@@ -140,9 +143,7 @@ impl Dimension {
     /// [`StyleProps::to_taffy`] substitutes exactly before lowering.
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
-            Dimension::Env(edge, plus) => {
-                Dimension::Points(calc::narrow(f64::from(env.inset(edge)) + f64::from(plus)))
-            }
+            Dimension::Env(..) | Dimension::Region(..) => env::resolve_inset(self, env),
             Dimension::Viewport(unit, n) => Dimension::Points(calc::narrow(
                 f64::from(unit.basis(env)) * f64::from(n) / 100.0,
             )),

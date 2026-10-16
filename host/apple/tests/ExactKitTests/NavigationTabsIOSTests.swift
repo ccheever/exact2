@@ -729,7 +729,9 @@ final class NavigationTabsIOSTests: XCTestCase {
 
     /// With the module loaded, a module view is made as its node is, in the
     /// batch that mounts its route: a screen is contained once that batch
-    /// is applied, when the route has its controller.
+    /// is applied, when the route has its controller. On a tab not yet
+    /// selected that is the batch that first selects it
+    /// (host/apple/src/unopened.rs): until then the route holds nothing.
     func testAScreenMadeWithItsRouteIsContainedOnceTheRouteMounts() throws {
         let session = try fixture("tabs-screen", module: true)
         defer { NativeViews.uninstallTable() }
@@ -739,6 +741,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         spin(0.3)
         let navigation = session.presenter.navigation
         let route = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] }?.viewControllers.first)
+        XCTAssertTrue(route.children.isEmpty, "the other tab waits for its first selection")
+        let tabs = try XCTUnwrap(navigation.tabController)
+        tapTab(tabs, tabs.viewControllers!.count - 1)
         until("the screen is contained") { route.children.count == 1 }
         XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
     }

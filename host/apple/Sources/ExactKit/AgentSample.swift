@@ -17,7 +17,7 @@ extension Agent {
             guard p.count == 2, let x = (p[0] as? NSNumber)?.doubleValue, let y = (p[1] as? NSNumber)?.doubleValue else { return nil }
             return CGPoint(x: x, y: y)
         }
-        guard !points.isEmpty else { return ["error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
+        guard !points.isEmpty else { return ["malformed": true, "error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
         let view = presenter.viewport
         #if os(iOS) || os(tvOS)
         let layer = view.layer

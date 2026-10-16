@@ -753,6 +753,10 @@ fn resize_input_uses_presenter_and_paints_before_ack() {
         let reply = handle(&mut p, request);
         assert!(reply.starts_with("{\"error\""), "{request}: {reply}");
         assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["malformed"],
+            true
+        );
+        assert_eq!(
             p.viewport(),
             (640.0, 480.0),
             "invalid input mutated size: {request}"
@@ -779,6 +783,7 @@ fn close_is_refused_by_name() {
         reply.contains("unsupported: the Linux presenter closes no window"),
         "{reply}"
     );
+    assert!(serde_json::from_str::<serde_json::Value>(&reply).unwrap()["malformed"].is_null());
 }
 
 #[test]

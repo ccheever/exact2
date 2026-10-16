@@ -47,6 +47,17 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
+`agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
+point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
+each tap a real touch, `--timing platform` gives UIKit its own timing, and `ios --release` builds
+what ships (`--prebuild --release` early: its first build is minutes; `EXACT_UPDATE_TRUST=production
+bun exact.mjs agent ios …` drives it).
+
+**Splitting a port among helpers:** commit the seam between the halves first (the shared types,
+the native module's interface), then start each helper in the background from that commit,
+owning its half and stubbing none of another's. Keep test screens off branches you merge, and
+keep working while they run.
+
 ## One screen: the view, its data, its test
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests. A
@@ -112,7 +123,8 @@ component Groceries
   called as one (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
   (`first(xs)`, `round(n)`). A list type is `Item[]`. A record copy is
   `Shape(old, field=value)`. An event passes its captured arguments, then the payload
-  (`toggle(i.id)` gets the bool).
+  (`toggle(i.id)` gets the bool). An action's writes land when it ends, so a later line
+  reads the old value: bind the new one (`let n = go(nav, url)`, `nav = n`, then read `n`).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;
@@ -206,6 +218,7 @@ Start from the nearest pattern, a tested app with what the recipes teach. Open a
 |a count 1–99|`contract vocab stepper`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
+|a view only Swift can draw|`native-views`|
 
 The others are named for their topic (`timers`, `money`…).
 

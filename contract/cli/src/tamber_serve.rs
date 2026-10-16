@@ -32,13 +32,19 @@
 //!   client never sends a restore.
 //! - **`propose`** plans without writing: the diff, the tokens it changes
 //!   (by file), `live` or `rebuild`, and the digests it planned against; a
-//!   digest it carries is checked as a transaction's is.
+//!   digest it carries is checked as a transaction's is. `live` is the
+//!   edit's closure (LLP 1121 D13, stage 4): no structure, no role override
+//!   reached, and the app's synthetic tokens (its rows' expressions over
+//!   tokens, read from the plan the compiler builds) re-folded, those that
+//!   change listed in `synthetic` with their new value per app tuple.
 //! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
 //!   of files it does not edit but was planned on, checked with the rest.
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
 //!   design or of the `file` it names. `resolve`'s tuples carry `srgb
 //!   {light, dark}`, each side's 8-bit clip, and `resolve` and `explain`
-//!   the `files` digests they read (`tamber/1.1`).
+//!   the `files` digests they read (`tamber/1.1`); `describe` each token's
+//!   declared `pairs` (a role's with its fallback) and the design's
+//!   contrast `warnings`.
 //! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
 //!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
 //!   and `import-plan` plans an import from a source's text against the
@@ -56,7 +62,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.1";
+pub const PROTOCOL: &str = "tamber/1.2";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -183,6 +189,9 @@ struct Server {
     next: u64,
     /// The client a `hello` named.
     client: Option<String>,
+    /// The app's synthetic tokens (LLP 1121 D3), by the digest of the
+    /// Contract sources they were read from.
+    synthetic: Option<(String, Vec<(String, bool)>)>,
 }
 
 /// Open without following a symbolic link at the last component.
@@ -310,6 +319,7 @@ impl Server {
             session: format!("{}-{started:x}", std::process::id()),
             next: 0,
             client: None,
+            synthetic: None,
         };
         server.same_state()?;
         server.recover()?;
@@ -319,6 +329,62 @@ impl Server {
             server.sweep();
         }
         Ok(server)
+    }
+
+    /// The app's synthetic tokens: every expression over tokens its rows
+    /// write, folding or not, as the compiler finds them (the plan keeps
+    /// only those that fold). Read again when a Contract source, what
+    /// resolved its imports, or the design's token names change, which is
+    /// what decides them. None when the build stopped before the design:
+    /// not kept, and tried again.
+    fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
+        let root = self.dir.join("app.contract");
+        let graph = contract::source_graph(&root);
+        let mut key = String::new();
+        for s in &graph.sources {
+            if s.path.extension().is_some_and(|e| e == "tamber") {
+                continue;
+            }
+            key.push_str(&s.path.to_string_lossy());
+            key.push('\0');
+            key.push_str(
+                &std::fs::read(&s.path)
+                    .map(|b| digest(&b))
+                    .unwrap_or_default(),
+            );
+            key.push('\n');
+        }
+        // What resolved the imports (package manifests, the paths tried).
+        for path in &graph.consulted {
+            key.push_str(&path.to_string_lossy());
+            key.push('\0');
+            key.push_str(&std::fs::read(path).map(|b| digest(&b)).unwrap_or_default());
+            key.push('\n');
+        }
+        if let Some(design) = snap
+            .iter()
+            .find(|(f, _, _)| *f == self.design)
+            .and_then(|(_, t, _)| exact_tamber::parse(t).ok())
+        {
+            for t in &design.tokens {
+                key.push_str(&t.name.value);
+                key.push('\n');
+            }
+        }
+        if let Some((k, exprs)) = &self.synthetic {
+            if *k == key {
+                return Some(exprs.clone());
+            }
+        }
+        let _ = contract_lower::synthetic_candidates();
+        let built = contract::compile_path_all(&root, false);
+        let exprs = contract_lower::synthetic_candidates();
+        // A build that stopped before the design says nothing of them.
+        let reached = built.is_ok() || !exprs.is_empty();
+        reached.then(|| {
+            self.synthetic = Some((key, exprs.clone()));
+            exprs
+        })
     }
 
     fn state(&self) -> PathBuf {
@@ -629,8 +695,31 @@ impl Server {
             .zip(&folding.design.tokens)
             .map(|(t, declared)| (t.name.clone(), json!(meta(&declared.meta))))
             .collect();
+        // What each token is drawn on (`pair=`): a token by its name, a role
+        // no token overrides with its fallback; and the contrast warnings.
+        let pairs: serde_json::Map<String, Value> = folding
+            .tokens
+            .iter()
+            .filter(|t| !t.pairs.is_empty())
+            .map(|t| {
+                let named = t.pairs.iter().map(|p| {
+                    let token = folding.tokens.iter().any(|u| &u.name == p);
+                    let fallback = (!token)
+                        .then(|| exact_tamber::fallback(&exact_tamber::Folded::Host(exact_tamber::Host::Role(p.clone())), &self.vocab))
+                        .flatten();
+                    json!({"name": p, "token": token, "fallback": fallback.map(|[l, d]| json!({"light": l, "dark": d}))})
+                });
+                (t.name.clone(), json!(named.collect::<Vec<_>>()))
+            })
+            .collect();
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        let warnings: Vec<Value> = folding
+            .warnings
+            .iter()
+            .map(|d| diagnostic(&file, d))
+            .collect();
         Ok(
-            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}}),
+            json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
         )
     }
 
@@ -780,14 +869,61 @@ impl Server {
             .iter()
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
-        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo).map_err(|all| {
+        let known = self.synthetic(snap);
+        let exprs = known.clone().unwrap_or_default();
+        let synthetic = exact_tamber::Synthetic {
+            file: &self.design,
+            exprs: &exprs,
+        };
+        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})
         })?;
+        // What the build refuses beyond the crate's check, a write refuses
+        // too, so nothing is written that the app cannot build: a role
+        // override that varies by an app axis (LLP 1121 D5, the compiler's
+        // `tamber-role-axis`). An undo restores what was, and is not judged.
+        if !undo {
+            // A role that varied before this write is the file's own,
+            // already refused by the build; only what the write makes vary.
+            let varies = |text: &str| -> Vec<(String, u32, u32)> {
+                exact_tamber::check(text, &self.vocab).map_or(Vec::new(), |f| {
+                    f.tokens
+                        .iter()
+                        .zip(&f.design.tokens)
+                        .filter(|(t, _)| {
+                            t.role.is_some()
+                                && t.values.windows(2).any(|w| w[0].css() != w[1].css())
+                        })
+                        .map(|(t, d)| (t.name.clone(), d.name.line, d.name.col))
+                        .collect()
+                })
+            };
+            let mut axis = Vec::new();
+            for (path, text, _) in &planned.files {
+                let before: Vec<String> = texts
+                    .iter()
+                    .find(|(p, _)| p == path)
+                    .map_or(Vec::new(), |(_, t)| {
+                        varies(t).into_iter().map(|(n, ..)| n).collect()
+                    });
+                for (name, line, col) in varies(text) {
+                    if !before.contains(&name) {
+                        axis.push(diagnostic(path, &exact_tamber::Diagnostic { id: "tamber-role-axis", message: format!("`{name}` overrides a role and varies by an app axis: a role has one value, which the hosts' own surfaces read; vary a token the rows name instead (LLP 1121 D5)"), line, col }));
+                    }
+                }
+            }
+            if !axis.is_empty() {
+                return Err(json!({"message": "refused", "diagnostics": axis}));
+            }
+        }
         let mut out = json!({
             "files": files_json(snap),
             "changed": planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>(),
-            "class": planned.class.name(),
+            // The closure unknown (the app's build stops before its design):
+            // no edit is answered live.
+            "class": if known.is_some() { planned.class.name() } else { exact_tamber::Class::Rebuild.name() },
             "diff": planned.diff,
+            "synthetic": planned.synthetic.iter().map(|(expr, values)| json!({"expr": expr, "values": values.iter().map(|v| v.css()).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });
         let Some(client) = client else {
             return Ok(out);
