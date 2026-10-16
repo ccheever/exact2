@@ -54,7 +54,7 @@ import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets };
-import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts,
@@ -422,7 +422,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   Object.assign(dict, openingLinks(app, 'ios', development));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
-  if (distribution) Object.assign(dict, distribution);
+  Object.assign(dict, distribution, orientationKeys(app.manifest.orientation));
   return plistFile(dict);
 };
 
@@ -451,7 +451,7 @@ export function distributionKeys(sdkName = 'iphoneos') {
     // What iOS assumes when the key is absent, written out: App Store Connect
     // requires it (all four on iPad, for multitasking).
     UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
-    'UISupportedInterfaceOrientations~ipad': ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
+    'UISupportedInterfaceOrientations~ipad': IPAD_ORIENTATIONS,
     // Export compliance is the developer's declaration, so it is written only
     // when EXACT_NON_EXEMPT_ENCRYPTION says it (`false` for HTTPS alone).
     ...(['true', 'false'].includes(process.env.EXACT_NON_EXEMPT_ENCRYPTION) ? { ITSAppUsesNonExemptEncryption: process.env.EXACT_NON_EXEMPT_ENCRYPTION === 'true' } : {}),

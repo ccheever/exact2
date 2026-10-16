@@ -18,6 +18,14 @@ test('native binary identity includes protocol handler registration and template
   expect(nativeManifestMetadata({ ...manifest, protocol_handlers: [{ protocol: 'exacttest', url: '/callback?u=%s' }] }, 'macos')).not.toEqual(first);
 });
 
+test('the orientation lock is part of an iPhone and Android binary\'s identity, not a Mac\'s', () => {
+  const manifest = { app: { id: 'com.exact.turns' } };
+  for (const platform of ['ios', 'android']) {
+    expect(nativeManifestMetadata({ ...manifest, orientation: 'portrait' }, platform)).not.toEqual(nativeManifestMetadata(manifest, platform));
+  }
+  expect(nativeManifestMetadata({ ...manifest, orientation: 'portrait' }, 'macos')).toEqual(nativeManifestMetadata(manifest, 'macos'));
+});
+
 test('an app inside exact2 carries exact2\'s commit alone, and the kind', () => {
   const info = buildInfo({ dir: resolve(root, 'apps/caltrain') }, { root, now });
   expect(info.ExactBuildTime).toBe('2026-10-08T10:00:00.000Z');

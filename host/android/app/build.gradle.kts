@@ -8,7 +8,15 @@ plugins { id("com.android.application") }
 
 val app = providers.gradleProperty("app").get()
 val appDir = providers.gradleProperty("appDir").orNull?.let { file(it) } ?: rootDir.resolve("../../apps/$app")
-val identity = (JsonSlurper().parse(appDir.resolve("app.json")) as Map<*, *>)["app"] as Map<*, *>
+val manifest = JsonSlurper().parse(appDir.resolve("app.json")) as Map<*, *>
+val identity = manifest["app"] as Map<*, *>
+// The manifest's `orientation` as Chromium maps an installed web app's: `-primary` is the device's own way up, a
+// bare `portrait` or `landscape` either way up by the sensor. `natural` is resolved in MainActivity.
+val screenOrientation = mapOf(
+    "any" to "fullUser", "natural" to "nosensor", "portrait" to "sensorPortrait", "portrait-primary" to "portrait",
+    "portrait-secondary" to "reversePortrait", "landscape" to "sensorLandscape", "landscape-primary" to "landscape",
+    "landscape-secondary" to "reverseLandscape",
+)[manifest["orientation"]] ?: "unspecified"
 
 // Each app builds into a directory of its own: two apps' libraries, assets and APKs never mix.
 layout.buildDirectory = layout.projectDirectory.dir("build/$app")
@@ -26,6 +34,7 @@ android {
         versionName = "1"
         ndk { abiFilters += "arm64-v8a" }
         manifestPlaceholders["appName"] = identity["name"] as String
+        manifestPlaceholders["screenOrientation"] = screenOrientation
     }
     buildTypes {
         release {
