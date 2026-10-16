@@ -117,13 +117,40 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // `released`: that scrub is being written; the build of what it writes
   // goes from it, and ends it.
   let scrubbed = null, aside = null, released = false;
+  // A design (`exact-web-js design`), read from the compiler with no build:
+  // a value-only edit's and a scrub's. Optimised (host-dev), built as the
+  // loop starts and again after any edit that is not a design's, so it is
+  // the compiler the builds use; until it is, the debug compiler answers.
+  const tool = { path: resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'host-dev/exact-web-js'), ready: false, child: null };
+  const buildTool = () => {
+    tool.ready = false;
+    tool.child?.kill();
+    const child = tool.child = spawn('cargo', ['build', '-q', '--profile', 'host-dev', '-p', 'exact-web-js'], { cwd: root, stdio: 'ignore' });
+    child.on('exit', (code) => { if (tool.child === child) { tool.child = null; tool.ready = code === 0 && existsSync(tool.path); } });
+  };
+  buildTool();
+  const designOf = (text) => new Promise((done) => {
+    const compiler = tool.ready ? { cmd: tool.path, pre: [] } : webCompiler();
+    const child = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    child.stdin.on('error', () => {});
+    child.stdin.end(text);
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('exit', (code) => {
+      try { done(code === 0 ? JSON.parse(out) : { error: err.trim().split('\n').slice(-6).join('\n') || `the compiler exited ${code}` }); } catch (e) { done({ error: e.message }); }
+    });
+  });
+  const sameShape = (from, next) => from && next && from.shape === next.shape && from.tokens.length === next.tokens.length
+    && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent));
+  let designing = false;
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
   let seq = 1, saved = 0, again = false, timer = null, since = t0;
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
-    if (building) { again = true; return; }
+    if (building || designing) { again = true; return; }
     const at = saved, t = since = Date.now();
     // A path that existed during the save and is gone by now (an editor's
     // or sed's temporary file) edited nothing; one already gone when its
@@ -133,6 +160,33 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // Kept until a build lands: a failed one's edits are the next build's too.
     const pendingEdits = [...edited], pendingAppeared = [...appeared];
     edited.clear(); appeared.clear();
+    // A value-only design edit (LLP 1121 stage 4): its design from the
+    // compiler, no build, sent as a batch; the page in dist stays, as a kept
+    // build's does. One that moves the design's shape (or fails) builds.
+    if (designOnly && design && tool.ready) {
+      designing = true;
+      const file = designPath(app.dir);
+      const next = file && existsSync(file) ? await designOf(readFileSync(file, 'utf8')) : { error: 'no design' };
+      designing = false;
+      if (!next.error && sameShape(design, next)) {
+        const from = scrubbed ?? design;
+        design = next;
+        const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
+        if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
+        if (scrubbed) aside = committed; else snapshot = committed;
+        const tokens = design.tokens.filter((tk, i) => !same(tk, from.tokens[i]));
+        if (tokens.length && !scrubbed) {
+          console.log(`edit → batch ready ${Date.now() - at} ms (design read in ${Date.now() - t} ms, no build) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
+          const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+          push(batch);
+          tamber?.channel.broadcast(batch);
+        }
+        if (again) { again = false; rebuild(); }
+        return;
+      }
+    }
+    // Anything else may move the compiler: the design tool is built again.
+    if (!designOnly) buildTool();
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
@@ -258,20 +312,8 @@ let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why});x.modes.set(Object.entries(ch.before.mode))}}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast"});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
 es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
-  /** A scrub's design: the compiler's (`exact-web-js design`) with its text,
-   * on stdin, in place of the design file's; written nowhere. */
-  const scrubDesign = (text) => new Promise((done) => {
-    const compiler = webCompiler();
-    const child = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
-    child.stdin.on('error', () => {});
-    child.stdin.end(text);
-    let out = '', err = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('exit', (code) => {
-      try { done(code === 0 ? JSON.parse(out) : { error: err.trim().split('\n').slice(-6).join('\n') || `the compiler exited ${code}` }); } catch (e) { done({ error: e.message }); }
-    });
-  });
+  /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
+  const scrubDesign = designOf;
   /** Preview a scrub's texts: a batch from the design the pages run, as a
    * value-only edit sends one, and its snapshot for a page that asks. */
   async function scrubPreview(texts) {
