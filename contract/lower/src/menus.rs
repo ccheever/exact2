@@ -211,6 +211,28 @@ impl Lowerer<'_> {
         let mut rows = Vec::new();
         self.rows(children, false, &mut Vec::new(), &mut rows);
         let alert = alert_shaped(&rows);
+        // A prompt asks one thing (rules/DEFERRED.md), whatever its `id`:
+        // fields on arms of one `if` or `match` never show together.
+        let fields: Vec<&Row> = rows.iter().filter(|r| text_field(r)).collect();
+        if let Some(field) = fields.iter().find(|f| f.repeats) {
+            return err(
+                "lower-alertdialog",
+                "alertdialog has a text field inside `for`, which can repeat, and a prompt has one",
+                field.span,
+            );
+        }
+        if most(&fields, 0) > 1 {
+            let second = fields
+                .iter()
+                .enumerate()
+                .find(|(i, f)| fields[..*i].iter().any(|e| !e.exclusive(f)))
+                .map_or(fields[1], |(_, f)| *f);
+            return err(
+                "lower-alertdialog",
+                "alertdialog has a second text field; a prompt asks one thing (one `input`, or one on each arm of an `if` or `match`)",
+                second.span,
+            );
+        }
         let Some(id) = literal(attrs, "id") else {
             return Ok(alert);
         };
@@ -267,19 +289,13 @@ impl Lowerer<'_> {
             )
         };
         let mut actions = 0;
-        let mut fields: Vec<&Row> = Vec::new();
         let mut cancels: Vec<&Row> = Vec::new();
         for row in &rows {
             match row.tag {
                 "text" => {}
                 // A prompt (a rename's): the alert with a text field, whose
                 // edits are the field's `input` as typing in place is.
-                "input" if text_field(row) => {
-                    if row.repeats {
-                        return refuse(row, "a text field inside `for` can repeat, and a prompt has one".into());
-                    }
-                    fields.push(row);
-                }
+                "input" if text_field(row) => {}
                 // The hosts present buttons only; a `link` is refused as
                 // any other element row is.
                 "button" if has(&row.attrs, "press") => {
@@ -306,18 +322,6 @@ impl Lowerer<'_> {
             if cancels[..i].iter().any(|earlier| !earlier.exclusive(later)) {
                 return refuse(later, "a second cancel; there is at most one".into());
             }
-        }
-        // A prompt asks one thing (rules/DEFERRED.md): fields on arms of one
-        // `if` or `match` never show together.
-        if most(&fields, 0) > 1 {
-            let second = fields
-                .iter()
-                .enumerate()
-                .find(|(i, f)| fields[..*i].iter().any(|e| !e.exclusive(f)));
-            return refuse(
-                second.map_or(fields[1], |(_, f)| f),
-                "a second text field; a prompt asks one thing".into(),
-            );
         }
         if let Some(field) = fields.first().filter(|_| !alert) {
             return refuse(field, "a text field belongs to the alert's shape, a prompt: with it one cancel and at most three buttons in all, none under `for`".into());

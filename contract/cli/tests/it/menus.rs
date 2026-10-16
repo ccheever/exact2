@@ -505,6 +505,19 @@ fn a_prompt_is_the_alert_with_a_text_field() {
         assert_eq!(id, "lower-alertdialog", "{rows:?}: {message}");
         assert!(message.contains(why), "{rows:?}: {message}");
     }
+    // The count is the shape's, whatever the `id`: one a literal does not
+    // show is no way round it.
+    let computed = "dialog id=(busy ? \"a\" : \"b\") role=\"alertdialog\" aria-label=\"Sign in\"";
+    let two = [
+        field,
+        "  input type=\"password\" aria-label=\"Password\"",
+        save,
+        cancel,
+    ]
+    .join("\n");
+    let (id, message) = refused(&format!("{computed}\n{two}"));
+    assert_eq!(id, "lower-alertdialog", "{message}");
+    assert!(message.contains("a second text field"), "{message}");
 }
 
 #[test]
