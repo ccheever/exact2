@@ -49,7 +49,7 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { iosTestRuns, macTests } from './xctest.mjs';
-import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
+import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
@@ -359,20 +359,6 @@ export function writeUsageStrings(reach, dir) {
     writeFileSync(resolve(dir, `${locale}.lproj`, 'InfoPlist.strings'), plistFile(Object.fromEntries(usage.map(([key, texts]) => [key, texts[locale]]))));
   }
 }
-
-/** The hardened-runtime entitlements `exact release` signs the Mac app with:
- * the bake's derivation from the app's `device.*` grants (a usage string
- * alone is not enough; a hardened app without the entitlement is silently
- * refused). Null when the app grants no such device. */
-export const macReleaseEntitlements = (compat) => {
-  const names = compat?.reach?.entitlements ?? [];
-  // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
-  // which a Developer ID build signs only with a profile that grants it.
-  const domains = compat?.reach?.auth?.associatedDomains ?? [];
-  if (!names.length && !domains.length) return null;
-  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
-    ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
-};
 
 /** `NSAppTransportSecurity` from `host.<platform>.appTransportSecurity` and the build's own `keys`; none of either, no key. `allowsArbitraryLoadsInWebContent` relaxes ATS for web views only (an `iframe` loads `http://` from a named host, as a browser does); a module's `URLSession` stays under ATS. */
 const transportSecurity = (section, keys = {}) => {
@@ -1275,8 +1261,10 @@ async function main(args) {
       // Preserve the GPU artifact signatures that the baked receipt names.
       for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       copyMacResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
-      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to));
-      for (const file of signingOrder(bundle, bakedCompat).filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
+      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to)), order = signingOrder(bundle, bakedCompat);
+      // A runtime exception's target is checked here, not first at release (LLP 1069.008 D9); a development build signs without the hardened runtime, so with no entitlements.
+      helperEntitlements(bundle, app.manifest, bakedCompat, order);
+      for (const file of order.filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, paths.executable), bakedCompat.id);

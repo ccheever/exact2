@@ -39,10 +39,10 @@ import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { applyPattern, createApp, createGame, patternList } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
-import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
-import { signingOrder } from '../host/apple/assets.mjs';
+import { signRelease } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
 import { guardFlags, helpText } from './help.mjs';
 
@@ -266,17 +266,12 @@ function release(app) {
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
   // notarisation's requirements, not preferences: a build without them is
-  // rejected at submission rather than at launch. The app itself carries the
-  // entitlements its `device.*` grants derive (LLP 1069.008 D4), read from the
-  // bake receipt inside the bundle; the code nested inside carries none.
+  // rejected at submission rather than at launch. The entitlements come from
+  // the bake receipt inside the bundle: the app carries those its `device.*`
+  // and `runtime.* app` grants derive (LLP 1069.008 D4, D9), a helper a
+  // `runtime.* <path>` grant names carries its own, and other nested code none.
   const built = JSON.parse(readFileSync(resolve(bundle, 'Contents/Resources/receipt.json'), 'utf8'));
-  const entitled = macReleaseEntitlements(built.build?.compat);
-  const entitlements = resolve(out, 'entitlements.plist');
-  if (entitled) writeFileSync(entitlements, entitled);
-  for (const path of signingOrder(staged, built.build?.compat, identity)) {
-    sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
-      ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
-  }
+  signRelease(staged, { compat: built.build?.compat, manifest: app.manifest, identity, id: app.id, scratch: out });
   sh('codesign', ['--verify', '--deep', '--strict', '--verbose=1', staged]);
 
   // A zip is what notarytool takes for an app; ditto and not zip, which

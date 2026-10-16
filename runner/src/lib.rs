@@ -53,6 +53,7 @@ pub mod file_pickers;
 mod format;
 pub mod geometry;
 pub mod grants;
+pub mod hardened;
 pub mod head;
 pub mod held;
 pub mod instance;
