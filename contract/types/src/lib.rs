@@ -892,10 +892,16 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     let t = infer(arg, scope, shapes)?;
                     given.push(t.clone());
                     if !roster_accepts(f, spec, &t) {
+                        // @ref LLP 1116.016 D5 — the web's `String.prototype.at`.
+                        let text = if f == Stdlib::At && i == 0 && t == Ty::String {
+                            ": for text, `s.slice(i, i + 1)`, `\"\"` past the end"
+                        } else {
+                            ""
+                        };
                         return err(
                             "type-argument",
                             format!(
-                                "{} expects `{}`, given `{t}`",
+                                "{} expects `{}`, given `{t}`{text}",
                                 contract_syntax::idioms::argument(name, i),
                                 roster_spelling(f, spec)
                             ),
@@ -950,6 +956,14 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 BinOp::Add => match (&ta, &tb) {
                     (Ty::Number, Ty::Number) => Ty::Number,
                     (Ty::String, Ty::String) => Ty::String,
+                    // @ref LLP 1116.016 D5 — `"Total: " + n` is a template.
+                    (Ty::String, Ty::Number | Ty::Bool) | (Ty::Number | Ty::Bool, Ty::String) => {
+                        return err(
+                            "type-operand",
+                            format!("`+` joins two strings, given `{ta}` and `{tb}`: write a template, `` `Total: ${{n}}` `` for `\"Total: \" + n`"),
+                            *span,
+                        )
+                    }
                     _ => {
                         return err(
                             "type-operand",
