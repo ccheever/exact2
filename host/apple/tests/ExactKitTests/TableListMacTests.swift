@@ -676,6 +676,75 @@ extension TableListMacTests {
         }
     }
 
+    func testNativeSeparatorUsesItsDirectRowsLocalAppearance() throws {
+        let source = """
+        component RowScheme
+          state scheme = 0
+          action setScheme(next: number)
+            scheme = next
+          view
+            column width="100%" height="100%" gap=12 padding=12 box-sizing="border-box"
+              row gap=8
+                button press=setScheme(1) testId="row-light"
+                  text "Row light"
+                button press=setScheme(2) testId="row-dark"
+                  text "Row dark"
+                button press=setScheme(0) testId="row-clear"
+                  text "Clear row scheme"
+              list height=100 width="100%" testId="rows"
+                text "First" height=40 padding="8px 16px" box-sizing="border-box" color-scheme=(scheme == 1 ? "light" : (scheme == 2 ? "dark" : none)) testId="local-0"
+                text "Last" height=40 padding="8px 16px" box-sizing="border-box" testId="local-1"
+
+        """
+        let f = try TableFixture(count: 0, source: source)
+        fixture = f
+        let row = try f.node("local-0")
+        func press(_ id: String) throws {
+            f.presenter.press(try f.node(id).id)
+            f.settle()
+        }
+        func distance(_ a: NSColor, _ b: NSColor) -> CGFloat {
+            abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
+                + abs(a.blueComponent - b.blueComponent) + abs(a.alphaComponent - b.alphaComponent)
+        }
+        var native: [NSColor]?
+        for (mode, painted) in [("native", false), ("painted", true)] {
+            f.presenter.tables.painted = painted
+            f.window.appearance = NSAppearance(named: .darkAqua)
+            try press("row-clear")
+            var picture = try separatorPicture(f, name: "\(mode)-row-inherited-dark")
+            let inheritedDark = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(inheritedDark, separatorColor(row.effectiveAppearance), "\(mode): a clear row inherits the dark window")
+
+            try press("row-light")
+            picture = try separatorPicture(f, name: "\(mode)-row-light-in-dark")
+            let lightInDark = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(lightInDark, separatorColor(row.effectiveAppearance), "\(mode): the direct row's light scheme owns its separator")
+            XCTAssertGreaterThan(distance(inheritedDark, lightInDark), 1.0 / 255.0, "\(mode): a local light row differs from its dark window")
+
+            f.window.appearance = NSAppearance(named: .aqua)
+            try press("row-dark")
+            picture = try separatorPicture(f, name: "\(mode)-row-dark-in-light")
+            let darkInLight = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(darkInLight, separatorColor(row.effectiveAppearance), "\(mode): the direct row's dark scheme owns its separator")
+
+            try press("row-clear")
+            picture = try separatorPicture(f, name: "\(mode)-row-cleared-light")
+            let restoredLight = try lineColor(picture, y: separatorBoundary(f, row: row))
+            try assertSameColor(restoredLight, separatorColor(row.effectiveAppearance), "\(mode): clearing the row restores the light window")
+            XCTAssertGreaterThan(distance(darkInLight, restoredLight), 1.0 / 255.0, "\(mode): clearing the local dark scheme restores inherited light")
+
+            let colors = [inheritedDark, lightInDark, darkInLight, restoredLight]
+            if let native {
+                for (index, pair) in zip(native, colors).enumerated() {
+                    try assertSameColor(pair.1, pair.0, "painted and native use the same row-local appearance at step \(index)")
+                }
+            } else {
+                native = colors
+            }
+        }
+    }
+
     func testWindowedShadowIntentBelongsToTheWrapperAndPaintedLinesTearDown() throws {
         let f = try TableFixture(count: 0, source: Self.separatorSource(windowed: true))
         fixture = f
