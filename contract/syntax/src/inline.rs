@@ -496,16 +496,26 @@ fn inline_nodes(
                     })
                     .collect();
                 let has = |name: &str| attrs.iter().any(|a| a.name == name);
+                // A literal through the type ascriptions typed expansion
+                // puts on a prop's argument (`expand_typed`), so both
+                // expansions make the same arm.
+                fn literal(mut e: &Expr) -> &Expr {
+                    while let Expr::Typed(inner, _, _) = e {
+                        e = inner;
+                    }
+                    e
+                }
                 // A virtualized list that is a panel waits whole
                 // (`exact_runner::instance::panel_sites`); its one `for`
                 // already owns its rows' state, and must stay its one child.
                 let panel = ctx.tabs
                     && !children.is_empty()
                     && attrs.iter().any(|a| {
-                        a.name == "role" && matches!(&a.value, Expr::Str(r, _) if r == "tabpanel")
+                        a.name == "role"
+                            && matches!(literal(&a.value), Expr::Str(r, _) if r == "tabpanel")
                     })
                     && attrs.iter().all(|a| {
-                        a.name != "virtualized" || matches!(a.value, Expr::Bool(false, _))
+                        a.name != "virtualized" || matches!(literal(&a.value), Expr::Bool(false, _))
                     });
                 let tabs = ctx.tabs;
                 if has("navigationKey") {
