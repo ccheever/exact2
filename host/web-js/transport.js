@@ -36,7 +36,7 @@ let Readers = {}, Owner = null, Last = null, Raw = [], Play = null, Segments = [
 // were issued.
 let IssuedTo = 0, Skip = 0, Issued = [-Infinity, 0], RefillDue = Infinity, PhaseDue = Infinity, EndedDue = Infinity, Pending = null, UnsentTold = false;
 const T = () => Sounds.seq;
-const Answer = { name: 'transport', requests: 0, due: Infinity, next: Infinity, then: () => { for (const r of Resources) if (r.source === 'exactTransport') R(r); } };
+const Answer = { name: 'transport', requests: 0, e: () => null, due: Infinity, next: Infinity, then: () => { for (const r of Resources) if (r.source === 'exactTransport') R(r); } };
 let End = null; // the armed end's `clock.timers` entry: a new one per arming, so one being fired keeps the kind it was chosen as
 const Wake = { due: Infinity, hatch: true, i: Infinity, name: '', action: () => (wake(clock.now), true) };
 

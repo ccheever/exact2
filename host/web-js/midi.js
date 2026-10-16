@@ -63,7 +63,7 @@ let Ports = { access: 'prompt', inputs: [], outputs: [] }, Granted = false, Uses
 let Queue = [], Next = 0, Received = [], Heard = 0, Ops = [], Open = [], Clock = null, Ticks = 0, Played = null, ClockFloor = -Infinity;
 let Preferred = { access: 'granted', inputs: [], outputs: [] }, Readers = {}, Glue = null, Output = null, Boot = true;
 const Listening = () => Sounds.midi ?? []; // [element, handler] pairs from rt.js `onMIDI`, registered as the view is built
-const Answer = { name: 'midi', requests: 0, due: Infinity, next: Infinity, then: () => { Answer.due = Infinity; for (const r of Resources) if (r.source === 'exactMIDI') R(r); } };
+const Answer = { name: 'midi', requests: 0, e: () => null, due: Infinity, next: Infinity, then: () => { Answer.due = Infinity; for (const r of Resources) if (r.source === 'exactMIDI') R(r); } };
 
 const portsEqual = (a, b) => a.access === b.access && ['inputs', 'outputs'].every(k => a[k].length === b[k].length
   && a[k].every((p, i) => ['id', 'name', 'manufacturer', 'connected'].every(f => p[f] === b[k][i][f])));
