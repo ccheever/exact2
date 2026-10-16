@@ -153,7 +153,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   buildTool();
   const designOf = (text) => new Promise((done) => {
     const compiler = toolFresh() ? { cmd: tool.path, pre: [] } : webCompiler();
-    const child = tool.reading = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    // A group: the debug fallback is a `cargo run`, stopped with its compilers.
+    const child = tool.reading = spawn(compiler.cmd, [...compiler.pre, 'design', resolve(app.dir, 'app.contract'), '-'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     child.on('error', (e) => done({ error: e.message }));
     child.stdin.on('error', () => {});
     child.stdin.end(text);
@@ -173,7 +174,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // A fast batch is checked by the full build after it (`verifying`): the
   // design's module inputs and its compile; a value-only edit during that
   // build is sent at once and checked again after (`fastSeq`).
-  let designing = false, verifying = false, fastSeq = 0;
+  let designing = false, verifying = false, fastSeq = 0, stopping = false;
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
@@ -202,6 +203,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       designing = true;
       let next;
       try { next = existsSync(file) ? await designOf(readFileSync(file, 'utf8')) : { error: 'no design' }; } catch (e) { next = { error: e.message }; } finally { designing = false; }
+      // The loop stopped while it read: no build follows.
+      if (stopping) return;
       if (!next.error && sameShape(design, next)) {
         const from = scrubbed ?? design;
         design = next;
@@ -552,7 +555,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     }, (e) => { if (gone) return; res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
   };
   const stop = async () => {
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); tool.reading?.kill(); residentChild?.kill('SIGTERM'); server.close();
+    stopping = true;
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.
     await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
