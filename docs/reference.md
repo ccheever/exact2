@@ -269,14 +269,19 @@ pending storage, five seconds at most for all of it together, and the window
 stays responsive meanwhile; then `destroy()` runs, whether or not the work
 finished. A repeated quit neither asks again nor extends the deadline. Letting
 `done` go uncalled counts as calling it. iOS and tvOS have no quit and never
-call it. `destroy()` still runs synchronously on the main thread with no
-deadline, so keep blocking work out of it.
+call it. `destroy()` runs synchronously on the main thread with no deadline,
+so do not wait in it: force-end there whatever the deadline cut short, or a
+child process outlives the app.
 
 ```swift
 override func willQuit(done: @escaping () -> Void) {
     helper.terminationHandler = { _ in done() }
     guard helper.isRunning else { return done() } // a second `done` is ignored
     helper.terminate()                            // SIGTERM; it exits in its own time
+}
+override func destroy() {
+    // After the deadline, finished or not: end a helper that ignored SIGTERM.
+    if helper.isRunning { kill(helper.processIdentifier, SIGKILL) }
 }
 ```
 

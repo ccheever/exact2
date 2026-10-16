@@ -222,9 +222,10 @@ open class ExactModule {
     /// off the main thread, and call `done` when it has finished, from any
     /// thread. The quit waits for every session's module and the storage
     /// in flight, five seconds at most in all (LLP 1097 D10, LLP 1069.010
-    /// Q4); `destroy()` follows whether or not the work finished. Called
-    /// once, on the main thread, never on iOS or tvOS. Dropping `done`
-    /// uncalled counts as calling it. By default, done at once.
+    /// Q4); `destroy()` follows whether or not the work finished, and
+    /// force-ends what is still running (SIGKILL a child) without waiting.
+    /// Called once, on the main thread, never on iOS or tvOS. Dropping
+    /// `done` uncalled counts as calling it. By default, done at once.
     open func willQuit(done: @escaping () -> Void) { done() }
     /// The host's side of the hatches, once it has connected (LLP 1075.003).
     var hatches: ExactHatches?
