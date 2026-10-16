@@ -47,6 +47,59 @@ pub(super) fn timers(em: &mut Em<'_>, body: &mut String) -> Result<(), String> {
     Ok(())
 }
 
+/// The `exactMIDI` readers, each its fields and a port list's port fields,
+/// and whether the plan uses MIDI, for midi.js (LLP 1125 D6), ahead of the
+/// sequences whose notes go on its queue; whether the module imports it.
+pub(super) fn midi(em: &mut Em<'_>, body: &mut String) -> Result<bool, String> {
+    use exact_runner::midi::{FIELDS, PORT_FIELDS, SOURCE};
+    let plan = em.plan;
+    if !exact_runner::uses::keeps_midi(plan) {
+        return Ok(false);
+    }
+    let name = |s: &str| serde_json::to_string(s).unwrap();
+    let mut readers = Vec::new();
+    for r in plan
+        .resources
+        .iter()
+        .filter(|r| plan.str(r.source) == SOURCE)
+    {
+        let resource = plan.str(r.name);
+        let t = &plan.types[r.ty.0 as usize];
+        if t.kind != exact_plan::TypeKind::Record {
+            return Err(format!("resource {resource}: `{SOURCE}` answers a record"));
+        }
+        let (mut fields, mut ports) = (Vec::new(), Vec::new());
+        for f in t.fields.iter() {
+            let field = &plan.fields[f.0 as usize];
+            let fname = plan.str(field.name);
+            if !FIELDS.contains(&fname) {
+                return Err(format!("resource {resource}: `{SOURCE}` has no `{fname}`"));
+            }
+            fields.push(name(fname));
+            let list = &plan.types[field.ty.0 as usize];
+            if let Some(item) = list.elem.map(|e| &plan.types[e.0 as usize]) {
+                let keys: Vec<String> = item
+                    .fields
+                    .iter()
+                    .map(|p| plan.str(plan.fields[p.0 as usize].name))
+                    .filter(|p| PORT_FIELDS.contains(p))
+                    .map(name)
+                    .collect();
+                ports.push(format!("{}:[{}]", name(fname), keys.join(",")));
+            }
+        }
+        readers.push(format!(
+            "{}:[[{}],{{{}}}]",
+            name(resource),
+            fields.join(","),
+            ports.join(",")
+        ));
+    }
+    let uses = exact_runner::uses::uses_midi(plan);
+    let _ = write!(body, "$midi({{{}}},{});", readers.join(","), uses as u8);
+    Ok(true)
+}
+
 /// The `exactTransport` readers and every sequence, for transport.js;
 /// whether the module imports it.
 pub(super) fn sequences(em: &mut Em<'_>, body: &mut String) -> Result<bool, String> {

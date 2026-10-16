@@ -48,6 +48,7 @@
 //!   on a live clock one past at a fill is late. So an edit of `offset`
 //!   itself may play a step twice or not at all within the change's size,
 //!   a declared limit.
+//!
 //! @ref LLP 1125 D2–D5, D7
 
 use crate::agent::num;

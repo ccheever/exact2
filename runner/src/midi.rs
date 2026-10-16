@@ -27,6 +27,7 @@
 //!   arming's, Start before the first at a beat ≥ 0, Stop at a stop or the
 //!   end no earlier than the last tick handed. Ticks are counted, not
 //!   listed in the record or the journal one by one.
+//!
 //! @ref LLP 1125 D6–D8
 
 use crate::agent::num;
@@ -876,9 +877,15 @@ impl Midi {
         if !moved.is_empty() {
             log.push(format!("midi retracted: {} (overlap)", moved.len()));
         }
-        for i in moved {
-            self.retract(i, "overlap");
-            let s = self.queue[i].clone();
+        // Taken back first: a push may let a handed tick go, moving places.
+        let moved: Vec<Sent> = moved
+            .into_iter()
+            .map(|i| {
+                self.retract(i, "overlap");
+                self.queue[i].clone()
+            })
+            .collect();
+        for s in moved {
             self.push(
                 New {
                     output,
@@ -956,8 +963,8 @@ impl Midi {
         if n + moved.len() > 0 {
             log.push(format!("midi retracted: {} (cancelled)", n + moved.len()));
         }
-        for i in moved {
-            let s = self.queue[i].clone();
+        let moved: Vec<Sent> = moved.into_iter().map(|i| self.queue[i].clone()).collect();
+        for s in moved {
             let on = s.on_at.unwrap_or(t);
             self.push(
                 New {
@@ -1058,7 +1065,7 @@ impl Midi {
         loop {
             let k = c.next;
             let at = time(k / 24.0);
-            if !(at < to) || end.is_some_and(|e| k / 24.0 >= e) {
+            if at.is_nan() || at >= to || end.is_some_and(|e| k / 24.0 >= e) {
                 break;
             }
             c.next += 1.0;
@@ -1126,8 +1133,8 @@ impl Midi {
         if n > 0 {
             log.push(format!("midi retracted: {n} (reload)"));
         }
-        for i in moved {
-            let s = self.queue[i].clone();
+        let moved: Vec<Sent> = moved.into_iter().map(|i| self.queue[i].clone()).collect();
+        for s in moved {
             self.push(
                 New {
                     output: &s.output,

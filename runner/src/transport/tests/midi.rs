@@ -182,14 +182,18 @@ fn access_needs_the_grant_and_the_agent_answers_a_request() {
     }
     // A port pulled stays listed as disconnected.
     let mut r = granted(SOURCE);
-    r.midi_agent(r#"{"op":"prefer","midi":{"outputs":[]}}"#)
+    let (_, reply) = r
+        .midi_agent(r#"{"op":"prefer","midi":{"outputs":[]}}"#)
         .unwrap();
+    reply.unwrap();
     let outputs = &r.midi().ports().outputs;
     assert_eq!((outputs.len(), outputs[0].connected), (1, false));
     // `prefer midi.state denied` is what a request then finds.
     let mut r = boot_with(SOURCE);
-    r.midi_agent(r#"{"op":"prefer","midi":{"state":"denied"}}"#)
+    let (_, reply) = r
+        .midi_agent(r#"{"op":"prefer","midi":{"state":"denied"}}"#)
         .unwrap();
+    reply.unwrap();
     assert_eq!(r.midi().ports().access.word(), "denied");
 }
 

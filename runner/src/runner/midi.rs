@@ -342,8 +342,9 @@ impl<D: DataSource> Runner<D> {
         (receipts, Ok(self.midi_reply()))
     }
 
-    /// `tap midi "<input>" 90 3c 64`: refused by name unless the input is
-    /// connected and a mounted element hears it.
+    /// `tap midi "<input>" 90 3c 64`: one delivery of the messages the bytes
+    /// make, refused by name unless they are whole, the input is connected
+    /// and a mounted element hears it.
     fn midi_tap(&mut self, v: &serde_json::Value) -> (Vec<CommitReceipt>, Result<String, String>) {
         let input = v.get("input").and_then(|i| i.as_str()).unwrap_or("");
         let data: Option<Vec<u8>> = v.get("data").and_then(|d| d.as_array()).and_then(|d| {
@@ -356,6 +357,11 @@ impl<D: DataSource> Runner<D> {
                 Vec::new(),
                 Err("tap midi: the bytes are whole numbers 0–255".into()),
             );
+        };
+        // One delivery of one or more whole messages, coalesced as an arm's.
+        let messages = match crate::midi::split(&data) {
+            Ok(m) => m,
+            Err(why) => return (Vec::new(), Err(format!("tap midi: {why}"))),
         };
         if !self.midi.ports().connected_input(input) {
             let why = match self.midi.ports().access {
@@ -378,11 +384,15 @@ impl<D: DataSource> Runner<D> {
             );
         }
         let now = self.now_ms;
-        let (receipts, error) = self.midi_input(vec![Incoming {
-            input: input.to_string(),
-            time_stamp: now,
-            data,
-        }]);
+        let batch = messages
+            .into_iter()
+            .map(|data| Incoming {
+                input: input.to_string(),
+                time_stamp: now,
+                data,
+            })
+            .collect();
+        let (receipts, error) = self.midi_input(batch);
         match error {
             Some(e) => (receipts, Err(format!("tap midi: {e:?}"))),
             None => (receipts, Ok(self.midi_reply())),

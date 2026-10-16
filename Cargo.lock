@@ -3061,6 +3061,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "metronome-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "metronome-data",
+]
+
+[[package]]
 name = "metronome-web"
 version = "0.1.0"
 dependencies = [
