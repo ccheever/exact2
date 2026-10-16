@@ -1,9 +1,9 @@
 import {test, expect} from 'bun:test';
 import {createHash} from 'node:crypto';
-import {existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync} from 'node:fs';
+import {cpSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, renameSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
+import {buildInputHash, ensureBuildReceipt, ensureLinuxReceipts, pinInputs, proofInputFiles, proofInputReader, proofInputs} from './proof.mjs';
 import {writeFixtureFile} from './tests/proof-helpers.mjs';
 
 test('receipts issued before directory checks rebuild once even when source and artifact digests still match', async () => {
@@ -229,3 +229,149 @@ test('E11 clean Git blobs and stat-cached dirty inputs have stable identities', 
     write('game/games/sample/logic/src/lib.rs','logic');expect(read().all).not.toBe(b.all);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+function provenanceFixture(root, generated) {
+  const app = resolve(root, 'game/games/sample');
+  writeFixtureFile(root, 'game/engine/src/lib.rs', 'shared SDK');
+  for (const [file, bytes] of Object.entries({
+    'logic/src/lib.rs':'pub fn value() {}', 'app.contract':'authored plan',
+    'art/crate.gltf':'authored model', 'art/hit.ogg':'authored sound',
+    'assets/handmade.astc.tex':'unowned texture', 'assets/handmade.sound':'unowned sound',
+  })) writeFixtureFile(app, file, bytes);
+  const manifest = {};
+  for (const name of ['textures/crate.astc.tex', 'hit.sound']) {
+    writeFixtureFile(app, 'assets/' + name, generated);
+    manifest[name] = createHash('sha256').update(generated).digest('hex');
+  }
+  writeFixtureFile(app, '.baked-assets.json', JSON.stringify(manifest));
+  return app;
+}
+
+test('portable authored provenance excludes owned texture and sound bytes, not unowned assets', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'proof-portable-'));
+  const roots = ['x86', 'arm'].map(name => resolve(dir, name));
+  try {
+    const apps = roots.map((root, i) => provenanceFixture(root, `baked on machine ${i}`));
+    const snapshots = roots.map((root, i) => proofInputs(root, apps[i]));
+    expect(snapshots[0].authored).toBe(snapshots[1].authored);
+    expect(snapshots[0].all).not.toBe(snapshots[1].all);
+    expect(() => pinInputs(snapshots.map(row => ({inputs:row.all, sourceInputs:row.authored})))).toThrow('inputs');
+    for (const file of ['logic/src/lib.rs', 'art/hit.ogg', 'assets/handmade.astc.tex', 'assets/handmade.sound']) {
+      const path = resolve(apps[0], file), before = readFileSync(path);
+      writeFileSync(path, 'changed authored bytes');
+      const changed = proofInputs(roots[0], apps[0]);
+      expect(changed.authored).not.toBe(snapshots[0].authored);
+      expect(changed.all).not.toBe(snapshots[0].all);
+      writeFileSync(path, before);
+    }
+    const moved = resolve(dir, 'external/renamed-game');
+    cpSync(apps[1], moved, {recursive:true});
+    expect(proofInputs(roots[1], moved).authored).toBe(snapshots[1].authored);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('repin records portable source provenance separately and still refuses mixed execution rows', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'proof-pin-provenance-'));
+  const roots = ['x86', 'arm'].map(name => resolve(dir, name));
+  const baseline = {ticks:{1:'0x' + 'a'.repeat(16)}, saves:{continuation:'a'.repeat(64)}};
+  try {
+    const apps = roots.map((root, i) => provenanceFixture(root, `baked on machine ${i}`));
+    const snapshots = roots.map((root, i) => proofInputs(root, apps[i]));
+    for (const app of apps) {
+      writeFixtureFile(app, 'pins.json', JSON.stringify(baseline));
+      writeFixtureFile(app, 'proof.mjs', `
+        import {mkdirSync, writeFileSync} from 'node:fs';
+        const out = process.env.EXACT_PROOF_OUT, mode = process.env.EXACT_GAME_PARANOID;
+        const row = {host:process.argv[2], mode, status:'UNVERIFIED', failures:[], seconds:0,
+          pins:${JSON.stringify(baseline)}, inputs:process.env.TEST_EXECUTION_INPUTS,
+          sourceInputs:process.env.TEST_SOURCE_INPUTS};
+        if (mode === 'fresh-game') {
+          if (process.env.TEST_MIXED === 'execution') row.inputs = 'f'.repeat(64);
+          if (process.env.TEST_MIXED === 'source') row.sourceInputs = 'f'.repeat(64);
+          if (process.env.TEST_MIXED === 'missing-source') delete row.sourceInputs;
+        }
+        mkdirSync(out, {recursive:true});
+        writeFileSync(out + '/summary.json', JSON.stringify(row));
+      `);
+    }
+    const run = async (i, mixed = '') => {
+      const child = Bun.spawn([process.execPath, resolve(import.meta.dir, 'prove.mjs'), apps[i], '--repin', '--hosts', 'linux'], {
+        env:{...process.env, TEST_EXECUTION_INPUTS:snapshots[i].all, TEST_SOURCE_INPUTS:snapshots[i].authored, TEST_MIXED:mixed},
+        stdout:'pipe', stderr:'pipe',
+      });
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      return {code, text:stdout + stderr};
+    };
+    const pins = [];
+    for (let i = 0; i < apps.length; i++) {
+      const file = resolve(apps[i], 'pins.json'), before = readFileSync(file, 'utf8');
+      const mixed = await run(i, 'execution');
+      expect(mixed.code, mixed.text).toBe(1);
+      expect(mixed.text).toContain('proof inputs missing or changed between runs');
+      expect(readFileSync(file, 'utf8')).toBe(before);
+      const result = await run(i);
+      expect(result.code, result.text).toBe(0);
+      pins.push(JSON.parse(readFileSync(file, 'utf8')));
+      expect(pins[i].inputs).toBe(snapshots[i].all);
+      expect(pins[i].sourceInputs).toBe(snapshots[i].authored);
+      expect(pins[i].at).toBe('inputs:' + snapshots[i].authored);
+      for (const mixed of ['source', 'missing-source']) {
+        const before = readFileSync(file, 'utf8'), refused = await run(i, mixed);
+        expect(refused.code, refused.text).toBe(1);
+        expect(refused.text).toContain('source inputs missing or changed between runs');
+        expect(readFileSync(file, 'utf8')).toBe(before);
+      }
+    }
+    expect(pins[0].sourceInputs).toBe(pins[1].sourceInputs);
+    expect(pins[0].inputs).not.toBe(pins[1].inputs);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+}, 15000);
+
+test('proof summaries record both identities from the completed bake', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'proof-summary-provenance-'));
+  const root = resolve(import.meta.dir, '..'), app = provenanceFixture(dir, 'before bake');
+  const target = resolve(app, 'target'), out = resolve(app, 'artifacts/linux');
+  try {
+    mkdirSync(target); mkdirSync(out, {recursive:true});
+    writeFixtureFile(app, 'pins.json', JSON.stringify({ticks:{}, saves:{}}));
+    const before = proofInputs(root, app);
+    // Exercise the real proof/receipt/summary lifecycle with a deterministic baker,
+    // without compiling a game to test which snapshot gets serialized.
+    writeFixtureFile(app, 'proof.mjs', `
+      import {mock} from 'bun:test';
+      import {createHash} from 'node:crypto';
+      import {mkdirSync, writeFileSync} from 'node:fs';
+      import {resolve} from 'node:path';
+      const app = ${JSON.stringify(app)}, target = ${JSON.stringify(target)};
+      const path = ${JSON.stringify(resolve(root, 'scripts/app.mjs'))};
+      const original = await import(path);
+      mock.module(path, () => ({...original,
+        resolveApp:() => ({dir:app, target, crate:kind => 'sample-' + kind}),
+        buildBake:(_app, _host, triple, {profile}) => {
+          const product = resolve(target, triple, profile); mkdirSync(product, {recursive:true});
+          for (const name of ['sample-linux', 'libsample_gpu.so']) writeFileSync(resolve(product, name), 'product');
+          const manifest = {}, bytes = 'after bake';
+          for (const name of ['textures/crate.astc.tex', 'hit.sound']) {
+            writeFileSync(resolve(app, 'assets', name), bytes);
+            manifest[name] = createHash('sha256').update(bytes).digest('hex');
+          }
+          writeFileSync(resolve(app, '.baked-assets.json'), JSON.stringify(manifest));
+        },
+      }));
+      const {proof} = await import(${JSON.stringify(resolve(import.meta.dir, 'proof.mjs'))});
+      await proof(import.meta, async () => {});
+    `);
+    const child = Bun.spawn([process.execPath, resolve(app, 'proof.mjs'), 'linux', '--build-only'], {
+      env:{...process.env, EXACT_GAME_PROOF_PROFILE:'release', EXACT_PROOF_OUT:out}, stdout:'pipe', stderr:'pipe',
+    });
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, stdout + stderr).toBe(0);
+    const after = proofInputs(root, app), summary = JSON.parse(readFileSync(resolve(out, 'summary.json')));
+    expect(after.all).not.toBe(before.all);
+    expect(after.authored).toBe(before.authored);
+    expect(summary.inputs).toBe(after.all);
+    expect(summary.sourceInputs).toBe(after.authored);
+    const receipt = JSON.parse(readFileSync(resolve(app, 'artifacts/build-linux.sha256')));
+    expect(receipt.inputs).toBe(buildInputHash('linux', target, '0', 'release').update(after.all).digest('hex'));
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+}, 15000);

@@ -353,12 +353,20 @@ bun my-game/proof.mjs linux --paranoid
 bun game/prove.mjs ./my-game --repin --reason "describe the intended state change"
 ```
 
-Repinning runs Off, Save and FreshGame, requires matching source inputs and host
+Repinning runs Off, Save and FreshGame, requires matching execution inputs and host
 observations, and includes a Linux release check. It refuses failures or a missing
 requested browser, leaving the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
-Every update records the matching source-input digest; a Git commit is recorded
-when one exists. A game without commits can repin under the same agreement checks.
+Summaries and every pin update record two digests: `inputs` identifies the exact
+execution-input tree, including baked assets and `.baked-assets.json`;
+`sourceInputs` identifies portable authored sources. The latter omits the bake's
+manifest-owned outputs and the manifest itself, and names app and SDK files
+relative to their own roots. Unowned assets remain authored, whatever their names
+or extensions. Machine-specific texture encodings and sound PCM can therefore
+share source provenance while retaining distinct execution identities. Repinning
+still refuses mixed execution trees within one transaction, even when their
+`sourceInputs` agree. A Git commit is recorded in `at` when one exists; a game
+without commits records `at: inputs:<sourceInputs>` under the same agreement checks.
 `CHROME` selects the headless browser.
 
 Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the

@@ -272,8 +272,14 @@ export function pinInputs(rows) {
     throw new Error('repin refused: proof inputs missing or changed between runs; pins.json unchanged');
   return inputs;
 }
+export function pinSourceInputs(rows) {
+  const inputs=rows[0]?.sourceInputs;
+  if(!/^[a-f0-9]{64}$/.test(inputs ?? '') || rows.some(row=>row.sourceInputs!==inputs))
+    throw new Error('repin refused: source inputs missing or changed between runs; pins.json unchanged');
+  return inputs;
+}
 /** Provenance without a commit is valid only for an unborn or non-Git game. */
-export function pinRevision(app, inputs) {
+export function pinRevision(app, sourceInputs) {
   const git = args => spawnSync('git', args, {cwd:app, encoding:'utf8', env:{...process.env, LC_ALL:'C'}});
   const refuse = result => { throw new Error(`repin refused: git provenance failed: ${result.error?.message ?? result.stderr?.trim() ?? result.status}; pins.json unchanged`); };
   const inside = git(['rev-parse', '--is-inside-work-tree']);
@@ -283,7 +289,7 @@ export function pinRevision(app, inputs) {
       if (existsSync(resolve(dir, '.git'))) { repository = true; break; }
       if (dirname(dir) === dir) break;
     }
-    if (!repository && inside.status === 128 && /not a git repository/.test(inside.stderr)) return `inputs:${inputs}`;
+    if (!repository && inside.status === 128 && /not a git repository/.test(inside.stderr)) return `inputs:${sourceInputs}`;
     refuse(inside);
   }
   const revision = git(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']);
@@ -291,7 +297,7 @@ export function pinRevision(app, inputs) {
   const branch = git(['symbolic-ref', '-q', 'HEAD']);
   if (revision.status === 1 && branch.status === 0) {
     const missing = git(['show-ref', '--exists', branch.stdout.trim()]);
-    if (missing.status === 2) return `inputs:${inputs}`;
+    if (missing.status === 2) return `inputs:${sourceInputs}`;
   }
   refuse(revision);
 }
@@ -421,7 +427,9 @@ export function proofInputs(root, app, cachePath) {
   for(const row of rows) {
     const [file,digest,key]=row, input=[file,digest]; groups.all.push(input);
     if (file !== prefix + '.baked-assets.json' && !generated.has(file)) {
-      groups.authored.push(input);
+      // Source provenance survives moving the app relative to the SDK. Keep
+      // execution paths and the in-flight file/directory checks unchanged.
+      groups.authored.push([file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file, digest]);
       authoredState.push([file,key]);
     }
     // Host bake depends on the declaration, not the game's implementation.
@@ -438,6 +446,7 @@ export function proofInputs(root, app, cachePath) {
   // The repository walk excludes other apps at their shared parent, and an
   // external app may be outside root. Always scan this app's whole input tree.
   sourceDirectories(resolve(app));
+  groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
 }
 // One reader per proof. Directory changes require a rerun, even for baked assets.
@@ -630,7 +639,7 @@ export async function proof(meta, script) {
       };
     }});
   };
-  let inputDigest;
+  let inputDigest, sourceInputDigest;
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
@@ -674,6 +683,7 @@ export async function proof(meta, script) {
     }});
     // The proof reports the same post-build input tree that its receipts bind.
     inputDigest = inputs.all;
+    sourceInputDigest = inputs.authored;
     if (!built) say(`BUILD cached ${name} ${destination}`);
     if (!process.argv.includes('--build-only')) {
       await script({open, check, equal, out, host, say, pin, pinSave});
@@ -725,7 +735,7 @@ export async function proof(meta, script) {
     const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
     const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);
