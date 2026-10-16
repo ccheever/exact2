@@ -213,6 +213,12 @@ enum ButtonConfigurationIOS {
         if rows.symbol["font_size"] != nil || rows.symbol["font_weight"] != nil {
             let symbolFont = font(titleFont, rows: rows.symbol)
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: symbolFont)
+        } else if face.title?.isEmpty ?? true {
+            // A symbol alone is sized as UIKit sizes one: from the body style
+            // at the button's text size and its `buttonSize`. Without a title the
+            // label's font is UIKit's fixed 17, which kept a − or + small at the
+            // accessibility sizes (LLP 1116.019 D1).
+            config.preferredSymbolConfigurationForImage = nil
         } else { config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont) }
         config.imagePadding = rows.imageGap ?? systemSpacing(font: titleFont)
         // A symbol's colour is the configuration's, which UIKit greys with the whole button behind a modal

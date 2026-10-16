@@ -62,6 +62,23 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             XCTAssertNotNil(c.preferredSymbolConfigurationForImage, name)
         }
     }
+    /// LLP 1116.019 D1: a symbol with no title is as large as UIKit draws one in a configuration of its own, which
+    /// follows the body text to the accessibility sizes; without a title the label's font is a fixed 17.
+    func testASymbolAloneFollowsTheTextSizeAsUIKitsDoes() throws {
+        for name in ["plain", "gray", "bordered", "filled"] {
+            var face = ButtonFace(); face.symbol = "plus"; face.ios = name
+            var reference = ControlHost.configuration(face).0; reference.image = UIImage(systemName: "plus")
+            let expected = UIButton(configuration: reference), b = UIButton(configuration: ControlHost.configuration(face).0)
+            ButtonConfigurationIOS.apply(face, to: b, traits: b.traitCollection, accent: nil)
+            for button in [expected, b] {
+                button.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+                button.updateTraitsIfNeeded(); button.sizeToFit(); button.layoutIfNeeded()
+            }
+            let size = try XCTUnwrap(b.imageView?.frame.size)
+            XCTAssertEqual(size, expected.imageView?.frame.size, name)
+            XCTAssertGreaterThan(size.height, 40, "\(name): grown with the text, not 17's")
+        }
+    }
     /// LLP 1116.019 D3: unsaid, the ink on an accent fill is UIKit's on every accent, the pale ones too (a
     /// hand-built filled button keeps white on teal and yellow); an authored colour wins.
     func testAFilledButtonKeepsUIKitsInkOnEveryAccent() throws {
