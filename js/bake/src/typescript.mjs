@@ -307,104 +307,6 @@ function bound(ast) {
   walk(ast,false);
   return names;
 }
-// A Snapback mutation's returned failure is still a successful source answer.
-// Refuse the literal at build and name the throw that populates failure(slot).
-function snapbackMutationRefusals(stage, file, ast) {
-  if (relative(stage,file)!=='app.ts' || !ast.body.some(n=>n.type==='ImportDeclaration' && /(?:^|\/)snapback4\//.test(n.source.value))) return [];
-  const app=capturedOrigins(stage).at(-1)[1], contract=resolve(app,'app.contract');
-  if (!existsSync(contract)) return [];
-  const names=new Set([...readFileSync(contract,'utf8').matchAll(/\bsend\s+[\w$]+\s*=\s*([\w$]+)\s*\(/g)].map(m=>m[1]));
-  const roots=[], failed=new Set(), scopes=new WeakMap();
-  const key=n=>n?.type==='Identifier' ? n.name : n?.type==='Literal' ? n.value : null;
-  const lookup=(scope,name)=>{
-    for(;scope;scope=scope.parent) if(scope.bindings.has(name)) return scope.bindings.get(name);
-    return [];
-  };
-  const functionNode=node=>['FunctionDeclaration','ArrowFunctionExpression','FunctionExpression'].includes(node?.type);
-  const scan=(node,scope)=>{
-    if (!node || typeof node!=='object') return;
-    if (Array.isArray(node)) {node.forEach(child=>scan(child,scope));return;}
-    if (node.type==='FunctionDeclaration' && node.id) {
-      scope.bindings.set(node.id.name,[node]);
-      if(names.has(node.id.name)) roots.push(node);
-    }
-    if (node.type==='VariableDeclarator' && node.id.type==='Identifier') {
-      scope.bindings.set(node.id.name,node.init ? [node.init] : []);
-      if(names.has(node.id.name) && functionNode(bare(node.init))) roots.push(node.init);
-    }
-    if (node.type==='AssignmentExpression' && node.operator==='=' && node.left.type==='Identifier') lookup(scope,node.left.name).push(node.right);
-    if (node.type==='Property' && names.has(key(node.key))) roots.push(node.value);
-    if (functionNode(node) || node.type==='BlockStatement') {
-      scope={parent:scope,bindings:new Map()};
-      // Parameters shadow outer values even when their runtime value is unknown.
-      for(const param of node.params ?? []) if(param.type==='Identifier') scope.bindings.set(param.name,[]);
-    }
-    scopes.set(node,scope);
-    for (const child of Object.values(node)) scan(child,scope);
-  };
-  scan(ast,{parent:null,bindings:new Map()});
-  const resolved=(node,seen=new Set())=>{
-    node=bare(node);
-    if(!node || seen.has(node)) return [];
-    seen.add(node);
-    if(node.type==='Identifier') return lookup(scopes.get(node),node.name);
-    if(node.type==='MemberExpression') {
-      const name=node.computed ? key(node.property) : node.property.name;
-      const objects=object=>{
-        object=bare(object);
-        if(object?.type==='ObjectExpression') return object.properties.filter(p=>p.type==='Property' && key(p.key)===name).map(p=>p.value);
-        return resolved(object,seen).flatMap(objects);
-      };
-      return objects(node.object);
-    }
-    return [];
-  };
-  const seenValues=new Set();
-  const falseValue=node=>{
-    node=bare(node);
-    if(!node || seenValues.has(node)) return false;
-    seenValues.add(node);
-    if(node.type==='Literal') return node.value===false;
-    return resolved(node).some(falseValue);
-  };
-  const seenReturned=new Set();
-  const returned=node=>{
-    node=bare(node);
-    if(!node || seenReturned.has(node)) return;
-    seenReturned.add(node);
-    if(['Identifier','MemberExpression'].includes(node.type)) resolved(node).forEach(returned);
-    if(node.type==='ObjectExpression') {
-      const property=node.properties.findLast(p=>p.type==='Property' && key(p.key)==='ok');
-      seenValues.clear();
-      if(property && falseValue(property.value)) failed.add(node);
-      if(!property) node.properties.filter(p=>p.type==='SpreadElement').forEach(p=>returned(p.argument));
-    }
-    if(node.type==='ConditionalExpression') {returned(node.consequent);returned(node.alternate);}
-    if(node.type==='LogicalExpression') {returned(node.left);returned(node.right);}
-    if(node.type==='AwaitExpression') returned(node.argument);
-    if(node.type==='CallExpression' && propertyName(node.callee)==='resolve' && bare(node.callee.object)?.type==='Identifier' && bare(node.callee.object).name==='Promise') returned(node.arguments[0]);
-  };
-  const seen=new Set(), seenCallees=new Set();
-  const callable=node=>{
-    node=bare(node);
-    if(!node || seenCallees.has(node)) return;
-    seenCallees.add(node);
-    if(['Identifier','MemberExpression'].includes(node.type)) resolved(node).forEach(callable); else visit(node);
-  };
-  const visit=node=>{
-    node=bare(node);
-    if (!node || typeof node!=='object' || seen.has(node)) return;
-    seen.add(node);
-    if (Array.isArray(node)) {node.forEach(visit);return;}
-    if(node.type==='ReturnStatement') returned(node.argument);
-    if(node.type==='ArrowFunctionExpression' && node.body.type!=='BlockStatement') returned(node.body);
-    if(node.type==='CallExpression') callable(node.callee);
-    for(const child of Object.values(node)) visit(child);
-  };
-  roots.forEach(callable);
-  return [...failed];
-}
-
 /** The direct uses of the clock, randomness and timers in the captured
  * module `file`, as `path:line:col: why` with its path in the app: `parse`
  * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript.
@@ -428,7 +330,6 @@ export function ambientRefusals(stage, file, code, parse) {
     for (const key in node) if (key!=='parent') walk(node[key]);
   };
   walk(ast);
-  for(const node of snapbackMutationRefusals(stage,file,ast)) found.push(label+':'+at(node.start)+': a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused({code: \'YOUR_CODE\', message: \'Explain the refusal\'}) instead');
   return found;
 }
 
@@ -466,6 +367,18 @@ const configuredLibrary=(file)=>{
     || compilerOptions.lib.some(l=>l.toLowerCase()===name)
     || Boolean(es && Number(es[1])<=year);
 };
+
+/** On Snapback, a successful mutation record says ok:true; refusals throw.
+ * Narrow the captured seam, so TypeScript checks aliases and helpers without
+ * interpreting application code. Ordinary resource records retain boolean ok. */
+export function snapbackMutationTypes(declarations) {
+  const original="export type Result<S extends Source> = SourceMap[S]['result'];";
+  if(!declarations.includes(original)) return declarations;
+  if(!declarations.includes('export type MutationSource =')) throw new Error('Snapback mutation types need regenerated Contract declarations; rebuild the Contract compiler');
+  return declarations.replace(original,
+    "type SnapbackMutationSuccess<R> = R extends {ok: boolean} ? R & {ok: true} : R;\n"+
+    "export type Result<S extends Source> = S extends MutationSource ? SnapbackMutationSuccess<SourceMap[S]['result']> : SourceMap[S]['result'];");
+}
 
 export function configure(stage, incremental=false, parse) {
   const app=capturedOrigins(stage).at(-1)[1], modulePath=resolve(stage,'app.ts');
@@ -534,6 +447,11 @@ export function configure(stage, incremental=false, parse) {
     ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts']};
   const path=resolve(stage,'__exact_tsconfig.json'), bytes=JSON.stringify(config);
   if (!existsSync(path) || readFileSync(path,'utf8')!==bytes) writeFileSync(path,bytes);
+  if(capturedOrigins(stage).slice(0,-1).some(([,from])=>/(?:^|[/\\])snapback4[/\\](?:ts|online)$/.test(from))) {
+    const declaration=resolve(stage,'app.contract.d.ts');
+    const before=readFileSync(declaration,'utf8'), after=snapbackMutationTypes(before);
+    if(before!==after) writeFileSync(declaration,after);
+  }
   stagePackages(stage);
 }
 
@@ -572,7 +490,10 @@ export function check(stage, tsc, libraries) {
     {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024}, (error, stdout, stderr) => {
       if (error) {
         const diagnostics=String(stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
-        return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+String(stderr??'') || String(error.message)));
+        const mutationFailure=/Type '(?:false|boolean)' is not assignable to type 'true'|SnapbackMutationSuccess/.test(diagnostics)
+          && readFileSync(resolve(stage,'app.contract.d.ts'),'utf8').includes('type SnapbackMutationSuccess<');
+        const refusal=mutationFailure ? "\nnote: a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused({code: 'YOUR_CODE', message: 'Explain the refusal'}) instead. Annotate successful helpers with Result<'source'>, or keep ok:true literal with `as const`.\n" : '';
+        return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+refusal+String(stderr??'') || String(error.message)));
       }
       for(const path of stdout.trim().split(/\r?\n/)) {
         if(path && !allowed(realpathSync(path)))return fail(new Error('module outside captured app: '+path));

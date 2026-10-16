@@ -48,31 +48,59 @@ test('production lazy host modules ignore agent storage and entropy parameters',
 }, 30000);
 
 
-test('Snapback mutation failure literals name the refused rewrite, while resource status records remain data', async () => {
-  const {ambientRefusals} = await import('../../js/bake/src/typescript.mjs');
-  const {parseAst} = await import('rolldown/parseAst');
-  const dir = mkdtempSync(resolve(import.meta.dir, '../../target/snapback-refusals-'));
+test('Snapback mutation success types check final answers through helpers and preserve ordinary resource values', async () => {
+  const {configure, check} = await import('../../js/bake/src/typescript.mjs');
+  const root = resolve(import.meta.dir, '../..');
+  const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
+  const dir = mkdtempSync(resolve(root, 'target/snapback-refusals-'));
+  const declarations = `export type MutationSource = "post" | "post-note" | "count";
+export interface SourceMap {
+  post: {args: []; result: {ok: boolean; message: string}};
+  "post-note": {args: []; result: {ok: boolean; message: string}};
+  status: {args: []; result: {ok: boolean; message: string}};
+  count: {args: []; result: number};
+}
+export type Source = keyof SourceMap;
+export type Result<S extends Source> = SourceMap[S]['result'];
+export type Sources = {[S in Source]: () => Result<S> | Promise<Result<S>>};
+export type Answer = <S extends Source>(source: S) => Result<S> | Promise<Result<S>>;
+`;
+  const imports = "import type {Answer, Sources, Result} from './app.contract.d.ts';\n";
+  const source = body => imports + `function refused(why: {code:string;message:string}) {return new Error(why.message);}
+const sources: Sources = {
+  post: () => {${body}},
+  "post-note": () => ({ok:true, message:'Posted'}),
+  status: () => ({ok:false, message:'Loading'}),
+  count: () => 1,
+};
+export const answer: Answer = (name) => sources[name]();
+`;
+  const compile = async (body, snapback = true) => {
+    writeFileSync(resolve(dir, 'app.ts'), source(body));
+    writeFileSync(resolve(dir, '__exact_entry.ts'), "export * from './app.ts';\n");
+    writeFileSync(resolve(dir, 'app.contract.d.ts'), declarations);
+    writeFileSync(resolve(dir, '__exact_paths.json'), JSON.stringify({app:dir, mounts:snapback ? [['adapter',resolve(root,'snapback4/online')]] : []}));
+    configure(dir);
+    return check(dir, resolve(libraries, 'tsc'), libraries);
+  };
   try {
-    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  mutation posted as bool\n  action post\n    send posted = post()\n  view\n    text "Hello"\n');
-    const check = code => ambientRefusals(dir, resolve(dir, 'app.ts'), code, parseAst);
-    const imports = "import { Snapback, refused } from './snapback4/snapback.ts';\n";
-    const source = "function ack() { return {ok:false, message:'No room'}; }\nconst sources = {post: () => ack(), status: () => ({ok:false})};";
-    const why = check(imports + source);
-    expect(why).toHaveLength(1);
-    expect(why[0]).toContain('app.ts:2:25: a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused(');
-    expect(check(imports + source.replace("return {ok:false, message:'No room'}", "throw refused({code:'FULL', message:'No room'})"))).toEqual([]);
-    expect(check(source)).toEqual([]);
-    expect(check(imports + "const sources = {post: () => ({ok:false}), status: () => ({ok:false})};")).toHaveLength(1);
-    expect(check(imports + "const sources = {post: () => {const result = {ok:false}; return result;}};")).toHaveLength(1);
-    expect(check(imports + "const sources = {post: () => Promise.resolve({ok:false})};")).toHaveLength(1);
-    expect(check(imports + "const sources = {post: async () => {const value = {ok:false}; return await Promise.resolve(value);}};")).toHaveLength(1);
-    expect(check(imports + "const helpers = {ack: () => {const result = {ok:false}; return result;}}; const sources = {post: helpers.ack};")).toHaveLength(1);
-    expect(check(imports + "const failure = {value:{ok:false}}; const sources = {post: () => failure.value};")).toHaveLength(1);
-
-    expect(check(imports + "const no = false; function ack() {const result = {ok:no}; const alias = result; return alias;} const submit = ack; const sources = {post: submit};")).toHaveLength(1);
-    expect(check(imports + "function status() {const result = {ok:false}; return result;} const sources = {post: () => {const result = {ok:true}; return result;}, status};")).toEqual([]);
-    expect(check(imports + "const result = {ok:false}; function ack(result) {return result;} const sources = {post: () => ack({ok:true})};")).toEqual([]);
-    expect(check(imports + "function status() {return {ok:false};} const sources = {post: () => ({status:'Posted', ok:true}), status};")).toEqual([]);
-
+    for (const body of [
+      "return {ok:false, message:'No room'};",
+      "const value = {ok:false, message:'No room'}; const alias = value; return alias;",
+      "const value = {ok:false, message:'No room'}; const {ok,message} = value; return {ok,message};",
+      "function identity<T>(value:T) {return value;} return identity({ok:false, message:'No room'});",
+      "return Promise.resolve({ok:false, message:'No room'});",
+      "function helper() {return {ok:false, message:'No room'};} return helper();",
+    ]) {
+      let failure;
+      try {await compile(body);} catch(error) {failure=error;}
+      expect(failure?.message, body).toContain('throw refused(');
+    }
+    await compile("function helper() {return {ok:false, message:'Handled'};} const intermediate = helper(); return {ok:true, message:intermediate.message};");
+    await compile("function helper(): Result<'post'> {return {ok:true, message:'Posted'};} return helper();");
+    await compile("const result = {ok:true as const, message:'Posted'}; return result;");
+    await compile("throw refused({code:'FULL', message:'No room'});");
+    await compile("return {ok:false, message:'Ordinary app result'};", false);
+    expect(readFileSync(resolve(dir,'app.contract.d.ts'),'utf8')).toBe(declarations);
   } finally {rmSync(dir, {recursive: true, force: true});}
-});
+}, 30_000);

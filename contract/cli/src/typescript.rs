@@ -1,7 +1,8 @@
 //! TypeScript's side of the data seam, derived from the plan's signatures.
 //! @ref LLP 1027 D2/D5 — no separately maintained argument or result shapes.
 
-use exact_plan::{Plan, TypeKind, TypesId};
+use exact_plan::{Opcode, Plan, StrId, TypeKind, TypesId};
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
 /// Generate an `app.d.ts` from a compiled Contract's source signatures.
@@ -80,6 +81,24 @@ pub fn typescript_exporting(plan: &Plan, exports: Option<&[String]>) -> Result<S
         }
         out.push_str(";\n");
     }
+    let mutation_sources: BTreeSet<_> = plan
+        .actions
+        .iter()
+        .flat_map(|action| exact_runner::vm::instructions(plan.code(action.body)))
+        .flatten()
+        .filter(|instruction| instruction.op == Opcode::Send)
+        .map(|instruction| quoted(plan.str(StrId(instruction.args[1] as u32))))
+        .collect();
+    writeln!(
+        out,
+        "\n/** Sources called by compiled mutation sends. */\nexport type MutationSource = {};",
+        if mutation_sources.is_empty() {
+            "never".into()
+        } else {
+            mutation_sources.into_iter().collect::<Vec<_>>().join(" | ")
+        }
+    )
+    .unwrap();
     out.push_str("\nexport interface SourceMap {\n");
     for row in &plan.sources {
         let name = plan.str(row.name);

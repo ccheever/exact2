@@ -626,3 +626,29 @@ fn a_data_module_returning_an_unknown_token_fails_tsc() {
     assert!(!output.status.success(), "an unknown token passed tsc");
     assert!(String::from_utf8_lossy(&output.stdout).contains("error TS"));
 }
+
+#[test]
+fn mutation_source_types_follow_compiled_sends_in_imported_and_inlined_actions() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "composer.contract",
+        "component Composer\n  props\n    post: action\n  state taps = 0\n  action activate\n    taps = taps + 1\n    post()\n  view\n    button \"Post\" press=activate\n",
+    );
+    fixture.write(
+        "app.contract",
+        "use Composer from \"./composer.contract\"\ncomponent App\n  resource status = status() as shape bool\n  mutation posted as shape bool\n  mutation changed as shape bool\n  action post\n    send posted = post-note()\n  action change\n    send changed = change-note()\n  view\n    column\n      Composer(post=post)\n      Composer(post=post)\n      button \"Change\" press=change\n",
+    );
+    let plan = contract::compile_path(&fixture.0.join("app.contract")).unwrap();
+    let declarations = contract::typescript(&plan).unwrap();
+    assert!(
+        declarations.contains("export type MutationSource = \"change-note\" | \"post-note\";"),
+        "{declarations}"
+    );
+    let plan = contract::compile(
+        "component App\n  resource ready = status() as shape bool\n  view\n    text \"Ready\"\n",
+    )
+    .unwrap();
+    assert!(contract::typescript(&plan)
+        .unwrap()
+        .contains("export type MutationSource = never;"));
+}
