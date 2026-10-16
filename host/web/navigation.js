@@ -337,7 +337,7 @@ export const navigation = {
   },
   apply(op) {
     visits = new Map((op.visits ?? []).map(([id, url]) => [String(id), url]));
-    pendingRow = pressedRow?.event.eventPhase !== Event.NONE && op.url !== pressedRow.from
+    pendingRow = pressedRow && pressedRow.event.eventPhase !== 0 && op.url !== pressedRow.from
       ? { row: pressedRow.row, list: pressedRow.list, route: pressedRow.route, id: String(op.top), url: op.url } : null;
     pressedRow = null;
     last = op;
