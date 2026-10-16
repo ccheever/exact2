@@ -268,7 +268,7 @@ impl<D: DataSource> Presenter<D> {
         })
     }
     pub(super) fn alert_key(&mut self, name: &str, now: f64) -> bool {
-        let Some(id) = self.alert_root() else {
+        let Some(_) = self.alert_root() else {
             return false;
         };
         let opening = self.alert.as_ref().unwrap().key;
@@ -281,19 +281,19 @@ impl<D: DataSource> Presenter<D> {
         }
         if prevented
             || self.alert.as_ref().is_none_or(|a| a.key != opening)
-            || self
-                .focus
-                .and_then(|id| self.host.kernel().node(id).map(|n| n.key))
-                != focus
+            || name != "Escape"
+                && self
+                    .focus
+                    .and_then(|id| self.host.kernel().node(id).map(|n| n.key))
+                    != focus
         {
             return true;
         }
         match name {
             "Escape" => {
                 if self
-                    .host
-                    .kernel()
-                    .node(id)
+                    .alert_root()
+                    .and_then(|id| self.host.kernel().node(id))
                     .is_some_and(|n| n.props.str(PropId::Closedby) != Some("none"))
                 {
                     self.alert_close(now);

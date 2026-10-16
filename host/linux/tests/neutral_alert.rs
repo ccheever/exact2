@@ -533,6 +533,52 @@ fn coordinate_and_keyboard_modal_input_closerequest() {
     coordinate_and_keyboard_modal_input("closerequest");
 }
 
+#[test]
+fn escape_closes_after_a_handler_moves_focus_unless_prevented() {
+    setup();
+    let source = |prevented: bool| {
+        APP.replace(
+            "  action askClear\n",
+            &format!(
+                "  action escapeFocus(key: string, e: KeyboardEvent)\n    if key == \"Escape\"\n      focus(\"clear-confirm-cancel\")\n{}  action askClear\n",
+                if prevented {
+                    "      preventDefault()\n"
+                } else {
+                    ""
+                }
+            ),
+        )
+        .replace(
+            "button press=unbump destructive=true",
+            "button press=unbump key=escapeFocus destructive=true",
+        )
+    };
+    for prevented in [false, true] {
+        let mut p = boot(&source(prevented), 640.);
+        let trigger = id(&p, "ask-clear");
+        let clear = id(&p, "clear-confirm-clear");
+        let cancel = id(&p, "clear-confirm-cancel");
+        p.tap(trigger).unwrap();
+        p.run_commands(|| ());
+        assert_eq!(p.focus(), Some(clear));
+        let reply = key(&mut p, "Escape");
+        assert!(reply.get("error").is_none(), "{reply}");
+        if prevented {
+            assert_eq!(p.focus(), Some(cancel));
+            assert!(
+                p.rect_of(clear).is_some(),
+                "preventDefault keeps the alert open"
+            );
+        } else {
+            assert_eq!(p.focus(), Some(trigger));
+            assert!(
+                p.rect_of(clear).is_none(),
+                "focus alone does not prevent Escape"
+            );
+        }
+    }
+}
+
 fn coordinate_and_keyboard_modal_input(closedby: &str) {
     setup();
     let source = APP
