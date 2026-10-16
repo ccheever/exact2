@@ -76,7 +76,8 @@ Keep scratch files in `.exact/` (any other new file makes the build stale).
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
 each tap a real touch, which opens UIKit's menus and reaches a native module's own controls: drive
-with it to compare a port's screens with the original's ([recipe](recipes/ios-driving.md)).
+with it to compare a port's screens with the original's ([recipe](recipes/ios-driving.md)); porting
+a React Native app, read [its pitfalls](agent-pitfalls.md#porting-a-react-native-app) first.
 `--timing platform` gives UIKit its own timing, and `ios --release` builds
 what ships (`--prebuild --release` early: its first build is minutes; `EXACT_UPDATE_TRUST=production
 bun exact.mjs agent ios …` drives it).
