@@ -12,7 +12,7 @@
 //! these properties: it tracks each animation's start and pause, and never
 //! samples it per frame.
 
-use super::svg_lower::specs;
+use super::svg_lower::{specs, specs_in};
 use crate::batch::Batch;
 use crate::style::num;
 use exact_kernel::id::{IdMap, IdSet};
@@ -76,6 +76,9 @@ pub(crate) struct SvgState {
     /// Boxes whose lowered animations may have changed, and their last spec.
     boxes: IdSet<ViewId>,
     box_sent: IdMap<ViewId, String>,
+    /// The border box each box's last specs were resolved against: a
+    /// percentage `translate` is resolved in them, so a resize sends them again.
+    box_size: IdMap<ViewId, (f32, f32)>,
     /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
     /// Whether a `foreignObject` was met: its boxes are then looked for
@@ -169,6 +172,7 @@ impl SvgState {
         self.pressable.remove(&id);
         self.sent.remove(&id);
         self.box_sent.remove(&id);
+        self.box_size.remove(&id);
         self.boxes.remove(&id);
         match self.elements.remove(&id) {
             Some(root) => {
@@ -241,6 +245,17 @@ impl SvgState {
                 self.sent.insert(root, (scene, bx));
             }
         }
+        let resized: Vec<ViewId> = self
+            .box_size
+            .iter()
+            .filter(|(id, size)| {
+                kernel
+                    .node(**id)
+                    .is_some_and(|n| (n.frame.width, n.frame.height) != **size)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        self.boxes.extend(resized);
         let mut boxes: Vec<ViewId> = self.boxes.drain().collect();
         boxes.sort_unstable();
         for id in boxes {
@@ -273,7 +288,19 @@ impl SvgState {
             } else {
                 &[Property::Opacity]
             };
-            let specs = specs(engine, key, props, &underlying);
+            let size = (node.frame.width, node.frame.height);
+            let specs = specs_in(
+                engine,
+                key,
+                props,
+                &underlying,
+                Some((size.0 as f64, size.1 as f64)),
+            );
+            if specs == "[]" {
+                self.box_size.remove(&id);
+            } else {
+                self.box_size.insert(id, size);
+            }
             if self.box_sent.get(&id) != Some(&specs) {
                 batch.animations(id, &specs);
                 if specs == "[]" {

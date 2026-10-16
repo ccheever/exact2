@@ -146,6 +146,19 @@ pub(crate) fn specs(
     props: &[Property],
     underlying: &dyn Fn(Property) -> (Value, f64),
 ) -> String {
+    specs_in(engine, key, props, underlying, None)
+}
+
+/// [`specs`] for a box whose border box is `size`: a `translate` given as a
+/// percentage of it is resolved to points here (LLP 1115.003 D4), and the
+/// host sends the box's specs again when it resizes.
+pub(crate) fn specs_in(
+    engine: &Engine,
+    key: u64,
+    props: &[Property],
+    underlying: &dyn Fn(Property) -> (Value, f64),
+    size: Option<(f64, f64)>,
+) -> String {
     let mut s = String::from("[");
     let mut first = true;
     for (i, play) in engine.animation_plays(key).iter().enumerate() {
@@ -180,7 +193,7 @@ pub(crate) fn specs(
                     s.push(',');
                 }
                 first = false;
-                spec(play, i, p, underlying(p), *axis, key, &mut s);
+                spec(play, i, p, underlying(p), *axis, key, size, &mut s);
             }
         }
     }
@@ -188,6 +201,7 @@ pub(crate) fn specs(
     s
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spec(
     play: &AnimationPlay,
     index: usize,
@@ -195,6 +209,7 @@ fn spec(
     (base, scale): (Value, f64),
     axis: usize,
     key: &str,
+    size: Option<(f64, f64)>,
     s: &mut String,
 ) {
     let a = &play.animation;
@@ -228,6 +243,15 @@ fn spec(
             if p.is_color() {
                 let [r, g, b, al] = v.to_rgba8();
                 format!("[{r},{g},{b},{}]", ((al as f64) * scale).round() as u8)
+            } else if p == Property::Translate {
+                // Points plus the percentage of the box along the axis.
+                let (w, h) = size.unwrap_or_default();
+                let v = if axis == 1 {
+                    v.y + v.w / 100.0 * h
+                } else {
+                    v.x + v.z / 100.0 * w
+                };
+                num((v * scale) as f32)
             } else {
                 num(((if axis == 1 { v.y } else { v.x }) * scale) as f32)
             }
@@ -323,8 +347,9 @@ pub(crate) fn eligibility(
             .iter()
             .any(|p| matches!(p, Property::Cx | Property::Cy));
         // A percentage of the box (chess diary #4) is resolved by the
-        // presenter against the box as it stands; a lowered track would
-        // freeze it at one size.
+        // presenter against the box as it stands. A lowered box's track
+        // resolves it when its spec is made and is made again when the box
+        // resizes (`svg.rs`); an SVG element's scene samples it.
         let percent = n.style.translate_percent.x != 0.0
             || n.style.translate_percent.y != 0.0
             || animations.0.iter().any(|a| {
@@ -335,7 +360,7 @@ pub(crate) fn eligibility(
                 })
             });
         let sampled = if paired
-            || percent
+            || (percent && !(boxed && !svg))
             || engine.timeline_bound(*node)
             || under_box_filter(kernel, &n)
             // A glass group ignores the opacity Core Animation plays between
