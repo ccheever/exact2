@@ -70,6 +70,8 @@ mod paint;
 mod paragraph;
 #[path = "presence.rs"]
 mod presence;
+#[path = "tamber.rs"]
+mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;

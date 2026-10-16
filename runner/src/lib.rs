@@ -115,7 +115,7 @@ pub use runner::{
     BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
-pub use runner::{LiveApplied, LiveRefusal};
+pub use runner::{LiveApplied, LiveRefusal, Place, Tamber};
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};

@@ -56,6 +56,21 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The binding core's answer (LLP 1121 D12, stage 5) to the request in
+    /// the input buffer ([`Host::tamber_json`]), UTF-8 in the output buffer.
+    /// Not a batch: nothing changes.
+    pub fn tamber(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        self.output = match self.host.as_mut() {
+            Some(h) => h.tamber_json(&text),
+            None => exact_runner::agent::error("tamber: not booted"),
+        }
+        .into_bytes();
+        self.output.len() as u32
+    }
+
     /// The design digest the running app runs (its plan's, or the live
     /// table's applied since), UTF-8 in the output buffer; empty before
     /// boot. Not a batch: nothing changes.

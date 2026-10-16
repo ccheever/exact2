@@ -636,6 +636,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.design_rows(len), |n| n)
         }
 
+        /// The binding core (LLP 1121 D12): `{"view", "names"}` in the input
+        /// buffer, `{"inputs", "colors"}` UTF-8 in the output buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_tamber(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tamber(len), |n| n)
+        }
+
         /// The design digest the running app runs, UTF-8; empty before boot.
         #[no_mangle]
         pub extern "C" fn exact_design_digest(rt: u32) -> u32 {

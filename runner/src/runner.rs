@@ -32,12 +32,14 @@ mod mode;
 mod root_font;
 mod shown;
 mod sounds;
+mod tamber;
 mod theme;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
     KeyboardEvent, ScrollEvent,
 };
 pub use live::{LiveApplied, LiveRefusal};
+pub use tamber::{Place, Tamber};
 mod canvas2d;
 pub use canvas2d::{
     engine as canvas_engine, CanvasEngine, CanvasList, DrawReply, DrawRequest, Drawn, Geometry,
@@ -368,6 +370,8 @@ pub struct Runner<D: DataSource> {
     design: Option<String>,
     /// A development build, admitting live batches ([`Runner::admit_live`], from its compat).
     live: bool,
+    /// The token names a binding asked of this plan that it lacks, each said once (LLP 1121 D12).
+    missing_tokens: Vec<String>,
     /// Its role overrides, its own (LLP 1121 stage 5; [`Runner::roles`]).
     roles: exact_kernel::style::roles::Installed,
     /// The session the owner's token names (LLP 1094 D4).
@@ -832,6 +836,7 @@ impl<D: DataSource> Runner<D> {
             reorder_kept: Default::default(),
             design: None,
             live: false,
+            missing_tokens: Vec::new(),
             roles: exact_kernel::style::roles::Installed::new(roles.clone()),
             reorder_session: None,
             dropping_from: None,
