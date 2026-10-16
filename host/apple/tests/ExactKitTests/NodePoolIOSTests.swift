@@ -747,16 +747,16 @@ final class NodePoolIOSTests: XCTestCase {
         natives.update(v)
         let view = try XCTUnwrap(FakeModule.made.first?.view)
         let inside = CGPoint(x: 100, y: 50)
-        XCTAssertFalse(natives.declined(v, at: inside), "a plain view takes the touch")
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "a plain view takes the touch")
         view.declines = true
-        XCTAssertTrue(natives.declined(v, at: inside))
-        XCTAssertFalse(natives.declined(v, at: CGPoint(x: 300, y: 50)), "outside the module view")
+        XCTAssertTrue(natives.declined(v, at: inside, with: nil))
+        XCTAssertFalse(natives.declined(v, at: CGPoint(x: 300, y: 50), with: nil), "outside the module view")
         v.handlers = ["press"]
-        XCTAssertFalse(natives.declined(v, at: inside), "the box's own press takes it")
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "the box's own press takes it")
         v.handlers = ["message"]
-        XCTAssertTrue(natives.declined(v, at: inside))
+        XCTAssertTrue(natives.declined(v, at: inside, with: nil))
         view.isUserInteractionEnabled = false
-        XCTAssertFalse(natives.declined(v, at: inside), "a view that takes no touches declines nothing")
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "a view that takes no touches declines nothing")
     }
 
     /// A module view with an element in it, or a list of its own, speaks for
@@ -789,6 +789,8 @@ final class NodePoolIOSTests: XCTestCase {
         let chart = Counted()
         view.addSubview(chart)
         XCTAssertTrue(natives.speaksForItself(v), "a container by count and index")
+        view.accessibilityElements = []
+        XCTAssertFalse(natives.speaksForItself(v), "an empty list hides what is in the view")
     }
 
     /// A drawn chart's virtual elements, by count and index.

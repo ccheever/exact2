@@ -1077,12 +1077,14 @@ async function main(args) {
   if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', tv ? iosTripleFor(app, device, true) : device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
   // The roster the artifact serves (which tags, and which join the first frame) is read from its
   // table: for an iOS build, from a Mac Catalyst executable of the same sources, which compiles their
-  // iOS code and runs here. An xcframework with no Catalyst slice cannot be probed: then, as without
-  // Bun, the roster is the manifest's. A probe that does not compile is named, and fails a production build.
-  const probeable = !ios || (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, true, 'maccatalyst', macArch); return true; } catch { return false; } });
+  // iOS code and runs here, or else (an xcframework with no Catalyst slice) a macOS slice of them. A
+  // probe that does not compile is named; it, or no slice to probe, fails a production build.
+  const sliced = (forIos, variant) => (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, forIos, variant, macArch); return true; } catch { return false; } });
+  const via = !ios ? 'macOS' : sliced(true, 'maccatalyst') ? 'Mac Catalyst' : sliced(false, false) ? 'macOS' : null, probeable = via !== null;
   let probed = modulesBuilt && modules.tags.length && typeof Bun !== 'undefined' && probeable, probeFailure = null, rosterKeys = {};
-  const probe = ios ? resolve(webBuildDir, 'probe-roster') : modulesBuilt, probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && ios && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
-  if (probed && ios) { writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n'); const placed = arm(moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], probe, frameworkStamp(true, 'maccatalyst', macArch), true, true); arms.push(async () => { const placedOk = await placed(); if (placedOk !== true) { probed = false; probeFailure = placedOk; } }); }
+  const probe = !ios ? modulesBuilt : resolve(webBuildDir, via === 'macOS' ? 'probe-' + modulesLoadName : 'probe-roster'), probeMain = resolve(linkRoot, 'ExactRosterProbe.swift'), catalyst = probed && via === 'Mac Catalyst' && resolve(read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim(), 'System/iOSSupport');
+  if (probed && ios && via === 'macOS') { const placed = arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true, true); arms.push(async () => { const placedOk = await placed(); if (placedOk !== true) { probed = false; probeFailure = placedOk; } }); }
+  if (probed && catalyst) { writeFileSync(probeMain, '@main enum ExactRosterProbe { static func main() { print(String(cString: exactNativeAbi().load(fromByteOffset: 8, as: UnsafePointer<CChar>.self))) } }\n'); const placed = arm(moduleArgs('macosx', ['-target', `${macArch}-apple-ios17.0-macabi`, '-Fsystem', `${catalyst}/System/Library/Frameworks`, '-I', `${catalyst}/usr/lib/swift`, '-L', `${catalyst}/usr/lib/swift`, probeMain], probe, true, 'maccatalyst', macArch).filter(a => a !== '-emit-library'), [...moduleSources, probeMain], probe, frameworkStamp(true, 'maccatalyst', macArch), true, true); arms.push(async () => { const placedOk = await placed(); if (placedOk !== true) { probed = false; probeFailure = placedOk; } }); }
   await hostCompile?.done({ repeated: true });
   // The early build stands when it succeeded and the bake came out as it was expected to.
   const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
@@ -1139,14 +1141,18 @@ async function main(args) {
   for (const placed of arms) await placed();
   if (modules.tags.length) {
     let provided = [];
-    if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no Mac Catalyst slice, so the iOS module roster is not probed; the manifest's roster stands`);
+    if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) {
+      const why = `host/apple: an xcframework has neither a Mac Catalyst nor a macOS slice, so the iOS module roster cannot be read`;
+      if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why);
+      console.warn(`${why}; the manifest's roster stands`);
+    }
     if (probeFailure) {
-      const why = `host/apple: the module's Swift does not compile for Mac Catalyst, where an iOS build reads its roster:\n${probeFailure.split('\n').filter(l => / error: /.test(l)).slice(0, 3).join('\n')}`;
+      const why = `host/apple: the module's Swift does not compile for ${via}, where an iOS build reads its roster:\n${probeFailure.split('\n').filter(l => / error: /.test(l)).slice(0, 3).join('\n')}`;
       if (cargoEnv.EXACT_UPDATE_TRUST === 'production') throw new Error(why);
       console.warn(`${why}\nThe manifest's roster stands, and no tag joins the first frame (docs/recipes/native-views.md)`);
     } else if (probed) {
       const { dlopen, read: at, CString } = import.meta.require('bun:ffi');
-      const roster = JSON.parse(ios ? read(probe, []).stdout : new CString(at.ptr(dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString());
+      const roster = JSON.parse(catalyst ? read(probe, []).stdout : new CString(at.ptr(dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi(), 8)).toString());
       provided = Object.keys(roster);
       // LLP 1024 D3's first-frame tags, which the host reads before it loads the module.
       const firstFrame = provided.filter(tag => roster[tag].firstFrame === true);
@@ -1317,7 +1323,7 @@ async function main(args) {
     mkdirSync(resolve(hostBundle, 'Frameworks'), { recursive: true });
     copyFileSync(resolve(binDir, 'ExactHostIOS'), resolve(hostBundle, 'ExactHostIOS'));
     // The sample host takes no development link: it would share the scheme.
-    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: appleReach, icon: assetKeys.NSAccentColorName ? { NSAccentColorName: assetKeys.NSAccentColorName } : {}, distribution: buildInfo(app, { root, production: production || distribution, ...stampSdk }) }));
+    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: appleReach, icon: { ...rosterKeys, ...(assetKeys.NSAccentColorName ? { NSAccentColorName: assetKeys.NSAccentColorName } : {}) }, distribution: buildInfo(app, { root, production: production || distribution, ...stampSdk }) }));
     writeUsageStrings(appleReach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
     if (existsSync(resolve(bundle, 'Assets.car'))) copyFileSync(resolve(bundle, 'Assets.car'), resolve(hostBundle, 'Assets.car'));

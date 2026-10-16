@@ -457,7 +457,7 @@ final class NativeViews {
     /// of the batch that made it, before that batch's commit: the artifact
     /// loads and the module is made then, its hatches called after first
     /// pixel (`activateHatches`).
-    var firstFrameTags = Set(Bundle.main.object(forInfoDictionaryKey: "ExactFirstFrameModules") as? [String] ?? [])
+    var firstFrameTags = Set(ExactEnv.appMetadata["ExactFirstFrameModules"] as? [String] ?? [])
 
     /// Views wait for activation's frame to commit, so a slow view (a map
     /// takes tens of ms) does not delay that frame or pending input.
@@ -1074,11 +1074,11 @@ final class NativeViews {
     /// nil there. A view that takes none (`isUserInteractionEnabled` false)
     /// is not declining, and its box answers, as a UIKit superview would; so
     /// does a box with a handler a touch on it runs (`press`).
-    func declined(_ owner: NodeView, at point: CGPoint) -> Bool {
+    func declined(_ owner: NodeView, at point: CGPoint, with event: UIEvent?) -> Bool {
         guard let entry = entries[owner.id], entry.owner === owner, let view = entry.view, view.superview === owner,
               !view.isHidden, view.alpha > 0.01, view.isUserInteractionEnabled, view.frame.contains(point),
               owner.handlers.isSubset(of: Self.reported) else { return false }
-        return view.hitTest(owner.convert(point, to: view), with: nil) == nil
+        return view.hitTest(owner.convert(point, to: view), with: event) == nil
     }
     /// Whether `owner`'s module view says something to accessibility itself:
     /// it or a view in it is an element, or has elements of its own
@@ -1089,7 +1089,10 @@ final class NativeViews {
         guard let entry = entries[owner.id], entry.owner === owner, let view = entry.view, view.superview === owner else { return false }
         func speaks(_ view: UIView) -> Bool {
             guard !view.isHidden, !view.accessibilityElementsHidden else { return false }
-            if view.isAccessibilityElement || view.accessibilityElements?.isEmpty == false { return true }
+            if view.isAccessibilityElement { return true }
+            // A list the view gives is UIKit's answer, an empty one too: its
+            // subviews are then not what VoiceOver reads.
+            if let elements = view.accessibilityElements { return !elements.isEmpty }
             // A container that answers by count and index (a drawn chart's virtual elements).
             let count = view.accessibilityElementCount()
             if count > 0, count != NSNotFound { return true }
