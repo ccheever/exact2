@@ -962,9 +962,11 @@ describe('mounted initial focus survives late thread-open completion', () => {
     expect(calls).toEqual([['focus', target], ['selection', target, 0, title.length]]);
     component.call('laidOut', state, host, [1, 1]);
     expect(calls).toHaveLength(2);
-    expect(value(guard, { result: { message: 'focus:composer' }, data: { sidebar: { renameId: 'thread-2' } } })).toBe(false);
-    expect(value(guard, { result: { message: 'focus:composer' }, data: { sidebar: { renameId: '' } } })).toBe(true);
-    expect(value(guard, { result: { message: 'focus:other-dialog' }, data: { sidebar: { renameId: 'thread-2' } } })).toBe(true);
+    expect(value(guard, { result: { message: 'focus:composer' }, data: { sidebar: { renameId: 'thread-2' } }, renameAfterOp: '' })).toBe(false);
+    expect(value(guard, { result: { message: 'focus:composer' }, data: { sidebar: { renameId: '' } }, renameAfterOp: '' })).toBe(true);
+    // A double-click's rename held until the open lands (sidebar-rename-after-open.test.ts) owns the focus too.
+    expect(value(guard, { result: { message: 'focus:composer' }, data: { sidebar: { renameId: '' } }, renameAfterOp: 'legacy-rename-start' })).toBe(false);
+    expect(value(guard, { result: { message: 'focus:other-dialog' }, data: { sidebar: { renameId: 'thread-2' } }, renameAfterOp: '' })).toBe(true);
     expect(source).toContain('FieldOpenSelect(target=`rename-${t.id}`, length=t.title.length)');
     expect(source).toContain('input id=`rename-${t.id}`');
   });

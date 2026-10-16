@@ -25,7 +25,7 @@ import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
 import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // The "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
 import { archiveBackground, backgroundThreadPath, backgroundWorktreePlan, envAccess, isBackground, markUnreadBackground, openBackgroundDraft, removeBackground } from './legacy-sidebar-fleet';
-import { openBranchDraft, rowThread } from './legacy-sidebar-links';
+import { openBranchDraft, rowIdNow, rowThread } from './legacy-sidebar-links';
 import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports';
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
@@ -444,6 +444,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
     else if (count && value === 'ArrowDown') session.searchIndex = (session.searchIndex + 1) % count;
     else if (count && value === 'ArrowUp') session.searchIndex = (session.searchIndex - 1 + count) % count;
   } else if (op === 'rename-start') {
+    id = rowIdNow(client, id); // a double-click's rename starts once its first click's open has landed (app.contract)
     const thread = targetOf(client, id)?.row;
     if (thread && session.renameId !== id) { session.renameId = id; session.renameTitle = str(thread.title); }
   } else if (op === 'rename-key') { if (value === 'Escape' && session.renameId === id) { session.renameId = ''; session.renameTitle = ''; } }

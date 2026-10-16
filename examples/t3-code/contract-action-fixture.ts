@@ -3,7 +3,8 @@
 // last write to a slot wins), for tests of a drag's state (not a test file). Main's `analyze-read-after-assign`
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
 // queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`, and a
-// call (an action prop such as ThreadSection's `hoverCard`, an injected action, a host command such as `preventDefault()`),
+// call (an action prop such as ThreadSection's `hoverCard`, an injected action, a host command such as `preventDefault()`,
+// a mutation's `send`, whose command the scope records),
 // made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `if` / `else if` /
 // `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
 // delivers them).
@@ -130,6 +131,8 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
     } else if ((m = /^let (\w+) = (.+)$/.exec(line))) {
       if (m[1]! in env) throw new Error(`a local cannot shadow ${m[1]}`);
       env[m[1]!] = value(m[2]!, env);
+    } else if ((m = /^send \w+ = (.+)$/.exec(line))) {
+      value(m[1]!, env); // a mutation's send: its command, a call the scope records
     } else if ((m = /^(\w+) = (.+)$/.exec(line))) {
       if (!slots.has(m[1]!)) throw new Error(`${m[1]} is not ${owner} state`);
       writes[m[1]!] = value(m[2]!, env);
@@ -141,6 +144,18 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       throw new Error(`unsupported statement: ${line}`);
     }
   }
+}
+
+/** A statement without its trailing `// comment` (a `//` inside a string literal stays). */
+function uncommented(line: string): string {
+  let quote = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; }
+    else if (c === '"' || c === '`') quote = c;
+    else if (c === '/' && line[i + 1] === '/') return line.slice(0, i).trimEnd();
+  }
+  return line;
 }
 
 /** `component name` of `file` (next to this module): its state, its actions and its derives. */
@@ -162,7 +177,7 @@ export function contractComponent(file: string, name: string) {
       if (line.trim() === '' || line.trim().startsWith('//')) continue;
       const indent = line.length - line.trimStart().length;
       if (indent <= 2) break;
-      body.push([indent, line.trim()]);
+      body.push([indent, uncommented(line.trim())]);
     }
     const tree = (at: number, indent: number): [Node[], number] => {
       const nodes: Node[] = [];
