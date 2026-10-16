@@ -539,6 +539,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
+        "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
         // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
         "navigationBar" => AttrTarget::Prop(p("navigationBar")),

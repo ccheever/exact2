@@ -1725,6 +1725,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
   iOS alone sizes a sheet (LLP 1075.003 §9.11).
+- A sheet's grabber is the platform's unless the route says `navigationGrabber`:
+  iOS draws one on a sheet with several detents, which it resizes, and none on a
+  sheet of one height; `"visible"` or `"hidden"` says otherwise (UIKit's
+  `prefersGrabberVisible`). Draw no grabber of your own.
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. `back`, an operation and a test

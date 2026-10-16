@@ -17,7 +17,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     private(set) var pixels: UIView?
     /// What the presentation's navigation is mounted in.
     let mount = PresentationMount()
-    init(host: ModalHost, route: NodeView, fullscreen: Bool, detent: String?) {
+    init(host: ModalHost, route: NodeView, fullscreen: Bool, detent: String?, grabber: String?) {
         self.host = host
         routeID = route.id
         self.route = route
@@ -27,7 +27,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         modalPresentationStyle = .overFullScreen
         #else
         modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
-        if !fullscreen { updateSheet(detent: detent, cornerRadius: ModalController.cornerRadius(of: route)) }
+        if !fullscreen { updateSheet(detent: detent, cornerRadius: ModalController.cornerRadius(of: route), grabber: grabber) }
         #endif
     }
     /// A sheet route's authored `border-radius`, its top-left corner's: the
@@ -37,14 +37,15 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         guard route.wrote("border_radius_top_left") else { return nil }
         return BorderPaint.radii(route.style, in: route.bounds)[0].width
     }
-    private var detentValue: String?, cornerRadius: CGFloat?
-    func updateSheet(detent value: String?, cornerRadius radius: CGFloat?) {
+    private var detentValue: String?, cornerRadius: CGFloat?, grabberValue: String?
+    func updateSheet(detent value: String?, cornerRadius radius: CGFloat?, grabber: String?) {
         #if !os(tvOS)
         guard modalPresentationStyle == .pageSheet,
               let sheet = sheetPresentationController,
-              detentValue != value || cornerRadius != radius || sheet.detents.isEmpty else { return }
+              detentValue != value || cornerRadius != radius || grabberValue != grabber || sheet.detents.isEmpty else { return }
         detentValue = value
         cornerRadius = radius
+        grabberValue = grabber
         let content = { [weak self] () -> CGFloat? in
             guard let route = self?.route else { return nil }
             // A scroller's extent counts its padding, and a container's
@@ -63,7 +64,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             let detents = ModalHost.detents(value, content: content)
             sheet.detents = detents.isEmpty ? [.large()] : detents
             sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
-            sheet.prefersGrabberVisible = detents.count > 1
+            // `navigationGrabber` says; unsaid, a sheet that resizes has
+            // one, as the HIG puts it on a resizable sheet.
+            sheet.prefersGrabberVisible = grabber == "visible" || grabber != "hidden" && detents.count > 1
             sheet.preferredCornerRadius = radius
             // Several: scrolling at the content's top grows the sheet, as
             // UIKit's own sheets do (LLP 1115 wave 1).
@@ -181,7 +184,7 @@ private final class Presentation {
          background: UIViewController) {
         self.route = route
         kind = route.props["navigationPresentation"] ?? "modal"
-        controller = ModalController(host: host, route: route, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"])
+        controller = ModalController(host: host, route: route, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"], grabber: route.props["navigationGrabber"])
         self.navigation = navigation
         self.background = background
         backgroundInteraction = background.view.isUserInteractionEnabled
@@ -371,7 +374,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func updatePermissions() {
         for layer in layers {
             layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
-            layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route))
+            layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route), grabber: layer.route.props["navigationGrabber"])
         }
     }
 
