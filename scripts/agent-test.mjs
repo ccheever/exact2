@@ -273,7 +273,9 @@ export function driveNotes(s, { host, storage }) {
       if (Array.isArray(j?.lines)) replies = j.next;
       for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
-      for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}; it shows its placeholder or last value, and \`failed(${name})\` is true (\`state\` lists it under \`failed\`)`);
+      // Resource failures are normal authored states (failed/failure gates). Keep them in state/logs;
+      // request-shape refusals above and failing assertions below still get actionable notes.
+      if (process.env.EXACT_AGENT_DEBUG) for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}`);
       const pending = (state?.pending ?? []).filter((p) => !p.device).map((p) => p.name);
       if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
     } catch { /* advice only */ }

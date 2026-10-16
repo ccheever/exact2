@@ -232,11 +232,11 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let ct = &types.components[ci];
         let scoped = if ci == 0 { &expanded.root } else { c };
         let scope = types.component_scope(scoped, ct);
-        errors.extend(check_tasks(c).err());
+        errors.extend(check_tasks(c));
         // The root's actions with every call expanded: a caller's sends and
         // writes and its callees' are one commit (LLP 1088 D8, LLP 1089 D3,
         // D5, D6).
-        errors.extend(check_mutation_then(scoped).err());
+        errors.extend(check_mutation_then(scoped));
         errors.extend(sends::check(scoped));
         if ci == 0 {
             errors.extend(calls::check(scoped));
@@ -247,7 +247,7 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
             actions: scoped,
             shapes: &types.shapes,
         };
-        errors.extend(check_view(&c.view, &scope, &view).err());
+        errors.extend(check_view(&c.view, &scope, &view));
     }
     errors.extend(check_controls(&expanded.root.view, false).err());
     errors.extend(arity::check(file, types, &expanded.root).err());
@@ -260,45 +260,47 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
 
 /// `mutation m as shape T then action` names an action that takes nothing:
 /// it reads the answer from `m`, as the view does (LLP 1016.001).
-fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
+fn check_mutation_then(c: &Component) -> Vec<AnalyzeError> {
+    let mut errors = Vec::new();
     for m in &c.mutations {
-        let Some((name, span)) = &m.then else {
-            continue;
-        };
-        let Some(a) = c.actions.iter().find(|a| &a.name == name) else {
-            return err(
-                "analyze-unknown-action",
-                format!("`{name}` is not an action"),
-                *span,
-            );
-        };
-        if !a.params.is_empty() {
-            return err(
-                "analyze-handler-arity",
-                format!(
-                    "`{}` takes {} parameter(s); an answer passes none (read it from `{}`)",
-                    a.name,
-                    a.params.len(),
-                    m.name
-                ),
-                *span,
-            );
-        }
-        if let Some(send) = a
-            .effects()
-            .into_iter()
-            .find(|e| e.send && e.target == m.name)
-        {
-            // Through a call, the call is named (LLP 1089 D5).
-            let through = match send.call {
-                Some((callee, call)) => format!(
-                    " (it calls `{}` at line {}, which sends it)",
-                    contract_syntax::inline::calls::shown(callee),
-                    call.line
-                ),
-                None => String::new(),
+        let result = (|| -> Result<(), AnalyzeError> {
+            let Some((name, span)) = &m.then else {
+                return Ok(());
             };
-            return err(
+            let Some(a) = c.actions.iter().find(|a| &a.name == name) else {
+                return err(
+                    "analyze-unknown-action",
+                    format!("`{name}` is not an action"),
+                    *span,
+                );
+            };
+            if !a.params.is_empty() {
+                return err(
+                    "analyze-handler-arity",
+                    format!(
+                        "`{}` takes {} parameter(s); an answer passes none (read it from `{}`)",
+                        a.name,
+                        a.params.len(),
+                        m.name
+                    ),
+                    *span,
+                );
+            }
+            if let Some(send) = a
+                .effects()
+                .into_iter()
+                .find(|e| e.send && e.target == m.name)
+            {
+                // Through a call, the call is named (LLP 1089 D5).
+                let through = match send.call {
+                    Some((callee, call)) => format!(
+                        " (it calls `{}` at line {}, which sends it)",
+                        contract_syntax::inline::calls::shown(callee),
+                        call.line
+                    ),
+                    None => String::new(),
+                };
+                return err(
                 "analyze-then-self-send",
                 format!(
                     "`{}` cannot send `{}`{through}: it runs when that mutation answers. To repeat while a condition holds, declare a root task: `task NAME when COND`, with `every(ms, action)` on the next indented line",
@@ -306,33 +308,41 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
                 ),
                 send.span,
             );
-        }
+            }
+            Ok(())
+        })();
+        errors.extend(result.err());
     }
-    Ok(())
+    errors
 }
 
-fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
+fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
+    let mut errors = Vec::new();
     for t in &c.tasks {
-        let Some(a) = c.actions.iter().find(|a| a.name == t.timer.1) else {
-            return err(
-                "analyze-unknown-action",
-                format!("`{}` is not an action", t.timer.1),
-                t.timer.2,
-            );
-        };
-        if !a.params.is_empty() {
-            return err(
-                "analyze-handler-arity",
-                format!(
-                    "`{}` takes {} parameter(s); a timer passes none",
-                    a.name,
-                    a.params.len()
-                ),
-                t.timer.2,
-            );
-        }
+        let result = (|| -> Result<(), AnalyzeError> {
+            let Some(a) = c.actions.iter().find(|a| a.name == t.timer.1) else {
+                return err(
+                    "analyze-unknown-action",
+                    format!("`{}` is not an action", t.timer.1),
+                    t.timer.2,
+                );
+            };
+            if !a.params.is_empty() {
+                return err(
+                    "analyze-handler-arity",
+                    format!(
+                        "`{}` takes {} parameter(s); a timer passes none",
+                        a.name,
+                        a.params.len()
+                    ),
+                    t.timer.2,
+                );
+            }
+            Ok(())
+        })();
+        errors.extend(result.err());
     }
-    Ok(())
+    errors
 }
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
@@ -506,9 +516,17 @@ struct View<'a> {
     shapes: &'a Shapes,
 }
 
-fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), AnalyzeError> {
-    let file = view.file;
+fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Vec<AnalyzeError> {
+    let mut errors = Vec::new();
     for n in nodes {
+        check_node(n, scope, view, &mut errors);
+    }
+    errors
+}
+
+fn check_node(n: &Node, scope: &Scope, view: &View<'_>, errors: &mut Vec<AnalyzeError>) {
+    let file = view.file;
+    let result = (|| -> Result<(), AnalyzeError> {
         match n {
             Node::Children { .. } => {}
             Node::Element {
@@ -520,7 +538,7 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 let control = contract_syntax::payload_control(tag, attrs);
                 for a in attrs {
                     if is_handler(&a.name, &a.value) {
-                        check_handler(&a.name, &a.value, scope, a.span, control, view).map_err(
+                        errors.extend(check_handler(&a.name, &a.value, scope, a.span, control, view).map_err(
                             |mut e| {
                                 // A hyphenated tag is a native module's (LLP 1024 D1): an
                                 // event's name there is the box's handler, never a prop.
@@ -529,10 +547,10 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                                 }
                                 e
                             },
-                        )?;
+                        ).err());
                     }
                 }
-                check_view(children, scope, view)?;
+                errors.extend(check_view(children, scope, view));
             }
             Node::Use {
                 name,
@@ -540,7 +558,7 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 children,
                 span,
             } => {
-                check_view(children, scope, view)?;
+                errors.extend(check_view(children, scope, view));
                 if !file.components.iter().any(|x| &x.name == name) {
                     return err(
                         "analyze-unknown-component",
@@ -562,8 +580,8 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
             Node::When {
                 then, otherwise, ..
             } => {
-                check_view(then, scope, view)?;
-                check_view(otherwise, scope, view)?;
+                errors.extend(check_view(then, scope, view));
+                errors.extend(check_view(otherwise, scope, view));
             }
             Node::Each {
                 var,
@@ -579,19 +597,20 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
-                check_view(body, &inner, view)?;
+                errors.extend(check_view(body, &inner, view));
             }
             Node::Match { some, none, .. } => {
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), Ty::Unknown)));
-                check_view(&some.1, &inner, view)?;
+                errors.extend(check_view(&some.1, &inner, view));
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                check_view(none, &none_scope, view)?;
+                errors.extend(check_view(none, &none_scope, view));
             }
         }
-    }
-    Ok(())
+        Ok(())
+    })();
+    errors.extend(result.err());
 }
 
 fn check_handler(

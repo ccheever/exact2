@@ -478,3 +478,26 @@ export function check(stage, tsc, libraries) {
       done();
     }));
 }
+
+/** Contract build's early ambient check: walk reachable modules without executing application code. */
+export async function ambientDiagnostics(app) {
+  const {rolldown}=await import('rolldown');
+  const found=[];
+  let mounts={};
+  try { mounts=JSON.parse(readFileSync(resolve(app,'app.json'),'utf8')).typescript?.sources ?? {}; } catch { /* plain Contract directory */ }
+  const bundle=await rolldown({input:resolve(app,'app.ts'), logLevel:'silent', external:source=>!!packageName(source),
+    plugins:[{name:'contract-ambient', resolveId(source,importer) {
+      if (!importer || !source.startsWith('.')) return null;
+      const path=resolve(dirname(importer),source), child=relative(app,path).split(sep);
+      return mounts[child[0]] ? resolve(app,mounts[child[0]],...child.slice(1)) : null;
+    }, transform(code,id) { found.push(...ambientRefusals(app,id,code,(c,o)=>this.parse(c,o))); return null; }}]});
+  try { await bundle.generate({format:'esm'}); } finally { await bundle.close(); }
+  return found.map(line=>{
+    const [,file,row,col,message]=/^(.*?):(\d+):(\d+): ([\s\S]*)$/.exec(line);
+    return {file:resolve(app,file),line:Number(row),col:Number(col),message};
+  });
+}
+if (process.argv[2]==='--ambient' && process.argv[1]?.endsWith('/typescript.mjs')) {
+  try { console.log(JSON.stringify(await ambientDiagnostics(resolve(process.argv[3])))); }
+  catch(error) { console.error(error.message); process.exitCode=1; }
+}

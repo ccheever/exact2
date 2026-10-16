@@ -301,3 +301,7 @@ The others are named for their topic (`timers`, `money`…).
 text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
 data, test. A lookup is for a name the card lacks (`contract vocab <name> …`) or a compile error;
 `docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.
+
+Consecutive `match` blocks in an action all run in order. Nest a match in the
+selected arm, or use `if`/`else`, for exclusive paths. Action reads still see
+the state from the action’s start.

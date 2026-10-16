@@ -98,7 +98,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     // older than the game's Rust they are warnings, never hiding the
     // compile's own refusals (the platformer's diary, R4).
     let surfaces = contract::surface_findings(Path::new(input));
-    let refused = match &surfaces {
+    let mut refused = match &surfaces {
         Ok(s) if s.newer.is_none() => s.findings.clone(),
         Ok(_) => Vec::new(),
         // An unreadable declaration; the compile reports unreadable sources.
@@ -108,6 +108,7 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .cloned()
             .collect(),
     };
+    refused.extend(crate::ambient::check(Path::new(input)));
     if let Ok(warnings) = contract::resource_clock_warnings(Path::new(input)) {
         for finding in warnings {
             eprintln!("warning: {finding}");

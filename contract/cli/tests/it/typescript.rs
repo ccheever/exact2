@@ -446,3 +446,51 @@ function mutation() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn build_reports_all_reachable_ambient_apis_before_bake() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write(
+        "app.ts",
+        "import './helper.ts';\nexport const answer = () => Date.now();\n",
+    );
+    fixture.write("helper.ts", "export const value = Math.random();\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", "app.contract", "--json"])
+        .current_dir(&fixture.0)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let found: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(found.iter().all(|d| d["id"] == "analyze-ambient-api"));
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("Date.now()"), "{text}");
+    assert!(text.contains("Math.random()"), "{text}");
+}
+
+#[test]
+fn unknown_handlers_continue_through_siblings_children_and_timer_targets() {
+    let source="component App\n  action save\n    let done = true\n  task first mount\n    every(1000, saev)\n  task second mount\n    every(2000, svae)\n  view\n    column\n      button \"Save\" press=saev\n      column\n        button \"Save again\" press=svae\n";
+    let timers = source
+        .replace("press=saev", "press=save")
+        .replace("press=svae", "press=save");
+    let errors = contract::compile_path_source_all(Path::new("app.contract"), &timers, false)
+        .err()
+        .expect("unknown actions refuse");
+    let unknown: Vec<_> = errors
+        .iter()
+        .filter(|e| e.id == "analyze-unknown-action")
+        .collect();
+    assert_eq!(unknown.len(), 2, "{errors:?}");
+    assert!(
+        unknown.iter().all(
+            |e| e.message.contains("save") || e.related.iter().any(|r| r.note.contains("save"))
+        ),
+        "{unknown:?}"
+    );
+}

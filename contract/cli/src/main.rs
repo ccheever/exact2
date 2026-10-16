@@ -10,6 +10,7 @@
 
 use std::process::ExitCode;
 
+mod ambient;
 mod build;
 mod diff;
 mod tamber;
