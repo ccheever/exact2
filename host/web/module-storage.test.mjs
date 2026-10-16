@@ -73,44 +73,89 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
   }
 });
 
-// The worker placement (module-worker.js), on a Bun Worker: the same
-// sequence. An answer waiting there held the worker's turn on an operation
-// only the other answer's turn could deliver, and both waited forever; and
-// an operation issued in another answer's turn was charged to that answer.
-test('a worker-placed answer queued behind another answer\'s storage parks and answers', async () => {
+// The worker placement (module-worker.js), on a Bun Worker, over `script`
+// (an app module whose answers read files that land at once); `done` ends
+// it whatever happened.
+async function workerRealm(script) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-worker-storage-'));
-  for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
-  writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
+  const realFetch = globalThis.fetch;
+  let realm;
+  const done = () => {
+    realm?.dispose();
+    globalThis.fetch = realFetch;
+    delete globalThis.exact; delete globalThis.location;
+    rmSync(dir, { recursive: true, force: true });
+  };
+  try {
+    for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentSeed = () => null;
 export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;`);
-  writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({ readFile: async path => new TextEncoder().encode(path), dispose() {} });`);
-  const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
-  const script = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
+    writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({ readFile: async path => new TextEncoder().encode(path), dispose() {} });`);
+    const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
+    const bytes = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
   const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
-  if (source === 'feed') { const file = read('app:/data/feed'); return fetch('https://api.castle.test/feed').then(r => r.text()).then(async text => text + ' ' + await file); }
-  return read('app:/data/device');
+  ${script}
 } };`);
-  const sha = new Bun.CryptoHasher('sha256').update(script).digest('hex');
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; };
-  globalThis.location = { href: 'http://127.0.0.1/', origin: 'http://127.0.0.1' };
-  globalThis.exact = {};
-  const { createGrantSet } = await import(resolve(dir, 'grant-admission.js'));
-  const glue = await import(resolve(dir, 'module-glue.js'));
-  const grants = 'net.fetch https://api.castle.test';
-  const receipt = new TextEncoder().encode(JSON.stringify({ version: 1, abi: 1, appId: 'test.storage', grants, web: { file: 'app.js', bytes: script.length, sha256: sha }, module: { sha256: 'b'.repeat(64) } }));
-  const realm = await glue.prepare({ receipt, script }, { appId: 'test.storage', grants, grantSet: createGrantSet(GRANTS), placement: 'worker' });
-  globalThis.fetch = realFetch;
-  const ask = (source, extra = {}) => glue.run(glue.call({ op: 'answer', id: realm.id, target: source, source, args: [], store: [], grants: [], ...extra }).continuation);
-  const fetched = await ask('feed');
-  expect(fetched.tag).toBe(1);
-  const device = ask('device');
-  await new Promise(r => setTimeout(r, 50));
-  const resumed = glue.run(glue.call({ op: 'resume', id: realm.id, target: 'feed', source: 'feed', args: [], store: [], grants: [], outcome: { response: { status: 200, headers: [], body: 'fresh' } } }).continuation);
-  const race = p => Promise.race([p, new Promise(r => setTimeout(() => r('STILL WAITING'), 1500))]);
-  expect((await race(resumed)).value).toBe('fresh app:/data/feed');
-  expect((await race(device)).value).toBe('app:/data/device');
-  realm.dispose();
-  delete globalThis.exact; delete globalThis.location;
-  rmSync(dir, { recursive: true, force: true });
+    const sha = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+    globalThis.fetch = async url => { const r = new Response(String(url).endsWith('module-prelude.js') ? prelude : 'never'); Object.defineProperty(r, 'url', { value: 'http://127.0.0.1/x' }); return r; };
+    globalThis.location = { href: 'http://127.0.0.1/', origin: 'http://127.0.0.1' };
+    globalThis.exact = {};
+    const { createGrantSet } = await import(resolve(dir, 'grant-admission.js'));
+    const glue = await import(resolve(dir, 'module-glue.js'));
+    const grants = 'net.fetch https://api.castle.test';
+    const receipt = new TextEncoder().encode(JSON.stringify({ version: 1, abi: 1, appId: 'test.storage', grants, web: { file: 'app.js', bytes: bytes.length, sha256: sha }, module: { sha256: 'b'.repeat(64) } }));
+    realm = await glue.prepare({ receipt, script: bytes }, { appId: 'test.storage', grants, grantSet: createGrantSet(GRANTS), placement: 'worker' });
+    globalThis.fetch = realFetch;
+    const request = (op, source, extra = {}) => ({ op, id: realm.id, target: source, source, args: [], store: [], grants: [], ...extra });
+    return {
+      done,
+      ask: source => glue.run(glue.call(request('answer', source)).continuation),
+      resume: source => glue.run(glue.call(request('resume', source, { outcome: { response: { status: 200, headers: [], body: 'fresh' } } })).continuation),
+      forget: inFlight => glue.call({ op: 'forget', id: realm.id, inFlight: inFlight.map(s => request('answer', s)) }),
+    };
+  } catch (error) { done(); throw error; }
+}
+const race = p => Promise.race([p.then(v => v, e => `rejected: ${e.message}`), new Promise(r => setTimeout(() => r('STILL WAITING'), 1500))]);
+
+// The sequence above, on the worker. An answer waiting there held the
+// worker's turn on an operation only the other answer's turn could deliver,
+// and both waited forever; and an operation issued in another answer's turn
+// was charged to that answer.
+test('a worker-placed answer queued behind another answer\'s storage parks and answers', async () => {
+  const w = await workerRealm(`if (source === 'feed') { const file = read('app:/data/feed'); return fetch('https://api.castle.test/feed').then(r => r.text()).then(async text => text + ' ' + await file); }
+  return read('app:/data/' + source);`);
+  try {
+    expect((await w.ask('feed')).tag).toBe(1);
+    const device = w.ask('device');
+    await Bun.sleep(50);
+    expect((await race(w.resume('feed'))).value).toBe('fresh app:/data/feed');
+    expect((await race(device)).value).toBe('app:/data/device');
+  } finally { w.done(); }
+}, 20000);
+
+// The runner lets go of a parked answer: its turn is refused, and storage
+// goes on for the rest; and a let-go chain a parked answer's delivery made
+// the head is finished, so the answers after it are not stuck behind it.
+test('a worker-placed parked answer the runner lets go is dropped, and a let-go chain finishes', async () => {
+  const w = await workerRealm(`if (source === 'feed') { const file = read('app:/data/feed').then(() => read('app:/data/feed2')); return fetch('https://api.castle.test/feed').then(r => r.text()).then(async text => text + ' ' + await file); }
+  return read('app:/data/' + source);`);
+  try {
+    // A parked answer let go: refused; the feed resumed answers, and one after.
+    expect((await w.ask('feed')).tag).toBe(1);
+    const device = w.ask('device');
+    await Bun.sleep(50);
+    w.forget(['feed']);
+    expect(String(await race(device))).toContain('rejected');
+    expect((await race(w.resume('feed'))).value).toBe('fresh app:/data/feed2');
+    expect((await race(w.ask('after'))).value).toBe('app:/data/after');
+    // The feed let go between its reads, with an answer parked behind them:
+    // its chain is finished, and the parked answer answers.
+    expect((await w.ask('feed')).tag).toBe(1);
+    const parked = w.ask('parked');
+    await Bun.sleep(50);
+    w.forget(['parked']);
+    expect((await race(parked)).value).toBe('app:/data/parked');
+    expect((await race(w.ask('last'))).value).toBe('app:/data/last');
+  } finally { w.done(); }
 }, 20000);

@@ -125,18 +125,26 @@ async function forget(inFlight) {
     if (JSON.parse(parkedKey)[0] === null || staying.has(parkedKey)) continue;
     pending.delete(parkedKey); release(parked.owner, parked.call);
   }
-  if (!owed.size) return;
-  await finishLetGo(storage, owed, {
-    letGo: () => self.__exact_let_go('', ''),
-    disposed: () => false,
-    deliver: async owner => {
-      const prev = context;
-      context = scratch(owner);
-      try { await storage.deliver(owner); deliveries++; await checkpoint(); }
-      finally { context = prev; }
-    },
+  // An answer parked behind another's storage is let go too, its turn
+  // refused, as the page realm does.
+  parked = parked.filter(p => {
+    if ((p.request.target ?? null) === null || staying.has(key(p.request))) return true;
+    release(p.context.owner, p.answer.call);
+    p.done.reject(new Error('the runner let this answer go'));
+    return false;
   });
+  if (owed.size) await finishLetGo(storage, owed, letGoHooks);
 }
+const letGoHooks = {
+  letGo: () => self.__exact_let_go('', ''),
+  disposed: () => false,
+  deliver: async owner => {
+    const prev = context;
+    context = scratch(owner);
+    try { await storage.deliver(owner); deliveries++; await checkpoint(); }
+    finally { context = prev; }
+  },
+};
 
 // An answer whose storage operation is queued behind another answer's waits
 // with the module (prelude.js `settle`'s `waiting`): it parks and lets the
@@ -167,13 +175,15 @@ async function proceed(answer, request, done) {
 async function resettle() {
   for (;;) {
     const before = deliveries;
+    // A let-go chain a delivery made the head, finished first.
+    if (owed.size) await finishLetGo(storage, owed, letGoHooks);
     const waiting = parked; parked = [];
     for (const p of waiting) {
       context = p.context;
       try { await proceed(JSON.parse(self.__exact_settle(String(p.answer.call))), p.request, p.done); }
       catch (error) { storage.retire(context?.owner); context = null; p.done.reject(error); }
     }
-    if (deliveries === before || !parked.length) break;
+    if (deliveries === before || !(parked.length || owed.size)) break;
   }
 }
 const deferred = () => { const d = {}; d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject; }); return d; };
@@ -203,7 +213,7 @@ self.onmessage = ({ data }) => {
     return;
   }
   // After the turns before it, so a call they park is dropped too.
-  if (data.op === 'forget') { tail = tail.then(() => forget(data.inFlight)).then(() => { if (parked.length) return resettle(); }).catch(() => {}); return; }
+  if (data.op === 'forget') { tail = tail.then(() => forget(data.inFlight)).then(() => { if (parked.length || owed.size) return resettle(); }).catch(() => {}); return; }
   if (data.op !== 'turn') return;
   const done = deferred();
   const run = tail.then(async () => {
@@ -212,7 +222,7 @@ self.onmessage = ({ data }) => {
     catch (error) { storage?.retire(context?.owner); context = null; done.reject(error); }
     // Its delivery may have put a parked answer's operation in flight:
     // asked again in a turn of its own, after this one.
-    if (deliveries !== before && parked.length) { const again = tail.then(resettle); tail = again.catch(() => {}); }
+    if (deliveries !== before && (parked.length || owed.size)) { const again = tail.then(resettle); tail = again.catch(() => {}); }
   });
   tail = run.catch(() => {});
   done.promise.then(result => postMessage({ token: data.token, result }), error => postMessage({ token: data.token, error: String(error?.message ?? error) }));
