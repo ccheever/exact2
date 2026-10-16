@@ -39,7 +39,7 @@ async fn journal(io: &Io, entry: &Json, outcome: &Json) -> Result<()> {
 }
 
 /// Why a round stopped short.
-enum Stop {
+pub(crate) enum Stop {
     /// The server was not reached, or answered as an outage.
     Offline(Refusal),
     /// The server asked to be asked again (a retryable refusal): nothing is
@@ -154,7 +154,7 @@ fn refusal_shape(why: &Json) -> bool {
 /// (`readResponse`): a body that is not a JSON object, a refusal that is not
 /// one, or an error status without a refusal is `E_HTTP_RESPONSE`,
 /// retryable: the outcome is unknown, never a refusal to settle.
-fn read(reply: Reply) -> Result<(u16, Json, Option<Refusal>)> {
+pub(crate) fn read(reply: Reply) -> Result<(u16, Json, Option<Refusal>)> {
     let (status, body) = match reply {
         Reply::Failed(error) => {
             return Err(Stop::Offline(json!({"code": "E_OFFLINE", "family": "link",
@@ -186,7 +186,7 @@ fn read(reply: Reply) -> Result<(u16, Json, Option<Refusal>)> {
 }
 
 /// Stop on a server refusal: retryable ones ask again next round.
-fn refused(why: Refusal) -> Stop {
+pub(crate) fn refused(why: Refusal) -> Stop {
     if why["retryable"] == true {
         Stop::Retry(why)
     } else {
@@ -496,6 +496,9 @@ async fn persist(io: &Io, shared: &Mutex<Shared>, id: &str) -> Result<()> {
         // What it carried, so a key reused with other input is refused for as
         // long as the device keeps this receipt.
         if let Some(entry) = &entry {
+            if let Some(upload) = entry.get("upload") {
+                kept["upload_identity"] = json!({"fingerprint":upload["fingerprint"], "store_id":upload["store_id"], "op":entry["op"], "viewer":entry["viewer"]});
+            }
             kept["input"] = json!(crate::client::input_key(
                 entry["op"].as_str().unwrap_or_default(),
                 &entry["args"]
@@ -574,6 +577,7 @@ pub(crate) fn history_receipt(history: &Json, id: &str) -> Option<Json> {
     if let Some(fields) = receipt.as_object_mut() {
         fields.remove("input");
         fields.remove("store_id");
+        fields.remove("upload_identity");
     }
     Some(receipt)
 }
@@ -662,6 +666,7 @@ async fn flush(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
             // No store identity yet: the next sync supplies it.
             break;
         };
+        let entry = crate::uploads::prepare(io, &entry).await?;
         io.device(json!({"op": "begin_send", "id": id}))
             .await
             .map_err(denied)?;

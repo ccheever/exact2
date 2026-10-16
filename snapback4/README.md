@@ -1073,6 +1073,29 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 
 ### Photos and video: upload and download
 
+Device-backed apps can keep a picked file and its placing mutation in one durable
+outbox entry, after identifying the backend once online:
+
+```ts
+const intent = await db.uploadAndPlace(api.addPhoto, {}, path, now,
+  {argument: 'photo', id: draftId}); // id is an optional stable intent key
+// Admission has copied bytes into the device. The picked path may now disappear.
+await db.sync();                    // uploads, commits the asset facts, then places
+const fate = await db.outcome(intent.id);
+```
+
+Grant `fs.read` for the picked path and pass the dispatcher's `storage`. Exact
+currently admits nonempty durable files up to **4 MiB**, so their hex custody
+record fits its 16 MiB storage/call boundary. Larger files may use online
+`upload`; Snapback's device quota remains authoritative. Reopening the same
+partition resumes queued bytes without the picked path. Lost upload or placement
+responses retry the same server intent and mutation id. `uploads()` lists kept
+states; a nonretryable refusal stays blocked with its bytes, and
+`retryUpload(id)` requeues it for the next sync. A retained terminal receipt
+prevents different bytes or arguments reusing the same key. Keep the same viewer
+and backend store; switching either cannot send the old intent elsewhere.
+
+
 A Snapback `image <=N` or `video <=N` column holds an asset: the bytes are
 uploaded first, and the mutation takes `{ id }`. `db.upload` and
 `db.download` are the two routes (`POST /assets`, `GET /assets/<id>`), sent
@@ -1100,7 +1123,7 @@ if (got.ok) shown = got.path; else why = got.why.code; // E_ASSET_UNKNOWN: missi
   declared content type. Place `{ id: asset.id }` in a `file` column.
   `download` returns the attachment `name` and uses it in the default cache
   filename; pass that name to `saveFile` when exporting it.
-- Both are online only and never retried here (a data module has no
+- `upload` and `download` are online only and never retried here (a data module has no
   timers): offline is `E_OFFLINE` with nothing kept, so keep the picked
   path and ask again. A write naming an uploaded `{ id }` made offline
   queues unpredicted, and the server judges it.
@@ -1180,8 +1203,7 @@ snapback4/ts`, and clippy for `exact-snapback4-web` with `--target
 wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
-yet: kept media (LLP 1108: upload facts on the device, so an offline write
-naming an upload predicts; a retained, purged cache; `once` assets shown
+yet: retained media caching (LLP 1108: a retained, purged cache and `once` assets shown
 from memory), native jobs on the device, Following
 feeds, ephemeral reads and writes (a write that touches an ephemeral table
 is refused at once with `E_CLIENT_UNSUPPORTED`, never queued), search state, the online fallback fenced by

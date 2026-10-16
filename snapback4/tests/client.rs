@@ -1108,3 +1108,33 @@ fn identity_is_available_without_storage_or_partition() {
         identity["ok"]
     );
 }
+
+#[test]
+fn upload_transport_passes_raw_bytes_and_device_headers_to_the_native_host() {
+    let fetch = exact_snapback4_client::Fetch {
+        method: "POST",
+        path: "/assets?intent=a&store_id=b".into(),
+        body: None,
+        bytes: Some(vec![0, 128, 255]),
+        headers: [
+            ("content-type".into(), "image/png".into()),
+            ("x-snapback-device".into(), "device-owned".into()),
+        ]
+        .into(),
+        exchange: "1.1".into(),
+    };
+    let request = exact_snapback4::host_request(
+        &fetch,
+        "http://localhost:4400/",
+        &[("authorization".into(), "Bearer member".into())],
+    );
+    assert_eq!(request.body, [0, 128, 255]);
+    assert_eq!(request.method, "POST");
+    assert!(request
+        .headers
+        .contains(&("content-type".into(), "image/png".into())));
+    assert!(request
+        .headers
+        .contains(&("authorization".into(), "Bearer member".into())));
+    assert_eq!(fetch.to_json()["bodyBytes"], "0080ff");
+}

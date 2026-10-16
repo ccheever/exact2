@@ -104,6 +104,17 @@ pub fn dispatch(
             let key = request.get("key").and_then(Json::as_str);
             client.write(core, text(request, "name")?, args(), now(true)?, key)?
         }
+        "upload_and_place" => client.upload_and_place(
+            core,
+            text(request, "name")?,
+            args(),
+            now(true)?,
+            text(request, "key")?,
+            request
+                .get("upload")
+                .cloned()
+                .ok_or("upload dependency required")?,
+        )?,
         "write_id" => json!(client.write_id(core, text(request, "key")?)?),
         "persist" => client.persist(core),
         "outcome" => client.outcome(core, text(request, "id")?)?,
