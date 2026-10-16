@@ -326,9 +326,9 @@ impl<D: DataSource> Host<D> {
         host.discover_transform_handles();
         for id in host.preorder() {
             if let Some(node) = host.runner.kernel().node(id) {
-                let key = node.key;
-                host.keys.insert(key, id);
-                host.runner.kernel().motion_sync_node(key, &mut sync);
+                host.keys.insert(node.key, id);
+                host.values.field(&node);
+                host.runner.kernel().motion_sync_node(node.key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
@@ -1263,6 +1263,7 @@ impl<D: DataSource> Host<D> {
             let r = &t.receipt;
             self.flow_damage.commit(self.runner.kernel(), r);
             self.row_dirty.commit(r);
+            self.values.fields_committed(self.runner.kernel(), r);
             paint |= r.layout_invalidated
                 || !r.created.is_empty()
                 || !r.destroyed.is_empty()

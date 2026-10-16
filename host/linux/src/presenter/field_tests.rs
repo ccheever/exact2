@@ -494,12 +494,478 @@ fn beforeinput_cancels_paste_and_selectionchange_hears_a_caret_move() {
     let editor = id(&p, "editor");
     p.press_field(editor);
     p.field_key(editor, "ArrowLeft", 0.);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "result"), "abc:2:");
     p.paste_field(editor, "PASTE", 0.);
     assert_eq!(p.field_text(editor), "abc");
     assert_eq!(text(&p, "result"), "abc:2:insertFromPaste");
     p.field_key(editor, "x", 0.);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "result"), "abxc:3:insertText");
     p.field_key(editor, "Backspace", 0.);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "result"), "abc:2:deleteContentBackward");
+}
+
+#[test]
+fn agent_typing_selects_all_then_delivers_a_cancelable_insert_text() {
+    let source = r#"component App
+  state body = "old"
+  state events = ""
+  state edits = 0
+  state changes = 0
+  state picked = ""
+  state moved = ""
+  action before(e: InputEvent)
+    events = `${events}before:${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}:${e.cancelable}:${e.value}:${e.selectionStart}-${e.selectionEnd}|`
+    if e.data == some("cancel")
+      preventDefault()
+  action edited(v: string, e: InputEvent)
+    body = v
+    edits = edits + 1
+    events = `${events}input:${e.inputType}:${e.cancelable}:${e.selectionStart}-${e.selectionEnd}|`
+  action changed(v: string)
+    changes = changes + 1
+  action selected(e: InputEvent)
+    picked = `${e.value}:${e.selectionStart}-${e.selectionEnd}:${edits}`
+  action moving(e: InputEvent)
+    moved = `${e.selectionStart}-${e.selectionEnd}`
+  view
+    column
+      textarea testId="editor" value=body beforeinput=before input=edited change=changed select=selected selectionchange=moving
+      button "Blur" testId="blur"
+      text events testId="events"
+      text `${body}|${edits}|${changes}|${picked}|${moved}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "old|0|0||3-3");
+    let editor = id(&p, "editor");
+    let reply = crate::agent::handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{editor},"text":"key ArrowLeft"}}"#),
+    );
+    assert!(!reply.contains("\"error\""), "{reply}");
+    assert_eq!(p.focus(), Some(editor));
+    assert_eq!(
+        text(&p, "events"),
+        "before:insertText:key ArrowLeft:true:old:0-3|input:insertText:false:13-13|"
+    );
+    assert_eq!(
+        text(&p, "result"),
+        "key ArrowLeft|1|0|key ArrowLeft:13-13:1|13-13"
+    );
+    p.tap(id(&p, "blur")).unwrap();
+    assert_eq!(p.edited, None);
+    p.type_text(editor, "cancel").unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(p.field_text(editor), "key ArrowLeft");
+    assert_eq!(p.edited, None, "a cancelled edit has no pending change");
+    assert_eq!(
+        text(&p, "events"),
+        "before:insertText:key ArrowLeft:true:old:0-3|input:insertText:false:13-13|before:insertText:cancel:true:key ArrowLeft:0-13|"
+    );
+    assert_eq!(
+        text(&p, "result"),
+        "key ArrowLeft|1|1|key ArrowLeft:0-13:1|0-13"
+    );
+    p.tap(id(&p, "blur")).unwrap();
+    assert_eq!(p.host.runner().slot("changes"), Some(&Value::Number(1.)));
+}
+
+#[test]
+fn queued_selection_events_follow_the_edits_focus_command() {
+    let source = r#"component App
+  state body = "old"
+  state focused = false
+  state picked = ""
+  state moved = ""
+  action before(e: InputEvent)
+    if e.data == some("cancel")
+      focus("other")
+      preventDefault()
+  action edited(v: string)
+    body = v
+    focus("other")
+  action otherFocused
+    focused = true
+  action selected(e: InputEvent)
+    picked = `${focused}:${e.value}:${e.selectionStart}-${e.selectionEnd}`
+  action moving(e: InputEvent)
+    moved = `${focused}:${e.value}:${e.selectionStart}-${e.selectionEnd}`
+  view
+    column
+      textarea testId="editor" value=body beforeinput=before input=edited select=selected selectionchange=moving
+      input id="other" testId="other" focus=otherFocused
+      text picked testId="picked"
+      text moved testId="moved"
+"#;
+    let plan = crate::test_plan(source);
+    for (path, expected, select) in [
+        ("agent", "true:new:3-3", true),
+        ("keyboard", "true:oldx:4-4", false),
+        ("paste", "true:oldpaste:8-8", false),
+        ("cancel", "true:old:0-3", true),
+    ] {
+        let (mut p, error) = Presenter::boot_with(
+            &plan,
+            (),
+            (400., 600.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none());
+        p.run_commands(<()>::default);
+        let editor = id(&p, "editor");
+        match path {
+            "agent" | "cancel" => {
+                let value = if path == "agent" { "new" } else { "cancel" };
+                let reply = crate::agent::handle(
+                    &mut p,
+                    &format!(r#"{{"op":"type","id":{editor},"text":"{value}"}}"#),
+                );
+                assert!(!reply.contains("\"error\""), "{path}: {reply}");
+            }
+            _ => {
+                assert!(p.set_focus(Some(editor), 0.).is_none());
+                if path == "keyboard" {
+                    p.key_down_with("x", "KeyX", false, 0.);
+                } else {
+                    p.clipboard(editor, "paste", "paste").unwrap();
+                }
+                p.run_commands(<()>::default);
+            }
+        }
+        assert_eq!(p.focus(), Some(id(&p, "other")), "{path}");
+        assert_eq!(text(&p, "moved"), expected, "{path}");
+        assert_eq!(
+            text(&p, "picked"),
+            if select { expected } else { "" },
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn runtime_value_writes_report_only_selection_changes_at_mount_and_commit() {
+    let source = r#"component App
+  state body = "a😀b"
+  state areaMoves = 0
+  state inputMoves = 0
+  state emptyMoves = 0
+  state caret = ""
+  action areaMoved(e: InputEvent)
+    areaMoves = areaMoves + 1
+    caret = `${e.selectionStart}-${e.selectionEnd}`
+  action inputMoved(e: InputEvent)
+    inputMoves = inputMoves + 1
+  action emptyMoved(e: InputEvent)
+    emptyMoves = emptyMoves + 1
+  action short
+    body = "xy"
+  action sameLength
+    body = "pq"
+  view
+    column
+      textarea id="area" testId="area" value=body selectionchange=areaMoved
+      input value=body selectionchange=inputMoved
+      input value="" selectionchange=emptyMoved
+      button "Short" testId="short" press=short
+      button "Same length" testId="same-length" press=sameLength
+      text `${areaMoves}|${inputMoves}|${emptyMoves}|${caret}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    assert_eq!(text(&p, "result"), "0|0|0|", "selectionchange is queued");
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "1|1|0|4-4");
+    p.tap(id(&p, "short")).unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "2|2|0|2-2");
+    p.tap(id(&p, "same-length")).unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "2|2|0|2-2");
+    p.set_selection_range(&[Value::str("area"), Value::Number(0.), Value::Number(1.)]);
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "3|2|0|0-1");
+    p.tap(id(&p, "same-length")).unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(
+        text(&p, "result"),
+        "3|2|0|0-1",
+        "same value keeps the range"
+    );
+    p.tap(id(&p, "short")).unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "4|2|0|2-2");
+    assert_eq!(p.field_selection(id(&p, "area")), FieldSelection::caret(2));
+}
+
+#[test]
+fn range_replacement_end_reports_the_moved_caret_once() {
+    let source = r#"component App
+  state body = "abc"
+  state events = ""
+  state moves = 0
+  state caret = ""
+  action edited(v: string, e: InputEvent)
+    body = v
+    events = `${events}${e.inputType}:${e.selectionStart}-${e.selectionEnd}|`
+  action moving(e: InputEvent)
+    moves = moves + 1
+    caret = `${e.selectionStart}-${e.selectionEnd}`
+  view
+    column
+      textarea id="editor" testId="editor" value=body input=edited selectionchange=moving
+      text `${body}|${moves}|${caret}|${events}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    p.run_commands(<()>::default);
+    p.set_selection_range(&[Value::str("editor"), Value::Number(0.), Value::Number(2.)]);
+    p.run_commands(<()>::default);
+    p.set_range_text(&[
+        Value::str("editor"),
+        Value::str("😀"),
+        Value::Number(999.),
+        Value::Number(999.),
+        Value::str("end"),
+    ]);
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "abc😀|3|5-5|insertReplacementText:5-5|");
+    p.set_range_text(&[
+        Value::str("editor"),
+        Value::str(""),
+        Value::Number(999.),
+        Value::Number(999.),
+        Value::str("end"),
+    ]);
+    p.run_commands(<()>::default);
+    assert_eq!(
+        text(&p, "result"),
+        "abc😀|3|5-5|insertReplacementText:5-5|insertReplacementText:5-5|"
+    );
+}
+
+#[test]
+fn unmarked_and_stale_marks_compare_against_the_reported_caret() {
+    let source = r#"component App
+  state body = "hello"
+  action write
+    body = "world"
+  view
+    column
+      textarea markup="markdown" id="editor" testId="editor" value=body
+      button "Write" testId="write" press=write
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let editor = id(&p, "editor");
+    assert!(
+        p.field_change_tasks.is_empty(),
+        "no plain-field mount event for Markdown"
+    );
+    p.fields.remove(&editor);
+    assert_eq!(p.field_selection(editor), FieldSelection::caret(5));
+    p.press_field(editor);
+    assert!(
+        p.field_change_tasks.is_empty(),
+        "pressing at the end did not move it"
+    );
+
+    p.fields.remove(&editor);
+    p.field_key(editor, "Home", 0.);
+    assert_eq!(p.field_selection(editor), FieldSelection::caret(0));
+    assert!(p.field_change_tasks.contains(&editor));
+    p.run_commands(<()>::default);
+
+    p.fields.remove(&editor);
+    p.set_selection_range(&[Value::str("editor"), Value::Number(0.), Value::Number(1.)]);
+    assert!(p.field_change_tasks.contains(&editor));
+    p.run_commands(<()>::default);
+    p.tap(id(&p, "write")).unwrap();
+    assert_eq!(p.field_selection(editor), FieldSelection::caret(5));
+    assert!(
+        p.field_change_tasks.contains(&editor),
+        "a runtime write moved the range"
+    );
+    p.run_commands(<()>::default);
+
+    p.note_field(editor, "old value", FieldSelection::caret(0));
+    assert_eq!(p.field_selection(editor), FieldSelection::caret(5));
+    p.press_field(editor);
+    assert!(
+        p.field_change_tasks.is_empty(),
+        "the stale mark was not the reported caret"
+    );
+}
+
+#[test]
+fn email_and_number_report_the_web_fallback_without_a_selection_api() {
+    let source = r#"component App
+  state body = "12"
+  state moves = 0
+  state heard = ""
+  state position = ""
+  action moving(e: InputEvent)
+    moves = moves + 1
+    position = `${e.selectionStart}-${e.selectionEnd}`
+  action before(e: InputEvent)
+    heard = `${heard}before:${e.selectionStart}-${e.selectionEnd}|`
+  action edited(v: string, e: InputEvent)
+    heard = `${heard}input:${e.selectionStart}-${e.selectionEnd}|`
+  action write
+    body = "34"
+  view
+    column
+      input type="email" id="email" testId="email" value=body beforeinput=before input=edited selectionchange=moving select=moving
+      input type="number" id="number" testId="number" value=body beforeinput=before input=edited selectionchange=moving select=moving
+      button "Write" testId="write" press=write
+      text `${moves}|${heard}` testId="result"
+      text position testId="position"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "result"), "2|");
+    assert_eq!(text(&p, "position"), "2-2");
+    for name in ["email", "number"] {
+        let field = id(&p, name);
+        p.set_selection_range(&[Value::str(name), Value::Number(0.), Value::Number(1.)]);
+        assert_eq!(p.field_selection(field), FieldSelection::caret(2));
+        assert!(p.set_focus(Some(field), 0.).is_none());
+        p.field_key(field, "Home", 0.);
+        assert_eq!(p.field_selection(field), FieldSelection::caret(0));
+        p.field_key(field, "9", 0.);
+        assert_eq!(
+            p.field_text(field),
+            "912",
+            "the private editing caret still moves"
+        );
+        assert_eq!(p.field_selection(field), FieldSelection::caret(1));
+        p.run_commands(<()>::default);
+        assert_eq!(text(&p, "position"), "3-3");
+    }
+    assert_eq!(
+        text(&p, "result"),
+        "4|before:2-2|input:3-3|before:2-2|input:3-3|"
+    );
+    p.tap(id(&p, "write")).unwrap();
+    p.run_commands(<()>::default);
+    assert_eq!(text(&p, "position"), "2-2");
+    for name in ["email", "number"] {
+        assert_eq!(p.field_text(id(&p, name)), "34");
+        assert_eq!(p.field_selection(id(&p, name)), FieldSelection::caret(2));
+    }
+    assert_eq!(
+        text(&p, "result"),
+        "6|before:2-2|input:3-3|before:2-2|input:3-3|"
+    );
+}
+
+#[test]
+fn field_sync_visits_only_fields_touched_by_commits() {
+    let source = r#"component App
+  state body = "ab"
+  state count = 0
+  state shown = false
+  action tick
+    count = count + 1
+  action write
+    body = "cd"
+  action toggle
+    shown = not shown
+  view
+    column
+      input id="field" testId="field" value=body
+      if shown
+        input testId="mounted" value="hello"
+      button "Tick" testId="tick" press=tick
+      button "Write" testId="write" press=write
+      button "Toggle" testId="toggle" press=toggle
+      text `${count}`
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    p.run_commands(<()>::default);
+    p.set_selection_range(&[Value::str("field"), Value::Number(0.), Value::Number(1.)]);
+    p.run_commands(<()>::default);
+    for _ in 0..256 {
+        assert!(p
+            .host
+            .dispatch_at(id(&p, "tick"), Event::Press, 0.)
+            .is_none());
+        assert_eq!(p.host.values.pending_fields(), 0);
+        assert!(p.after_commit().is_none());
+    }
+    let field = id(&p, "field");
+    assert_eq!(p.field_selection(field).end, 1);
+    assert!(p
+        .host
+        .dispatch_at(id(&p, "write"), Event::Press, 0.)
+        .is_none());
+    assert_eq!(p.host.values.pending_fields(), 1);
+    assert!(p.after_commit().is_none());
+    assert_eq!(p.field_selection(field), FieldSelection::caret(2));
+    assert!(p.field_change_tasks.contains(&field));
+    p.run_commands(<()>::default);
+    p.tap(id(&p, "toggle")).unwrap();
+    let mounted = id(&p, "mounted");
+    assert_eq!(p.field_selection(mounted), FieldSelection::caret(5));
+    assert!(p.field_change_tasks.contains(&mounted));
+    p.run_commands(<()>::default);
+    p.tap(id(&p, "toggle")).unwrap();
+    assert!(!p.fields.contains_key(&mounted));
+    assert_eq!(p.host.values.pending_fields(), 0);
 }
