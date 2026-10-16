@@ -206,8 +206,10 @@ extension Agent {
         }
         // A tab UIKit's tab bar shows: its item there.
         if target === v, let item = tabItem(v) {
-            guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): UIKit's tab bar shows no item for its tab; `clock settle` first waits out a transition"] }
-            target = bar; region = frame; barred = true
+            switch item {
+            case .failure(let refusal): return ["error": "tap #\(v.id): \(refusal.why)"]
+            case .success(let control): target = control; region = control.bounds; barred = true
+            }
         }
         let drawnBox = target === v ? nil : box(target, region: region)
         // A point from the top left of what is drawn: UIKit's cell for a row a list draws.
