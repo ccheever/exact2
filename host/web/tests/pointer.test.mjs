@@ -44,8 +44,9 @@ const page = `<!doctype html>
       window.log.push(id + (k === 29 ? ' down' : k === 30 ? ' up' : ' move')); window.records.push(r);
       // A down handler that removes the branch around it (window.detach).
       if (k === 29 && window.detach === id) document.getElementById('outer').remove();
+      if (k === 29 && window.disable === id) document.getElementById('outer').setAttribute('disabled', '');
     });
-    el.exactPointerDown = e => own()(e);
+    el.exactPointerDown = (e, hold) => own()(e, hold);
     on('pointerover', () => own());
     on('click', () => window.log.push(id + ' press'));
   }
@@ -180,6 +181,13 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await frame();
     await mouse('mouseReleased', [400, 700]);
     expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['panbox down', 'panbox up']);
+    // A down handler that disables its ancestor: the ancestor hears no down,
+    // yet still hears the up, as on the native hosts.
+    await evaluate("window.disable = 'inner'");
+    await mouse('mousePressed', await centre('inner'));
+    await mouse('mouseReleased', [500, 800]);
+    expect(await log()).toEqual(['inner down', 'inner up', 'outer up']);
+    await evaluate("window.disable = null; document.getElementById('outer').removeAttribute('disabled')");
     // A down handler that removes its ancestor: the removed one hears nothing.
     await evaluate("window.detach = 'inner'");
     const gone = await centre('inner');

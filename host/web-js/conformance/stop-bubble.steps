@@ -7,3 +7,6 @@ up
 wheel pad 40
 # A stopped wheel still scrolls its scroller.
 wheel scroller 120
+# A focus the down moved, whose handler stops its own event: the root still hears the down.
+down focuser
+up

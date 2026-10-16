@@ -200,6 +200,10 @@ pub struct Presenter<D: DataSource> {
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
     pointer_path: Vec<exact_kernel::NodeKey>,
+    /// A pointer or wheel walk is under way: a contact its handler retired
+    /// (the pressed node removed or disabled) is cancelled when it ends, so
+    /// no other walk runs inside it ([`Presenter::retire_pointer`]).
+    pointer_walking: bool,
     /// The held pointer's buttons as DOM counts them: 1 primary, 2
     /// secondary, 4 middle (review b5-b 1).
     pointer_buttons: u8,
@@ -474,6 +478,7 @@ impl<D: DataSource> Presenter<D> {
             hover_point: None,
             pointer_held: None,
             pointer_path: Vec::new(),
+            pointer_walking: false,
             pointer_buttons: 0,
             control_contact: None,
             control_bindings: BTreeMap::new(),

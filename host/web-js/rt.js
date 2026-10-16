@@ -895,8 +895,8 @@ function imageEvent(e, kind, f) {
 }
 export function on(e, kind, f, bind) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
-  const ends = kind === "close" || kind === "scrollend", go = f, wall = !clock.agent, own = ends ? Owner : null;
-  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (!ends || (e.isConnected && !own?.gone)) return go(...a); };
+  const ends = kind === "close" || kind === "scrollend", go = f, wall = !clock.agent, own = ends ? Owner : null, pointer = kind === "pointerdown" || kind === "pointerup", /* another event's handler run inside a pointer handler (a focus it moved) is not that pointer event's: its `stopPropagation()` does not stop it */ run = (...a) => { if (pointer) return go(...a); const outer = Propagating; Propagating = null; try { return go(...a); } finally { Propagating = outer; } };
+  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (!ends || (e.isConnected && !own?.gone)) return run(...a); };
   // A queued dialog close (or a scroll's end a due task's removal outlived) can outlive its arm, even while an exit animation keeps the element connected.
   const l = (t, g, capture = false) => { e.addEventListener(t, g, capture); if (ends) onEnd(() => e.removeEventListener(t, g, capture)); };
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;

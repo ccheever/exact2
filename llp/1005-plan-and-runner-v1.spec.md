@@ -578,8 +578,9 @@ UIKit.
   `pointer.js`): DOM's own events. One listener at the root's capture walks
   the down's path, innermost first, before any element's own listener, so
   a recognizer that stops the event (a pan, a swipe) takes nothing from
-  them. The innermost marks the event, so its ancestors hold only their up,
-  not the moves.
+  them. It fixes every holder before any down runs, as the native hosts
+  fix the path. The innermost marks the event, so its ancestors hold only
+  their up, not the moves.
 - **iOS** (`IOS/PointerIOS.swift`): a gesture recognizer that only observes.
   It never recognizes and can neither prevent nor be prevented, so a press,
   a pan, a long press and the scroll view keep their touches. Each node's
@@ -592,7 +593,9 @@ UIKit.
   action it sends). A held node's release drops it from the hold, and a
   reset clears the hold.
 - **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, from
-  the node under the press up; a cancel is an up.
+  the node under the press up; a cancel is an up. A contact that a handler
+  retires (the pressed node removed or disabled) is cancelled when the walk
+  ends, never inside it.
 - **ABI:** dispatch kinds 29, 30 and 31 (`pointermove`), each with the
   record's line.
 - **Agent:** `tap` remains an activation (`press`). The pointer events are

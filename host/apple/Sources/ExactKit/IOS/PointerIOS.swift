@@ -37,6 +37,9 @@ final class PointerRecognizer: UIGestureRecognizer {
     /// bubbled to each, and each hears its up.
     private var path: [Weak] = []
     private struct Weak { weak var node: NodeView? }
+    /// The presenter the touch went down in: the held node may leave the
+    /// tree before the up, which its surviving ancestors still hear.
+    private weak var presenter: Presenter?
     /// No touch held: a pooled row may keep it (it is synced with the
     /// handlers it is reused with).
     var idle: Bool { touch == nil }
@@ -65,6 +68,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         // the others from here up leave the touch to it (`nearer`), so it
         // sends the bubbling down and up for them all.
         path = Self.bubbling(from: node).map(Weak.init)
+        presenter = node.presenter
         // A handler may disable a node further up before its turn, or stop
         // this down; the up's path and the hold stay.
         dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
@@ -74,7 +78,7 @@ final class PointerRecognizer: UIGestureRecognizer {
     /// One bubbling dispatch to `nodes`, innermost first, each still the
     /// tree's when its turn comes, until a handler calls `stopPropagation()`.
     private func dispatch(_ nodes: [NodeView], _ send: (NodeView) -> Void) {
-        guard let presenter = node?.presenter ?? nodes.first?.presenter else { return }
+        guard let presenter else { return }
         presenter.propagating {
             for n in nodes where Self.live(n) {
                 send(n)

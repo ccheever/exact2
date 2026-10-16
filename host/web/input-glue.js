@@ -90,7 +90,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // this one listener at the root's capture, before any element's: a
   // recognizer that stops the event (a pan taking its contact) takes nothing
   // from the pointer events, as on the native hosts.
-  root.addEventListener("pointerdown", e => { for (const n of e.composedPath()) n.exactPointerDown?.(e); }, true);
+  // Every holder is fixed before any down runs, as the native hosts fix the
+  // path: a node a handler further in disables or removes still hears the up.
+  root.addEventListener("pointerdown", e => { const path = e.composedPath(); for (const n of path) n.exactPointerDown?.(e, true); for (const n of path) n.exactPointerDown?.(e, false); }, true);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -325,7 +327,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
-      let held = null, owner = false, last = null, move = null, frame = 0;
+      let held = null, owner = false, last = null, move = null, frame = 0, downOf = null;
       const wants = kind => el.exactHandlers?.includes(kind);
       const record = (e, lifted = false) => pointerLine(el, e, lifted);
       const flush = () => {
@@ -343,12 +345,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
       const up = e => {
         if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
-        held = null;
+        held = null; downOf = null;
         for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
         document.removeEventListener("pointermove", heldMove, true);
         flush();
-        // A handler further in that stopped this up (`exactStopped`, glue.js).
-        if (wants("pointerup") && ready() && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
+        // Never for a removed node, nor past a handler further in that
+        // stopped this up (`exactStopped`, glue.js).
+        if (wants("pointerup") && ready() && el.isConnected && !e.exactStopped) fire(30, record(e.type === "blur" ? last : e, true), e);
       };
       const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
       // A free pointer over it: the innermost node hearing moves takes them;
@@ -359,21 +362,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         e.exactPointerMover = el;
         if (held === null && e.buttons === 0 && !disabled()) moved(e);
       });
-      return e => {
+      // `hold`: the walk's first pass, which fixes the holders; then the down.
+      return (e, hold) => {
+        // Its down, unless a handler further in removed or disabled it, or
+        // stopped this down (`exactStopped`, glue.js): it still holds the up and the moves.
+        if (!hold) { if (downOf === e && el.isConnected && !disabled() && wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e); return; }
         // Any button, as the DOM's (studio diary R22); `buttons` says which.
-        // An ancestor a handler further in removed is still on the path.
         if (!e.isPrimary || held !== null || !el.isConnected || disabled()) return;
         // The innermost enabled pointer node holds its moves (the walk
         // reaches it first and marks the event); an ancestor holds only its up.
         owner = !e.exactPointerOwner;
         if (!owner && !wants("pointerdown") && !wants("pointerup")) return;
         e.exactPointerOwner = el;
-        held = e.pointerId; last = e;
+        held = e.pointerId; last = e; downOf = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
         document.addEventListener("pointermove", heldMove, true);
         flush();
-        // Stopped further in, it still holds the up and the moves; only this down is not heard.
-        if (wants("pointerdown") && ready() && !e.exactStopped) fire(29, record(e), e);
       };
     },
     // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),

@@ -157,6 +157,7 @@ impl<D: DataSource> Presenter<D> {
             .collect();
         self.pointer_buttons = buttons;
         let mut error = None;
+        let outer = std::mem::replace(&mut self.pointer_walking, true);
         self.stopped();
         for key in self.pointer_path.clone() {
             // A handler may remove or disable a node further up before its
@@ -182,7 +183,14 @@ impl<D: DataSource> Presenter<D> {
                 break;
             }
         }
+        self.walked(outer);
         error
+    }
+
+    /// A walk ended: a contact one of its handlers retired is cancelled now.
+    fn walked(&mut self, outer: bool) {
+        self.pointer_walking = outer;
+        self.retire_pointer();
     }
 
     /// Whether the dispatch just made called `stopPropagation()`, which ends
@@ -246,6 +254,8 @@ impl<D: DataSource> Presenter<D> {
         let path = std::mem::take(&mut self.pointer_path);
         let (x, y) = at.or(self.contact_position()).or(self.pointer)?;
         let mut error = None;
+        // The caller retires the contact after the up's walk.
+        let outer = std::mem::replace(&mut self.pointer_walking, true);
         self.stopped();
         for key in path {
             let Some(view) = self.host.kernel().node_by_key(key).map(|n| n.id) else {
@@ -261,6 +271,7 @@ impl<D: DataSource> Presenter<D> {
                 break;
             }
         }
+        self.pointer_walking = outer;
         error
     }
 
@@ -277,6 +288,7 @@ impl<D: DataSource> Presenter<D> {
             at = self.display.parent(self.host.kernel(), hit);
         }
         let mut prevented = false;
+        let outer = std::mem::replace(&mut self.pointer_walking, true);
         self.stopped();
         for view in path {
             let Some(point) = self.pointer_record(view, x, y, 0) else {
@@ -303,6 +315,7 @@ impl<D: DataSource> Presenter<D> {
                 break;
             }
         }
+        self.walked(outer);
         prevented
     }
 }

@@ -28,7 +28,8 @@ let walking = false;
 export function pointer(e, kind, f) {
   if (!walking) {
     walking = true;
-    document.addEventListener("pointerdown", ev => { for (const n of ev.composedPath()) n.$pointer?.down(ev); }, true);
+    // Every holder is fixed before any down runs, as the native hosts fix the path: a node a handler further in disables or removes still hears the up.
+    document.addEventListener("pointerdown", ev => { const path = ev.composedPath(); for (const n of path) n.$pointer?.hold(ev); for (const n of path) n.$pointer?.down(ev); }, true);
   }
   let s = e.$pointer;
   if (!s) {
@@ -49,7 +50,7 @@ export function pointer(e, kind, f) {
     const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
     const up = ev => {
       if (ev.type === "blur" ? ev.target !== window : ev.pointerId !== s.held || (ev.type === "pointerout" && ev.relatedTarget && ev.relatedTarget.localName !== "iframe")) return;
-      s.held = null;
+      s.held = null; s.downOf = null;
       for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
       document.removeEventListener("pointermove", held, true);
       flush();
@@ -57,22 +58,23 @@ export function pointer(e, kind, f) {
       // nor past a handler further in that stopped this up (`$stopped`, rt.js).
       if (live() && !ev.$stopped) s.pointerup?.(record(e, ev.type === "blur" ? s.last : ev, true), ev);
     };
-    s.down = ev => {
+    const enabled = () => live() && !e.matches(":disabled") && !e.hasAttribute("disabled") && !e.closest("[inert]");
+    s.hold = ev => {
       // Any button, as the DOM's (studio diary R22: a secondary click's down; `buttons` says which).
-      // An ancestor a handler further in removed is still on the path.
-      if (!ev.isPrimary || s.held !== null || !live() || e.matches(":disabled") || e.hasAttribute("disabled") || e.closest("[inert]")) return;
+      if (!ev.isPrimary || s.held !== null || !enabled()) return;
       // The innermost enabled pointer element holds its moves, as the web
-      // host's does; an ancestor it bubbles to holds only its up.
+      // host's does; an ancestor holds only its up.
       s.owner = !ev.$pointerOwner;
       if (!s.owner && !s.pointerdown && !s.pointerup) return;
       ev.$pointerOwner = e;
-      s.held = ev.pointerId; s.last = ev;
+      s.held = ev.pointerId; s.last = ev; s.downOf = ev;
       for (const [type, target] of ends) target.addEventListener(type, up, target === document);
       document.addEventListener("pointermove", held, true);
       flush();
-      // Stopped further in, it still holds the up and the moves; only this down is not heard.
-      if (!ev.$stopped) s.pointerdown?.(record(e, ev), ev);
     };
+    // Its down, unless a handler further in removed or disabled it, or
+    // stopped this down: it still holds the up and the moves.
+    s.down = ev => { if (s.downOf === ev && enabled() && !ev.$stopped) s.pointerdown?.(record(e, ev), ev); };
     // A free pointer over it (no button down, as AppKit sends `mouseMoved`
     // only then): the innermost element hearing moves takes them.
     e.addEventListener("pointermove", ev => {

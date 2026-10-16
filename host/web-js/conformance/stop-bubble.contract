@@ -2,7 +2,8 @@
 // handler that calls it, as the DOM does (decided under Charlie's
 // delegation, 2026-10-15). The stop is that event's alone: a stopped down
 // still sends its up to every node it passed, and the moves stay with the
-// node that holds them; a stopped wheel still scrolls.
+// node that holds them; a stopped wheel still scrolls. A focus handler run
+// inside a pointer handler stops its own event, never the pointer's.
 component StopBubble
   state log = ""
   state held = false
@@ -20,6 +21,12 @@ component StopBubble
       held = true
   action scrolledTo(left: number, top: number)
     scrolled = top > 0
+  action focusField
+    log = `${log} down:focuser`
+    focus("field")
+  action stopFocus
+    log = `${log} focus:field`
+    stopPropagation()
   view
     column testId="root" gap=8 padding=8 pointerdown=at("down:root") pointerup=at("up:root") wheel=at("wheel:root")
       text log testId="log"
@@ -28,3 +35,5 @@ component StopBubble
         box testId="pad" height=60 pointermove=moved pointerup=at("up:pad") touch-action="none"
       scroll testId="scroller" height=80 wheel=stopWheel scroll=scrolledTo
         box height=400
+      box testId="focuser" height=30 pointerdown=focusField
+      input id="field" testId="field" focus=stopFocus
