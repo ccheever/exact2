@@ -83,7 +83,8 @@ function build(app, dist, keep = () => false, compiler = null) {
  * whole, then renamed), or null where it cannot be made. */
 function compilerCopy(path, app) {
   const copy = resolve(app.target, 'web-js-dev-compiler');
-  try { copyFileSync(path, `${copy}.tmp`); renameSync(`${copy}.tmp`, copy); return copy; } catch { return null; }
+  const temp = `${copy}.${process.pid}.tmp`; // a loop's own: apps in the tree share a target/
+  try { copyFileSync(path, temp); renameSync(temp, copy); return copy; } catch { rmSync(temp, { force: true }); return null; }
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
