@@ -26,6 +26,7 @@ shape SshPromptAnswer
 
 component SshPasswordPrompt
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -43,7 +44,7 @@ component SshPasswordPrompt
         // The backdrop: an outside press or Escape cancels (Dialog onOpenChange(false)).
         button press=answer(prompt.expired ? "dismiss" : "cancel") disabled=responding aria-label="Cancel SSH password prompt" testId="ssh-password-backdrop" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000052" title=""
         column position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" inert=false
-          column width="100%" max-width="28rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label="SSH Password Required" testId="ssh-password-dialog" id="ssh-password-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("ssh-password-dialog") key=dialogFallback("ssh-password-dialog", dialogTargets)
+          column width="100%" max-width="28rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=dialogSeated.includes("ssh-password-dialog") aria-label="SSH Password Required" testId="ssh-password-dialog" id="ssh-password-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("ssh-password-dialog") key=dialogFallback("ssh-password-dialog", dialogTargets)
             // The focus trap (dialog-trap.contract): the password field, Cancel, then Continue while it is enabled (no X).
             FocusGuard(guardId="ssh-password-guard-start", targets=dialogTargets, popup="ssh-password-dialog")
             DialogOpenFocus(target="ssh-password-field")

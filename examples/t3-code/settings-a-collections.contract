@@ -55,6 +55,7 @@ component CollectionOrbs
 // each a checkbox; "Remove selected (N)" stays disabled until one is checked.
 component CollectionRemoveDialog
   inject
+    dialogSeated: string[]
     dialogEntered: action
     dialogFallback: action
   props
@@ -68,7 +69,7 @@ component CollectionRemoveDialog
   derive dialogTargets = [(card.removal.length > 0 ? "theme-remove-pick-0" : "theme-remove-collection-cancel"), (busy or card.picked == 0 ? "theme-remove-collection-cancel" : "theme-remove-collection-confirm")]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="theme-remove-collection-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="theme-remove-collection-description" aria-modal=true aria-label=`Remove themes from “${card.label}”?` testId="theme-remove-collection" id="theme-remove-collection" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("theme-remove-collection") key=dialogFallback("theme-remove-collection", dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="theme-remove-collection-description" aria-modal=dialogSeated.includes("theme-remove-collection") aria-label=`Remove themes from “${card.label}”?` testId="theme-remove-collection" id="theme-remove-collection" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("theme-remove-collection") key=dialogFallback("theme-remove-collection", dialogTargets)
         // The focus trap (dialog-trap.contract): the themes, Cancel, then Remove while it is enabled.
         FocusGuard(guardId="theme-remove-collection-guard-start", targets=dialogTargets, popup="theme-remove-collection")
         DialogOpenFocus(target=(card.removal.length > 0 ? "theme-remove-pick-0" : "theme-remove-collection-cancel"))

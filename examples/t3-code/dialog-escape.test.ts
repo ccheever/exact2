@@ -26,8 +26,8 @@ describe('a dialog over the right panel sheet takes Escape first', () => {
   test('the git dialogs and the Merge confirmation are modal, their Escape inside them', async () => {
     const git = await source('r4-git.contract');
     const popup = line(git, 'aria-label=label testId=testId id=testId');
-    expect(popup).toContain('aria-modal=true');
-    expect(line(await source('r6-pr.contract'), 'testId="pr-merge-dialog" id="pr-merge-dialog"')).toContain('aria-modal=true');
+    expect(popup).toContain('aria-modal=dialogSeated.includes(testId)');
+    expect(line(await source('r6-pr.contract'), 'testId="pr-merge-dialog" id="pr-merge-dialog"')).toContain('aria-modal=dialogSeated.includes("pr-merge-dialog")');
   });
 });
 
