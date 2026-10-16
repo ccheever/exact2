@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 
 mod counts;
 mod miswiring;
+mod nested_header;
 mod parts;
 mod roles;
 mod rows;
@@ -84,6 +85,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 let no_bar = literal(attrs, "navigationBar") == Some("none");
                 if route && !no_bar {
                     route_header(children, &[], &mut out);
+                    nested_header::nested_header(children, &mut out);
                 }
                 if let (true, Some(name)) = (route, back) {
                     drawn_back(attrs, children, name, &mut out);

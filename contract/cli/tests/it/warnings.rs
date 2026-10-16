@@ -1391,3 +1391,45 @@ fn an_authors_own_round_button_is_not_the_circle() {
     let src = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      RoundButton(label=\"Start the quiz now\", press=go)\ncomponent RoundButton\n  props\n    label: string\n    press: action\n  view\n    button press=press\n      text label\n";
     assert_eq!(warned(src), []);
 }
+
+const NESTED: &str = "lower-header-nested";
+
+/// The euxy port's tabs: a screen component whose root `column` holds the
+/// `header`, used inside the route column, so the header is a box below the
+/// route and iOS leaves it in the page. The message names the repair.
+#[test]
+fn a_header_a_box_below_its_route_is_named_with_the_repair() {
+    let src = |root: &str, route: &str| {
+        format!("routes nav\n  home \"/\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` position=\"absolute\" inset=0{route}\n          Home()\ncomponent Home\n  view\n    {root}\n      header\n        text \"Home\" role=\"heading\" aria-level=1\n      scroll flex=1\n        text \"body\"\n")
+    };
+    let nested = src("column flex=1", "");
+    assert_eq!(warned(&nested), [(NESTED.to_string(), 12)]);
+    let (_, warnings) = contract::compile_warned(&nested);
+    assert!(
+        warnings[0].message.contains("inside the `column` that is")
+            && warnings[0]
+                .message
+                .contains("move the route's `navigationKey`")
+            && warnings[0].message.contains("`navigationBar=\"none\"`"),
+        "{warnings:?}"
+    );
+    // Two boxes down is the same.
+    let deeper = nested.replace(
+        "      header\n        text \"Home\" role=\"heading\" aria-level=1\n",
+        "      row\n        header\n          text \"Home\" role=\"heading\" aria-level=1\n",
+    );
+    assert_eq!(warned(&deeper), [(NESTED.to_string(), 13)]);
+    // A route that draws its own chrome, a section (a grouped list's own
+    // header), a scroller, and a header hidden or not first: no bar is
+    // missed, so nothing is warned.
+    for (root, route) in [
+        ("column flex=1", " navigationBar=\"none\""),
+        ("section", ""),
+        ("scroll flex=1", ""),
+        ("column flex=1\n      text \"first\"", ""),
+    ] {
+        assert_eq!(warned(&src(root, route)), [], "{root}{route}");
+    }
+    let hidden = nested.replace("      header\n", "      header display=\"none\"\n");
+    assert_eq!(warned(&hidden), []);
+}
