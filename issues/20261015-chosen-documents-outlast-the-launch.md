@@ -1,6 +1,6 @@
 # A document app needs chosen files to outlast the launch and to hear when they change
 
-**Status:** Open; waits on Charlie's ruling (below) before any design
+**Status:** Open; Charlie took the recommendations (watch first, then kept documents) on 2026-10-15; designed in LLP 1069.010.000 (Draft)
 **Systems:** storage (`doc:` paths, `storage.fs`), Apple host (security-scoped URLs, Open Recent), web host (File System Access), Linux host, `rules/DEFERRED.md` ("durable capability grants")
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Rami Maalouf's Exact Draw report

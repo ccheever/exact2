@@ -176,7 +176,10 @@ reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text
 in storage and scan cheaply. Take (Charlie, 2026-09-21): the reader's open
 follow-ups other than code-block highlighting (heading anchors, file
 watching, the compact folder layout) wait behind it; no rich value type,
-collaboration or HTML paste import. **Refined (Charlie, 2026-09-21:
+collaboration or HTML paste import. **Lifted (Charlie, 2026-10-15, LLP
+1069.010.000 stage 1):** file watching comes off that wait, the editor being
+built: a `doc:` watch re-asks the answer that reads the path, with no new
+take. **Refined (Charlie, 2026-09-21:
 "move forward with your plan"):** Native editing stays on TextKit 2;
 dependable source editing precedes further marker hiding, with Interview as
 the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove
