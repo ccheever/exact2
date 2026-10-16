@@ -706,6 +706,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.screen(width, height), |n| n)
         }
 
+        /// What changed of the view at once, from the input buffer
+        /// (`Bridge::view`): the window's size, the safe-area insets, the
+        /// layout regions and the viewport, one layout; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_view(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view(len), |n| n)
+        }
+
         /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_segments(rt: u32, posture: u32, cols: u32, rows: u32, count: u32) -> u32 {

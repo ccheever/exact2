@@ -636,6 +636,14 @@ uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
  * sends the window's segments too). A nonpositive size clears it. */
 uint32_t exact_screen(ExactRuntime rt, float width, float height);
+/* What changed of the view at once, from the input buffer's first len bytes,
+ * little-endian 32-bit words: a mask of what is given (1 the window's size,
+ * 2 the safe-area insets, 4 the layout regions, 8 the viewport), the
+ * window's width and height (nonpositive clears it), the insets top, right,
+ * bottom, left, the viewport's width and height, the regions' count (20 or
+ * 0) and their insets: exact_screen, exact_insets, exact_regions and
+ * exact_resize in one batch under one layout. */
+uint32_t exact_view(ExactRuntime rt, size_t len);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
  * x y w h as four little-endian floats in the input buffer (count rects;

@@ -1054,7 +1054,7 @@ impl<D: DataSource> Host<D> {
 
     /// that moved.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
-        self.resize_inner(width, height)
+        self.resize_inner(width, height, Batch::new(), None)
     }
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
@@ -1139,27 +1139,28 @@ impl<D: DataSource> Host<D> {
         self.commit(&receipts, error)
     }
 
-    fn resize_inner(&mut self, width: f32, height: f32) -> String {
+    /// The viewport's change into `batch`, after what it holds (`set_view`).
+    fn resize_inner(
+        &mut self,
+        width: f32,
+        height: f32,
+        mut batch: Batch,
+        error: Option<String>,
+    ) -> String {
         // @ref LLP 1039 D2 — merge re-answer and relayout, once.
         let receipt = match self.runner.set_viewport(width as f64, height as f64) {
             Ok(receipt) => receipt,
-            Err(e) => return self.finish(Batch::new(), Some(format!("viewport: {e:?}"))),
+            Err(e) => return self.finish(batch, error.or(Some(format!("viewport: {e:?}")))),
         };
         self.viewport = (width, height);
         self.height_targets_dirty = true;
         self.presence.snap = true;
         if let Some(receipt) = receipt {
-            return self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            );
+            let at_ms = self.now_ms;
+            return self.commit_into(&[Timed { at_ms, receipt }], error, batch);
         }
-        let mut batch = Batch::new();
-        let error = self.layout(&mut batch).err();
-        self.finish(batch, error)
+        let laid_out = self.layout(&mut batch).err();
+        self.finish(batch, error.or(laid_out))
     }
 
     /// Content has settled: the tree and the motion engine give back what

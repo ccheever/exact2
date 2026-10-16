@@ -372,26 +372,28 @@ public final class ExactView: UIView {
             if session.booted { fit() }
             return
         }
-        // Before the resize, so the layout it asks for reads the window's size
+        // The window's size, the insets, the regions and the viewport in one
+        // batch: after a boot under a tab bar all four change at once.
+        var change = Runtime.ViewChange()
         if screen != lastScreen {
             lastScreen = screen
-            session.screen(screen)
+            change.screen = .some(screen)
         }
         if insets != lastInsets {
             lastInsets = insets
             presenter.insets = insets
-            session.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left)
-            session.natives.scopesChanged()
+            change.insets = (insets.top, insets.right, insets.bottom, insets.left)
         }
         if regions ?? [] != lastRegions {
             lastRegions = regions ?? []
             presenter.regions = regions
-            session.regions(regions)
+            change.regions = .some(regions)
         }
-        if size != lastSize {
-            lastSize = size
-            session.resize(size)
-            session.natives.scopesChanged()
+        let resized = size != lastSize
+        if resized { lastSize = size; change.size = size }
+        session.view(change)
+        if change.insets != nil || resized { session.natives.scopesChanged() }
+        if resized {
             // The keys came or went: the tab bar stays under them, and the
             // field being edited is shown in what they leave (LLP 1116.003
             // D2.1). Usually already done in the keyboard's animation; this

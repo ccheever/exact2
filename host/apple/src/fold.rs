@@ -54,19 +54,66 @@ impl<D: DataSource> Host<D> {
 
     pub(super) fn set_environment(&mut self, env: Env) -> String {
         let mut batch = Batch::new();
-        let error = match self.runner.kernel_mut().set_env(env) {
+        let error = match self.environment_into(env, &mut batch) {
             Ok(false) => None,
-            Ok(true) => {
-                self.height_targets_dirty = true;
-                for id in self.preorder() {
-                    self.update(id, &mut batch);
-                }
-                self.emit_paragraphs(&mut batch);
-                self.layout(&mut batch).err()
-            }
-            Err(e) => Some(format!("insets: {e:?}")),
+            Ok(true) => self.layout(&mut batch).err(),
+            Err(e) => Some(e),
         };
         self.finish(batch, error)
+    }
+
+    /// `env` set, and when it changed, what reads it re-sent into `batch`,
+    /// not yet laid out.
+    fn environment_into(&mut self, env: Env, batch: &mut Batch) -> Result<bool, String> {
+        let changed = self
+            .runner
+            .kernel_mut()
+            .set_env(env)
+            .map_err(|e| format!("insets: {e:?}"))?;
+        if changed {
+            self.height_targets_dirty = true;
+            for id in self.preorder() {
+                self.update(id, batch);
+            }
+            self.emit_paragraphs(batch);
+        }
+        Ok(changed)
+    }
+
+    /// What changed of the view at once, each part only when given: the
+    /// window's size (`None` in it clears it), the safe-area insets, the
+    /// layout regions and the viewport, in one batch under one layout, as
+    /// the calls one by one would leave them. An iOS boot's view takes the
+    /// whole window as its tab bar comes (LLP 1123 D1), which changes all
+    /// four (`ExactView.fit`).
+    pub fn set_view(
+        &mut self,
+        screen: Option<Option<(f32, f32)>>,
+        insets: Option<[f32; 4]>,
+        regions: Option<Option<[[f32; 4]; 5]>>,
+        size: Option<(f32, f32)>,
+    ) -> String {
+        let mut env = self.runner.kernel().env();
+        if let Some(screen) = screen {
+            env = env.with_screen(screen);
+        }
+        if let Some([top, right, bottom, left]) = insets {
+            env = env.with_insets(top, right, bottom, left);
+        }
+        if let Some(regions) = regions {
+            env = env.with_regions(regions);
+        }
+        let mut batch = Batch::new();
+        let changed = self.environment_into(env, &mut batch);
+        let error = changed.as_ref().err().cloned();
+        match size {
+            Some((width, height)) => self.resize_inner(width, height, batch, error),
+            None if changed == Ok(true) => {
+                let laid_out = self.layout(&mut batch).err();
+                self.finish(batch, laid_out)
+            }
+            None => self.finish(batch, error),
+        }
     }
 
     /// The device's posture and the viewport segments a fold makes (LLP

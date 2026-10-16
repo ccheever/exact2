@@ -580,6 +580,32 @@ package final class Runtime {
         let values = (insets ?? []).map(Float.init)
         return on { read(values.withUnsafeBufferPointer { exact_regions(rt, $0.baseAddress, UInt32($0.count)) }) }
     }
+    /// What changed of the view at once (`exact_view`): each part given is
+    /// told, the window's size (`.some(nil)` clears it), the safe-area
+    /// insets, the layout regions (`.some(nil)` when every region is the
+    /// safe area) and the viewport, in one batch under one layout.
+    struct ViewChange {
+        var screen: CGSize?? = nil
+        var insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)? = nil
+        var regions: [CGFloat]?? = nil
+        var size: CGSize? = nil
+        var isEmpty: Bool { screen == nil && insets == nil && regions == nil && size == nil }
+    }
+    func view(_ change: ViewChange) -> Batch {
+        let regions = (change.regions ?? nil) ?? []
+        var mask: UInt32 = 0
+        if change.screen != nil { mask |= 1 }
+        if change.insets != nil { mask |= 2 }
+        if change.regions != nil { mask |= 4 }
+        if change.size != nil { mask |= 8 }
+        let screen = (change.screen ?? nil) ?? .zero, insets = change.insets ?? (0, 0, 0, 0), size = change.size ?? .zero
+        let floats = [screen.width, screen.height, insets.top, insets.right, insets.bottom, insets.left, size.width, size.height]
+        var bytes = Data(capacity: (10 + regions.count) * 4)
+        for word in [mask] + floats.map({ Float($0).bitPattern }) + [UInt32(regions.count)] + regions.map({ Float($0).bitPattern }) {
+            withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+        }
+        return on { read(exact_view(rt, write(bytes))) }
+    }
     /// The window's size, which every viewport unit resolves against everywhere; zero clears it (LLP 1075.003 §9.11).
     func screen(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_screen(rt, Float(width), Float(height))) } }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
