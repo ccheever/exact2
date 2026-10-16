@@ -356,6 +356,7 @@ fn a_development_build_makes_every_token_a_property() {
         .unwrap();
     assert_eq!(brand["prop"], "--x-brand");
     assert_eq!(brand["css"], serde_json::json!(["#c8102eff", "#c8102eff"]));
+    assert_eq!(brand["accent"], serde_json::json!([false, false]));
     let card = design["tokens"]
         .as_array()
         .unwrap()

@@ -68,7 +68,10 @@ function apply() {
       for (const p of e.getAttribute("data-x-accent") == null ? Vars[c] : [...Vars[c], "--exact-accent"]) { const v = e.style.getPropertyValue(p); if (v && !v.includes("var(--x-")) e.style.removeProperty(p); }
     }
   }
-  if (Axes.length) set(document.documentElement, key(Win));
+  // Every token is a property in a development build: its boundaries take
+  // the empty tuple too, so one naming the accent resolves there.
+  const tuples = Axes.length > 0 || Design != null;
+  if (tuples) set(document.documentElement, key(Win));
   // Document order: a boundary's tuple is known before those inside it.
   for (const b of boundaries(document.getElementById("exact-root") ?? document)) {
     const base = around(b), pin = b.getAttribute("data-x-pin");
@@ -76,7 +79,7 @@ function apply() {
     if (!d) { if (b.$xbad !== pin) say(`invalid -exact-mode value ${JSON.stringify(pin)}: an axis of the app's design and one of its values, each axis once; unset`); b.$xbad = pin; d = base; }
     else b.$xbad = undefined;
     b.$xd = d;
-    if (Axes.length) set(b, key(d));
+    if (tuples) set(b, key(d));
     const own = Number(b.getAttribute("data-x-b")), was = b.$xs ??= [];
     for (let j = 0; j < CH.length; j++) {
       // Its own row stands, from its CSS or a binding that sets it now.

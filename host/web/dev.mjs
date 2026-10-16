@@ -269,7 +269,10 @@ const epoch = randomBytes(16).toString('hex');
 const installer = localInstaller({ app: () => app, origins, port: servedAs ?? port, gate, listener: { host, port } });
 // The design server's wire (LLP 1121 D13) when the app has a design; under
 // the JS loop (--serve-as) that loop mounts it.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true }) : null;
+// Live while a value-only edit has its path here: the resident compiler's or
+// the TypeScript producer's. A Rust-data app's own producer publishes every
+// plan, so its design edits reload.
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust }) : null;
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
 let current = null;
 let currentModule = null;

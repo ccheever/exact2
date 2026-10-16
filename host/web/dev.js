@@ -227,7 +227,7 @@ if (es) {
       return accepted;
     },
     // A new generation runs its plan's own design: the live one since, if any, comes after.
-    applied: () => { clearTimeout(retry); show(null); syncDesign(); },
+    applied: () => { clearTimeout(retry); show(null); generations += 1; syncDesign(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -274,9 +274,12 @@ if (es) {
   };
   // One at a time, in the stream's order: a snapshot fetched is never older
   // than a batch applied before it.
+  // A snapshot asked for under one generation is that generation's: one
+  // that lands after the next is dropped (that one asks again).
+  let generations = 0;
   const snapshot = async () => {
-    const response = await fetch("/__dev/design", { cache: "no-store" });
-    if (response.status === 200) await apply(await response.json());
+    const asked = generations, response = await fetch("/__dev/design", { cache: "no-store" });
+    if (response.status === 200 && asked === generations) await apply(await response.json());
   };
   const syncDesign = () => { designing = designing.then(snapshot).catch((error) => console.error("exact dev:", String(error))); };
   const design = (frame) => {

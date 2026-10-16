@@ -11,7 +11,8 @@ extension ExactApp {
         var answer = "applied"
         for session in sessions where session.state != .destroyed && session.booted {
             let batch = session.runtime.designRows(frame)
-            if batch.live == "applied" { session.apply(batch) }
+            // Its references reported again: a value may name a platform colour no report resolved yet.
+            if batch.live == "applied" { session.apply(batch); session.reportColors() }
             if batch.live == "stale" { answer = "stale" } else if answer == "applied", let live = batch.live, live != "applied" { answer = live }
             if batch.unsupported { fputs("exact url: live: a colour was refused (the wide colour table is full)\n", stderr) }
         }

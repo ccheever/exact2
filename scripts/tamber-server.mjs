@@ -389,7 +389,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // tell its own from another's and a client can tell a restart.
     // `live`: a dev loop serves it, whose running builds take a value-only
     // edit in place, no reload (LLP 1121 stage 4's live table).
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live } } : r));
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live } } : r));
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
     if (request.method === 'drop') {
@@ -466,7 +466,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // The digests of files it was planned on but does not edit (a revert's
     // file already as before), and those the client requires, are its
     // preconditions too.
-    const guards = { ...(requires && typeof requires === 'object' ? requires : {}), ...Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path))) };
+    const required = requires && typeof requires === 'object' ? requires : {};
+    const untouched = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path)));
+    const clash = Object.keys(required).find(path => path in untouched && untouched[path] !== required[path]);
+    if (clash) return { status: 400, error: { message: `\`requires\` and \`files\` give \`${clash}\` two digests` } };
+    const guards = { ...untouched, ...required };
     const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}) });
     if (!planned.ok) return planned;
     const id = `prop-${epoch}-${++proposalCount}`;

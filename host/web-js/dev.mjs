@@ -104,20 +104,21 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
-  const edited = new Set();
+  const edited = new Set(), appeared = new Set();
   let seq = 1, saved = 0, again = false, timer = null, since = t0;
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
     if (building) { again = true; return; }
     const at = saved, t = since = Date.now();
-    // A name gone by now beside an edited design file (an editor's or sed's
-    // temporary file) edited nothing; a deleted asset is an edit.
+    // A path that existed during the save and is gone by now (an editor's
+    // or sed's temporary file) edited nothing; one already gone when its
+    // event came (a deleted asset) is an edit.
     const designs = [...edited].filter((path) => path.endsWith('.tamber'));
-    const designOnly = designs.length > 0 && [...edited].every((path) => path.endsWith('.tamber') || (!existsSync(path) && designs.some((d) => dirname(d) === dirname(path))));
-    edited.clear();
+    const designOnly = designs.length > 0 && [...edited].every((path) => path.endsWith('.tamber') || (!existsSync(path) && appeared.has(path)));
+    edited.clear(); appeared.clear();
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
-      && next.tokens.every((t, i) => t.name === design.tokens[i].name);
+      && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
     const from = design;
     built = await build(app, dist, keep); error = built.error;
     watchPackages(built.packages);
@@ -159,7 +160,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // is new, though its target is not.
     try { if (fresh && name && lstatSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
-    edited.add(resolve(base, String(name ?? '')));
+    const path = resolve(base, String(name ?? ''));
+    edited.add(path);
+    if (existsSync(path)) appeared.add(path);
     clearTimeout(timer);
     // An editor's save is one burst of events, well inside 5 ms; an event
     // after the build starts builds again (`again`).

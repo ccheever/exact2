@@ -413,6 +413,9 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   const guarded = await post({ method: 'propose', hold: true, client: 'agent', requires: { 'brand.tamber': 'f'.repeat(64) }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }] });
   expect(guarded.status).toBe(409);
   const brand = disk('brand.tamber');
+  // A `requires` digest and a `files` one for the same file must agree.
+  const clash = await post({ method: 'propose', hold: true, client: 'agent', files: { 'brand.tamber': brand }, requires: { 'brand.tamber': 'f'.repeat(64) }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }] });
+  expect(clash.status).toBe(400);
   const kept = await post({ method: 'propose', hold: true, client: 'agent', requires: { 'brand.tamber': brand }, ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
   expect(kept.status).toBe(200);
   const before = readFileSync(join(dir, 'brand.tamber'), 'utf8');

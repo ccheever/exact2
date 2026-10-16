@@ -105,3 +105,20 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   expect(design({ ...batch, kind: 'tamber-snapshot', base: null, design: 'd2', tokens: [{ ...batch.tokens[0], css: ['#000000ff', '#111111ff'] }] }).live).toBe('applied');
   expect(dim.style.map.get('--x-ink')).toBe('#111111ff');
 });
+
+// A development build with no axes gives its boundaries the empty tuple,
+// whose rule declares every token there (a token naming the accent then
+// resolves in the boundary's own accent).
+test('a development build with no axes puts its boundaries in the empty tuple', async () => {
+  const document = createDocument();
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  const root = document.getElementById('exact-root');
+  const b = document.createElement('div');
+  b.setAttribute('data-x-b', '127');
+  root.append(b);
+  modes([], {}, [], {}, ['--x-ink'], { '--x-ink': 'ink' }, 'd0', 's0');
+  for (const f of After) f();
+  expect(document.documentElement.getAttribute('data-x-modes')).toBe('');
+  expect(b.getAttribute('data-x-modes')).toBe('');
+});

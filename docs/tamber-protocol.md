@@ -201,8 +201,8 @@ design.
   synthetic tokens (its Contract rows' expressions over tokens) fold on both sides. It is
   `rebuild` for structure, a role override (hosts take role tables at boot), a synthetic token
   gained, lost or left unfoldable, a profile colour, or an unknown closure (the app's build
-  stops before its design). Nothing applies a live table yet, so every edit still reaches a
-  running app through the dev loop's reload;
+  stops before its design). A `live` edit reaches running development builds as a batch, with
+  no reload (see [The live table](#the-live-table-llp-1121-stage-4)); a `rebuild` one reloads;
 - `synthetic: [{expr, values}]`: each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
 - `files`: the digests it planned against.

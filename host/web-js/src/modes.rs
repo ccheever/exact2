@@ -468,8 +468,13 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                             .map_or_else(|| "transparent".to_string(), |(_, v, _)| css_of(v))
                     })
                     .collect();
+                // Which tuples name the accent: the build writes a companion
+                // rule where one does not, and lists the token as one that
+                // names it where any does (`rules`); a change is a rebuild.
+                let accent: Vec<bool> = css.iter().map(|c| c.contains("--exact-accent")).collect();
                 row["prop"] = prop.clone().into();
                 row["css"] = css.into();
+                row["accent"] = accent.into();
             }
             row
         })
