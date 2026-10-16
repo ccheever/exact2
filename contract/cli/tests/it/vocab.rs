@@ -819,6 +819,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "derive",
         "action",
         "stepper",
+        "menu",
         "menubar",
         "::placeholder",
     ] {
