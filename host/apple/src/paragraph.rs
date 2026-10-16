@@ -155,7 +155,7 @@ impl<D: DataSource> Host<D> {
             let Some(node) = kernel.node(owner) else {
                 continue;
             };
-            if node.is_inline_run() || self.native_protected_id(owner) {
+            if node.is_inline_run() || self.native_protected_id(owner) || self.held(owner) {
                 continue;
             }
             let active = node.props.str(PropId::Text).is_none();
@@ -229,6 +229,10 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn create(&mut self, id: ViewId, events: &[EventKind], batch: &mut Batch) {
+        // A tab not yet selected is made when it is (`unopened.rs`).
+        if self.hold(id) {
+            return;
+        }
         // @ref LLP 1055 D4 — an SVG element is in its `svg`'s scene, not a view.
         if self.svg.element(self.runner.kernel(), id).is_some() {
             let key = self.runner.kernel().node(id).expect("live").key;
@@ -305,7 +309,7 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn update(&mut self, id: ViewId, batch: &mut Batch) {
-        if self.svg.element(self.runner.kernel(), id).is_some() {
+        if self.held(id) || self.svg.element(self.runner.kernel(), id).is_some() {
             return;
         }
         if self.option_part(id) {
@@ -360,6 +364,9 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
+        if self.held(id) {
+            return;
+        }
         // An `svg`'s and a `g`'s children are its scene's (LLP 1055 D4).
         let node_type = self.runner.kernel().node(id).expect("live").node_type;
         if node_type == NodeType::Svg || node_type.is_svg_element() {
@@ -371,7 +378,8 @@ impl<D: DataSource> Host<D> {
             batch.controls = true;
             return;
         }
-        let children = self.runner.kernel().node(id).expect("live").children();
+        let mut children = self.runner.kernel().node(id).expect("live").children();
+        children.retain(|child| !self.held(*child));
         if self.mirror.get(&id).is_none_or(|m| m.children != children) {
             // Retained children still inherit from the same parent. Only an
             // arriving subtree needs its descendants' spelling hints revisited;
@@ -398,7 +406,6 @@ impl<D: DataSource> Host<D> {
         if self.native_protected_id(id) || self.paragraph_owner(id).is_some() {
             return;
         }
-        let mut children = children;
         if self.native_mode() {
             children.retain(|child| {
                 !self.native_protected_id(*child) || self.native_selected_id(*child)

@@ -228,6 +228,7 @@ pub struct Host<D: DataSource> {
     colors_seen: Option<u64>,
     /// The root font size and the window's modes as a batch last said them (`Host::facts_moved`).
     facts_told: Option<(f64, Vec<(String, String)>)>,
+    unopened: layout::unopened::Unopened,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -528,9 +529,11 @@ impl<D: DataSource> Host<D> {
             delivery,
             colors_seen: None,
             facts_told: None,
+            unopened: Default::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
+        host.close_unopened_tabs();
         let order = host.preorder();
         let handlers = host.runner.handlers();
         for id in &order {
@@ -1216,6 +1219,7 @@ impl<D: DataSource> Host<D> {
             .sum::<usize>()
             > 1)
         .then(|| self.runner.handlers());
+        self.close_new_tabs(receipts);
         for t in receipts {
             let r = &t.receipt;
             // Flights capture their leavers before an exit takes them
@@ -1267,6 +1271,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        self.open_selected_tabs(&mut batch);
         self.emit_paragraphs(&mut batch);
         let roots = self.runner.roots();
         if roots != self.roots {
