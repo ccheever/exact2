@@ -332,11 +332,17 @@ async function regenerate(client: T3Client, nativeHandle: Native, ids: string[],
     if (!ok) return;
   }
 }
+/**
+ * useMarkThreadUnread: every Mark unread (row, multi-selection and thread menus, any environment) is fire and forget
+ * with `reportFailure: false`, so a refusal, such as the server's for a thread with no completed run, shows nothing.
+ */
 export async function markUnread(client: T3Client, nativeHandle: Native, id: string): Promise<void> {
-  if (isBackground(client, id)) return markUnreadBackground(client, nativeHandle, id);
-  if (capabilities(client.config).visitedTracking) { await dispatch(client, nativeHandle, { type: 'thread.mark-unread', threadId: id }); return; }
-  const completed = latestRun(threadOf(client, id) ?? {})?.completedAt;
-  if (completed) sidebarPrefs(client).visited[id] = new Date(Date.parse(completed) - 1).toISOString();
+  try {
+    if (isBackground(client, id)) { await markUnreadBackground(client, nativeHandle, id); return; }
+    if (capabilities(client.config).visitedTracking) { await dispatch(client, nativeHandle, { type: 'thread.mark-unread', threadId: id }); return; }
+    const completed = latestRun(threadOf(client, id) ?? {})?.completedAt;
+    if (completed) sidebarPrefs(client).visited[id] = new Date(Date.parse(completed) - 1).toISOString();
+  } catch (error) { if (letGo(error)) throw error; }
 }
 async function copy(client: T3Client, nativeHandle: Native, text: string, title: string): Promise<void> {
   try { await client.restAccess(nativeHandle).call({ op: 'copyText', text }); pushToast(client, { kind: 'success', title }); }
@@ -575,7 +581,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
       await attempt(client, 'Failed to update auto-settle', async () => { const target = targetOf(client, id); if (!target) throw unavailable(); await target.send(nativeHandle, { type: 'thread.auto-settle.set', enabled: choice === 'auto-settle:enabled' }); }); return '';
     case 'rename': session.renameId = id; session.renameTitle = str(thread.title); return '';
     case 'regenerate-title': if (thread.titleRegeneration == null) await regenerate(client, nativeHandle, [id], false); return '';
-    case 'mark-unread': await attempt(client, 'Failed to mark thread unread', () => markUnread(client, nativeHandle, id)); return '';
+    case 'mark-unread': await markUnread(client, nativeHandle, id); return '';
     case 'filter-by-project': prefs.scope = prefs.scope === scopeKey ? '' : scopeKey; return '';
     case 'copy-path': {
       const path = isBackground(client, id) ? backgroundThreadPath(client, id) : str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
@@ -631,7 +637,7 @@ async function bulkChoice(client: T3Client, nativeHandle: Native, storage: Files
     for (const thread of threads) if (thread.settledOverride !== 'settled') await park(client, nativeHandle, str(thread.id), 'settle', '', batch);
     return '';
   }
-  if (choice === 'mark-unread') { session.selection = []; for (const id of ids) await attempt(client, 'Failed to mark thread unread', () => markUnread(client, nativeHandle, id)); return ''; }
+  if (choice === 'mark-unread') { session.selection = []; for (const id of ids) await markUnread(client, nativeHandle, id); return ''; }
   if (choice === 'delete') {
     if (client.local.clientSettings?.confirmThreadDelete !== false) { session.dialog = { kind: 'delete-many', threadIds: ids, title: '' }; return ''; }
     await deleteThreads(client, nativeHandle, storage, ids, true);
