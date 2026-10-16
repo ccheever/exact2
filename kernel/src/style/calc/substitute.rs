@@ -50,7 +50,7 @@ fn walk<'i>(
             Token::Function(name) if env.is_some() && name.eq_ignore_ascii_case("env") => {
                 let env = env.expect("checked");
                 let (term, fallback) =
-                    p.parse_nested_block(|p| env_parts(p).map_err(|_| p.new_custom_error(())))?;
+                    p.parse_nested_block(|p| env_parts(p, 0).map_err(|_| p.new_custom_error(())))?;
                 match fallback {
                     // Defined: the variable itself, its fallback unused
                     _ if term.value(env).is_some() => {
