@@ -37,7 +37,8 @@ export function injectBackendOrigin(code, origin, parse) {
   const walk=node=>{
     if (!node || typeof node!=='object') return;
     if (node.type==='Literal' && typeof node.value==='string') { const next=replace(node.value); if(next!==node.value) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
-    if (node.type==='TemplateElement') { const next=replace(node.value.cooked); if(next!==node.value.cooked) edits.push([node.start,node.end,next.replaceAll('\\','\\\\').replaceAll('`','\\`').replaceAll('${','\\${')]); return; }
+    if (node.type==='TemplateLiteral' && !node.expressions.length) { const next=replace(node.quasis[0].value.cooked); if(next!==node.quasis[0].value.cooked) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
+    if (node.type==='TemplateElement') { if(replace(node.value.cooked)!==node.value.cooked) throw new Error('EXACT_BACKEND_ORIGIN: use net.fetch ${origin} in an interpolated grants template'); return; }
     for(const child of Object.values(node)) if(Array.isArray(child)) child.forEach(walk); else if(child && typeof child==='object') walk(child);
   };
   declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants').forEach(d=>walk(d.init));

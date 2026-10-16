@@ -366,6 +366,10 @@ const origin = 'http://127.0.0.1:4400/';
 export const grants = [\`net.fetch \${origin}\`, 'net.fetch http://127.0.0.1:4400', 'net.fetch https://other.example'].join('\\n');
 const other = 'http://127.0.0.1:4400';`;
   const next = injectBackendOrigin(code, 'https://backend.example', parseSync);
+  const template=injectBackendOrigin("const origin='http://old'; export const grants=`net.fetch http://old\\nfs.read app:/tmp`;", 'https://backend.example', parseSync);
+  expect(parseSync('app.ts',template).errors).toEqual([]);
+  expect(template).toContain('"net.fetch https://backend.example\\nfs.read app:/tmp"');
+
   expect(next).toContain('const origin = "https://backend.example"');
   expect(next).toContain('"net.fetch https://backend.example"');
   expect(next).toContain('net.fetch https://other.example');
