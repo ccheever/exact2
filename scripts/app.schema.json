@@ -375,7 +375,7 @@
           "type": "object",
           "properties": {
             "resources": {
-              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved. Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle.",
+              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved, before the bundle is sealed (a build stamp placed here is inside the seal). Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle; a helper executable needing a hardened-runtime exception names it in the source's grants, as `runtime.allow-jit Helpers/node/bin/node` (LLP 1069.008 D9).",
               "type": "array",
               "items": {
                 "type": "object", "required": ["from", "to"], "additionalProperties": false,

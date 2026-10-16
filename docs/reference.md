@@ -338,7 +338,31 @@ a private subtree of `Resources/`, `Helpers/` or `Frameworks/`. Mach-O helpers
 and libraries are signed before the outer bundle; `exact release` signs them
 with its release identity. Resource changes require a new binary, not an asset
 update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
-module. This field applies only to macOS bundles.
+module. This field applies only to macOS bundles. A file written before the
+build (a build stamp, a channel name) goes in such a tree under `Resources/`:
+it is copied before the bundle is sealed, so it is inside the seal. Only code
+goes under `Helpers/`, where `codesign` refuses a file that is not.
+
+A helper that needs a hardened-runtime exception (a JavaScript runtime's JIT,
+say) declares it as a grant beside the app's others, naming the exception and
+the one executable it is for, by its path under `Contents` (LLP 1069.008 D9):
+
+```ts
+export const grants = `
+runtime.allow-jit Helpers/node/bin/node
+runtime.disable-library-validation Helpers/node/bin/node
+`;
+```
+
+The exceptions are `allow-jit`, `allow-unsigned-executable-memory` and
+`disable-library-validation`; `exact release` signs that executable with
+`com.apple.security.cs.<exception>` and nothing else in the bundle with it.
+The target `app` grants the exception to the app's own executable. A target
+must be a Mach-O executable inside a `host.macos.resources` destination, not
+reached through a link; a nested `.app`'s executable gives its grant to that
+bundle. `mac --bundle` refuses one that is not, and other hosts ignore the
+lines. Adding a line changes the grant ceiling, so the deploy classifier calls
+for a binary release.
 
 Mach-O code in content-addressed `assets/`, `deck/` or `shaders/` is refused
 when assembling a Mac bundle: place helpers in `host.macos.resources` instead.

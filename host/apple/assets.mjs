@@ -264,6 +264,93 @@ export function signingOrder(bundle, compat = null, identity = null) {
   return [...order, bundle];
 }
 
+/** The Mach-O file type of a thin file, or of a universal file's first
+ *  architecture (`mach-o/loader.h`: 2 is `MH_EXECUTE`, 6 `MH_DYLIB`). */
+function machOType(path) {
+  const read = (at, n) => { const b = Buffer.alloc(n), fd = openSync(path, 'r'); try { return readSync(fd, b, 0, n, at) === n ? b : null; } finally { closeSync(fd); } };
+  let head = read(0, 16);
+  if (!head) return null;
+  const fat = head.readUInt32BE(0);
+  if (fat === 0xcafebabe || fat === 0xcafebabf) {
+    const arch = read(8, 16);
+    head = arch && read(fat === 0xcafebabe ? arch.readUInt32BE(8) : Number(arch.readBigUInt64BE(8)), 16);
+    if (!head) return null;
+  }
+  const magic = head.readUInt32BE(0);
+  if (magic === 0xfeedface || magic === 0xfeedfacf) return head.readUInt32BE(12);
+  if (magic === 0xcefaedfe || magic === 0xcffaedfe) return head.readUInt32LE(12);
+  return null;
+}
+
+/** The hardened-runtime entitlements `exact release` signs the Mac app with:
+ * the bake's derivation from the app's `device.*` grants (a usage string
+ * alone is not enough; a hardened app without the entitlement is silently
+ * refused) and its `runtime.<exception> app` grants (LLP 1069.008 D9). Null
+ * when the app grants neither. */
+export const macReleaseEntitlements = (compat) => {
+  const names = compat?.reach?.entitlements ?? [];
+  // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
+  // which a Developer ID build signs only with a profile that grants it.
+  const domains = compat?.reach?.auth?.associatedDomains ?? [];
+  if (!names.length && !domains.length) return null;
+  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
+    ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
+};
+
+/** Each helper a `runtime.<exception> <path>` grant names (LLP 1069.008 D9),
+ *  keyed by the path `signingOrder` signs it as (a nested bundle, for that
+ *  bundle's main executable), mapped to its entitlements plist. A target must
+ *  be a regular Mach-O executable inside a `host.macos.resources` destination,
+ *  reached through no link and signed by the walk; every target that is not
+ *  is refused, all in one error. No grant: an empty map. */
+export function helperEntitlements(bundle, manifest, compat, order) {
+  const declared = Object.entries(compat?.reach?.helperEntitlements ?? {});
+  const signed = new Map(), errors = [];
+  if (!declared.length) return signed;
+  const roots = macResourceMappings(manifest).map(({ to }) => to);
+  const contents = resolve(bundle, 'Contents');
+  for (const [path, keys] of declared) {
+    const file = resolve(contents, path), info = lstatSync(file, { throwIfNoEntry: false });
+    // A nested bundle takes its executable's grant only when Apple's own
+    // parser names that file: `bundleExecutable`'s quick read of the XML can be
+    // misled by a comment or an entity, which would grant another executable.
+    const named = (p) => {
+      const plist = dirname(file) === resolve(p, 'Contents/MacOS') ? resolve(p, 'Contents/Info.plist') : resolve(p, 'Info.plist');
+      const read = spawnSync('plutil', ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', plist], { encoding: 'utf8' });
+      return read.status === 0 && read.stdout.replace(/\n$/, '') === basename(file);
+    };
+    const at = order.includes(file) ? file
+      : order.find((p) => p !== bundle && NESTED_BUNDLE.test(p) && bundleExecutable(p) === file && named(p));
+    const why = !roots.some((to) => path.startsWith(to + '/')) ? `is not inside a host.macos.resources destination (${roots.join(', ') || 'none declared'})`
+      : !info?.isFile() ? 'is not a file in the bundle'
+      : realpathSync(file) !== resolve(realpathSync(contents), path) ? 'is reached through a link'
+      : machOType(file) !== 2 ? 'is not a Mach-O executable'
+      : !at ? 'is not code the release signs' : null;
+    if (why) errors.push(`runtime grant: Contents/${path} ${why}`);
+    else signed.set(at, plistFile(Object.fromEntries(keys.map((key) => [key, true]))));
+  }
+  if (errors.length) throw new Error(errors.join('\n'));
+  return signed;
+}
+
+/** The release's signature walk: every path `signingOrder` names, innermost
+ *  first, with `identity`, the hardened runtime and `timestamp`. The app
+ *  carries `macReleaseEntitlements`, each helper a runtime grant names its
+ *  own (`helperEntitlements`), and all other nested code none. The plists
+ *  are written into `scratch`. */
+export function signRelease(bundle, { compat, manifest, identity, id, scratch, timestamp = ['--timestamp'] }) {
+  const order = signingOrder(bundle, compat, identity);
+  const plists = helperEntitlements(bundle, manifest, compat, order);
+  const own = macReleaseEntitlements(compat);
+  if (own) plists.set(bundle, own);
+  let n = 0;
+  for (const path of order) {
+    const plist = plists.get(path), file = plist && resolve(scratch, `entitlements-${n++}.plist`);
+    if (plist) writeFileSync(file, plist);
+    run('codesign', ['--force', '--sign', identity, '--options', 'runtime', ...timestamp,
+      ...(path === bundle ? ['--identifier', id] : []), ...(plist ? ['--entitlements', file] : []), path]);
+  }
+}
 
 /** Native files are binary inputs, never plan assets or TypeScript sources. */
 export function macResourceMappings(manifest) {
