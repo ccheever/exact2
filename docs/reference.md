@@ -942,7 +942,11 @@ is), and it is under no tab the navigation leaves unselected and no screen a
 stack keeps under its top, so a screen kept mounted in a hidden tab panel
 holds nothing; the screen a sheet covers is still shown, and holds. An exit
 animation's ghost holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
-D11). `"none"` is the default. Bind it to what needs the screen:
+D11). Natively an element the host shows as its own control (a header in the
+navigation bar, a confirmation as a native alert, a menu as a native menu)
+holds nothing, because a whole host cover marks both what the host hides and
+what it shows natively and the kernel cannot tell them apart; the web holds
+there. `"none"` is the default. Bind it to what needs the screen:
 `wakelock=(playing ? "screen" : "none")`. A literal other than the two words
 is refused; a computed one is journaled (`view N: invalid wakelock value …;
 unset`) and holds nothing. The runner decides which elements hold it

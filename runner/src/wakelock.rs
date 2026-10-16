@@ -5,8 +5,13 @@
 //! closed top-layer box), and it is under no route its navigation root
 //! hides: a tab not selected, or a screen a stack keeps under its top (the
 //! one a sheet covers stays shown). So a screen kept mounted in a hidden tab
-//! panel holds nothing. This is the one rule: the native hosts take the lock
-//! by it, and the agent reads it as `state.wakelock`.
+//! panel holds nothing. A whole cover marks both what a host hides and what
+//! it shows as its own control (a header in the navigation bar, a
+//! confirmation as an alert, a menu as a native menu), which the kernel cannot
+//! tell apart, so natively the latter holds nothing too: a rare false release
+//! rather than a lock left on in a closed dialog. This is the one rule: the
+//! native hosts take the lock by it, and the agent reads it as
+//! `state.wakelock`.
 
 use exact_kernel::{Display, HostCover, Kernel, PropId, ViewId};
 use exact_plan::{BindingKind, Plan};
