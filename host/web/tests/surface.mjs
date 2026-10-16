@@ -1,6 +1,7 @@
 import {assetDelivery} from '../gpu-assets.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { glueDeclarations, checkedGlueCall } from './glue-fixture.mjs';
 
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
@@ -39,9 +40,8 @@ export async function fixture(options = {}) {
     gpu_assets: () => '{"requests":[],"retired":[]}', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
   };
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
-  // Up to the top-level function's closing brace: what follows it in glue.js can end in a line comment.
-  const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\n}\n', glue.indexOf('function applyBatch(batch)')) + 2);
-  const operationSource = glue.slice(glue.indexOf('function apply(batch)'), glue.indexOf('function applyBatch(batch)', glue.indexOf('function apply(batch)')));
+  const applySource = glueDeclarations(glue, ['applyBatch', 'wakeLock', 'holdWake']);
+  const operationSource = glueDeclarations(glue, ['apply']);
   const applyOperations = new Function('exact', 'views', 'globalThis', `
     let timelinesMoved = false;
     const retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
@@ -51,7 +51,14 @@ export async function fixture(options = {}) {
     const viewFor = (_, id) => views.get(id), noteFit = () => {};
     ${operationSource}; return apply;
   `)(exact, views, {exact});
-  const applyBatch = new Function('globalThis', 'apply', `let timelinesMoved = false; const agentMode = false, frameSampler = null, textflow = null, page = null, clocks = {sync() {}}, presence = {hold: () => false}, letGo = () => {}, motion = {commit() {}, followTimelines() {}}, arrange = {commit() {}}, flowBatch = () => {}, markScrollDocument = () => {}, refitTexts = () => {}; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
+  const applyBatch = new Function('globalThis', 'apply', `
+    let timelinesMoved = false, agentClock = 0, followOnSeek = true;
+    const register = () => {}, seek = () => {}, root = {}, log = () => {};
+    const loadAfterPaint = () => { throw new Error('surface fixture: unexpected lazy module load'); };
+    const agentMode = false, frameSampler = null, textflow = null, page = null, clocks = {sync() {}}, presence = {hold: () => false}, letGo = () => {}, motion = {commit() {}, followTimelines() {}}, arrange = {commit() {}}, flowBatch = () => {}, refitTexts = () => {};
+    ${applySource}
+    return (${checkedGlueCall})(applyBatch);
+  `)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },
