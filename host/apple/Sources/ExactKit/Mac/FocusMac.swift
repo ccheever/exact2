@@ -46,9 +46,21 @@ extension NodeView {
         presenter?.focus(id)
         // A row of an open menu taking the focus is its highlight, which
         // AppKit's menu tells as its selected child changing (Accessibility.swift).
-        if isMenuItem, let menu = owningMenu, presenter?.shownMenus.contains(where: { $0 === menu }) == true {
+        if isMenuItem, let menu = owningMenu, let presenter, presenter.shownMenus.contains(where: { $0 === menu }) {
+            presenter.menusHeldFocus.add(menu)
             NSAccessibility.post(element: menu, notification: .selectedChildrenChanged)
         }
+    }
+    /// A shown `menu` the batch takes out of the window says it closed as it
+    /// goes, while it is still an element to post on: once out, a post on it
+    /// reaches no client (measured), and one on the page sent VoiceOver to
+    /// "scroll area" (realinput-1016g row 10).
+    package override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, window != nil, let presenter, let index = presenter.shownMenus.firstIndex(where: { $0 === self }) {
+            presenter.shownMenus.remove(at: index)
+            presenter.menuClosed(self)
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
     func focusLeft() {
         focusVisible = false
