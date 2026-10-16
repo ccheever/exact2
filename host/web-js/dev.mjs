@@ -20,6 +20,7 @@ import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/ag
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
+import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -96,12 +97,18 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
   warn(built.warnings);
   console.log('plan ready');
+  // The design server's wire, once made below (a rebuild may come first).
+  let tamber = null;
   const clients = new Set();
   const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
   // The live table (LLP 1121 stage 4): the design the page in dist was built
   // with, and the one the pages run after value-only edits since.
   let design = built.design ?? null, snapshot = null;
   const notice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [] });
+  // A batch larger than this, in UTF-8 bytes, goes as the snapshot's notice
+  // instead, as the resident loop sends it (host/web/dev.mjs DESIGN_FRAME):
+  // a native host's event frames are bounded (PlanURL.swift's 64 KiB).
+  const framed = (batch) => (Buffer.byteLength(JSON.stringify(batch)) > 32 * 1024 ? notice(snapshot) : batch);
   // The files edited since the last build, by path: only design files may
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
@@ -124,23 +131,36 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const from = design;
     built = await build(app, dist, keep); error = built.error;
     watchPackages(built.packages);
+    const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
     if (error) {
       for (const p of pendingEdits) edited.add(p);
       for (const p of pendingAppeared) appeared.add(p);
       console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error });
     }
     else if (built.kept) {
-      const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
       const tokens = built.design.tokens.filter((t, i) => !same(t, from.tokens[i]));
       design = built.design;
-      snapshot = { kind: 'tamber-snapshot', structure: design.structure, base: null, design: design.digest, tokens: design.tokens };
+      snapshot = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens };
       if (tokens.length) {
         console.log(`edit → batch ready ${Date.now() - at} ms (built in ${Date.now() - t} ms) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
-        push({ kind: 'tamber-batch', structure: design.structure, base: from.digest, design: design.digest, tokens });
+        const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
+        push(batch);
+        // The one source of batches: the resident loop's devices and Linux
+        // take them through the channel's polled streams.
+        tamber?.channel.broadcast(batch);
       }
     }
     else {
-      design = built.design ?? null; snapshot = null;
+      const next = built.design ?? null;
+      // The page reloads; a native build on the resident producer, whose
+      // plan this edit may leave as it was (an accent's companion rules are
+      // the JS target's own), takes the values as a batch when the design's
+      // shape held, and the snapshot stays its to fetch.
+      const shaped = from && next && from.shape === next.shape && from.tokens.length === next.tokens.length && next.tokens.every((tk, i) => tk.name === from.tokens[i].name);
+      design = next;
+      snapshot = shaped ? { kind: 'tamber-snapshot', structure: next.shape, base: null, design: next.digest, tokens: next.tokens } : null;
+      const changedTokens = shaped ? next.tokens.filter((tk, i) => !same(tk, from.tokens[i])) : [];
+      if (changedTokens.length) tamber?.channel.broadcast(framed({ kind: 'tamber-batch', structure: next.shape, base: from.digest, design: next.digest, tokens: changedTokens }));
       logicRevision = built.logic;
       pending.set(++seq, at);
       console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
@@ -204,7 +224,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // The one TypeScript configuration app.ts is checked with (js/bake/src/typescript.mjs).
   watchers.push(watch(resolve(root, 'js/bake/src/typescript.mjs'), changed(resolve(root, 'js/bake/src'))));
   // The page's side: reload on a new build, the errors of a failed one in an
-  // overlay, and a beacon when the reloaded page's runtime is up.
+  // overlay, and a beacon when the reloaded page's runtime is up. Its build
+  // channel (as host/web/dev.js's): a pin's scheme is the system's, a rule
+  // beneath the app's `setScheme`; its status is what paints, sent again
+  // once a turn when the app's own commands move it.
   const client = (n, revision) => `<script>(()=>{const seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('/__dev/page');let o,reloading=false;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
@@ -213,15 +236,21 @@ const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.cl
 const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
-let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact);const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}if(x?.designDigest!==was&&ch.nonce)status()}).catch(e=>console.error('exact dev:',e))};
+const ch={nonce:null,registered:null,revision:null,before:null,told:null},bid=(async()=>{const fresh=()=>'web-js-'+crypto.getRandomValues(new Uint32Array(2)).join('');let i;try{i=sessionStorage.getItem('exact.dev.build')}catch{return fresh()}const t=typeof BroadcastChannel==='function'?new BroadcastChannel('exact.dev.build'):null;if(i&&t){const mine=i;if(await new Promise(done=>{t.onmessage=e=>{if(e.data==='taken:'+mine)done(true)};t.postMessage('who:'+mine);setTimeout(()=>done(false),60)}))i=null}i??=fresh();if(t){const own=i;t.onmessage=e=>{if(e.data==='who:'+own)t.postMessage('taken:'+own)}}try{sessionStorage.setItem('exact.dev.build',i)}catch{}return i})(),post=(n,b)=>fetch('/__dev/report',{method:'POST',body:JSON.stringify({nonce:n,...b})}),rep=async b=>{const{nonce:n,registered:r}=ch;if(!n||!(await r)||ch.nonce!==n||ch.registered!==r)return;await post(n,b).catch(()=>{})};
+const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,design:x?.designDigest??null,revision:ch.revision}},status=()=>{const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
+let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});
+const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why});x.modes.set(Object.entries(ch.before.mode))}}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast"});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   // The install pages (LLP 1030.003 D6a) and, from a loopback page on a Mac,
   // the local iOS build (D6b): this server's, since only it sees the real
   // peer (a forwarded request's is loopback).
   const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
   // The design server's wire (LLP 1121 D13), when the app has a design.
-  const tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true }) : null;
+  // A polled stream (Linux, the resident loop's relay) is told the design to run.
+  tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
     const access = gate.check(req);
     if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -229,9 +258,24 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     if (tamber && await tamber.handle(req, res, url, access)) return;
     if (await installer.handle(req, res, url, access)) return;
+    // The build channel (LLP 1122 D4): the page's stream gives it a nonce;
+    // reports come up by POST; a build with no stream here (the resident
+    // loop's devices, Linux) opens a polled one.
+    if (url.pathname === '/__dev/report' && req.method === 'POST') {
+      if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+      await serveReport(tamber.channel, req, res);
+      return;
+    }
+    if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {
+      if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+      serveCommands(tamber.channel, url, res);
+      return;
+    }
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify(error ? { error, reload: seq, revision: logicRevision } : { reload: seq, revision: logicRevision })}\n\n`);
+      const opened = tamber?.channel.open(frame => res.write(`data: ${JSON.stringify(frame)}\n\n`));
+      req.on('close', () => opened?.close());
+      res.write(`data: ${JSON.stringify({ ...(error ? { error } : {}), reload: seq, revision: logicRevision, ...(opened ? { nonce: opened.nonce } : {}) })}\n\n`);
       // The design the pages run, after value-only edits since the build.
       if (snapshot) res.write(`data: ${JSON.stringify(notice(snapshot))}\n\n`);
       clients.add(res);
@@ -325,11 +369,18 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       });
     }).catch(error => { resident = null; fail(error); });
   });
-  const forward = (req, res) => residentLoop().then((internal) => {
-    const out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });
-    out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
-    req.pipe(out);
-  }, (e) => { res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
+  const forward = (req, res) => {
+    // A device gone ends its forwarded stream too (the resident's relay
+    // stops), and one gone while the resident loop starts opens none.
+    let out = null, gone = false;
+    res.on('close', () => { gone = true; out?.destroy(); });
+    residentLoop().then((internal) => {
+      if (gone || res.destroyed) return;
+      out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });
+      out.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+      req.pipe(out);
+    }, (e) => { if (gone) return; res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
+  };
   const stop = async () => {
     for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.

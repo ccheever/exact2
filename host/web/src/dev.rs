@@ -232,13 +232,14 @@ impl Session {
         })?;
         let bake_ms = t.elapsed().as_secs_f64() * 1000.0;
         let structure = exact_runner::design::structure(&baked);
+        let shape = exact_runner::design::shape(&baked);
         let tokens = exact_runner::design::tokens(&baked);
         let live = design_only
             .then(|| {
                 let (published, from) = self.design.as_ref()?;
                 let batch = (*published == structure)
-                    .then(|| exact_runner::design::batch(&structure, from, &tokens))??;
-                let snapshot = exact_runner::design::snapshot(&structure, &tokens);
+                    .then(|| exact_runner::design::batch(&shape, from, &tokens))??;
+                let snapshot = exact_runner::design::snapshot(&shape, &tokens);
                 Some(Live { batch, snapshot })
             })
             .flatten();

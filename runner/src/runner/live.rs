@@ -11,7 +11,7 @@ pub enum LiveRefusal {
     /// The batch's base is not the design this build runs: it asks for a
     /// snapshot.
     Stale,
-    /// The batch is for another plan structure: a new plan is on its way.
+    /// The batch is for another design shape: a new plan is on its way.
     Structure,
     /// A token it names this plan cannot set (a role override, none such).
     Refused(String),
@@ -50,7 +50,7 @@ impl<D: DataSource> Runner<D> {
                 "a release build takes no live batch".into(),
             ));
         }
-        if edit.structure != design::structure(&self.plan) {
+        if edit.structure != design::shape(&self.plan) {
             return Err(LiveRefusal::Structure);
         }
         let running = self.design();

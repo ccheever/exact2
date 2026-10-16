@@ -459,6 +459,13 @@ names no take; `:focus-within` remains out.
   hydration, route payloads and cache policies are on the doing-list (the
   entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
+  **Moved, one form (Charlie, 2026-10-15, waiver; LLP 1069.010.000 stage 2):**
+  a document the person chose, the object itself, kept in the platform's
+  bounded recents the person can clear from outside the app, under the
+  `doc.keep` grant, on macOS, Linux in a desktop session and the web (not
+  iOS). Unblocks document apps reopening their documents after a relaunch.
+  Every other durable grant stays refused, and so does keeping what a route
+  or the app reached rather than what the person chose.
 - A hardened-runtime exception on the app's own executable (Charlie, 2026-10-15):
   `runtime.*` grants name helper executables only (LLP 1069.008 D9), until the
   main executable has a consumer. The likely first, an in-process wasmtime loader

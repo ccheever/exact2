@@ -533,6 +533,7 @@ pub(super) fn env_parts(p: &mut Parser<'_, '_>) -> Result<(EnvTerm, Option<Strin
     let term = match env::term(&format!("env({})", words.join(" ")))? {
         Dimension::Env(edge, _) => EnvTerm::Inset(edge),
         Dimension::Segment(var, x, y, _) => EnvTerm::Segment(var, x, y),
+        Dimension::Region(region, edge, _) => EnvTerm::Region(region, edge),
         _ => return Err(Fail::Why(refusal::NOT_A_LENGTH)),
     };
     let fallback = match p.next() {

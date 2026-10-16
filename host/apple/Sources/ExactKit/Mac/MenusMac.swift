@@ -142,8 +142,10 @@ final class MenuHost: NSObject {
     var presentedConfirmation: Confirmation? { entries.last?.confirmation }
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.popover === node && $0.menu == nil } }
     /// Input inheritance follows the authored tree after top-layer reparenting.
-    func parent(of view: NSView) -> NSView? {
-        entries.first(where: { $0.popover === view && $0.menu == nil })?.parent ?? view.superview
+    func parent(of view: NSView) -> NSView? { authoredParent(of: view) ?? view.superview }
+    /// An open popover's authored parent, nil for any other view.
+    func authoredParent(of view: NSView) -> NSView? {
+        entries.first(where: { $0.popover === view && $0.menu == nil })?.parent
     }
     func contains(_ ancestor: NSView, _ view: NSView) -> Bool {
         var next: NSView? = view

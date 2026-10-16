@@ -7,6 +7,10 @@ use super::{Batch, Host, Timed};
 use exact_kernel::Env;
 use exact_runner::DataSource;
 
+#[cfg(test)]
+#[path = "regions_tests.rs"]
+mod regions_tests;
+
 impl<D: DataSource> Host<D> {
     /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
     /// rotation): the kernel's environment is set, every node whose style
@@ -20,6 +24,23 @@ impl<D: DataSource> Host<D> {
             .env()
             .with_insets(top, right, bottom, left);
         self.set_environment(env)
+    }
+
+    /// The layout regions' insets (LLP 1123 D10), five regions of four
+    /// edges each, top right bottom left, in [`exact_kernel::style::Region`]'s
+    /// order; `None`: every region is the safe area. As for the insets, every
+    /// node whose style reads the environment is re-sent and laid out again.
+    pub fn set_regions(&mut self, regions: Option<[[f32; 4]; 5]>) -> String {
+        let env = self.runner.kernel().env().with_regions(regions);
+        self.set_environment(env)
+    }
+
+    /// The layout regions from the ABI's flat list (`exact_regions`): twenty
+    /// values, region by region, each top right bottom left; anything else
+    /// is none, when every region is the safe area.
+    pub fn regions_from(insets: &[f32]) -> Option<[[f32; 4]; 5]> {
+        (insets.len() == 20)
+            .then(|| std::array::from_fn(|r| std::array::from_fn(|e| insets[r * 4 + e])))
     }
 
     /// The window's own size, whatever is presented in it (LLP 1075.003

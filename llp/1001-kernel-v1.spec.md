@@ -953,7 +953,12 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   reads an inset (`uses_env`) and says whether any did, so a host lays out only
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
-  `tests/env.rs`.
+  `tests/env.rs`. The layout regions (LLP 1123 D10) are a fifth family of the
+  same kind, Exact's own: `env(-exact-<region>-inset-<edge>)` for the platform's
+  margins, readable width and corner-adapted safe area (wire kind 25, the `Env`'s
+  `regions`). A deviation, declared: a host that reports none (the web, Linux,
+  Windows, Android, the terminal) resolves each to its safe-area inset, where a
+  platform with margins would give more. `tests/regions.rs`.
 - **Comparisons** (2026-10-07; approved by Charlie 2026-10-06).
   Dimension rows accept `calc()`, `min()`, `max()` and `clamp()` over absolute
   lengths, `ch`/`lh`, percentages, viewport units, safe-area insets and viewport

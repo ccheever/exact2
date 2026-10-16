@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.1`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.2`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.1"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.2"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -20,12 +20,21 @@ on macOS and Linux.
   - the tool's files;
   - the long poll's `wait`;
   - the reply fields marked *1.1* below.
+- `tamber/1.2` (LLP 1121 stage 4, with LLP 1122 D4) added:
+  - `class` judged by the edit's whole closure, and `synthetic` on `propose` and transactions;
+  - `hello`'s `live` and `builds`;
+  - `pin` and `preview`, and `{client}` on the subscription and the long poll;
+  - the `builds`, `build-status`, `unsupported` and `selected` events;
+  - the live table's batch and snapshot frames, and the dev loop's endpoints (`/__dev/design`,
+    `/__dev/report`, `/__dev/hello`, `/__dev/commands`);
+  - the items marked *1.2* below.
 
 ## Where it runs
 
 - **In the dev loop.** Both dev loops (`host/web/dev.mjs`, `host/web-js/dev.mjs`) mount the server
   at their own origin when the app has a design. The JS loop's resident `--serve-as` producer
-  mounts none.
+  mounts none: it relays the main loop's batches and commands to its devices (see the build
+  channel).
 - **Alone.** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]` runs it with no app running.
   It binds loopback unless `--lan`, and a client reaching it over the LAN still can't get the token.
 - **One writer per project.** The design process holds `.exact/tamber.lock`. When a second server
@@ -107,12 +116,12 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 
 **`hello`** answers:
 - `protocol` and `format`;
-- `builds`: the connected development builds, each with an id. This is empty until LLP 1121
-  stage 4's build channel;
+- `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
+  capabilities, plan, design, status, pin}` (see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
-- `live`: true when a dev loop serves the wire, whose running builds take a value-only edit in
+- `live` (*1.2*): true when a dev loop serves the wire, whose running builds take a value-only edit in
   place, with no reload (LLP 1121 stage 4; see [The live table](#the-live-table-llp-1121-stage-4)).
   False from a server no dev loop runs.
 
@@ -187,7 +196,7 @@ design.
   - the component-param operations (`set-param`, `unset-param`; stage 7);
   - state parts (`set-state`; stage 8);
   - `set-row` (LLP 1122 T5);
-  - `preview` (stage 4, as the build channel's `pin`).
+  - `preview` as an operation (it is a request instead: see the build channel).
 
 ### `propose`
 
@@ -202,8 +211,8 @@ design.
   `rebuild` for structure, a role override (hosts take role tables at boot), a synthetic token
   gained, lost or left unfoldable, a profile colour, or an unknown closure (the app's build
   stops before its design). A `live` edit reaches running development builds as a batch, with
-  no reload (see [The live table](#the-live-table-llp-1121-stage-4)); a `rebuild` one reloads;
-- `synthetic: [{expr, values}]`: each synthetic token whose value the edit changes, its new
+  no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
+- `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
 - `files`: the digests it planned against.
 
@@ -373,13 +382,18 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `proposal` | the held proposal: `proposal`, `client`, `diff`, `changed`, `class`, `expires`, `ops`, `replaces?`, `review?` |
 | `proposal-dropped` | `proposal`, `client` (null when it `expired`, went `stale` or was one `too many held`), `reason`: `accepted`, `dropped`, `replaced` (with `replacedBy`), `stale`, `expired` or `too many held` |
 | `down` | `message`: the design server stopped or never started |
+| `builds` | `builds`: the registered builds, as `hello` lists them, after one registers, goes, or its pins change |
+| `build-status` | `build`: one build, after its `status` report |
+| `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
+| `selected` | `build`, `selected` (LLP 1122 D5; its sender is T2b's) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
   first, as its own event.
-- **`POST /__tamber/subscribe`** opens with `{event: "subscribed", seq, epoch, files, proposals}`,
-  then sends one `data:` line per later event. It replays nothing kept. Catching up is the long
-  poll's job.
-- **`POST /__tamber/events`** `{after, epoch?, wait?}` answers `{events, seq, epoch, missed, files,
+- **`POST /__tamber/subscribe`** opens with `{event: "subscribed", seq, epoch, files, proposals,
+  builds}`, then sends one `data:` line per later event. It replays nothing kept. Catching up is
+  the long poll's job. Its body may be `{client}` (*1.2*), which makes that client present while
+  it is open (see the build channel's ownership).
+- **`POST /__tamber/events`** `{after, epoch?, wait?, client?}` answers `{events, seq, epoch, missed, files,
   proposals}`:
   - with the events after `after`, once there is one, or after 25 s with none;
   - at once with `wait: false` (*1.1*), for a client's first ask.
@@ -394,7 +408,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
   event among them. Once those are seen it answers 503, never an empty answer that would be
   asked again at once (*1.1*).
 
-## The live table (LLP 1121 stage 4)
+## The live table (LLP 1121 stage 4, *1.2*)
 
 A write reaches every running development build at once. Release builds take none of this.
 
@@ -404,12 +418,16 @@ A write reaches every running development build at once. Release builds take non
   same case. The plan file is still written, for a host that watches the file instead of the
   stream.
   - **The structure** is the plan without its design values: every `theme` row's `value` and
-    every slice's, except a role override's or a profile colour's, which hosts take at boot.
+    every slice's, except a role override's or a profile colour's, which hosts take at boot. The
+    dev loop compares it; it does not go on the wire.
   - **Anything else** still publishes a plan and reloads: a Contract edit, a token added, gone or
     starting to vary, a role override's value, a synthetic token gained or lost.
 - **The batch** is an event on the dev stream the builds already hold (`/__dev`; the JS target's
   `/__dev/page`): `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
   slices}]}`.
+  - `structure` is the digest of the design's **shape** (`design::shape`): the axes, and each
+    token's name, role, role override value and slice count. The JS target's build and a wasm or
+    native build of the same sources share it, though their plans differ.
   - `value` is the default tuple's wire text (a colour as CSS text), and `slices` one text per full
     app tuple where the token varies. A synthetic token's name is its expression, and its new value
     rides along.
@@ -419,13 +437,91 @@ A write reaches every running development build at once. Release builds take non
   commit with no layout for colours. A build on another design answers stale and fetches the
   **snapshot**: `GET /__dev/design` answers `{kind: "tamber-snapshot", structure, base: null,
   design, tokens}` with every token, or 204 when no value-only edit came after the published plan.
-  A build applies a snapshot when its structure is the plan's it runs.
+  A build applies a batch or a snapshot only when its `structure` equals the shape of the plan it
+  runs (`design::shape`); on another it answers `structure`, as a new plan is on its way.
 - **A notice** is a batch with no tokens whose `base` and `design` are the current design. A build
   on that design applies nothing; one on another fetches the snapshot. The stream sends one on
   connect, after value-only edits, and in place of a batch too large for a frame (32 KiB). A
   native build fetches the snapshot after each plan it applies, and Linux polls it with its plan.
+- **One source.** The loop that mounts the server makes every batch and snapshot. A build on a
+  polled stream (Linux, and the JS loop's resident producer, which relays them to its devices)
+  takes them from `/__dev/commands`; the resident producer makes none of its own.
 - **A full wide colour table** refuses a colour with a journal line. The row keeps its value, and
-  the build reports it `unsupported` (the build channel, commit 5).
+  the build reports it `unsupported` (see the build channel).
+
+## The build channel (LLP 1122 D4, *1.2*)
+
+The dev loop's running development builds register with it, report up and take commands down.
+The tool drives no input into an app; a command changes only what `prefer` would.
+
+- **Registration.** A build's dev stream hello (`/__dev`; the JS target's `/__dev/page`) carries
+  a `nonce` when the loop has a design. The build answers with one `POST /__dev/report`:
+  `{nonce, kind: "register", id, host, capabilities, plan, design}`.
+  - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
+    not shared with a duplicated tab; a process's), so its pin is replayed when it registers
+    again. Every registration is told the pin the server holds for it, or none.
+  - `plan` is the generation the build runs (the envelope's identity; the JS target, which runs
+    no plan, sends none), and `design` its design digest.
+  - The nonce is 128 random bits. A stream is one build: another `id` registered on it replaces
+    the build it was, and that build's pin.
+  - **Caps.** At most 256 streams are open, stream and polled together, so at most 256 builds
+    are connected; polled streams at most 64, the oldest giving way to a new one. Past the cap a
+    stream's hello has no nonce, so its build can't register, and `GET /__dev/hello` is 503.
+    Builds a registration names are kept, at most 256, the oldest disconnected forgotten first.
+  - A report whose nonce is no open stream's is refused (403): the dev loop takes other POSTs
+    with no token. A report before a registration is 409. A report's body is at most 64 KiB,
+    read within 10 s. Its fields are typed and bounded (strings strings, `mode` an object of
+    strings, numbers numbers); any other is 400, and one the loop fails to handle 500.
+  - A build with no stream opens a polled one: `GET /__dev/hello` gives a nonce, and `GET
+    /__dev/commands?nonce=<n>&ack=<k>` answers `{"seq": s, "frames": [...]}`. Linux does this,
+    and so does the JS loop's resident `--serve-as` producer, which relays the frames onto its
+    devices' streams; their reports go to the main loop directly.
+    - **Acknowledged.** `k` is the `seq` of the last answer the client read whole: 0 at first,
+      and a missing `ack` is 0. The loop keeps its last answer until a poll acknowledges it. A
+      poll whose `ack` is below that answer's `seq` gets it again (the same `seq` and frames), so
+      a response lost on the way loses no command; one that acknowledges it gets the next frames
+      under `seq + 1`. The first answer's `seq` is 1.
+    - An answer holds at most 32 KiB of frames (the rest wait for the next poll, and a batch
+      larger alone goes as its notice).
+    - **Bounded.** Only the latest `pin` waits in a stream's queue. Past 64 frames or 128 KiB
+      queued, the live-table frames waiting collapse into one notice of the latest design, and
+      the build fetches the snapshot.
+    - A nonce no stream holds is 404 with the body `null`: the stream is gone (the loop
+      restarted, or it went unpolled 5 seconds), and the build says hello again.
+- **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
+  - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
+    the facts that paint, the `plan` and `design` digests, and the pin `revision` it applied.
+    Sent on connect and on any change, the app's own `setScheme`, `setMode` and
+    `setRootFontSize` included (at most once a turn).
+  - `unsupported`: a command or batch it can't apply, by name (`what`).
+  - `selected`: LLP 1122 D5's; its route is here, its sender comes with T2b.
+- **Commands down**, each a frame whose `kind` the host dispatches before any generation:
+  - `pin` `{revision, pin}`: `pin` is `{scheme?: "light"|"dark", contrast?:
+    "more"|"less"|"no-preference", mode?: {axis: value}, rootFontSize?: px}`, the facts `prefer`
+    pins, or null to hand them back. Each pin replaces the whole set: a fact it doesn't name is
+    what the first pin replaced.
+  - `inspect`, `outline` and `hold` are reserved (T2b, stage 8). A host answers them
+    `unsupported`.
+- **`pin`** `{client, build?, pin}` (write scope, as the wire's POSTs are) sends one to a build, or
+  to every registered build without `build`. `preview` `{client, build, axis, value}` is the
+  same as pinning that build's mode for that axis. Answered `{builds, revision}`.
+  - **Ownership.** A pin is its client's while the client is present: it holds an open
+    subscription naming it, or a long poll naming it is open or was answered in the last 35
+    seconds (a client whose fetch reads a body whole holds the wire by the long poll). A pin from
+    a client that is not present is refused (409). When a client stops being present, its pins
+    are handed back on every build.
+  - Each is journaled with its client on the dev loop's output (LLP 1122 D4).
+- **On each host:**
+  - the web page and the JS target set the mode and the root font size as `prefer` does (the
+    root's size and `--exact-host-font-size`, which an app's percentage is of). A pinned scheme
+    is the system's, beneath the app's: a `:root { color-scheme }` rule over the page's `light
+    dark`, which the app's `setScheme` (the root's own style) overrides, and the system scheme
+    the runtimes read for `prefers-color-scheme`. They answer a contrast pin `unsupported`,
+    since a page can't override the browser's `prefers-contrast`;
+  - a mode a pin names that the build refuses leaves the modes from before the first pin, and is
+    reported `unsupported` (`pin.mode`);
+  - Apple and Linux pin what the agent's `prefer` pins, on every session, and set a held pin
+    again on a session or generation that boots under it.
 
 ## The design tool's files (*1.1*)
 
@@ -439,8 +535,6 @@ A write reaches every running development build at once. Release builds take non
 ## Not yet in the protocol
 
 - **LLP 1121 stage 4, with LLP 1122 D4:**
-  - the build channel (registration, the `status`, `unsupported` and `selected` reports, the
-    `pin` command, `builds` in `hello`);
   - scrub sessions;
   - `uses`.
 - **LLP 1121 stage 4's gate also names `resolve-on`.** LLP 1122 defers it to T2b, where a build's

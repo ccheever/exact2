@@ -352,7 +352,7 @@ impl Modes {
                 json(&exact_runner::design::digest(
                     &exact_runner::design::tokens(plan)
                 )),
-                json(&exact_runner::design::structure(plan))
+                json(&exact_runner::design::shape(plan))
             ),
             false => String::new(),
         };
@@ -481,6 +481,7 @@ pub fn design(plan: &Plan) -> serde_json::Value {
         .collect();
     serde_json::json!({
         "structure": design::structure(plan),
+        "shape": design::shape(plan),
         "digest": design::digest(&tokens),
         "tokens": rows,
     })

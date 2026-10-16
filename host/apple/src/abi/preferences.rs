@@ -50,6 +50,19 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The design digest the running app runs (its plan's, or the live
+    /// table's applied since), UTF-8 in the output buffer; empty before
+    /// boot. Not a batch: nothing changes.
+    pub fn design_digest(&mut self) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .map(|h| h.runner().design())
+            .unwrap_or_default()
+            .into_bytes();
+        self.output.len() as u32
+    }
+
     /// The user's display preferences changed or became known (LLP 1061
     /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark

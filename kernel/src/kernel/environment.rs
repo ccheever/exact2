@@ -2,8 +2,10 @@
 use super::*;
 
 impl Kernel {
-    /// The page's environment: what `env(safe-area-inset-*)` and
-    /// `env(viewport-segment-*)` lengths resolve to (LLP 1001 §2; LLP 1078 D3).
+    /// The page's environment: what `env(safe-area-inset-*)`,
+    /// `env(viewport-segment-*)` and the layout regions'
+    /// `env(-exact-<region>-inset-*)` lengths resolve to (LLP 1001 §2; LLP
+    /// 1078 D3; LLP 1123 D10).
     pub fn env(&self) -> Env {
         self.arena.env().clone()
     }
@@ -14,8 +16,9 @@ impl Kernel {
         self.provisional_layouts
     }
 
-    /// Set the insets and control text styles of the environment — the safe-area insets the host
-    /// reports with the viewport (a rotation changes them); the segment grid
+    /// Set the insets, the layout regions (LLP 1123 D10) and control text styles of the
+    /// environment — the safe-area insets and regions the host reports with the viewport (a
+    /// rotation changes them); the segment grid
     /// `env` carries is ignored, [`Kernel::set_segments`] being its twin.
     /// Every node whose style holds an `env()` length gets its engine style
     /// re-derived and is marked dirty; returns whether any did (a layout is
@@ -35,6 +38,7 @@ impl Kernel {
             control_text_styles: env.control_text_styles,
             button_fonts: env.button_fonts,
             screen: env.screen,
+            regions: env.regions,
             ..next
         };
         self.replace_env(next)

@@ -4,11 +4,11 @@
 //!
 //! A **batch** carries the tokens a value-only edit changed, each as wire
 //! text (colours as CSS text, as LLP 1095's wire carries them) with its
-//! slice per app tuple where it varies, the plan's structure digest, the
-//! design digest it applies to (`base`) and the new one. A build applies it
-//! only when `base` is the design it runs; otherwise it fetches the
-//! **snapshot** (`/__dev/design`): every token, no base, applied when the
-//! structure is its plan's. A **notice** (a batch of no tokens, [`notice`])
+//! slice per app tuple where it varies, the design's shape digest
+//! ([`shape`]), the design digest it applies to (`base`) and the new one. A
+//! build applies it only when the shape is its plan's and `base` is the
+//! design it runs; otherwise it fetches the **snapshot** (`/__dev/design`):
+//! every token, no base, applied when the shape is its plan's. A **notice** (a batch of no tokens, [`notice`])
 //! tells a build that connects, or missed a batch, which design to run.
 //! Each process interns what it parses itself, so no wide colour id
 //! crosses.
@@ -28,10 +28,12 @@ pub struct Token {
     pub slices: Vec<String>,
 }
 
-/// A batch or a snapshot.
+/// A batch or a snapshot. Its `structure` is the design's shape
+/// ([`shape`]), which every build compiled from the same sources has, whatever
+/// its target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edit {
-    /// The plan structure it is for ([`structure`]).
+    /// The design shape it is for ([`shape`]).
     pub structure: String,
     /// The design digest it applies to; `None` for a snapshot.
     pub base: Option<String>,
@@ -52,6 +54,36 @@ fn hex(bytes: &[u8]) -> String {
 /// plans that differ only in design values.
 pub fn structure(plan: &Plan) -> String {
     hex(&plan.structure())
+}
+
+/// The digest of `plan`'s design shape: its axes, and each theme row's name,
+/// role (with a role override's value) and slice count. A batch is for one
+/// shape: the JS target's build and a wasm or native build of the same
+/// sources share it, though their plans differ (LLP 1122 D4's one stream
+/// for every copy).
+pub fn shape(plan: &Plan) -> String {
+    let mut bytes = Vec::new();
+    let mut text = |t: &str| {
+        bytes.extend_from_slice(&(t.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(t.as_bytes());
+    };
+    for a in &plan.axes {
+        text(plan.str(a.name));
+        text(plan.str(a.values));
+    }
+    text("");
+    for row in &plan.theme {
+        let role = plan.str(row.role);
+        text(plan.str(row.name));
+        text(role);
+        text(if role.is_empty() {
+            ""
+        } else {
+            plan.str(row.value)
+        });
+        text(&row.slices.len.to_string());
+    }
+    hex(&bytes)
 }
 
 /// `plan`'s design values, one per theme row, in table order.

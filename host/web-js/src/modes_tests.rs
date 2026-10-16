@@ -336,7 +336,7 @@ fn a_development_build_makes_every_token_a_property() {
     );
     // The page knows the design it was built with: a batch's base.
     let digest = exact_runner::design::digest(&exact_runner::design::tokens(&plan));
-    let structure = exact_runner::design::structure(&plan);
+    let structure = exact_runner::design::shape(&plan);
     assert!(
         dev.js.contains(&format!(",\"{digest}\",\"{structure}\");")),
         "{}",

@@ -11,29 +11,28 @@ impl<D: DataSource> Host<D> {
     /// A live design batch or snapshot frame from the dev server (LLP 1121
     /// D13, stage 4), set in place in one commit: `None` when applied or
     /// already this build's design, else why not (`stale`: fetch the
-    /// snapshot).
-    pub fn apply_live(&mut self, frame: &str) -> Option<String> {
+    /// snapshot); and whether the wide colour table refused a colour, which
+    /// the presenter reports `unsupported` (LLP 1122 D4).
+    pub fn apply_live(&mut self, frame: &str) -> (Option<String>, bool) {
         let Some(edit) = exact_runner::design::Edit::parse(frame) else {
-            return Some("live: not a tamber batch or snapshot".into());
+            return (Some("live: not a tamber batch or snapshot".into()), false);
         };
         match self.runner.apply_live(&edit) {
-            Ok(applied) => {
-                if applied.full {
-                    eprintln!(
-                        "exact url: live: a colour was refused (the wide colour table is full)"
-                    );
-                }
+            Ok(applied) => (
                 self.commit(
                     &[Timed {
                         at_ms: self.now_ms,
                         receipt: applied.receipt,
                     }],
                     None,
-                )
+                ),
+                applied.full,
+            ),
+            Err(exact_runner::LiveRefusal::Stale) => (Some("stale".into()), false),
+            Err(exact_runner::LiveRefusal::Structure) => (Some("structure".into()), false),
+            Err(exact_runner::LiveRefusal::Refused(why)) => {
+                (Some(format!("refused: {why}")), false)
             }
-            Err(exact_runner::LiveRefusal::Stale) => Some("stale".into()),
-            Err(exact_runner::LiveRefusal::Structure) => Some("structure".into()),
-            Err(exact_runner::LiveRefusal::Refused(why)) => Some(format!("refused: {why}")),
         }
     }
 

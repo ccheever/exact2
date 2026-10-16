@@ -760,11 +760,11 @@ function apply(batch) {
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
         // A capability an action called (LLP 1005 §3). `setScheme` is the
-        // document's colour scheme — what `prefers-color-scheme` would be.
-        // `system` is CSS's `light dark`: the page supports both and the
-        // user's preference decides, which is what "follow the system" is on
-        // the web. `light`/`dark` are the property's own values.
-        if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); else if (op.name === "setRootFontSize") appRootFontSize(op.args?.[0], log); // LLP 1077 D14; LLP 1069.000 D3: the runner laid out at the size, the document's root takes it
+        // document's colour scheme, on the root's own style. `system` removes
+        // it: the page's sheet says `light dark` (index.html), or a dev pin's
+        // rule its scheme, the system's beneath the app's (LLP 1122 D4).
+        // `light`/`dark` are the property's own values.
+        if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); else if (op.name === "setRootFontSize") appRootFontSize(op.args?.[0], log); // LLP 1077 D14; LLP 1069.000 D3: the runner laid out at the size, the document's root takes it
         else if (op.name === "focus" || op.name === "selectText" || op.name === "removeAllRanges" || op.name === "setSelectionRange" || op.name === "setRangeText" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
         else if (["showPopover", "hidePopover", "togglePopover"].includes(op.name)) focusCommands.push({ name: op.name, args: op.args });
         else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close" && op.args?.[0] == null) window.close(); /* studio diary R17 */ else if (op.name === "showModal" || op.name === "close") { const id = op.args?.[0], el = [...views.values()].find(el => el.id === id), close = op.name === "close"; if (el instanceof HTMLDialogElement) { if (close) el.close(); else if (!el.open) el.showModal(); else log(`showModal "${id}" ignored: dialog is already open`); } else if (el?.popover != null && el.getAttribute("role") === "alertdialog") { if (close) el.hidePopover(); else if (!el.matches(":popover-open")) el.showPopover(); } else if (!close) log(`showModal "${id}" refused: no dialog or alertdialog popover has that id`); } // `showModal(id)`, `close(id)` from an action: the dialog's own, or an alertdialog popover's (LLP 1101.001 P5, LLP 1115 D6), as host/web-js/commands.js `modal`
@@ -897,7 +897,7 @@ function applyBatch(batch) {
   timelinesMoved = false;
   flowBatch(batch);
   return { timers, batch };
-  } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
+  } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); globalThis.exact.committed?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
 }
 let sending = 0; // batches being applied: a dispatch run while another's applies (a focus it moved) is one deeper
 function send(len) { sending++; try { return applyBatch(JSON.parse(readOut(len))).timers; } finally { sending--; } }

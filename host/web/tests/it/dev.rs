@@ -596,7 +596,7 @@ fn a_running_web_build_applies_a_batch_in_place() {
     };
     let a = plan("tamber t\n\ntheme\n  ink = #111111\n  page = #ffffff\n");
     let b = plan("tamber t\n\ntheme\n  ink = #ff0000\n  page = #ffffff\n");
-    let structure = design::structure(&a);
+    let structure = design::shape(&a);
     let batch = design::batch(&structure, &design::tokens(&a), &design::tokens(&b)).unwrap();
     let (mut host, _) = Host::boot(&a.encode(), NoData, Default::default(), "/").unwrap();
     let bump = {

@@ -57,6 +57,14 @@ impl<D: DataSource> Bridge<D> {
             .map_or_else(not_booted, |h| h.set_insets(top, right, bottom, left));
         self.emit(out)
     }
+    /// The layout regions' insets changed (LLP 1123 D10): twenty values,
+    /// or none, when every region is the safe area.
+    pub fn regions(&mut self, insets: &[f32]) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.set_regions(crate::Host::<D>::regions_from(insets))
+        });
+        self.emit(out)
+    }
 }
 
 /// Invalid environment answers refuse the candidate rather than silently inheriting the page.

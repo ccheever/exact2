@@ -49,6 +49,12 @@
 //     files as `sources: [{name, text}]`), imported as `bun exact.mjs tamber
 //     import` does and held with its `review`. Astryx keeps
 //     its CLI: resolving its package needs a Bun install.
+// - The build channel (LLP 1122 D4, scripts/tamber-builds.mjs): `hello`
+//   lists the dev loop's registered builds; `pin` `{client, build?, pin}`
+//   and `preview` `{client, build, axis, value}` send one a command, the
+//   client's while a subscription names it (`subscribe` `{client}`); the
+//   builds' reports are events (`builds`, `build-status`, `unsupported`,
+//   `selected`).
 // - `GET /__tamber/tool/…`: the design tool's built files (`TOOL_DIST`), to
 //   a local request only, its pages' base set to that path.
 // - Every POST carries the token as `x-exact-tamber-token`, never in a URL.
@@ -64,6 +70,7 @@ import { existsSync, readFileSync, realpathSync, statSync, watch } from 'node:fs
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
+import { buildChannel } from './tamber-builds.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 
@@ -72,7 +79,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import']);
+const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import', 'pin', 'preview']);
 /** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
  * serves it from. */
 export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
@@ -155,6 +162,27 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     for (const res of subscribers) res.write(line);
     for (const poll of polls) poll();
   };
+  // The dev loop's running builds (LLP 1122 D4): registered on its streams,
+  // their reports told to every client, their pins each client's own.
+  const channel = buildChannel({ send: e => send({ ...e, seq: ++seq, epoch }), log });
+  // Which clients are present (LLP 1122 D4's ownership): a client holding a
+  // subscription that names it, or a long poll open or answered within the
+  // last 35 s (the poll's 25 s and some), as a client whose fetch reads a
+  // body whole holds the wire. A client no longer present loses its pins on
+  // every build. The same timer expires a polled build that stopped polling.
+  const presence = new Map(); // client -> { open, answered }
+  const PRESENT_MS = 35_000;
+  const present = client => { const p = presence.get(client); return !!p && (p.open > 0 || Date.now() - p.answered < PRESENT_MS); };
+  const attend = (client, delta, answered = false) => {
+    if (!client) return;
+    const p = presence.get(client) ?? { open: 0, answered: 0 };
+    p.open += delta;
+    if (answered) p.answered = Date.now();
+    presence.set(client, p);
+  };
+  const absent = () => { channel.sweep(); for (const client of channel.owners()) if (!present(client)) { channel.clear(client); presence.delete(client); } };
+  const absence = setInterval(absent, 5_000);
+  absence.unref?.();
   /** Announce `files` (path → digest): the paths whose digest moved, and
    * any `gone`. */
   const publish = (files, rest, gone = []) => {
@@ -307,20 +335,35 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
-    if (url.pathname === '/__tamber/subscribe') {
-      if (down) { json(res, 503, { error: { message: down } }); return true; }
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held() })}\n\n`);
-      subscribers.add(res);
-      res.on('close', () => subscribers.delete(res));
-      return true;
-    }
     const text = await body(req);
     if (text == null) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     const request = parse(text);
+    if (url.pathname === '/__tamber/subscribe') {
+      if (down) { json(res, 503, { error: { message: down } }); return true; }
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+      res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() })}\n\n`);
+      subscribers.add(res);
+      // `{client}`: its commands live while it is present (LLP 1122 D4).
+      const client = typeof request?.client === 'string' && request.client ? request.client : null;
+      attend(client, 1);
+      res.on('close', () => {
+        subscribers.delete(res);
+        // A subscription counts while open; a long poll for 35 s after.
+        attend(client, -1);
+        if (client && !present(client)) channel.clear(client);
+      });
+      return true;
+    }
     if (url.pathname === '/__tamber/events') {
       const after = request?.after ?? seq;
       if (!Number.isSafeInteger(after) || after < 0) { json(res, 400, { error: { message: '`after` is a sequence number' } }); return true; }
+      // `{client}`: present while this poll is open, and for 35 s after.
+      const client = typeof request?.client === 'string' && request.client ? request.client : null;
+      attend(client, 1);
+      try { return await longPoll(); } finally { attend(client, -1, true); }
+    }
+    async function longPoll() {
+      const after = request?.after ?? seq;
       const answer = () => {
         const since = events.filter(e => e.seq > after);
         // Fewer kept than asked for, or a number from before this server
@@ -365,6 +408,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** One request: the server's, or one of the wire's own (`commit`, a held
    * proposal's `accept` and `drop`). */
   async function dispatch(request) {
+    // Presence is also checked as requests come, not only every 5 s.
+    absent();
     if (WRITES.has(request.method)) return needsClient(request) ?? write(request);
     if (request.method === 'commit') {
       const refused = needsClient(request);
@@ -389,7 +434,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // tell its own from another's and a client can tell a restart.
     // `live`: a dev loop serves it, whose running builds take a value-only
     // edit in place, no reload (LLP 1121 stage 4's live table).
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live } } : r));
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list() } } : r));
+    if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
     if (request.method === 'drop') {
@@ -400,6 +446,22 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return { ok: { dropped: request.proposal } };
     }
     return ask(request);
+  }
+
+  /** A pin on one build or every build (LLP 1122 D4), its client's while
+   * the client holds a subscription naming it. `preview` `{build, axis,
+   * value}` pins that build's mode for that axis. */
+  function pin(request) {
+    if (!present(request.client)) return { status: 409, error: { message: `${request.method}: \`${request.client}\` is not present: hold a long poll or a subscription that names it first (\`{client}\`); a command lives while its client is present` } };
+    const build = request.build ?? null;
+    if (build !== null && typeof build !== 'string') return { status: 400, error: { message: '`build` is a registered build\'s id' } };
+    let facts = request.pin;
+    if (request.method === 'preview') {
+      if (typeof build !== 'string' || typeof request.axis !== 'string' || typeof request.value !== 'string') return { status: 400, error: { message: 'preview names its `build`, `axis` and `value`' } };
+      facts = { mode: { [request.axis]: request.value } };
+    }
+    const done = channel.pin(request.client, build, facts === undefined ? null : facts);
+    return done.error ? { status: 400, error: { message: done.error } } : { ok: done };
   }
 
   /** A write, announced from the server's reply, even one that comes after
@@ -630,6 +692,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   function close() {
     clearTimeout(timer);
+    clearInterval(absence);
     clearInterval(expiry);
     for (const w of watchers.values()) w.watcher.close();
     for (const res of subscribers) res.end();
@@ -647,7 +710,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     });
   }
 
-  return { handle, close, ready, get token() { return token; }, get down() { return down; } };
+  return { handle, close, ready, channel, get token() { return token; }, get down() { return down; } };
 }
 
 /** The app directory an argument names (a directory, or a file in it). */

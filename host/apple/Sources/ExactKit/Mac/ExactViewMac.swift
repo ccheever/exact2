@@ -297,15 +297,24 @@ public final class ExactView: NSView {
 
     /// The insets the kernel gets: under `viewport-fit=cover` the view's own
     /// safe area (the titlebar, when the window's content includes it);
-    /// zero otherwise.
+    /// zero otherwise. Then AppKit's layout regions (LLP 1123 D10).
     public func syncInsets() {
         if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         let next = viewportFit == "cover" ? safeAreaInsets : NSEdgeInsetsZero
         let prev = session.presenter.insets
-        guard next.top != prev.top || next.left != prev.left || next.bottom != prev.bottom || next.right != prev.right else { return }
-        session.presenter.insets = next
-        session.insets(top: next.top, right: next.right, bottom: next.bottom, left: next.left)
+        if next.top != prev.top || next.left != prev.left || next.bottom != prev.bottom || next.right != prev.right {
+            session.presenter.insets = next
+            session.insets(top: next.top, right: next.right, bottom: next.bottom, left: next.left)
+        }
+        guard session.booted else { return }
+        let regions = LayoutRegionsMac.insets(of: self)
+        guard !regionsTold || regions != session.presenter.regions else { return }
+        regionsTold = true
+        session.presenter.regions = regions
+        session.regions(regions)
     }
+    /// Whether the runner has the layout regions (LLP 1123 D10).
+    private var regionsTold = false
 
     /// After a restart from a new plan: the new runner knows nothing of the
     /// insets — hand them over again, and fit the root. AppKit has no fold
@@ -314,6 +323,7 @@ public final class ExactView: NSView {
     func rebooted() {
         let i = session.presenter.insets
         if i.top != 0 || i.left != 0 || i.bottom != 0 || i.right != 0 { session.insets(top: i.top, right: i.right, bottom: i.bottom, left: i.left) }
+        regionsTold = false  // the next fit tells the new runner
         session.segments(session.presenter.fold)
         viewDidChangeEffectiveAppearance()
         needsLayout = true
@@ -324,6 +334,8 @@ public final class ExactView: NSView {
         super.viewDidChangeEffectiveAppearance()
         session.controlTextChanged()
         session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        // The app's `setScheme` arrives here, as the system's does; iOS's, through `tellPreferences` (LLP 1122 D4).
+        session.app.scheduleStatus()
     }
 }
 

@@ -206,6 +206,7 @@ extension DialogHost {
         var over = front
         while let top = over.attachedSheet { over = top }
         let sheet = DialogSheet(over: over, size: entry.frame.size, chrome: entry.route ? RouteChrome() : nil)
+        sheet.content.pointerTracking = { [weak presenter] in presenter?.trackPointer($0) }
         entry.sheet = sheet
         if entry.route { adopt(entry, sheet) }
         guard let block = block(of: entry) else { return }
