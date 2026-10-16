@@ -964,6 +964,7 @@ test('engine test sources are not bake inputs: editing one leaves the proof inpu
   const file = resolve(root, 'game/engine/tests/regression.rs');
   try {
     mkdirSync(app, {recursive:true}); mkdirSync(dirname(file), {recursive:true});
+    writeFileSync(resolve(root, 'game/engine/Cargo.toml'), '[package]\nname = "engine"\nversion = "0.1.0"\n');
     writeFileSync(file, 'before');
     const hash = () => {
       const h = buildInputHash('linux', 'target');
@@ -1133,11 +1134,13 @@ test('R15 macOS receipt includes modulemaps and extensionless compile inputs',as
   try {
     const file=resolve(dir,'host/apple/Sources/CExact/module.modulemap');mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'module CExact {}');
     mkdirSync(resolve(dir,'game/games/test'),{recursive:true});
+    mkdirSync(resolve(dir,'game/engine'),{recursive:true});
+    writeFileSync(resolve(dir,'game/engine/Cargo.toml'),'[package]\nname = "engine"\nversion = "0.1.0"\n');
     const receipt=resolve(dir,'artifacts/receipt.json');mkdirSync(dirname(receipt),{recursive:true});let builds=0;
     const inputs=()=>{const h=buildInputHash('macos','aarch64-apple-darwin');for(const p of proofInputFiles(dir,resolve(dir,'game/games/test')))h.update(p).update(readFileSync(resolve(dir,p)));return h.digest('hex');};
     const before=inputs();writeFileSync(file,'module CExact { header "exact.h" }');expect(inputs()).not.toBe(before);
     for(const name of ['Header']) { const before=inputs();writeFileSync(resolve(dirname(file),name),'tracked compile input');expect(inputs()).not.toBe(before); }
-    // Outside `game/` every tracked file counts; under the add-on, tests, examples, proofs and pins describe proofs.
+    // Outside `game/` every tracked file counts; under the add-on, crate tests, examples, proofs and pins describe proofs.
     for(const path of ['host/apple/Sources/CExact/AnotherHeader']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'tracked compile input');expect(inputs()).not.toBe(before); }
     for(const path of ['QUEUE.md','host/web/glue.test.mjs','host/apple/Sources/CExact/pins.json','game/games/test/tests/data','game/games/test/proof.mjs','game/engine/tests/a.rs']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'not a bake input');expect(inputs()).toBe(before); }
     await ensureBuildReceipt({receipt,inputs:before,artifact:()=> 'binary',build:async()=>{builds++;}});

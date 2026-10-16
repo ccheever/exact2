@@ -361,8 +361,9 @@ Summaries and every pin update record two digests: `inputs` identifies the exact
 execution-input tree, including baked assets and `.baked-assets.json`;
 `sourceInputs` identifies portable authored sources. The latter omits the bake's
 manifest-owned outputs and the manifest itself, and names app and SDK files
-relative to their own roots. Game `tests/` and `examples/` directories are excluded
-whether the app is inside or outside the SDK. Unowned assets remain authored,
+relative to their own roots. Rust crate `tests/` and `examples/` directories are
+excluded only when their parent contains `Cargo.toml`, inside or outside the SDK.
+Art and asset directories with those names remain inputs. Unowned assets remain authored,
 whatever their names or extensions. Machine-specific texture encodings and sound PCM can therefore
 share source provenance while retaining distinct execution identities. Repinning
 still refuses mixed execution trees within one transaction, even when their

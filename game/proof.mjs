@@ -348,9 +348,9 @@ export function facilityReport(replies) {
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
 /// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
 /// no bake reads a .mjs/.js outside its logic, data, gpu, render and asset folders.
-export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
-  const gameFile = file.startsWith(appPrefix) ? file.slice(appPrefix.length)
-    : file.startsWith('game/') ? file.slice('game/'.length) : null;
+export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`, root = resolve(import.meta.dir, '..')) {
+  const gamePrefix = file.startsWith(appPrefix) ? appPrefix : file.startsWith('game/') ? 'game/' : null;
+  const gameParts = gamePrefix === null ? [] : file.slice(gamePrefix.length).split('/').slice(0, -1);
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
     || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
@@ -362,7 +362,8 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || ['node_modules/', 'target/', '.shells/', 'dist/', 'dist.previous/', 'dist-windows/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
     || /^(host\/web\/dist(?:\.previous)?|host\/apple\/\.build|game\/render\/target)\//.test(file)
     || (file.startsWith('apps/') && !file.startsWith(appPrefix))
-    || (gameFile !== null && /(^|\/)(tests|examples)\//.test(gameFile));
+    || gameParts.some((part, i) => ['tests', 'examples'].includes(part)
+      && existsSync(resolve(root, gamePrefix, ...gameParts.slice(0, i), 'Cargo.toml')));
 }
 export function proofInputFiles(root, app, inventory) {
   const top = inventory ? {status:0, stdout:root} : spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
@@ -379,7 +380,7 @@ export function proofInputFiles(root, app, inventory) {
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
   const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
   return [...new Set(sources)].sort().filter(file =>
-    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
+    !proofInputExcluded(file, basename(app), prefix, repository) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }
 // Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
@@ -408,7 +409,7 @@ export function proofInputs(root, app, cachePath) {
   const sourceDirectories = dir => {
     if (!existsSync(dir) || directories.has(dir)) return;
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
-    if (proofInputExcluded(file + 'input.rs', basename(app), prefix)) return;
+    if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
     directories.add(dir);
     // The app root also contains the generated manifest. All its entry changes
     // require a rerun, as do entry changes inside the generated asset tree.

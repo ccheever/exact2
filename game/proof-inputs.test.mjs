@@ -107,6 +107,7 @@ test('the shared test helper is excluded from proof inputs and in-flight authore
   const dir = mkdtempSync(resolve(tmpdir(), 'proof-helper-')), app = resolve(dir, 'game/games/sample');
   const helper = 'game/tests/proof-helpers.mjs';
   try {
+    writeFixtureFile(dir, 'game/Cargo.toml', '[workspace]\n');
     writeFixtureFile(app, 'app.contract', 'plan');
     writeFixtureFile(dir, helper, 'test helper v1');
     const read = proofInputReader(dir, app), before = read();
@@ -234,6 +235,7 @@ function provenanceFixture(root, generated) {
   const app = resolve(root, 'game/games/sample');
   writeFixtureFile(root, 'game/engine/src/lib.rs', 'shared SDK');
   for (const [file, bytes] of Object.entries({
+    'logic/Cargo.toml':'[package]\nname = "sample-logic"\nversion = "0.1.0"\n',
     'logic/src/lib.rs':'pub fn value() {}', 'app.contract':'authored plan',
     'logic/tests/sim.rs':'#[test] fn simulation() {}', 'logic/examples/demo.rs':'fn main() {}',
     'art/crate.gltf':'authored model', 'art/hit.ogg':'authored sound',
@@ -268,6 +270,49 @@ test('portable authored provenance excludes owned texture and sound bytes, not u
     const moved = resolve(dir, 'external/renamed-game');
     cpSync(apps[1], moved, {recursive:true});
     expect(proofInputs(roots[1], moved).authored).toBe(snapshots[1].authored);
+    for (const app of [apps[1], moved]) {
+      const before = proofInputs(roots[1], app);
+      for (const file of ['logic/tests/sim.rs', 'logic/examples/demo.rs'])
+        writeFileSync(resolve(app, file), 'changed crate target');
+      const after = proofInputs(roots[1], app);
+      expect(after.authored).toBe(before.authored);
+      expect(after.all).toBe(before.all);
+    }
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('art in examples and tests directories changes both proof digests and invalidates receipts', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'proof-art-examples-')), root = resolve(dir, 'sdk');
+  try {
+    const internal = provenanceFixture(root, 'baked');
+    const external = resolve(dir, 'external/sample');
+    cpSync(internal, external, {recursive:true});
+    for (const app of [external, internal]) {
+      for (const folder of ['examples', 'tests']) {
+        const art = writeFixtureFile(app, `art/${folder}/coin.png`, 'original PNG');
+        const receipt = resolve(app, 'artifacts/build-linux.sha256');
+        mkdirSync(dirname(receipt), {recursive:true});
+        let product = 'old', builds = 0;
+        const run = () => {
+          const read = proofInputReader(root, app);
+          return ensureBuildReceipt({receipt, inputs:() => read().all, artifact:() => product, build:async () => {
+            builds++;
+            product = readFileSync(art, 'utf8');
+          }});
+        };
+        expect(await run()).toBe(true);
+        expect(await run()).toBe(false);
+        const before = proofInputs(root, app);
+        writeFileSync(art, 'changed PNG');
+        const after = proofInputs(root, app);
+        expect(after.authored).not.toBe(before.authored);
+        expect(after.all).not.toBe(before.all);
+        expect(await run()).toBe(true);
+        expect(product).toBe('changed PNG');
+        expect(builds).toBe(2);
+        expect(await run()).toBe(false);
+      }
+    }
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
