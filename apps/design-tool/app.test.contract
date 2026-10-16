@@ -279,19 +279,32 @@ test "a restarted server starts the changeset again"
   clock data
   clock +1
   clock data
-  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}} as ada
   clock +1
   clock data
   clock +1
   clock data
   expect tree has "entry-1"
+  expect tree has "changed-by-surface.card"
+  // The highlight fades after 3 s.
+  clock +3000
+  clock data
+  expect tree missing "changed-by-surface.card"
   request POST "/__stub/restart" {} as ada
   clock +1
   clock data
   clock +1
   clock data
   expect tree has "no-changes"
-  expect disabled "commit"
+  // A new run's first change is highlighted, though its number is one an
+  // earlier run's faded highlight had passed.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "entry-1"
+  expect tree has "changed-by-surface.card"
 
 test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"
   type "name" "Ada"

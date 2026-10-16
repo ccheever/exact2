@@ -424,7 +424,7 @@ test('commit takes the session\'s writes, leaves other staging and never pushes;
     expect(states[1].slots.committed).toEqual({ ok: true, error: '', commit: made.slice(0, 12), files: ['app.tamber'], refused: [], edits: [entry.text] });
     expect(states[1].resources.changeset.entries[0].committed).toBe(true);
     // Nothing left to commit: Commit is off.
-    expect(states[1].resources.changeset.open).toBe(0);
+    expect(states[1].resources.scope).toEqual({ open: 0, refused: false });
     const history = states[2].resources.history;
     expect(history.commits[0]).toMatchObject({ subject: 'design: 1 change by design-tool:Ada', files: [{ file: 'app.tamber', refused: '', edits: ['hue 200 → 210'] }] });
     expect(history.commits.find(c => c.commit === past).files[0].edits).toEqual(['surface.inset light-dark(#f8f9fa, #101214) → light-dark(#f8f9fb, #101214)']);
@@ -507,9 +507,13 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
       // p2, with the file moved since: recomputed, then accepted.
       `tap accept-${p2}`, 'clock data', 'clock +1', 'clock data', 'state',
       `tap accept-${id(4)}`, 'clock data', 'clock +1', 'clock data', 'state',
+      // An accepted proposal is one step: undone, and redone.
+      'tap undo', 'clock data', 'clock +1', 'clock data', 'tap redo', 'clock data', 'clock +1', 'clock data', 'state',
+      // And highlights fade after 3 s.
+      'clock +3000', 'clock data', 'state',
     ]);
     const states = replies.filter(r => r.resources);
-    const [first, part, whole, stale, fresh] = states;
+    const [first, part, whole, stale, fresh, redone, faded] = states;
     expect(first.resources.changeset.entries[0]).toMatchObject({ who: 'agent:codex', mine: false });
     expect(first.resources.changeset.entries[0].text).toBe('app.tamber: surface.card light-dark(#f1f3f5ff, #16181cff) → light-dark(#f1f3f5ff, #17191dff) · agent:codex');
     expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
@@ -529,7 +533,11 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(stale.resources.changes.held.find(h => h.proposal === id(4))).toMatchObject({ replaces: p2, client: 'agent:claude' });
     expect(fresh.slots.written.note).toBe(`Accepted ${id(4)}.`);
     expect(fresh.resources.changes.held).toEqual([]);
-    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['accept', true], ['accept', true]]);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['accept', true], ['accept', true], ['undo', true], ['transaction', true]]);
+    expect(tool.writes[4].after).toBe(tool.writes[2].after);
+    expect(tool.writes[5].after).toBe(tool.writes[3].after);
+    expect(redone.slots.written).toMatchObject({ ok: true, last: 'redo' });
+    expect(faded.resources.lit.names).toEqual([]);
     const now = read();
     expect(now).toContain('text.primary = light-dark(#101010, #e7e9ea)');
     expect(now).not.toContain('#fefefe');

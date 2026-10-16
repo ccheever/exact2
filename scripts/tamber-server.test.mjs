@@ -384,9 +384,10 @@ test("commit takes the session's files only, keeps other staging, and never push
   // A dry run: what the commit would take, and nothing written.
   const dry = await post({ method: 'commit', client: 'person', dry: true });
   expect(dry.status, JSON.stringify(dry)).toBe(200);
-  expect(dry.ok).toEqual({ files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent', tokens: ['edge'] }] });
+  expect(dry.ok).toMatchObject({ files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent', tokens: ['edge'] }] });
   expect(head()).toBe(before);
-  const committed = await post({ method: 'commit', client: 'person', message: 'design: a darker edge' });
+  expect((await post({ method: 'commit', client: 'person', scope: 'not-it' })).error.stale).toBe(true);
+  const committed = await post({ method: 'commit', client: 'person', message: 'design: a darker edge', scope: dry.ok.scope });
   expect(committed.status, JSON.stringify(committed)).toBe(200);
   expect(committed.ok.files).toEqual(['app.tamber']);
   expect(committed.ok.edits).toEqual(dry.ok.edits);

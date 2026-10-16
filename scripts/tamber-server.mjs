@@ -416,9 +416,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (refused) return refused;
       if (request.message !== undefined && typeof request.message !== 'string') return { status: 400, error: { message: '`message` is a string' } };
       if (request.dry !== undefined && typeof request.dry !== 'boolean') return { status: 400, error: { message: '`dry` is true or false' } };
+      if (request.scope !== undefined && typeof request.scope !== 'string') return { status: 400, error: { message: '`scope` is a string' } };
       // A write in flight would land beside the commit's reading of the files.
       if (writing) return { status: 409, error: { message: 'a write is in flight; commit again once it lands' } };
-      const done = session.commit({ client: request.client, message: request.message, dry: request.dry === true });
+      const done = session.commit({ client: request.client, message: request.message, dry: request.dry === true, scope: request.scope });
       if (done.ok && !request.dry) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
       return done;
     }
@@ -469,6 +470,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** A write, announced from the server's reply, even one that comes after
    * the client was told it timed out; the watcher waits for it. A conflict
    * names who last changed each file that moved. */
+  let writes = 0;
   async function write(request, extra = {}, settled = () => {}) {
     // The git facts of each file it may touch, before it does (commit's
     // baseline); this write's hold on them ends with its reply.
@@ -492,7 +494,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         for (const path of written) {
           session.wrote(path, { before: v.ok.before[path], after: v.ok.files[path], client: v.ok.client, tokens: (v.ok.changed ?? []).filter(c => c.file === path).map(c => c.token) });
         }
-        publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client, ...extra });
+        // A number for the write, on its reply and its event, so a client can
+        // tell its own write's event from another's that left the same bytes.
+        v.ok.write = ++writes;
+        publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client, write: v.ok.write, ...extra });
       }
       session.release(holds.filter(path => !written.has(path)));
       if (v?.error?.conflict) {

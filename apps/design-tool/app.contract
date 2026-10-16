@@ -140,6 +140,7 @@ shape TokenRow
 // client and in that client's colour (LLP 1122 D10).
 shape Lit
   seq: number
+  epoch: string
   names: string[]
   whos: string[]
   tints: string[]
@@ -226,8 +227,11 @@ shape Changeset
   ok: bool
   error: string
   entries: ChangeEntry[]
-  // Writes not yet committed (a hand edit is no write of the session's).
+
+// What a commit would take now: its edits, or a refusal to show.
+shape Scope
   open: number
+  refused: bool
 
 shape Refusal
   file: string
@@ -324,15 +328,17 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
+  resource scope = loadScope(client, since, epoch) as shape Scope else empty(open=0, refused=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
   state picked: string[] = []
   state faded = 0
-  resource lit = loadLit(file, design.answer, faded) as shape Lit else empty(seq=0)
+  state fadedEpoch = ""
+  resource lit = loadLit(file, design.answer, faded, fadedEpoch) as shape Lit else empty(seq=0)
   state historyShown = false
   state historyPages = 1
   resource history = loadHistory(historyShown, historyPages, since) as shape History else empty(ok=true)
-  mutation committed as shape Committed refreshes changeset
+  mutation committed as shape Committed refreshes changeset, scope
   // The importer for a picked file: shadcn CSS, a Tailwind v4 sheet, DTCG
   // JSON (several files, a mode each).
   state importKind = "shadcn"
@@ -350,7 +356,7 @@ component DesignTool
   derive draftStale = editKind == "set-token" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
 
   // A change's highlight lasts 3 s.
-  task fading when lit.seq > faded and lit.names.length > 0 key=lit.seq
+  task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.seq}`
     after(3000, fade)
   // Each answer asks again: at once after one, after 3 s after a failure.
   task follow when not pending(changes) and changes.ok key=changes.answer
@@ -500,6 +506,7 @@ component DesignTool
       send written = dropHeld(client, proposal)
   action fade
     faded = lit.seq
+    fadedEpoch = lit.epoch
   action commit
     if not pending(committed)
       send committed = commitSession(client)
@@ -609,7 +616,7 @@ component DesignTool
                             if t.follows != ""
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
-                            column width=96 flex-shrink=0 gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.names.includes(t.name) ? lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.names.includes(t.name) ? lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
                               view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
                               if cell.residual
                                 text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
@@ -786,7 +793,7 @@ component DesignTool
                   if e.mine and e.diff != ""
                     text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
               row gap=8 align-items="center"
-                button press=commit disabled=(pending(committed) or changeset.open == 0) buttonStyle="bordered" testId="commit"
+                button press=commit disabled=(pending(committed) or (scope.open == 0 and not scope.refused)) buttonStyle="bordered" testId="commit"
                   text "Commit"
                 text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
               match committed

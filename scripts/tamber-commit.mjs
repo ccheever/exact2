@@ -143,9 +143,10 @@ export function designSession(dir) {
 
   /** Commit what the session wrote. `{ commit, files, edits }`, or a
    * refusal naming each file and why. `dry`: the same checks and what it
-   * would take (`{ files, edits }`), with nothing written, so a client can
-   * compose the message from the commit's own scope. */
-  function commit({ client, message, dry = false }) {
+   * would take (`{ files, edits, scope }`), with nothing written, so a
+   * client can compose the message from the commit's own scope; `scope`,
+   * given back, refuses the commit if the session has written since. */
+  function commit({ client, message, dry = false, scope }) {
     const root = top();
     if (!root) return { error: { message: 'the app is in no git repository' } };
     const head = tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
@@ -165,7 +166,16 @@ export function designSession(dir) {
     if (refused.length) return { error: { message: `commit refused: ${refused.map(r => `${r.file}: ${r.why}`).join('; ')}`, refused } };
     if (!chosen.length) return { error: { message: 'the session has written nothing to commit' } };
     const edits = chosen.flatMap(({ path, f }) => f.edits.map(e => ({ file: path, client: e.client, tokens: e.tokens ?? [] })));
-    if (dry) return { ok: { files: chosen.map(c => c.path), edits } };
+    // What the session is now: its files, their last writes and how many.
+    const now = sha(JSON.stringify(chosen.map(({ path, f }) => [path, f.last, f.edits.length])));
+    if (scope !== undefined && scope !== now) return { error: { message: 'the session has written since its scope was read: read it again', stale: true } };
+    if (dry) {
+      // Nothing to commit when every file is HEAD's again (an edit and its
+      // undo), read without writing an object.
+      const same = chosen.every(({ repoPath, bytes }) => git(root, ['hash-object', '--stdin'], { input: bytes }).trim() === (tryGit(root, ['rev-parse', `HEAD:${repoPath}`]) ?? ''));
+      if (same) return { error: { message: 'the session\'s files are as HEAD has them: nothing to commit' } };
+      return { ok: { files: chosen.map(c => c.path), edits, scope: now } };
+    }
     const scratch = mkdtempSync(join(tmpdir(), 'exact-tamber-index-'));
     const env = { GIT_INDEX_FILE: join(scratch, 'index') };
     try {
