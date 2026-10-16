@@ -11,7 +11,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// The checklist mark: an SF Symbol circle at the body text's size, filled
+/// The checklist mark: an SF Symbol circle scaled with the body text, filled
 /// and checked when on (tvOS: a 16×16 rounded square). A radio is drawn on
 /// it, with its own symbols (`ExactRadio`, RadioIOS.swift). VoiceOver reads
 /// a checkbox as it reads UIKit's own toggles (`updateAccessibility`).
@@ -33,18 +33,22 @@ class ExactCheckbox: UIControl {
     #if os(tvOS)
     override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
     #else
-    /// The mark's symbol at the reader's body size, Dynamic Type included;
-    /// on, its checkmark white over the accent.
+    /// The mark's side: UIKit's 22-point circle at the default text size,
+    /// scaled with the body style by `UIFontMetrics` to 44 at most, about
+    /// where UIKit's own list checkmark stops (48 by 43 at the largest
+    /// size). At the body font's `.large` symbol scale it had grown to 80
+    /// points there and outweighed its row (LLP 1116.019 D1).
+    var side: CGFloat {
+        min(44, ceil(UIFontMetrics(forTextStyle: .body).scaledValue(for: 22, compatibleWith: traitCollection)))
+    }
+    /// The mark's symbol, drawn fitted to `side`; on, its checkmark white
+    /// over the accent.
     func mark(on: Bool, tint: UIColor) -> UIImage? {
-        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
-        let size = UIImage.SymbolConfiguration(font: font, scale: .large)
+        let size = UIImage.SymbolConfiguration(pointSize: side)
         guard on else { return UIImage(systemName: "circle", withConfiguration: size)?.withTintColor(tint, renderingMode: .alwaysOriginal) }
         return UIImage(systemName: "checkmark.circle.fill", withConfiguration: size.applying(UIImage.SymbolConfiguration(paletteColors: [.white, tint])))
     }
-    override var intrinsicContentSize: CGSize {
-        let s = mark(on: false, tint: .label)?.size ?? CGSize(width: 22, height: 22)
-        return CGSize(width: ceil(s.width), height: ceil(s.height))
-    }
+    override var intrinsicContentSize: CGSize { CGSize(width: side, height: side) }
     /// A finger's target is 44 points each way at least (Apple's minimum),
     /// whatever the mark's size: the touch reaches past the mark's box,
     /// which stays the mark's for layout (LLP 1115.000 D13.2). Where two
@@ -105,7 +109,7 @@ class ExactCheckbox: UIControl {
         // smaller than the mark.
         let tint = isOn ? fill.withAlphaComponent(alpha) : (isEnabled ? UIColor.tertiaryLabel : .quaternaryLabel)
         guard let image = mark(on: isOn, tint: tint) else { return }
-        let scale = min(1, side / max(image.size.width, image.size.height))
+        let scale = min(side, self.side) / max(image.size.width, image.size.height)
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         image.draw(in: CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height))
         #endif
