@@ -16,6 +16,7 @@
 // title it is the selected route's header's heading, else the app's name
 // (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
 import { unselected, unselectedForHead, pageTitle, panelsOf } from "./navigation.js";
+import { scope, owner, onEnd } from "./rt.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
@@ -94,12 +95,12 @@ export function markDocument() {
 // selected, as the runner builds it (runner/src/instance/tabs.rs): a panel the
 // compiler names (emit.rs, `panel_sites`) is made empty, and its contents are
 // made after the tree update of the commit whose tree first selects it (rt.js
-// `tp`), before its paint. The selection is the projection's: the panel whose
+// `commit` runs `openTabs`), before its paint. The selection is the projection's: the panel whose
 // routes hold the root's `navigationKey`; while no built panel holds it, the
 // panel whose tab is `aria-selected` is built, else the first waiting one.
 const Waiting = new Map();
-/** Panel `e` waits; `build` makes its contents. What is returned forgets it. */
-export function waitTab(e, build) { Waiting.set(e, build); return () => Waiting.delete(e); }
+/** Panel `e` waits; `build` makes its contents, in the scope in force here, when it is first selected. */
+export function tp(e, build) { const up = owner(); Waiting.set(e, () => scope(build, up)); onEnd(() => Waiting.delete(e)); }
 /** Whether `e` is a panel whose tab has never been selected: the agent's `unopened`. */
 export const unopened = e => Waiting.has(e);
 /** Build each waiting panel its root now selects, and any no root's tablist names. */
@@ -117,7 +118,9 @@ function toOpen() {
     if (roots.has(root)) continue;
     roots.add(root);
     const key = root.getAttribute("navigationKey");
-    if (panels.some(p => [...p.children].some(r => r.getAttribute("navigationKey") === key))) continue;
+    // A panel holds the key once this runtime built it: an adopted page's
+    // waiting panel already shows its rendered routes, which only `build` wires.
+    if (panels.some(p => !Waiting.has(p) && [...p.children].some(r => r.getAttribute("navigationKey") === key))) continue;
     const named = [...root.getElementsByTagName("*")].filter(t => t.getAttribute("aria-selected") === "true").map(t => t.getAttribute("aria-controls"));
     const waiting = panels.filter(p => Waiting.has(p)), chosen = waiting.find(p => named.includes(p.getAttribute("id"))) ?? waiting[0];
     if (chosen) open.push(chosen);

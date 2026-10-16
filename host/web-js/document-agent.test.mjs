@@ -100,3 +100,62 @@ component SplitDocumentAgent
     await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
   }
 }, 30000);
+
+// @ref LLP 1075.003 §9.14 — an adopted page's selected tab shows its rendered routes before the runtime has
+// built that panel: the first commit builds it over them, wiring its presses, and the other tab waits.
+test('an adopted page builds its selected tab over the rendered one', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/tabs-document-agent-test-'));
+  let browser, server;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Tabs Document Agent Test', app: { id: 'test.tabs-document', name: 'Tabs Document Agent Test' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `routes nav
+  tab a "/" render=build
+  tab b "/b"
+
+component TabsDocument
+  state n = 0
+  action pick(name: string)
+    nav = select(nav, name)
+  action bump
+    n = n + 1
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 position="relative"
+        for t in nav.tabs key=t.name
+          column role="tabpanel" id=\`panel-\${t.name}\` testId=\`panel-\${t.name}\` position="absolute" inset=0
+            for e in t.stack key=e.id
+              column navigationKey=\`\${e.id}\` position="absolute" inset=0
+                button press=bump testId=\`bump-\${e.name}\`
+                  text \`\${e.name} \${n}\`
+      row role="tablist"
+        button role="tab" aria-controls="panel-a" aria-selected=(nav.tab == "a") press=pick("a") testId="tab-a"
+          text "A"
+        button role="tab" aria-controls="panel-b" aria-selected=(nav.tab == "b") press=pick("b") testId="tab-b"
+          text "B"
+`);
+    const dist = resolve(dir, 'dist');
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'tabs-document-agent-test', '--out', dist, '--render', 'js'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    expect(readFileSync(resolve(dist, 'index.html'), 'utf8')).toContain('data-testid="bump-a"');
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    browser = await open({ host: 'web', url: server.url.href, size: [420, 900] });
+    expect(await browser.carrier.evaluate('exact.journal.some(l => l.endsWith("adopted the document"))')).toBe(true);
+    const panels = async () => Object.fromEntries((await browser.tree()).nodes.filter(n => n.props.accessibilityRole === 'tabpanel').map(n => [n.props.testId, !!n.unopened]));
+    expect(await panels()).toEqual({ 'panel-a': false, 'panel-b': true });
+    await browser.tap('bump-a');
+    expect((await browser.state()).slots).toMatchObject({ n: 1 });
+    await browser.tap('tab-b');
+    await browser.tap('bump-b');
+    expect((await browser.state()).slots).toMatchObject({ n: 2 });
+    expect(await panels()).toEqual({ 'panel-a': false, 'panel-b': false });
+  } finally {
+    await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 30000);
