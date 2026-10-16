@@ -1033,14 +1033,22 @@ bindings are required as a pair. See
 
 ### Pointer
 
-`pointerdown`, `pointerup` and `pointermove` are DOM's, on every host. The
-innermost enabled node under a touch or a button (any: `buttons` says which, 2
-for a right-click) that hears any of them holds the pointer: its `pointerdown` fires before any gesture decides,
-its `pointermove`s follow the pointer wherever it goes while held, and its
-`pointerup` comes when the pointer lifts or is cancelled (a cancel is an up),
-before the click's `press`. A free pointer (a mouse or a pen hovering, no
-button down) moving over a node is that node's `pointermove` too, the
-innermost hearing it; a touch has none. Moves go out at most once a frame,
+`pointerdown`, `pointerup` and `pointermove` are DOM's, on every host. A
+touch or a button going down (any: `buttons` says which, 2 for a right-click)
+is the `pointerdown` of every enabled node from the one under it up that
+declares it, innermost first, as `key` and `wheel` bubble, before any gesture
+decides; a press inside a popover reaches the popover's ancestors, never a
+node only under it. When the pointer lifts or is cancelled (a cancel is an
+up), each node the down passed that declares `pointerup` hears it, innermost
+first, wherever the pointer is, before the click's `press`. The innermost
+enabled node that hears any of the three holds the pointer: its
+`pointermove`s follow the pointer wherever it goes until it lifts, and a
+`pointermove`, or a `pan` that takes the contact, takes no ancestor's down
+or up. A node disabled when the pointer goes down hears none of them, and
+its ancestors still do. No handler stops the bubbling:
+`stopPropagation()` is for keys and focus. A free pointer (a mouse or a pen
+hovering, no button down) moving over a node is that node's `pointermove`
+too, the innermost hearing it; a touch has none. Moves go out at most once a frame,
 the latest. None of them takes anything from `press`, `pan` or scrolling, so
 a drawing surface sets `touch-action="none"`, as on the web, or a touch
 that scrolls is cancelled.

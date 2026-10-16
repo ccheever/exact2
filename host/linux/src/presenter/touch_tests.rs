@@ -196,3 +196,35 @@ fn a_tap_that_drifts_inside_the_systems_slop_still_presses() {
     drift(&mut p, 6., 1.);
     assert_eq!(log(&p), "0");
 }
+
+/// `pointerdown` and `pointerup` bubble, innermost first (Charlie,
+/// 2026-10-15): a box hearing only `pointermove` holds the moves and takes
+/// nothing from its ancestor's down and up; the up comes to every node the
+/// down passed, wherever the pointer lifts.
+#[test]
+fn the_down_and_the_up_bubble_and_the_innermost_holds_the_moves() {
+    const NESTED: &str = r#"component App
+  state seen = ""
+  action at(what: string)
+    seen = `${seen} ${what}`
+  action moved(e: PointerEvent)
+    seen = `${seen} m:mid`
+  view
+    column width=400 height=400 pointerdown=at("d:outer") pointerup=at("u:outer")
+      box pointermove=moved width=300 height=200
+        box pointerdown=at("d:inner") pointerup=at("u:inner") width=100 height=100
+      text seen testId="log" height=20
+"#;
+    let mut p = boot(NESTED);
+    p.pointer_down(20., 20., 1.).unwrap();
+    p.pointer_move(250., 150., 2.).unwrap();
+    p.pointer_up(390., 390., 3.).unwrap();
+    assert_eq!(log(&p), " d:inner d:outer u:inner u:outer");
+    p.pointer_down(200., 150., 4.).unwrap();
+    p.pointer_move(210., 150., 5.).unwrap();
+    p.pointer_up(390., 390., 6.).unwrap();
+    assert_eq!(
+        log(&p),
+        " d:inner d:outer u:inner u:outer d:outer m:mid u:outer"
+    );
+}

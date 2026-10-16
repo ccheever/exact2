@@ -127,6 +127,36 @@ final class PopoverNativeMacTests: XCTestCase {
         XCTAssertTrue(p.menus.windowed.isEmpty && p.menus.leaving.isEmpty)
     }
 
+    /// A press in the popover's own window bubbles to its authored ancestors
+    /// (LLP 1005 §Events) with the point where the page has it: the page's
+    /// `clientX`/`clientY`, and offsets from the ancestor's content box.
+    func testAPressInThePopoverReachesThePageWithThePagesPoint() throws {
+        let f = try make(), p = f.presenter
+        let pop = try f.node("tags-pop"), page = try f.node("page")
+        page.handlers.insert("pointerdown")
+        var downs: [UInt32: PointerSample] = [:]
+        p.onPointer = { id, kind, sample in if kind == .down { downs[id] = sample } }
+        try f.press("tags")
+        let native = try XCTUnwrap(p.menus.windowed.first), window = try XCTUnwrap(native.window)
+        let at = pop.convert(NSPoint(x: pop.bounds.midX, y: 4), to: nil)
+        let event = { (type: NSEvent.EventType) in
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                               context: nil, eventNumber: 7, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+        }
+        pop.mouseDown(with: event(.leftMouseDown))
+        pop.mouseUp(with: event(.leftMouseUp))
+        let screen = window.convertPoint(toScreen: at), clip = onScreen(p.viewport.contentView), box = onScreen(page)
+        let sample = try XCTUnwrap(downs[page.id], "the page hears the press in the popover")
+        XCTAssertEqual(sample.clientX, Double(screen.x - clip.minX), accuracy: 0.5)
+        XCTAssertEqual(sample.clientY, Double(clip.maxY - screen.y), accuracy: 0.5)
+        // Its padding is 20.
+        XCTAssertEqual(sample.x, Double(screen.x - box.minX - 20), accuracy: 0.5)
+        XCTAssertEqual(sample.y, Double(box.maxY - screen.y - 20), accuracy: 0.5)
+        native.popover.animates = false
+        native.popover.close()
+        gone(native)
+    }
+
     /// The subtree in AppKit's popover, at the size layout returns, below
     /// its invoker; the page laid out as it was; and each way it closes.
     func testAPopoverThatIsNoMenuIsAppKitsPopoverAtItsContentsSize() throws {

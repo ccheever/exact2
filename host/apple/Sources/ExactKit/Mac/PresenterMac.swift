@@ -590,6 +590,7 @@ package final class Presenter {
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
         pointerHeld = nil
+        pointerPath = []
         pointerSource = nil
         elements.reset()
         resetFlights()
@@ -748,8 +749,12 @@ package final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     /// The primary button went down on a node (`true`) or came up (LLP 1005 §3).
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
-    /// The node the primary button went down on, until it comes up.
+    /// The node the primary button went down on, until it comes up: the
+    /// innermost hearing a pointer event, which hears the drags.
     var pointerHeld: UInt32?
+    /// The nodes from the held one up that hear `pointerdown` or
+    /// `pointerup`, innermost first: each hears the up (LLP 1005 §3).
+    var pointerPath: [UInt32] = []
     /// The last input was a pointer's press, not a key: a focus it, or a
     /// handler it ran, moves shows no ring (`:focus-visible`, `FocusMac.swift`).
     var focusByPointer = false
@@ -801,6 +806,7 @@ package final class Presenter {
         focusEvents.removed(id)
         // A held node that goes has no handler left to hear its up.
         if pointerHeld == id { pointerHeld = nil }
+        pointerPath.removeAll { $0 == id }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
         mouseDrags.height.retire(id)
