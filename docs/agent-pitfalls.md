@@ -124,6 +124,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   the content `position="relative"`, or give the background `z-index=-1`
   inside a parent that stacks. (Signal Clone's call screen, build 16.)
 
+- **An overlay with `inset=0` covers the screen, not the row it is in.** A lit bar or a
+  ring written as in React Native, `position="absolute" inset=0` inside a row, covers
+  its nearest positioned ancestor (a route, or the screen when there is none) and
+  paints over every row around it. Cause: a bare box is `position: static`, as in CSS;
+  React Native makes every view a containing block. Fix: give the parent it should
+  cover `position="relative"`. The compiler cannot tell this from an overlay meant to
+  cover the route (a scrim, a route over the root), so nothing warns. (The euxy port's
+  lane overlays and JAM ring, 2026-10-15.)
+
 - **`flex=0` collapses a column that has a `width`.** A side column written
   `width=400 flex=0 min-width=0` in a 1,100 px row laid out 0 px wide, and the
   pane beside it covered its search field. Cause: `flex: 0` is CSS's `0 1 0%`:
