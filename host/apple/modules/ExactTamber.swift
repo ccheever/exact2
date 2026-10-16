@@ -85,7 +85,7 @@ public struct ExactTamber {
     public func observe(_ body: @escaping () -> Void) -> ExactTamberObservation {
         let observation = ExactTamberObservation(body)
         _ = finder.place?.sides(nil)
-        Tambers.observers.append((finder, Weak(observation)))
+        Tambers.observers.append((finder, TamberWeak(observation)))
         return observation
     }
 }
@@ -193,14 +193,14 @@ enum Tambers {
     static let lock = NSLock()
     /// The batches the host has said were applied: a place asks again when it moves.
     nonisolated(unsafe) static var batches = 0
-    nonisolated(unsafe) static var made: [ObjectIdentifier: (view: Weak<ExactPlatformView>, module: Weak<ExactModule>)] = [:]
+    nonisolated(unsafe) static var made: [ObjectIdentifier: (view: TamberWeak<ExactPlatformView>, module: TamberWeak<ExactModule>)] = [:]
     nonisolated(unsafe) static var places: [ObjectIdentifier: TamberPlace] = [:]
-    nonisolated(unsafe) static var observers: [(finder: TamberFinder, observation: Weak<ExactTamberObservation>)] = []
+    nonisolated(unsafe) static var observers: [(finder: TamberFinder, observation: TamberWeak<ExactTamberObservation>)] = []
 
     /// `view`, just made by `module` for an element: a place a binding finds.
     static func made(_ view: ExactPlatformView, by module: ExactModule) {
         made = made.filter { $0.value.view.value != nil }
-        made[ObjectIdentifier(view)] = (Weak(view), Weak(module))
+        made[ObjectIdentifier(view)] = (TamberWeak(view), TamberWeak(module))
     }
 
     /// The place of `view`, a view `module` made, shared by its bindings.
@@ -247,8 +247,10 @@ enum Tambers {
     }
 }
 
-/// A weak reference, for a table that must not keep what it names alive.
-struct Weak<T: AnyObject> {
+/// A weak reference, for a table that must not keep what it names alive
+/// (Tamber's own name: this file compiles beside an app's module sources,
+/// which may have a `Weak` of their own).
+struct TamberWeak<T: AnyObject> {
     weak var value: T?
     init(_ value: T) { self.value = value }
 }
