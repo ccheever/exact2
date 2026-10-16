@@ -131,19 +131,24 @@ impl<D: DataSource> Presenter<D> {
     /// journal says why, as the web host's does (it had been an unknown
     /// command here).
     /// The node it focused, if it did.
-    /// Whether `id` generates a box in the current tree, which the last
-    /// painted picture may not show yet: no ancestor is `display: none`, on
-    /// a hidden route, or a dialog other than the alert presented (paint
-    /// draws only that one; a top-layer surface's rows are `surface_focus`'s).
+    /// Whether `id` is being rendered and focusable in the current tree,
+    /// which the last painted picture may not show yet: no ancestor up to
+    /// the presented alert (which paint draws from its own root) is
+    /// `display: none`, on a hidden or inert route, or a dialog, which paint
+    /// skips. A top-layer surface's rows are `surface_focus`'s.
     fn rendered(&self, id: ViewId) -> bool {
         let kernel = self.host.kernel();
         let shown = self.alert_root();
         let mut at = kernel.node(id);
         while let Some(node) = at {
-            if node.style.display == exact_kernel::Display::None
-                || self.host.route_visibility(node.id).0
-                || (node.props.str(PropId::SemanticTag) == Some("dialog") && Some(node.id) != shown)
-            {
+            let (hidden, inert) = self.host.route_visibility(node.id);
+            if node.style.display == exact_kernel::Display::None || hidden || inert {
+                return false;
+            }
+            if Some(node.id) == shown {
+                return true;
+            }
+            if node.props.str(PropId::SemanticTag) == Some("dialog") {
                 return false;
             }
             at = node.parent.and_then(|parent| kernel.node(parent));

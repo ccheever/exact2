@@ -70,4 +70,9 @@ fn a_node_in_a_closed_dialog_is_not_rendered() {
     p.tap(poke).unwrap();
     p.run_commands(NoData::default);
     assert_ne!(p.focus, Some(named(&p, "inside")));
+    let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+    assert!(
+        journal.contains(r#"focus \"inside\" refused: not rendered"#),
+        "{journal}"
+    );
 }
