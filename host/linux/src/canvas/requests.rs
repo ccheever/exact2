@@ -40,7 +40,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if answer >= 0 {
             self.p.hatch_turn();
             if matches!(kind, 13 | 14) {
-                self.p.repaint();
+                self.p.hatch_views_changed();
             }
         }
         answer

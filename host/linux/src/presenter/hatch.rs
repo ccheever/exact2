@@ -83,6 +83,14 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// A view the reader's hatches host was given or taken: a kept row may
+    /// hold the node as it was, so every row is recorded again.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn hatch_views_changed(&mut self) {
+        self.brush.colors_changed();
+        self.dirty = true;
+    }
+
     /// The moments the tree now holds, and what the hatches published.
     pub fn hatch_moments(&mut self) {
         if self.hatches.connected() {

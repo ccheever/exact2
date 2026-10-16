@@ -233,8 +233,9 @@ class Natives(
     /** The node op 28 draws for [id] (main thread). */
     fun node(id: Int): RenderNode? = elements[id]?.node
 
-    /** The view the app's Kotlin hatches host at a node (kind 5, LLP 1115.001.000 D4). */
-    var hatched: ((Int) -> View?)? = null
+    /** A view the app's Kotlin hatches host at a node (kind 5, LLP 1115.001.000 D4), made for this layer's
+     * activity: each element its own. */
+    var hatched: ((Int, Context) -> View?)? = null
 
     /** Every element's node, for a row recorded on another thread: one map shared until an element comes or goes. */
     private var nodes: Map<Int, RenderNode>? = null
@@ -411,8 +412,7 @@ class Natives(
     }
 
     private fun obtain(kind: Int, json: JSONObject, id: Int = 0): View? = when (kind) {
-        // Its own parent's no longer: a view is shown in one place.
-        5 -> hatched?.invoke(id)?.also { (it.parent as? android.view.ViewGroup)?.takeIf { p -> p !== this }?.removeView(it) }
+        5 -> hatched?.invoke(id, context)?.also { (it.parent as? android.view.ViewGroup)?.removeView(it) }
         3 -> if (buffered && !refused) View(context) else TextureView(context).apply { isOpaque = false }
         0 -> videoPool.removeLastOrNull() ?: TextureView(context).apply { isOpaque = false }
         1 -> webPool.removeLastOrNull()?.apply { onResume() } ?: WebView(context).apply {

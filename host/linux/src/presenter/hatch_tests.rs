@@ -1108,7 +1108,12 @@ type Told = (i32, i32, u32, String, Vec<(String, String)>);
 
 /// The moments the reader's hatches were told (`hatches/reader.rs`).
 fn told() -> Vec<Told> {
-    let words = crate::hatches::reader::take().unwrap_or_default();
+    moments(&crate::hatches::reader::take().unwrap_or_default())
+}
+
+/// The app's and nodes' moments in `words`; an ended ticket (scope 8) is
+/// passed over.
+fn moments(words: &[i32]) -> Vec<Told> {
     let string = |at: &mut usize| {
         let n = words[*at] as usize;
         let bytes: Vec<u8> = words[*at + 1..*at + 1 + n.div_ceil(4)]
@@ -1121,6 +1126,10 @@ fn told() -> Vec<Told> {
     };
     let (mut out, mut at) = (Vec::new(), 0);
     while at < words.len() {
+        if words[at] == 8 {
+            at += 2;
+            continue;
+        }
         let (scope, moment, node) = (words[at], words[at + 1], words[at + 2] as u32);
         at += 7;
         let word = string(&mut at);
@@ -1218,9 +1227,20 @@ fn the_readers_hatches_are_told_every_moment_and_act_by_the_nodes_number() {
     // The node's end is told, and its number takes no act after it.
     tap(&mut p, "hide");
     p.hatch_turn();
+    let words = crate::hatches::reader::take().unwrap_or_default();
     assert_eq!(
-        told(),
+        moments(&words),
         [(3, 2, fed, "feed".into(), vec![pair("tone", "busy")])]
+    );
+    // Its observer ended with it, and the reader is told so.
+    assert!(
+        words.windows(2).any(|w| w == [8, heard as i32]),
+        "{words:?}"
+    );
+    assert_eq!(
+        act(fed, 9, Some("gone")),
+        -1,
+        "an ended node's diagnostics are not the module's"
     );
     assert_eq!(act(fed, 1, None), -1);
     assert_eq!(

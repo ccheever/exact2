@@ -1319,4 +1319,12 @@ fn a_date_picker_is_held_for_the_agent_and_answered_by_kind() {
     );
     p.run_commands(|| ());
     assert_eq!(value(&p), "");
+    // A row given another item while its picker is held retires the hold.
+    hold(&mut p);
+    p.picks_renewed(&[day]);
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert!(
+        state["pending"].as_array().is_none_or(|a| a.is_empty()),
+        "{state}"
+    );
 }

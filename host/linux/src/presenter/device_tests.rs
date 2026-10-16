@@ -137,7 +137,7 @@ fn the_devices_locale_is_the_viewers_place() {
 }
 
 /// How an en-US phone on a 12-hour clock writes dates, as its shell tells it.
-const US_DATES: &str = "MMM d, y\nh:mm a\nh:mm:ss a\nMMM d, y, h:mm a\nMMM d, y, h:mm:ss a\nAM\nPM\n0\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
+const US_DATES: &str = "MMM d, y\nh:mm a\nh:mm:ss a\nMMM d, y, h:mm a\nMMM d, y, h:mm:ss a\nAM\nPM\n0\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
 
 #[test]
 fn a_date_control_is_materials_field_and_fits_the_value_as_the_device_writes_it() {

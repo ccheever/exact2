@@ -1,6 +1,7 @@
 package dev.exact.canvas
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.RectF
 import android.util.Log
 import android.view.View
@@ -44,16 +45,20 @@ abstract class ExactHatches {
      */
     open fun picker(element: ExactElement, picker: ExactPicker) {}
 
-    /** [tick] at each frame exact2 presents, after the frame's own tasks and timers, until the ticket stops. */
+    /** [tick] at each frame exact2 presents, after the frame's own tasks and timers, until the ticket stops: once a
+     * turn with its latest frame, so under the agent a long `clock` advance calls it once, at its end. */
     fun frames(tick: (ExactFrame) -> Unit): ExactTicket = reader!!.register(0, 5, null, Call.Tick(tick))
 
     /** [fired] once, [ms] of exact2's clock from now. */
     fun after(ms: Double, fired: () -> Unit): ExactTicket = reader!!.register(0, 6, ms.toString(), Call.Fired(fired))
 
     /** [heard] for the input that lands in [element]'s box, after exact2's own dispatch: it can claim none. It ends
-     * with the node. */
-    fun observe(element: ExactElement, heard: (ExactInput) -> Unit): ExactTicket =
-        reader!!.register(element.node, 7, null, Call.Heard(heard))
+     * with the node; a handle whose node has ended observes nothing. Its calls come after the turn, or the agent's
+     * command, that heard the input: a hatch cannot act inside a command that is still running. */
+    fun observe(element: ExactElement, heard: (ExactInput) -> Unit): ExactTicket {
+        val r = reader!!
+        return if (r.current(element)) r.register(element.node, 7, null, Call.Heard(heard)) else ExactTicket(-1, null)
+    }
 
     /** Diagnostics scoped to the module. */
     val diagnostics: ExactDiagnostics get() = ExactDiagnostics(0)
@@ -102,15 +107,18 @@ class ExactElement internal constructor(val node: Int, private val reader: Hatch
     fun input(text: String) = reader.act(this, 4, text)
 
     /**
-     * Show [view], the app's own, in the node's border box, over what exact2 paints there: laid out at the box's size
-     * and drawn where the node is, so it scrolls, clips and stacks with the page, as a `video` or a native module's
-     * view is. It is drawn, not touched: the input that lands there is exact2's, which [ExactHatches.observe] hears.
-     * Null takes it away; the node's end does too. False when this handle's node has left.
+     * Show a view of the app's own in the node's border box, over what exact2 paints there: [make] makes it, for the
+     * activity it is given (and again for one made in its place, so a view never outlives its activity). It is laid
+     * out at the box's size and drawn where the node is, so it scrolls, clips and stacks with the page, as a `video`
+     * or a native module's view is. It is drawn, not touched: the input that lands there is exact2's, which
+     * [ExactHatches.observe] hears. Null takes it away; the node's end does too. A node that is a platform element
+     * itself (a `video`, an `iframe`, a native view, a text field) shows its own. False when this handle's node has
+     * left.
      */
-    fun host(view: View?): Boolean = reader.host(this, view)
+    fun host(make: ((Context) -> View)?): Boolean = reader.host(this, make)
 
-    /** Diagnostics scoped to the node's word (`element <word>`). */
-    val diagnostics: ExactDiagnostics get() = ExactDiagnostics(node)
+    /** Diagnostics scoped to the node's word (`element <word>`): nothing once this handle's node has ended. */
+    val diagnostics: ExactDiagnostics get() = ExactDiagnostics(node) { reader.current(this) }
 }
 
 /** An instant of exact2's clock: its time in ms (the agent's under a drive) and the commit its state ends at. */
@@ -139,11 +147,11 @@ class ExactTicket internal constructor(private val token: Long, private val read
 }
 
 /** What a hatch reports to the agent's `diagnostics`, as a Rust hatch's does: nothing in a production build. */
-class ExactDiagnostics internal constructor(private val node: Int) {
-    fun log(text: String) { Exact.hatchAct(node, 9, text) }
-    fun count(name: String, by: Long = 1) { Exact.hatchAct(node, 10, "$name\n$by") }
-    fun measure(name: String, ms: Double) { Exact.hatchAct(node, 11, "$name\n$ms") }
-    fun publish(name: String, json: String) { Exact.hatchAct(node, 12, "$name\n$json") }
+class ExactDiagnostics internal constructor(private val node: Int, private val live: () -> Boolean = { true }) {
+    fun log(text: String) { if (live()) Exact.hatchAct(node, 9, text) }
+    fun count(name: String, by: Long = 1) { if (live()) Exact.hatchAct(node, 10, "$name\n$by") }
+    fun measure(name: String, ms: Double) { if (live()) Exact.hatchAct(node, 11, "$name\n$ms") }
+    fun publish(name: String, json: String) { if (live()) Exact.hatchAct(node, 12, "$name\n$json") }
 }
 
 /** What a ticket calls. */
@@ -157,7 +165,7 @@ internal sealed class Call {
 internal class HatchReader(activity: ExactActivity, private val hatches: ExactHatches) {
     private val elements = HashMap<Int, ExactElement>()
     private val calls = HashMap<Long, Call>()
-    private val hosted = HashMap<Int, View>()
+    private val hosted = HashMap<Int, (Context) -> View>()
 
     /** The activity that runs now: an activity made again is given to the app's hatches, and one that ends lets go. */
     var activity: ExactActivity? = activity
@@ -185,13 +193,16 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
         if (calls.remove(token) != null) Exact.hatchAct(0, 8, token.toString())
     }
 
-    /** The view hosted at [node], for the elements' layer ([Natives], kind 5). */
-    fun hosted(node: Int): View? = hosted[node]
+    /** A view for [node], made for [context], for the elements' layer ([Natives], kind 5). */
+    fun made(node: Int, context: Context): View? {
+        val make = hosted[node] ?: return null
+        return try { make(context) } catch (e: Exception) { Log.e(TAG, "hatch host: $e"); null }
+    }
 
-    fun host(e: ExactElement, view: View?): Boolean {
+    fun host(e: ExactElement, make: ((Context) -> View)?): Boolean {
         if (!current(e)) return false
-        if (view == null) { hosted.remove(e.node); return Exact.hatchAct(e.node, 14, null) >= 0 }
-        hosted[e.node] = view
+        if (make == null) { hosted.remove(e.node); return Exact.hatchAct(e.node, 14, null) >= 0 }
+        hosted[e.node] = make
         return Exact.hatchAct(e.node, 13, null) >= 0
     }
 
@@ -204,6 +215,7 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
             try {
                 when (scope) {
                     TICK, FIRED, HEARD -> clock(scope, w, i)
+                    DROPPED -> calls.remove(token(w[i + 1]))
                     else -> moment(w, i)
                 }
             } catch (e: Exception) {
@@ -236,7 +248,7 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
 
     /** A tick, an `after` or input at [at]: its call. */
     private fun clock(scope: Int, w: IntArray, at: Int) {
-        val token = w[at + 1].toLong()
+        val token = token(w[at + 1])
         when (val call = calls[token]) {
             is Call.Tick -> {
                 val now = Double.fromBits((w[at + 2].toLong() shl 32) or (w[at + 3].toLong() and 0xffffffffL))
@@ -261,7 +273,7 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
     /** The index after the moment at [at]. */
     private fun skip(scope: Int, w: IntArray, at: Int): Int = when (scope) {
         TICK -> at + 5
-        FIRED -> at + 2
+        FIRED, DROPPED -> at + 2
         HEARD -> if (w[at + 3] == 1) at + 10 else {
             val (_, a) = string(w, at + 4)
             val (_, b) = string(w, a)
@@ -300,6 +312,10 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
         private const val TICK = 5
         private const val FIRED = 6
         private const val HEARD = 7
+        private const val DROPPED = 8
+
+        /** A ticket's word, unsigned. */
+        private fun token(word: Int): Long = word.toLong() and 0xffffffffL
         private const val BUILT = 0
         private const val ENDED = 2
         private val PHASES = arrayOf("down", "move", "up", "cancel")

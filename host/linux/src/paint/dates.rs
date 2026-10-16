@@ -23,6 +23,9 @@ pub(crate) struct Dates {
     zero: char,
     months: [String; 12],
     months_full: [String; 12],
+    /// A month's names on their own, as `L` writes them.
+    standalone: [String; 12],
+    standalone_full: [String; 12],
     /// Monday first, short then full.
     weekdays: [String; 7],
     weekdays_full: [String; 7],
@@ -34,8 +37,9 @@ impl Dates {
     /// The shell's lines: the date, time, time with seconds, date and time,
     /// and date and time with seconds patterns, the AM and PM names, the
     /// zero digit, the twelve months' short names and their full ones, the
-    /// seven weekdays' from Monday likewise, and the two eras. `None` for
-    /// anything else.
+    /// same on their own (`L`), the seven weekdays' from Monday likewise, and
+    /// the two eras. All are the Gregorian calendar's, which an HTML value
+    /// is in. `None` for anything else.
     pub(crate) fn from_lines(told: &str) -> Option<Dates> {
         let lines: Vec<&str> = told.split('\n').collect();
         let [date, time, time_seconds, date_time, date_time_seconds, am, pm, zero, names @ ..] =
@@ -47,12 +51,13 @@ impl Dates {
             let names = names.get(at..at + N)?.iter().map(|m| m.to_string());
             names.collect::<Vec<_>>().try_into().ok()
         }
-        if names.len() != 12 + 12 + 7 + 7 + 2 {
+        if names.len() != 4 * 12 + 7 + 7 + 2 {
             return None;
         }
         let (months, months_full) = (take(names, 0)?, take(names, 12)?);
+        let (standalone, standalone_full) = (take(names, 24)?, take(names, 36)?);
         let (weekdays, weekdays_full, eras) =
-            (take(names, 24)?, take(names, 31)?, take(names, 38)?);
+            (take(names, 48)?, take(names, 55)?, take(names, 62)?);
         let mut zero = zero.chars();
         let digit = zero.next().filter(|_| zero.next().is_none())?;
         Some(Dates {
@@ -65,6 +70,8 @@ impl Dates {
             zero: digit,
             months,
             months_full,
+            standalone,
+            standalone_full,
             weekdays,
             weekdays_full,
             eras,
@@ -139,8 +146,10 @@ impl Dates {
             match c {
                 'y' | 'u' if n == 2 => number(&mut out, i64::from(y.rem_euclid(100)), 2),
                 'y' | 'u' => number(&mut out, i64::from(y), n),
-                'M' | 'L' if n >= 4 => out.push_str(&self.months_full[mo as usize - 1]),
-                'M' | 'L' if n == 3 => out.push_str(&self.months[mo as usize - 1]),
+                'M' if n >= 4 => out.push_str(&self.months_full[mo as usize - 1]),
+                'M' if n == 3 => out.push_str(&self.months[mo as usize - 1]),
+                'L' if n >= 4 => out.push_str(&self.standalone_full[mo as usize - 1]),
+                'L' if n == 3 => out.push_str(&self.standalone[mo as usize - 1]),
                 'M' | 'L' => number(&mut out, i64::from(mo), n),
                 'd' => number(&mut out, i64::from(d), n),
                 'H' => number(&mut out, i64::from(h), n),
@@ -215,7 +224,7 @@ fn time(s: &str) -> Option<Time> {
 mod tests {
     use super::Dates;
 
-    const MONTHS: &str = "Jan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
+    const MONTHS: &str = "Jan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec\nJanuary\nFebruary\nMarch\nApril\nMay\nJune\nJuly\nAugust\nSeptember\nOctober\nNovember\nDecember\nMon\nTue\nWed\nThu\nFri\nSat\nSun\nMonday\nTuesday\nWednesday\nThursday\nFriday\nSaturday\nSunday\nBC\nAD";
 
     fn dates(patterns: [&str; 5], zero: char) -> Dates {
         let told = format!("{}\nAM\nPM\n{zero}\n{MONTHS}", patterns.join("\n"));

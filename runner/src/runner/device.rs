@@ -235,6 +235,24 @@ impl<D: DataSource> Runner<D> {
         Ok(hold)
     }
 
+    /// Retire the holds of `capabilities` on `nodes`: views a commit renewed
+    /// (LLP 1078), each another item now, which the answer is not for.
+    pub fn retire_holds_on(&mut self, nodes: &[ViewId], capabilities: &[&str]) {
+        let (gone, live): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)
+            .into_iter()
+            .partition(|h| {
+                h.node.is_some_and(|id| nodes.contains(&id))
+                    && capabilities.contains(&h.capability.as_str())
+            });
+        self.device_holds = live;
+        for hold in gone {
+            self.log(format!(
+                "device {} {} retired",
+                hold.capability, hold.ticket
+            ));
+        }
+    }
+
     /// Retire every hold whose node is gone (after a commit).
     pub(super) fn retire_holds(&mut self) {
         let kernel = &self.kernel;

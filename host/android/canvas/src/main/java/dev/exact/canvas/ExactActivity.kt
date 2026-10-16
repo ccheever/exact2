@@ -253,7 +253,7 @@ open class ExactActivity : Activity() {
         if (input) view.keys = Keys(view)
         val elements = Natives(this, File(storage, "app"), modules, video)
         natives = elements
-        elements.hatched = { node -> hatchReader?.hosted(node) }
+        elements.hatched = { node, context -> hatchReader?.made(node, context) }
         view.natives = elements
         // The app's text fields (LLP 1115.001 D8) outlive a reader made again: a field keeps its view, and with it
         // its selection and its undo, while its node lives. Under the view, which takes every touch and hands a

@@ -429,8 +429,8 @@ after a displayed frame, and an overlay is painted as a canvas is, as a picture.
 for the same words (`app.json`'s for `android`) as request kind 10: `app`, `element`, `elementEnded`, on the main
 thread. Its handle, `ExactElement`, has the node's word, `id`, box and `data-*` words; `click`, `focus`, `blur` and
 `input(text)`, which cross by the node's number (`Native.hatchAct`) and run between exact2's turns; and `view`, a
-text field's `EditText` where the reader hosts it; `host(view)`, a view of the app's own in the node's box, which
-`Natives` shows as element kind 5 wherever the node is painted; and `diagnostics`. The module has exact2's clock and
+text field's `EditText` where the reader hosts it; `host { context -> view }`, a view of the app's own in the node's
+box, made for each activity and shown by `Natives` as element kind 5 wherever the node is painted; and `diagnostics`. The module has exact2's clock and
 input: `frames`, `after` and `observe`, each a ticket that `stop()` ends, told back as scopes 5, 6 and 7 of kind 10.
 `picker(element, picker)` is asked as a hatched date or time
 control's picker opens: it may set the title, the text-entry mode, the mode toggle, the days allowed, the 24-hour

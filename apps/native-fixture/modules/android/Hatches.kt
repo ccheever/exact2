@@ -52,11 +52,13 @@ class Hatches : ExactHatches() {
         }
     }
 
+    /** The dial the reader made last, for the activity that runs now. */
+    private var dial: Dial? = null
+
     /** A dial of the app's own in the node's box: a quarter arc that turns once a second of exact2's clock. */
     private fun spin(element: ExactElement) {
-        val dial = Dial(activity ?: return)
-        element.host(dial)
-        val start = { turning = frames { frame -> dial.angle = (frame.now % 1000.0 / 1000.0 * 360.0).toFloat(); dial.invalidate() } }
+        element.host { context -> Dial(context).also { dial = it } }
+        val start = { turning = frames { frame -> dial?.let { it.angle = (frame.now % 1000.0 / 1000.0 * 360.0).toFloat(); it.invalidate() } } }
         start()
         observe(element) { input ->
             if (input is ExactInput.Pointer && input.phase == "up") {

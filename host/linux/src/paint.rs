@@ -1243,14 +1243,7 @@ impl Painter {
             let clips = [Shape::rect(rect), surface.outer];
             self.backend.canvas(&pixels, rect, &clips, ts);
         }
-        // @ref LLP 1115.001.000 D4 — a view a Kotlin hatch hosts at the
-        // node: over its paint, in its border box, where the node is.
-        if let Some(generation) = crate::hatches::reader::hosted(node.id) {
-            let props = format!("{{\"gen\":{generation}}}");
-            let field = NativeKind::Hatch;
-            self.backend
-                .native(node.id, field, &Shape::rect(rect), ts, &props);
-        }
+        self.hosted_view(node, rect, ts);
     }
 }
 

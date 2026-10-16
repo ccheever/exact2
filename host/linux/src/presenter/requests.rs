@@ -467,6 +467,9 @@ impl<D: DataSource> Presenter<D> {
                 "picker: {node} was made again; its answer is dropped"
             ));
         }
+        // And one held for the agent.
+        let kinds = ["date", "time", "datetime-local"];
+        self.host.runner_mut().retire_holds_on(renewed, &kinds);
     }
 
     /// `id`'s kind, where it is a date or time control a person can change:

@@ -12,13 +12,19 @@
 //!   words and each name and value. The app's moment has no node, box, word
 //!   or id (all zero or empty) and carries the root's `data-*` words.
 //! - 5 a frame ticket's tick: the ticket, the session clock (an `f64`'s
-//!   bits, high word first) and the commit's sequence number.
+//!   bits, high word first) and the commit's sequence number. A take holds
+//!   each ticket's latest tick only: the reader's hatches run after the
+//!   turn, or the agent's command, that ticked them.
 //! - 6 an `after` that fired: the ticket.
 //! - 7 input an observer heard: the ticket and the node, then 1 and a
 //!   pointer's phase (0 down, 1 move, 2 up, 3 cancel), its point and its
 //!   point in the node (floats as bits) and whether Exact handled it; or 2
 //!   and a key's `key` and `code` as strings, then whether it went down,
 //!   repeats, and was handled.
+//! - 8 a ticket that ended with no call: an observer whose node ended, or
+//!   every ticket at a reload. The reader drops what it would have called.
+//!
+//! A ticket is one word, unsigned.
 //!
 //! What the reader asks ([`act`]) is a Rust hatch's every call: an act on a
 //! node, a frame ticket, an `after`, an observer, a stop, the diagnostics,
@@ -50,6 +56,8 @@ thread_local! {
     /// The nodes whose box shows a view of the reader's hatches, and how
     /// many times each has been given one.
     static HOSTED: RefCell<BTreeMap<u32, u32>> = const { RefCell::new(BTreeMap::new()) };
+    /// Each frame ticket's latest tick since the last take: its clock and commit.
+    static TICKS: RefCell<BTreeMap<u64, (f64, u64)>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 /// The app's module, and the reader told the same moments after it.
@@ -57,8 +65,30 @@ pub(crate) struct Beside(pub(crate) Box<dyn Module>);
 
 impl Beside {
     pub(crate) fn new(module: Box<dyn Module>, shared: Rc<Shared>) -> Beside {
+        // A session's registrations are its own: what another left goes.
+        drop_all();
         SHARED.with(|s| *s.borrow_mut() = Some(shared));
         Beside(module)
+    }
+}
+
+impl Drop for Beside {
+    fn drop(&mut self) {
+        drop_all();
+        SHARED.with(|s| s.borrow_mut().take());
+    }
+}
+
+/// Forget every node, ticket and hosted view, and tell the reader each
+/// ticket ended.
+fn drop_all() {
+    NODES.with(|nodes| nodes.borrow_mut().clear());
+    HOSTED.with(|h| h.borrow_mut().clear());
+    TICKS.with(|t| t.borrow_mut().clear());
+    let tokens: Vec<u64> =
+        MINE.with(|m| std::mem::take(&mut *m.borrow_mut()).into_keys().collect());
+    for token in tokens {
+        words(&[8, token as u32 as i32]);
     }
 }
 
@@ -93,7 +123,23 @@ impl Module for Beside {
             }
         });
         if ended {
-            HOSTED.with(|h| h.borrow_mut().remove(&element.node()));
+            let node = element.node();
+            HOSTED.with(|h| h.borrow_mut().remove(&node));
+            // Its observers ended with it (`Shared::forget_node`).
+            let heard: Vec<u64> = MINE.with(|m| {
+                let mut m = m.borrow_mut();
+                let heard: Vec<u64> = (m.iter())
+                    .filter(|(_, w)| matches!(w, Mine::Heard(n) if *n == node))
+                    .map(|(t, _)| *t)
+                    .collect();
+                for t in &heard {
+                    m.remove(t);
+                }
+                heard
+            });
+            for token in heard {
+                words(&[8, token as u32 as i32]);
+            }
         }
         let moment = moment(element.is_new(), ended);
         let (frame, words) = (element.frame(), element.words());
@@ -110,21 +156,14 @@ impl Module for Beside {
     fn tick(&mut self, token: u64, frame: Frame) {
         self.0.tick(token, frame);
         if mine(token, |m| matches!(m, Mine::Frames)) {
-            let bits = frame.now.to_bits();
-            words(&[
-                5,
-                token as i32,
-                (bits >> 32) as i32,
-                bits as i32,
-                frame.seq as i32,
-            ]);
+            TICKS.with(|t| t.borrow_mut().insert(token, (frame.now, frame.seq)));
         }
     }
     fn fired(&mut self, token: u64) {
         self.0.fired(token);
         if mine(token, |m| matches!(m, Mine::After)) {
             MINE.with(|m| m.borrow_mut().remove(&token));
-            words(&[6, token as i32]);
+            words(&[6, token as u32 as i32]);
         }
     }
     fn heard(&mut self, token: u64, input: &Input) {
@@ -137,7 +176,7 @@ impl Module for Beside {
         };
         TOLD.with(|told| {
             let out = &mut *told.borrow_mut();
-            out.extend([7, token as i32, node as i32]);
+            out.extend([7, token as u32 as i32, node as i32]);
             let bits = |f: f32| f.to_bits() as i32;
             match input {
                 Input::Pointer {
@@ -173,9 +212,7 @@ impl Module for Beside {
     }
     fn forget(&mut self) {
         self.0.forget();
-        NODES.with(|nodes| nodes.borrow_mut().clear());
-        MINE.with(|m| m.borrow_mut().clear());
-        HOSTED.with(|h| h.borrow_mut().clear());
+        drop_all();
     }
 }
 
@@ -228,6 +265,11 @@ fn string(out: &mut Vec<i32>, s: &str) {
 /// The moments told since the last take, if any.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) fn take() -> Option<Vec<i32>> {
+    for (token, (now, seq)) in TICKS.with(|t| std::mem::take(&mut *t.borrow_mut())) {
+        let bits = now.to_bits();
+        let (high, low) = ((bits >> 32) as i32, bits as i32);
+        words(&[5, token as u32 as i32, high, low, seq as i32]);
+    }
     TOLD.with(|told| {
         let told = std::mem::take(&mut *told.borrow_mut());
         (!told.is_empty()).then_some(told)
@@ -253,8 +295,9 @@ pub(crate) fn hosted(node: u32) -> Option<u32> {
 /// | 13, 14 | to host a view at the node's box, or no longer | | how many times it has been given one; 1 |
 ///
 /// An act on a node is queued as a Rust hatch's is, and run between turns.
-/// -1 when the node is not a hatched node in the tree, or the ask is not
-/// one of these.
+/// -1 when the node is not a hatched node in the tree (a node's
+/// diagnostics too: they are not the module's), or the ask is not one of
+/// these.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) fn act(node: u32, kind: i32, text: Option<&str>) -> i64 {
     let element = NODES.with(|nodes| nodes.borrow().get(&node).cloned());
@@ -275,6 +318,9 @@ pub(crate) fn act(node: u32, kind: i32, text: Option<&str>) -> i64 {
         },
     };
     let named = || text.split_once('\n').unwrap_or((text, ""));
+    if node != 0 && element.is_none() {
+        return -1;
+    }
     match (kind, &element) {
         (1, Some(e)) => e.click(),
         (2, Some(e)) => e.focus(),

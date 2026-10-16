@@ -65,10 +65,13 @@ internal data class Device(
          * periods, the zero digit, and the months' and weekdays' names, short and full, and the eras. ICU's, as a
          * Views app's `DateFormat` writes them.
          */
-        private fun dates(locale: java.util.Locale, hour24: Boolean): String {
+        private fun dates(device: java.util.Locale, hour24: Boolean): String {
+            // An HTML value is a Gregorian date: written in the Gregorian calendar whatever the locale's own (a Thai
+            // phone's is Buddhist), as Material's picker writes its headline.
+            val locale = android.icu.util.ULocale.forLocale(device).setKeywordValue("calendar", "gregorian").toLocale()
             val best = { skeleton: String -> android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton) }
             val clock = if (hour24) "Hm" else "hm"
-            val symbols = android.icu.text.DateFormatSymbols.getInstance(locale)
+            val symbols = android.icu.text.DateFormatSymbols(android.icu.util.GregorianCalendar(locale), locale)
             val format = android.icu.text.DateFormatSymbols.FORMAT
             val (short, full) = android.icu.text.DateFormatSymbols.ABBREVIATED to android.icu.text.DateFormatSymbols.WIDE
             // ICU counts weekdays from Sunday, at 1.
@@ -77,6 +80,8 @@ internal data class Device(
             val lines = listOf(best("yMMMd"), best(clock), best(clock + "s"), best("yMMMd$clock"), best("yMMMd${clock}s")) +
                 symbols.amPmStrings.take(2) + zero.toString() +
                 symbols.getMonths(format, short).take(12) + symbols.getMonths(format, full).take(12) +
+                symbols.getMonths(android.icu.text.DateFormatSymbols.STANDALONE, short).take(12) +
+                symbols.getMonths(android.icu.text.DateFormatSymbols.STANDALONE, full).take(12) +
                 week(symbols.getWeekdays(format, short)) + week(symbols.getWeekdays(format, full)) + symbols.eras.take(2)
             return lines.joinToString("\n")
         }

@@ -211,6 +211,8 @@ impl super::Painter {
         let Some(text) = label(node) else {
             return false;
         };
+        // A label moves: its row is drawn by the walk, never from a recording.
+        self.row_refuse();
         let dark = self.dark;
         let (now, still) = (self.numerals.now, self.numerals.still);
         let up = self.labels.float(node.id, focused || !empty, now, still);
@@ -280,13 +282,12 @@ impl super::Painter {
         };
         let rtl = style.direction == Direction::Rtl;
         let (x, y, w, h) = rect;
-        let labelled = self.field_label(
-            node,
-            (x, y, w - ICON - ICON_INSET, h),
-            focused,
-            text.is_empty(),
-            ts,
-        );
+        // The label's box ends at the icon, which RTL puts at the start.
+        let beside = match rtl {
+            true => (x + ICON + ICON_INSET, y, w - ICON - ICON_INSET, h),
+            false => (x, y, w - ICON - ICON_INSET, h),
+        };
+        let labelled = self.field_label(node, beside, focused, text.is_empty(), ts);
         let paragraph = self
             .text
             .borrow_mut()
