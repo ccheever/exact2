@@ -175,6 +175,8 @@ public final class Agent {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
         }
+        // A release build measures for `perf` from the agent's first request.
+        session.measurePerf()
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         // `tap @t` / `type @t` answer a held device request in the library,
         // before any view is looked up (LLP 1069.007 D4).

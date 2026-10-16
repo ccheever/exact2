@@ -382,7 +382,7 @@ public final class ExactSession {
     lazy var sound = SoundOutput(self)
     package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
-    private(set) var sampler: FrameSampler?
+    var sampler: FrameSampler?
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     private(set) var clockDue: Double?
@@ -484,7 +484,7 @@ public final class ExactSession {
         webviews.session = self
         natives.session = self
         frames.session = self
-        sampler = FrameSampler.measured ? FrameSampler(session: self) : nil
+        sampler = FrameSampler.measured && FrameSampler.atBoot ? FrameSampler(session: self) : nil
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
         installControlText()

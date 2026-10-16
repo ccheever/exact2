@@ -96,7 +96,8 @@ extension ExactEnv {
     /// trust, or stamped `release` or `archive` by `build.mjs`. An app with
     /// no updater (`deploy.store` "0") records no trust in `compat.json`, so
     /// the stamp is what says its `--release` build is one. Such a build
-    /// measures nothing for the agent's `perf` (LLP 1079): no frame sampler
-    /// display link, no hatch timing.
+    /// measures frames and hatch calls for `perf` (LLP 1079) only from when
+    /// something first reads them (`ExactSession.measurePerf`), so one that
+    /// nobody drives keeps no frame sampler display link and times nothing.
     static let releaseBuild = productionBake || ["release", "archive"].contains(appMetadata["ExactBuildKind"] as? String ?? "")
 }
