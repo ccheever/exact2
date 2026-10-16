@@ -136,7 +136,7 @@ impl std::fmt::Display for HostError {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Mirror {
-    props: BTreeMap<String, String>,
+    props: exact_kernel::SortedMap<String, String>,
     style: String,
     children: Vec<ViewId>,
     frame: Option<(f32, f32, f32, f32)>,
@@ -1436,8 +1436,8 @@ pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
 }
 
 /// Props by their own names, as strings. An empty `href` is no link: not told.
-fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
+fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<String, String> {
+    let mut out = exact_kernel::SortedMap::default();
     for (id, value) in node.props.iter() {
         let text = match value {
             PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,

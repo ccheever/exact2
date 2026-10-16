@@ -163,7 +163,7 @@ impl Batch {
         out: &mut String,
         id: u32,
         parent: u32,
-        props: &std::collections::BTreeMap<String, String>,
+        props: &exact_kernel::SortedMap<String, String>,
         style: &str,
         handlers: &[&str],
         paints: bool,
