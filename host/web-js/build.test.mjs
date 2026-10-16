@@ -63,5 +63,16 @@ test('Snapback mutation failure literals name the refused rewrite, while resourc
     expect(check(imports + source.replace("return {ok:false, message:'No room'}", "throw refused({code:'FULL', message:'No room'})"))).toEqual([]);
     expect(check(source)).toEqual([]);
     expect(check(imports + "const sources = {post: () => ({ok:false}), status: () => ({ok:false})};")).toHaveLength(1);
+    expect(check(imports + "const sources = {post: () => {const result = {ok:false}; return result;}};")).toHaveLength(1);
+    expect(check(imports + "const sources = {post: () => Promise.resolve({ok:false})};")).toHaveLength(1);
+    expect(check(imports + "const sources = {post: async () => {const value = {ok:false}; return await Promise.resolve(value);}};")).toHaveLength(1);
+    expect(check(imports + "const helpers = {ack: () => {const result = {ok:false}; return result;}}; const sources = {post: helpers.ack};")).toHaveLength(1);
+    expect(check(imports + "const failure = {value:{ok:false}}; const sources = {post: () => failure.value};")).toHaveLength(1);
+
+    expect(check(imports + "const no = false; function ack() {const result = {ok:no}; const alias = result; return alias;} const submit = ack; const sources = {post: submit};")).toHaveLength(1);
+    expect(check(imports + "function status() {const result = {ok:false}; return result;} const sources = {post: () => {const result = {ok:true}; return result;}, status};")).toEqual([]);
+    expect(check(imports + "const result = {ok:false}; function ack(result) {return result;} const sources = {post: () => ack({ok:true})};")).toEqual([]);
+    expect(check(imports + "function status() {return {ok:false};} const sources = {post: () => ({status:'Posted', ok:true}), status};")).toEqual([]);
+
   } finally {rmSync(dir, {recursive: true, force: true});}
 });

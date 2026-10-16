@@ -314,35 +314,95 @@ function snapbackMutationRefusals(stage, file, ast) {
   const app=capturedOrigins(stage).at(-1)[1], contract=resolve(app,'app.contract');
   if (!existsSync(contract)) return [];
   const names=new Set([...readFileSync(contract,'utf8').matchAll(/\bsend\s+[\w$]+\s*=\s*([\w$]+)\s*\(/g)].map(m=>m[1]));
-  const functions=new Map(), roots=[], failed=[];
+  const roots=[], failed=new Set(), scopes=new WeakMap();
   const key=n=>n?.type==='Identifier' ? n.name : n?.type==='Literal' ? n.value : null;
-  const scan=node=>{
-    if (!node || typeof node!=='object') return;
-    if (Array.isArray(node)) {node.forEach(scan);return;}
-    if (node.type==='FunctionDeclaration' && node.id) functions.set(node.id.name,node);
-    if (node.type==='VariableDeclarator' && ['ArrowFunctionExpression','FunctionExpression'].includes(node.init?.type)) functions.set(key(node.id),node.init);
-    if (node.type==='Property' && ['ArrowFunctionExpression','FunctionExpression'].includes(node.value?.type) && names.has(key(node.key))) roots.push(node.value);
-    for (const child of Object.values(node)) scan(child);
+  const lookup=(scope,name)=>{
+    for(;scope;scope=scope.parent) if(scope.bindings.has(name)) return scope.bindings.get(name);
+    return [];
   };
-  scan(ast);
-  for (const name of names) if(functions.has(name)) roots.push(functions.get(name));
-  const seen=new Set();
+  const functionNode=node=>['FunctionDeclaration','ArrowFunctionExpression','FunctionExpression'].includes(node?.type);
+  const scan=(node,scope)=>{
+    if (!node || typeof node!=='object') return;
+    if (Array.isArray(node)) {node.forEach(child=>scan(child,scope));return;}
+    if (node.type==='FunctionDeclaration' && node.id) {
+      scope.bindings.set(node.id.name,[node]);
+      if(names.has(node.id.name)) roots.push(node);
+    }
+    if (node.type==='VariableDeclarator' && node.id.type==='Identifier') {
+      scope.bindings.set(node.id.name,node.init ? [node.init] : []);
+      if(names.has(node.id.name) && functionNode(bare(node.init))) roots.push(node.init);
+    }
+    if (node.type==='AssignmentExpression' && node.operator==='=' && node.left.type==='Identifier') lookup(scope,node.left.name).push(node.right);
+    if (node.type==='Property' && names.has(key(node.key))) roots.push(node.value);
+    if (functionNode(node) || node.type==='BlockStatement') {
+      scope={parent:scope,bindings:new Map()};
+      // Parameters shadow outer values even when their runtime value is unknown.
+      for(const param of node.params ?? []) if(param.type==='Identifier') scope.bindings.set(param.name,[]);
+    }
+    scopes.set(node,scope);
+    for (const child of Object.values(node)) scan(child,scope);
+  };
+  scan(ast,{parent:null,bindings:new Map()});
+  const resolved=(node,seen=new Set())=>{
+    node=bare(node);
+    if(!node || seen.has(node)) return [];
+    seen.add(node);
+    if(node.type==='Identifier') return lookup(scopes.get(node),node.name);
+    if(node.type==='MemberExpression') {
+      const name=node.computed ? key(node.property) : node.property.name;
+      const objects=object=>{
+        object=bare(object);
+        if(object?.type==='ObjectExpression') return object.properties.filter(p=>p.type==='Property' && key(p.key)===name).map(p=>p.value);
+        return resolved(object,seen).flatMap(objects);
+      };
+      return objects(node.object);
+    }
+    return [];
+  };
+  const seenValues=new Set();
+  const falseValue=node=>{
+    node=bare(node);
+    if(!node || seenValues.has(node)) return false;
+    seenValues.add(node);
+    if(node.type==='Literal') return node.value===false;
+    return resolved(node).some(falseValue);
+  };
+  const seenReturned=new Set();
   const returned=node=>{
     node=bare(node);
-    if(node?.type==='ObjectExpression' && node.properties.some(p=>p.type==='Property' && key(p.key)==='ok' && bare(p.value)?.type==='Literal' && bare(p.value).value===false)) failed.push(node);
-    if(node?.type==='ConditionalExpression') {returned(node.consequent);returned(node.alternate);}
+    if(!node || seenReturned.has(node)) return;
+    seenReturned.add(node);
+    if(['Identifier','MemberExpression'].includes(node.type)) resolved(node).forEach(returned);
+    if(node.type==='ObjectExpression') {
+      const property=node.properties.findLast(p=>p.type==='Property' && key(p.key)==='ok');
+      seenValues.clear();
+      if(property && falseValue(property.value)) failed.add(node);
+      if(!property) node.properties.filter(p=>p.type==='SpreadElement').forEach(p=>returned(p.argument));
+    }
+    if(node.type==='ConditionalExpression') {returned(node.consequent);returned(node.alternate);}
+    if(node.type==='LogicalExpression') {returned(node.left);returned(node.right);}
+    if(node.type==='AwaitExpression') returned(node.argument);
+    if(node.type==='CallExpression' && propertyName(node.callee)==='resolve' && bare(node.callee.object)?.type==='Identifier' && bare(node.callee.object).name==='Promise') returned(node.arguments[0]);
+  };
+  const seen=new Set(), seenCallees=new Set();
+  const callable=node=>{
+    node=bare(node);
+    if(!node || seenCallees.has(node)) return;
+    seenCallees.add(node);
+    if(['Identifier','MemberExpression'].includes(node.type)) resolved(node).forEach(callable); else visit(node);
   };
   const visit=node=>{
+    node=bare(node);
     if (!node || typeof node!=='object' || seen.has(node)) return;
     seen.add(node);
     if (Array.isArray(node)) {node.forEach(visit);return;}
     if(node.type==='ReturnStatement') returned(node.argument);
     if(node.type==='ArrowFunctionExpression' && node.body.type!=='BlockStatement') returned(node.body);
-    if(node.type==='CallExpression' && node.callee.type==='Identifier' && functions.has(node.callee.name)) visit(functions.get(node.callee.name));
+    if(node.type==='CallExpression') callable(node.callee);
     for(const child of Object.values(node)) visit(child);
   };
-  roots.forEach(visit);
-  return failed;
+  roots.forEach(callable);
+  return [...failed];
 }
 
 /** The direct uses of the clock, randomness and timers in the captured

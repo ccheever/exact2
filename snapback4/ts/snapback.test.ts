@@ -958,6 +958,35 @@ test('device guest sessions persist and bind a partition after public auth disco
   } finally {await db.close();}
 });
 
+test('public device auth discovery preserves expired storage and fences an external account change', async () => {
+  const values = new Map<string, string>();
+  const store = {get: (key: string) => values.get(key) ?? null, set: (key: string, value: string) => {values.set(key, value);}, forget: (key: string) => {values.delete(key);}};
+  const expired = JSON.stringify({principal: 'guest:old', kind: 'guest', token: 'old', expiresAt: 5});
+  const config = {guests: true, password: true, development: false};
+  const originalFetch = globalThis.fetch;
+  let externalChange = false;
+  const headers: {auth: string | null; persona: string | null}[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    const sent = new Headers(init?.headers);
+    headers.push({auth: sent.get('authorization'), persona: sent.get('x-snapback-persona')});
+    await Promise.resolve();
+    if (externalChange) store.set('session', 'external replacement');
+    return Response.json(config);
+  }) as typeof fetch;
+  const db = await Snapback.open({app: 'test.exact.guest', name: 'discovery', origin: 'http://discovery.test',
+    storage: storage(join(scratch, 'discovery')), auth: {store, key: 'session', now: 10}, wasm: `file://${wasm}`,
+    headers: () => ({Authorization: 'Bearer supplied', 'X-Snapback-Persona': 'alice'})});
+  try {
+    store.set('session', expired);
+    expect(await db.authConfig()).toEqual(config);
+    expect(store.get('session')).toBe(expired);
+    expect(headers[0]).toEqual({auth: null, persona: null});
+    externalChange = true;
+    await expect(db.authConfig()).rejects.toMatchObject({code: 'E_STALE'});
+    expect(store.get('session')).toBe('external replacement');
+  } finally {globalThis.fetch = originalFetch; await db.close();}
+});
+
 test('password accounts on serve: signup, reopen, refresh, login, logout and isolated safe partitions', async () => {
   const project = join(scratch, 'password-server'), deployed = join(project, 'production');
   mkdirSync(join(project, 'snapback'), { recursive: true });

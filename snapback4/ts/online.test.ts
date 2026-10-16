@@ -314,3 +314,30 @@ test('online guest discovery is public, sessions persist, and auth replies canno
     expect(error).toMatchObject({code: 'FULL', reason: 'FULL', message: 'No room', refusal: {code: 'FULL', message: 'No room'}});
   } finally {release(); server.stop(true);}
 });
+
+
+test('public online auth discovery preserves expired storage and fences an external account change', async () => {
+  const store = secretStore(), expired = JSON.stringify({principal: 'guest:old', kind: 'guest', token: 'old', expiresAt: 5});
+  store.set('session', expired);
+  const config = {guests: true, password: true, development: false};
+  const originalFetch = globalThis.fetch;
+  let externalChange = false;
+  const headers: {auth: string | null; persona: string | null}[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    const sent = new Headers(init?.headers);
+    headers.push({auth: sent.get('authorization'), persona: sent.get('x-snapback-persona')});
+    await Promise.resolve();
+    if (externalChange) store.set('session', 'external replacement');
+    return Response.json(config);
+  }) as typeof fetch;
+  try {
+    const db = new Snapback({origin: 'http://discovery.test', auth: {store, key: 'session', now: 10},
+      headers: () => ({Authorization: 'Bearer supplied', 'X-Snapback-Persona': 'alice'})});
+    expect(await db.authConfig()).toEqual(config);
+    expect(store.get('session')).toBe(expired);
+    expect(headers[0]).toEqual({auth: null, persona: null});
+    externalChange = true;
+    await expect(db.authConfig()).rejects.toMatchObject({code: 'E_STALE'});
+    expect(store.get('session')).toBe('external replacement');
+  } finally {globalThis.fetch = originalFetch;}
+});

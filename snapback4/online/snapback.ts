@@ -92,12 +92,12 @@ export class Snapback {
     return this.releases.decode(response.ok || value?.denied ? value : null, key);
   }
 
-  private headers(): Record<string, string> {
+  private headers(authenticate = true): Record<string, string> {
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.options.headers?.() ?? {})) if (value !== undefined) headers[key] = value;
-    if (this.options.auth) {
+    if (this.options.auth || !authenticate) {
       for (const key of Object.keys(headers)) if (['authorization', 'x-snapback-persona'].includes(key.toLowerCase())) delete headers[key];
-      const session = this.session;
+      const session = authenticate ? this.session : null;
       if (session) headers.authorization = `Bearer ${session.token}`;
     }
     return headers;
@@ -176,7 +176,7 @@ export class Snapback {
   async authConfig(): Promise<AuthConfig> {
     const auth = this.options.auth, raw = auth?.store.get(auth.key);
     let response: Response;
-    try { response = await fetch(this.options.origin.replace(/\/+$/, '') + '/auth/config', {headers: this.headers()}); }
+    try { response = await fetch(this.options.origin.replace(/\/+$/, '') + '/auth/config', {headers: this.headers(false)}); }
     catch (error) { throw refused(unreached(error)); }
     const body = await response.json().catch(() => null);
     if (auth) this.unchanged(raw ?? null);

@@ -353,13 +353,12 @@ export class Snapback {
     const auth = this.options.auth;
     return auth ? sessionFrom(auth.store.get(auth.key), auth.now) : null;
   }
-  private headers(): Record<string, string> {
+  private headers(authenticate = true): Record<string, string> {
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.options.headers?.() ?? {})) if (value !== undefined) headers[key] = value;
-    if (this.options.auth) {
-      delete headers['x-snapback-persona'];
-      delete headers.authorization;
-      const session = this.session;
+    if (this.options.auth || !authenticate) {
+      for (const key of Object.keys(headers)) if (['authorization', 'x-snapback-persona'].includes(key.toLowerCase())) delete headers[key];
+      const session = authenticate ? this.session : null;
       if (session) headers.authorization = `Bearer ${session.token}`;
     }
     return headers;
@@ -512,7 +511,7 @@ export class Snapback {
   async authConfig(): Promise<AuthConfig> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
     const auth = this.options.auth, raw = auth?.store.get(auth.key);
-    const reply = await this.exchange({ method: 'GET', path: '/auth/config' });
+    const reply = await this.exchange({ method: 'GET', path: '/auth/config' }, false);
     if (this.closed || (auth && auth.store.get(auth.key) !== raw)) throw refusal('E_STALE', 'the session changed while authentication was in flight');
     if (reply.error) throw refusal('E_OFFLINE', String(reply.error), {retryable: true});
     const body = reply.body as Partial<AuthConfig> & {denied?: Refusal} | null;
@@ -988,9 +987,9 @@ export class Snapback {
     return { ok: true, path: file, type, bytes: bytes.byteLength, ...(name === undefined ? {} : { name }) };
   }
 
-  private async exchange(fetchRequest: Request): Promise<Request> {
+  private async exchange(fetchRequest: Request, authenticate = true): Promise<Request> {
     const { method, path, body, bodyBytes } = fetchRequest as { method: string; path: string; body?: Json; bodyBytes?: string };
-    const headers = this.headers();
+    const headers = this.headers(authenticate);
     const releaseKey = this.releases.identity(headers);
     for (const key of Object.keys(headers)) if (key.toLowerCase() === 'x-snapback-device') delete headers[key];
     Object.assign(headers, fetchRequest.headers ?? {});
