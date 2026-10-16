@@ -932,14 +932,7 @@ extension NavigationHost {
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
     /// whose own `env()` insets would be added to UIKit's.
     private func reachBottom(_ c: RouteController) {
-        let flowing = { (v: NodeView) in
-            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-        }
-        let last = c.node.container.subviews.last { ($0 as? NodeView).map(flowing) == true } as? NodeView
-        // One that scrolls vertically: UIKit's bottom inset would let a
-        // sideways carousel scroll up and down.
-        let vertical = ["scroll", "auto"].contains(last?.style["overflow_y"]?.string ?? "")
-        let target = presenter.viewportFit != "cover" && last?.scrollView != nil && vertical ? last : nil
+        let target = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node) : nil
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== target?.scrollView else { return }
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
@@ -952,6 +945,30 @@ extension NavigationHost {
         c.setContentScrollView(shown, for: .bottom)
         #endif
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its content above the bottom edge" : "scrolls its content to the bottom edge")")
+    }
+
+    /// The scroller at a route's bottom edge: its last in-flow child, or
+    /// that child's last, down through boxes that end where their parent's
+    /// box ends (a sheet's component whose root column holds its header and
+    /// then its `scroll`), as a hand-built screen's scroll view pinned to its
+    /// view's bottom is at the edge however deep it sits. A box that ends
+    /// short of its parent's bottom (a padding, a border or a margin under
+    /// it) keeps the route's cover. One that scrolls vertically only: UIKit's
+    /// bottom inset would let a sideways carousel scroll up and down.
+    static func bottomScroller(in route: NodeView) -> NodeView? {
+        let flowing = { (v: NodeView) in
+            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+        }
+        var parent = route
+        while let last = parent.container.subviews.last(where: { ($0 as? NodeView).map(flowing) == true }) as? NodeView {
+            // The route's own child stands at its foot whatever the cover
+            // pads under it; a deeper one must reach its parent's bottom.
+            if parent !== route, parent.contentBox().maxY < parent.bounds.maxY - 0.5
+                || parent.convert(last.bounds, from: last).maxY < parent.bounds.maxY - 0.5 { return nil }
+            if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }
+            parent = last
+        }
+        return nil
     }
 
     /// The physical backend owned by a content node.

@@ -439,14 +439,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   and height (LLP 1116.005 D2), as `apps/shelf`'s add sheet shows. (Shelf recipe,
   2026-10-10; round 7, 2026-10-11.)
 
-- **A sheet's content stops above the home indicator, leaving a blank band.** Cause:
-  a route's content runs to the bottom edge only when the route's last in-flow child is
-  a vertical scroller, which UIKit then insets (LLP 1116 D2, `reachBottom` in
-  NavigationBarIOS.swift); a sheet component whose root is a `column` holding a header
-  and a `scroll` makes that `column` the last child. Fix: make the `scroll` the route's
-  own last child (the header its sibling), or make the component's root the `scroll`.
-  (euxy port, tempo and change-icon sheets, 2026-10-15.)
-
 ## Actions
 
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression

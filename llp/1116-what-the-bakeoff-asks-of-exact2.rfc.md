@@ -269,6 +269,14 @@ to what the author writes.
    does.
    - A footer below the scroll keeps its padding (native-fixture's Detail route).
    - A route without `navigationScroll` gets the same rule when its last child is a scroller.
+   - **Amended 2026-10-16:** the scroller may sit deeper: the route's last in-flow child,
+     or that child's last, down through boxes that end where their parent's box ends (no
+     padding, border or margin under them). A sheet whose component's root `column` holds
+     its header and then its `scroll` reached the edge in no app, where a hand-built
+     sheet's scroll view pinned to its view's bottom does at any depth (the euxy port's
+     sheets stopped their content a home indicator's height above the sheet's foot).
+     `NavigationHost.bottomScroller`; test
+     `NavigationBasicsIOSTests.testANestedLastScrollerReachesTheBottomEdge`.
    - Test: `NavigationBasicsIOSTests.testAnInlineTitlesScrollerGoesUnderTheBar`. The list's
      `maxY` equals the view's `maxY`, and the inset equals the safe area.
 2. **A header's second text is the bar's subtitle.** `HeaderTitle.init`

@@ -414,6 +414,42 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertNil(detail.contentScrollView(for: .bottom))
     }
 
+    /// The bottom edge's scroller may sit deeper than the route's last child
+    /// (LLP 1116 D2, amended): a sheet whose component's root column holds
+    /// its header and then its scroller reaches the edge, as a hand-built
+    /// sheet's scroll view pinned to its view's bottom does. A footer, a
+    /// padding under it, or a sideways scroller does not.
+    func testANestedLastScrollerReachesTheBottomEdge() {
+        let p = Presenter()
+        var next: UInt32 = 0
+        func box(_ parent: NodeView?, y: CGFloat, height: CGFloat, overflow: String? = nil) -> NodeView {
+            next += 1
+            let n = NodeView(id: next, kind: "view", presenter: p)
+            n.frame = CGRect(x: 0, y: y, width: 400, height: height)
+            if let overflow { n.style[overflow == "x" ? "overflow_x" : "overflow_y"] = .string("scroll"); n.syncScroll() }
+            parent?.container.addSubview(n)
+            return n
+        }
+        // The route's cover pads 34 under its child, which stands at its foot.
+        let route = box(nil, y: 0, height: 600)
+        let sheet = box(route, y: 0, height: 566)
+        _ = box(sheet, y: 0, height: 60)
+        let scroller = box(sheet, y: 60, height: 506, overflow: "y")
+        XCTAssertTrue(NavigationHost.bottomScroller(in: route) === scroller, "the component's scroller reaches the edge")
+        sheet.applyKernelContentBox(CGRect(x: 0, y: 0, width: 400, height: 546), padding: [0, 0, 20, 0])
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a padding under it keeps the cover")
+        sheet.applyKernelContentBox(nil, padding: nil)
+        scroller.frame.size.height = 446
+        let footer = box(sheet, y: 506, height: 60)
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a footer under it keeps the cover")
+        footer.removeFromSuperview()
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "nor does a scroller that ends short of its parent")
+        scroller.frame.size.height = 506
+        scroller.style["overflow_y"] = nil
+        scroller.style["overflow_x"] = .string("scroll")
+        XCTAssertNil(NavigationHost.bottomScroller(in: route), "a sideways scroller takes no bottom inset")
+    }
+
     /// A route that paints no background shows what the web shows through
     /// it — the root's (LLP 1116 D2: `-exact-grouped-background` on the root
     /// under every screen, and under the home indicator) — light and dark,
