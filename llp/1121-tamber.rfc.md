@@ -2394,3 +2394,35 @@ everywhere.
 - `describe` gives each token's `pairs` and the design's `warnings`, and the design tool badges
   each declared pair's ratio per cell.
 - **Importers** proposing pairs (shadcn's `x-foreground`, Astryx's `on-`) are left for later.
+
+### Stage 4, commit 6: `uses`, `resolve` and scrub sessions (`ddaa887e1`..`6d904f998`, records `01ed90b6f`, wording `393a1e9c0`)
+
+- **`uses`** is answered statically, from the plan compiled from the sources and its source map.
+  - Each site is `{site, row, file, line, col, end_col, component, via?}`, where `via` names a
+    token, a synthetic token, a slot or a derive the read goes through.
+  - Only colour rows count. A value that is only compared, and an `#id` reference, is no read.
+  - The JS target's plan and a native bake of the same sources give the same sites (tested), so
+    one answer serves both of the JS loop's plans.
+  - There is no mounted-instance count; that needs a report the channel doesn't carry (a §9
+    candidate).
+  - The clone's `primary_500` has 587 sites, all direct.
+- **`resolve`** is unchanged: the stored form or residual with its fallback, labelled.
+  `resolve-on` comes with LLP 1122 T2b, from a build's `selected` report.
+- **Scrub sessions** (`scrub`, `scrub-release`, `scrub-cancel`, the `scrub` event):
+  - Each update is planned on the scrub's opening files (`propose` with `texts`). The dev loop
+    that mounts the wire compiles the texts as an in-memory overlay of the design, through its
+    own compiler for each target, because the JS target's CSS and profile colours need the real
+    compile. It sends every build the batch from its running design, and JS-loop natives get it
+    by relay.
+  - Updates are coalesced: one preview in flight, and the latest wins.
+  - Opening needs write scope and a present client. A second scrub is 409, naming the opener. A
+    rebuild-class edit has no scrub (409).
+  - Release writes once against the opening digests; a conflict names who moved the file and
+    restores.
+  - A scrub ends without a write on a cancel, any other write or a hand edit (which ends it
+    before it lands), its client no longer present, the server's loss, or 30 s with no update.
+    Each end sends every build the latest committed design. A value-only build landing while a
+    preview still shows is only an ordering case, and it changes only what the end restores.
+- `scopeOf()` grants write to the local token, until pairing (stage 10).
+
+**Stage 4's commits are complete.** The gate run follows.
