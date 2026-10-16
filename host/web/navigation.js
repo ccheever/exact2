@@ -65,6 +65,11 @@ function pushingList(route) {
 }
 /** Recheck authored admission even while narrow. Projection's visibility/inert never opt a list out. */
 function splitOf([route]) {
+  // A rendered document has route and handler facts but no browser layout.
+  if (typeof globalThis.getComputedStyle !== "function" || typeof globalThis.matchMedia !== "function") {
+    if (route) splitLists.delete(route);
+    return { width: 0, list: null, rows: [] };
+  }
   const said = route?.getAttribute("navigationSplit"), explicit = Number(said);
   const found = route && said !== "none" && !sheet(route) ? pushingList(route) : null;
   const width = route && said !== "none" && !sheet(route) && wide() && /^(absolute|fixed)$/.test(getComputedStyle(route).position)

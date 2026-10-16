@@ -14,10 +14,11 @@ async function renderedPages(source, check) {
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    const html = path => readFileSync(resolve(dir, 'dist', path, 'index.html'), 'utf8');
     check(path => {
-      const html = readFileSync(resolve(dir, 'dist', path, 'index.html'), 'utf8');
-      return [/<title>([^<]*)<\/title>/.exec(html)?.[1], /<meta name="description" content="([^"]*)">/.exec(html)?.[1]];
-    });
+      const page = html(path);
+      return [/<title>([^<]*)<\/title>/.exec(page)?.[1], /<meta name="description" content="([^"]*)">/.exec(page)?.[1]];
+    }, html);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
@@ -44,6 +45,35 @@ component Heads
     expect(page('')).toEqual(['Home', 'Home description']);
     expect(page('detail')).toEqual(['Detail', 'Detail description']);
     expect(page('plain')).toEqual(['Root', 'Root description']);
+  });
+}, 30000);
+
+test('JavaScript-rendered navigation keeps split facts without browser geometry', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build activate=interaction
+    detail "/detail" render=build activate=interaction
+
+component SplitDocument
+  action open
+    nav = push(nav, path("detail"))
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" position="relative"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0
+          if e.name == "home"
+            list
+              button "Open" press=open
+          if e.name == "detail"
+            button "Back" id="back" press=back
+`, (_, html) => {
+    for (const path of ['', 'detail']) {
+      const page = html(path);
+      expect(page).toContain('data-exact-list');
+      expect(page).toContain('data-exact-router-press="true"');
+      expect(page).not.toMatch(/\sdata-exact-split="/);
+    }
   });
 }, 30000);
 
