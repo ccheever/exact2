@@ -118,8 +118,7 @@ impl LayoutTree {
             (true, None) => Some(self.new_alert_prefix(slot)),
             (false, Some(node)) => {
                 self.alert_prefixes.remove(&slot);
-                let result = self.taffy.remove(node);
-                self.note("remove_alert_prefix", result);
+                self.remove(node);
                 None
             }
             (false, None) => None,

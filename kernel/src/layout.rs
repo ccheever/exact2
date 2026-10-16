@@ -451,7 +451,7 @@ impl LayoutTree {
 
     /// Engine nodes.
     pub fn node_count(&self) -> usize {
-        self.slots.len()
+        self.taffy.total_node_count()
     }
 
     /// Allocate a leaf; `measured` leaves carry their slot for the measure closure.
@@ -495,11 +495,11 @@ impl LayoutTree {
         self.field_minima.remove(&node);
         self.button_records.remove(&node);
         self.deferred.remove(&node);
+        self.walks.remove(&node);
         if let Some(slot) = self.slots.remove(&node) {
             self.flowing.remove(&slot);
             if let Some(prefix) = self.alert_prefixes.remove(&slot) {
-                let result = self.taffy.remove(prefix);
-                self.note("remove_alert_prefix", result);
+                self.remove(prefix);
             }
         }
         self.offers.remove(&node);
