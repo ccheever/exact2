@@ -157,6 +157,7 @@ final class TableHost {
     /// the row's own callback is the point at which its effective appearance
     /// is current, including an authored `color-scheme` override.
     func appearanceChanged(_ row: NodeView) {
+        (row.superview as? TableRowCell)?.separatorAppearanceChanged(row)
         guard let line = lines[row.id] else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }

@@ -35,8 +35,17 @@ import AppKit
 /// policy decides whether its stock separator belongs at this boundary.
 private final class TableSeparatorRowView: NSTableRowView {
     var separates = true { didSet { if separates != oldValue { needsDisplay = true } } }
+    weak var appearanceSource: NodeView? { didSet { if appearanceSource !== oldValue { needsDisplay = true } } }
+    private func drawSystemSeparator(in dirtyRect: NSRect) { super.drawSeparator(in: dirtyRect) }
     override func drawSeparator(in dirtyRect: NSRect) {
-        if separates { super.drawSeparator(in: dirtyRect) }
+        guard separates else { return }
+        if let appearanceSource {
+            appearanceSource.effectiveAppearance.performAsCurrentDrawingAppearance {
+                drawSystemSeparator(in: dirtyRect)
+            }
+        } else {
+            drawSystemSeparator(in: dirtyRect)
+        }
     }
 }
 
@@ -121,6 +130,12 @@ final class TableRowCell: NSTableCellView {
         feed.moved()
         row.rowDisclosure(hidden: false)
         if backgroundStyle == .emphasized { row.rowEmphasisChanged(false) }
+    }
+
+    func separatorAppearanceChanged(_ node: NodeView) {
+        guard node === row, let rowView = superview as? TableSeparatorRowView,
+              rowView.appearanceSource === node else { return }
+        rowView.needsDisplay = true
     }
 
     /// Hit tests that ask what is under a point, not who takes a click
@@ -717,13 +732,16 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
     private func syncSeparators() {
         table.enumerateAvailableRowViews { view, index in
-            (view as? TableSeparatorRowView)?.separates = self.separates(at: index)
+            guard let view = view as? TableSeparatorRowView else { return }
+            view.appearanceSource = self.row(at: index)?.node
+            view.separates = self.separates(at: index)
         }
     }
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let identifier = NSUserInterfaceItemIdentifier("exact.row.separator")
         let view = tableView.makeView(withIdentifier: identifier, owner: self) as? TableSeparatorRowView ?? TableSeparatorRowView()
         view.identifier = identifier
+        view.appearanceSource = self.row(at: row)?.node
         view.separates = separates(at: row)
         return view
     }
@@ -740,6 +758,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// The table let a row's view go: the runner's row, if it is still
     /// mounted, stays in the document.
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
+        (rowView as? TableSeparatorRowView)?.appearanceSource = nil
         (rowView.view(atColumn: 0) as? TableRowCell)?.sendHome()
     }
 
