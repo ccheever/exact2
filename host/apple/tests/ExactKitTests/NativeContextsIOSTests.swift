@@ -517,6 +517,32 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(sheet.midX, invoker.midX, accuracy: 2, "centred across it")
     }
 
+    /// With no `position-area`, a sheet points at its whole invoker with
+    /// UIKit's arrow on the side UIKit picks and never covers it, as a
+    /// UIAlertController presented from a control does by default. Without a
+    /// cancel, as `testACentredSheetSitsOverItsInvoker`.
+    func testAnUnplacedSheetPointsAtItsInvokerWithoutCoveringIt() throws {
+        let (p, controller, scene) = chooser({ Self.providers })
+        defer { p.menus.reset(); window.isHidden = true }
+        // Low in the window, so UIKit has room to put the sheet above it
+        p.apply(wireBatch([["op": "children", "id": 2, "ids": [3, 4, 5]],
+                           ["op": "frame", "id": 1, "x": 100.0, "y": 340.0, "w": 200.0, "h": 40.0]]))
+        let source = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(p.menus.activate(source), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let presentation = try XCTUnwrap(alert.popoverPresentationController)
+        XCTAssertEqual(presentation.sourceRect, source.bounds, "the whole invoker")
+        XCTAssertFalse(presentation.canOverlapSourceViewRect)
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        settle(p) { !p.menus.inTransition }
+        XCTAssertEqual(presentation.permittedArrowDirections, .any, "UIKit's arrow, on the side it picks")
+        XCTAssertNotEqual(presentation.arrowDirection, .unknown, "an arrow points at the invoker")
+        let window = try XCTUnwrap(source.window).bounds
+        let sheet = alert.view.convert(alert.view.bounds, to: nil), invoker = source.convert(source.bounds, to: nil)
+        XCTAssertTrue(window.contains(invoker) && !sheet.isEmpty, "both shown: sheet \(sheet), invoker \(invoker)")
+        XCTAssertFalse(sheet.intersects(invoker.insetBy(dx: 1, dy: 1)), "sheet \(sheet) covers invoker \(invoker)")
+    }
+
     /// A shape the sheet cannot present, two cancels, opens nothing. (Its
     /// logged reason needs a session; this presenter has none.)
     func testAChooserTheSheetCannotPresentIsRefused() throws {
