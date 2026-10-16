@@ -20,13 +20,12 @@ export type LinkedRow = {
   author: string; avatar: string; initial: string; head: string; base: string; age: string; stackSize: number; stackLabel: string;
   sourceLabel: string; unlinkLabel: string; canWatch: boolean;
 };
-export type PrsView = { supported: boolean; rows: LinkedRow[]; footer: string; canWatch: boolean; menu: string };
+export type PrsView = { supported: boolean; rows: LinkedRow[]; footer: string; canWatch: boolean };
 
 const SOURCE_LABELS: Record<string, string> = { manual: 'Linked by you', created: 'Created from this thread', agent: 'Linked by the agent', stack: 'Found in the stack', 'stack-dismissed': 'Dismissed' };
 const STATE_LABELS: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
 const CHECKS_LABELS: Record<string, string> = { passing: 'Checks passing', failing: 'Checks failing', pending: 'Checks running', none: 'No checks' };
 const REVIEW_LABELS: Record<string, string> = { approved: 'Approved', changes_requested: 'Changes requested', 'changes-requested': 'Changes requested', review_required: 'Review required', 'review-required': 'Review required' };
-const menus = new WeakMap<T3Client, string>();
 
 const keyOf = (link: Obj) => `${str(link.host).toLowerCase()}/${str(link.repository).toLowerCase()}#${num(link.number)}`;
 const snapshotOf = (link: Obj): Obj | null => (link.snapshot && typeof link.snapshot === 'object' ? obj(link.snapshot) : null);
@@ -112,20 +111,18 @@ export function prsView(client: T3Client, now: number): PrsView {
   const openCount = visible.filter(link => !snapshotOf(link) || snapshotOf(link)!.state === 'open').length;
   let lastSynced = '';
   for (const link of visible) { const at = str(snapshotOf(link)?.syncedAt); if (at && at > lastSynced) lastSynced = at; }
-  return { supported, rows, canWatch, menu: menus.get(client) ?? '', footer: `${openCount} open · ${visible.length} linked${lastSynced ? ` · synced ${relativeLabel(lastSynced, now)}` : ''}` };
+  return { supported, rows, canWatch, footer: `${openCount} open · ${visible.length} linked${lastSynced ? ` · synced ${relativeLabel(lastSynced, now)}` : ''}` };
 }
-export const emptyPrs = (): PrsView => ({ supported: false, rows: [], footer: '', canWatch: false, menu: '' });
+export const emptyPrs = (): PrsView => ({ supported: false, rows: [], footer: '', canWatch: false });
 
 function linkOf(client: T3Client, key: string): Obj {
   const link = visiblePullRequests(thread(client)?.pullRequests).find(entry => keyOf(entry) === key);
   if (!link) throw new ClientError('That pull request is no longer linked to this thread.');
   return link;
 }
-/** `shelllocal:surface-pr-*`: the row menu and the copy action. */
+/** `shelllocal:surface-pr-*`: the row menu's copy action. */
 export async function prsLocal(client: T3Client, native: Native, op: string, id: string, _value: string): Promise<string> {
-  if (op === 'menu') { menus.set(client, menus.get(client) === id ? '' : id); return ''; }
   if (op === 'copy') {
-    menus.set(client, '');
     const link = linkOf(client, id);
     try { await client.restAccess(native).call({ op: 'copyText', text: str(link.url) }); }
     catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy link', description: error instanceof Error ? error.message : 'An error occurred.' }); return ''; }
@@ -141,7 +138,6 @@ export function prCommandPayload(op: string, threadId: string, link: Obj, comman
     : { type: 'thread.pull-request.unlink', commandId, threadId, ...key };
 }
 export async function prsCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
-  menus.set(client, '');
   if (op !== 'watch' && op !== 'unlink') throw new ClientError(`Unknown pull request action: ${op}`);
   if (op === 'watch' && caps(client).threadPullRequestWatch !== true) throw new ClientError('This environment cannot watch pull requests.');
   const link = linkOf(client, id), access = client.restAccess(native);

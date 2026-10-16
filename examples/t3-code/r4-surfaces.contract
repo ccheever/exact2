@@ -40,7 +40,6 @@ use prdTone from "./pages-pr-detail.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmKeyEnd from "./menu-keys.contract"
-use kmArrow from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
 use BrowserSurface from "./browser-surface.contract" // a Browser tab's body, its tab icon and the "+" menu row
 use BrowserTabIcon from "./browser-surface.contract"
@@ -168,7 +167,7 @@ component R4HeaderBar
       // the focus the field takes the key and closes the sheet (R4Explorer searchKey). The thread details popover drawn
       // above the sheet (app-overlays.contract) is the topmost layer while it shows, so its Escape comes first.
       box position="relative" flex-shrink=0
-        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editorsOpen or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
+        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
 
@@ -348,10 +347,6 @@ component R4PrsList
     local: action
     command: action
     link: action
-  // The end of a row's actions menu a key on its "…" asked for (menu-keys.contract).
-  state menuEnd = ""
-  action setMenuEnd(end: string)
-    menuEnd = end
   view
     if not prs.supported
       column flex=1 align-items="center" justify-content="center" gap="0.5rem" padding="1.5rem" box-sizing="border-box" testId="linked-prs-unavailable"
@@ -370,11 +365,7 @@ component R4PrsList
         scroll flex=1 min-height=0
           column width="100%" padding="0.375rem" box-sizing="border-box"
             for row in prs.rows key=row.key
-              R4LinkedRowView(row=row, menuOpen=(prs.menu == row.key), local=local, command=command, menuEnd=setMenuEnd)
-        if prs.menu != ""
-          button press=local("surface-pr-menu", "", "") aria-label="Close actions" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" z-index=29 testId="linked-pr-menu-backdrop" title=""
-          for row in prs.rows.filter((entry) => entry.key == prs.menu) key=row.key
-            R4LinkedMenu(row=row, local=local, command=command, keyed=kmEndKeyed(menuEnd))
+              R4LinkedRowView(row=row, local=local, command=command)
         row flex-shrink=0 align-items="center" justify-content="space-between" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
           text prs.footer font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="linked-prs-footer"
           button press=link testId="linked-prs-link-footer" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000"
@@ -387,26 +378,29 @@ component R4PrsList
 component R4LinkedRowView
   inject
     rem: number
+    dialogMenuEntered: action
   props
     row: R4LinkedRow
-    menuOpen: bool
     local: action
     command: action
-    menuEnd: action
   state over = false
   action hover(value: bool)
     over = value
-  // The actions menu opens from the data module; "…" lets go of the focus and the menu's
-  // popup takes it as it mounts (`autofocus`, menu-keys.contract), on ↓ and ↑ too.
-  action openMenu
-    blur()
-    local("surface-pr-menu", row.key, "")
+  // The actions menu is a popover under "…"; its rows mount while it shows (each row has its own, and the rows' ids are
+  // one menu's), and read the end a key on "…" asked for as they mount (menu-keys.contract).
+  state menuOpen = false
+  state menuEnd = ""
   action menuKey(k: string, e: KeyboardEvent)
-    menuEnd(kmKeyEnd(k))
-    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not menuOpen
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
-      blur()
-      local("surface-pr-menu", row.key, "")
+      stopPropagation()
+      if not e.repeat
+        menuEnd = kmKeyEnd(k)
+        showPopover(`linked-pr-menu-${row.key}`, source=`linked-pr-actions-${row.key}`)
+  action toggled(e: ToggleEvent)
+    menuOpen = e.newState == "open"
+    if e.newState != "open"
+      menuEnd = ""
   view
     row width="100%" position="relative" align-items="center" gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-right="0.25rem" padding-left=((0.5 + row.depth * 1.25) * rem) box-sizing="border-box" border-radius="0.375rem" hover=hover background-color=(over or menuOpen ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") testId=`linked-pr-${row.number}`
       if row.depth > 0
@@ -455,16 +449,19 @@ component R4LinkedRowView
             text row.age flex-shrink=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
       if over or menuOpen
         row position="absolute" right=0 bottom="0.125rem" padding-left="1.25rem" padding-right="0.25rem" align-items="center" border-radius="0.375rem" background-color="light-dark(#f7f7f8, #101010)"
-          button press=openMenu key=menuKey focus=menuEnd("") aria-label=`Actions for #${row.number}` aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          button id=`linked-pr-actions-${row.key}` popovertarget=`linked-pr-menu-${row.key}` key=menuKey aria-label=`Actions for #${row.number}` aria-haspopup="menu" aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             R4Icon(name="ellipsis", size=14, color="light-dark(#27272a, #f5f5f5)")
+          // The row's MenuPopup (align end, side bottom): 4pt under "…", its right edge on the button's.
+          column id=`linked-pr-menu-${row.key}` data-dialog-return="menu" focusin=dialogMenuEntered(`linked-pr-menu-${row.key}`, `linked-pr-actions-${row.key}`) toggle=toggled popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="10rem" testId=`linked-pr-menu-layer-${row.number}`
+            if menuOpen
+              R4LinkedMenu(row=row, menuId=`linked-pr-menu-${row.key}`, local=local, command=command, keyed=kmEndKeyed(menuEnd))
 
-// The row's actions (Copy link, Open, Watch for changes / Stop watching, Unlink),
-// drawn at the list's level under its row: a child outside its parent is not hit-testable natively.
+// The row's actions (Copy link, Open, Watch for changes / Stop watching, Unlink) in its popover.
 component R4LinkedMenu
-  inject
-    rem: number
   props
     row: R4LinkedRow
+    // The popover the rows close as they act.
+    menuId: string
     local: action
     command: action
     keyed: number
@@ -479,20 +476,21 @@ component R4LinkedMenu
   action openLitFocus(on: bool)
     openLit = on
   view
-    column position="absolute" right="0.625rem" top=((row.index * 44 + 52) * rem / 16) padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Actions for #${row.number}` testId=`linked-pr-menu-${row.number}`
-      KeyMenu(menuId="linked-pr-menu-keys", items=[KmItem(id="linked-pr-menu-copy", label="Copy link"), KmItem(id="linked-pr-menu-open", label="Open")].concat((row.canWatch ? [KmItem(id="linked-pr-menu-watch", label=(row.watching ? "Stop watching" : "Watch for changes"))] : []).concat([KmItem(id="linked-pr-menu-unlink", label=row.unlinkLabel)])), keyed=keyed, gap="0px", modal=false)
-        R4MenuItem(keysId="linked-pr-menu-keys", icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
+    column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=`Actions for #${row.number}` testId=`linked-pr-menu-${row.number}`
+      KeyMenu(menuId="linked-pr-menu-keys", items=[KmItem(id="linked-pr-menu-copy", label="Copy link"), KmItem(id="linked-pr-menu-open", label="Open")].concat((row.canWatch ? [KmItem(id="linked-pr-menu-watch", label=(row.watching ? "Stop watching" : "Watch for changes"))] : []).concat([KmItem(id="linked-pr-menu-unlink", label=row.unlinkLabel)])), keyed=keyed, gap="0px", modal=true)
+        R4MenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
         link id="linked-pr-menu-open" hover=openLitHover focus=openLitFocus(true) blur=openLitFocus(false) cursor="pointer" href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" background-color=(openLit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
           R4Icon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
           text "Open" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         if row.canWatch
-          R4MenuItem(keysId="linked-pr-menu-keys", icon=(row.watching ? "eye-off" : "eye"), label=(row.watching ? "Stop watching" : "Watch for changes"), test="watch", press=command("shell:surface-pr-watch", row.key, (row.watching ? "false" : "true"), 0))
-        R4MenuItem(keysId="linked-pr-menu-keys", icon="unlink-2", label=row.unlinkLabel, test="unlink", press=command("shell:surface-pr-unlink", row.key, "", 0))
+          R4MenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon=(row.watching ? "eye-off" : "eye"), label=(row.watching ? "Stop watching" : "Watch for changes"), test="watch", press=command("shell:surface-pr-watch", row.key, (row.watching ? "false" : "true"), 0))
+        R4MenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon="unlink-2", label=row.unlinkLabel, test="unlink", press=command("shell:surface-pr-unlink", row.key, "", 0))
 
 component R4MenuItem
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
     keysId: string
+    menuId: string
     icon: string
     label: string
     test: string
@@ -506,7 +504,7 @@ component R4MenuItem
   action focused(on: bool)
     lit = on
   view
-    button id=`linked-pr-menu-${test}` press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`linked-pr-menu-${test}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") data-focus-stop="enabled"
+    button id=`linked-pr-menu-${test}` press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`linked-pr-menu-${test}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") data-focus-stop="enabled"
       R4Icon(name=icon, size=14, color="light-dark(#71717b, #818181)")
       text label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
