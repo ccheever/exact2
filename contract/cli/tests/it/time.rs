@@ -133,6 +133,73 @@ fn a_place_known_at_launch_is_read_from_the_first_frame() {
     assert_eq!(text(&boot(None)), "en-US/UTC/0");
 }
 
+/// Euxy's library: a store-reading source passed the date after `with`,
+/// whose answer stamps it. The bake's date is unknown (zero), so its answer
+/// is left out of the plan (LLP 1027.000.000 D2): a fresh install's first
+/// frame shows the placeholder, never patterns stamped at 1970, and the
+/// device's source is asked with the launch's date once it is ready. A
+/// resource that reads the date through a derive, or by its offset, is left
+/// out too; one that reads none of it is compiled as before.
+#[test]
+fn the_bake_compiles_no_answer_asked_at_its_unknown_date() {
+    const LIBRARY: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\nshape Library\n  loaded: bool\n  stamp: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + performanceNow()\n  resource lib = loadLibrary() with time.epochAtZero as shape Library else empty(loaded=false)\n  resource dated = loadLibrary(date) as shape Library\n  resource zoned = loadLibrary(time.utcOffset) as shape Library\n  resource chips = loadLibrary(1) as shape Library\n  view\n    text `${lib.loaded}/${lib.stamp}|${dated.stamp}|${chips.stamp}` testId=\"date\"\n";
+    struct Library(std::rc::Rc<std::cell::Cell<bool>>);
+    impl DataSource for Library {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let stamp = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => -1.0,
+            };
+            Ok(Value::record(vec![Value::Bool(true), Value::Number(stamp)]))
+        }
+        fn ready(&self) -> bool {
+            self.0.get()
+        }
+    }
+    let ready = || std::rc::Rc::new(std::cell::Cell::new(true));
+    let plan = contract::bake(contract::compile(LIBRARY).unwrap(), Library(ready())).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .any(|r| plan.str(r.name) == name && r.initial.len > 0)
+    };
+    assert!(!compiled("lib") && !compiled("dated") && !compiled("zoned"));
+    assert!(compiled("chips"));
+
+    // A module loaded after the first pixel, on a host that knows the date.
+    let loaded = std::rc::Rc::new(std::cell::Cell::new(false));
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: 60.0,
+    };
+    let mut r = exact_runner::time::launching(Some(at), || {
+        Runner::boot(
+            plan.clone(),
+            Library(loaded.clone()),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+    })
+    .unwrap();
+    let shown = |r: &Runner<Library>| {
+        let key = r.kernel().find_by_test_id("date")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    assert_eq!(shown(&r), "false/0|0|1");
+    loaded.set(true);
+    r.data_ready().unwrap();
+    assert_eq!(shown(&r), "true/1790000000000|1790000000000|1");
+    assert_eq!(
+        r.resource("zoned"),
+        Some(&Value::record(vec![Value::Bool(true), Value::Number(60.0)]))
+    );
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]
