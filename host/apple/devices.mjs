@@ -238,6 +238,22 @@ export function softwareKeyboard(udid, { owned = false, records = resolve(homedi
   let restored = false;
   return { cleared: true, note: null, restore() { if (!restored) restored = putBack(); } };
 }
+/** `open()`'s carrier with the software keyboard shown for a focused field on a simulator this drive booted
+ *  (`softwareKeyboard`), its setting put back when the drive closes, fails to open, or the driver exits (a killed
+ *  drive's, by the next drive on that simulator); on any other simulator, the note that the keyboard may be hidden. */
+export async function withSoftwareKeyboard(dev, open) {
+  const keyboard = softwareKeyboard(dev.udid, { owned: !!dev.bootedHere });
+  if (keyboard.note) console.error(`note: ${keyboard.note}`);
+  const restore = () => keyboard.restore();
+  process.once('exit', restore);
+  const done = () => { restore(); process.off('exit', restore); };
+  let carrier;
+  try { carrier = await open(); } catch (e) { done(); throw e; }
+  if (!keyboard.cleared) { done(); return carrier; }
+  const close = carrier.close.bind(carrier);
+  carrier.close = async (...args) => { try { return await close(...args); } finally { done(); } };
+  return carrier;
+}
 const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 /** Crash reports macOS wrote since `since` (ms) for an executable named
  *  `name`, newest first — a simulator app crashes as a Mac process, reported

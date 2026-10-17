@@ -46,7 +46,7 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, simulator, softwareKeyboard, withDisplay } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -663,20 +663,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   const override = plan || hostFixture ? null : planOverride('ios', a, built);
   if (override) plan = override.plan; else refuseBuild('ios', built, a, { sample: hostFixture });
   const dev = simulator(undefined, { app: id, hint: '--sim <udid|name> (or EXACT_SIM)' });
-  // A focused field raises the software keyboard, as on the device, on a simulator this drive booted; its setting is
-  // put back when the drive closes, or fails, or the driver exits (a killed drive's, by the next on that simulator).
-  const keyboard = softwareKeyboard(dev.udid, { owned: !!dev.bootedHere });
-  if (keyboard.note) console.error(`note: ${keyboard.note}`);
-  const restore = () => keyboard.restore();
-  process.once('exit', restore);
-  const done = () => { restore(); process.off('exit', restore); };
-  let carrier;
-  try { carrier = await exclusiveIOS(dev.udid, id, () => openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess })); }
-  catch (e) { done(); throw e; }
-  if (!keyboard.cleared) return carrier;
-  const close = carrier.close.bind(carrier);
-  carrier.close = async (...args) => { try { return await close(...args); } finally { done(); } };
-  return carrier;
+  return withSoftwareKeyboard(dev, () => exclusiveIOS(dev.udid, id, () => openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess })));
 }
 async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }) {
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
