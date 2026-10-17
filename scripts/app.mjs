@@ -1097,7 +1097,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     if (inputs.get(name)?.path === path) return;
     const info = statSync(path);
     if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry)); }
-    else if (info.isFile()) inputs.set(name, {name,path,sha256:hashes.of(path, info)});
+    else if (info.isFile()) inputs.set(name, {name,path,sha256:hashes.of(path, info),size:info.size,mtimeMs:info.mtimeMs}); // size and mtime: what a drive's check need not hash again
     else throw new Error(`unsupported compiler input ${path}`);
   };
   const normalizeEnv = ([key,value]) => [key, value == null ? null : ['OUT_DIR','CARGO_MANIFEST_DIR'].includes(key) ? nameOf(value) : buildHash(value)];
@@ -1137,7 +1137,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     builders.push({package:pkg.name,role,cfgs:m.cfgs,environment:orderedBuild(environment),libraries:m.linked_libs,env:m.env.filter(([key])=>!key.startsWith('EXACT_')).map(normalizeEnv)});
   }
   for (const pkg of packages) if(usedPackages.has(pkg.id))add(pkg.manifest_path);
-  add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));
+  add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));add(resolve(app.dir,'.exact/backend-origin'),true); // the bake's backend selection, by bytes or absence
   // Watch absent art without a missing Cargo input that dirties every build.
   if (app.manifest.game) add(resolve(app.dir, 'art'), true);
   if (app.manifest.game?.render && graph.surface) {
@@ -1400,12 +1400,12 @@ export function developmentCandidate(build, plan, assets, surfaces) {
 
 /** Source staleness is provisional until the next actual bake. These paths
  * came from the previous compiler receipt, including absent watched inputs. */
-export function pendingBuildInputs(build, since = -Infinity) { // `since`: a file last modified before it is taken as built (a drive's check hashed 116 MB, twice)
+export function pendingBuildInputs(build) { // a file whose size and mtime are the build's own is not hashed again (a drive hashed 116 MB, twice)
   const changed=[];
   try {if(build.binary.assetCatalogApp && canonicalBuild(appleAssetCatalogInventory(build.binary.assetCatalogApp, build.binary.assetCatalogApp.platform)) !== canonicalBuild(build.binary.metadata.appleAssetCatalogs ?? [])) changed.push('Apple asset catalogs');} catch {changed.push('Apple asset catalogs');}
   try {if(build.binary.nativeResourceApp && canonicalBuild(macResourceInventory(build.binary.nativeResourceApp)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push('host.macos.resources');} catch {changed.push('host.macos.resources');}
   for(const file of build.binary.inputs) {
-    try {const stat=statSync(file.path); if(!stat.isFile()||stat.mtimeMs>=since&&buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
+    try {const stat=statSync(file.path); if(!stat.isFile()||!(stat.size===file.size&&stat.mtimeMs===file.mtimeMs)&&buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
     catch {changed.push(file.name);}
   }
   for(const path of build.binary.missing)if(existsSync(path))changed.push(path);

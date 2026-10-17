@@ -3,7 +3,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
@@ -474,3 +474,19 @@ test('rewriting an input with its own bytes does not make a web build stale', as
     assert.deepEqual(webChanges(dist, app).app, [source]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
+
+// The euxy drive-speed review: a drive's check hashes an input unless its size and mtime are the build's own, so
+// one replaced with `cp -p` (other bytes, an older mtime) is still found, and an untouched one is not read again.
+test('a receipt input is hashed unless its size and mtime are the ones the build recorded', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-pending-'));
+  try {
+    const path = resolve(dir, 'a.swift');
+    writeFileSync(path, 'let a = 1\n');
+    const at = statSync(path), file = { name: 'a.swift', path, sha256: 'not-the-digest', size: at.size, mtimeMs: at.mtimeMs };
+    const build = { binary: { inputs: [file], missing: [], directories: [] } };
+    assert.deepEqual(pendingBuildInputs(build), [], 'size and mtime as built: taken as built, not read');
+    writeFileSync(path, 'let b = 2\n');
+    utimesSync(path, new Date(at.mtimeMs - 60000), new Date(at.mtimeMs - 60000));
+    assert.deepEqual(pendingBuildInputs(build), ['a.swift'], 'other bytes with an older mtime are hashed and found');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
