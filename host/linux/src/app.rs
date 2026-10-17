@@ -333,10 +333,10 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         place: Some(place.clone()),
     };
     let dev_url = config.dev_url.clone();
-    let dev_identity = config.dev_identity.clone();
     let hatches = config.hatches;
     let delivered = |mut booted: (Presenter<D>, Option<String>),
-                     updates: Option<Box<dyn Store>>| {
+                     updates: Option<Box<dyn Store>>,
+                     dev_identity: Option<String>| {
         // The accepted runner already has the complete facts. Attaching the
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
@@ -364,9 +364,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
                 eprintln!("exact: {e}");
             }
         }
-        booted
-            .0
-            .set_development(dev_url.clone(), dev_identity.clone());
+        booted.0.set_development(dev_url.clone(), dev_identity);
         booted
     };
     // The selected bytes passed verification. Record the attempt before
@@ -413,7 +411,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     match booted {
         Ok(mut value) => {
             value.0.set_module(module.unwrap_or(None));
-            Ok(delivered(value, updates))
+            Ok(delivered(value, updates, config.dev_identity.clone()))
         }
         Err(fetched_error) => {
             let Some(baked) = config.fallback_plan.as_deref() else {
@@ -448,7 +446,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
                     painter,
                 )
             })
-            .map(|v| delivered(v, updates))
+            .map(|v| delivered(v, updates, None))
             .map_err(|baked_error| {
                 format!("fetched plan refused: {fetched_error}; baked plan refused: {baked_error}")
             })
