@@ -714,6 +714,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
         guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
         presenter?.collections.animationEnded(id, dragging: true)

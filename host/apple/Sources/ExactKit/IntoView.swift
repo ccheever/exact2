@@ -140,6 +140,14 @@ final class ElementScrolls {
     /// A closing sheet or dialog takes its requests with it.
     func cancel(inside root: UIView) { held.removeAll { $0.node?.isDescendant(of: root) ?? true } }
     func cancelAll() { held.removeAll() }
+    /// The person took a scroller: a request it would move is dropped and
+    /// stays dropped, so nothing scrolls it back once the gesture ends.
+    func userScrolled(_ scroll: UIScrollView) {
+        held.removeAll { entry in
+            guard let node = entry.node else { return true }
+            return node.isDescendant(of: scroll) || presenter.groupedLists?.scroller(for: node.id) === scroll
+        }
+    }
 
     /// Carry out each request whose target can be scrolled to, outside a
     /// batch; keep it while a presentation or navigation is settling. A

@@ -451,7 +451,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard window != nil else { return }
         nativeMoved = false; settled = false
         syncing = true
-        defer { syncing = false; presenter.flushPendingFocus() }
+        defer { syncing = false; presenter.flushPendingFocus(); presenter.elementScrolls.flush() }
         guard let p = projection(batch) else { settled = true; return }
         let root = p.root, wanted = p.chosen
         // A presentation whose route a logical ancestor's `display: none`
@@ -1006,6 +1006,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // left a band of it unpainted, or a cancelled pop the source).
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
+            presenter.elementScrolls.flush()
             // After the owed sync above: the blur's own batch arrived during
             // the swipe and left one. A cancelled swipe returns to the route
             // it began on: so does the editor it put away, if it is still

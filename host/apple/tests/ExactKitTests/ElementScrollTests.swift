@@ -358,6 +358,68 @@ final class ElementScrollTests: XCTestCase {
         XCTAssertEqual(p.elementScrolls.names, [])
     }
 
+    /// The person taking the scroller a request would move drops it, and
+    /// it stays dropped: the target laid out after the gesture is not
+    /// scrolled to.
+    func testAHeldScrollYieldsToThePersonsDrag() throws {
+        let (p, sv) = try strip()
+        let window = UIWindow(frame: p.viewport.frame)
+        defer { withExtendedLifetime(window) {} }
+        window.addSubview(p.viewport)
+        // In the strip, with no size yet: held.
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 3, 4]]]))
+        p.scrollElementIntoView(["chip-c", "nearest", "start", "instant"])
+        XCTAssertEqual(p.elementScrolls.names, ["chip-c"])
+        try XCTUnwrap(p.views[1]).scrollViewWillBeginDragging(sv)
+        XCTAssertEqual(p.elementScrolls.names, [], "the drag drops it")
+        sv.contentSize = CGSize(width: 1000, height: 60)
+        p.apply(wireBatch([["op": "frame", "id": 4, "x": 800.0, "y": 0.0, "w": 56.0, "h": 56.0]]))
+        XCTAssertEqual(sv.contentOffset.x, 0, accuracy: 0.5, "nothing scrolls the strip back after the gesture")
+    }
+
+    /// A navigation's settle carries out a held request, as a sheet's fit
+    /// does, rather than leaving it to some later, unrelated batch.
+    func testANavigationSettleCarriesOutAHeldScroll() throws {
+        let session = ExactApp.shared.makeSession(label: "element-scroll-navigation")
+        defer { session.destroy() }
+        let view = ExactView(session: session), host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 400))
+        window.rootViewController = host
+        window.isHidden = false
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        defer { window.isHidden = true }
+        // The view finishes mounting (its navigation's `mounted`) at layout.
+        view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "chip-a"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["id": "chip-c"]],
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 60.0],
+            ["op": "frame", "id": 2, "x": 300.0, "y": 0.0, "w": 56.0, "h": 56.0],
+        ]))
+        let sv = try XCTUnwrap(p.views[1]?.scrollView)
+        sv.contentSize = CGSize(width: 1000, height: 60)
+        let chip = try XCTUnwrap(p.views[4])
+        XCTAssertNotNil(chip.window, "the strip is in the window")
+        p.scrollElementIntoView(["chip-c", "nearest", "start", "instant"])
+        XCTAssertEqual(p.elementScrolls.names, ["chip-c"], "no size yet: held")
+        // Laid out with no batch, as UIKit's own layout at a transition's end.
+        chip.frame = CGRect(x: 800, y: 0, width: 56, height: 56)
+        XCTAssertNotNil(p.session?.view?.window, "the session's view is in the window")
+        XCTAssertTrue(p.canScrollIntoView(chip), "laid out")
+        XCTAssertFalse(p.settlesElementScroll, "nothing is settling")
+        let calls = p.navigation.syncCalls
+        p.navigation.sync(wireBatch([]))
+        XCTAssertEqual(p.navigation.syncCalls, calls + 1)
+        XCTAssertEqual(sv.contentOffset.x, 800, accuracy: 0.5, "the settle carries it out")
+        XCTAssertEqual(p.elementScrolls.names, [])
+    }
+
     /// A held request goes with its target: recycled into another row (a
     /// new incarnation, LLP 1068 §4.9), inside a sheet or dialog that
     /// closes, or a presenter that resets; none of them scrolls.
