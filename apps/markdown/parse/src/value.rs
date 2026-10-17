@@ -1,7 +1,7 @@
 //! The parsed document as the plan's own value, in the shapes both readers
 //! declare. One conversion, so `apps/markdown` and `apps/llp` cannot drift
 //! into two documents that render differently; a table is the one place
-//! they still differ ([`into_blocks`]). @ref LLP 1033
+//! they still differ ([`into_blocks_with_tables`]). @ref LLP 1033
 
 use crate::{Block, Document, Kind, Run};
 use exact_plan::{InlineStr, Str, Value};
@@ -92,7 +92,7 @@ impl Values {
         ])
     }
 
-    /// One table's rows as one block (see [`into_blocks`]).
+    /// One table's rows as one block (see [`into_blocks_with_tables`]).
     fn table(&mut self, index: usize, rows: &[Block]) -> Value {
         let columns = rows[0].cells.len();
         let cells: Vec<&[Run]> = rows
@@ -149,13 +149,13 @@ pub fn blocks(doc: &Document) -> Value {
 /// says (<https://github.github.com/gfm/#tables-extension->). A block's id
 /// is its place in this list. `apps/llp` still draws a table row by row.
 ///
-/// Each parsed block is released as it is converted, so its allocations can
-/// serve later values instead of retaining both full forms.
-pub fn into_blocks(doc: Document) -> Value {
+/// Each parsed block is released once it is converted (a table's rows once
+/// the table ends), so its allocations can serve later values instead of
+/// retaining both full forms.
+pub fn into_blocks_with_tables(doc: Document) -> Value {
     let mut values = Values::new();
     // An in-place IntoIter collect can keep the much larger Vec<Block>
-    // allocation as the Value list's spare capacity. Allocate at most its
-    // size, and give back what tables did not use.
+    // allocation as the Value list's spare capacity. Allocate it apart.
     let mut blocks = Vec::with_capacity(doc.blocks.len());
     let mut rows: Vec<Block> = Vec::new();
     for block in doc.blocks {
@@ -173,6 +173,5 @@ pub fn into_blocks(doc: Document) -> Value {
     if !rows.is_empty() {
         blocks.push(values.table(blocks.len(), &rows));
     }
-    blocks.shrink_to_fit();
     Value::list(blocks)
 }

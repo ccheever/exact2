@@ -1,7 +1,7 @@
 //! A pipe table drawn by the real app, as a browser lays out a table: one
 //! width per column, shared by every row and wide enough for the column's
 //! longest word, and a table wider than the reading column scrolls inside it
-//! (issues/20261016-markdown-on-macos-table-columns-do.md).
+//! (issues/closed/20261016-markdown-on-macos-table-columns-do.md).
 //!
 //! The kernel measures with its monospace reference measurer, so a word of
 //! `n` characters at 13 px is `n × 7.8` px wide wherever it is bold or not.
@@ -24,8 +24,8 @@ const NARROW: &str = "| Column | What it holds |
 | blocks | what the parser made of it |";
 
 /// The app at 1000 × 3000 with `text` open: tall enough that the
-/// virtualized document mounts every block, too narrow for the folder pane
-/// to matter (a file opened alone has none).
+/// virtualized document mounts every block, and with nothing beside the
+/// file, so no folder pane.
 fn open(text: &str) -> Runner<Markdown> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app.contract");
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e}"));
@@ -186,6 +186,12 @@ fn a_tables_columns_fit_their_words_and_line_up_across_rows() {
     assert!(
         frame.x + scroller.content.0 >= end,
         "it scrolls to the last column: {:?} {frame:?}",
+        scroller.content
+    );
+    // It scrolls sideways only, so it must be as tall as its rows.
+    assert!(
+        scroller.content.1 <= frame.height,
+        "no row is cut off: {:?} {frame:?}",
         scroller.content
     );
 }

@@ -92,7 +92,7 @@ impl Markdown {
     fn value(path: &str, doc: Document, message: &str, siblings: Value) -> Value {
         let title = Value::str(&doc.title);
         // A table is one block here, so the count is the list's.
-        let blocks = markdown_parse::value::into_blocks(doc);
+        let blocks = markdown_parse::value::into_blocks_with_tables(doc);
         let count = match &blocks {
             Value::List(items) => items.len(),
             _ => 0,
