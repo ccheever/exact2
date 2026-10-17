@@ -85,7 +85,12 @@ impl Rows<'_> {
                 (WALKS.contains(&name.as_str()), args.first().and_then(path))
             {
                 if data(root, scope) && inner != outer && table(&args[0], scope, self.shapes) {
-                    self.warn(outer, &inner, &format!("`.{name}`"), *span);
+                    let how = if contract_syntax::idioms::is_method(name) {
+                        format!("`.{name}`")
+                    } else {
+                        format!("`{name}(…)`")
+                    };
+                    self.warn(outer, &inner, &how, *span);
                 }
             }
         }

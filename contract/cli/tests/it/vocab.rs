@@ -433,6 +433,11 @@ fn the_functions_are_listed_and_in_the_json() {
             .count(),
         count
     );
+    // `sortBy`'s roster row is its lowered call; vocab shows what an author writes.
+    let sort = "sortBy(list, (item, index) => key[, \"asc\" | \"desc\"]) -> list";
+    assert!(all.contains(&format!("  {sort}\n")), "{all}");
+    let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "sortBy"]))).unwrap();
+    assert_eq!(one["function"]["signature"], sort, "{one}");
     let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "formatDate"]))).unwrap();
     assert_eq!(one["function"]["kind"], "standard function");
     assert!(one["function"]["rules"][0]["example"]
