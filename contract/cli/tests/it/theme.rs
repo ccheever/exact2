@@ -312,6 +312,38 @@ fn names_are_exact_profiles_are_colours_and_the_lint_reads_the_theme() {
     assert_eq!(lint("theme\n  card = \"light-dark(#f1f3f5, #0f1419)\"\n  Canvas = \"light-dark(#fff, #000)\"\n\ncomponent App\n  view\n    column background-color=\"card\"\n      text \"a\"\n"), 0);
 }
 
+/// LLP 1116.020 D7: white on an accent fill is a filled button's label (a
+/// sent bubble); white on any other fill, or on none, is still named.
+#[test]
+fn white_on_an_accent_fill_is_not_one_scheme() {
+    let lint = |body: &str| {
+        let src = format!("component App\n  state mine = true\n  view\n    column\n{body}");
+        let (result, warnings) = contract::compile_warned(&src);
+        result.unwrap();
+        warnings
+            .iter()
+            .filter(|w| w.id == "lower-colour-one-scheme")
+            .count()
+    };
+    let bubble = "      text \"Hi\" background-color=(mine ? \"AccentColor\" : \"-exact-fill\") color=(mine ? \"white\" : \"-exact-label\")\n";
+    assert_eq!(lint(bubble), 0, "the bubble's own fill");
+    assert_eq!(
+        lint("      row background-color=\"AccentColor\"\n        text \"Hi\" color=\"#fff\"\n"),
+        0,
+        "a fill over it"
+    );
+    assert!(lint("      text \"Hi\" color=\"white\"\n") > 0, "no fill");
+    assert!(
+        lint("      row background-color=\"AccentColor\"\n        text \"Hi\" background-color=\"-exact-fill\" color=\"white\"\n") > 0,
+        "a nearer fill that is not the accent"
+    );
+    assert!(
+        lint("      row background-color=\"AccentColor\"\n        text \"Hi\" color=\"#ffeeee\"\n")
+            > 0,
+        "only white"
+    );
+}
+
 /// A plan with no overrides booted after one with them leaves the first
 /// its own (LLP 1121 stage 5): each session resolves `CanvasText` from its
 /// own table, and nothing is said.

@@ -1085,6 +1085,24 @@ fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mu
     }
 }
 
+/// Whether `e` is, or can choose, the string `word`.
+fn names(e: &Expr, word: &str) -> bool {
+    match e {
+        Expr::Str(s, _) => s == word,
+        Expr::Ternary(_, a, b, _) => names(a, word) || names(b, word),
+        _ => false,
+    }
+}
+
+/// Whether a literal colour is white.
+fn white(c: &str) -> bool {
+    let c = c.trim().to_ascii_lowercase().replace(' ', "");
+    matches!(
+        c.as_str(),
+        "white" | "#fff" | "#ffff" | "#ffffff" | "#ffffffff" | "rgb(255,255,255)"
+    )
+}
+
 /// `lower-colour-one-scheme`: a literal colour (a hex, `rgb()`, `hsl()`, a
 /// named colour) on a colour property of the page, outside `light-dark()`
 /// (LLP 1116.002 D1). It stays the same in dark mode while the platform's
@@ -1172,15 +1190,39 @@ fn one_scheme(
     for s in styles {
         colour_sites(&s.attrs, &leaves, &[], &mut sites);
     }
-    let mut stack: Vec<(&Node, Vec<String>)> =
-        root.view.iter().rev().map(|n| (n, Vec::new())).collect();
-    while let Some((node, locals)) = stack.pop() {
+    // Each node with whether the nearest fill over it (its own included)
+    // can be the accent.
+    let mut stack: Vec<(&Node, Vec<String>, bool)> = root
+        .view
+        .iter()
+        .rev()
+        .map(|n| (n, Vec::new(), false))
+        .collect();
+    while let Some((node, locals, on_accent)) = stack.pop() {
+        let mut accent = on_accent;
         let (children, locals): (Vec<&Node>, Vec<String>) = match node {
             Node::Element { tag, .. } if tag == "svg" => continue,
             Node::Element {
                 attrs, children, ..
             } => {
+                if let Some(fill) = attrs.iter().rev().find(|a| a.name == "background-color") {
+                    accent = names(&fill.value, "AccentColor");
+                }
+                let first = sites.len();
                 colour_sites(attrs, &leaves, &locals, &mut sites);
+                // @ref LLP 1116.020 D7 — white text on an accent fill is a
+                // filled button's label (Messages' bubble): the accent stays
+                // a fill in both schemes, and `check` holds the pair to 3:1.
+                if accent {
+                    let mut i = first;
+                    while i < sites.len() {
+                        if sites[i].name == "color" && sites[i].colours.iter().all(|c| white(c)) {
+                            sites.remove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
                 (children.iter().collect(), locals)
             }
             Node::When {
@@ -1204,7 +1246,12 @@ fn one_scheme(
             Node::Use { children, .. } => (children.iter().collect(), locals),
             Node::Children { .. } => continue,
         };
-        stack.extend(children.into_iter().rev().map(|n| (n, locals.clone())));
+        stack.extend(
+            children
+                .into_iter()
+                .rev()
+                .map(|n| (n, locals.clone(), accent)),
+        );
     }
     // A token a row names that is one colour in every scheme: one line, at
     // its declaration, however many rows name it (LLP 1121 D3).

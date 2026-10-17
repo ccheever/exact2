@@ -51,7 +51,7 @@ export function observe(views, inactive = () => false) {
     const alpha = []; // each box's opacity times its ancestors'
     for (let i = chain.length - 1, o = 1; i >= 0; i--) alpha[i] = o *= Number(getComputedStyle(chain[i]).opacity);
     const layers = [];
-    let by, top = null;
+    let by, accent = false, top = null;
     for (let i = 0; i < chain.length; i++) {
       const e = chain[i], s = getComputedStyle(e), canvas = e === document.documentElement || e === document.body;
       if (!canvas) { const r = e.getBoundingClientRect(); if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) continue; }
@@ -59,7 +59,11 @@ export function observe(views, inactive = () => false) {
       const c = s.backgroundClip === 'text' ? null : rgba(s.backgroundColor);
       if (!c) continue;
       c[3] *= alpha[i];
-      if (!layers.length) by = canvas ? null : viewOf(e);
+      if (!layers.length) {
+        by = canvas ? null : viewOf(e);
+        // The accent (`AccentColor`, which Contract writes as the accent's variable over it).
+        accent = !canvas && /^var\(--exact-accent\b|^AccentColor$/.test(authored(e, 'background-color'));
+      }
       layers.push(c);
       if (c[3] >= 0.999) { top = e; break; }
     }
@@ -81,7 +85,7 @@ export function observe(views, inactive = () => false) {
     }
     let bg = layers.pop().slice(0, 3);
     while (layers.length) bg = mix(layers.pop(), bg);
-    return { bg: bg.map((v) => Math.round(v)), by };
+    return { bg: bg.map((v) => Math.round(v)), by, accent };
   };
   const mix = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3]));
   // The part of box `b` (el's) that is presented: each ancestor that clips or scrolls its overflow cuts it at its padding
@@ -225,7 +229,7 @@ export function observe(views, inactive = () => false) {
         }
       }
       const under = backing(el, ink);
-      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; }
+      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; if (under.accent) item.onAccentFill = true; }
       // An ancestor that clips (never one that scrolls: a person scrolls to it) cutting part of the text away.
       // One that hides it all is a collapsed disclosure, on purpose.
       for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {

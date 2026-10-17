@@ -273,7 +273,15 @@ extension Agent {
             guard !text.isEmpty else { return }
             item["text"] = text.count > 40 ? String(text.prefix(39)) + "…" : text
             if var fg = rgba(spec.color) { fg[3] = Double(r2(CGFloat(fg[3]) * alpha)); item["fg"] = fg }
-            if let under = backing(n, b) { item["bg"] = under.bg; item["on"] = under.by == Int(n.id) ? "own" : under.by.map { $0 as Any } ?? "page" }
+            if let under = backing(n, b) {
+                item["bg"] = under.bg; item["on"] = under.by == Int(n.id) ? "own" : under.by.map { $0 as Any } ?? "page"
+                // On the accent's fill (LLP 1116.020 D7): the box that paints it follows the tint.
+                var at: UIView? = n
+                while let cur = at, under.by != nil {
+                    if let fill = cur as? NodeView, Int(fill.id) == under.by { if fill.followsTint("background_color") { item["onAccentFill"] = true }; break }
+                    at = cur.superview
+                }
+            }
             item["size"] = Double(n.number("font_size", PageFacts.defaultRootFontSize)); item["weight"] = Double(n.number("font_weight", 400))
             if let role = n.systemColor("text_color") { item["fgRole"] = role }
             if spec.lineClamp > 0 || spec.ellipsis { item["clamp"] = true }

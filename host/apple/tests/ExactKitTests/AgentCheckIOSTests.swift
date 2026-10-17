@@ -126,6 +126,31 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertNil(title["label"], "a text of the row's own stays body text: \(title)")
     }
 
+    /// LLP 1116.020 D7: a text on a fill of the accent (a sent bubble) is observed as on it, so the judge
+    /// holds white there to a filled button's 3:1; on a fill of its own colour it is not.
+    func testATextOnTheAccentsFillIsObservedSo() throws {
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": tint]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Sent"], "style": ["text_color": [255, 255, 255, 255], "font_size": 17]],
+            ["op": "create", "id": 4, "kind": "view", "style": ["background_color": [0, 136, 255, 255]]],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Painted"], "style": ["text_color": [255, 255, 255, 255], "font_size": 17]],
+            ["op": "children", "id": 1, "ids": [2, 4]], ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 4, "ids": [5]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 16.0, "y": 20.0, "w": 120.0, "h": 36.0],
+            ["op": "frame", "id": 3, "x": 12.0, "y": 8.0, "w": 96.0, "h": 20.0],
+            ["op": "frame", "id": 4, "x": 16.0, "y": 80.0, "w": 120.0, "h": 36.0],
+            ["op": "frame", "id": 5, "x": 12.0, "y": 8.0, "w": 96.0, "h": 20.0],
+        ])
+        let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+        let sent = try XCTUnwrap(items.first { $0["text"] as? String == "Sent" }, "\(items)")
+        XCTAssertEqual(sent["onAccentFill"] as? Bool, true, "\(sent)")
+        let painted = try XCTUnwrap(items.first { $0["text"] as? String == "Painted" }, "\(items)")
+        XCTAssertNil(painted["onAccentFill"], "\(painted)")
+    }
+
     func testCheckObservesInkFitCoverTargetsOverflowCardsAndOverlap() throws {
         let white: [Double] = [255, 255, 255, 255]
         let agent = mounted([
