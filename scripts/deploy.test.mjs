@@ -387,6 +387,11 @@ async function rejects(action, matches) {
 
 { // Edit diagnostics own and remove large captured Git trees, including on callback failure.
   const app = resolveApp('caltrain'), previous = process.env.CARGO_TARGET_DIR;
+  const traceDir = mkdtempSync(join(tmpdir(), 'exact-diagnostic-git-')), trace = join(traceDir, 'trace.json');
+  const previousTrace = process.env.GIT_TRACE2_EVENT;
+  writeFileSync(trace, '');
+  process.env.GIT_TRACE2_EVENT = trace;
+  let gitStarts;
   let source, run, isolated = false, installed = false, caught = false, why = '';
   try {
     await withAppFixture(app, async f => {
@@ -398,11 +403,23 @@ async function rejects(action, matches) {
       // Rolldown from it), installed as an output, not committed as source.
       installed = existsSync(join(f.exactRoot, 'node_modules/.bin/rolldown'))
         && spawnSync('git', ['ls-files', 'node_modules'], { cwd: f.exactRoot, env: f.env, encoding: 'utf8' }).stdout === '';
+      f.git(['commit', '--allow-empty', '-qm', 'Diagnostic follow-up']);
       writeFileSync(join(f.app.dir, 'diagnostic-private.txt'), 'captured only');
       for (let i = 0; i < 5000; i++) writeFileSync(join(source, `cleanup-${i}`), 'private');
       throw new Error('expected diagnostic callback failure');
     });
   } catch (error) { caught = error.message === 'expected diagnostic callback failure'; why = caught ? '' : error.message; }
+  finally {
+    if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+    else process.env.GIT_TRACE2_EVENT = previousTrace;
+    try { gitStarts = readFileSync(trace, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(event => event.event === 'start'); }
+    finally { rmSync(traceDir, { recursive: true, force: true }); }
+  }
+  // Check invocation, not whether a detached collector happens to beat cleanup.
+  result('diagnostic Git commits do not start automatic maintenance',
+    gitStarts.filter(event => event.argv.includes('commit')).length === 2
+    && !gitStarts.some(event => event.argv.includes('maintenance') || event.argv.includes('gc')),
+    gitStarts.map(event => event.argv.join(' ')).join('\n'));
   // A fixture that could not start (a cold Cargo cache offline: run `cargo fetch`) says so.
   result('diagnostic source and outputs are isolated and cleaned on failure', isolated && installed && caught
     && !existsSync(source ?? '/missing') && !existsSync(run ?? '/missing')
