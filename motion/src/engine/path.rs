@@ -57,6 +57,7 @@ impl Engine {
         let Some(path) = path.filter(PathValue::is_finite) else {
             if self.paths.remove(&node).is_some() {
                 self.running.remove(&key);
+                self.played.remove(&key);
                 self.slots.remove(&key);
                 self.dirty.remove(&key);
             }
@@ -69,6 +70,8 @@ impl Engine {
         if *track.target == path {
             return;
         }
+        // Any new path takes the curve back from the host
+        self.played.remove(&key);
         let now = self.sample_time();
         let running = self.slots.get(&key).and_then(Slot::running).cloned();
         let current = match &running {
