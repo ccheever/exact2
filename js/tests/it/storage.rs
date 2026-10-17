@@ -306,12 +306,11 @@ fn storage_refuses_during_bake_even_if_a_host_configured_it() {
         call(&mut agent, &mut s, "bake", ""),
         "Unavailable:agent:storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"
     );
-    // That refused read, which the source caught, is said once in the journal
-    // for the driver's note: a caught read otherwise falls back silently.
-    let said = |journal: &[String]| journal.iter().filter(|l| l.starts_with("storage refused (agent): ")).count();
-    assert_eq!(said(&DataSource::take_logs(&mut agent)), 1);
+    // That caught refused read is journaled once, for the driver's note.
+    let said = |j: Vec<String>| j.iter().filter(|l| l.contains("refused (agent)")).count();
+    assert_eq!(said(DataSource::take_logs(&mut agent)), 1);
     call(&mut agent, &mut s, "bake", "");
-    assert_eq!(said(&DataSource::take_logs(&mut agent)), 0, "once a drive");
+    assert_eq!(said(DataSource::take_logs(&mut agent)), 0, "once a drive");
 }
 
 #[test]

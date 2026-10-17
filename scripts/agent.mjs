@@ -20,7 +20,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
+import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -46,9 +46,9 @@ import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, chooseSimulator, simulator, softwareKeyboard, withDisplay } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, installedAlready, phone, phoneBridge, showSimulator, simulator, softwareKeyboard, withDisplay } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
-import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy, androidDevice } from './agent-android.mjs';
+import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // A completed operation must release its deadline too, so an otherwise closed
@@ -1373,19 +1373,6 @@ export { runTests, textOf } from './agent-test.mjs';
 export { browserDiagnosticNoise };
 // Exported for game/proof.test.mjs, which drives the real CLI with a fake
 // session (`injected.open`) and no app server (`injected.driveServer`).
-/** The device a native drive will open, resolved as its launch resolves it, and pinned so the launch opens that one: a
- * simulator's UDID (`EXACT_SIM`), a phone's (`flags.phone`), an Android device's serial (`ANDROID_SERIAL`), else
- * this machine. The store lock's key (`exclusiveNativeStore`). */
-function resolveDevice(host, flags, appId) {
-  if ((host === 'ios' || host === 'host-ios') && flags.device) { const ph = phone(flags.phone); flags.phone = ph.udid; return `phone ${ph.udid}`; }
-  if (host === 'ios' || host === 'host-ios') {
-    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, hint: '--sim <udid|name> (or EXACT_SIM)' });
-    process.env.EXACT_SIM = sim.udid;
-    return `simulator ${sim.udid}`;
-  }
-  if (host === 'android') { const serial = androidDevice(process.env); process.env.ANDROID_SERIAL = serial; return `android ${serial}`; }
-  return 'this machine';
-}
 export async function main(argv, injected = {}) {
   const { flags, rest } = parseFlags(argv);
   guardFlags(flags.test ? 'test' : 'agent', rest, { parsed: true }); // --help, or a flag parseFlags left (never an op)

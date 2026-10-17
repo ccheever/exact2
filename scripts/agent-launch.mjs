@@ -7,6 +7,8 @@ import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'nod
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
+import { chooseSimulator, phone } from '../host/apple/devices.mjs';
+import { androidDevice } from './agent-android.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -167,6 +169,19 @@ export function netOptions(environment = process.env) {
   return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
 }
 
+/** The device a native drive will open, resolved as its launch resolves it, and pinned so the launch opens that one: a
+ * simulator's UDID (`EXACT_SIM`), a phone's (`flags.phone`), an Android device's serial (`ANDROID_SERIAL`), else
+ * this machine. The store lock's key (`exclusiveNativeStore`). */
+export function resolveDevice(host, flags, appId) {
+  if ((host === 'ios' || host === 'host-ios') && flags.device) { const ph = phone(flags.phone); flags.phone = ph.udid; return `phone ${ph.udid}`; }
+  if (host === 'ios' || host === 'host-ios') {
+    const sim = chooseSimulator(undefined, { app: host === 'host-ios' ? `${appId}.host` : appId, hint: '--sim <udid|name> (or EXACT_SIM)' });
+    process.env.EXACT_SIM = sim.udid;
+    return `simulator ${sim.udid}`;
+  }
+  if (host === 'android') { const serial = androidDevice(process.env); process.env.ANDROID_SERIAL = serial; return `android ${serial}`; }
+  return 'this machine';
+}
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
  * the drive names it (`device`: a simulator, a phone, an Android device, or this machine), the app's id and the store,
