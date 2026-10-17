@@ -55,19 +55,55 @@ globalThis.__render = () => {
   const [language, zone] = placeReporter(new URLSearchParams())().split('\\0');
   const explicit = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Tokyo' }).resolvedOptions().timeZone;
   const inherited = new Intl.DateTimeFormat('en', Object.create({ hour: '2-digit', hourCycle: 'h23' })).resolvedOptions();
-  return { root: '', title: [language, zone, explicit, inherited.timeZone, inherited.hour, typeof Intl.DateTimeFormat.supportedLocalesOf].join('/'), time: 0, answers: '[]', pending: [] };
+  const caught = [Intl.NumberFormat, Intl.DateTimeFormat, Intl.Collator].map(C => {
+    try { new C('bad_locale'); } catch (error) { return error instanceof RangeError; }
+  });
+  const counts = [Intl.NumberFormat, Intl.DateTimeFormat, Intl.Collator].map(C => {
+    C.renderCount = (C.renderCount ?? 0) + 1;
+    C.prototype.renderCount = (C.prototype.renderCount ?? 0) + 1;
+    return C.renderCount + ':' + C.prototype.renderCount;
+  });
+  return { root: '', title: [language, zone, explicit, inherited.timeZone, inherited.hour, typeof Intl.DateTimeFormat.supportedLocalesOf].join('/'), description: caught.join(',') + '/' + counts.join(','), time: 0, answers: '[]', pending: [] };
 };`);
     const bundle = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'iife' });
     expect(bundle.success).toBe(true);
     writeFileSync(resolve(dir, '.gen/server.js'), await bundle.outputs[0].text());
-    const render = Bun.spawn([process.execPath, resolve(import.meta.dir, 'render.mjs'), dir, '/'], {
+    const render = Bun.spawn([process.execPath, resolve(import.meta.dir, 'render.mjs'), dir, '/', '/'], {
       env: { ...process.env, TZ: 'Pacific/Honolulu' }, stdout: 'pipe', stderr: 'pipe',
     });
     const [status, html, stderr] = await Promise.all([render.exited, new Response(render.stdout).text(), new Response(render.stderr).text()]);
     expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
     expect(html).toContain('<title>en-US/UTC/Asia/Tokyo/UTC/2-digit/function</title>');
     expect(html).toContain('<html lang="en-US" dir="ltr">');
+    expect([...html.matchAll(/<meta name="description" content="([^"]*)">/g)].map(m => m[1]))
+      .toEqual(['true,true,true/1:1,1:1,1:1', 'true,true,true/1:1,1:1,1:1']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 30000);
+
+test('rendered TypeScript sources catch Intl errors in their own realm and keep prototypes local', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+  next "/next" render=build
+
+component IntlFacts
+  resource facts = facts() as shape string
+  view
+    main
+      head title=facts
+      text facts
+`, page => {
+    expect([page('')[0], page('next')[0]]).toEqual(['true,true,true/1', 'true,true,true/1']);
+  }, { 'app.ts': `import type { Answer } from './app.contract.d.ts';
+export const appId = 'test.heads', grants = '';
+export const answer: Answer = () => {
+  const caught = [() => new Intl.NumberFormat('bad_locale'), () => new Intl.DateTimeFormat('bad_locale'), () => new Intl.Collator('bad_locale')].map(make => {
+    try { make(); } catch (error) { return error instanceof RangeError; }
+    return false;
+  });
+  const count = Number(Reflect.get(Intl.NumberFormat.prototype, 'renderCount') ?? 0) + 1;
+  Reflect.set(Intl.NumberFormat.prototype, 'renderCount', count);
+  return caught.join(',') + '/' + count;
+};` });
 }, 30000);
 
 test('JavaScript-rendered page uses server facts without a reader’s device', async () => {

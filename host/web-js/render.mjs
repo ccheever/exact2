@@ -18,12 +18,14 @@ import { createDocument } from './dom.js';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-// Without a reader's zone, use runner/src/time.rs's Place default; explicit formatter zones still win.
-const utcFormatArgs = ([locales, options]) => [locales, options === null || options?.timeZone !== undefined ? options : Object.create(Object(options), { timeZone: { value: 'UTC' } })];
-const renderIntl = Object.create(Intl, { DateTimeFormat: { value: new Proxy(Intl.DateTimeFormat, {
-  apply: (target, receiver, args) => Reflect.apply(target, receiver, utcFormatArgs(args)),
-  construct: (target, args, derived) => Reflect.construct(target, utcFormatArgs(args), derived),
-}) } });
+// Use Place's default zone inside each realm, keeping Intl prototypes and exceptions local to that render.
+const utcIntl = new vm.Script(`{
+  const argsInUTC = ([locales, options]) => [locales, options === null || options?.timeZone !== undefined ? options : Object.create(Object(options), { timeZone: { value: 'UTC' } })];
+  Intl.DateTimeFormat = new Proxy(Intl.DateTimeFormat, {
+    apply: (target, receiver, args) => Reflect.apply(target, receiver, argsInUTC(args)),
+    construct: (target, args, derived) => Reflect.construct(target, argsInUTC(args), derived),
+  });
+}`);
 
 /** The renderer for one built dist: its server bundle compiled once. */
 export function renderer(dist) {
@@ -56,7 +58,7 @@ export function renderer(dist) {
     const url = new URL(location, 'http://render.invalid');
     const ctx = vm.createContext({
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
-      navigator: { onLine: true, language }, Intl: renderIntl,
+      navigator: { onLine: true, language },
       getComputedStyle: () => ({ fontSize: '16px' }), devicePixelRatio: 1,
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
@@ -67,6 +69,7 @@ export function renderer(dist) {
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, crypto, __exactRender: true, __files: files,
     });
     ctx.globalThis = ctx; ctx.self = ctx;
+    utcIntl.runInContext(ctx);
     script.runInContext(ctx);
     const info = await ctx.__start();
     // The capture script imports the entry by the policy; an interaction
