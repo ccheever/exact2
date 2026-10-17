@@ -3202,6 +3202,12 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   ring also draws on x2-android.
 - **Not yet:** a live `set-param` reaching them waits for B's server folding (the server's own
   fold adds no params today). Packages' `.tamber` components are QUEUEd.
+- **A param's token name may appear in generated code as a value, never as an identifier**
+  (theme2's ruling, amending A's): the TypeScript kind unions (`contract types`, `tamber.ts`) and
+  the constants in TypeScript, Kotlin and Rust carry it, so a data module returns
+  `tokens.<name>.name` as a `ColorToken`. Diagnostics, `describe`, inspect, `set-param` text and the
+  DTCG export use the full or short name. The docs say: return the constant, never type the
+  literal.
 
 ### Stage 7, commit B: the app's value, `set-param` and `unset-param` (`1530e9671`..`ff89cbae9`)
 
