@@ -11,7 +11,7 @@ import WebKit
 ///
 /// - PDF: the reference asks Chromium's viewer for the page alone, fitted to the panel width
 ///   (`#toolbar=0&view=FitH`), from the top; here a PDFView scales the continuous pages to the width,
-///   top-aligned on the viewer surface (R6PDFBody), and scrolling, zoom gestures, selection and find
+///   top-aligned on the viewer surface (T3PDFBody), and scrolling, zoom gestures, selection and find
 ///   work inside it.
 /// - HTML: the reference runs the page in `<iframe sandbox="allow-scripts allow-forms
 ///   allow-popups allow-modals">` at its signed asset URL, an opaque origin that cannot reach
@@ -30,12 +30,12 @@ import WebKit
 ///
 /// A draft's file (`t3-staged:<id>`, the composer chip's preview) is read from its staged copy, as the reference reads the
 /// draft's Blob: a PDF the same way; an HTML page in the same wrapper and sandboxed frame as a sent one, both served
-/// to that web view alone by `R6DraftPages` (`t3-draft://<token>/`), so the page has the frame's opaque origin and
+/// to that web view alone by `T3DraftPages` (`t3-draft://<token>/`), so the page has the frame's opaque origin and
 /// its rules (a link navigates the frame in place, a popup opens externally, the window never navigates) and, as a
 /// Blob URL's page has, no siblings: any other path under the token is not found; an audio file in an AVPlayerView
 /// with inline controls (AudioPreview's `<audio controls>`), whose typed link beside the staged copy names its type for
 /// AVFoundation.
-final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
+final class T3MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let maximumBytes = 64 * 1024 * 1024
     /// The iframe's sandbox, as BrowserDocumentFrame.tsx sets it.
     static let frameSandbox = "allow-scripts allow-forms allow-popups allow-modals"
@@ -108,7 +108,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         detach(key)
         if raw.hasPrefix(Self.stagedScheme) { return mountStaged(host: host, key: key, identity: identity, kind: kind, id: String(raw.dropFirst(Self.stagedScheme.count)), name: name) }
         guard let url = T3AttachmentFiles.assetURL(raw), kind == "pdf" || kind == "html" else { return }
-        let view: NSView = kind == "pdf" ? R6PDFBody(name: name) : webView(name: name)
+        let view: NSView = kind == "pdf" ? T3PDFBody(name: name) : webView(name: name)
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
@@ -131,8 +131,8 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     private func mountStaged(host: NSView, key: ObjectIdentifier, identity: String, kind: String, id: String, name: String) {
         guard ["pdf", "html", "audio"].contains(kind) else { return }
-        let pages = kind == "html" ? R6DraftPages() : nil
-        let view: NSView = kind == "pdf" ? R6PDFBody(name: name) : kind == "html" ? webView(name: name, drafts: pages) : Self.audioView(name: name)
+        let pages = kind == "html" ? T3DraftPages() : nil
+        let view: NSView = kind == "pdf" ? T3PDFBody(name: name) : kind == "html" ? webView(name: name, drafts: pages) : Self.audioView(name: name)
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
@@ -151,7 +151,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private func showStagedPage(_ entry: Entry, _ bytes: Data, name: String, pages: R6DraftPages) {
+    private func showStagedPage(_ entry: Entry, _ bytes: Data, name: String, pages: T3DraftPages) {
         guard let web = entry.view as? WKWebView else { return fail(entry, "Could not load this file.") }
         pages.page = bytes
         pages.wrapper = Data(Self.wrapperHTML(src: pages.pageURL, title: name).utf8)
@@ -161,13 +161,13 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     static func audioView(name: String) -> NSView {
-        let box = R6AudioBody()
+        let box = T3AudioBody()
         box.player.setAccessibilityLabel(name)
         return box
     }
 
     private func showAudio(_ entry: Entry, file: URL, name: String) {
-        guard let body = entry.view as? R6AudioBody else { return }
+        guard let body = entry.view as? T3AudioBody else { return }
         let ext = (name as NSString).pathExtension.lowercased()
         let typed = file.deletingLastPathComponent().appendingPathComponent("\(file.lastPathComponent).\(ext.isEmpty ? "audio" : ext)")
         if !FileManager.default.fileExists(atPath: typed.path) { try? FileManager.default.linkItem(at: file, to: typed) }
@@ -199,7 +199,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func release(_ entry: Entry) {
         entry.task?.cancel()
         if let web = entry.view as? WKWebView { web.stopLoading(); web.navigationDelegate = nil; web.uiDelegate = nil }
-        if let audio = entry.view as? R6AudioBody { audio.status = nil; audio.player.player?.pause() }
+        if let audio = entry.view as? T3AudioBody { audio.status = nil; audio.player.player?.pause() }
         entry.view.removeFromSuperview()
     }
 
@@ -219,7 +219,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func showPDF(_ entry: Entry, _ bytes: Data, name: String) {
-        guard let body = entry.view as? R6PDFBody, let document = PDFDocument(data: bytes) else { return fail(entry, "Could not load this file.") }
+        guard let body = entry.view as? T3PDFBody, let document = PDFDocument(data: bytes) else { return fail(entry, "Could not load this file.") }
         body.pdf.document = document
         body.pdf.autoScales = true
         body.fit()
@@ -229,9 +229,9 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: HTML
 
-    private func webView(name: String, drafts: R6DraftPages? = nil) -> WKWebView {
+    private func webView(name: String, drafts: T3DraftPages? = nil) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        if let drafts { configuration.setURLSchemeHandler(drafts, forURLScheme: R6DraftPages.scheme) }
+        if let drafts { configuration.setURLSchemeHandler(drafts, forURLScheme: T3DraftPages.scheme) }
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.userContentController.addUserScript(Self.topLinkGuard)
@@ -362,7 +362,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
 /// A draft page's two documents for one web view: the wrapper at `t3-draft://<token>/` under the wrapper policy, and the
 /// page at `/page` under the server's policy for a page attachment (the frame's sandbox, as a header too). Anything else
 /// is not found, as a Blob page's relative URLs resolve to nothing.
-final class R6DraftPages: NSObject, WKURLSchemeHandler {
+final class T3DraftPages: NSObject, WKURLSchemeHandler {
     static let scheme = "t3-draft"
     let root = URL(string: "\(scheme)://\(UUID().uuidString.lowercased())/")!
     var pageURL: URL { root.appendingPathComponent("page") }
@@ -374,8 +374,8 @@ final class R6DraftPages: NSObject, WKURLSchemeHandler {
         let same = url.host == root.host
         // The page's own type is a Blob's (`text/html`, its charset from the document); the wrapper is ours, UTF-8.
         let body: Data?, policy: String, type: String
-        if same && (url.path.isEmpty || url.path == "/") { body = wrapper; policy = R6MediaPreview.wrapperPolicy; type = "text/html; charset=utf-8" }
-        else if same && url.path == "/page" { body = page; policy = "sandbox \(R6MediaPreview.frameSandbox)"; type = "text/html" }
+        if same && (url.path.isEmpty || url.path == "/") { body = wrapper; policy = T3MediaPreview.wrapperPolicy; type = "text/html; charset=utf-8" }
+        else if same && url.path == "/page" { body = page; policy = "sandbox \(T3MediaPreview.frameSandbox)"; type = "text/html" }
         else { body = nil; policy = ""; type = "" }
         guard let body else {
             task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!)
@@ -393,7 +393,7 @@ final class R6DraftPages: NSObject, WKURLSchemeHandler {
 
 /// AudioPreview: `<audio controls preload="metadata" class="w-full max-w-xl">` centred in `p-6`, Chrome's controls a
 /// 54 px pill; here AVKit's inline controls at that size.
-final class R6AudioBody: NSView {
+final class T3AudioBody: NSView {
     let player = AVPlayerView()
     var status: NSKeyValueObservation?
 
@@ -421,14 +421,14 @@ final class R6AudioBody: NSView {
 /// panel, its surface filling the rest below a short document; PDFView's clip view centers a document
 /// shorter than the view. So the box holds the PDFView at the document's fitted height, top-aligned on
 /// the viewer surface, and at the box's full height (scrolling inside) once the document is taller.
-final class R6PDFBody: NSView {
+final class T3PDFBody: NSView {
     let pdf: PDFView
 
     init(name: String) {
-        pdf = R6MediaPreview.pdfView(name: name)
+        pdf = T3MediaPreview.pdfView(name: name)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = R6MediaPreview.viewerSurface.cgColor
+        layer?.backgroundColor = T3MediaPreview.viewerSurface.cgColor
         pdf.autoresizingMask = []
         addSubview(pdf)
     }

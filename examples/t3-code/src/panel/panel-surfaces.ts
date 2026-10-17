@@ -21,11 +21,11 @@ import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFil
 import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './linked-prs';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceHidden, deviceStateOf, type DeviceView } from '../device/device-surface';
 // Opening a device, its workspace and the floating player (device-session.ts).
-import { r6DeviceView, r6DeviceMini, r6DeviceLocal, r6DeviceCommand, emptyMini, deviceTab, floatMiniDevice, type R6DeviceMini } from '../device/device-session';
+import { deviceSessionView, deviceMini, deviceSessionLocal, deviceSessionCommand, emptyMini, deviceTab, floatMiniDevice, type DeviceMini } from '../device/device-session';
 import { threadDevices, visibleMini } from '../device/floating-player';
 import { activeSerial, tabStrip, NO_TAB_STRIP, type TabStrip } from './tab-strip'; // The tab strip scrolls
 // The Pull request (P) surface and sent attachments (pr-attachment-surfaces.ts).
-import { openThreadPullRequest, r5Local, r5Command, r5Tab, r5Views, r5Prefetch, emptyPrSurface, threadPrTarget, type PrSurfaceView } from './pr-attachment-surfaces';
+import { openThreadPullRequest, linkedLocal, linkedCommand, linkedTab, linkedViews, linkedPrefetch, emptyPrSurface, threadPrTarget, type PrSurfaceView } from './pr-attachment-surfaces';
 import { emptyAttachment, type AttachmentView, type AttachmentMeta } from './attachment-surface';
 import { crumbsHidden } from './files-crumbs-mount'; // The Files preview unmounted
 import { restoreRightPanel } from './saved-panel'; // The panel as the last launch left it
@@ -51,7 +51,7 @@ export type PanelView = {
    *  isOpen with no surface: RightPanelEmptyState). The window keys its own open state by `key` (app.contract rightPanelAt). */
   key: string; launcher: boolean;
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[]; terminal: TerminalDrawerView; terminalClose: { serial: number; title: string; body: string; target: string; op: string };
-  files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip; browser: BrowserView;
+  files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: DeviceMini; tabStrip: TabStrip; browser: BrowserView;
   /** The floating player's browser tab (its frame: chat-canvas-view.ts). */
   browserMini: BrowserMiniView;
   /** Bumps when an annotation's ⌘Return should send, whatever the panel shows (app.contract annotationSend). */
@@ -260,16 +260,16 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     return '';
   }
   if (op === 'setup-close') { surfaceStore(client).deviceSetup = ''; return ''; }
-  if (op.startsWith('r5-')) return r5Local(client, native, state, op.slice(3), id, value); // pr-attachment-surfaces.ts
+  if (op.startsWith('linked-')) return linkedLocal(client, native, state, op.slice(7), id, value); // pr-attachment-surfaces.ts
   if (op.startsWith('browser-')) return browserLocal(client, native, state, op.slice(8), id, value); // browser-surface.ts
   // A sheet's Files search Escape clears the search, then the dialog closes (app.contract chatLocal).
   if (op === 'files-search-key' && id === 'sheet' && value === 'Escape') { await filesLocal(client, native, 'search-key', id, value); return surfaceLocal(client, native, 'hide', '', ''); }
   if (op.startsWith('files-')) return filesLocal(client, native, op.slice(6), id, value);
   if (op.startsWith('pr-')) return prsLocal(client, native, op.slice(3), id, value);
   if (op.startsWith('device-')) return deviceLocal(client, native, op.slice(7), id, value);
-  if (op.startsWith('r6dev-')) {
+  if (op.startsWith('session-')) {
     const key = panelKey(client), closingId = state.active;
-    const effect = await r6DeviceLocal(client, native, deviceStateOf(client), key, op.slice(6), value);
+    const effect = await deviceSessionLocal(client, native, deviceStateOf(client), key, op.slice(8), value);
     if (effect === 'close') closeSurfaceIn(state, closingId);
     if (panelState(client) !== state) return '';
     if (effect === 'hide') { state.visible = false; client.diffOpen = false; }
@@ -281,11 +281,11 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
 /** `shell:surface-*`: the writes (file saves, pull-request watch/unlink, device hub settings). */
 export async function surfaceCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op.startsWith('pr-')) return prsCommand(client, native, storage, op.slice(3), id, value);
-  if (op.startsWith('r5-')) return r5Command(client, native, storage, op.slice(3), id); // pr-attachment-surfaces.ts
-  if (op.startsWith('r6dev-')) {
+  if (op.startsWith('linked-')) return linkedCommand(client, native, storage, op.slice(7), id); // pr-attachment-surfaces.ts
+  if (op.startsWith('session-')) {
     const state = panelState(client), key = panelKey(client), closingId = state.active;
-    if (await r6DeviceCommand(client, native, deviceStateOf(client), key, op.slice(6), id, value)) closeSurfaceIn(state, closingId);
-    if (op === 'r6dev-open') { const target = deviceTargetOf(client, key); if (target) openDeviceSurface(state, target); }
+    if (await deviceSessionCommand(client, native, deviceStateOf(client), key, op.slice(8), id, value)) closeSurfaceIn(state, closingId);
+    if (op === 'session-open') { const target = deviceTargetOf(client, key); if (target) openDeviceSurface(state, target); }
     return '';
   }
   if (op.startsWith('device-')) {
@@ -300,8 +300,8 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
 function tabOf(client: T3Client, surface: Surface, active: string, pending: ReadonlySet<string>): PanelTab {
   const state = panelState(client), editor = tabRename(state);
   const rename = { closeTarget: `${panelKey(client)}|${surface.id}`, ...terminalSurfaceCloseCopy(client, surface), renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '', menu: tabMenuRows(surface, state.surfaces, entry => browserTabMute(client, entry)), audio: '' };
-  const r5 = r5Tab(client, surface);
-  if (r5) return { id: surface.id, kind: surface.kind, ...r5, ...rename, active: surface.id === active, pending: false, favicon: '', faviconFallback: '' };
+  const linked = linkedTab(client, surface);
+  if (linked) return { id: surface.id, kind: surface.kind, ...linked, ...rename, active: surface.id === active, pending: false, favicon: '', faviconFallback: '' };
   if (surface.kind === 'browser') { const tab = browserTab(client, surface); return { id: surface.id, kind: surface.kind, ...rename, title: tab.title, icon: 'earth', tone: '', fileToken: '', active: surface.id === active, pending: false, favicon: tab.favicon, faviconFallback: tab.faviconFallback, audio: browserTabAudio(client, surface) }; }
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
   const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // The open device's name and mark
@@ -332,16 +332,16 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const deviceShown = !!live && open && active.kind === 'device';
   if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (device-surface.ts deviceView)
   const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown) : emptyDevice();
-  if (live && open && active.kind === 'device' && !deviceSetup) device.r6 = await r6DeviceView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
+  if (live && open && active.kind === 'device' && !deviceSetup) device.session = await deviceSessionView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
-  const r5 = await r5Views(client, live, active, open, now);
-  await r5Prefetch(client, live, state.surfaces, now); // Tab icons from loaded detail
+  const linked = await linkedViews(client, live, active, open, now);
+  await linkedPrefetch(client, live, state.surfaces, now); // Tab icons from loaded detail
   return {
     terminalClose: store.terminalClose,
     terminal: active?.kind === 'terminal' ? terminalPanelView(client, await terminalDrawerView(client, native, 0, now), active) : emptyTerminalDrawerView(),
     key: panelKey(client), launcher: state.visible && !active, open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
-    tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...r5,
-    deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
+    tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...linked,
+    deviceMini: visibleMini(deviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
     browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // The client's profiles for the "+" menu and the launcher
     browserMini: browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)), // shouldRenderPreviewMiniPlayer's browser half

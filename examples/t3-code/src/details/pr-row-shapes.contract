@@ -1,14 +1,14 @@
 // The details card's pull request row with the host's detail (the
 // checks popover, the trailing action's measured width, the tooltip card) and the
 // Merge AlertDialog, as pr-row.ts and pr-row-actions.ts answer them.
-shape R6Check
+shape PrCheck
   key: string
   name: string
   status: string
   label: string
   url: string
   description: string
-shape R6PrCard
+shape PrCard
   show: bool
   title: string
   number: string
@@ -25,7 +25,7 @@ shape R6PrCard
   flipped: bool
   clamped: bool
   maxWidth: number
-shape R6PrExtra
+shape PrRowExtra
   destructive: bool
   suffix: bool
   actionWidth: number
@@ -34,11 +34,11 @@ shape R6PrExtra
   method: string
   checksTitle: string
   checksSummary: string
-  checksList: R6Check[]
+  checksList: PrCheck[]
   collapsible: bool
   expanded: bool
-  card: R6PrCard
-shape R6MergeAsk
+  card: PrCard
+shape MergeAsk
   open: bool
   number: number
   description: string

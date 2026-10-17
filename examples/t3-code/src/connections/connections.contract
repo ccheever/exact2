@@ -7,7 +7,7 @@ use PvGhost from "../settings/providers-kit.contract"
 use PvIconButton from "../settings/providers-kit.contract"
 use PvIcon from "../providers/provider-icons.contract"
 use CnOption from "../settings/settings-b-kit.contract"
-use R10PairFields from "./pairing-shapes.contract"
+use PairFields from "./pairing-shapes.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
 use CnGlyph from "../settings/settings-b-kit.contract"
 use CnMenu from "../settings/settings-b-kit.contract"
@@ -479,7 +479,7 @@ component AddEnvironmentDialog
   props
     origin: string
     credential: string
-    pairFields: R10PairFields
+    pairFields: PairFields
     connected: bool
     available: bool
     viewportHeight: number

@@ -8,13 +8,13 @@ use Look from "../appearance/settings-appearance-look.contract"
 // device/DeviceSetup.tsx, DevicePanel.tsx, ui/wizard.tsx). `ui` is the window's
 // panelUi (choose, tab-close, toggle, maximize), `local` its chatLocal (a
 // `surface-*` op without the command gate) and `command` its gated command.
-use R4Panel from "./panel-shapes.contract"
-use R4Tab from "./panel-shapes.contract"
-use R4Prs from "./panel-shapes.contract"
-use R4LinkedRow from "./panel-shapes.contract"
-use R4Device from "./panel-shapes.contract"
+use PanelView from "./panel-shapes.contract"
+use PanelTab from "./panel-shapes.contract"
+use LinkedPrs from "./panel-shapes.contract"
+use LinkedPrRow from "./panel-shapes.contract"
+use DeviceSurface from "./panel-shapes.contract"
 use SimulatorSupportSection from "../device/device-support.contract"
-use R12TabScroll from "./tab-strip.contract"
+use TabScroll from "./tab-strip.contract"
 use ShellSurface from "../shell/shell-shapes.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use TipBubble from "../shell/shell-tip.contract"
@@ -29,12 +29,12 @@ use prChecksTone from "../pull-requests/pages-prs.contract"
 use prReviewIcon from "../pull-requests/pages-prs.contract"
 use prReviewTone from "../pull-requests/pages-prs.contract"
 use PvSwitch from "../settings/providers-kit.contract"
-use R4Icon from "./panel-icons.contract"
-use R6DeviceStatus from "../device/device-workspace.contract"
-use R6DeviceLoading from "../device/device-workspace.contract"
-use R6DeviceWorkspaceView from "../device/device-workspace.contract"
-use R7DevPlatformGlyph from "../device/device-tools.contract" // the device tab's platform mark
-use R4FilesBody from "./files-surface.contract"
+use PanelIcon from "./panel-icons.contract"
+use DeviceStatus from "../device/device-workspace.contract"
+use DeviceLoading from "../device/device-workspace.contract"
+use DeviceWorkspaceView from "../device/device-workspace.contract"
+use PlatformGlyph from "../device/device-tools.contract" // the device tab's platform mark
+use FilesBody from "./files-surface.contract"
 use ChatDocument from "../timeline/markdown.contract"
 use prdTone from "../pull-requests/pages-pr-detail.contract"
 use KmItem from "../shared/menu-keys.contract"
@@ -53,9 +53,9 @@ use FieldOpenSelect from "../shared/dialog-trap.contract"
 // The panel's top bar (52pt): the surface tabs and "Add panel surface", then the
 // layout controls (details toggle in a sheet, else maximize; the terminal drawer;
 // the right panel toggle). With no tabs it is the launcher's bar.
-component R4PanelHeader
+component PanelHeader
   props
-    panel: R4Panel
+    panel: PanelView
     surfaces: ShellSurface[]
     sheet: bool
     maximized: bool
@@ -72,12 +72,12 @@ component R4PanelHeader
     scheme: string
     searchFocused: bool // the Files search has the focus (SurfacePanel filesSearchAt)
   view
-    R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, searchFocused=searchFocused)
+    PanelHeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, searchFocused=searchFocused)
 
-// The bar itself, drawn by R4PanelHeader.
-component R4HeaderBar
+// The bar itself, drawn by PanelHeader.
+component PanelHeaderBar
   props
-    panel: R4Panel
+    panel: PanelView
     surfaces: ShellSurface[]
     sheet: bool
     maximized: bool
@@ -120,7 +120,7 @@ component R4HeaderBar
   derive tabsFadeRight = panel.tabStrip.view > 0 ? min(24, max(0, panel.tabStrip.max - tabsScroll)) * 100 / panel.tabStrip.view : 0
   derive tabsMask = not panel.tabStrip.overflow ? "none" : `linear-gradient(to right, #00000000 0%, #000000 ${tabsFadeLeft}%, #000000 ${100 - tabsFadeRight}%, #00000000 100%)`
   // The tab a right-click named. Its `contextmenu` runs before the host
-  // shows the one `r4-tab-menu` popover (LLP 1021 §5.1), so the popover lists that tab's rows.
+  // shows the one `panel-tab-menu` popover (LLP 1021 §5.1), so the popover lists that tab's rows.
   state menuTab = ""
   action tabMenu(id: string)
     menuTab = id
@@ -130,20 +130,20 @@ component R4HeaderBar
       // rows as an NSMenu (plain items, no separators, disabled ones dimmed); the agent and the web paint
       // the popover at the tab. A row presses the same `surface-<id>` op as the menu's choice. Its placement
       // stays `none`: the reference's is the system context menu's, at the pointer, not a Base UI popup.
-      column id="r4-tab-menu" popover="auto" position-try-fallbacks="none" position="absolute" role="menu" width="12rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" testId="tab-menu"
+      column id="panel-tab-menu" popover="auto" position-try-fallbacks="none" position="absolute" role="menu" width="12rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" testId="tab-menu"
         for menuOf in panel.tabs key=menuOf.id
           if menuOf.id == menuTab
             for item in menuOf.menu key=item.id
-              button press=local(`surface-${item.id}`, menuOf.id, "") disabled=item.disabled popovertarget="r4-tab-menu" popovertargetaction="hide" role="menuitem" testId=`tab-menu-${item.id}` display="flex" flex-direction="row" align-items="center" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color="#00000000"
+              button press=local(`surface-${item.id}`, menuOf.id, "") disabled=item.disabled popovertarget="panel-tab-menu" popovertargetaction="hide" role="menuitem" testId=`tab-menu-${item.id}` display="flex" flex-direction="row" align-items="center" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color="#00000000"
                 text item.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-      scroll flex=1 min-width=0 height="1.5rem" overflow-x="scroll" overflow-y="hidden" scrollLeft=tabsScroll scroll=tabsScrolled mask-image=tabsMask hatch="t3-anchor" data-anchor="r12-tabs-view" testId="panel-tab-strip"
-        row flex-shrink=0 width=(panel.tabStrip.content > panel.tabStrip.view ? panel.tabStrip.content : "100%") gap="0.25rem" align-items="center" role="tablist" aria-label="Panel surfaces" hatch="t3-anchor" data-anchor="r12-tabs-content"
+      scroll flex=1 min-width=0 height="1.5rem" overflow-x="scroll" overflow-y="hidden" scrollLeft=tabsScroll scroll=tabsScrolled mask-image=tabsMask hatch="t3-anchor" data-anchor="tab-strip-view" testId="panel-tab-strip"
+        row flex-shrink=0 width=(panel.tabStrip.content > panel.tabStrip.view ? panel.tabStrip.content : "100%") gap="0.25rem" align-items="center" role="tablist" aria-label="Panel surfaces" hatch="t3-anchor" data-anchor="tab-strip-content"
           for tab in panel.tabs key=tab.id
-            R4TabChip(tab=tab, ui=ui, local=local, menu=tabMenu)
+            PanelTabChip(tab=tab, ui=ui, local=local, menu=tabMenu)
           if panel.count > 0
-            R4AddSurface(surfaces=surfaces, profiles=panel.browser.profiles, ui=ui, local=local)
+            AddSurfaceMenu(surfaces=surfaces, profiles=panel.browser.profiles, ui=ui, local=local)
       if panel.tabStrip.overflow
-        R12TabScroll(canLeft=(tabsScroll > 1), canRight=(tabsScroll < panel.tabStrip.max - 1), left=scrollTabs(0 - tabsStep), right=scrollTabs(tabsStep))
+        TabScroll(canLeft=(tabsScroll > 1), canRight=(tabsScroll < panel.tabStrip.max - 1), left=scrollTabs(0 - tabsStep), right=scrollTabs(tabsStep))
       if sheet
         box position="relative" flex-shrink=0
           button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
@@ -164,7 +164,7 @@ component R4HeaderBar
       // nested dialog (device setup) or menu (the file's editor menu), the file editor (installFileEditorDismissal blurs
       // it first), and the Browser pick, which focuses the page (PickPreload cancels it). Checked on the reference over CDP.
       // The Files search clears itself before its sheet closes (FileSearchField's onKeyDown runs first), so while it has
-      // the focus the field takes the key and closes the sheet (R4Explorer searchKey). The thread details popover drawn
+      // the focus the field takes the key and closes the sheet (FilesExplorer searchKey). The thread details popover drawn
       // above the sheet (app-overlays.contract) is the topmost layer while it shows, so its Escape comes first.
       box position="relative" flex-shrink=0
         button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
@@ -173,9 +173,9 @@ component R4HeaderBar
 
 // One tab (24pt, 144pt at most, 6/8pt sides, 2pt gap, 12/16 text): the active one
 // on the accent fill; a hovered tab turns its glyph into the close ×.
-component R4TabChip
+component PanelTabChip
   props
-    tab: R4Tab
+    tab: PanelTab
     ui: action
     local: action
     menu: action
@@ -189,7 +189,7 @@ component R4TabChip
       preventDefault()
       local("surface-menu", tab.id, "key")
   view
-    row contextmenu=menu(tab.id) contextPopover="r4-tab-menu" height="1.5rem" max-width="9rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hatch="t3-anchor" data-anchor=`r12-tab:${tab.id}` testId=`panel-tab-${tab.id}`
+    row contextmenu=menu(tab.id) contextPopover="panel-tab-menu" height="1.5rem" max-width="9rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hatch="t3-anchor" data-anchor=`tab-chip:${tab.id}` testId=`panel-tab-${tab.id}`
       button hatch="t3-anchor" data-anchor=`tab-close:${tab.id}` press=ui("tab-close", tab.id) key=tabKey aria-label=`Close ${tab.title}` testId=`close-tab-${tab.id}` width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 position="relative" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         if over
           ShellIcon(name="x", size=12, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
@@ -205,7 +205,7 @@ component R4TabChip
                 BrowserTabIcon(captured=tab.favicon, fallback=tab.faviconFallback, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
               else
                 if tab.icon == "apple" or tab.icon == "android"
-                  R7DevPlatformGlyph(platform=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+                  PlatformGlyph(platform=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
                 else
                   ShellIcon(name=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         if tab.pending
@@ -214,7 +214,7 @@ component R4TabChip
         BrowserAudioButton(tabId=tab.id, title=tab.title, audio=tab.audio, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), local=local)
       box hatch="t3-anchor" data-anchor=`tab-cancel:${tab.id}` press=local("surface-rename-cancel", tab.id, "") tabindex=-1 width=0 height=0 padding=0 border-width=0 opacity=0 aria-hidden=true position="absolute"
       if tab.renaming
-        R4TabNameField(tab=tab, local=local)
+        PanelTabNameField(tab=tab, local=local)
       else
         button hatch="t3-anchor" data-anchor=`tab-focus:${tab.id}` press=local("surface-activate", tab.id, "") dblclick=local("surface-rename", tab.id, "") key=tabKey aria-label=tab.title testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
@@ -226,9 +226,9 @@ component R4TabChip
 // SidebarRenameField does: a commit never depends on an earlier per-keystroke command having
 // landed (a drive that typed then pressed Enter kept the old name). Escape is the native
 // monitor's tab-cancel, which closes the editor first, so the blur after it commits nothing.
-component R4TabNameField
+component PanelTabNameField
   props
-    tab: R4Tab
+    tab: PanelTab
     local: action
   state name = tab.renameValue
   action edit(value: string)
@@ -239,7 +239,7 @@ component R4TabNameField
 
 // "Add panel surface": a 24pt ghost-muted "+" and the menu of every surface,
 // unavailable ones at 64% with their reason.
-component R4AddSurface
+component AddSurfaceMenu
   inject
     dialogMenuEntered: action
   props
@@ -257,25 +257,25 @@ component R4AddSurface
       preventDefault()
       stopPropagation()
       if not e.repeat
-        showPopover("r4-add-surface", source="panel-add-surface")
+        showPopover("add-surface-menu", source="panel-add-surface")
         let openingTarget = kmTriggerTarget(menuItems, k)
         if openingTarget != ""
           focus(openingTarget)
   view
     column position="relative" flex-shrink=0
-      button popovertarget="r4-add-surface" key=triggerKey hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id="panel-add-surface"
+      button popovertarget="add-surface-menu" key=triggerKey hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id="panel-add-surface"
         ShellIcon(name="plus", size=14, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
       // MenuPopup align="start" side="bottom" sideOffset 6 (RightPanelTabs.tsx), flipping near an edge.
-      column id="r4-add-surface" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.375rem" width="12rem" data-dialog-return="menu" focusin=dialogMenuEntered("r4-add-surface", "panel-add-surface")
+      column id="add-surface-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.375rem" width="12rem" data-dialog-return="menu" focusin=dialogMenuEntered("add-surface-menu", "panel-add-surface")
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Add panel surface"
-          KeyMenu(menuId="r4-add-surface-keys", items=menuItems, keyed=0, gap="0px", modal=true)
+          KeyMenu(menuId="add-surface-menu-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             for surface in surfaces key=surface.id
               if surface.id == "browser" and surface.available
-                BrowserAddItem(keysId="r4-add-surface-keys", surface=surface, profiles=profiles, choose=ui("choose", surface.id), local=local)
+                BrowserAddItem(keysId="add-surface-menu-keys", surface=surface, profiles=profiles, choose=ui("choose", surface.id), local=local)
               else
-                R4AddItem(keysId="r4-add-surface-keys", surface=surface, choose=ui("choose", surface.id))
+                AddSurfaceMenuItem(keysId="add-surface-menu-keys", surface=surface, choose=ui("choose", surface.id))
 
-component R4AddItem
+component AddSurfaceMenuItem
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
     keysId: string
@@ -293,7 +293,7 @@ component R4AddItem
     lit = on
   view
     box position="relative" width="100%" hover=hover
-      button id=`add-surface-${surface.id}` press=choose popovertarget="r4-add-surface" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(surface.available ? 1 : 0.64) background-color=(lit and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000") data-focus-stop=((not surface.available) ? "" : "enabled")
+      button id=`add-surface-${surface.id}` press=choose popovertarget="add-surface-menu" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(surface.available ? 1 : 0.64) background-color=(lit and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000") data-focus-stop=((not surface.available) ? "" : "enabled")
         box width="1rem" height="1rem" flex-shrink=0 opacity=0.8
           ShellIcon(name=surface.icon, size=16, color="light-dark(#71717b, #818181)")
         text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -302,12 +302,12 @@ component R4AddItem
         TipBubble(label=surface.reason, side="top", align="center", offset=32, inset=0, shown=hovered)
 
 // The active non-diff surface under the tab bar.
-component R4SurfaceBody
+component SurfaceBody
   props
     look: Look
     confirm: action
     closePending: bool
-    panel: R4Panel
+    panel: PanelView
     scheme: string
     sheet: bool
     local: action
@@ -322,28 +322,28 @@ component R4SurfaceBody
     if panel.kind == "terminal"
       TerminalContent(view=panel.terminal, look=look, dark=(scheme == "dark"), closePending=closePending, command=command, confirm=confirm)
     if panel.kind == "files" or panel.kind == "file"
-      R4FilesBody(family=look.codeFont, files=panel.files, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
+      FilesBody(family=look.codeFont, files=panel.files, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
     if panel.kind == "pull-requests"
-      R4PrsBody(prs=panel.prs, scheme=scheme, local=local, command=command, link=paletteShow("command", "link-pr"))
+      LinkedPrsBody(prs=panel.prs, scheme=scheme, local=local, command=command, link=paletteShow("command", "link-pr"))
     if panel.kind == "device"
-      R4DeviceBody(device=panel.device, scheme=scheme, local=local, command=command)
+      DeviceSurfaceBody(device=panel.device, scheme=scheme, local=local, command=command)
     if panel.kind == "browser"
       BrowserSurface(view=panel.browser, scheme=scheme, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
 
 // ThreadPullRequestsPanel; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
-component R4PrsBody
+component LinkedPrsBody
   props
-    prs: R4Prs
+    prs: LinkedPrs
     scheme: string
     local: action
     command: action
     link: action
   view
-    R4PrsList(prs=prs, local=local, command=command, link=link)
+    LinkedPrsList(prs=prs, local=local, command=command, link=link)
 
-component R4PrsList
+component LinkedPrsList
   props
-    prs: R4Prs
+    prs: LinkedPrs
     local: action
     command: action
     link: action
@@ -354,33 +354,33 @@ component R4PrsList
         text "This environment does not support multiple linked pull requests." max-width="15rem" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
     if prs.supported and prs.rows.length == 0
       column flex=1 align-items="center" justify-content="center" gap="0.5rem" padding="1.5rem" box-sizing="border-box" testId="linked-prs-empty"
-        R4Icon(name="link-2", size=24, color="light-dark(#71717b99, #81818199)")
+        PanelIcon(name="link-2", size=24, color="light-dark(#71717b99, #81818199)")
         text "No linked pull requests" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         text "Pull requests the agent opens from this thread land here. Link one yourself from a URL or a number." max-width="15rem" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         button press=link testId="linked-prs-link" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)"
-          R4Icon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
+          PanelIcon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
           text "Link pull request" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
     if prs.supported and prs.rows.length > 0
       column flex=1 min-height=0 position="relative" testId="linked-prs"
         scroll flex=1 min-height=0
           column width="100%" padding="0.375rem" box-sizing="border-box"
             for row in prs.rows key=row.key
-              R4LinkedRowView(row=row, local=local, command=command)
+              LinkedPrRowView(row=row, local=local, command=command)
         row flex-shrink=0 align-items="center" justify-content="space-between" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
           text prs.footer font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="linked-prs-footer"
           button press=link testId="linked-prs-link-footer" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000"
-            R4Icon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
+            PanelIcon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
             text "Link" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
 
 // LinkRow: the lifecycle glyph, "#n title" with the watch/checks/review signals
 // and the diff stat, then stack, author, repository and branches over the age.
 // Its actions menu shows over the second line's end while the row is hovered.
-component R4LinkedRowView
+component LinkedPrRowView
   inject
     rem: number
     dialogMenuEntered: action
   props
-    row: R4LinkedRow
+    row: LinkedPrRow
     local: action
     command: action
   state over = false
@@ -415,7 +415,7 @@ component R4LinkedRowView
             row flex-shrink=0 align-items="center" gap="0.25rem"
               if row.watching
                 box width="0.875rem" height="0.875rem" aria-label="Watching" testId=`linked-pr-watching-${row.number}`
-                  R4Icon(name="eye", size=14, color="light-dark(#27272a, #f5f5f5)")
+                  PanelIcon(name="eye", size=14, color="light-dark(#27272a, #f5f5f5)")
               if row.checks != ""
                 box width="0.875rem" height="0.875rem" aria-label=row.checksLabel
                   PgIcon(name=prChecksIcon(row.checks), size=14, color=prChecksTone(row.checks))
@@ -430,7 +430,7 @@ component R4LinkedRowView
         row min-width=0 height="1rem" align-items="center" gap="0.375rem" overflow="hidden"
           if row.stackSize > 0
             row flex-shrink=0 align-items="center" gap="0.125rem" aria-label=row.stackLabel
-              R4Icon(name="layers", size=12, color="light-dark(#27272ab3, #f5f5f5b3)")
+              PanelIcon(name="layers", size=12, color="light-dark(#27272ab3, #f5f5f5b3)")
               text `${row.stackSize}` font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab3, #f5f5f5b3)"
           if row.author != ""
             row flex-shrink=0 align-items="center" gap="0.25rem" max-width="8rem"
@@ -450,16 +450,16 @@ component R4LinkedRowView
       if over or menuOpen
         row position="absolute" right=0 bottom="0.125rem" padding-left="1.25rem" padding-right="0.25rem" align-items="center" border-radius="0.375rem" background-color="light-dark(#f7f7f8, #101010)"
           button id=`linked-pr-actions-${row.key}` popovertarget=`linked-pr-menu-${row.key}` key=menuKey aria-label=`Actions for #${row.number}` aria-haspopup="menu" aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-            R4Icon(name="ellipsis", size=14, color="light-dark(#27272a, #f5f5f5)")
+            PanelIcon(name="ellipsis", size=14, color="light-dark(#27272a, #f5f5f5)")
           // The row's MenuPopup (align end, side bottom): 4pt under "…", its right edge on the button's.
           column id=`linked-pr-menu-${row.key}` data-dialog-return="menu" focusin=dialogMenuEntered(`linked-pr-menu-${row.key}`, `linked-pr-actions-${row.key}`) toggle=toggled popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="10rem" testId=`linked-pr-menu-layer-${row.number}`
             if menuOpen
-              R4LinkedMenu(row=row, menuId=`linked-pr-menu-${row.key}`, local=local, command=command, keyed=kmEndKeyed(menuEnd))
+              LinkedPrMenu(row=row, menuId=`linked-pr-menu-${row.key}`, local=local, command=command, keyed=kmEndKeyed(menuEnd))
 
 // The row's actions (Copy link, Open, Watch for changes / Stop watching, Unlink) in its popover.
-component R4LinkedMenu
+component LinkedPrMenu
   props
-    row: R4LinkedRow
+    row: LinkedPrRow
     // The popover the rows close as they act.
     menuId: string
     local: action
@@ -478,15 +478,15 @@ component R4LinkedMenu
   view
     column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=`Actions for #${row.number}` testId=`linked-pr-menu-${row.number}`
       KeyMenu(menuId="linked-pr-menu-keys", items=[KmItem(id="linked-pr-menu-copy", label="Copy link"), KmItem(id="linked-pr-menu-open", label="Open")].concat((row.canWatch ? [KmItem(id="linked-pr-menu-watch", label=(row.watching ? "Stop watching" : "Watch for changes"))] : []).concat([KmItem(id="linked-pr-menu-unlink", label=row.unlinkLabel)])), keyed=keyed, gap="0px", modal=true)
-        R4MenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
+        PanelMenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
         link id="linked-pr-menu-open" hover=openLitHover focus=openLitFocus(true) blur=openLitFocus(false) cursor="pointer" href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" background-color=(openLit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-          R4Icon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
+          PanelIcon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
           text "Open" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         if row.canWatch
-          R4MenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon=(row.watching ? "eye-off" : "eye"), label=(row.watching ? "Stop watching" : "Watch for changes"), test="watch", press=command("shell:surface-pr-watch", row.key, (row.watching ? "false" : "true"), 0))
-        R4MenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon="unlink-2", label=row.unlinkLabel, test="unlink", press=command("shell:surface-pr-unlink", row.key, "", 0))
+          PanelMenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon=(row.watching ? "eye-off" : "eye"), label=(row.watching ? "Stop watching" : "Watch for changes"), test="watch", press=command("shell:surface-pr-watch", row.key, (row.watching ? "false" : "true"), 0))
+        PanelMenuItem(keysId="linked-pr-menu-keys", menuId=menuId, icon="unlink-2", label=row.unlinkLabel, test="unlink", press=command("shell:surface-pr-unlink", row.key, "", 0))
 
-component R4MenuItem
+component PanelMenuItem
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
     keysId: string
@@ -505,13 +505,13 @@ component R4MenuItem
     lit = on
   view
     button id=`linked-pr-menu-${test}` press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`linked-pr-menu-${test}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") data-focus-stop="enabled"
-      R4Icon(name=icon, size=14, color="light-dark(#71717b, #818181)")
+      PanelIcon(name=icon, size=14, color="light-dark(#71717b, #818181)")
       text label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
 // DevicePanel after onboarding: status, the simulators by platform and Refresh devices.
-component R4DeviceBody
+component DeviceSurfaceBody
   props
-    device: R4Device
+    device: DeviceSurface
     scheme: string
     local: action
     command: action
@@ -522,34 +522,34 @@ component R4DeviceBody
           text notice.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
           text notice.detail font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#71717b, #818181)"
       // Status rows, then the opened device or its loading view (device-workspace.contract).
-      R6DeviceStatus(view=device.r6, local=local)
-      if device.r6.mode == "workspace"
-        R6DeviceWorkspaceView(ws=device.r6.workspace, local=local, command=command)
-      if device.r6.mode == "opening"
-        R6DeviceLoading(name=device.r6.openingName, description=device.r6.openingDescription, message=device.r6.openingMessage, stage="opening", error=false, reconnect=local("surface-r6dev-menu", "", ""))
-      if device.r6.mode == "list"
+      DeviceStatus(view=device.session, local=local)
+      if device.session.mode == "workspace"
+        DeviceWorkspaceView(ws=device.session.workspace, local=local, command=command)
+      if device.session.mode == "opening"
+        DeviceLoading(name=device.session.openingName, description=device.session.openingDescription, message=device.session.openingMessage, stage="opening", error=false, reconnect=local("surface-session-menu", "", ""))
+      if device.session.mode == "list"
         if device.panelStatus != ""
           column flex=1 align-items="center" justify-content="center" gap="0.5rem"
-            R4Icon(name="loader", size=20, color="light-dark(#71717b, #818181)")
+            PanelIcon(name="loader", size=20, color="light-dark(#71717b, #818181)")
             text device.panelStatus font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         else
           scroll flex=1 min-height=0
             column width="100%" max-width="36rem" padding-left="1.25rem" padding-right="1.25rem" padding-top="2rem" padding-bottom="2rem" gap="1.5rem" box-sizing="border-box" align-self="center"
               if device.empty != ""
                 column align-items="center" gap="0.75rem"
-                  R4Icon(name="smartphone", size=24, color="light-dark(#71717b99, #81818199)")
+                  PanelIcon(name="smartphone", size=24, color="light-dark(#71717b99, #81818199)")
                   text device.empty max-width="24rem" text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
               for group in device.groups key=group.id
                 column gap="0.75rem"
                   row gap="0.5rem" align-items="center"
-                    R4Icon(name="smartphone", size=16, color="light-dark(#71717b, #818181)")
+                    PanelIcon(name="smartphone", size=16, color="light-dark(#71717b, #818181)")
                     text group.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #818181)"
                   column border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" overflow="hidden"
                     for item in group.devices key=item.id
                       // The row opens (or starts) the device for this thread (device.open).
-                      button press=command("shell:surface-r6dev-open", item.id, "", 0) disabled=(device.r6.pendingKey != "") testId=`device-row-${item.name}` width="100%" height="3.25rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-width=0 border-radius=0 background-color="#00000000" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" aria-label=`${item.action} ${item.name}`
+                      button press=command("shell:surface-session-open", item.id, "", 0) disabled=(device.session.pendingKey != "") testId=`device-row-${item.name}` width="100%" height="3.25rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-width=0 border-radius=0 background-color="#00000000" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" aria-label=`${item.action} ${item.name}`
                         box width="2rem" height="2rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" display="flex" align-items="center" justify-content="center"
-                          R4Icon(name="smartphone", size=16, color="light-dark(#27272a, #f5f5f5)")
+                          PanelIcon(name="smartphone", size=16, color="light-dark(#27272a, #f5f5f5)")
                         column flex=1 min-width=0
                           text item.name font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
                           text item.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
@@ -563,9 +563,9 @@ component R4DeviceBody
 // The "Set up devices" wizard (Dialog + WizardPopup max-w-xl, measured on the
 // served reference): header 24/24/12 with the 20pt title, description and the
 // three-step progress; the 20/24 panel on its tinted band; the 16/24 footer.
-component R4DeviceSetup
+component DeviceSurfaceSetup
   props
-    device: R4Device
+    device: DeviceSurface
     scheme: string
     viewportHeight: number
     local: action
@@ -573,15 +573,15 @@ component R4DeviceSetup
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="device-setup-overlay"
       button press=local("surface-setup-close", "", "") aria-label="Close device setup" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="device-setup-backdrop" title=""
-      R4DeviceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
+      DeviceSurfaceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
 
-component R4DeviceDialog
+component DeviceSurfaceDialog
   inject
     dialogEntered: action
     dialogFallback: action
     rem: number
   props
-    device: R4Device
+    device: DeviceSurface
     viewportHeight: number
     local: action
     command: action
@@ -595,9 +595,9 @@ component R4DeviceDialog
         text "Set up devices" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
         text "Review what runs on this environment before using simulators and emulators." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         row height="2.75rem" padding="0.25rem" gap="0.25rem" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
-          R4WizardStep(number=0, title="Device hub", current=device.step, disabled=(device.busy or device.pending != ""), local=local)
-          R4WizardStep(number=1, title="Simulators", current=device.step, disabled=(device.busy or device.pending != "" or device.step < 1), local=local)
-          R4WizardStep(number=2, title="Agent access", current=device.step, disabled=(device.busy or device.pending != "" or device.step < 2), local=local)
+          DeviceWizardStep(number=0, title="Device hub", current=device.step, disabled=(device.busy or device.pending != ""), local=local)
+          DeviceWizardStep(number=1, title="Simulators", current=device.step, disabled=(device.busy or device.pending != "" or device.step < 1), local=local)
+          DeviceWizardStep(number=2, title="Agent access", current=device.step, disabled=(device.busy or device.pending != "" or device.step < 2), local=local)
       column flex-shrink=1 min-height=0 padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" gap="0.75rem" border-top-width=1 border-bottom-width=1 border-left-width=0 border-right-width=0 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)" testId="device-setup-panel"
         for notice in device.notices key=notice.id
           column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" role=(notice.failed ? "alert" : "status")
@@ -610,7 +610,7 @@ component R4DeviceDialog
             PvSwitch(checked=device.enabled, small=false, disabled=(device.busy or device.pending != ""), label="Enable device hub", test="device-hub-switch", toggle=command("shell:surface-device-hub", "", (device.enabled ? "false" : "true"), 0))
           if device.hubStatus != ""
             row gap="0.5rem" align-items="center" role="status"
-              R4Icon(name=(device.hubReady ? "check" : "loader"), size=12, color=(device.hubReady ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
+              PanelIcon(name=(device.hubReady ? "check" : "loader"), size=12, color=(device.hubReady ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
               text device.hubStatus font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         // 1e2ecbd975 (5318d054a5): step 0 also checks simulator support when the hub is on
         // and a local host has no available platform (device-support.contract).
@@ -623,7 +623,7 @@ component R4DeviceDialog
             PvSwitch(checked=device.agentEnabled, small=false, disabled=(not device.enabled or device.busy or device.pending != ""), label="Allow agents to control devices", test="device-agent-switch", toggle=command("shell:surface-device-agent", "", (device.agentEnabled ? "false" : "true"), 0))
           if device.agentStatus != ""
             row gap="0.5rem" align-items="center" role="status"
-              R4Icon(name=(device.agentReady ? "check" : "loader"), size=12, color=(device.agentReady ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
+              PanelIcon(name=(device.agentReady ? "check" : "loader"), size=12, color=(device.agentReady ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
               text device.agentStatus font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           text "Leave this off to keep manual device controls without giving agents access." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         if device.failure != ""
@@ -642,11 +642,11 @@ component R4DeviceDialog
           button press=command("shell:surface-device-complete", "", "", 0) disabled=(not device.canContinue) testId="device-setup-done" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(device.canContinue ? 1 : 0.64) box-shadow="0 1px 2px #0000000d"
             text device.doneLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
       button id="device-setup-close" press=local("surface-setup-close", "", "") aria-label="Close" testId="device-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
-        R4Icon(name="x", size=16, color="light-dark(#71717b, #818181)")
+        PanelIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
       FocusGuard(guardId="device-setup-guard-end", targets=dialogTargets, popup="device-setup")
 
 // WizardSteps' cell: a 20pt numbered disc and the medium label; only earlier steps reopen.
-component R4WizardStep
+component DeviceWizardStep
   props
     number: number
     title: string
@@ -658,7 +658,7 @@ component R4WizardStep
     button id=`device-setup-step-${number}` press=local("surface-device-step", "", `${number}`) autofocus=(number == 0) disabled=disabled flex=1 min-width=0 height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="0.5rem" border-radius="0.625rem" border-width=(current == number ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(current == number ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current == number ? "0 1px 2px #0000000d" : "none") aria-label=`${title}, step ${number + 1}` testId=`device-step-${number}` data-focus-stop=(disabled ? "" : "enabled")
       box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" box-sizing="border-box" border-style="solid" border-width=1 border-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1b4ed84d, #346bf14d)" : "light-dark(#0000001a, #ffffff1a)")) background-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1d4ed81a, #316cf51a)" : "light-dark(#ffffff, #ffffff0d)"))
         if current > number
-          R4Icon(name="check", size=14, color="#ffffff")
+          PanelIcon(name="check", size=14, color="#ffffff")
         else
           text `${number + 1}` font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(current == number ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
       text title font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(current == number ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")

@@ -7,7 +7,7 @@ import XCTest
 // with frames VideoToolbox encodes here (no emulator, simulator or device tools are involved).
 // `T3_DEVICE_TEST_DIR` receives the rendered screens; `T3_DEVICE_GLB_DIR` (a directory holding a
 // T3 server's `assets/*.glb` and `_chat-*.js`) adds the model-backed 3D renders.
-final class R7DeviceTests: XCTestCase {
+final class DeviceVideoTests: XCTestCase {
     private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
         let end = Date().addingTimeInterval(timeout)
         while !condition() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
@@ -36,28 +36,28 @@ final class R7DeviceTests: XCTestCase {
 
     func testH264Wire() {
         // SEMU: magic, version 1, key flag, 64-bit pts, then Annex B.
-        let packet = R7H264.semu(Data([0, 0, 0, 1, 0x65, 1, 2]), key: true, pts: 0x1_0000_0002)
+        let packet = T3H264.semu(Data([0, 0, 0, 1, 0x65, 1, 2]), key: true, pts: 0x1_0000_0002)
         XCTAssertEqual(packet.count, 23)
-        XCTAssertEqual(R7H264.parseSemu(packet), R7H264.Semu(data: Data([0, 0, 0, 1, 0x65, 1, 2]), isKey: true, timestamp: 0x1_0000_0002))
-        XCTAssertEqual(R7H264.parseSemu(Data([0, 0, 1, 0x41])), R7H264.Semu(data: Data([0, 0, 1, 0x41]), isKey: nil, timestamp: nil), "unframed payloads pass through")
+        XCTAssertEqual(T3H264.parseSemu(packet), T3H264.Semu(data: Data([0, 0, 0, 1, 0x65, 1, 2]), isKey: true, timestamp: 0x1_0000_0002))
+        XCTAssertEqual(T3H264.parseSemu(Data([0, 0, 1, 0x41])), T3H264.Semu(data: Data([0, 0, 1, 0x41]), isKey: nil, timestamp: nil), "unframed payloads pass through")
         // scanAccessUnit: 3- and 4-byte start codes, SPS, PPS and IDR.
         let unit = Data([0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x1e, 0, 0, 1, 0x68, 0xce, 0, 0, 0, 1, 0x65, 0x88, 0x84])
-        let scanned = R7H264.scan(unit)
+        let scanned = T3H264.scan(unit)
         XCTAssertTrue(scanned.isKey)
         XCTAssertEqual(scanned.sps, Data([0x67, 0x42, 0xc0, 0x1e]))
         XCTAssertEqual(scanned.pps, Data([0x68, 0xce]))
-        XCTAssertFalse(R7H264.scan(Data([0, 0, 0, 1, 0x41, 0x9a])).isKey)
-        XCTAssertEqual(R7H264.avccSample(annexB: unit), Data([0, 0, 0, 3, 0x65, 0x88, 0x84]), "parameter sets move to the format description")
-        XCTAssertEqual(R7H264.codecString(Data([0x67, 0x42, 0xc0, 0x1e])), "avc1.42c01e")
-        let record = R7H264.avcC(sps: Data([0x67, 0x64, 0x00, 0x28, 1]), pps: Data([0x68, 0xee]))
-        XCTAssertEqual(R7H264.codecString(record), "avc1.640028")
-        let sets = R7H264.parameterSets(avcC: record)
+        XCTAssertFalse(T3H264.scan(Data([0, 0, 0, 1, 0x41, 0x9a])).isKey)
+        XCTAssertEqual(T3H264.avccSample(annexB: unit), Data([0, 0, 0, 3, 0x65, 0x88, 0x84]), "parameter sets move to the format description")
+        XCTAssertEqual(T3H264.codecString(Data([0x67, 0x42, 0xc0, 0x1e])), "avc1.42c01e")
+        let record = T3H264.avcC(sps: Data([0x67, 0x64, 0x00, 0x28, 1]), pps: Data([0x68, 0xee]))
+        XCTAssertEqual(T3H264.codecString(record), "avc1.640028")
+        let sets = T3H264.parameterSets(avcC: record)
         XCTAssertEqual(sets?.sps, [Data([0x67, 0x64, 0x00, 0x28, 1])]); XCTAssertEqual(sets?.pps, [Data([0x68, 0xee])]); XCTAssertEqual(sets?.nalLength, 4)
-        XCTAssertNil(R7H264.parameterSets(avcC: Data([1, 2, 3])))
+        XCTAssertNil(T3H264.parameterSets(avcC: Data([1, 2, 3])))
         // AvccDemuxer: envelopes split across arbitrary reads; unknown tags are skipped.
-        let body = R7H264.Demuxer.envelope(.description, record) + Data([0, 0, 0, 2, 9, 9]) + R7H264.Demuxer.envelope(.keyframe, Data([1, 2, 3])) + R7H264.Demuxer.envelope(.delta, Data([4]))
-        let demuxer = R7H264.Demuxer()
-        var kinds: [R7H264.Demuxer.Kind] = [], payloads: [Data] = []
+        let body = T3H264.Demuxer.envelope(.description, record) + Data([0, 0, 0, 2, 9, 9]) + T3H264.Demuxer.envelope(.keyframe, Data([1, 2, 3])) + T3H264.Demuxer.envelope(.delta, Data([4]))
+        let demuxer = T3H264.Demuxer()
+        var kinds: [T3H264.Demuxer.Kind] = [], payloads: [Data] = []
         var rest = body
         while !rest.isEmpty { for chunk in demuxer.push(rest.prefix(3)) { kinds.append(chunk.kind); payloads.append(chunk.payload) }; rest = rest.dropFirst(3) }
         XCTAssertEqual(kinds, [.description, .keyframe, .delta])
@@ -66,16 +66,16 @@ final class R7DeviceTests: XCTestCase {
 
     func testKeyForwarding() {
         // HID usages (iOS) follow the physical key.
-        XCTAssertEqual(R7DeviceKeys.usage(code: "KeyA"), 0x04); XCTAssertEqual(R7DeviceKeys.usage(code: "KeyZ"), 0x1d)
-        XCTAssertEqual(R7DeviceKeys.usage(code: "Digit1"), 0x1e); XCTAssertEqual(R7DeviceKeys.usage(code: "Digit9"), 0x26); XCTAssertEqual(R7DeviceKeys.usage(code: "Digit0"), 0x27)
-        XCTAssertEqual(R7DeviceKeys.usage(code: "Enter"), 0x28); XCTAssertEqual(R7DeviceKeys.usage(code: "ArrowUp"), 0x52); XCTAssertEqual(R7DeviceKeys.usage(code: "MetaRight"), 0xe7)
-        XCTAssertNil(R7DeviceKeys.usage(code: "F5")); XCTAssertNil(R7DeviceKeys.usage(code: "Home"))
-        XCTAssertEqual(R7DeviceKeys.packet(platform: "ios", phase: "down", keyCode: 0, characters: "a", meta: false, control: false), R6DeviceWire.tagged(0x06, ["type": "down", "usage": 4]))
-        XCTAssertEqual(R7DeviceKeys.packet(platform: "ios", phase: "up", keyCode: 56, characters: nil, meta: false, control: false), R6DeviceWire.tagged(0x06, ["type": "up", "usage": 0xe1]))
-        XCTAssertNil(R7DeviceKeys.packet(platform: "ios", phase: "down", keyCode: 96, characters: "", meta: false, control: false), "F5 has no usage")
+        XCTAssertEqual(T3DeviceKeys.usage(code: "KeyA"), 0x04); XCTAssertEqual(T3DeviceKeys.usage(code: "KeyZ"), 0x1d)
+        XCTAssertEqual(T3DeviceKeys.usage(code: "Digit1"), 0x1e); XCTAssertEqual(T3DeviceKeys.usage(code: "Digit9"), 0x26); XCTAssertEqual(T3DeviceKeys.usage(code: "Digit0"), 0x27)
+        XCTAssertEqual(T3DeviceKeys.usage(code: "Enter"), 0x28); XCTAssertEqual(T3DeviceKeys.usage(code: "ArrowUp"), 0x52); XCTAssertEqual(T3DeviceKeys.usage(code: "MetaRight"), 0xe7)
+        XCTAssertNil(T3DeviceKeys.usage(code: "F5")); XCTAssertNil(T3DeviceKeys.usage(code: "Home"))
+        XCTAssertEqual(T3DeviceKeys.packet(platform: "ios", phase: "down", keyCode: 0, characters: "a", meta: false, control: false), T3DeviceWire.tagged(0x06, ["type": "down", "usage": 4]))
+        XCTAssertEqual(T3DeviceKeys.packet(platform: "ios", phase: "up", keyCode: 56, characters: nil, meta: false, control: false), T3DeviceWire.tagged(0x06, ["type": "up", "usage": 0xe1]))
+        XCTAssertNil(T3DeviceKeys.packet(platform: "ios", phase: "down", keyCode: 96, characters: "", meta: false, control: false), "F5 has no usage")
         // Android: Back for Escape, key codes for named keys, text for the produced character.
         func android(_ keyCode: UInt16, _ characters: String?, meta: Bool = false, phase: String = "down") -> [String: Any] {
-            json(R7DeviceKeys.packet(platform: "android", phase: phase, keyCode: keyCode, characters: characters, meta: meta, control: false) ?? Data())
+            json(T3DeviceKeys.packet(platform: "android", phase: phase, keyCode: keyCode, characters: characters, meta: meta, control: false) ?? Data())
         }
         XCTAssertEqual(android(53, "\u{1b}") as NSDictionary, ["type": "back"])
         XCTAssertEqual(android(126, "\u{F700}") as NSDictionary, ["type": "key", "keycode": 19])
@@ -86,9 +86,9 @@ final class R7DeviceTests: XCTestCase {
         XCTAssertEqual(android(0, "å") as NSDictionary, ["type": "text", "text": "å"])
         XCTAssertTrue(android(0, "a", meta: true).isEmpty, "⌘ chords are not typed")
         XCTAssertTrue(android(0, "a", phase: "up").isEmpty, "Android takes key downs only")
-        XCTAssertEqual(R7DeviceKeys.modifierPhase(keyCode: 56, flags: [.shift]), "down")
-        XCTAssertEqual(R7DeviceKeys.modifierPhase(keyCode: 56, flags: []), "up")
-        XCTAssertNil(R7DeviceKeys.modifierPhase(keyCode: 0, flags: []))
+        XCTAssertEqual(T3DeviceKeys.modifierPhase(keyCode: 56, flags: [.shift]), "down")
+        XCTAssertEqual(T3DeviceKeys.modifierPhase(keyCode: 56, flags: []), "up")
+        XCTAssertNil(T3DeviceKeys.modifierPhase(keyCode: 0, flags: []))
     }
 
     func testAndroidStreamDecodesAndForwardsInput() throws {
@@ -96,13 +96,13 @@ final class R7DeviceTests: XCTestCase {
         let encoded = Encoded.make(width: 360, height: 800, colors: [.systemGreen, .systemGreen, .systemGreen])
         XCTAssertEqual(encoded.samples.count, 3); XCTAssertTrue(encoded.samples[0].key)
         var reports = 0
-        let view = R6DeviceScreenView(key: "local\u{0}emulator-5554", platform: "android", deviceId: "emulator-5554", hostId: "local",
+        let view = T3DeviceScreenView(key: "local\u{0}emulator-5554", platform: "android", deviceId: "emulator-5554", hostId: "local",
                                       access: { done in done(hub.origin, "ticket-a") }) { reports += 1 }
         view.presentation = "flat"
         let window = window(view)
         hub.onSocket = { path, _ in
             guard path.contains("/vendor/serve-emu/ws?") else { return }
-            hub.push("/ws?", R7H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 0))
+            hub.push("/ws?", T3H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 0))
         }
         view.start()
         spin(until: { view.inputConnected })
@@ -113,8 +113,8 @@ final class R7DeviceTests: XCTestCase {
         spin(until: { hub.texts("/ws?").contains { $0.contains("reset-video") } })
         XCTAssertEqual(json(Data(try XCTUnwrap(hub.texts("/ws?").first { $0.contains("reset-video") }).utf8)) as NSDictionary, ["type": "reset-video", "ack": false])
         XCTAssertEqual(view.status, "connecting")
-        hub.push("/ws?", R7H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 16_667))
-        hub.push("/ws?", R7H264.semu(encoded.annexB(1, parameterSets: false), key: false, pts: 33_334))
+        hub.push("/ws?", T3H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 16_667))
+        hub.push("/ws?", T3H264.semu(encoded.annexB(1, parameterSets: false), key: false, pts: 33_334))
         spin(until: { view.status == "streaming" })
         XCTAssertEqual(view.status, "streaming")
         XCTAssertEqual(view.reportValue["width"] as? Double, 360); XCTAssertEqual(view.reportValue["height"] as? Double, 800)
@@ -126,7 +126,7 @@ final class R7DeviceTests: XCTestCase {
         let bar = pixel(image, x: 0.5, y: 1.0 / 3 - 1.0 / 16)
         XCTAssertTrue(bar.r > 200 && bar.g > 200 && bar.b > 200, "decoded white bar, got \(bar)")
         XCTAssertGreaterThan(reports, 0)
-        save(window, "r7-android-flat.png")
+        save(window, "android-flat.png")
         // Touches are JSON in the displayed frame; keys, Back, Home and Recents follow.
         let frame = view.frameRect
         view.mouseDown(with: mouseEvent(.leftMouseDown, at: NSPoint(x: frame.midX, y: frame.minY + frame.height / 4), in: view))
@@ -159,18 +159,18 @@ final class R7DeviceTests: XCTestCase {
     func testAgentMouseDragOverTheStreamSendsTouches() throws {
         let hub = try Hub()
         let encoded = Encoded.make(width: 360, height: 800, colors: [.systemGreen, .systemGreen, .systemGreen])
-        let view = R6DeviceScreenView(key: "local\u{0}emulator-5554", platform: "android", deviceId: "emulator-5554", hostId: "local",
+        let view = T3DeviceScreenView(key: "local\u{0}emulator-5554", platform: "android", deviceId: "emulator-5554", hostId: "local",
                                       access: { done in done(hub.origin, "ticket-a") }) {}
         view.presentation = "flat"
         let window = window(view)
         hub.onSocket = { path, _ in
             guard path.contains("/vendor/serve-emu/ws?") else { return }
-            hub.push("/ws?", R7H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 0))
+            hub.push("/ws?", T3H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 0))
         }
         view.start()
         spin(until: { view.inputConnected })
-        hub.push("/ws?", R7H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 16_667))
-        hub.push("/ws?", R7H264.semu(encoded.annexB(1, parameterSets: false), key: false, pts: 33_334))
+        hub.push("/ws?", T3H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 16_667))
+        hub.push("/ws?", T3H264.semu(encoded.annexB(1, parameterSets: false), key: false, pts: 33_334))
         spin(until: { view.status == "streaming" })
         XCTAssertFalse(window.isKeyWindow, "as under the agent, the window is not key")
         let frame = view.frameRect
@@ -192,7 +192,7 @@ final class R7DeviceTests: XCTestCase {
     func testAndroidSocketDropReconnects() throws {
         let hub = try Hub()
         var tickets = 0
-        let view = R6DeviceScreenView(key: "k", platform: "android", deviceId: "emulator-5554", hostId: "local",
+        let view = T3DeviceScreenView(key: "k", platform: "android", deviceId: "emulator-5554", hostId: "local",
                                       access: { done in tickets += 1; done(hub.origin, "ticket-\(tickets)") }) {}
         let window = window(view)
         view.start()
@@ -222,8 +222,8 @@ final class R7DeviceTests: XCTestCase {
         }))
         hub.http.append(("/stream.avcc", { _, connection in
             hub.open(connection, type: "application/octet-stream")
-            var body = R7H264.Demuxer.envelope(.description, description ?? encoded.avcC)
-            for sample in encoded.samples { body += R7H264.Demuxer.envelope(sample.key ? .keyframe : .delta, sample.data) }
+            var body = T3H264.Demuxer.envelope(.description, description ?? encoded.avcC)
+            for sample in encoded.samples { body += T3H264.Demuxer.envelope(sample.key ? .keyframe : .delta, sample.data) }
             hub.write(connection, body)
         }))
         return hub
@@ -237,7 +237,7 @@ final class R7DeviceTests: XCTestCase {
     func testIosAvccStreamAndHidKeys() throws {
         let encoded = Encoded.make(width: 390, height: 844, colors: [.systemBlue, .systemBlue])
         let hub = try iosHub(encoded)
-        let view = R6DeviceScreenView(key: "local\u{0}SIM-1", platform: "ios", deviceId: "SIM-1", hostId: "local", access: { done in done(hub.origin, "ticket-i") }) {}
+        let view = T3DeviceScreenView(key: "local\u{0}SIM-1", platform: "ios", deviceId: "SIM-1", hostId: "local", access: { done in done(hub.origin, "ticket-i") }) {}
         view.presentation = "flat"
         let window = window(view)
         view.start()
@@ -250,12 +250,12 @@ final class R7DeviceTests: XCTestCase {
         XCTAssertTrue(requests.contains { $0.hasPrefix("GET /api/device-hub/vendor/serve-sim/helper/ws?device=SIM-1&wsTicket=ticket-i") })
         let center = pixel(try XCTUnwrap(view.image), x: 0.5, y: 0.6)
         XCTAssertTrue(center.b > 180 && center.r < 100, "decoded blue, got \(center)")
-        hub.push("/helper/ws", R6DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "landscape_left"]))
+        hub.push("/helper/ws", T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "landscape_left"]))
         spin(until: { view.screen?.orientation == "landscape_left" })
         XCTAssertEqual(view.rotation, 90, "a portrait framebuffer reporting landscape is turned")
         XCTAssertEqual(view.aspect, 844.0 / 390, accuracy: 0.001)
         XCTAssertEqual(view.reportValue["width"] as? Double, 844)
-        save(window, "r7-ios-flat-landscape.png")
+        save(window, "ios-flat-landscape.png")
         // Keys: HID usages down and up; ⌘ chords stay with the app except ⌘R.
         window.makeFirstResponder(view)
         view.keyDown(with: keyEvent(.keyDown, keyCode: 4, characters: "h", window: window))
@@ -270,10 +270,10 @@ final class R7DeviceTests: XCTestCase {
         view.mouseUp(with: mouseEvent(.leftMouseUp, at: NSPoint(x: frame.minX + frame.width * 0.25, y: frame.minY + frame.height * 0.75), in: view))
         spin(until: { hub.received("/helper/ws").count >= 8 })
         let packets = hub.received("/helper/ws")
-        XCTAssertEqual(packets.first, R6DeviceWire.tagged(0x0d, ["enabled": false]))
-        XCTAssertEqual(Array(packets[1...4]), [R6DeviceWire.tagged(0x06, ["type": "down", "usage": 0x0b]), R6DeviceWire.tagged(0x06, ["type": "up", "usage": 0x0b]),
-                                               R6DeviceWire.tagged(0x06, ["type": "down", "usage": 0xe1]), R6DeviceWire.tagged(0x06, ["type": "down", "usage": 0x15])])
-        XCTAssertEqual(packets[5], R6DeviceWire.tagged(0x04, ["button": "home"]))
+        XCTAssertEqual(packets.first, T3DeviceWire.tagged(0x0d, ["enabled": false]))
+        XCTAssertEqual(Array(packets[1...4]), [T3DeviceWire.tagged(0x06, ["type": "down", "usage": 0x0b]), T3DeviceWire.tagged(0x06, ["type": "up", "usage": 0x0b]),
+                                               T3DeviceWire.tagged(0x06, ["type": "down", "usage": 0xe1]), T3DeviceWire.tagged(0x06, ["type": "down", "usage": 0x15])])
+        XCTAssertEqual(packets[5], T3DeviceWire.tagged(0x04, ["button": "home"]))
         let touch = json(packets[6].dropFirst())
         XCTAssertEqual(packets[6].first, 0x03)
         XCTAssertEqual(touch["type"] as? String, "begin")
@@ -285,7 +285,7 @@ final class R7DeviceTests: XCTestCase {
     func testIosUndecodableDescriptionFallsBackToMjpeg() throws {
         let encoded = Encoded.make(width: 390, height: 844, colors: [.systemBlue])
         let hub = try iosHub(encoded, description: Data([1, 0x64, 0, 0x28, 0xff, 0xe1, 0, 2, 0x67, 0x00, 1, 0, 1, 0x68]))
-        let view = R6DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-2", hostId: "local", access: { done in done(hub.origin, "t") }) {}
+        let view = T3DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-2", hostId: "local", access: { done in done(hub.origin, "t") }) {}
         view.presentation = "phone"
         let window = window(view)
         view.start()
@@ -303,7 +303,7 @@ final class R7DeviceTests: XCTestCase {
     func testPhoneViewDrawsTheStreamAndTakesTouches() throws {
         let encoded = Encoded.make(width: 390, height: 844, colors: [.systemTeal, .systemTeal])
         let hub = try iosHub(encoded)
-        let view = R6DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-3", hostId: "local", access: { done in done(hub.origin, "t") }) {}
+        let view = T3DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-3", hostId: "local", access: { done in done(hub.origin, "t") }) {}
         view.deviceName = "iPhone 17"
         view.presentation = "phone"
         let window = window(view, width: 420, height: 620)
@@ -313,7 +313,7 @@ final class R7DeviceTests: XCTestCase {
         XCTAssertEqual(view.reportValue["phoneUnavailable"] as? String, "")
         let phone = try XCTUnwrap(view.phone)
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-        save(window, "r7-ios-phone-procedural.png")
+        save(window, "ios-phone-procedural.png")
         // The middle of the view is the middle of the screen; the corner is off the device.
         let middle = try XCTUnwrap(phone.screenPoint(CGPoint(x: 0.5, y: 0.5), captured: false))
         XCTAssertEqual(middle.x, 0.5, accuracy: 0.02); XCTAssertEqual(middle.y, 0.5, accuracy: 0.02)
@@ -333,7 +333,7 @@ final class R7DeviceTests: XCTestCase {
         phone.mouseDown(with: mouseEvent(.leftMouseDown, at: NSPoint(x: 8, y: 8), in: phone))
         for step in 1...6 { phone.mouseDragged(with: mouseEvent(.leftMouseDragged, at: NSPoint(x: 8 + step * 15, y: 8), in: phone)); RunLoop.main.run(until: Date().addingTimeInterval(0.016)) }
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        save(window, "r7-ios-phone-turned.png")
+        save(window, "ios-phone-turned.png")
         phone.mouseUp(with: mouseEvent(.leftMouseUp, at: NSPoint(x: 98, y: 8), in: phone))
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         XCTAssertEqual(hub.received("/helper/ws").filter { $0.first == 0x03 }.count, 4, "orbiting sends no touches")
@@ -342,11 +342,11 @@ final class R7DeviceTests: XCTestCase {
     }
 
     func testMotionSnapsToTheNearestViewAndResets() {
-        let motion = R7DeviceMotion()
+        let motion = T3DeviceMotion()
         var now = 1000.0
         motion.dragActive(true, now)
         for _ in 0..<10 { now += 16; motion.orbit(30, 0, now); motion.advance(now) }
-        XCTAssertGreaterThan(R7Quat.angle(motion.rotation, R7Quat.identity), 0.3, "the drag turned the device")
+        XCTAssertGreaterThan(T3Quaternion.angle(motion.rotation, T3Quaternion.identity), 0.3, "the drag turned the device")
         now += 200 // a pause before lifting: no flick
         motion.dragActive(false, now)
         while motion.needsFrame { now += 16; motion.advance(now) }
@@ -354,11 +354,11 @@ final class R7DeviceTests: XCTestCase {
         let yaw = 2 * atan2(motion.rotation.imag.y, motion.rotation.real)
         XCTAssertLessThanOrEqual(abs(atan2(sin(yaw), cos(yaw))), .pi / 3 + 1e-6)
         XCTAssertEqual(abs(motion.rotation.imag.x), 0, accuracy: 1e-6)
-        motion.reset(R7Quat.identity, now)
+        motion.reset(T3Quaternion.identity, now)
         while motion.needsFrame { now += 16; motion.advance(now) }
-        XCTAssertEqual(R7Quat.angle(motion.rotation, R7Quat.identity), 0, accuracy: 1e-3)
+        XCTAssertEqual(T3Quaternion.angle(motion.rotation, T3Quaternion.identity), 0, accuracy: 1e-3)
         // Framing fits the bounds at the reference's 0.565 factor.
-        let framing = R7DeviceFraming()
+        let framing = T3DeviceFraming()
         framing.setBounds(min: SIMD3(-0.55, -1.14, -0.16), max: SIMD3(0.55, 1.14, 0.043), vertical: 16 * .pi / 180, aspect: 0.7, now: 0, immediate: true)
         let tanY: Double = tan(16 * Double.pi / 180)
         let byWidth: Double = 1.1 / (tanY * 0.7), byHeight: Double = 2.28 / tanY
@@ -367,23 +367,23 @@ final class R7DeviceTests: XCTestCase {
     }
 
     func testGeometryAndShapes() {
-        XCTAssertEqual(R7DeviceGeometry.fit(aspect: 0.5, width: 300, height: 400), CGSize(width: 200, height: 400))
-        XCTAssertEqual(R7DeviceGeometry.fit(aspect: 2, width: 300, height: 400), CGSize(width: 300, height: 150))
-        XCTAssertEqual(R7DeviceGeometry.fit(aspect: 0.5, width: 300, height: 400, rightInset: 156), CGSize(width: 144, height: 288))
-        let landscape = R7DeviceGeometry.layout(screen: .init(width: 390, height: 844, orientation: "landscape_left"), rawWidth: 390, rawHeight: 844)
+        XCTAssertEqual(T3DeviceGeometry.fit(aspect: 0.5, width: 300, height: 400), CGSize(width: 200, height: 400))
+        XCTAssertEqual(T3DeviceGeometry.fit(aspect: 2, width: 300, height: 400), CGSize(width: 300, height: 150))
+        XCTAssertEqual(T3DeviceGeometry.fit(aspect: 0.5, width: 300, height: 400, rightInset: 156), CGSize(width: 144, height: 288))
+        let landscape = T3DeviceGeometry.layout(screen: .init(width: 390, height: 844, orientation: "landscape_left"), rawWidth: 390, rawHeight: 844)
         XCTAssertEqual(landscape.rotation, -.pi / 2); XCTAssertFalse(landscape.rawLandscape); XCTAssertEqual(landscape.aspect, 390.0 / 844, accuracy: 1e-9)
-        let upright = R7DeviceGeometry.screenPoint(u: 0.2, v: 0.9, rotation: 0), turned = R7DeviceGeometry.screenPoint(u: 0.2, v: 0.9, rotation: -.pi / 2)
+        let upright = T3DeviceGeometry.screenPoint(u: 0.2, v: 0.9, rotation: 0), turned = T3DeviceGeometry.screenPoint(u: 0.2, v: 0.9, rotation: -.pi / 2)
         XCTAssertEqual(upright.x, 0.2, accuracy: 1e-9); XCTAssertEqual(upright.y, 0.1, accuracy: 1e-9)
         XCTAssertEqual(turned.x, 0.9, accuracy: 1e-9); XCTAssertEqual(turned.y, 0.2, accuracy: 1e-9)
-        XCTAssertEqual(R7DeviceModels.id(platform: "ios", name: "iPhone 18 Pro"), "iphone-18-pro")
-        XCTAssertEqual(R7DeviceModels.id(platform: "ios", name: "iPhone 18 Pro Max"), "iphone-18-pro-max")
-        XCTAssertEqual(R7DeviceModels.id(platform: "ios", name: "iPad Pro 13-inch (M5)"), "ipad-pro-13-m5")
-        XCTAssertNil(R7DeviceModels.id(platform: "ios", name: "iPhone 17 Pro"), "never stretch a model to impersonate another device")
-        XCTAssertNil(R7DeviceModels.id(platform: "android", name: "iPhone 18 Pro"))
-        XCTAssertEqual(R7ShapeProfile.resolve(platform: "ios", name: "iPad Air", portraitAspect: 0.4).id, "ios-tablet")
-        XCTAssertEqual(R7ShapeProfile.resolve(platform: "android", name: "Pixel 9", portraitAspect: 0.45).id, "android-phone")
-        XCTAssertEqual(R7ShapeProfile.resolve(platform: "android", name: "Pixel Tablet", portraitAspect: 0.62).id, "android-tablet")
-        XCTAssertEqual(R7ShapeProfile.resolve(platform: "android", name: "Medium Phone", portraitAspect: 0.7).id, "android-phone")
+        XCTAssertEqual(T3DeviceModels.id(platform: "ios", name: "iPhone 18 Pro"), "iphone-18-pro")
+        XCTAssertEqual(T3DeviceModels.id(platform: "ios", name: "iPhone 18 Pro Max"), "iphone-18-pro-max")
+        XCTAssertEqual(T3DeviceModels.id(platform: "ios", name: "iPad Pro 13-inch (M5)"), "ipad-pro-13-m5")
+        XCTAssertNil(T3DeviceModels.id(platform: "ios", name: "iPhone 17 Pro"), "never stretch a model to impersonate another device")
+        XCTAssertNil(T3DeviceModels.id(platform: "android", name: "iPhone 18 Pro"))
+        XCTAssertEqual(T3PhoneShapeProfile.resolve(platform: "ios", name: "iPad Air", portraitAspect: 0.4).id, "ios-tablet")
+        XCTAssertEqual(T3PhoneShapeProfile.resolve(platform: "android", name: "Pixel 9", portraitAspect: 0.45).id, "android-phone")
+        XCTAssertEqual(T3PhoneShapeProfile.resolve(platform: "android", name: "Pixel Tablet", portraitAspect: 0.62).id, "android-tablet")
+        XCTAssertEqual(T3PhoneShapeProfile.resolve(platform: "android", name: "Medium Phone", portraitAspect: 0.7).id, "android-phone")
     }
 
     func testAccessibilityTreesAndOverlay() throws {
@@ -392,8 +392,8 @@ final class R7DeviceTests: XCTestCase {
             ["frame": ["x": 20, "y": 100, "width": 195, "height": 44], "AXLabel": "Sign in", "AXUniqueId": "signin", "type": "Button"],
             ["frame": ["x": 20, "y": 200, "width": 0, "height": 44], "AXLabel": "Empty"],
         ]]]
-        let elements = try XCTUnwrap(R7DeviceAx.parse(platform: "ios", ios))
-        XCTAssertEqual(elements, [R7AxElement(id: "signin", label: "Sign in", role: "Button", x: 20 / 390, y: 100.0 / 844, width: 0.5, height: 44.0 / 844)])
+        let elements = try XCTUnwrap(T3DeviceAx.parse(platform: "ios", ios))
+        XCTAssertEqual(elements, [T3AxElement(id: "signin", label: "Sign in", role: "Button", x: 20 / 390, y: 100.0 / 844, width: 0.5, height: 44.0 / 844)])
         let android: [String: Any] = ["nodes": [
             ["bounds": ["left": 0, "top": 0, "right": 1080, "bottom": 2400], "className": "android.widget.FrameLayout"],
             ["id": 7, "bounds": ["left": 0, "top": 0, "right": 1080, "bottom": 2300], "text": "Full", "className": "android.view.View"],
@@ -401,20 +401,20 @@ final class R7DeviceTests: XCTestCase {
             ["id": 9, "bounds": ["left": 0, "top": 600, "right": 100, "bottom": 700], "className": "android.view.View"],
             ["id": 10, "bounds": ["left": 0, "top": 800, "right": 540, "bottom": 900], "clickable": true, "className": "android.widget.Button"],
         ]]
-        let flat = try XCTUnwrap(R7DeviceAx.parse(platform: "android", android))
+        let flat = try XCTUnwrap(T3DeviceAx.parse(platform: "android", android))
         XCTAssertEqual(flat.map(\.id), ["8", "10"])
         XCTAssertEqual(flat[0].label, "Search"); XCTAssertEqual(flat[0].role, "ImageButton"); XCTAssertEqual(flat[0].x, 0.1, accuracy: 1e-9); XCTAssertEqual(flat[0].height, 0.1, accuracy: 1e-9)
-        XCTAssertNil(R7DeviceAx.parse(platform: "android", ["error": "no device"]))
-        XCTAssertNil(R7DeviceAx.parse(platform: "ios", ["error": "x"]))
+        XCTAssertNil(T3DeviceAx.parse(platform: "android", ["error": "no device"]))
+        XCTAssertNil(T3DeviceAx.parse(platform: "ios", ["error": "x"]))
         // Drawn over the flat picture while the overlay is on; 3D is unavailable meanwhile.
         let encoded = Encoded.make(width: 390, height: 844, colors: [.white, .white])
         let hub = try iosHub(encoded)
         hub.http.append(("/helper/SIM-4/ax", { _, connection in hub.respond(connection, body: try! JSONSerialization.data(withJSONObject: ios)) }))
-        let streams = R6DeviceStreams(access: { done in done(hub.origin, "t") }, changed: { _ in })
-        let view = R6DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-4", hostId: "local", access: { done in done(hub.origin, "t") }) {}
+        let streams = T3DeviceStreams(access: { done in done(hub.origin, "t") }, changed: { _ in })
+        let view = T3DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-4", hostId: "local", access: { done in done(hub.origin, "t") }) {}
         view.presentation = "phone"
         view.axOverlay = true
-        let feeds = R7DeviceToolFeeds(access: { done in done(hub.origin, "t") }, changed: { _ in })
+        let feeds = T3DeviceToolFeeds(access: { done in done(hub.origin, "t") }, changed: { _ in })
         view.axSource = { done in feeds.readAx(platform: "ios", deviceId: "SIM-4", hostId: "local", done) }
         let window = window(view)
         view.start()
@@ -423,7 +423,7 @@ final class R7DeviceTests: XCTestCase {
         XCTAssertEqual(view.reportValue["phone"] as? Bool, false)
         XCTAssertEqual(view.reportValue["phoneUnavailable"] as? String, "Turn off accessibility frames to use 3D")
         XCTAssertTrue(hub.requests.contains { $0.hasPrefix("GET /api/device-hub/vendor/serve-sim/helper/SIM-4/ax?wsTicket=t&hostId=local ") })
-        save(window, "r7-ios-ax-overlay.png")
+        save(window, "ios-ax-overlay.png")
         _ = streams
         view.stop()
         window.orderOut(nil)
@@ -441,7 +441,7 @@ final class R7DeviceTests: XCTestCase {
             hub.write(connection, Data("data: {\"event\":{\"id\":3,\"timestamp\":\"2026-10-04T12:35:09.000Z\",\"summary\":\"Swipe\"}}\r\n\r\n".utf8))
         }))
         var changes = 0
-        let feeds = R7DeviceToolFeeds(access: { done in done(hub.origin, "ticket-f") }, changed: { _ in changes += 1 })
+        let feeds = T3DeviceToolFeeds(access: { done in done(hub.origin, "ticket-f") }, changed: { _ in changes += 1 })
         feeds.watchForeground(panels: [("local\u{0}SIM-5", "ios", "SIM-5", "local"), ("local\u{0}emu", "android", "emu", "local")])
         let host = NSView()
         feeds.watchEvents(host: ObjectIdentifier(host), key: "local\u{0}SIM-5", deviceId: "SIM-5", hostId: "local")
@@ -465,7 +465,7 @@ final class R7DeviceTests: XCTestCase {
     private func renderPhone(platform: String, name: String, width: Int, height: Int, origin: URL?, file: String, android: Bool = false) -> Bool {
         var imported = false
         for dark in [false, true] {
-            let phone = R7DevicePhoneView(platform: platform, name: name, touch: { _, _, _ in }, unavailable: { XCTFail("3D unavailable") })
+            let phone = T3DevicePhoneView(platform: platform, name: name, touch: { _, _, _ in }, unavailable: { XCTFail("3D unavailable") })
             let window = window(phone, width: 420, height: 620, dark: dark)
             phone.origin = origin
             phone.setScreen(.init(width: Double(width), height: Double(height), orientation: "portrait"))
@@ -473,7 +473,7 @@ final class R7DeviceTests: XCTestCase {
             if origin != nil { spin(until: { phone.isImported }, timeout: 20); imported = phone.isImported } else { RunLoop.main.run(until: Date().addingTimeInterval(0.6)) }
             let middle = phone.screenPoint(CGPoint(x: 0.5, y: 0.5), captured: false)
             XCTAssertEqual(middle?.x ?? 0, 0.5, accuracy: 0.02, file)
-            save(window, "r7-3d-\(file)-\(dark ? "dark" : "light").png")
+            save(window, "phone-3d-\(file)-\(dark ? "dark" : "light").png")
             phone.dispose()
             window.orderOut(nil)
         }
@@ -498,7 +498,7 @@ final class R7DeviceTests: XCTestCase {
         }))
         hub.http.insert(("=/", { _, connection in hub.respond(connection, type: "text/html", body: Data("<script type=module src=\"/assets/\(chat)\"></script>".utf8)) }), at: 0)
         var found: [String: URL] = [:]
-        R7DeviceModels.locate(origin: hub.origin) { found = $0 }
+        T3DeviceModels.locate(origin: hub.origin) { found = $0 }
         spin(until: { !found.isEmpty })
         XCTAssertEqual(Set(found.keys), ["iphone-18-pro", "iphone-18-pro-max", "ipad-pro-13-m5", "iphone-duo", "ipad-pro-13-m5-magic-keyboard"])
         XCTAssertTrue(renderPhone(platform: "ios", name: "iPhone 18 Pro", width: 1206, height: 2622, origin: hub.origin, file: "iphone-18-pro"))
@@ -534,7 +534,7 @@ func CGWindowListCreateImageForTest(_ number: Int) -> CGImage? {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(forTestCaseClass: R7DeviceTests.self)
+let suite = XCTestSuite(forTestCaseClass: DeviceVideoTests.self)
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

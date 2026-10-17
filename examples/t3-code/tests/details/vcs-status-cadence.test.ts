@@ -1,4 +1,4 @@
-// Round 5: how often the clone asks the server for git status. The reference
+// How often the clone asks the server for git status. The reference
 // (T3 Code 1e2ecbd975) reads a workspace's status from the subscribeVcsStatus
 // stream (BranchToolbarBranchSelector, GitActionsControl: `vcsEnvironment.status`)
 // and asks vcs.refreshStatus only on window focus, on becoming visible and when a

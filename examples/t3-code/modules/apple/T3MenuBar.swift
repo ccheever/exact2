@@ -26,7 +26,7 @@ import AppKit
 ///   text with the focus keeps Edit › Undo and Redo: since exact2 #327
 ///   (issues/closed/20261009-macos-textarea-native-undo.md) Exact's textarea answers `undo:` and `redo:` with its own history,
 ///   so they go up the responder chain as AppKit sends them.
-final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
+final class T3MenuBar: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private var reloadAction: Selector?
     private var saveTrace: NSMenuItem?
     private weak var reloadTarget: AnyObject?
@@ -199,10 +199,10 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
         }
     }
 
-    // MARK: Diagnostics (R8_KEYS_LOG=<file>): each ⌘ keystroke, the focus and the bar's matching items.
+    // MARK: Diagnostics (T3_MENU_BAR_LOG=<file>): each ⌘ keystroke, the focus and the bar's matching items.
 
     private func startLog() {
-        guard logMonitor == nil, let path = ProcessInfo.processInfo.environment["R8_KEYS_LOG"], !path.isEmpty else { return }
+        guard logMonitor == nil, let path = ProcessInfo.processInfo.environment["T3_MENU_BAR_LOG"], !path.isEmpty else { return }
         let write: (String) -> Void = { line in
             guard let data = (line + "\n").data(using: .utf8) else { return }
             if let handle = FileHandle(forWritingAtPath: path) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() }

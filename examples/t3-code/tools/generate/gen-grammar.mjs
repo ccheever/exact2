@@ -11,7 +11,7 @@
 // resolves as a registry that has it loaded resolves it, and each grammar's rules, names and
 // regexes are one chunk the app parses only when a language first needs it. Output:
 // grammar.ts (the index: languages, aliases, injections, chunk ranges, the themes) and
-// r12-render-grammar-<n>.ts (the chunks, packed in order, each file under the line cap).
+// grammar-<n>.ts (the chunks, packed in order, each file under the line cap).
 
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';

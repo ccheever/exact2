@@ -2,33 +2,33 @@
 // and the Tools drawer (MIT reference, see LICENSE-T3: components/device/DeviceWorkspace.tsx,
 // DeviceStreamView.tsx, DeviceControlsRail.tsx, DeviceToolsPanel.tsx, useDeviceControls.ts,
 // deviceHubApi.ts). The picture, the 3D phone, accessibility frames and the hub's foreground /
-// event-log feeds are the app module's (T3DeviceStream.swift, R7Device*.swift), reported as
+// event-log feeds are the app module's (T3DeviceStream.swift, T3Device*.swift), reported as
 // `presentation.deviceStreams[key]` and `presentation.deviceTools[key]`; every device change is one
 // serialized `device.action` (device-session.ts actDevice) whose result is the confirmed detail.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 
-export type R7DevOption = { value: string; label: string; selected: boolean };
-export type R7DevSwitch = { id: string; label: string; checked: boolean; disabled: boolean };
-export type R7DevEvent = { id: string; time: string; summary: string };
-export type R7DevDeviceRail = {
+export type ToolsOption = { value: string; label: string; selected: boolean };
+export type ToolsSwitch = { id: string; label: string; checked: boolean; disabled: boolean };
+export type ToolsEvent = { id: string; time: string; summary: string };
+export type ControlsRail = {
   /** data-device-view: "phone", "phone-keyboard" or "flat"; data-device-ax: "1" or "0". */
   view: string; ax: string; phone: boolean; streaming: boolean; phoneDisabled: boolean; phoneReason: string;
   keyboard: boolean; keyboardAttached: boolean; toolsOpen: boolean; waiting: string; rotateDisabled: boolean; controlsDisabled: boolean;
 };
-export type R7DevDeviceTools = {
+export type ToolsDrawerState = {
   open: boolean; overlay: boolean; pending: boolean; error: string; loading: boolean; diagnostics: string; ios: boolean; platformTitle: string;
   foreground: string; hasForeground: boolean; disabled: boolean;
-  appearance: string; textSizeLabel: string; textSizeKnown: boolean; textSizes: R7DevOption[];
-  liquidGlass: string; liquidGlassDisabled: boolean; colorFilterLabel: string; colorFilterKnown: boolean; colorFilters: R7DevOption[]; orientations: R7DevOption[];
-  switches: R7DevSwitch[]; axOn: boolean;
+  appearance: string; textSizeLabel: string; textSizeKnown: boolean; textSizes: ToolsOption[];
+  liquidGlass: string; liquidGlassDisabled: boolean; colorFilterLabel: string; colorFilterKnown: boolean; colorFilters: ToolsOption[]; orientations: ToolsOption[];
+  switches: ToolsSwitch[]; axOn: boolean;
   url: string; urlDisabled: boolean; launch: string; launchPlaceholder: string; launchDisabled: boolean;
-  lat: string; lng: string; locationValid: boolean; presets: R7DevOption[];
-  permApp: string; permPlaceholder: string; permDisabled: boolean; permissionLabel: string; permissions: R7DevOption[];
+  lat: string; lng: string; locationValid: boolean; presets: ToolsOption[];
+  permApp: string; permPlaceholder: string; permDisabled: boolean; permissionLabel: string; permissions: ToolsOption[];
   push: string; pushDisabled: boolean; pushSendDisabled: boolean;
-  log: boolean; logOpen: boolean; logDevice: string; logHost: string; eventsEmpty: boolean; events: R7DevEvent[];
+  log: boolean; logOpen: boolean; logDevice: string; logHost: string; eventsEmpty: boolean; events: ToolsEvent[];
 };
-export type R7DevDeviceWorkspace = { rail: R7DevDeviceRail; tools: R7DevDeviceTools; retaining: boolean };
+export type DeviceControls = { rail: ControlsRail; tools: ToolsDrawerState; retaining: boolean };
 
 export const TEXT_SIZES = [['small', 'Small'], ['default', 'Default'], ['large', 'Large'], ['extra-large', 'Extra large']] as const;
 export const COLOR_FILTERS = [['none', 'None'], ['grayscale', 'Grayscale'], ['red-green', 'Red / green (protanopia)'], ['green-red', 'Green / red (deuteranopia)'], ['blue-yellow', 'Blue / yellow (tritanopia)']] as const;
@@ -57,15 +57,15 @@ export function workspaceOf(client: T3Client, key: string): Workspace {
   return entry;
 }
 
-const options = (list: readonly (readonly [string, string])[], value: string): R7DevOption[] => list.map(([v, label]) => ({ value: v, label, selected: v === value }));
-const EMPTY_RAIL: R7DevDeviceRail = { view: 'flat', ax: '0', phone: false, streaming: false, phoneDisabled: true, phoneReason: '', keyboard: false, keyboardAttached: false, toolsOpen: false, waiting: '', rotateDisabled: true, controlsDisabled: true };
-export const emptyR7Tools = (): R7DevDeviceTools => ({
+const options = (list: readonly (readonly [string, string])[], value: string): ToolsOption[] => list.map(([v, label]) => ({ value: v, label, selected: v === value }));
+const EMPTY_RAIL: ControlsRail = { view: 'flat', ax: '0', phone: false, streaming: false, phoneDisabled: true, phoneReason: '', keyboard: false, keyboardAttached: false, toolsOpen: false, waiting: '', rotateDisabled: true, controlsDisabled: true };
+export const emptyToolsDrawer = (): ToolsDrawerState => ({
   open: false, overlay: true, pending: false, error: '', loading: false, diagnostics: '', ios: true, platformTitle: 'Simulator', foreground: '—', hasForeground: false, disabled: true,
   appearance: '', textSizeLabel: 'Unknown', textSizeKnown: false, textSizes: [], liquidGlass: '', liquidGlassDisabled: true, colorFilterLabel: 'Unknown', colorFilterKnown: false, colorFilters: [], orientations: [],
   switches: [], axOn: false, url: '', urlDisabled: true, launch: '', launchPlaceholder: 'Bundle ID to launch', launchDisabled: true, lat: '', lng: '', locationValid: false, presets: [],
   permApp: '', permPlaceholder: 'App ID', permDisabled: true, permissionLabel: 'Camera', permissions: [], push: '', pushDisabled: true, pushSendDisabled: true, log: false, logOpen: false, logDevice: '', logHost: '', eventsEmpty: true, events: [],
 });
-export const emptyR7Workspace = (): R7DevDeviceWorkspace => ({ rail: EMPTY_RAIL, tools: emptyR7Tools(), retaining: false });
+export const emptyDeviceControls = (): DeviceControls => ({ rail: EMPTY_RAIL, tools: emptyToolsDrawer(), retaining: false });
 
 /** deviceModels.ts deviceKeyboard: only the iPad Pro 13-inch (M5) has a Magic Keyboard model. */
 export const hasKeyboard = (platform: string, name: string) => platform === 'ios' && /^iPad Pro 13-inch \(M5\)$/i.test(name);
@@ -83,9 +83,9 @@ export function locationValid(lat: string, lng: string): boolean {
   return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
 }
 
-export type R7DevInput = { key: string; platform: string; name: string; detail: Obj | null; acting: boolean; error: string; hostDiagnostics: string; controlsDisabled: boolean; inputConnected: boolean };
+export type DeviceControlsInput = { key: string; platform: string; name: string; detail: Obj | null; acting: boolean; error: string; hostDiagnostics: string; controlsDisabled: boolean; inputConnected: boolean };
 
-export function r7Workspace(client: T3Client, input: R7DevInput): R7DevDeviceWorkspace {
+export function deviceControls(client: T3Client, input: DeviceControlsInput): DeviceControls {
   const ws = workspaceOf(client, input.key);
   const report = obj(obj(client.presentation.deviceStreams)[input.key]);
   const feed = obj(obj(client.presentation.deviceTools)[input.key]);
@@ -94,7 +94,7 @@ export function r7Workspace(client: T3Client, input: R7DevInput): R7DevDeviceWor
   const keyboard = phone && hasKeyboard(input.platform, input.name);
   const attached = ws.keyboard && hasKeyboard(input.platform, input.name);
   const ios = input.platform === 'ios';
-  const rail: R7DevDeviceRail = {
+  const rail: ControlsRail = {
     view: ws.presentation === 'phone' ? (attached ? 'phone-keyboard' : 'phone') : 'flat', ax: ws.ax ? '1' : '0',
     phone, streaming, phoneDisabled: !streaming || reason !== '', phoneReason: reason, keyboard, keyboardAttached: attached, toolsOpen: ws.tools,
     waiting: report.restartNotice === true ? 'Waiting for device video…' : '',
@@ -107,8 +107,8 @@ export function r7Workspace(client: T3Client, input: R7DevInput): R7DevDeviceWor
   const textLabel = TEXT_SIZES.find(([value]) => value === textSize)?.[1], filterLabel = COLOR_FILTERS.find(([value]) => value === colorFilter)?.[1];
   const permissionList = ios ? IOS_PERMISSIONS : ANDROID_PERMISSIONS;
   const resolvedApp = ws.permApp.trim() || foreground;
-  const frame = obj(client.presentation.frames)['r7-device-area'], area = Array.isArray(frame) ? frame.map(Number) : [];
-  const tools: R7DevDeviceTools = {
+  const frame = obj(client.presentation.frames)['device-area'], area = Array.isArray(frame) ? frame.map(Number) : [];
+  const tools: ToolsDrawerState = {
     open: ws.tools, overlay: !(area.length >= 4 && area[2]! >= 700), pending: input.acting, error: input.error, loading: !input.detail && !input.error,
     diagnostics: input.hostDiagnostics, ios, platformTitle: ios ? 'Simulator' : 'Emulator',
     foreground: foreground || '—', hasForeground: foreground !== '', disabled,
@@ -175,16 +175,16 @@ async function runTool(client: T3Client, key: string, kind: string, value: strin
   if (kind === 'push') ws.push = '';
 }
 
-/** `shell:surface-r6dev-tools-act`: id names the control, value its choice. */
-export async function r7DeviceCommand(client: T3Client, op: string, id: string, value: string, key: string, detail: Obj | null, act: Act): Promise<void> {
+/** `shell:surface-session-tools-act`: id names the control, value its choice. */
+export async function toolsDrawerCommand(client: T3Client, op: string, id: string, value: string, key: string, detail: Obj | null, act: Act): Promise<void> {
   if (op !== 'act' || !key) return;
   await runTool(client, key, id, value, foregroundOf(obj(obj(client.presentation.deviceTools)[key]), detail), act);
 }
 
-export type R7DevLocalDeps = { input: (action: string, key: string, value: string) => Promise<void>; act: Act; detail: Obj | null };
+export type ToolsDrawerLocalDeps = { input: (action: string, key: string, value: string) => Promise<void>; act: Act; detail: Obj | null };
 
 /** The drawer's and rail's local state, and the input-only controls. */
-export async function r7DeviceLocal(client: T3Client, op: string, value: string, key: string, deps: R7DevLocalDeps): Promise<void> {
+export async function toolsDrawerLocal(client: T3Client, op: string, value: string, key: string, deps: ToolsDrawerLocalDeps): Promise<void> {
   if (!key) return;
   const ws = workspaceOf(client, key);
   const report = obj(obj(client.presentation.deviceStreams)[key]);

@@ -1,4 +1,4 @@
-use R4Glyph from "../details/git.contract"
+use ExtraGlyph from "../details/git.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
 // Settings → Connections › This machine › Local environment's confirm
@@ -84,7 +84,7 @@ component LocalEnvironmentDialog
             if busy
               // Spinner (`motion-safe:visible-animate-spin`): still under reduced motion.
               box width="0.875rem" height="0.875rem" display="flex" animation=(still ? "none" : "tmSpin 1s linear infinite") testId="local-environment-spinner"
-                R4Glyph(name="loader-circle", size=14, color="#ffffff")
+                ExtraGlyph(name="loader-circle", size=14, color="#ffffff")
               text "Restarting…" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
             else
               text confirmLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

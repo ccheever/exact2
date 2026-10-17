@@ -12,7 +12,7 @@ import VideoToolbox
 final class Hub {
     let listener: NWListener
     private(set) var port: UInt16 = 0
-    let queue = DispatchQueue(label: "r9-device-hub")
+    let queue = DispatchQueue(label: "device-duo-fold-hub")
     private var lines: [String] = []
     private var messages: [(path: String, data: Data, text: Bool)] = []
     private var sockets: [(path: String, connection: NWConnection)] = []
@@ -133,13 +133,13 @@ final class Hub {
 struct Encoded {
     var sps = Data(), pps = Data()
     var samples: [(data: Data, key: Bool)] = []
-    var avcC: Data { R7H264.avcC(sps: sps, pps: pps) }
+    var avcC: Data { T3H264.avcC(sps: sps, pps: pps) }
     func annexB(_ index: Int, parameterSets: Bool) -> Data {
         var out = Data()
         if parameterSets { out += Data([0, 0, 0, 1]) + sps + Data([0, 0, 0, 1]) + pps }
         var bytes = [UInt8](samples[index].data), offset = 0
         while offset + 4 <= bytes.count {
-            let length = Int(R7H264.be32(bytes, offset))
+            let length = Int(T3H264.be32(bytes, offset))
             bytes[offset] = 0; bytes[offset + 1] = 0; bytes[offset + 2] = 0; bytes[offset + 3] = 1
             out += Data(bytes[offset..<offset + 4 + length])
             offset += 4 + length

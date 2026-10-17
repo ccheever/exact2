@@ -5,7 +5,7 @@ import AppKit
 /// `data-frame` names it). Contract's `frame(id)` is the layout's position, which a
 /// scrolled transcript leaves behind; a popup anchored to a node inside the transcript
 /// (a table's Copy menu) asks for the drawn position at the moment it opens.
-final class R8KeysMeasure {
+final class T3Measure {
     private final class Entry { weak var element: ExactElement?; init(_ element: ExactElement) { self.element = element } }
     private var entries: [String: Entry] = [:]
 
@@ -26,7 +26,7 @@ final class R8KeysMeasure {
                 "windowWidth": Double(content.bounds.width), "windowHeight": Double(content.bounds.height)]
     }
 
-    /// `native.later({op: "r8MeasureFrame", name})`.
+    /// `native.later({op: "measureFrame", name})`.
     func perform(_ request: [String: Any]) -> [String: Any] {
         let generation = request["generation"] as? Int ?? 0
         guard let name = request["name"] as? String, let frame = frame(name) else {

@@ -3,8 +3,8 @@ import XCTest
 
 // One saved environment, several routes (T3Credentials.swift
 // T3SavedEnvironments, T3Routes.swift, T3Transport.swift). The fixture origin is one
-// loopback WebSocket peer (R3Socket) reached as 127.0.0.1 and as localhost, so the two
-// addresses are two routes to the same server; R3HTTP answers each host differently.
+// loopback WebSocket peer (FixtureSocket) reached as 127.0.0.1 and as localhost, so the two
+// addresses are two routes to the same server; FixtureHTTP answers each host differently.
 final class RouteTests: XCTestCase {
     private final class Log: @unchecked Sendable {
         private let lock = NSLock(); private var list: [String] = []
@@ -16,7 +16,7 @@ final class RouteTests: XCTestCase {
 
     private func transport() -> T3Transport {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         return T3Transport(persistent: false, configuration: config, credentials: credentials, savedEnvironments: saved, random: { 0 }, signals: false, changed: { _ in })
     }
     private func perform(_ transport: T3Transport, _ request: [String: Any], timeout: TimeInterval = 8) -> [String: Any] {
@@ -34,7 +34,7 @@ final class RouteTests: XCTestCase {
     }
     /// The fixture server as `host`: healthy unless `down` names it; every request is logged with its bearer.
     private func serve(down: @escaping () -> Set<String>, log: Log, environment: [String: String] = [:]) {
-        R3HTTP.reset { request in
+        FixtureHTTP.reset { request in
             let host = request.url!.host ?? "", path = request.url!.path
             log.add("\(host) \(path) \(request.value(forHTTPHeaderField: "Authorization") ?? "-")")
             if down().contains(host) { return (503, ["message": "\(host) is starting up."]) }
@@ -104,7 +104,7 @@ final class RouteTests: XCTestCase {
     }
 
     func testTheWalkSkipsAnotherMachineAtASavedAddressAndNeverSendsItACredential() throws {
-        let socket = try R3Socket(), port = socket.port, log = Log()
+        let socket = try FixtureSocket(), port = socket.port, log = Log()
         serve(down: { [] }, log: log, environment: ["localhost": "someone-else"])
         saved.remember(origin: "http://localhost:\(port)", descriptor: ["environmentId": "fixture", "label": "Desk"])
         saved.remember(origin: "http://127.0.0.1:\(port)", descriptor: ["environmentId": "fixture", "label": "Desk"])
@@ -129,7 +129,7 @@ final class RouteTests: XCTestCase {
     /// interface, so this Mac's own private IPv4 reaches it; without one the test skips.
     func testALearnedPlainHttpLanRouteConnectsWithTheTokenItBorrows() throws {
         guard let lan = privateIPv4() else { throw XCTSkip("This Mac has no private IPv4 address.") }
-        let socket = try R3Socket(), port = socket.port, log = Log()
+        let socket = try FixtureSocket(), port = socket.port, log = Log()
         let home = "http://127.0.0.1:\(port)", learned = "http://\(lan):\(port)", learnedId = "learned:fixture:\(learned)@\(home)"
         // The paired loopback route is down (a stopped proxy); the learned LAN address answers.
         serve(down: { ["127.0.0.1"] }, log: log)
@@ -156,7 +156,7 @@ final class RouteTests: XCTestCase {
     func testALearnedRouteAboveTheOneInUseTakesOverAtOnce() throws {
         guard ProcessInfo.processInfo.environment["T3_ROUTE_CHECK_INTERVAL_MS"] == nil else { throw XCTSkip("Needs the 60 s default interval.") }
         guard let lan = privateIPv4() else { throw XCTSkip("This Mac has no private IPv4 address.") }
-        let socket = try R3Socket(), port = socket.port, log = Log()
+        let socket = try FixtureSocket(), port = socket.port, log = Log()
         // The route in use stands for a tailnet or public address; `localhost` reaches the same fixture socket.
         let home = "http://localhost:\(port)", learned = "http://\(lan):\(port)", learnedId = "learned:fixture:\(learned)@\(home)"
         serve(down: { [] }, log: log)
@@ -174,7 +174,7 @@ final class RouteTests: XCTestCase {
     }
 
     func testAFallbackRouteConnectsAndTheBetterRouteTakesOverOnceItAnswers() throws {
-        let socket = try R3Socket(), port = socket.port, log = Log()
+        let socket = try FixtureSocket(), port = socket.port, log = Log()
         final class Down: @unchecked Sendable { var hosts: Set<String> = ["127.0.0.1"] }
         let down = Down()
         serve(down: { down.hosts }, log: log)
@@ -193,7 +193,7 @@ final class RouteTests: XCTestCase {
     }
 
     func testATransientFailureIsReportedOverABlockedRoute() throws {
-        let socket = try R3Socket(), port = socket.port, log = Log()
+        let socket = try FixtureSocket(), port = socket.port, log = Log()
         serve(down: { ["localhost"] }, log: log)
         saved.remember(origin: "http://127.0.0.1:\(port)", descriptor: ["environmentId": "fixture", "label": "Desk"])
         saved.remember(origin: "http://localhost:\(port)", descriptor: ["environmentId": "fixture", "label": "Desk"])
@@ -206,7 +206,7 @@ final class RouteTests: XCTestCase {
 
     func testAddingARouteToAnotherMachineIsRefusedBeforeTheCodeIsSpent() throws {
         let log = Log()
-        R3HTTP.reset { request in
+        FixtureHTTP.reset { request in
             log.add(request.url!.path)
             let descriptor: [String: Any] = ["environmentId": "other", "label": "Studio", "orchestrationProtocolVersion": 2]
             let grant: [String: Any] = ["access_token": "x", "token_type": "Bearer"]

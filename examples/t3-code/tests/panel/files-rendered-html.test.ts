@@ -8,7 +8,7 @@ import { filesLocal, filesView } from '../../src/panel/files-surface';
 import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
 import { contentRevision, htmlResource, htmlToggleLabel, isHtmlPath, revisedUrl } from '../../src/panel/files-rendered-html';
 import { highlight, type Token } from '../../src/highlight/timeline-highlight';
-import { r9Folding } from '../../src/device/device-duo';
+import { deviceFolding } from '../../src/device/device-duo';
 
 const native = { available: true } as unknown as Native;
 type Call = { method: string; payload: Record<string, unknown> };
@@ -139,9 +139,9 @@ describe('A restored reveal whose view answer was abandoned asks again', () => {
 
 describe('Duo and fold tooltips (DeviceDuoControls / DeviceAndroidFoldControls TooltipPopup)', () => {
   test('each stand names its pose; Book adds "/ bookshelf"; Fold / Unfold device', () => {
-    const duo = r9Folding({ duo: { supported: true, hingeAngle: 180, hingePose: 'open' } }, 'ios', true, true);
+    const duo = deviceFolding({ duo: { supported: true, hingeAngle: 180, hingePose: 'open' } }, 'ios', true, true);
     expect(duo.groups.flatMap(group => group.stands.map(stand => stand.tip))).toEqual(['Closed', 'Book / bookshelf', 'Open', 'Laptop', 'Tent']);
-    const fold = r9Folding({ status: 'streaming', fold: { supported: true, posture: 'opened' } }, 'android', false, true);
+    const fold = deviceFolding({ status: 'streaming', fold: { supported: true, posture: 'opened' } }, 'android', false, true);
     expect(fold.groups[0]!.stands.map(stand => stand.tip)).toEqual(['Fold device', 'Unfold device']);
   });
 });

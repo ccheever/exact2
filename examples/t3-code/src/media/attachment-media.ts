@@ -18,7 +18,7 @@ export function mediaErrorMessage(kind: string): string {
   return kind === 'audio' ? 'Unable to load audio.' : kind === 'video' ? 'Unable to load video.' : kind === 'image' ? 'Unable to load image.' : '';
 }
 
-/** The body for a loaded URL: text kinds and images are r5-panels' own; the rest is media or "No preview". */
+/** The body for a loaded URL: text kinds and images are the attachment surface's own; the rest is media or "No preview". */
 export function mediaBody(kind: string, rendered: boolean): MediaPreview | '' {
   if (kind === 'html') return rendered ? 'html' : '';
   return isMediaPreview(kind) ? kind : '';

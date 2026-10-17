@@ -1,19 +1,19 @@
 // The device workspace's 3D / Flat presentation, extra rail controls and the
 // Tools drawer (device-tools.ts). No imports, so device-workspace-shapes.contract can use it.
-shape R7DevOption
+shape ToolsOption
   value: string
   label: string
   selected: bool
-shape R7DevSwitch
+shape ToolsSwitch
   id: string
   label: string
   checked: bool
   disabled: bool
-shape R7DevEvent
+shape ToolsEvent
   id: string
   time: string
   summary: string
-shape R7DevDeviceRail
+shape ControlsRail
   view: string
   ax: string
   phone: bool
@@ -26,7 +26,7 @@ shape R7DevDeviceRail
   waiting: string
   rotateDisabled: bool
   controlsDisabled: bool
-shape R7DevDeviceTools
+shape ToolsDrawerState
   open: bool
   overlay: bool
   pending: bool
@@ -41,14 +41,14 @@ shape R7DevDeviceTools
   appearance: string
   textSizeLabel: string
   textSizeKnown: bool
-  textSizes: R7DevOption[]
+  textSizes: ToolsOption[]
   liquidGlass: string
   liquidGlassDisabled: bool
   colorFilterLabel: string
   colorFilterKnown: bool
-  colorFilters: R7DevOption[]
-  orientations: R7DevOption[]
-  switches: R7DevSwitch[]
+  colorFilters: ToolsOption[]
+  orientations: ToolsOption[]
+  switches: ToolsSwitch[]
   axOn: bool
   url: string
   urlDisabled: bool
@@ -58,12 +58,12 @@ shape R7DevDeviceTools
   lat: string
   lng: string
   locationValid: bool
-  presets: R7DevOption[]
+  presets: ToolsOption[]
   permApp: string
   permPlaceholder: string
   permDisabled: bool
   permissionLabel: string
-  permissions: R7DevOption[]
+  permissions: ToolsOption[]
   push: string
   pushDisabled: bool
   pushSendDisabled: bool
@@ -72,8 +72,8 @@ shape R7DevDeviceTools
   logDevice: string
   logHost: string
   eventsEmpty: bool
-  events: R7DevEvent[]
-shape R7DevDeviceWorkspace
-  rail: R7DevDeviceRail
-  tools: R7DevDeviceTools
+  events: ToolsEvent[]
+shape DeviceControls
+  rail: ControlsRail
+  tools: ToolsDrawerState
   retaining: bool

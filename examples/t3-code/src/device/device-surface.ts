@@ -7,9 +7,9 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { subscriptionSerial } from '../details/shell-vcs';
-import { emptyR6Device, type R6DeviceView } from './device-session'; // opening a device and its workspace
+import { emptyDeviceSession, type DeviceSessionView } from './device-session'; // opening a device and its workspace
 
-export const DEVICE_STATE_KEY = 'r4-device-state';
+export const DEVICE_STATE_KEY = 'device-state';
 export const HUB_DESCRIPTION = 'Enable this environment to open simulators and emulators, whether they run here or on a remote device host.';
 export const AGENT_DESCRIPTION = 'Allow new agent sessions in this environment to start and control local and remote devices, with required tools set up automatically.';
 
@@ -21,7 +21,7 @@ export type DeviceView = {
   loaded: boolean; step: number; enabled: boolean; busy: boolean; pending: string; hostStatus: string;
   hubStatus: string; hubReady: boolean; platforms: PlatformStatus[]; agentEnabled: boolean; agentStatus: string; agentReady: boolean;
   failure: string; canContinue: boolean; doneLabel: string; notices: HostNotice[]; groups: DeviceGroup[]; empty: string; hint: string;
-  panelStatus: string; refreshable: boolean; r6: R6DeviceView;
+  panelStatus: string; refreshable: boolean; session: DeviceSessionView;
   /** 5318d054a5: a local host with no available platform; wizard step 0 also shows the platform check. */
   localPlatformsUnavailable: boolean;
 };
@@ -36,7 +36,7 @@ function store(client: T3Client): DeviceStore {
   return value;
 }
 
-/** One `r4-device-state` inbox entry (client.ts drain): the newest stream's snapshot wins. */
+/** One `device-state` inbox entry (client.ts drain): the newest stream's snapshot wins. */
 export function deviceStateEvent(client: T3Client, entry: Obj): void {
   const value = stores.get(client);
   if (!value) return;
@@ -142,7 +142,7 @@ export async function deviceView(client: T3Client, native: Native, shown = false
     hint: hostReady && !arr(state.devices).some(device => device.platform === 'android') && !unavailable.some(platform => platform.platform === 'android')
       ? "No Android virtual devices found. Create one in Android Studio's Device Manager, then refresh." : '',
     panelStatus: value.state === null ? 'Finding devices…' : hostStatus === 'installing' ? str(state.hostStatusDetail, 'Installing device support…') : busy ? 'Finding devices…' : '',
-    refreshable: value.state !== null && !busy, r6: emptyR6Device(), localPlatformsUnavailable: localPlatformsUnavailable(state),
+    refreshable: value.state !== null && !busy, session: emptyDeviceSession(), localPlatformsUnavailable: localPlatformsUnavailable(state),
   };
 }
 /** The Device surface left the panel's view (another surface, the panel closed): its next show lists again. */
@@ -151,7 +151,7 @@ export function deviceHidden(client: T3Client): void {
   if (value) value.listed = false;
 }
 export const emptyDevice = (): DeviceView => ({ loaded: false, step: 0, enabled: false, busy: false, pending: '', hostStatus: 'disabled', hubStatus: '', hubReady: false, platforms: [],
-  agentEnabled: false, agentStatus: '', agentReady: false, failure: '', canContinue: false, doneLabel: 'Done', notices: [], groups: [], empty: '', hint: '', panelStatus: '', refreshable: false, r6: emptyR6Device(), localPlatformsUnavailable: false });
+  agentEnabled: false, agentStatus: '', agentReady: false, failure: '', canContinue: false, doneLabel: 'Done', notices: [], groups: [], empty: '', hint: '', panelStatus: '', refreshable: false, session: emptyDeviceSession(), localPlatformsUnavailable: false });
 
 /** `shelllocal:surface-device-*`: wizard navigation (earlier steps only, never while busy). */
 export async function deviceLocal(client: T3Client, _native: Native, op: string, _id: string, value: string): Promise<string> {

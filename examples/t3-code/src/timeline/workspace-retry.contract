@@ -3,7 +3,7 @@
 
 // 737993303d: WorkEntryLogRow's Retry under a failed workspace preparation
 // (ms-7 pb-1; Button size xs, variant outline, RotateCcwIcon).
-component R11RetryPreparation
+component RetryPreparation
   props
     runId: string
     command: action

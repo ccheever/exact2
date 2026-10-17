@@ -12,7 +12,7 @@ import { adoptWorktreeSetup, threadWorktreeSetup } from '../../src/timeline/time
 import { autoShowDevices, resetLaunch, visibleMini } from '../../src/device/floating-player';
 import { chatCanvasView } from '../../src/shell/chat-canvas-view';
 import { resolvePreviewMiniPlayerFrame, resolveDeviceMiniPlayerSourceSize } from '../../src/device/previewMiniPlayerLayout';
-import { r6DeviceMini, floatMiniDevice } from '../../src/device/device-session';
+import { deviceMini, floatMiniDevice } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
 
 const scratchRoot = (machine: string) => `/Users/${machine}/.t3/scratch`;
@@ -123,30 +123,30 @@ describe('a thread\'s device session floats (ChatView autoShowFloatingPreview)',
     const first = thread();
     autoShowDevices(first, null, false); // before the first chunk: EMPTY_DEVICE_STATE, an empty baseline
     autoShowDevices(first, state([open]), false);
-    expect(r6DeviceMini(first, state([open]))).toMatchObject({ show: true, name: 'iPhone 18 Pro', deviceId: 'IPHONE' });
+    expect(deviceMini(first, state([open]))).toMatchObject({ show: true, name: 'iPhone 18 Pro', deviceId: 'IPHONE' });
     const later = thread('t2');
     autoShowDevices(later, state([]), false); // the launch thread is elsewhere
     (later as unknown as { threadId: string }).threadId = 't1';
     autoShowDevices(later, state([open]), false);
-    expect(r6DeviceMini(later, state([open])).show).toBe(false);
+    expect(deviceMini(later, state([open])).show).toBe(false);
   });
   test('a new session floats, a closed one takes the player with it, a sheet layout floats nothing', () => {
     resetLaunch();
     const client = thread();
     autoShowDevices(client, state([]), false);
     autoShowDevices(client, state([open]), false);
-    expect(r6DeviceMini(client, state([open])).show).toBe(true);
+    expect(deviceMini(client, state([open])).show).toBe(true);
     autoShowDevices(client, state([]), false);
-    expect(r6DeviceMini(client, state([])).show).toBe(false);
+    expect(deviceMini(client, state([])).show).toBe(false);
     resetLaunch();
     const narrow = thread();
     autoShowDevices(narrow, state([open]), true);
-    expect(r6DeviceMini(narrow, state([open])).show).toBe(false);
+    expect(deviceMini(narrow, state([open])).show).toBe(false);
   });
   test('the player hides while the panel shows the same device (shouldRenderPreviewMiniPlayer)', () => {
     const client = thread();
     floatMiniDevice(client, 't1', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
-    const mini = r6DeviceMini(client, state([open]));
+    const mini = deviceMini(client, state([open]));
     expect(visibleMini(mini, { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: '' }).show).toBe(false);
     expect(visibleMini(mini, { hostId: 'local', deviceId: 'OTHER', platform: 'ios', name: '' }).show).toBe(true);
     expect(visibleMini(mini, undefined).show).toBe(true);
@@ -172,9 +172,9 @@ describe('a thread\'s device session floats (ChatView autoShowFloatingPreview)',
 describe('the panel tab strip scrolls when its tabs overflow (RightPanelTabs ScrollArea)', () => {
   const { tabStrip, activeSerial } = require('../../src/panel/tab-strip') as typeof import('../../src/panel/tab-strip');
   test('overflow, the furthest offset and the active tab come from the anchors', () => {
-    const anchors = { 'r12-tabs-view': [0, 200], 'r12-tabs-content': [0, 200], 'r12-tab:diff': [270, 52], 'r12-tab:a': [0, 90] };
+    const anchors = { 'tab-strip-view': [0, 200], 'tab-strip-content': [0, 200], 'tab-chip:diff': [270, 52], 'tab-chip:a': [0, 90] };
     expect(tabStrip({ anchors }, ['a', 'diff'], 'diff', 2)).toEqual({ overflow: true, view: 200, content: 350, max: 150, activeLeft: 270, activeRight: 322, serial: 2 });
-    expect(tabStrip({ anchors: { 'r12-tabs-view': [0, 200], 'r12-tab:a': [0, 90] } }, ['a'], 'a').overflow).toBe(false);
+    expect(tabStrip({ anchors: { 'tab-strip-view': [0, 200], 'tab-chip:a': [0, 90] } }, ['a'], 'a').overflow).toBe(false);
     expect(tabStrip({}, ['a'], 'a')).toMatchObject({ overflow: false, max: 0 });
   });
   test('an active change on the same panel counts; a launch or another panel does not', () => {

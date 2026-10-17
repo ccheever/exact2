@@ -51,7 +51,7 @@ export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: {
   const shownChecks = rollup && !conflicting && detail.isDraft !== true ? rollup : '';
   const summary = summarizeChecks(checks), list = checksList(checks, state.showAll.has(input.key));
   const ref = normalRef(reference);
-  const r6: RowExtra = {
+  const extra: RowExtra = {
     destructive: trailing?.destructive ?? false, suffix: trailing?.suffix ?? false, actionWidth,
     tail: checksTail(rowRight + (trailing ? actionWidth + 1 : 0), running > 0 ? `${running}/${checks.length}` : ''), popId: `pr-checks-${num(detail.number)}`, method,
     checksTitle: CHECKS_HEADLINE[rollup] ?? '', checksSummary: summary, checksList: list.rows, collapsible: list.collapsible, expanded: state.showAll.has(input.key),
@@ -66,6 +66,6 @@ export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: {
     // Every action is held while one runs: a merge mid-hand-off would race the checkout.
     actionDisabled: acting || state.handoff !== '',
     actionTarget: JSON.stringify(ref),
-    r6,
+    extra,
   };
 }

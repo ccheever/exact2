@@ -23,7 +23,7 @@ const anchor = (anchors: Obj, name: string): [number, number] | null => {
 
 /**
  * Active-tab changes: `serial` counts them, so the strip scrolls the new active tab into view
- * once (R4HeaderBar compares it with the serial it last scrolled for). Another panel (a launch,
+ * once (PanelHeaderBar compares it with the serial it last scrolled for). Another panel (a launch,
  * a thread switch) is not a change: the reference's restored sheet opens at the strip's start.
  */
 const seen = new WeakMap<object, { panel: string; active: string; serial: number }>();
@@ -36,18 +36,18 @@ export function activeSerial(owner: object, panel: string, active: string): numb
 }
 
 /**
- * The strip's scroll geometry for the contract (R4HeaderBar keeps the scroll offset itself). The
+ * The strip's scroll geometry for the contract (PanelHeaderBar keeps the scroll offset itself). The
  * content row is as wide as its chips and the "+" (`content`, which the row takes as its minimum
  * width so the strip has something to scroll); its own anchor is only the fallback.
  */
 export function tabStrip(presentation: Obj, tabs: readonly string[], active: string, serial = 0): TabStrip {
   const anchors = obj(presentation.anchors);
-  const view = anchor(anchors, 'r12-tabs-view');
+  const view = anchor(anchors, 'tab-strip-view');
   if (!view) return { ...NO_TAB_STRIP, serial };
-  const chips = tabs.map(id => anchor(anchors, `r12-tab:${id}`)).filter((value): value is [number, number] => value !== null);
+  const chips = tabs.map(id => anchor(anchors, `tab-chip:${id}`)).filter((value): value is [number, number] => value !== null);
   const right = chips.reduce((edge, [x, width]) => Math.max(edge, x + width), 0);
-  const content = chips.length ? Math.ceil(right + GAP + ADD) : (anchor(anchors, 'r12-tabs-content')?.[1] ?? 0);
+  const content = chips.length ? Math.ceil(right + GAP + ADD) : (anchor(anchors, 'tab-strip-content')?.[1] ?? 0);
   const max = Math.max(0, content - view[1]);
-  const tab = active ? anchor(anchors, `r12-tab:${active}`) : null;
+  const tab = active ? anchor(anchors, `tab-chip:${active}`) : null;
   return { overflow: max > EDGE, view: view[1], content, max, activeLeft: tab ? tab[0] : 0, activeRight: tab ? tab[0] + tab[1] : 0, serial };
 }

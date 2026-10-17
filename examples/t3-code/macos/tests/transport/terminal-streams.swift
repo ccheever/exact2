@@ -4,7 +4,7 @@ import XCTest
 // A terminal's attach stream rides the transport beside the app's streams
 // (T3Transport+Terminal.swift). Its chunks never reach the app's event inbox, each is acknowledged only
 // when the receiver says the buffer holds it, terminal streams do not count toward the 16 app streams,
-// and a lost socket ends them all. Served by R3Socket (r3.swift), a loopback WebSocket peer.
+// and a lost socket ends them all. Served by FixtureSocket (reconnect.swift), a loopback WebSocket peer.
 final class TerminalStreamTests: XCTestCase {
     private func wait(_ seconds: TimeInterval) { RunLoop.current.run(until: Date().addingTimeInterval(seconds)) }
     private func until(_ seconds: TimeInterval, _ condition: () -> Bool) -> Bool {
@@ -19,10 +19,10 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
         return result
     }
-    private func connected(_ socket: R3Socket) -> T3Transport {
-        R3HTTP.healthy()
+    private func connected(_ socket: FixtureSocket) -> T3Transport {
+        FixtureHTTP.healthy()
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         let transport = T3Transport(persistent: false, configuration: config, random: { 0 }, signals: false, changed: { _ in })
         let opened = perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "credential": "pairing"])
         XCTAssertEqual((opened["value"] as? [String: Any])?["state"] as? String, "connected", "\(opened)")
@@ -47,7 +47,7 @@ final class TerminalStreamTests: XCTestCase {
     }
 
     func testOutputSkipsTheInboxAndIsAcknowledgedOnlyOnceHeld() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { request in request["tag"] as? String == "terminal.attach" ? [] : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
         let transport = connected(socket); defer { transport.destroy() }
         let sink = Sink()
@@ -75,10 +75,10 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(socket.requests("terminal.attach").count, 1)
     }
 
-    /// Round 5: the reference's RPC client refuses no request for the number already pending, so a
+    /// The reference's RPC client refuses no request for the number already pending, so a
     /// user's write queued behind slow reads (a snooze chosen from a native menu) still goes out.
     func testPendingRequestsHaveNoCapAsInTheReference() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] } // the server holds every reply
         let transport = connected(socket); defer { transport.destroy() }
         let generation = perform(transport, ["op": "status"])["generation"] as! Int
@@ -98,11 +98,11 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(failures, [], "no request is refused for the number pending")
     }
 
-    /// Round 5: a shared read joins an identical one still pending, as the reference's query atoms share
+    /// A shared read joins an identical one still pending, as the reference's query atoms share
     /// one request per input. One request reaches the server and every caller gets its reply. Another
     /// payload is sent on its own, and a request that is not shared ends the sharing for its workspace.
     func testSharedReadsJoinAnIdenticalPendingOne() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] } // the server holds every reply
         let transport = connected(socket); defer { transport.destroy() }
         let generation = perform(transport, ["op": "status"])["generation"] as! Int
@@ -130,10 +130,10 @@ final class TerminalStreamTests: XCTestCase {
                       "every joined caller gets the reply: \(replies)")
     }
 
-    /// Round 5: a shared reply too large for one native reply (over 512 KB) comes back as a native transfer.
+    /// A shared reply too large for one native reply (over 512 KB) comes back as a native transfer.
     /// Each joined caller gets its own, so one reader's release never strands another's.
     func testJoinedCallersEachReadTheirOwnLargeReply() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] } // the server holds the reply until the test sends it
         let transport = connected(socket); defer { transport.destroy() }
         let generation = perform(transport, ["op": "status"])["generation"] as! Int
@@ -169,7 +169,7 @@ final class TerminalStreamTests: XCTestCase {
     }
 
     func testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] }
         let transport = connected(socket); defer { transport.destroy() }
         let generation = perform(transport, ["op": "status"])["generation"] as! Int
@@ -187,7 +187,7 @@ final class TerminalStreamTests: XCTestCase {
     }
 
     func testProviderInstanceIsPreservedAcrossSessionReattach() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] }
         let transport = connected(socket); defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
@@ -202,7 +202,7 @@ final class TerminalStreamTests: XCTestCase {
     }
 
     func testQueuedOldStreamCannotChangeAReplacementWithTheSameTerminalID() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] }
         let transport = connected(socket); defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
@@ -233,7 +233,7 @@ final class TerminalStreamTests: XCTestCase {
     }
 
     func testLateResizeCannotResizeAReplacementWithTheSameTerminalID() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] }
         let transport = connected(socket); defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
@@ -257,11 +257,11 @@ final class TerminalStreamTests: XCTestCase {
     }
 
     func testDisconnectedResizeIsAppliedOnAttachWithoutAnotherFit() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { request in [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
-        R3HTTP.healthy()
+        FixtureHTTP.healthy()
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         let transport = T3Transport(persistent: false, configuration: config, signals: false, changed: { _ in })
         defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
@@ -288,7 +288,7 @@ final class TerminalStreamTests: XCTestCase {
     }
 
     func testResizeFailureCanRetryAndInflightChangesKeepOnlyTheLatestGrid() throws {
-        let socket = try R3Socket()
+        let socket = try FixtureSocket()
         socket.answer = { _ in [] } // Hold each resize until the test releases its reply.
         let transport = connected(socket); defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
@@ -323,11 +323,11 @@ final class TerminalStreamTests: XCTestCase {
     /// background transport carries its sessions while another is the focus. A session is never attached, written
     /// or resized on another environment's server.
     func testSessionsGoToTheirOwnEnvironmentsServerAcrossAFocusChange() throws {
-        let a = try R3Socket(), b = try R3Socket()
+        let a = try FixtureSocket(), b = try FixtureSocket()
         a.answer = { request in request["tag"] as? String == "terminal.attach" ? [] : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
         b.answer = a.answer
         let portA = Int(a.port)
-        R3HTTP.reset { request in
+        FixtureHTTP.reset { request in
             let environment = request.url?.port == portA ? "env-a" : "env-b"
             switch request.url!.path {
             case "/.well-known/t3/environment": return (200, ["environmentId": environment, "label": environment, "orchestrationProtocolVersion": 2, "capabilities": ["connectionProbe": true]])
@@ -338,13 +338,13 @@ final class TerminalStreamTests: XCTestCase {
             }
         }
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         let make = { T3Transport(persistent: false, configuration: config, random: { 0 }, signals: false, changed: { _ in }) }
-        let connect = { (transport: T3Transport, socket: R3Socket) in
+        let connect = { (transport: T3Transport, socket: FixtureSocket) in
             let opened = self.perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "credential": "pairing"])
             XCTAssertEqual((opened["value"] as? [String: Any])?["state"] as? String, "connected", "\(opened)")
         }
-        let threads = { (socket: R3Socket, method: String) in socket.requests(method).compactMap { ($0["payload"] as? [String: Any])?["threadId"] as? String } }
+        let threads = { (socket: FixtureSocket, method: String) in socket.requests(method).compactMap { ($0["payload"] as? [String: Any])?["threadId"] as? String } }
         let focused = make(), backgroundB = make(), backgroundA = make()
         defer { focused.destroy(); backgroundB.destroy(); backgroundA.destroy() }
         connect(focused, a)

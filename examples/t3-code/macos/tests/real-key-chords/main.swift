@@ -9,10 +9,10 @@ import XCTest
 // the session's match misses and AppKit's menu matches). An agent's key goes straight to the window, so only this
 // path can lose a chord. Every ⌘ chord of the reference's defaults that holds in an open thread is sent here as the
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
-// focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, R9Input, R10Connect, T3Sidebar,
+// focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3ComposerInput, T3LatinChords, T3Sidebar,
 // T3TextContextMenu, T3ComposerIntent, T3Timeline, RightPanelTabsInput, T3ActivityReporter) and its menu bar
-// (T3Menus.augment, R8KeysMenus.arrange) over the host's, and must reach the host's monitor and the host's item for
-// that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in r8-keys: its bar
+// (T3Menus.augment, T3MenuBar.arrange) over the host's, and must reach the host's monitor and the host's item for
+// that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in menu-bar: its bar
 // (DevMenuMac.makeMenu's items), a session monitor that only records (the host's presses and consumes), and
 // ShortcutHost's items, filed after the clone's augment as each plan batch files them, with the chords they take from
 // other items (`claim`). Compiled with every file in modules/apple (T3Module included); it runs NSApplication's own
@@ -30,8 +30,8 @@ let referenceChords = ["mod+b", "mod+[", "mod+]", "mod+j", "mod+alt+b", "mod+w",
                        "mod+shift+a", "mod+shift+x", "mod+shift+g", "mod+shift+l", "mod+shift+k", "mod+o", "mod+shift+[",
                        "mod+shift+]", "mod+shift+c", "mod+shift+s", "mod+shift+p", "mod+z", "mod+1", "mod+2", "mod+3",
                        "mod+4", "mod+5", "mod+6", "mod+7", "mod+8", "mod+9"]
-/// ⌘Z is Edit › Undo's: the focused text's own history, else the window's thread.undo (R8KeysMenus.undo), which
-/// r8-keys's testKeystrokesReachTheWindowsCommands and testUndoAndRedoActOnTheFocusedTextsOwnHistory drive.
+/// ⌘Z is Edit › Undo's: the focused text's own history, else the window's thread.undo (T3MenuBar.undo), which
+/// menu-bar's testKeystrokesReachTheWindowsCommands and testUndoAndRedoActOnTheFocusedTextsOwnHistory drive.
 let editMenuChords: Set<String> = ["mod+z"]
 
 /// ANSI key codes, as a US keyboard sends them.
@@ -61,14 +61,14 @@ struct Chord {
 }
 private let chordMask: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
 
-/// Stands in for the host's ShortcutHost (ShortcutsMac.swift; the name R8KeysMenus.isCommand reads): one item per
+/// Stands in for the host's ShortcutHost (ShortcutsMac.swift; the name T3MenuBar.isCommand reads): one item per
 /// declared chord, pressed by the menu.
 final class ShortcutHost: NSObject, NSMenuItemValidation {
     var pressed: [String] = []
     @objc func activate(_ item: NSMenuItem) { pressed.append(item.title) }
     func validateMenuItem(_ item: NSMenuItem) -> Bool { true }
     /// ShortcutHost.sync on a plan batch: an item elsewhere in the bar with a declared chord gives it up (`claim`),
-    /// and each command's item goes into File with its chord, where R8KeysMenus keeps it a hidden key equivalent.
+    /// and each command's item goes into File with its chord, where T3MenuBar keeps it a hidden key equivalent.
     func file(_ chords: [Chord], in bar: NSMenu) {
         var menus = bar.items.compactMap(\.submenu)
         while let menu = menus.popLast() {
@@ -164,7 +164,7 @@ final class Fixture {
     let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 640, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     let composerText = NSTextView(frame: NSRect(x: 20, y: 300, width: 600, height: 80))
     let composer = T3Composer(), menus = T3Menus()
-    let r9 = R9Input(), r10 = R10Connect(agent: false), sidebar = T3Sidebar(agent: false, changed: { _ in })
+    let composerInput = T3ComposerInput(), latinChords = T3LatinChords(agent: false), sidebar = T3Sidebar(agent: false, changed: { _ in })
     let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent(), timeline = T3Timeline(changed: { _ in })
     let panelTabs = RightPanelTabsInput(), activity = T3ActivityReporter(persistent: false, dataDirectory: nil, pageFacts: true)
     var elements: [ExactElement] = []
@@ -196,14 +196,14 @@ final class Fixture {
         let composerElement = element(.t3Composer, "composer", 3, composerText, ["snapshot-owner": "t1"])
         let sendElement = element(.t3Send, "send", 4, send)
         let transcriptElement = element(.t3Transcript, "transcript", 5, transcript, ["timeline-owner": "t1", "timeline-rest": "yes"])
-        let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "r12-tab:files"])
+        let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "tab-chip:files"])
         activate()
         menus.updatesDisabledReason = { "no feed" }
         sidebar.install(); textMenu.install()
         activity.connect(UUID(), environment: "env") { _, done in done() }
         // T3Module.element's order.
         for element in [composerElement, sendElement, transcriptElement, tabElement] {
-            panelTabs.install(element); composer.install(element); timeline.install(element); menus.install(element); r9.install(element)
+            panelTabs.install(element); composer.install(element); timeline.install(element); menus.install(element); composerInput.install(element)
         }
         tick(0.2)
         // The next plan batch files the window's commands over the clone's bar.
@@ -235,7 +235,7 @@ final class Fixture {
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        composer.destroy(); r10.destroy(); timeline.destroy(); panelTabs.destroy(); textMenu.destroy(); activity.destroy()
+        composer.destroy(); latinChords.destroy(); timeline.destroy(); panelTabs.destroy(); textMenu.destroy(); activity.destroy()
         window.orderOut(nil)
         NSApp.mainMenu = nil
     }

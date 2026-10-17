@@ -225,8 +225,8 @@ describe('the split row, its card and the tab icon', () => {
     const view = await prRowsView(client, native, { status: null, threadId: 't1', now: 1, projectId: 'p1', rightGap: 0, inline: true });
     const row = view.rows[0]!;
     expect(row).toMatchObject({ split: true, label: '#104: Update README badges', checks: 'passing', checksCount: '', checksAria: 'Open checks: All checks passed', action: 'merge', actionLabel: 'Merge', actionTooltip: 'Merge this pull request (merge)', actionDisabled: false });
-    expect(row.r6).toMatchObject({ tail: 83.3, method: 'merge', checksTitle: 'All checks have passed', checksSummary: 'All checks passed', collapsible: false, actionWidth: 61.3 });
-    expect(row.r6.card).toMatchObject({ show: true, title: 'Update README badges', number: '#104', stateLabel: 'Open', branches: 'main ← feature/clean', checksShown: true, checksStatus: 'success', checksText: 'All checks passed', files: '3 files', additions: '+24', deletions: '-6', conflictText: '', flipped: false });
+    expect(row.extra).toMatchObject({ tail: 83.3, method: 'merge', checksTitle: 'All checks have passed', checksSummary: 'All checks passed', collapsible: false, actionWidth: 61.3 });
+    expect(row.extra.card).toMatchObject({ show: true, title: 'Update README badges', number: '#104', stateLabel: 'Open', branches: 'main ← feature/clean', checksShown: true, checksStatus: 'success', checksText: 'All checks passed', files: '3 files', additions: '+24', deletions: '-6', conflictText: '', flipped: false });
     expect(view.merge.open).toBe(false);
   });
   test('a hand-off draft shows its branch\'s pull request, as the reference card does after Resolve', async () => {

@@ -5,7 +5,7 @@
 // the page with a `now` argument: a refresh press is the root's counter, Date.now is the answer's
 // clock, a remount is the page closing and opening again.
 import { afterEach, describe, expect, test } from 'bun:test';
-import '../../src/client/client'; // the app's module order: pages-usage alone meets the r5/r6 measuring cycle first
+import '../../src/client/client'; // the app's module order: pages-usage alone meets the measuring import cycle first (composer-menus.ts, laid-out-widths.ts)
 import type { T3Client } from '../../src/client/client';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';

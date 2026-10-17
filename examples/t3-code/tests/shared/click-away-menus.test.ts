@@ -28,7 +28,7 @@ describe('the file subheader\'s menus (FilePreviewPanel)', () => {
     expect(chevron).not.toContain('press=');
     expect(line(files, 'KeyMenu(menuId="file-editors-keys"')).toContain('keyed=0, gap="0px", modal=true)');
     expect(line(files, 'button id=`file-editor-${editor.id}`')).toContain('popovertarget="file-editors-menu" popovertargetaction="hide"');
-    const header = contractComponent('files-surface.contract', 'R4FileHeader'), state = header.state();
+    const header = contractComponent('files-surface.contract', 'FileHeader'), state = header.state();
     header.call('editorsToggled', state, {}, [{ newState: 'open' }]);
     expect(state.editorsOpen).toBe(true);
     header.call('editorsToggled', state, {}, [{ newState: 'closed' }]);
@@ -41,7 +41,7 @@ describe('the file subheader\'s menus (FilePreviewPanel)', () => {
     for (const part of ['popover="auto"', 'position-area="bottom span-right"', 'margin-top="0.25rem"', 'toggle=toggled', 'data-dialog-return="menu"']) expect(menu).toContain(part);
     expect(line(files, 'button id=`crumb-${crumb.id}`')).toContain('popovertarget=`crumb-menu-${crumb.id}` key=crumbKey');
     expect(line(files, 'KeyMenu(menuId="crumb-menu-keys"')).toContain('keyed=kmEndKeyed(menuEnd), gap="0px", modal=true)');
-    const view = contractComponent('files-surface.contract', 'R4CrumbView');
+    const view = contractComponent('files-surface.contract', 'FilesCrumbView');
     const crumb = { id: 'src', path: 'src', label: 'src' };
     for (const key of ['ArrowDown', 'ArrowUp', 'Enter', ' ']) {
       const state = view.state(), calls: unknown[][] = [];
@@ -80,7 +80,7 @@ describe('a linked pull request\'s actions (ThreadPullRequestsPanel)', () => {
     expect(trigger).not.toContain('press=');
     expect(line(surfaces, 'KeyMenu(menuId="linked-pr-menu-keys"')).toContain('keyed=keyed, gap="0px", modal=true)');
     expect(line(surfaces, 'button id=`linked-pr-menu-${test}`')).toContain('popovertarget=menuId popovertargetaction="hide"');
-    const view = contractComponent('panel.contract', 'R4LinkedRowView');
+    const view = contractComponent('panel.contract', 'LinkedPrRowView');
     const row = { key: 'github.com/o/r#7', number: 7 };
     for (const key of ['ArrowDown', 'ArrowUp', 'Enter', ' ']) {
       const state = view.state(), calls: unknown[][] = [];
@@ -126,8 +126,8 @@ describe('the device rail\'s menus (DeviceControlsRail)', () => {
     for (const part of ['key=triggerKey', 'aria-haspopup="menu"', 'aria-expanded=open']) expect(trigger).toContain(part);
     expect(trigger).not.toContain('press=');
     expect(line(device, 'button id=testId press=press popovertarget=menuId popovertargetaction="hide"')).toContain('role=(icon == ""');
-    expect(device).not.toMatch(/ws\.rail\.menu|surface-r6dev-menu|railEnd/);
-    const button = contractComponent('device-workspace.contract', 'R6RailMenuButton'), state = button.state();
+    expect(device).not.toMatch(/ws\.rail\.menu|surface-session-menu|railEnd/);
+    const button = contractComponent('device-workspace.contract', 'RailMenuButton'), state = button.state();
     button.call('toggled', state, {}, [{ newState: 'open' }]);
     expect(state.open).toBe(true);
     button.call('toggled', state, {}, [{ newState: 'closed' }]);

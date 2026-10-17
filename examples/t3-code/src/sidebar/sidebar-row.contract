@@ -416,7 +416,7 @@ component SidebarWokeButton
 // The card's top-right status: the pill with its icon (and the working
 // duration), or the age.
 // formatWorkingDurationLabel: "12s", "4m", "1h 5m".
-fn r6WorkingLabel(ms: number): string = ms < 60000 ? `${floor(max(0, ms) / 1000)}s` : ms < 3600000 ? `${floor(ms / 60000)}m` : `${floor(ms / 3600000)}h ${floor(ms % 3600000 / 60000)}m`
+fn workingLabel(ms: number): string = ms < 60000 ? `${floor(max(0, ms) / 1000)}s` : ms < 3600000 ? `${floor(ms / 60000)}m` : `${floor(ms / 3600000)}h ${floor(ms % 3600000 / 60000)}m`
 
 component SidebarStatusSlot
   props
@@ -431,7 +431,7 @@ component SidebarStatusSlot
           text t.status role="status" font-size="0.75rem" line-height="1rem" font-weight=500 color=t.statusColor
           if t.duration != ""
             // WorkingDuration ticks each second from the root clock (the snapshot's own label until it runs).
-            text (t.workingSince > 0 and now > t.workingSince ? r6WorkingLabel(now - t.workingSince) : t.duration) font-size="0.75rem" line-height="1rem" font-weight=500 color=t.statusColor font-variant-numeric="tabular-nums" aria-hidden=true
+            text (t.workingSince > 0 and now > t.workingSince ? workingLabel(now - t.workingSince) : t.duration) font-size="0.75rem" line-height="1rem" font-weight=500 color=t.statusColor font-variant-numeric="tabular-nums" aria-hidden=true
       else
         text t.age font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" font-variant-numeric="tabular-nums"
 

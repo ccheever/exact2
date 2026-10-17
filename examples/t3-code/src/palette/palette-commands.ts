@@ -220,7 +220,7 @@ async function openInEditor(client: T3Client, native: Native, op: string, id: st
 /** chat.newWithoutProject: the environment's scratch project, created on first use. */
 async function startScratch(client: T3Client, native: Native): Promise<PaletteResult> {
   try {
-    return done(client, await openScratchProject(client, native)); // r11-upstream (845ddd9354): the shared opener
+    return done(client, await openScratchProject(client, native)); // upstream 845ddd9354: the shared opener
   } catch (error) {
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Could not start without a project', description: message(error) });

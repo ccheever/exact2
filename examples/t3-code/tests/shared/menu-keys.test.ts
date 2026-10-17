@@ -113,7 +113,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     ['pages-pr-quick.contract', '${popId}-keys'], ['pages-pr-stack.contract', 'pr-stack-keys'], ['settings-b-kit.contract', '${menuId}-keys'], ['settings-kit.contract', '${menuId}-keys'],
     ['settings-rows.contract', '${menuId}-keys'], ['timeline-plan.contract', 'plan-menu-${message.id}-keys'], ['legacy-sidebar.contract', 'legacy-sidebar-options-keys'],
     ['snapshot.contract', 'snapshot-sound-keys'], ['pages-usage.contract', 'usage-environment-keys'], ['pages-usage-prices.contract', 'usage-prices-apply-keys'],
-    ['pages-hero.contract', 'hero-project-keys'], ['git.contract', 'details-git-options-keys'], ['panel.contract', 'r4-add-surface-keys'], ['panel.contract', 'linked-pr-menu-keys'],
+    ['pages-hero.contract', 'hero-project-keys'], ['git.contract', 'details-git-options-keys'], ['panel.contract', 'add-surface-menu-keys'], ['panel.contract', 'linked-pr-menu-keys'],
     ['shell-panels.contract', 'title-menu-keys'], ['shell-panels.contract', 'title-submenu-keys'], ['requests.contract', 'approval-menu-${approval.id}-keys'],
     ['shell-details.contract', 'details-editors-keys'], ['project-scripts.contract', 'details-scripts-keys'], ['diff.contract', 'diff-scope-keys'], ['diff.contract', 'diff-turns-keys'],
     ['files-surface.contract', 'crumb-menu-keys'],
@@ -159,19 +159,19 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['settings-a-hosts.contract', 'HostRowView', 'triggerKey'],
     ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SettingsSelect', 'triggerKey'],
     ['pages-prs.contract', 'PrSortMenu', 'triggerKey'], ['pages-prs.contract', 'PrHostMenu', 'triggerKey'],
-    ['pages-prs.contract', 'PrFiltersMenu', 'triggerKey'], ['device-tools.contract', 'R7DevSelect', 'triggerKey'],
+    ['pages-prs.contract', 'PrFiltersMenu', 'triggerKey'], ['device-tools.contract', 'ToolsSelect', 'triggerKey'],
     ['pages-usage.contract', 'UsageBreadcrumb', 'triggerKey'], ['pages-pr-handoffs.contract', 'PrdCheckoutMenu', 'triggerKey'],
     ['browser-surface.contract', 'BrowserMore', 'triggerKey'], ['browser-surface.contract', 'BrowserLauncherProfiles', 'triggerKey'],
     ['settings-keybindings.contract', 'KeybindingRow', 'triggerKey'], ['snapshot.contract', 'SnapshotPanel', 'triggerKey'],
-    ['browser-defaults.contract', 'BdViewportSelect', 'triggerKey'], ['panel.contract', 'R4AddSurface', 'triggerKey'],
+    ['browser-defaults.contract', 'BdViewportSelect', 'triggerKey'], ['panel.contract', 'AddSurfaceMenu', 'triggerKey'],
     ['settings-projects.contract', 'GhostSelect', 'triggerKey'], ['settings-projects.contract', 'ProjectActionsSection', 'triggerKey'],
     ['pages-pr-actions.contract', 'PrdActionsMenu', 'moreKey'], ['browser-profiles.contract', 'BrowserProfilesSetting', 'triggerKey'],
     ['browser-profiles.contract', 'BrowserProfileRow', 'triggerKey'], ['sidebar-row.contract', 'ThreadRow', 'snoozeKey'],
     ['settings-scheduled.contract', 'TaskRow', 'triggerKey'], ['settings-scheduled.contract', 'ScheduledEditor', 'environmentKey'],
-    ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['git.contract', 'R4GitRows', 'gitMenuKey'],
-    ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['project-scripts.contract', 'R6ScriptRow', 'triggerKey'],
-    ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['files-surface.contract', 'R4FileHeader', 'editorsKey'],
-    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'R6RailMenuButton', 'triggerKey'],
+    ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['git.contract', 'GitRows', 'gitMenuKey'],
+    ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'], ['project-scripts.contract', 'ScriptRow', 'triggerKey'],
+    ['shell-details.contract', 'OpenInRow', 'triggerKey'], ['files-surface.contract', 'FileHeader', 'editorsKey'],
+    ['requests.contract', 'ApprovalActions', 'menuKey'], ['diff.contract', 'DiffToolbar', 'scopeKey'], ['device-workspace.contract', 'RailMenuButton', 'triggerKey'],
   ];
   test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
     const found: string[] = [];
@@ -210,7 +210,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
       : name === 'PrFiltersMenu' ? [['openMenu']]
       : name === 'PrRowStack' ? [['control', 'quick-stack', 'repo:42']]
       : name === 'ThreadRow' ? [['hoverCard', '', false]]
-      : name === 'R4GitRows' ? [['local', 'git-open', 'menu', '']] : [];
+      : name === 'GitRows' ? [['local', 'git-open', 'menu', '']] : [];
     const keys = name === 'EnvironmentIconMenu' ? ['Enter', ' ', 'Space'] : ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'];
     for (const key of keys) {
       calls.length = 0;
@@ -394,13 +394,13 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
     ['pages-pr-code.contract', 'PrdScopeMore', '"pull-request-code-scope-more"'], ['pages-pr-handoffs.contract', 'PrdHandoffItem', 'testId'],
     ['pages-pr-links.contract', 'PrdActOnItem', '`${idPrefix}${item.key}`'], ['pages-pr-quick.contract', 'PqStackItem', 'testId'], ['pages-pr-stack.contract', 'PsMenuItem', 'testId'],
     ['pages-usage.contract', 'CheckRow', 'testId'], ['pages-usage.contract', 'UsageMenuItem', 'testId'], ['settings-kit.contract', 'SkMenuItem', 'itemId'],
-    ['settings-b-kit.contract', 'CnMenuItem', 'itemId'], ['device-workspace.contract', 'R6MenuItem', 'testId'], ['timeline-plan.contract', 'PlanMenuItem', 'itemId'],
+    ['settings-b-kit.contract', 'CnMenuItem', 'itemId'], ['device-workspace.contract', 'DeviceMenuItem', 'testId'], ['timeline-plan.contract', 'PlanMenuItem', 'itemId'],
     ['sidebar-row.contract', 'SnoozeMenuItem', 'itemId'], ['shell-details.contract', 'EditorOption', '`details-editor-${editor.id}`'],
     ['settings-scheduled.contract', 'TaskMenuItem', 'itemId'], ['settings-projects.contract', 'ImportScriptItem', '`import-script-${script.name}`'],
-    ['panel.contract', 'R4MenuItem', '`linked-pr-menu-${test}`'], ['panel.contract', 'R4AddItem', '`add-surface-${surface.id}`'],
-    ['files-surface.contract', 'R4CrumbItem', 'test'], ['markdown.contract', 'TableMenuItem', 'testId'], ['connections-routes.contract', 'RouteMenuItem', 'itemId'],
+    ['panel.contract', 'PanelMenuItem', '`linked-pr-menu-${test}`'], ['panel.contract', 'AddSurfaceMenuItem', '`add-surface-${surface.id}`'],
+    ['files-surface.contract', 'FilesCrumbItem', 'test'], ['markdown.contract', 'TableMenuItem', 'testId'], ['connections-routes.contract', 'RouteMenuItem', 'itemId'],
     ['connections.contract', 'EnvironmentIconMenu', '`environment-icon-${environment.environmentId}`'],
-    ['browser-defaults.contract', 'BdViewportItem', '`browser-default-viewport-option-${option.value}`'], ['git.contract', 'R4GitMenuRow', '`details-git-menu-${item.id}`'],
+    ['browser-defaults.contract', 'BdViewportItem', '`browser-default-viewport-option-${option.value}`'], ['git.contract', 'GitMenuRow', '`details-git-menu-${item.id}`'],
   ];
   test.each(rows)('%s %s: pointer focus and arrows share the real row; leaving clears its highlight', async (file, name, id) => {
     const body = await component(file, name);
@@ -452,8 +452,8 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
     const popupOf = (line: string): string | null => {
       const own = line.match(/^\s*KeyMenu\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/);
       if (own) return own[1]!;
-      // R6RailMenuButton names its KeyMenu's popup itself (`keysId`).
-      const rail = line.match(/^\s*R6RailMenuButton\(.*\bkeysId=("[^"]*")/)?.[1];
+      // RailMenuButton names its KeyMenu's popup itself (`keysId`).
+      const rail = line.match(/^\s*RailMenuButton\(.*\bkeysId=("[^"]*")/)?.[1];
       if (rail) return rail;
       const wrapped = line.match(/^\s*(?:SkPopup|CnMenu)\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
       if (!wrapped) return null;

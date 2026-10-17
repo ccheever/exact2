@@ -3,14 +3,14 @@
 
 // BranchToolbarBranchSelector's checkout item: shown while a local draft's ref
 // search parses as a pull request reference (0 or 1 entries).
-shape R9CheckoutItem
+shape CheckoutItem
   reference: string
   title: string
   mark: string
 
 // PullRequestThreadDialog: the reference field, the resolved pull request, and
 // Local / Worktree (git.preparePullRequestThread; worktree passes the draft's thread id).
-shape R9Checkout
+shape PrCheckout
   open: bool
   // One per opening: the field's own text belongs to the opening that typed it.
   key: string

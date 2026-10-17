@@ -19,7 +19,7 @@ shape TableMenuView
   // 1 when ↓ opened the menu (its first item takes the focus), -1 for ↑ (the last), 0 for none.
   keyed: number
 
-component R8TableMenu
+component TableCopyMenu
   props
     menu: TableMenuView
     dark: bool

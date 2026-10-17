@@ -113,7 +113,7 @@ describe('media in Files\' rendered Markdown', () => {
 describe('a sent attachment\'s Markdown media', () => {
   test('with no folder and no thread a host path is unavailable and nothing is signed; a web URL loads as written', async () => {
     const { client, calls } = fakeClient();
-    await surfaceLocal(client, native, 'r5-attachment', 'att-md', '');
+    await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
     const view = await panelView(client, native, 1000);
     expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: ATTACHED }]);
     const chips = view.attachment.md.chips.filter(chip => chip.kind === 'media');

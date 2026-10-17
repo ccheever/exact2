@@ -163,7 +163,7 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     expect(tableMenuSnapshot(c).tableMenu).toEqual([]);
     await expect(tableMenuAction(c, 'table-menu', 'tbl-1', '0|0|0|0|1280|840|x')).rejects.toThrow('That table is unavailable.');
     // The drawn frame wins over the layout's when the module measures it (a scrolled transcript).
-    const measuring: Native = { available: true, watch() {}, async later(input: unknown) { return obj(input).op === 'r8MeasureFrame' ? { ok: true, value: { x: 900, y: 150, width: 24, height: 24, windowWidth: 1280, windowHeight: 840 } } : { ok: true, value: {} }; } } as unknown as Native;
+    const measuring: Native = { available: true, watch() {}, async later(input: unknown) { return obj(input).op === 'measureFrame' ? { ok: true, value: { x: 900, y: 150, width: 24, height: 24, windowWidth: 1280, windowHeight: 840 } } : { ok: true, value: {} }; } } as unknown as Native;
     await chatLocal(c, measuring, 'table-menu', 'tbl-1', value);
     expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ triggerY: 150, y: 178 });
   });

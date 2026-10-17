@@ -1,9 +1,9 @@
 // The Device surface's opened device, workspace and floating player
 // (device-session.ts). Its one import (device-tools-shapes.contract) has none, so the surfaces' shapes can use
 // it without a cycle.
-use R7DevDeviceWorkspace from "./device-tools-shapes.contract"
-use R9DevFolding from "./device-duo-shapes.contract"
-shape R6DeviceRail
+use DeviceControls from "./device-tools-shapes.contract"
+use DeviceFolding from "./device-duo-shapes.contract"
+shape DeviceRail
   inputConnected: bool
   appearance: string
   appearanceLabel: string
@@ -13,12 +13,12 @@ shape R6DeviceRail
   textSizeDisabled: bool
   screenshotLabel: string
   screenshotDisabled: bool
-shape R6DeviceStream
+shape DeviceStreamState
   status: string
   message: string
   error: bool
   inputNotice: string
-shape R6DeviceWorkspace
+shape DeviceWorkspace
   key: string
   name: string
   description: string
@@ -27,11 +27,11 @@ shape R6DeviceWorkspace
   hostId: string
   screenLabel: string
   alert: string
-  stream: R6DeviceStream
-  rail: R6DeviceRail
-  r7: R7DevDeviceWorkspace
-  r9: R9DevFolding
-shape R6DeviceView
+  stream: DeviceStreamState
+  rail: DeviceRail
+  controls: DeviceControls
+  folding: DeviceFolding
+shape DeviceSessionView
   mode: string
   pendingKey: string
   openingName: string
@@ -40,8 +40,8 @@ shape R6DeviceView
   operationError: string
   booting: string
   hostDetail: string
-  workspace: R6DeviceWorkspace
-shape R6DeviceMini
+  workspace: DeviceWorkspace
+shape DeviceMini
   show: bool
   key: string
   name: string
@@ -49,5 +49,5 @@ shape R6DeviceMini
   platform: string
   deviceId: string
   hostId: string
-  stream: R6DeviceStream
+  stream: DeviceStreamState
   sourceKey: string // previewMiniPlayerSourceKey: a gesture names the source it began on (the frame is the chat canvas's)

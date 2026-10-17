@@ -1,9 +1,9 @@
 use MorphQueueSteer from "../shell/shell-morph.contract"
-use R4Glyph from "../details/git.contract"
+use ExtraGlyph from "../details/git.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
 use Snapshot, Control from "../shared/shapes.contract"
-use R5ComposerLabelProbes from "./composer-label-probes.contract"
-use R5TextProbes from "./composer-label-probes.contract"
+use ComposerLabelProbes from "./composer-label-probes.contract"
+use TextProbes from "./composer-label-probes.contract"
 use Viewport from "../shared/shapes.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use ComposerNotice from "./composer-shapes.contract"
@@ -487,8 +487,8 @@ component ComposerFooter
   view
     row width=(resting ? `calc(100% - ${2.5 * rem}px)` : "100%") height=(resting ? "2rem" : "3rem") padding-left=(resting ? "0.875rem" : "1rem") padding-right=(resting ? "0.875rem" : "1rem") padding-bottom=(resting ? "0px" : "1rem") box-sizing="border-box" align-items="center" gap="0.5rem" position=(resting ? "absolute" : "relative") left=(resting ? "1.25rem" : "0px") top=(resting ? "3.125rem" : "0px") border-radius=(resting ? "1rem" : "0px") background-color=(resting ? "light-dark(#fafafa, #101010)" : "#00000000") hatch="t3-frame" data-frame="toolbar" testId="composer-toolbar"
       // The labels' natural widths (composer-label-probes.contract), read by footerLayout.
-      R5TextProbes(probes=data.composer.menuProbes)
-      R5ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
+      TextProbes(probes=data.composer.menuProbes)
+      ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
       // The model picker sits 10pt left of this row (-ms-2.5); main's macOS hit test reaches a
       // child's visible overflow (652a6c865), so the part outside the row takes its press.
       row flex=1 min-width=0 gap=(resting ? "0px" : "0.25rem") align-items="center" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor="controls"
@@ -702,7 +702,7 @@ component ComposerMenus
                   for item in branches.checkout key=item.reference
                     button press=command("chatlocal:git-pr-open", "", item.reference, 0) hover=hover(0) testId="branch-checkout-pr" role="option" aria-selected=false class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") id="branch-checkout-pr"
                       row min-width=0 gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" align-items="center"
-                        R4Glyph(name=item.mark, size=14, color="light-dark(#71717b, #818181)")
+                        ExtraGlyph(name=item.mark, size=14, color="light-dark(#71717b, #818181)")
                         column min-width=0 align-items="flex-start"
                           text item.title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 text-align="left"
                           text item.reference font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 text-align="left"
@@ -720,7 +720,7 @@ component ComposerMenus
               if branches.originShown
                 button press=local("git-origin", "", "") role="switch" aria-checked=branches.originOn aria-label="Start worktree from origin" testId="branch-origin" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
                   row min-width=0 gap="0.375rem" align-items="center"
-                    R4Glyph(name="refresh-cw", size=12, color="light-dark(#71717a, #818181)")
+                    ExtraGlyph(name="refresh-cw", size=12, color="light-dark(#71717a, #818181)")
                     text "Start from origin" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
                   row width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content=(branches.originOn ? "flex-end" : "flex-start") background-color=(branches.originOn ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") aria-hidden=true
                     box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#ffffff, #0a0a0a)" box-shadow="0 1px 2px #0000000d"

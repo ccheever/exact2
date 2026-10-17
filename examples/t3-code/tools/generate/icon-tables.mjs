@@ -76,8 +76,8 @@ export const TIMELINE_ICON = [
   'workflow', 'external-link',
 ];
 
-/** panel-icons.contract R4Icon: the right panel's surfaces. */
-export const R4_ICON = [
+/** panel-icons.contract PanelIcon: the right panel's surfaces. */
+export const PANEL_ICON = [
   'earth', 'chevrons-up-down', 'chevrons-down-up', 'wrap-text', 'folder-tree', ['code', 'code-xml'],
   ['table', 'table-2'], 'eye', 'eye-off', 'ellipsis', 'arrow-up-right', 'link', 'link-2', 'unlink-2', 'plus',
   'refresh-cw', 'loader', 'smartphone', 'check', 'circle-alert', 'layers', 'x', 'arrow-left',

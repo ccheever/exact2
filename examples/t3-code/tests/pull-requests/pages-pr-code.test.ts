@@ -77,7 +77,7 @@ function fixture(replies: Record<string, Reply> = {}, slices: (payload: Obj) => 
     savePreferences: async () => {},
   } as unknown as T3Client;
   let wakes = 0;
-  const native = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes++; return { ok: true, generation: 1, value: { at: NOW } }; } } as unknown as Native;
+  const native = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'wake') wakes++; return { ok: true, generation: 1, value: { at: NOW } }; } } as unknown as Native;
   const ask = (input: Partial<DetailInput> = {}) => pullRequestDetail(client, native, { selected, refresh: 0, now: NOW, tab: 'code', ...input });
   const settle = async (input: Partial<DetailInput> = {}) => { let before = wakes, view = await ask(input); for (let i = 0; wakes > before && i < 12; i++) { before = wakes; view = await ask(input); } return view; };
   const press = (op: string, value = '') => prCodeLocalFor(client, native, op, selected, value);

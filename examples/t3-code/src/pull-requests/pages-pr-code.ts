@@ -10,7 +10,7 @@
 // reference's tab is keyed by the pull request): the scope, the slices, the folds, the draft, the
 // opened hidden ranges, the ticks and the conversations' pages. Every read is the resource's, one
 // at a time, and stays due when Exact lets its answer go; what a read changes is shown first and
-// the resource asked again (`r10Wake`), as the panel's other reads do.
+// the resource asked again (`wake`), as the panel's other reads do.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';

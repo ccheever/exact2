@@ -16,7 +16,7 @@ use SidebarDropVerb from "./sidebar-row.contract"
 use ShellView from "../shell/shell-shapes.contract"
 use SidebarEdgeTips from "./sidebar-control-tips.contract"
 use SidebarWindowRail from "./sidebar-rail.contract"
-use R6TextProbes from "../details/project-scripts.contract"
+use PlacementProbes from "../details/project-scripts.contract"
 use LegacyDialogs from "./legacy-sidebar.contract"
 use SnoozeDateField from "./snooze-calendar.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
@@ -81,7 +81,7 @@ component SidebarOverlays
         SidebarControlTip(label="Discard draft", x=(width - 28), y=(hoverY + 15), start=false, shown=(hoverId == `draft:${d.id}#discard`))
     // The row tooltips' texts, measured (sidebar-tips.ts).
     if open
-      R6TextProbes(probes=data.sidebar.probes)
+      PlacementProbes(probes=data.sidebar.probes)
     // The sidebar chrome's tooltips (rail, search row, footer), above the page.
     if open and dragId == ""
       SidebarEdgeTips(width=width, hoverId=hoverId, newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.projectGroupCount > 1 ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests)

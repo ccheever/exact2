@@ -1,5 +1,5 @@
 use DialogFinalFocus from "../shared/dialog-trap.contract"
-use R4Glyph from "../details/git.contract"
+use ExtraGlyph from "../details/git.contract"
 use CnGlyph from "../settings/settings-b-kit.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
 use PvField from "../settings/providers-kit.contract"
@@ -61,7 +61,7 @@ component NdAction
       if busyLabel != ""
         // Spinner (`motion-safe:animate-spin`): still under reduced motion.
         box width="0.875rem" height="0.875rem" display="flex" animation=(still ? "none" : "ndSpin 1s linear infinite") testId=`${buttonId}-spinner`
-          R4Glyph(name="loader-circle", size=14, color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff"))
+          ExtraGlyph(name="loader-circle", size=14, color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff"))
         text busyLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff")
       else
         text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff")

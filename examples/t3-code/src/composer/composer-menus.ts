@@ -3,7 +3,7 @@
 // (min-w-40, max-w calc(100vw - 2rem), p-1 inside a 1pt border, items px-2 with
 // gap-2) holds TraitsPicker's radio groups, the runtime Select and
 // BranchToolbar's MobileRunContextSelector ("Run on", then Workspace). Each text
-// is laid out by composer-label-probes.contract's R5TextProbes and reported through the
+// is laid out by composer-label-probes.contract's TextProbes and reported through the
 // t3-anchor hook (T3Composer.swift); until a probe reports, the estimate stands in.
 import { obj, type Obj } from '../client/domain';
 import { textWidth as estimate14 } from './composer-controls-view';

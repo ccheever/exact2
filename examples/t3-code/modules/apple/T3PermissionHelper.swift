@@ -99,11 +99,11 @@ struct T3FinderReveal {
     }
 }
 
-/// With R9_INPUT_LOG set (the real-input sessions' log, T3ComposerInput.swift), each System
+/// With T3_COMPOSER_INPUT_LOG set (the real-input sessions' log, T3ComposerInput.swift), each System
 /// Settings reading and each show, hide and close of the helper, and why: a session can tell a hidden helper (it comes
 /// back with the next reading) from a closed one, which no screenshot can.
 enum T3PermissionHelperLog {
-    static let path = ProcessInfo.processInfo.environment["R9_INPUT_LOG"].flatMap { $0.isEmpty ? nil : $0 }
+    static let path = ProcessInfo.processInfo.environment["T3_COMPOSER_INPUT_LOG"].flatMap { $0.isEmpty ? nil : $0 }
     static func note(_ line: @autoclosure () -> String) {
         guard let path, let data = "\(Date().timeIntervalSince1970) helper \(line())\n".data(using: .utf8) else { return }
         if let handle = FileHandle(forWritingAtPath: path) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() }

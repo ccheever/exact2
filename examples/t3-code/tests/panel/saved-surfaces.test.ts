@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { adoptRightPanels, restoreRightPanel, savedPanel, syncRightPanels } from '../../src/panel/saved-panel';
-import { keepR11, prTargetOf, restoredEffects } from '../../src/panel/saved-surfaces';
+import { keepRestored, prTargetOf, restoredEffects } from '../../src/panel/saved-surfaces';
 import { prSurfaceId } from '../../src/panel/pr-surface';
 
 // Every right-panel surface persists across launches, as rightPanelStore's
@@ -27,7 +27,7 @@ describe('Right panels keep every surface across launches', () => {
       { id: 'attachment:att-1', kind: 'attachment', path: 'notes.md', line: 0, attachment: meta },
     ] });
     // A Device surface before a device was chosen is the picker: kept without a target.
-    expect(keepR11({ id: 'device', kind: 'device', path: '', line: 0 })).toEqual({ id: 'device', kind: 'device', path: '', line: 0 });
+    expect(keepRestored({ id: 'device', kind: 'device', path: '', line: 0 })).toEqual({ id: 'device', kind: 'device', path: '', line: 0 });
   });
 
   test('malformed entries are dropped as the migration drops them', () => {
@@ -35,10 +35,10 @@ describe('Right panels keep every surface across launches', () => {
     expect(prTargetOf({ projectId: 'p', repository: 'a/b', number: 1.5 })).toBeNull();
     expect(prTargetOf({ repository: 'a/b', number: 3 })).toBeNull();
     expect(prTargetOf({ projectId: 'p', repository: 'a/b', number: 3, host: 'GitHub.com' })).toEqual({ projectId: 'p', host: 'github.com', repository: 'a/b', number: 3, url: '' });
-    expect(keepR11({ id: 'attachment:other', kind: 'attachment', path: 'x', line: 0, attachment: meta })).toBeNull();
-    expect(keepR11({ id: 'diff:2', kind: 'diff', path: '', line: 0 })).toBeNull();
+    expect(keepRestored({ id: 'attachment:other', kind: 'attachment', path: 'x', line: 0, attachment: meta })).toBeNull();
+    expect(keepRestored({ id: 'diff:2', kind: 'diff', path: '', line: 0 })).toBeNull();
     // A device target with an unknown platform is not a target: the picker comes back.
-    expect(keepR11({ id: 'device', kind: 'device', path: '', line: 0, device: { ...device, platform: 'tv' } })).toEqual({ id: 'device', kind: 'device', path: '', line: 0 });
+    expect(keepRestored({ id: 'device', kind: 'device', path: '', line: 0, device: { ...device, platform: 'tv' } })).toEqual({ id: 'device', kind: 'device', path: '', line: 0 });
     const next = {} as { rightPanels?: Record<string, unknown> };
     adoptRightPanels(next, { rightPanels: { 'env:t1': { visible: true, active: 'pull-request:x', surfaces: [{ id: 'pull-request:x', kind: 'pull-request', pr: { projectId: 'p', repository: 'a/b', number: -1 } }, { id: 'diff', kind: 'diff' }] } } });
     // The active pull request was dropped: the first survivor while open (the Diff).

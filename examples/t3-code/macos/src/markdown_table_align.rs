@@ -1,4 +1,4 @@
-// Round-4 integration, included by markdown.rs: GFM column alignment for chat tables.
+// Included by markdown.rs: GFM column alignment for chat tables.
 // The portable parser ignores a table's `| :-- | --: | :-: |` rule, but T3's
 // ChatMarkdown keeps it (remark-gfm's `align` on every th and td). The rules are
 // read from the source in order, so the n-th table block takes the n-th rule;
@@ -42,7 +42,7 @@ fn table_aligns(text: &str) -> Vec<Vec<&'static str>> {
 }
 
 #[cfg(test)]
-mod r4_integrate_align_tests {
+mod table_align_tests {
     use super::*;
 
     #[test]

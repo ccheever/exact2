@@ -12,7 +12,7 @@ import SceneKit
 /// The converted assets use triangles, float positions / normals / UVs, normalized byte vertex
 /// colours, 16-bit indices, WebP textures (EXT_texture_webp) and metallic-roughness materials
 /// with clearcoat; that subset is what this reader accepts.
-enum R7GLB {
+enum T3GLB {
     struct Failure: Error { let message: String }
 
     static func parse(_ data: Data) throws -> SCNNode {
@@ -38,7 +38,7 @@ enum R7GLB {
     /// glTF base colours are linear; SceneKit reads NSColor components in their colour space.
     static func color(linear rgba: [Double]) -> NSColor {
         func encode(_ c: Double) -> Double { c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1 / 2.4) - 0.055 }
-        return NSColor(srgbRed: encode(rgba[r7: 0] ?? 1), green: encode(rgba[r7: 1] ?? 1), blue: encode(rgba[r7: 2] ?? 1), alpha: rgba[r7: 3] ?? 1)
+        return NSColor(srgbRed: encode(rgba[safe: 0] ?? 1), green: encode(rgba[safe: 1] ?? 1), blue: encode(rgba[safe: 2] ?? 1), alpha: rgba[safe: 3] ?? 1)
     }
 
     private struct Reader {
@@ -49,18 +49,18 @@ enum R7GLB {
         func scene() throws -> SCNNode {
             let nodes = json["nodes"] as? [[String: Any]] ?? []
             let scenes = json["scenes"] as? [[String: Any]] ?? []
-            let roots = (scenes[r7: json["scene"] as? Int ?? 0]?["nodes"] as? [Int]) ?? Array(nodes.indices)
+            let roots = (scenes[safe: json["scene"] as? Int ?? 0]?["nodes"] as? [Int]) ?? Array(nodes.indices)
             let materials = try (json["materials"] as? [[String: Any]] ?? []).map(material)
             let root = SCNNode()
             func build(_ index: Int) throws -> SCNNode {
-                guard let spec = nodes[r7: index] else { throw Failure(message: "Missing node \(index)") }
+                guard let spec = nodes[safe: index] else { throw Failure(message: "Missing node \(index)") }
                 let node = SCNNode()
                 node.name = spec["name"] as? String
                 if let t = spec["translation"] as? [Double], t.count == 3 { node.simdPosition = SIMD3(Float(t[0]), Float(t[1]), Float(t[2])) }
                 if let r = spec["rotation"] as? [Double], r.count == 4 { node.simdOrientation = simd_quatf(ix: Float(r[0]), iy: Float(r[1]), iz: Float(r[2]), r: Float(r[3])) }
                 if let s = spec["scale"] as? [Double], s.count == 3 { node.simdScale = SIMD3(Float(s[0]), Float(s[1]), Float(s[2])) }
                 if let m = spec["matrix"] as? [Double], m.count == 16 { node.simdTransform = simd_float4x4(columns: (SIMD4(m[0..<4].map(Float.init)), SIMD4(m[4..<8].map(Float.init)), SIMD4(m[8..<12].map(Float.init)), SIMD4(m[12..<16].map(Float.init)))) }
-                if let meshIndex = spec["mesh"] as? Int, let mesh = (json["meshes"] as? [[String: Any]])?[r7: meshIndex] {
+                if let meshIndex = spec["mesh"] as? Int, let mesh = (json["meshes"] as? [[String: Any]])?[safe: meshIndex] {
                     let primitives = mesh["primitives"] as? [[String: Any]] ?? []
                     // GLTFLoader names a one-primitive mesh's object after the mesh ("device-screen").
                     if primitives.count == 1 { node.geometry = try geometry(primitives[0], materials); node.name = mesh["name"] as? String ?? node.name }
@@ -75,7 +75,7 @@ enum R7GLB {
 
         /// One accessor's bytes, tightly packed, with its component count and type.
         func accessor(_ index: Int) throws -> (data: Data, count: Int, components: Int, type: Int, normalized: Bool) {
-            guard let spec = accessors[r7: index], let viewIndex = spec["bufferView"] as? Int, let view = views[r7: viewIndex] else { throw Failure(message: "Unsupported accessor \(index)") }
+            guard let spec = accessors[safe: index], let viewIndex = spec["bufferView"] as? Int, let view = views[safe: viewIndex] else { throw Failure(message: "Unsupported accessor \(index)") }
             let count = spec["count"] as? Int ?? 0, type = spec["componentType"] as? Int ?? 0
             let components = ["SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4][spec["type"] as? String ?? ""] ?? 0
             let size = [5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4][type] ?? 0
@@ -122,14 +122,14 @@ enum R7GLB {
                 element = SCNGeometryElement(indices: indices, primitiveType: .triangles)
             }
             let geometry = SCNGeometry(sources: sources, elements: [element])
-            if let index = primitive["material"] as? Int, let material = materials[r7: index] { geometry.materials = [material] }
+            if let index = primitive["material"] as? Int, let material = materials[safe: index] { geometry.materials = [material] }
             return geometry
         }
 
         func image(texture index: Int, linear: Bool) -> CGImage? {
-            guard let texture = (json["textures"] as? [[String: Any]])?[r7: index] else { return nil }
+            guard let texture = (json["textures"] as? [[String: Any]])?[safe: index] else { return nil }
             let source = ((texture["extensions"] as? [String: Any])?["EXT_texture_webp"] as? [String: Any])?["source"] as? Int ?? texture["source"] as? Int
-            guard let source, let spec = (json["images"] as? [[String: Any]])?[r7: source], let viewIndex = spec["bufferView"] as? Int, let view = views[r7: viewIndex] else { return nil }
+            guard let source, let spec = (json["images"] as? [[String: Any]])?[safe: source], let viewIndex = spec["bufferView"] as? Int, let view = views[safe: viewIndex] else { return nil }
             let start = view["byteOffset"] as? Int ?? 0, length = view["byteLength"] as? Int ?? 0
             guard start + length <= binary.count, let decoded = CGImageSourceCreateWithData(binary.subdata(in: start..<start + length) as CFData, nil), let image = CGImageSourceCreateImageAtIndex(decoded, 0, nil) else { return nil }
             // Data textures (normal, metal / rough) are linear; colour textures are sRGB.
@@ -145,9 +145,9 @@ enum R7GLB {
             let pbr = spec["pbrMetallicRoughness"] as? [String: Any] ?? [:]
             let factor = (pbr["baseColorFactor"] as? [Double]) ?? [1, 1, 1, 1]
             if let base = (pbr["baseColorTexture"] as? [String: Any])?["index"] as? Int, let image = image(texture: base, linear: false) {
-                material.diffuse.contents = factor.prefix(3).allSatisfy({ $0 == 1 }) ? image : R7GLB.tint(image, factor)
+                material.diffuse.contents = factor.prefix(3).allSatisfy({ $0 == 1 }) ? image : T3GLB.tint(image, factor)
                 material.diffuse.mappingChannel = (pbr["baseColorTexture"] as? [String: Any])?["texCoord"] as? Int ?? 0
-            } else { material.diffuse.contents = R7GLB.color(linear: factor) }
+            } else { material.diffuse.contents = T3GLB.color(linear: factor) }
             let metallic = pbr["metallicFactor"] as? Double ?? 1, roughness = pbr["roughnessFactor"] as? Double ?? 1
             if let mr = (pbr["metallicRoughnessTexture"] as? [String: Any])?["index"] as? Int, let image = image(texture: mr, linear: true) {
                 material.metalness.contents = image; material.metalness.textureComponents = .blue; material.metalness.intensity = metallic
@@ -157,7 +157,7 @@ enum R7GLB {
             if let occlusion = (spec["occlusionTexture"] as? [String: Any])?["index"] as? Int, let image = image(texture: occlusion, linear: true) { material.ambientOcclusion.contents = image; material.ambientOcclusion.textureComponents = .red }
             if let emissive = spec["emissiveFactor"] as? [Double], emissive.contains(where: { $0 > 0 }) {
                 if let index = (spec["emissiveTexture"] as? [String: Any])?["index"] as? Int, let image = image(texture: index, linear: false) { material.emission.contents = image }
-                else { material.emission.contents = R7GLB.color(linear: emissive + [1]) }
+                else { material.emission.contents = T3GLB.color(linear: emissive + [1]) }
             }
             if let clearcoat = (spec["extensions"] as? [String: Any])?["KHR_materials_clearcoat"] as? [String: Any] {
                 material.clearCoat.contents = NSNumber(value: clearcoat["clearcoatFactor"] as? Double ?? 0)
@@ -188,6 +188,6 @@ enum R7GLB {
 }
 
 extension Array {
-    subscript(r7 index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 #endif

@@ -253,7 +253,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // after this answer lands, LLP 1016.002 D4).
     if (pending) {
       native.watch(TASK_REFS_WAKE);
-      try { await native.later({ op: 'r10Wake', topic: TASK_REFS_WAKE }); } catch (error) { if (letGo(error)) throw error; }
+      try { await native.later({ op: 'wake', topic: TASK_REFS_WAKE }); } catch (error) { if (letGo(error)) throw error; }
     }
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target?.taskId && !!all && !task;

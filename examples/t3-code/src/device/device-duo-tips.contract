@@ -4,7 +4,7 @@
 // shell-tip.contract's card. The bubble sits outside its trigger's box, so it takes no hits.
 use TipCard from "../shell/shell-tip.contract"
 
-component R10DevLeftTip
+component DuoLeftTip
   props
     label: string
     shown: bool
@@ -13,7 +13,7 @@ component R10DevLeftTip
       TipCard(label=label, shown=shown)
 
 // The failed command's "!" (role alert), its message on hover.
-component R10DevErrorMark
+component DuoErrorMark
   props
     error: string
   state over = false
@@ -22,4 +22,4 @@ component R10DevErrorMark
   view
     box position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center"
       text "!" font-size="0.75rem" line-height="1rem" color="light-dark(#e40014, #ff6467)" role="alert" aria-label=error testId="device-folding-error"
-      R10DevLeftTip(label=error, shown=over)
+      DuoLeftTip(label=error, shown=over)

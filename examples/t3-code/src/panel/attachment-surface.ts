@@ -199,7 +199,7 @@ export const attachmentToken = (name: string) => fileIconToken(name);
 /** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
 export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); }
 
-/** `surface-r5-att-*`: the header's controls. */
+/** `surface-linked-att-*`: the header's controls. */
 export async function attachmentLocal(client: T3Client, native: Native, op: string, id: string, now: number): Promise<string> {
   const meta = requireAttachment(client, id);
   return attachmentOp(client, native, meta, sentSource(meta), op, now);

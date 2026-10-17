@@ -10,9 +10,9 @@ final class RightPanelTabsInput {
     private var elements: [String: Weak] = [:]
     private var monitor: Any?
     func install(_ element: ExactElement) {
-        // The rename editor is the anchor `tab-editor:<id>` (panel.contract R4TabNameField).
+        // The rename editor is the anchor `tab-editor:<id>` (panel.contract PanelTabNameField).
         guard element.hatch == .t3Anchor, let name = element.data[.anchor],
-              ["r12-tab:", "tab-close:", "tab-cancel:", "tab-focus:", "tab-editor:"].contains(where: name.hasPrefix) else { return }
+              ["tab-chip:", "tab-close:", "tab-cancel:", "tab-focus:", "tab-editor:"].contains(where: name.hasPrefix) else { return }
         elements[name] = Weak(element)
         if monitor == nil {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .keyDown]) { [weak self] event in
@@ -51,14 +51,14 @@ final class RightPanelTabsInput {
             return event
         }
         guard event.type == .otherMouseDown && event.buttonNumber == 2 else { return event }
-        for (name, item) in elements where name.hasPrefix("r12-tab:") {
+        for (name, item) in elements where name.hasPrefix("tab-chip:") {
             guard let element = item.element, element.isLive, let view = element.view, view.window === window,
                   !view.isHiddenOrHasHiddenAncestor,
                   // visibleRect alone is not clipped to the view's bounds (an unclipped NSView reports
                   // its ancestors' visible area), so every tab matched and the first in the
                   // dictionary closed: the agent's middle click (exact2 #186) showed it.
                   view.bounds.intersection(view.visibleRect).contains(view.convert(event.locationInWindow, from: nil)) else { continue }
-            elements["tab-close:" + String(name.dropFirst("r12-tab:".count))]?.element?.click()
+            elements["tab-close:" + String(name.dropFirst("tab-chip:".count))]?.element?.click()
             return nil
         }
         return event

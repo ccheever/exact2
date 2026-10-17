@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 /// and input protocols are T3DeviceClient.swift's; what each stream is doing is reported as
 /// `presentation.deviceStreams[hostId \0 deviceId]`, the Tools drawer's feeds as
 /// `presentation.deviceTools[hostId \0 deviceId]` (T3DeviceTools.swift).
-enum R6DeviceWire {
+enum T3DeviceWire {
     static let touch: UInt8 = 0x03, button: UInt8 = 0x04, orientation: UInt8 = 0x07, hardwareKeyboard: UInt8 = 0x0d, screenConfig: UInt8 = 0x82
     static let orientations = ["portrait", "landscape_left", "portrait_upside_down", "landscape_right"]
     static let firstFrameTimeout: TimeInterval = 15
@@ -87,14 +87,14 @@ enum R6DeviceWire {
 /// DeviceStreamView: the live screen of one device, flat (the picture in the largest box at the
 /// device's aspect, rotated for a portrait framebuffer shown sideways) or, in the panel, the 3D
 /// phone (T3DevicePhone.swift). Pointer touches and the focused view's keys go to the device
-/// through R7DeviceClient; accessibility frames draw over the flat picture (T3DeviceTools.swift).
-final class R6DeviceScreenView: NSView {
-    typealias Access = R7DeviceClient.Access
+/// through T3DeviceClient; accessibility frames draw over the flat picture (T3DeviceTools.swift).
+final class T3DeviceScreenView: NSView {
+    typealias Access = T3DeviceClient.Access
     let key: String, platform: String, deviceId: String, hostId: String
     private let report: () -> Void
-    let client: R7DeviceClient
+    let client: T3DeviceClient
     private let picture = CALayer()
-    let overlay = R7DeviceAxOverlay()
+    let overlay = T3DeviceAxOverlay()
     private(set) var image: CGImage?
     private var imageSize: CGSize = .zero
     private var touching = false
@@ -106,18 +106,18 @@ final class R6DeviceScreenView: NSView {
     var presentation = "" { didSet { if presentation != oldValue { refresh() } } }
     var deviceName = "" { didSet { if deviceName != oldValue { phone?.setName(deviceName) } } }
     var axOverlay = false { didSet { if axOverlay != oldValue { refresh() } } }
-    private(set) var phone: R7DevicePhoneView?
+    private(set) var phone: T3DevicePhoneView?
     /// The iPhone Duo's hinged viewer (T3DeviceDuoView.swift) and a foldable's fold reads (T3DeviceFold.swift).
-    private(set) var duoView: R9DuoView?
-    private(set) var fold: R9DeviceFold?
-    private(set) var duoState = R9DuoControlState()
+    private(set) var duoView: T3DuoView?
+    private(set) var fold: T3DeviceFold?
+    private(set) var duoState = T3DuoControlState()
     private var phoneFailed = false
     var screen: (width: Double, height: Double, orientation: String)? { client.screen.map { ($0.width, $0.height, $0.orientation) } }
     var sent: [Data] { client.sent }
 
     init(key: String, platform: String, deviceId: String, hostId: String, access: @escaping Access, report: @escaping () -> Void) {
         self.key = key; self.platform = platform; self.deviceId = deviceId; self.hostId = hostId; self.report = report
-        client = R7DeviceClient(platform: platform, deviceId: deviceId, hostId: hostId, access: access)
+        client = T3DeviceClient(platform: platform, deviceId: deviceId, hostId: hostId, access: access)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -153,7 +153,7 @@ final class R6DeviceScreenView: NSView {
         client.onDuoUnavailable = { [weak self] _ in self?.phoneFailed = true; self?.refresh(); self?.report() }
         client.onPanelFrame = { [weak self] panel, image in self?.duoView?.frameUpdated(panel, image) }
         if platform == "android" {
-            fold = R9DeviceFold(deviceId: deviceId, hostId: hostId, access: access) { [weak self] in
+            fold = T3DeviceFold(deviceId: deviceId, hostId: hostId, access: access) { [weak self] in
                 guard let self else { return }
                 self.phone?.setFoldAngle(self.fold?.angle)
                 self.report()
@@ -213,7 +213,7 @@ final class R6DeviceScreenView: NSView {
 
     /// fitDeviceFrame: the largest box at `aspect` inside the view, centred.
     var frameRect: CGRect {
-        let fitted = R7DeviceGeometry.fit(aspect: aspect, width: Double(bounds.width), height: Double(bounds.height))
+        let fitted = T3DeviceGeometry.fit(aspect: aspect, width: Double(bounds.width), height: Double(bounds.height))
         return CGRect(x: (bounds.width - fitted.width) / 2, y: (bounds.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
     }
 
@@ -231,13 +231,13 @@ final class R6DeviceScreenView: NSView {
         presentation.hasPrefix("phone") && (status == "streaming" || retainingAndroidFrame) && phoneUnavailableReason == nil && window != nil
     }
 
-    var isDuo: Bool { R7DeviceModels.id(platform: platform, name: deviceName) == "iphone-duo" }
+    var isDuo: Bool { T3DeviceModels.id(platform: platform, name: deviceName) == "iphone-duo" }
 
     private func refresh() {
         updateFold()
         if showPhone && isDuo {
             if duoView == nil {
-                let view = R9DuoView(touch: { [weak self] phase, x, y in self?.client.sendRawTouch(phase, x: x, y: y) },
+                let view = T3DuoView(touch: { [weak self] phase, x, y in self?.client.sendRawTouch(phase, x: x, y: y) },
                                      unavailable: { [weak self] in self?.phoneFailed = true; self?.refresh(); self?.report() },
                                      panelRequested: { [weak self] panel in self?.client.controlDuo(.physical(panel == 1 ? "facedown" : "faceup")) },
                                      orientationRequested: { [weak self] value in self?.client.controlDuo(.orientation(value)) },
@@ -253,7 +253,7 @@ final class R6DeviceScreenView: NSView {
         } else if let view = duoView { view.dispose(); view.removeFromSuperview(); duoView = nil; client.setDuoPanels(false) }
         if showPhone && !isDuo {
             if phone == nil {
-                let view = R7DevicePhoneView(platform: platform, name: deviceName, touch: { [weak self] phase, x, y in self?.client.sendTouch(phase, x: x, y: y) },
+                let view = T3DevicePhoneView(platform: platform, name: deviceName, touch: { [weak self] phase, x, y in self?.client.sendTouch(phase, x: x, y: y) },
                                              unavailable: { [weak self] in self?.phoneFailed = true; self?.refresh(); self?.report() })
                 view.frame = bounds; view.autoresizingMask = [.width, .height]
                 addSubview(view)
@@ -308,7 +308,7 @@ final class R6DeviceScreenView: NSView {
 
     /// Reads the hub's accessibility tree; set while the overlay is on (DeviceStreamView polls it
     /// every 2 s and keeps the last good tree when a read fails).
-    var axSource: ((@escaping ([R7AxElement]?) -> Void) -> Void)? {
+    var axSource: ((@escaping ([T3AxElement]?) -> Void) -> Void)? {
         didSet { axGeneration += 1; overlay.set([]); if axSource != nil { pollAx(axGeneration) } }
     }
     private var axGeneration = 0
@@ -326,7 +326,7 @@ final class R6DeviceScreenView: NSView {
     /// resetView: an iPad with its keyboard turns to landscape, anything else to portrait, then the
     /// 3D pose returns to rest.
     func resetView(keyboard: Bool) {
-        if R7DeviceModels.id(platform: platform, name: deviceName) != "iphone-duo" {
+        if T3DeviceModels.id(platform: platform, name: deviceName) != "iphone-duo" {
             let orientation = keyboard ? "landscape_right" : "portrait"
             if client.screen?.orientation != orientation { client.setOrientation(orientation) }
         }
@@ -342,7 +342,7 @@ final class R6DeviceScreenView: NSView {
     /// A Duo stand (`pose:<id>`) or a fold posture from the rail.
     func folding(_ action: String, _ value: String) {
         if action == "fold" { return fold?.set(value, enabled: status == "streaming") ?? () }
-        guard let command = R9DuoCommand.parse(value) else { return }
+        guard let command = T3DuoCommand.parse(value) else { return }
         duoView?.end(); duoView?.cancelInput()
         client.controlDuo(command)
     }
@@ -388,7 +388,7 @@ final class R6DeviceScreenView: NSView {
         client.sendKey(phase: "up", keyCode: event.keyCode, characters: event.characters, flags: event.modifierFlags)
     }
     override func flagsChanged(with event: NSEvent) {
-        guard let phase = R7DeviceKeys.modifierPhase(keyCode: event.keyCode, flags: event.modifierFlags) else { return }
+        guard let phase = T3DeviceKeys.modifierPhase(keyCode: event.keyCode, flags: event.modifierFlags) else { return }
         if phase == "down", event.modifierFlags.contains(.command) { return }
         client.sendKey(phase: phase, keyCode: event.keyCode, characters: nil, flags: event.modifierFlags)
     }
@@ -400,16 +400,16 @@ final class R6DeviceScreenView: NSView {
     }
 }
 /// The hooked screens, their reports, input and screenshots.
-final class R6DeviceStreams {
-    private var views: [ObjectIdentifier: R6DeviceScreenView] = [:]
-    private let access: R6DeviceScreenView.Access
+final class T3DeviceStreams {
+    private var views: [ObjectIdentifier: T3DeviceScreenView] = [:]
+    private let access: T3DeviceScreenView.Access
     private let changed: (String) -> Void
 
-    private let tools: R7DeviceToolFeeds
+    private let tools: T3DeviceToolFeeds
 
-    init(access: @escaping R6DeviceScreenView.Access, changed: @escaping (String) -> Void) {
+    init(access: @escaping T3DeviceScreenView.Access, changed: @escaping (String) -> Void) {
         self.access = access; self.changed = changed
-        tools = R7DeviceToolFeeds(access: access, changed: changed)
+        tools = T3DeviceToolFeeds(access: access, changed: changed)
     }
 
     /// key → the panel's report when the panel shows it, else the most advanced among the views
@@ -435,7 +435,7 @@ final class R6DeviceStreams {
         if let current = views[key], current.key == deviceKey, current.platform == platform { return configure(current, element) }
         detach(key)
         guard !deviceId.isEmpty else { return }
-        let view = R6DeviceScreenView(key: deviceKey, platform: platform, deviceId: deviceId, hostId: hostId, access: access) { [weak self] in self?.changed("t3.status") }
+        let view = T3DeviceScreenView(key: deviceKey, platform: platform, deviceId: deviceId, hostId: hostId, access: access) { [weak self] in self?.changed("t3.status") }
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
@@ -446,7 +446,7 @@ final class R6DeviceStreams {
     }
 
     /// The panel's presentation choices, the device's name and the foreground-app feed.
-    private func configure(_ view: R6DeviceScreenView, _ element: ExactElement) {
+    private func configure(_ view: T3DeviceScreenView, _ element: ExactElement) {
         view.deviceName = element.data[.mediaName] ?? ""
         view.presentation = element.data[.deviceView] ?? ""
         view.axOverlay = element.data[.deviceAx] == "1"
@@ -469,7 +469,7 @@ final class R6DeviceStreams {
         changed("t3.status")
     }
 
-    /// `r6DeviceInput`: Home, Back, Recents, Rotate, Reconnect, "orientation" (value) and "reset"
+    /// `deviceInput`: Home, Back, Recents, Rotate, Reconnect, "orientation" (value) and "reset"
     /// (Restore 3D view) on every view showing that device.
     func input(_ request: [String: Any]) -> [String: Any] {
         let action = request["action"] as? String ?? "", key = request["key"] as? String ?? "", value = request["value"] as? String ?? ""
@@ -486,15 +486,15 @@ final class R6DeviceStreams {
         return ["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["delivered": targets.count]]
     }
 
-    /// `r6DeviceScreenshot` (captureDeviceScreenshot): POST the hub's screenshot route, then save
+    /// `deviceScreenshot` (captureDeviceScreenshot): POST the hub's screenshot route, then save
     /// the PNG where the person chooses (under the agent, the data root's exports/).
-    static func screenshot(_ request: [String: Any], access: @escaping R6DeviceScreenView.Access, exportsRoot: URL?, reply: @escaping ([String: Any]) -> Void) {
+    static func screenshot(_ request: [String: Any], access: @escaping T3DeviceScreenView.Access, exportsRoot: URL?, reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         let done = { (value: [String: Any]) in reply(["ok": true, "generation": generation, "value": value]) }
         let platform = request["platform"] as? String ?? "ios", deviceId = request["deviceId"] as? String ?? "", hostId = request["hostId"] as? String ?? ""
         let name = (request["name"] as? String ?? "device").replacingOccurrences(of: "[^A-Za-z0-9-]", with: "-", options: .regularExpression)
         access { origin, ticket in
-            guard let origin, let ticket, let url = R6DeviceWire.url(origin: origin, path: "\(R6DeviceWire.vendor(platform))/api/screenshot", query: [URLQueryItem(name: "device", value: deviceId)], ticket: ticket, hostId: hostId) else {
+            guard let origin, let ticket, let url = T3DeviceWire.url(origin: origin, path: "\(T3DeviceWire.vendor(platform))/api/screenshot", query: [URLQueryItem(name: "device", value: deviceId)], ticket: ticket, hostId: hostId) else {
                 return done(["ok": false, "message": "Reconnect to the environment and try again."])
             }
             var post = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)

@@ -6,7 +6,7 @@ import XCTest
 // style (exact2 #113, main #164), so the app keeps no frame record of its own; what
 // is left to the app is that its own title row (T3WindowChrome's empty unified
 // toolbar, added when the composer first mounts) does not change that frame.
-final class R8PointerTests: XCTestCase {
+final class WindowFrameTests: XCTestCase {
     /// The window as the host leaves it after launch: `viewport-fit=cover`'s full-size
     /// content, then the saved frame put back.
     func window(_ frame: NSRect) -> NSWindow {
@@ -44,8 +44,8 @@ final class R8PointerTests: XCTestCase {
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: R8PointerTests.self)
+let suite = XCTestSuite(forTestCaseClass: WindowFrameTests.self)
 suite.run()
 let run = suite.testRun!
-print("R8Pointer tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
+print("Window frame tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
 exit(run.totalFailureCount == 0 ? 0 : 1)

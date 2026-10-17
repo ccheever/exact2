@@ -42,7 +42,7 @@ export function resolveThreadDetailsCardLayout({
   return { x, width, y: gap, height } as const;
 }
 
-/** The `t3-frame` names the card's content reports (shell-details.contract DetailsBody, git.contract R4GitRows). */
+/** The `t3-frame` names the card's content reports (shell-details.contract DetailsBody, git.contract GitRows). */
 export const DETAILS_FRAMES = {
   /** The whole content, scrolled or not. */
   content: 'details-content',

@@ -6,22 +6,22 @@ use MarkdownEnv from "../timeline/markdown.contract"
 use MarkdownSource from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/markdown.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
-use R6PrExtra from "../details/pr-row-shapes.contract"
-use R6MergeAsk from "../details/pr-row-shapes.contract"
+use PrRowExtra from "../details/pr-row-shapes.contract"
+use MergeAsk from "../details/pr-row-shapes.contract"
 
-shape R5CodeRun
+shape AttachmentCodeRun
   id: string
   text: string
   syntax: string
-shape R5CodeLine
+shape AttachmentCodeLine
   id: string
   number: string
-  runs: R5CodeRun[]
-shape R5TableRow
+  runs: AttachmentCodeRun[]
+shape AttachmentTableRow
   id: string
   header: bool
-  cells: R5CodeRun[]
-shape R5PrRow
+  cells: AttachmentCodeRun[]
+shape DetailsPrRow
   key: string
   label: string
   tooltip: string
@@ -40,19 +40,19 @@ shape R5PrRow
   actionLabel: string
   actionTooltip: string
   actionDisabled: bool
-  r6: R6PrExtra
-shape R5PrRows
+  extra: PrRowExtra
+shape DetailsPrRowList
   show: bool
-  rows: R5PrRow[]
-  rest: R5PrRow[]
+  rows: DetailsPrRow[]
+  rest: DetailsPrRow[]
   moreLabel: string
   expanded: bool
-  merge: R6MergeAsk
-shape R5PrSurface
+  merge: MergeAsk
+shape PrSurface
   selected: string
   number: number
   label: string
-shape R5Attachment
+shape AttachmentSurface
   id: string
   // The first crumb: "Attachment", or "Draft" for a composer file chip's preview, which also has Remove from draft and Close.
   origin: string
@@ -75,12 +75,12 @@ shape R5Attachment
   saving: bool
   saveLabel: string
   truncatedNote: string
-  table: R5TableRow[]
-  lines: R5CodeLine[]
+  table: AttachmentTableRow[]
+  lines: AttachmentCodeLine[]
   gutter: number
   url: string
   noPreview: string
-  // The rendered Markdown is ChatMarkdown, as Files' (R4Files): app.contract's filesMarkdown
+  // The rendered Markdown is ChatMarkdown, as Files' (FilesView): app.contract's filesMarkdown
   // answers markdownSource (kind "attachment"); md, code, diagrams, mdUrls and Copy code's check as the transcript's.
   markdownSource: MarkdownSource[]
   md: MarkdownEnv
@@ -92,4 +92,4 @@ shape R5Attachment
 // A composer file chip's preview (composer-chip-file.ts): open while its draft file is in the open draft.
 shape ComposerFilePreview
   open: bool
-  file: R5Attachment
+  file: AttachmentSurface

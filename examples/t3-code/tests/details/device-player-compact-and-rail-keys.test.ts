@@ -131,12 +131,12 @@ describe('the pull request rows place their cards for the presentation shown', (
     } as unknown as T3Client;
     // The docked card (open by default on a wide chat): 262 pt rows 12 pt in; the trigger ends 83.3 pt from the window's edge.
     const docked = (await shellDetails(prClient, native, false, 't1', true, 1, 0)).prRows.rows[0]!;
-    expect([docked.r6.tail, docked.r6.card.maxWidth]).toEqual([83.3, 262 + 8]);
+    expect([docked.extra.tail, docked.extra.card.maxWidth]).toEqual([83.3, 262 + 8]);
     // The popover shown on the same wide chat: 246 pt rows 13 pt in, as on a narrow one.
     const shown = (await shellDetails(prClient, native, true, 't1', true, 1, 0)).prRows.rows[0]!;
     const narrow = (await shellDetails(prClient, native, true, 't1', false, 1, 0)).prRows.rows[0]!;
-    expect([shown.r6.tail, shown.r6.card.maxWidth]).toEqual([84.3, 246 + 8]);
-    expect(shown.r6).toEqual(narrow.r6);
+    expect([shown.extra.tail, shown.extra.card.maxWidth]).toEqual([84.3, 246 + 8]);
+    expect(shown.extra).toEqual(narrow.extra);
     forgetDetails(prClient);
   });
 });

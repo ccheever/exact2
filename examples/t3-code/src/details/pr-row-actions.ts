@@ -195,7 +195,7 @@ async function openThreadWithTask(client: T3Client, native: Native, projectId: s
 }
 /** The panel's resource and the shell read again now, so "Opening..." and the loading toast show while the hand-off works. */
 async function wakeHandoff(native: Native): Promise<void> {
-  for (const topic of ['t3.pr', 't3.notify']) { try { await native.later({ op: 'r10Wake', topic }); } catch (error) { if (letGo(error)) throw error; } }
+  for (const topic of ['t3.pr', 't3.notify']) { try { await native.later({ op: 'wake', topic }); } catch (error) { if (letGo(error)) throw error; } }
 }
 
 /** startAsk: a question about the change, which needs a thread and nothing else. True when a thread was opened. */

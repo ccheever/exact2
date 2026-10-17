@@ -29,7 +29,7 @@ final class TabInputTests: XCTestCase {
         input = RightPanelTabsInput()
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 140, height: 24))
         window.contentView!.addSubview(row)
-        install("r12-tab:device:test", node: 1, view: row)
+        install("tab-chip:device:test", node: 1, view: row)
         let close = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 24))
         row.addSubview(close)
         install("tab-close:device:test", node: 2, view: close)
@@ -64,7 +64,7 @@ final class TabInputTests: XCTestCase {
         // the monitor lists (found by the agent's `auxclick`, exact2 #186).
         let row = NSView(frame: NSRect(x: 150, y: 0, width: 100, height: 24))
         window.contentView!.addSubview(row)
-        install("r12-tab:files", node: 5, view: row)
+        install("tab-chip:files", node: 5, view: row)
         let close = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 24))
         row.addSubview(close)
         install("tab-close:files", node: 6, view: close)
@@ -78,7 +78,7 @@ final class TabInputTests: XCTestCase {
         XCTAssertTrue(tabActions.isEmpty)
     }
     func testDoubleClickIsLeftToTheTitleButtonsOwnDblclick() {
-        // panel.contract R4TabChip: the title button's `dblclick` starts rename, so the
+        // panel.contract PanelTabChip: the title button's `dblclick` starts rename, so the
         // agent's `tap … dblclick` and a person's reach the same path; the monitor passes it on.
         XCTAssertNotNil(input.handle(mouse(.leftMouseDown, count: 2)))
         XCTAssertTrue(tabActions.isEmpty)
@@ -90,7 +90,7 @@ final class TabInputTests: XCTestCase {
         XCTAssertTrue(tabActions.isEmpty)
     }
     func testShiftF10PassesToTheTabsOwnKeyHandler() {
-        // The tab's buttons answer Shift+F10 in Contract (panel.contract R4TabChip tabKey); the monitor leaves it alone.
+        // The tab's buttons answer Shift+F10 in Contract (panel.contract PanelTabChip tabKey); the monitor leaves it alone.
         let button = NSButton(frame: NSRect(x: 24, y: 0, width: 90, height: 24))
         elements[0].view!.addSubview(button)
         window.makeFirstResponder(button)

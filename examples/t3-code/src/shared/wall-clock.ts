@@ -11,7 +11,7 @@
 // epoch only above 1e12 ms (2001-09-09), and anything below it is unknown.
 //
 // Writers (onboardingCompletedAt) must store an instant or nothing. D16 and
-// the round-12 real-input pass stored `1970-01-01T00:01:37Z` because the
+// a real-input pass stored `1970-01-01T00:01:37Z` because the
 // finish command carried `now()` (ms since launch) as its time, and this
 // module then returned that small number as if it were an epoch.
 import { clock } from '../sidebar/sidebar-state';

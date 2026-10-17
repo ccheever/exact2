@@ -10,7 +10,7 @@ import XCTest
 final class Peer {
     let listener: NWListener
     private(set) var port: UInt16 = 0
-    private let queue = DispatchQueue(label: "r6-device-peer")
+    private let queue = DispatchQueue(label: "device-stream-peer")
     private var lines: [String] = []
     private var packets: [Data] = []
     private var connections: [NWConnection] = []
@@ -88,21 +88,21 @@ final class DeviceStreamTests: XCTestCase {
     }
 
     func testWireFormat() {
-        XCTAssertEqual(R6DeviceWire.tagged(0x04, ["button": "home"]), Data([0x04]) + Data(#"{"button":"home"}"#.utf8))
-        XCTAssertEqual(R6DeviceWire.nextOrientation(nil), "landscape_left")
-        XCTAssertEqual(R6DeviceWire.nextOrientation("landscape_right"), "portrait")
+        XCTAssertEqual(T3DeviceWire.tagged(0x04, ["button": "home"]), Data([0x04]) + Data(#"{"button":"home"}"#.utf8))
+        XCTAssertEqual(T3DeviceWire.nextOrientation(nil), "landscape_left")
+        XCTAssertEqual(T3DeviceWire.nextOrientation("landscape_right"), "portrait")
         // rawPoint: only a portrait framebuffer shown rotated is remapped.
-        XCTAssertTrue(R6DeviceWire.rawPoint(x: 0.25, y: 0.75, screen: (390, 844, "landscape_left")) == (0.75, 0.75))
-        XCTAssertTrue(R6DeviceWire.rawPoint(x: 0.25, y: 0.75, screen: (390, 844, "portrait_upside_down")) == (0.75, 0.25))
-        XCTAssertTrue(R6DeviceWire.rawPoint(x: 0.25, y: 0.75, screen: (844, 390, "landscape_left")) == (0.25, 0.75))
-        XCTAssertEqual(R6DeviceWire.fit(CGSize(width: 100, height: 200), in: CGRect(x: 0, y: 0, width: 300, height: 300)), CGRect(x: 75, y: 0, width: 150, height: 300))
-        let url = R6DeviceWire.url(origin: URL(string: "https://host.example:8443")!, path: "/vendor/serve-sim/helper/ws", query: [URLQueryItem(name: "device", value: "A-B")], ticket: "t", hostId: "local", websocket: true)
+        XCTAssertTrue(T3DeviceWire.rawPoint(x: 0.25, y: 0.75, screen: (390, 844, "landscape_left")) == (0.75, 0.75))
+        XCTAssertTrue(T3DeviceWire.rawPoint(x: 0.25, y: 0.75, screen: (390, 844, "portrait_upside_down")) == (0.75, 0.25))
+        XCTAssertTrue(T3DeviceWire.rawPoint(x: 0.25, y: 0.75, screen: (844, 390, "landscape_left")) == (0.25, 0.75))
+        XCTAssertEqual(T3DeviceWire.fit(CGSize(width: 100, height: 200), in: CGRect(x: 0, y: 0, width: 300, height: 300)), CGRect(x: 75, y: 0, width: 150, height: 300))
+        let url = T3DeviceWire.url(origin: URL(string: "https://host.example:8443")!, path: "/vendor/serve-sim/helper/ws", query: [URLQueryItem(name: "device", value: "A-B")], ticket: "t", hostId: "local", websocket: true)
         XCTAssertEqual(url?.absoluteString, "wss://host.example:8443/api/device-hub/vendor/serve-sim/helper/ws?device=A-B&wsTicket=t&hostId=local")
         // Split frames: two whole JPEGs and the start of a third survive arbitrary chunking.
         let a = jpeg(width: 4, height: 8, color: .red), b = jpeg(width: 4, height: 8, color: .blue)
         var stream = Data("--frame\r\nContent-Type: image/jpeg\r\n\r\n".utf8) + a + Data("\r\n--frame\r\n\r\n".utf8) + b + Data("\r\n--frame\r\n\r\n".utf8) + a.prefix(10)
         var found: [Data] = [], buffer = Data()
-        while !stream.isEmpty { buffer.append(stream.prefix(7)); stream = stream.dropFirst(7); let (images, rest) = R6DeviceWire.frames(buffer); found += images; buffer = rest }
+        while !stream.isEmpty { buffer.append(stream.prefix(7)); stream = stream.dropFirst(7); let (images, rest) = T3DeviceWire.frames(buffer); found += images; buffer = rest }
         XCTAssertEqual(found, [a, b])
         XCTAssertEqual(buffer, a.prefix(10))
     }
@@ -112,7 +112,7 @@ final class DeviceStreamTests: XCTestCase {
     // WebSocket on one origin) in macos/tests/device-video (testIosUndecodableDescriptionFallsBackToMjpeg,
     // testAndroidStreamDecodesAndForwardsInput).
     func testMissingAccessSaysWhy() {
-        let offline = R6DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-1", hostId: "local", access: { done in done(nil, nil) }) {}
+        let offline = T3DeviceScreenView(key: "k", platform: "ios", deviceId: "SIM-1", hostId: "local", access: { done in done(nil, nil) }) {}
         offline.start()
         spin(until: { offline.status == "error" }, timeout: 3)
         XCTAssertEqual(offline.detail, "Reconnect to the environment and try again.")
@@ -120,22 +120,22 @@ final class DeviceStreamTests: XCTestCase {
 
     func testInputSocketCarriesHomeAndRotate() throws {
         let helper = try Peer(websocket: true)
-        let view = R6DeviceScreenView(key: "local\u{0}SIM-1", platform: "ios", deviceId: "SIM-1", hostId: "local",
+        let view = T3DeviceScreenView(key: "local\u{0}SIM-1", platform: "ios", deviceId: "SIM-1", hostId: "local",
                                       access: { done in done(URL(string: "http://127.0.0.1:\(helper.port)")!, "ticket-2") }) {}
         let window = window(view)
         view.start()
         spin(until: { view.inputConnected })
         XCTAssertTrue(view.inputConnected)
-        helper.push(R6DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait"]))
+        helper.push(T3DeviceWire.tagged(0x82, ["width": 390, "height": 844, "orientation": "portrait"]))
         spin(until: { view.screen != nil })
         XCTAssertEqual(view.screen?.orientation, "portrait")
         view.press("home")
         view.press("rotate")
         spin(until: { helper.received.count >= 3 })
         let packets = helper.received
-        XCTAssertEqual(packets.first, R6DeviceWire.tagged(0x0d, ["enabled": false]), "the helper's hardware keyboard is released on open")
-        XCTAssertTrue(packets.contains(R6DeviceWire.tagged(0x04, ["button": "home"])))
-        XCTAssertTrue(packets.contains(R6DeviceWire.tagged(0x07, ["orientation": "landscape_left"])))
+        XCTAssertEqual(packets.first, T3DeviceWire.tagged(0x0d, ["enabled": false]), "the helper's hardware keyboard is released on open")
+        XCTAssertTrue(packets.contains(T3DeviceWire.tagged(0x04, ["button": "home"])))
+        XCTAssertTrue(packets.contains(T3DeviceWire.tagged(0x07, ["orientation": "landscape_left"])))
         view.stop()
         window.orderOut(nil)
     }

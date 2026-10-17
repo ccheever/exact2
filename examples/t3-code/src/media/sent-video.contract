@@ -9,7 +9,7 @@ use MediaActions from "./media-actions.contract"
 // size-full rounded-lg border border-border/80 bg-black object-contain"), the whole face the
 // "Play {name}" button with a 32pt black/50 disc and a 16pt filled Play glyph. Before its
 // signed URL arrives the cell is the black loading panel.
-component R6VideoTile
+component SentVideoTile
   props
     id: string
     name: string
@@ -19,9 +19,9 @@ component R6VideoTile
   // UserVideoAttachment passes its signed attachment as actionsSource (Save video; no Copy image).
   view
     MediaActions(source=`attachment:${id}`, tip=name, local=local, elementId="", testId=`attachment-video-actions-${id}`)
-      R6VideoFace(id=id, name=name, url=url, messageId=messageId, local=local)
+      SentVideoFace(id=id, name=name, url=url, messageId=messageId, local=local)
 
-component R6VideoFace
+component SentVideoFace
   props
     id: string
     name: string
@@ -42,7 +42,7 @@ component R6VideoFace
 // ExpandedVideo: MediaVideoPlayer with controls, autoplay and playsInline at its natural size up
 // to the dialog's media box ("aspect-auto max-h-[var(--media-height)] w-auto
 // max-w-[var(--media-width)] rounded-lg border border-border/70 shadow-2xl").
-component R6ExpandedVideo
+component ExpandedVideo
   props
     url: string
     name: string

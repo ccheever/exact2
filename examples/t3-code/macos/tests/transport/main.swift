@@ -398,24 +398,24 @@ final class TransportTests: XCTestCase {
 }
 
 // An environment removed on this device leaves nothing that names it. Two loopback servers
-// (R3Socket, R3HTTP) are paired, one is focused, then removed; credentials and the saved list are in memory and the
+// (FixtureSocket, FixtureHTTP) are paired, one is focused, then removed; credentials and the saved list are in memory and the
 // remembered origin lives in a UserDefaults suite of this test's own, so no real Keychain item and no real preferences
 // domain is read or written.
 final class ForgetOriginTests: XCTestCase {
     private let originKey = "t3.server.origin"
     private struct Rig {
-        let a: R3Socket, b: R3Socket
+        let a: FixtureSocket, b: FixtureSocket
         let credentials: T3Credentials, saved: T3SavedEnvironments
         let defaults: UserDefaults, suite: String
         var originA: String { "http://127.0.0.1:\(a.port)" }
         var originB: String { "http://127.0.0.1:\(b.port)" }
     }
     private func makeRig() throws -> Rig {
-        let a = try R3Socket(), b = try R3Socket()
+        let a = try FixtureSocket(), b = try FixtureSocket()
         let suite = "exact-t3-transport-forget-\(UUID().uuidString)"
         let rig = Rig(a: a, b: b, credentials: T3Credentials(persistent: false), saved: T3SavedEnvironments(persistent: false),
                       defaults: UserDefaults(suiteName: suite)!, suite: suite)
-        R3HTTP.reset { request in
+        FixtureHTTP.reset { request in
             let environment = request.url?.port == Int(a.port) ? "env-a" : "env-b"
             switch request.url!.path {
             case "/.well-known/t3/environment":
@@ -430,7 +430,7 @@ final class ForgetOriginTests: XCTestCase {
     }
     private func makeTransport(_ rig: Rig, persistent: Bool = true) -> T3Transport {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [R3HTTP.self]
+        config.protocolClasses = [FixtureHTTP.self]
         return T3Transport(persistent: persistent, configuration: config, credentials: rig.credentials, savedEnvironments: rig.saved,
                            defaults: rig.defaults, signals: false, changed: { _ in })
     }
@@ -547,11 +547,11 @@ final class ForgetOriginTests: XCTestCase {
     }
 }
 
-// R3TransportTests (r3.swift): reconnect policy, read gate, stream retries. ForgetOriginTests: removal leaves no origin.
+// ReconnectTests (reconnect.swift): reconnect policy, read gate, stream retries. ForgetOriginTests: removal leaves no origin.
 // RemoteScopeTests (remote-scopes.swift): the exchange sends the scope TS names; a narrow link is refused.
 // RouteTests (routes.swift): one environment, several routes.
 // TerminalStreamTests (terminal-streams.swift): the drawer's attach streams beside the app's 16.
-let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RemoteScopeTests.defaultTestSuite, RouteTests.defaultTestSuite, TerminalStreamTests.defaultTestSuite, PrimaryTransportTests.defaultTestSuite, PullRequestDiffTransportTests.defaultTestSuite]
+let suites = [TransportTests.defaultTestSuite, ReconnectTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RemoteScopeTests.defaultTestSuite, RouteTests.defaultTestSuite, TerminalStreamTests.defaultTestSuite, PrimaryTransportTests.defaultTestSuite, PullRequestDiffTransportTests.defaultTestSuite]
 var executed = 0, failures = 0, succeeded = true
 for suite in suites {
     suite.run()

@@ -3,7 +3,7 @@
 // DeviceAndroidFoldControls.tsx, DeviceDuoGlyph.tsx, DeviceStreamView.tsx foldingControls;
 // packages/client-runtime/src/device/duoControl.ts DUO_POSES). The hinge itself, its command queue
 // and the fold reads are the app module's (T3DeviceDuo.swift, T3DeviceFold.swift), reported as
-// `presentation.deviceStreams[key].duo` and `.fold`; a press reaches it through `r6DeviceInput`
+// `presentation.deviceStreams[key].duo` and `.fold`; a press reaches it through `deviceInput`
 // (`duo` with `pose:<id>`, `fold` with `closed` / `opened`).
 import { obj, str, type Obj } from '../client/domain';
 
@@ -16,15 +16,15 @@ export const DUO_POSES = [
 ] as const;
 export type DuoPoseId = (typeof DUO_POSES)[number]['id'];
 
-export type R9DevStand = { id: string; label: string; tip: string; selected: boolean; glyph: string };
-export type R9DevStandGroup = { id: string; label: string; stands: R9DevStand[] };
-export type R9DevFolding = {
+export type DuoStand = { id: string; label: string; tip: string; selected: boolean; glyph: string };
+export type DuoStandGroup = { id: string; label: string; stands: DuoStand[] };
+export type DeviceFolding = {
   /** "duo", "fold" or "" (nothing beside the rail). */
-  kind: string; enabled: boolean; groups: R9DevStandGroup[]; error: string;
+  kind: string; enabled: boolean; groups: DuoStandGroup[]; error: string;
 };
 
-const NONE: R9DevFolding = { kind: '', enabled: false, groups: [], error: '' };
-export const emptyR9Folding = (): R9DevFolding => ({ ...NONE, groups: [] });
+const NONE: DeviceFolding = { kind: '', enabled: false, groups: [], error: '' };
+export const emptyFolding = (): DeviceFolding => ({ ...NONE, groups: [] });
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 
@@ -35,11 +35,11 @@ export function duoSelected(id: string, hingeAngle: number | null, hingePose: st
 }
 
 /** DeviceStreamView foldingControls for the device the report describes. */
-export function r9Folding(report: Obj, platform: string, phoneShown: boolean, inputConnected: boolean): R9DevFolding {
+export function deviceFolding(report: Obj, platform: string, phoneShown: boolean, inputConnected: boolean): DeviceFolding {
   if (platform === 'android') {
     // DeviceAndroidFoldControls: only once the emulator says it folds.
     const fold = obj(report.fold);
-    if (fold.supported !== true) return emptyR9Folding();
+    if (fold.supported !== true) return emptyFolding();
     const posture = str(fold.posture), streaming = str(report.status) === 'streaming';
     return {
       kind: 'fold', enabled: streaming && fold.pending !== true, error: str(fold.error),
@@ -50,9 +50,9 @@ export function r9Folding(report: Obj, platform: string, phoneShown: boolean, in
     };
   }
   const duo = obj(report.duo);
-  if (!phoneShown || duo.supported !== true) return emptyR9Folding();
+  if (!phoneShown || duo.supported !== true) return emptyFolding();
   const angle = num(duo.hingeAngle), pose = str(duo.hingePose);
-  const stand = (pose_: (typeof DUO_POSES)[number]): R9DevStand => ({
+  const stand = (pose_: (typeof DUO_POSES)[number]): DuoStand => ({
     id: pose_.id, label: `${pose_.label} stand`, tip: `${pose_.label}${pose_.id === 'book' ? ' / bookshelf' : ''}`,
     selected: duoSelected(pose_.id, angle, pose), glyph: pose_.id,
   });
@@ -65,8 +65,8 @@ export function r9Folding(report: Obj, platform: string, phoneShown: boolean, in
   };
 }
 
-/** The `r6DeviceInput` value a press sends, or null when the control cannot act. */
-export function r9FoldingValue(kind: string, id: string): string | null {
+/** The `deviceInput` value a press sends, or null when the control cannot act. */
+export function foldingValue(kind: string, id: string): string | null {
   if (kind === 'duo') return DUO_POSES.some(pose => pose.id === id) ? `pose:${id}` : null;
   if (kind === 'fold') return id === 'closed' || id === 'opened' ? id : null;
   return null;

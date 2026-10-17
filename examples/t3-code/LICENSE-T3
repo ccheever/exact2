@@ -58,7 +58,7 @@ glsl, latex gnuplot) paints that part plain.
 
 bird2, hcl and terraform: Mozilla Public License 2.0
 
-The data for these three grammars (the chunks "bird2", "hcl" and "terraform" of r12-render-grammar-<n>.ts)
+The data for these three grammars (the chunks "bird2", "hcl" and "terraform" of src/highlight/grammar-<n>.ts)
 is generated from Covered Software under the Mozilla Public License, v. 2.0, and is distributed under
 its terms:
 

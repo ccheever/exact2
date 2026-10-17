@@ -309,7 +309,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
 
 /** `editorlocal:` commands: menu picks and chip insertion. Returns the result message. */
 export async function editorLocal(client: T3Client, native: Native, op: string, id: string, value: string, n = 0): Promise<string> {
-  if (op.startsWith('r4c-video-')) return videoOp(client, native, op, id); // the shelf's videos (composer-attachments.ts)
+  if (op.startsWith('shelf-video-')) return videoOp(client, native, op, id); // the shelf's videos (composer-attachments.ts)
   const entry = cache(client);
   if (op === 'pick') {
     const trigger = entry.trigger;

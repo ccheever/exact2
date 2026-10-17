@@ -41,7 +41,7 @@ use ApprovalComposer from "../composer/requests.contract"
 use DiffPanel from "../diff/diff.contract"
 use ShellView from "./shell-shapes.contract"
 use SurfacePanel from "./shell-panels.contract"
-use R6DeviceMiniPlayer from "../device/device-workspace.contract"
+use DeviceMiniPlayer from "../device/device-workspace.contract"
 use BrowserMiniPlayer from "../browser/browser-capture.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use ShellDetails from "./shell-shapes.contract"
@@ -275,7 +275,7 @@ component ChatColumn
         ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
       // A device floated over the chat (device-workspace.contract), in the canvas's frame.
       if shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
-        R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
+        DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
       // A Browser tab floated over the chat (browser-capture.contract).
       if shell.panel.browserMini.show and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
         BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)

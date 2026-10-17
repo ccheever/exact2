@@ -128,7 +128,7 @@ describe('openScratch', () => {
     const client = {} as T3Client, wakes: boolean[] = [];
     const native = { available: true, watch() {}, later: async (input: unknown) => {
       const request = input as Obj;
-      if (request.op === 'r10Wake') { wakes.push(machineChanging(client)); return { ok: true, value: {}, generation: 0 }; }
+      if (request.op === 'wake') { wakes.push(machineChanging(client)); return { ok: true, value: {}, generation: 0 }; }
       return { ok: true, value: { projectId: 'scratch' }, generation: 1 };
     } } as Native;
     expect(await openRemoteScratch(client, native, c)).toBe('scratch');

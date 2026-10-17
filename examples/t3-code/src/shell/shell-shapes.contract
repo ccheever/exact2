@@ -1,12 +1,12 @@
-use R4GitCard from "../details/git-shapes.contract"
+use GitCard from "../details/git-shapes.contract"
 // The window shell's projection (shell.ts): the toast stack, the header's
 // panel controls and labels, the right panel's surface chooser, the thread
 // details panel and the thread title's action menu.
 use AutomationsView from "../details/thread-automations.contract"
-use R4Panel from "../panel/panel-shapes.contract"
-use R5PrRows from "../panel/pr-attachment-shapes.contract"
+use PanelView from "../panel/panel-shapes.contract"
+use DetailsPrRowList from "../panel/pr-attachment-shapes.contract"
 use ComposerFilePreview from "../panel/pr-attachment-shapes.contract"
-use R9Checkout from "../composer/pr-checkout-shapes.contract"
+use PrCheckout from "../composer/pr-checkout-shapes.contract"
 
 shape ShellToast
   id: number
@@ -108,9 +108,9 @@ shape ShellView
   titleSubmenu: ShellMenuItem[]
   notifications: string
   // panel-surfaces.ts: the right panel's tabs and its Files / Linked pull requests / Device surfaces.
-  panel: R4Panel
+  panel: PanelView
   // The branch picker's PullRequestThreadDialog (pr-checkout.ts).
-  prCheckout: R9Checkout
+  prCheckout: PrCheckout
   // A composer file chip's AttachmentFilePreview over the draft's bytes (composer-chip-file.ts).
   composerFile: ComposerFilePreview
   highlightPending: bool // a Files / attachment code text waits for its Shiki tokens
@@ -173,8 +173,8 @@ shape ShellDetails
   mergeLabel: string
   mergeHint: string
   // The pull request rows under the branch (pr-surface.ts).
-  prRows: R5PrRows
+  prRows: DetailsPrRowList
   // ThreadAutomationsPanel (thread-automations.ts): the thread's bound scheduled tasks.
   automations: AutomationsView
   // The branch picker, Git actions and their dialogs (git-card.ts).
-  git: R4GitCard
+  git: GitCard

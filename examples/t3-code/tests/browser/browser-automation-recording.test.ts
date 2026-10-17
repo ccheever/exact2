@@ -270,7 +270,7 @@ describe('the window\'s send for the handed-over requests', () => {
     expect(action.slice(0, 2)).toEqual(['action automationRecordingNow', 'automationRecordingHandled = shell.panel.automationRecording.serial']);
     for (let slot = 0; slot < RECORDING_SENDS; slot++) expect(action).toContain(`send automationRecordingServed${slot} = command("shelllocal:surface-browser-automation-recording", "${slot}", "", 0)`);
     expect(action).toContain('if shell.panel.automationRecording.slot == 1');
-    expect(readFileSync(appPath('panel-shapes.contract'), 'utf8')).toContain('  automationRecording: R4AutomationRecording');
+    expect(readFileSync(appPath('panel-shapes.contract'), 'utf8')).toContain('  automationRecording: AutomationRecording');
   });
 
   it('is not the person\'s use of the panel: the viewed thread\'s panel is left as it was (no userRevision, no state)', async () => {

@@ -54,17 +54,17 @@ component PrEmptyState
         text detail margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)" testId="pull-requests-empty-text"
       if available and error != ""
         row flex-wrap="wrap" justify-content="center" gap="0.5rem" flex-shrink=0
-          R5OutlineSm(icon="refresh-cw", label="Retry", press=reload, testId="pull-requests-empty-action")
+          OutlineSmButton(icon="refresh-cw", label="Retry", press=reload, testId="pull-requests-empty-action")
       if not failed and action == "add-project"
-        R5PrimarySm(icon="plus", label="Add project", press=addProject, testId="pull-requests-empty-action")
+        PrimarySmButton(icon="plus", label="Add project", press=addProject, testId="pull-requests-empty-action")
       if not failed and action != "add-project"
         row flex-wrap="wrap" justify-content="center" gap="0.5rem" flex-shrink=0
           if action == "clear"
-            R5OutlineSm(icon="search", label="Clear search", press=control("query", ""), testId="pull-requests-empty-clear")
-          R5OutlineSm(icon="refresh-cw", label=(loading ? "Checking..." : "Check again"), press=reload, testId="pull-requests-empty-action")
+            OutlineSmButton(icon="search", label="Clear search", press=control("query", ""), testId="pull-requests-empty-clear")
+          OutlineSmButton(icon="refresh-cw", label=(loading ? "Checking..." : "Check again"), press=reload, testId="pull-requests-empty-action")
 
 // Button size="sm" (default variant): the primary fill, a leading 14pt glyph.
-component R5PrimarySm
+component PrimarySmButton
   props
     icon: string
     label: string
@@ -79,7 +79,7 @@ component R5PrimarySm
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"
 
 // Button size="sm" variant="outline" (pages-pr-detail.contract's PrdOutline).
-component R5OutlineSm
+component OutlineSmButton
   props
     icon: string
     label: string

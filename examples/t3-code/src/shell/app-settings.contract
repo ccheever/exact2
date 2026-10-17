@@ -1,7 +1,7 @@
 use SnapshotPanel from "../snapshot/snapshot.contract"
 use SnapshotSetup from "../snapshot/snapshot.contract"
 use SnapshotSettings from "../shared/shapes.contract"
-use R10PairFields from "../connections/pairing-shapes.contract"
+use PairFields from "../connections/pairing-shapes.contract"
 use KeybindingsPanel from "../settings/settings-keybindings.contract"
 use KeybindingPage from "../settings/settings-keybindings.contract"
 use ScheduledPanel from "../settings/settings-scheduled.contract"
@@ -434,7 +434,7 @@ component SettingsModals
     saveSnapshotShortcut: action
     connecting: bool
     origin: string
-    pairFields: R10PairFields
+    pairFields: PairFields
     credential: string
     data: Snapshot
     viewport: Viewport

@@ -1,19 +1,19 @@
 // The workspace card's Git data: git-actions.ts gitCardView and
 // git-branch.ts cardBranchView, carried on ShellDetails.git.
-use R9CheckoutItem from "../composer/pr-checkout-shapes.contract"
-shape R4GitRef
+use CheckoutItem from "../composer/pr-checkout-shapes.contract"
+shape GitRef
   name: string
   badge: string
   selected: bool
   index: number
-shape R4GitBranch
+shape GitBranch
   show: bool
   open: bool
   label: string
   value: string
   disabled: bool
   query: string
-  refs: R4GitRef[]
+  refs: GitRef[]
   creatable: string
   status: string
   empty: string
@@ -23,43 +23,43 @@ shape R4GitBranch
   originOn: bool
   count: number
   // "Checkout pull request" before the refs (0 or 1).
-  checkout: R9CheckoutItem[]
-shape R4GitMenuItem
+  checkout: CheckoutItem[]
+shape GitMenuItem
   id: string
   label: string
   icon: string
   disabled: bool
   reason: string
-shape R4GitNote
+shape GitNote
   id: string
   text: string
   tone: string
-shape R4GitFile
+shape GitFile
   path: string
   insertions: number
   deletions: number
   excluded: bool
-shape R4GitProvider
+shape GitProvider
   value: string
   label: string
   ready: bool
   hint: string
   selected: bool
 // Two provider cards side by side (the reference's grid-cols-2).
-shape R4ProviderRow
+shape GitProviderRow
   key: string
-  first: R4GitProvider
-  second: R4GitProvider
+  first: GitProvider
+  second: GitProvider
   pair: bool
 // One environment of the "Run on" select (git-env.ts).
-shape R4EnvOption
+shape RunOnOption
   id: string
   label: string
   machine: string
   primary: bool
   projectId: string
   selected: bool
-shape R4GitCard
+shape GitCard
   repo: bool
   initLabel: string
   initPending: bool
@@ -76,9 +76,9 @@ shape R4GitCard
   successDescription: string
   menuDisabled: bool
   menuOpen: bool
-  menu: R4GitMenuItem[]
+  menu: GitMenuItem[]
   menuPublish: bool
-  notes: R4GitNote[]
+  notes: GitNote[]
   dialog: string
   // The control that opened the dialog: the quick action, or the options menu's trigger (DialogFinalFocus).
   dialogFrom: string
@@ -86,7 +86,7 @@ shape R4GitCard
   commitBranch: string
   commitDefault: bool
   editing: bool
-  files: R4GitFile[]
+  files: GitFile[]
   fileCount: number
   selectedCount: number
   allSelected: bool
@@ -98,8 +98,8 @@ shape R4GitCard
   confirmDescription: string
   confirmContinue: string
   publishStep: number
-  publishProviders: R4GitProvider[]
-  publishRows: R4ProviderRow[]
+  publishProviders: GitProvider[]
+  publishRows: GitProviderRow[]
   publishProvider: string
   publishProviderLabel: string
   publishHost: string
@@ -119,6 +119,6 @@ shape R4GitCard
   publishUrl: string
   publishSummary: string
   envPick: bool
-  envOptions: R4EnvOption[]
+  envOptions: RunOnOption[]
   envCount: number
-  branch: R4GitBranch
+  branch: GitBranch

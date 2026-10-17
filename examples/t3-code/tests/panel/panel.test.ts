@@ -384,11 +384,11 @@ describe('the surface launcher keyboard', () => {
     return lines.slice(start, end).join('\n');
   };
 
-  // The native R8KeysLauncher is gone. The launcher focuses itself as it mounts
+  // The native launcher's key re-post is gone. The launcher focuses itself as it mounts
   // (`autofocus`, focusOnMount), and each available row declares its letter, either case, as `aria-keyshortcuts`: the host
   // presses it before any key handler wherever the focus is but an input context (Shortcut.permits), behind no modal and
   // not while the launcher is inert, once per press, by the physical key under a non-Latin layout. An unavailable row has
-  // no button, so no shortcut. Type-to-focus leaves the letters to it (r8-keys AppKit suite).
+  // no button, so no shortcut. Type-to-focus leaves the letters to it (the menu-bar AppKit suite).
   test('each available row is its letter\'s shortcut, in either case', async () => {
     const row = await component('SurfaceRow');
     const button = row.split('\n').find(line => line.includes('button press=choose(surface.id)'))!;

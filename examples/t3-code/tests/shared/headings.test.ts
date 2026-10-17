@@ -2,7 +2,7 @@
 // `aria-level`, and the Mac host now exposes it as AXHeading level 2 (TextInteraction.swift `headingLevel`; before,
 // such a text was AXStaticText). The reference's headings are `<h1>`–`<h6>`, so each clone heading says the level its
 // reference element has, and a reference label that is no heading says so: DeviceToolsPanel.tsx `Section`'s `<h3>` is
-// R7DevSection's `aria-level=3`; ProjectActionsSettings.tsx's `MenuGroupLabel` "Import from t3.json" is Base UI's
+// ToolsSection's `aria-level=3`; ProjectActionsSettings.tsx's `MenuGroupLabel` "Import from t3.json" is Base UI's
 // `role="presentation"` (as browser-defaults.contract's viewport group labels already are).
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';

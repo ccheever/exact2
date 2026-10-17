@@ -172,8 +172,8 @@ final class T3Composer {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         // ⌘B / ⌘I toggle bold and italic when the rich text composer is on (by key code
         // under a non-Latin source, ending composition first, T3ComposerInput.swift).
-        let chord = R9Input.chordKey(event)
-        if flags == .command, chord == "b" || chord == "i", window.firstResponder === view, editor.styler.richText, R9Input.commitMarkedText(view) {
+        let chord = T3ComposerInput.chordKey(event)
+        if flags == .command, chord == "b" || chord == "i", window.firstResponder === view, editor.styler.richText, T3ComposerInput.commitMarkedText(view) {
             editor.toggleMark(chord == "b" ? "**" : "*", in: view)
             return Routed(event: nil)
         }
@@ -210,7 +210,7 @@ final class T3Composer {
         guard live, event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
               let typed = event.charactersIgnoringModifiers, typed.count == 1 else { return false }
         // A key that types no ASCII letter (Korean 2-Set's ㄹ) is its physical key's, as the shortcut matches it (ShortcutsMac).
-        let key = typed.unicodeScalars.allSatisfy(\.isASCII) ? typed : (R10Connect.physicalKeys[event.keyCode] ?? typed)
+        let key = typed.unicodeScalars.allSatisfy(\.isASCII) ? typed : (T3LatinChords.physicalKeys[event.keyCode] ?? typed)
         return letters.uppercased().contains(key.uppercased())
     }
 

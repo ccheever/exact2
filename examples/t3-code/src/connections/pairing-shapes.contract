@@ -1,6 +1,6 @@
 // Add Environment's Host field split into host and pairing code when it holds a
 // full pairing URL (pairing-fields.ts pairingFields; host is "" otherwise).
-shape R10PairFields
+shape PairFields
   source: string
   host: string
   code: string

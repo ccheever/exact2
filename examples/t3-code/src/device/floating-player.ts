@@ -20,7 +20,7 @@ import type { T3Client } from '../client/client';
 import { arr, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { deviceStateOf, watchDevice } from './device-surface';
-import { closeMiniDevice, deviceThreadId, emptyMini, floatMiniDevice, miniDeviceOf, type DeviceTarget, type R6DeviceMini } from './device-session';
+import { closeMiniDevice, deviceThreadId, emptyMini, floatMiniDevice, miniDeviceOf, type DeviceTarget, type DeviceMini } from './device-session';
 
 type Track = { previous: Map<string, Set<string>>; tried: number };
 let tracks = new WeakMap<T3Client, Track>();
@@ -84,7 +84,7 @@ export async function threadDevices(client: T3Client, native: Native | null | un
 
 /** shouldRenderPreviewMiniPlayer: the player hides while the rendered panel surface is the same device. Its frame
  *  is the chat canvas's (chat-canvas-view.ts), which applies the same rule. */
-export function visibleMini(mini: R6DeviceMini, shown: DeviceTarget | undefined): R6DeviceMini {
+export function visibleMini(mini: DeviceMini, shown: DeviceTarget | undefined): DeviceMini {
   if (!mini.show) return mini;
   return shown && shown.hostId === mini.hostId && shown.deviceId === mini.deviceId ? emptyMini() : mini;
 }

@@ -3,8 +3,8 @@ use kmTriggerKey, kmTriggerTarget from "../shared/menu-keys.contract"
 // 1280×840 and 840×620: UsagePage's header (breadcrumb, metric and period
 // toggles or selects, refresh), the cost/tokens summary with the provider
 // chart, Totals, Breakdown, and the Limits view. T3 Code, MIT (LICENSE-T3).
-use R5Probe from "../composer/composer-label-probes.contract"
-use R5TextProbes from "../composer/composer-label-probes.contract"
+use TextProbe from "../composer/composer-label-probes.contract"
+use TextProbes from "../composer/composer-label-probes.contract"
 use ProviderMark from "../shared/icons.contract"
 use DriverMark from "../providers/provider-icons-kit.contract"
 use PgIcon from "../shared/pages-icons.contract"
@@ -84,7 +84,7 @@ shape UsageView
   // content from it.
   menuWidth: number
   // The menus' texts to measure (composer-menus.ts checkMenu).
-  menuProbes: R5Probe[]
+  menuProbes: TextProbe[]
   empty: string
   error: string
   environmentLabel: string
@@ -322,7 +322,7 @@ component UsageBreadcrumb
       text "Usage" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)" role="heading" aria-level=1 flex-shrink=0
       text "/" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" flex-shrink=0
       column position="relative" min-width="2.5rem"
-        R5TextProbes(probes=page.menuProbes)
+        TextProbes(probes=page.menuProbes)
         button id="usage-environment" popovertarget="usage-environment-menu" key=triggerKey hover=hover testId="usage-environment" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.125rem" min-width=0
           text page.environmentLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" text-decoration-line=(over ? "underline" : "none") line-clamp=1
           // A dashed circle while selected environments scan, an alert when one failed, else the chevron on hover.

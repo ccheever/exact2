@@ -9,17 +9,17 @@ import SceneKit
 /// `GET /api/fold?device=` reads `{ok, fold: {supported, posture, hingeAngle}}`; `POST` with
 /// `{posture: "closed" | "opened"}` changes it and answers the same shape. Capability comes from the
 /// emulator, never from its AVD name or screen size.
-struct R9FoldState: Equatable {
+struct T3FoldState: Equatable {
     var supported: Bool, posture: String?, hingeAngle: Double?
     static let postures = ["closed", "half_opened", "opened", "flipped", "tent"]
 
     /// parseFold: anything else is "Unexpected Android fold response."
-    static func parse(_ data: Data?) -> R9FoldState? {
+    static func parse(_ data: Data?) -> T3FoldState? {
         guard let data, let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               payload["ok"] as? Bool == true, let fold = payload["fold"] as? [String: Any],
               let supported = fold["supported"] as? NSNumber, CFGetTypeID(supported) == CFBooleanGetTypeID() else { return nil }
         let posture = fold["posture"], angle = fold["hingeAngle"]
-        var state = R9FoldState(supported: supported.boolValue, posture: nil, hingeAngle: nil)
+        var state = T3FoldState(supported: supported.boolValue, posture: nil, hingeAngle: nil)
         if let posture, !(posture is NSNull) {
             guard let text = posture as? String, postures.contains(text) else { return nil }
             state.posture = text
@@ -36,11 +36,11 @@ struct R9FoldState: Equatable {
 }
 
 /// DeviceAndroidFoldControls' reads and writes for one emulator, through the server's hub proxy.
-final class R9DeviceFold {
-    typealias Access = R7DeviceClient.Access
+final class T3DeviceFold {
+    typealias Access = T3DeviceClient.Access
     private let deviceId: String, hostId: String, access: Access
     private let changed: () -> Void
-    private(set) var fold: R9FoldState?
+    private(set) var fold: T3FoldState?
     private(set) var pending = false
     private(set) var error: String?
     /// The angle the 3D phone draws: the read, the press's target while it runs.
@@ -60,9 +60,9 @@ final class R9DeviceFold {
         return ["supported": fold.supported, "posture": fold.posture ?? "", "hingeAngle": fold.hingeAngle ?? NSNull(), "pending": pending, "error": error ?? ""]
     }
 
-    private func request(_ posture: String?, timeout: TimeInterval, _ done: @escaping (Result<R9FoldState, Failure>) -> Void) {
+    private func request(_ posture: String?, timeout: TimeInterval, _ done: @escaping (Result<T3FoldState, Failure>) -> Void) {
         access { [session, deviceId, hostId] origin, ticket in
-            guard let origin, let ticket, let url = R6DeviceWire.url(origin: origin, path: "/vendor/serve-emu/api/fold", query: [URLQueryItem(name: "device", value: deviceId)], ticket: ticket, hostId: hostId) else {
+            guard let origin, let ticket, let url = T3DeviceWire.url(origin: origin, path: "/vendor/serve-emu/api/fold", query: [URLQueryItem(name: "device", value: deviceId)], ticket: ticket, hostId: hostId) else {
                 return DispatchQueue.main.async { done(.failure(Failure(message: "Reconnect to the environment and try again.", timedOut: false))) }
             }
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
@@ -73,13 +73,13 @@ final class R9DeviceFold {
             }
             session.dataTask(with: request) { data, response, failure in
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                let result: Result<R9FoldState, Failure>
+                let result: Result<T3FoldState, Failure>
                 if let failure {
                     result = .failure(Failure(message: failure.localizedDescription, timedOut: (failure as? URLError)?.code == .timedOut))
                 } else if !(200..<300).contains(code) {
                     let payload = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                     result = .failure(Failure(message: payload?["error"] as? String ?? "Fold command failed (\(code)).", timedOut: false))
-                } else if let state = R9FoldState.parse(data) {
+                } else if let state = T3FoldState.parse(data) {
                     result = .success(state)
                 } else { result = .failure(Failure(message: "Unexpected Android fold response.", timedOut: false)) }
                 DispatchQueue.main.async { done(result) }
@@ -137,7 +137,7 @@ final class R9DeviceFold {
 
 /// createAndroidFoldScene: a procedural book-style foldable. One fixed half, one half rotating
 /// around a shared hinge; one continuous inner surface keeps adjacent pixels joined at the crease.
-final class R9FoldScene {
+final class T3FoldScene {
     static let height = 2.2, depth = 0.075, inset = 0.026, crease = 0.004, bevel = 0.008
     static let pivotZ = depth / 2 + 0.005, spineRadius = pivotZ + depth / 2 - 0.002
     static let defaultInnerAspect = 2076.0 / 2152.0
@@ -158,20 +158,20 @@ final class R9FoldScene {
 
     var width: Double { halfWidth * 2 }
 
-    init(material: SCNMaterial, angle: Double, innerAspect: Double = R9FoldScene.defaultInnerAspect) {
+    init(material: SCNMaterial, angle: Double, innerAspect: Double = T3FoldScene.defaultInnerAspect) {
         self.material = material
         let height = Self.height, depth = Self.depth, inset = Self.inset
         screenHeight = height - 2 * inset
         halfWidth = innerAspect * screenHeight / 2 + inset
         screenWidth = 2 * (halfWidth - inset)
         self.angle = angle
-        let frameMetal = R7DevicePhoneView.material(0xa3abb2, metal: 0.9, rough: 0.28)
-        let polished = R7DevicePhoneView.material(0xc4cad0, metal: 0.95, rough: 0.16)
-        let bezel = R7DevicePhoneView.material(0x0b0d10, metal: 0.1, rough: 0.2, clearcoat: 1)
-        let backGlass = R7DevicePhoneView.material(0x2c3237, metal: 0.35, rough: 0.52, clearcoat: 0.4)
-        let island = R7DevicePhoneView.material(0x1a1e22, metal: 0.55, rough: 0.3, clearcoat: 1)
-        let lens = R7DevicePhoneView.material(0x061022, metal: 0.6, rough: 0.1, clearcoat: 1)
-        let flash = SCNMaterial(); flash.lightingModel = .constant; flash.diffuse.contents = R7DevicePhoneView.color(0xf2ead6)
+        let frameMetal = T3DevicePhoneView.material(0xa3abb2, metal: 0.9, rough: 0.28)
+        let polished = T3DevicePhoneView.material(0xc4cad0, metal: 0.95, rough: 0.16)
+        let bezel = T3DevicePhoneView.material(0x0b0d10, metal: 0.1, rough: 0.2, clearcoat: 1)
+        let backGlass = T3DevicePhoneView.material(0x2c3237, metal: 0.35, rough: 0.52, clearcoat: 0.4)
+        let island = T3DevicePhoneView.material(0x1a1e22, metal: 0.55, rough: 0.3, clearcoat: 1)
+        let lens = T3DevicePhoneView.material(0x061022, metal: 0.6, rough: 0.1, clearcoat: 1)
+        let flash = SCNMaterial(); flash.lightingModel = .constant; flash.diffuse.contents = T3DevicePhoneView.color(0xf2ead6)
         let hit = SCNMaterial(); hit.colorBufferWriteMask = []; hit.writesToDepthBuffer = false; hit.isDoubleSided = true
         root.addChildNode(left); root.addChildNode(right)
         // Each half's meshes live in body coordinates; `left` pivots them around the hinge axis.

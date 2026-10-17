@@ -223,7 +223,7 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
 
 /** The panel's resource reads again now, so a state a command set before waiting is drawn while it waits. */
 async function wakePanel(native: Native): Promise<void> {
-  try { await native.later({ op: 'r10Wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
+  try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
 }
 const entryKeyOf = (entry: Obj) => `${str(entry.host)}:${str(entry.repository)}#${num(entry.number)}`;
 /**

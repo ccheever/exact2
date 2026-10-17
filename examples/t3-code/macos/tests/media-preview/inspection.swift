@@ -62,7 +62,7 @@ final class WebInspectionTests: XCTestCase {
         let terminal = T3TerminalView(props: [:], events: ExactNativeEvents(fn: ignoreEvent, ctx: nil, nonce: 1), agent: true)
         defer { terminal.destroy() }
         XCTAssertTrue(terminal.web.isInspectable, "terminal")
-        let media = R6MediaPreview(agent: true), host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let media = T3MediaPreview(agent: true), host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         defer { media.destroy() }
         media.mount(host: host, kind: "html", raw: "http://127.0.0.1:9/api/assets/page?sig=1", name: "page.html")
         let preview = try XCTUnwrap(host.subviews.first as? WKWebView)

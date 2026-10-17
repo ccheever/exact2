@@ -7,7 +7,7 @@ import AppKit
 /// scroll toward its end that lands within 96pt of it. One count per content
 /// height, so a page that loads (and grows the list) arms the next one; the
 /// TypeScript side fetches once per count it has not seen (ref-paging.ts).
-final class R5ComposerScroll {
+final class T3RefPaging {
     private final class Entry {
         weak var element: ExactElement?
         var observer: NSObjectProtocol?

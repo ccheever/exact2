@@ -2,7 +2,7 @@ use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-s
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./src/shell/app-shapes.contract" // first: the plan orders shapes by first use
 use HighlightStep from "./src/highlight/highlight.contract"
 use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas from "./src/shared/shapes.contract"
-use R10PairFields from "./src/connections/pairing-shapes.contract"
+use PairFields from "./src/connections/pairing-shapes.contract"
 use providerLinkVisit from "./src/shell/app-settings.contract"
 use SshPromptView, SshPromptAnswer from "./src/connections/ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
 use TranscriptMarkdown from "./src/timeline/markdown.contract"
@@ -657,7 +657,7 @@ component T3Code
       send sshAnswered = sshPromptAnswer(sshPrompt.requestId, kind)
   action sshAnswerDone
     sshResponding = false
-  resource pairFields = pairingFields(connecting ? origin : "") as shape R10PairFields // a pasted pairing URL fills Host and Pairing code
+  resource pairFields = pairingFields(connecting ? origin : "") as shape PairFields // a pasted pairing URL fills Host and Pairing code
   action sbSet(which: string, value: string)
     if which == "query"
       sbQuery = value
@@ -1303,7 +1303,7 @@ component T3Code
   action chatLocal(op: string, id: string, value: string)
     if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
       foldHold = true
-    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-r6dev-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
+    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-session-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
       rightPanelAt = ""
     if op.startsWith("surface-files-comment-")
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)

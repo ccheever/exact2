@@ -11,7 +11,7 @@ use Icon from "../shared/icons.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
 use ToolActivityIcon from "./timeline-icons-kit.contract"
 use TimelineTimestamp from "../shell/shell-tip.contract"
-use R11RetryPreparation from "./workspace-retry.contract"
+use RetryPreparation from "./workspace-retry.contract"
 
 // .live-activity-focus: a 72pt window crossing a box 144pt wider than the
 // row every 2.2s, its content held still by the counter-translation. Keyframe
@@ -265,7 +265,7 @@ component WorkEntry
     grouped: bool
     command: action
     code: CodeHighlight[]
-    // toolCallExpandedBodyClassName: text-(length:--font-size-code) leading-relaxed (r4-timeline).
+    // toolCallExpandedBodyClassName: text-(length:--font-size-code) leading-relaxed.
     codeSize: number
     // (id, extra): what this row adds over a compact row while open (WorkEntries' expandedContentHeight).
     sized: action
@@ -289,7 +289,7 @@ component WorkEntry
         if entry.detail != ""
           text entry.detail margin-left="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.875rem" line-height="1.421875rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272acc, #f5f5f5cc)"
         if entry.retryRunId != ""
-          R11RetryPreparation(runId=entry.retryRunId, command=command)
+          RetryPreparation(runId=entry.retryRunId, command=command)
       else
         button press=command("chatlocal:item-detail", entry.id, expanded ? "close" : "open", 0) focus=focusRow(true) blur=focusRow(false) disabled=(not entry.expandable) testId=`work-detail-${entry.id}` aria-label=(entry.failed ? `${entry.answer != "" ? entry.label + ": " + entry.answer : entry.label}, tool call failed` : entry.answer != "" ? `${entry.label}: ${entry.answer}` : entry.label) aria-expanded=expanded width="100%" min-height="1.5rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem"
           // Separate lines for the two labels: a one-line text reused for a new string can keep drawing the old one.

@@ -10,7 +10,7 @@
 // The gutter: as the diff's (diff-line-drag.ts), a press on a line
 // number starts a selection that follows the pointer over the file's lines (Shift extends it) and a press on the "+"
 // starts a range from the selection's top; the release ends it, and FilePreviewPanel's onLineSelectionEnd opens the draft
-// on what it ended on (`beginComment`), so a click on a number opens one too. R4CodeRow (files-surface.contract)
+// on what it ended on (`beginComment`), so a click on a number opens one too. FilesCodeRow (files-surface.contract)
 // names the line under the pointer by its row's id (`fileLineId`). While a selection is held the "+" sits on its bottom
 // line (placeUtilityFromSelection), as the diff's.
 import type { T3Client } from '../client/client';
@@ -32,7 +32,7 @@ function stateOf(client: T3Client): FileComments {
   return state;
 }
 
-/** The id R4CodeRow gives a line's row, so `elementFromPoint` names the line under the pointer: `fl:<line>:<path>`. */
+/** The id FilesCodeRow gives a line's row, so `elementFromPoint` names the line under the pointer: `fl:<line>:<path>`. */
 export const fileLineId = (line: number, path: string): string => `fl:${line}:${path}`;
 /** The file and line a row id names, or null for any other id (a comment card, the preview). */
 export function parseFileLineId(id: string): { path: string; line: number } | null {
