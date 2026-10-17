@@ -1082,8 +1082,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             observeLiveScroll(sv, replacing: scroll)
             sv.autoresizingMask = [.width, .height]
             GlassGroups.moving(in: self) {
-                for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+                let children = container.subviews.filter { $0 is NodeView }
                 addSubview(sv)
+                for child in children { sv.documentView?.addSubview(child) }
             }
             scroll = sv
             presenter?.scrollers.insert(id)
@@ -1091,7 +1092,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if ox != "scroll" && ox != "auto" && oy != "scroll" && oy != "auto", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
             GlassGroups.moving(in: self) {
-                for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
+                for child in sv.documentView?.subviews ?? [] where child is NodeView { (overlay ?? materialContent ?? self).addSubview(child) }
                 sv.removeFromSuperview()
             }
             observeLiveScroll(nil, replacing: sv)

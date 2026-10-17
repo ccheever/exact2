@@ -992,7 +992,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
         if materialKind != (supported ? kind : nil) {
             let children = container.subviews.compactMap { $0 as? NodeView }
-            materialView?.removeFromSuperview()
+            let old = materialView
             materialView = nil
             materialKind = nil
             if supported {
@@ -1004,7 +1004,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 materialView = effect
                 materialKind = kind
             }
+            // The children move before the old effect goes, so they never
+            // leave the window: UIKit cancels the touches of a view that
+            // does, and a press held inside would end at the swap (euxy's
+            // dice, whose charge turned the capsule's glass off).
             for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
+            old?.removeFromSuperview()
             presenter?.flats.containerChanged(id)
         }
         guard let materialView else { rehomeMaterialChildren(); return }
@@ -1190,8 +1195,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             sv.delegate = self
             sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             GlassGroups.moving(in: self) {
-                for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
+                // In the window first, as `syncClipBox` says.
+                let children = subviews.filter { $0 is NodeView }
                 addSubview(sv)
+                for child in children { sv.addSubview(child) }
             }
             scroll = sv
             scrollWritten = nil
@@ -1202,7 +1209,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if groupedOwner { retainScrollPosition(from: sv) }
             // Neither axis scrolls any more: the children come back out.
             GlassGroups.moving(in: self) {
-                for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+                for child in sv.subviews where child is NodeView { addSubview(child) }
                 sv.removeFromSuperview()
             }
             scroll = nil
