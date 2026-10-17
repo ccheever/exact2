@@ -418,7 +418,7 @@ fn a_param_read_only_by_a_state_part_is_reached() {
     .unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "component App\n  view\n    PostButton()\n\ncomponent PostButton\n  state busy = false\n  action post\n    busy = !busy\n  params\n    fill: color = \"accent.fill\"  control=\"color\"\n    pressed: color = \"color-mix(in oklab, param.fill 88%, ink)\"  control=\"none\"\n    faded: number = \"0.4\"\n  view\n    column press=post disabled=busy background-color=\"param.fill\"\n      :active\n        background-color = \"param.pressed\"\n      :disabled\n        opacity = \"param.faded\"\n      text \"Post\"\n",
+        "component App\n  view\n    PostButton()\n\ncomponent PostButton\n  state busy = false\n  action post\n    busy = !busy\n  params\n    fill: color = \"accent.fill\"  control=\"color\"\n    pressed: color = \"color-mix(in oklab, param.fill 88%, ink)\"  control=\"none\"\n    faded: number = \"0.4\"\n  view\n    column press=post disabled=busy background-color=\"param.fill\" testId=\"post\"\n      :active\n        background-color = \"param.pressed\"\n      :disabled\n        opacity = \"param.faded\"\n      text \"Post\"\n",
     )
     .unwrap();
     let plan =
@@ -431,5 +431,34 @@ fn a_param_read_only_by_a_state_part_is_reached() {
         "{names:?}"
     );
     assert!(plan.looks.iter().any(|l| l.state == 0), "the :active look");
+    // The :disabled row folded over the param: 0.4 once disabled.
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let post = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("post")[0]).unwrap().id
+    };
+    r.dispatch(post, exact_runner::Event::Press).unwrap();
+    let key = r.kernel().find_by_test_id("post")[0];
+    let o = format!(
+        "{:?}",
+        r.kernel()
+            .node_by_key(key)
+            .unwrap()
+            .computed(StyleId::Opacity)
+    );
+    assert!(o.contains("0.4"), "{o}");
+    // In a style's state part, which any component may apply, a param is
+    // out of scope, as in a style's row.
+    std::fs::write(dir.join("app.contract"), "component App\n  view\n    PostButton()\n\nstyle Look\n  :active\n    background-color = \"param.fill\"\n\ncomponent PostButton\n  params\n    fill: color = \"accent.fill\"\n  view\n    column class=Look background-color=\"param.fill\"\n      text \"Post\"\n").unwrap();
+    let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(e.id, "tamber-param-scope", "{e:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
