@@ -817,7 +817,7 @@ component App
 A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
 taps the item. A row whose `popovertarget` names another menu is its submenu.
 
-## search: the bar's search field, filtering a list as you type
+## search: the bar's search field, filtering a list or querying a server
 names: searchable, searchbar, search-bar, UISearchBar, UISearchController
 
 An `input type="search"` in a route's `header` is the bar's search field: on iOS UIKit's
@@ -853,6 +853,46 @@ component App
 - `flex-wrap` and `width="100%"` give the field its own line on the web; iOS places it
   itself. A field in the content with a Search button beside it is a web form's, a tell.
 - A test types the query: `type "search" "gro"`, and `type "search" ""` to clear it.
+
+The same field queries a server when a `resource` takes the query as its argument: each
+change asks again (`contract vocab resource`), and the list shows the answer. To ask only on
+the keyboard's Search key (Return on the web and the Mac), as for a slow or costly server,
+the field's `submit` copies the query into the state the resource reads:
+
+```contract
+routes nav
+  home "/"
+
+shape Book
+  id: string
+  title: string
+
+component App
+  state query = ""
+  state asked = ""
+  resource found = searchBooks(asked) as shape Book[] else empty()
+  action search(v: string)
+    query = v
+  action ask
+    asked = query.trim()
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="books" position="absolute" inset=0
+          header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+            text "Books" role="heading" aria-level=1 flex=1
+            input type="search" value=query input=search submit=ask placeholder="Search"
+              aria-label="Search Books" testId="search" width="100%"
+          list id="books" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            section
+              for b in found key=b.id
+                row
+                  text b.title
+```
+
+- Live, as you type: `resource found = searchBooks(query)`, with no `submit`. A test types
+  the query, then `clock data` before it reads the answer; on the Search key, `type "search"
+  key "Enter"`.
 
 More: docs/recipes/list-rows.md
 
