@@ -145,7 +145,7 @@ export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Why = "", Sched = null; // `Why`: the step the last commit was refused in and the exception's own words, cut (`why`): a boot refusal's reason (`mount`); the journal keeps them whole
-const why = (step, m) => `while ${step}: ${m.length > WHY_MAX ? `${m.slice(0, WHY_MAX)}… (${m.length - WHY_MAX} more characters in the journal)` : m}`, WHY_MAX = 300; // a write's value or a source's error may be long, or private
+const why = (step, m, c = [...m]) => `while ${step}: ${c.length > WHY_MAX ? `${c.slice(0, WHY_MAX).join("")}… (${c.length - WHY_MAX} more characters in the journal)` : m}`, WHY_MAX = 300; // by code point; a write's value or a source's error may be long, or private
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
 export const useSchedule = s => { Sched = s; }, refused = () => Refused;
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index

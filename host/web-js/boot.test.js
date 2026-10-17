@@ -23,3 +23,9 @@ test("a boot that throws names the exception's kind", () => {
   expect(() => mount(() => { throw new TypeError("table[name] is not a function"); }))
     .toThrow(/^boot refused while building the view: TypeError: table\[name\] is not a function$/);
 });
+
+test("a reason is cut between code points, and counted in them", () => {
+  const astral = "😀".repeat(400);
+  expect(() => mount(() => { throw new Refusal(astral); }))
+    .toThrow(`boot refused while building the view: ${"😀".repeat(300)}… (100 more characters in the journal)`);
+});
