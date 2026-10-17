@@ -265,9 +265,9 @@ impl Lowerer<'_> {
             .as_ref()
             .map(|d| crate::params::design_tokens(d).0);
         let mut kept: Vec<String> = designed.into_iter().flatten().map(|p| p.token).collect();
-        let mut seen = std::collections::BTreeSet::new();
+        let mut roots = std::collections::BTreeSet::new();
         while let Some(name) = kept.pop() {
-            if !seen.insert(name.clone()) {
+            if !roots.insert(name.clone()) {
                 continue;
             }
             for t in design
@@ -357,11 +357,14 @@ impl Lowerer<'_> {
         }
         // @ref LLP 1121 D10 — the icons' SVGs, and a source per shipped target.
         let exports = &folding.design.exports;
+        // An icon a component that isn't Contract reads is kept as its
+        // colours are (D15).
         let exported = |name: &str| {
-            bindable
-                && exports
-                    .as_ref()
-                    .is_none_or(|e| e.iter().any(|x| x.value == name))
+            roots.contains(name)
+                || bindable
+                    && exports
+                        .as_ref()
+                        .is_none_or(|e| e.iter().any(|x| x.value == name))
         };
         let refused = crate::icons::declare(
             &folding.icons,

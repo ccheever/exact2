@@ -6,3 +6,4 @@
 17:3: tamber-component: `params`: `component Card2` holds one `params` block
 20:1: tamber-component: a second `component Card2`: a design declares a component once
 25:3: tamber-component: `component Empty` declares no params
+29:5: tamber-syntax: `pin` has no kind: a param is `name: kind = value [in low..high] [meta=…]`

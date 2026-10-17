@@ -226,3 +226,59 @@ fn the_bindings_name_a_param_by_its_component() {
         "{said}"
     );
 }
+
+/// Review round 1 (Astra): a design app.json names elsewhere, a design the
+/// build refuses, an icon param, and `contract types`' unions.
+#[test]
+fn the_bindings_follow_the_build_and_an_icon_param_is_kept() {
+    // An icon param no row reads, `exports` listing another token: kept.
+    let icon = MAP_CARD.replace(
+        "    halo:",
+        "    glyph: icon = icon(sf \"star\")\n    halo:",
+    );
+    let path = app("icon", &[("app.contract", VIEW), ("app.tamber", &icon)]);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let glyph = contract_lower::params::token_name("app.tamber#MapCard", "glyph");
+    assert!(
+        plan.icons.iter().any(|i| plan.str(i.name) == glyph),
+        "{:?}",
+        plan.icons
+            .iter()
+            .map(|i| plan.str(i.name))
+            .collect::<Vec<_>>()
+    );
+    // `contract types` names a param among its kind's tokens, as `tamber gen ts` does.
+    let dir = path.parent().unwrap();
+    std::fs::write(dir.join("app.ts"), "export const answer = () => null;\n").unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .arg("types")
+        .arg(&path)
+        .output()
+        .unwrap();
+    let types = String::from_utf8_lossy(&out.stdout);
+    let pin = contract_lower::params::token_name("app.tamber#MapCard", "pin");
+    assert!(types.contains(&format!("\"{pin}\"")), "{types}");
+    // A design app.json names in a directory of its own.
+    let nested = app("nested", &[("app.contract", VIEW), ("app.json", "{\"app\": {\"id\": \"com.example.nested\", \"name\": \"Nested\"}, \"tamber\": \"design/theme.tamber\"}")]);
+    let dir = nested.parent().unwrap();
+    std::fs::create_dir_all(dir.join("design")).unwrap();
+    std::fs::write(dir.join("design/theme.tamber"), MAP_CARD).unwrap();
+    let (ok, said) = gen("swift", dir);
+    assert!(ok, "{said}");
+    let swift = std::fs::read_to_string(dir.join(".exact/tamber/tamber.swift")).unwrap();
+    let pin = contract_lower::params::token_name("design/theme.tamber#MapCard", "pin");
+    assert!(
+        swift.contains(&format!(
+            "static let mapCardPin = ExactTamberToken(\"{pin}\")"
+        )),
+        "{swift}"
+    );
+    // A design the build refuses writes no names.
+    std::fs::write(
+        dir.join("design/theme.tamber"),
+        MAP_CARD.replace("8px  in 0..24", "30px  in 0..24"),
+    )
+    .unwrap();
+    let (ok, said) = gen("swift", dir);
+    assert!(!ok && said.contains("tamber-param-range"), "{said}");
+}

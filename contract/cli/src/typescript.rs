@@ -194,15 +194,15 @@ fn tokens(plan: &Plan, exports: Option<&[String]>, out: &mut String) {
             // A role override by the role's spelling, as a row writes it and
             // the generators name it (`CanvasText`, `-exact-secondary-label`).
             let name = role.unwrap_or(plan.str(row.name));
-            let exported = exports.is_none_or(|lines| {
-                lines
-                    .iter()
-                    .any(|line| exact_tamber::exports_names(line, name, role))
-            });
-            // A component's param is named by its full name, which no binding
-            // spells (LLP 1121 D15): never by its name below the IR.
-            let param = name.starts_with(contract_lower::params::PREFIX);
-            if exported && !param && !name.contains('(') && !names.contains(&name) {
+            // A component's param is every binding's (D15), as `tamber gen` names it
+            // (stage 7 D, over A's leaving it out: a data module may return one).
+            let exported = name.starts_with(contract_lower::params::PREFIX)
+                || exports.is_none_or(|lines| {
+                    lines
+                        .iter()
+                        .any(|line| exact_tamber::exports_names(line, name, role))
+                });
+            if exported && !name.contains('(') && !names.contains(&name) {
                 names.push(name);
             }
         }

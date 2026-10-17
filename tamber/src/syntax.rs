@@ -366,6 +366,10 @@ pub(crate) fn ranged(
         ));
         return None;
     }
+    if kind.trim().is_empty() {
+        errors.push(syntax(l, format!("`{name}` has no kind: {shape}")));
+        return None;
+    }
     let start = l.text.len() - value.len();
     // The value ends, outside parentheses, at `in` or the first `name=`.
     let words = lex::words(value);

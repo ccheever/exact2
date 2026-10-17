@@ -23,3 +23,7 @@ component Card2
 
 component Empty
   params
+
+component NoKind
+  params
+    pin: = red

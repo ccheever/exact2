@@ -518,11 +518,23 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("contract tamber gen: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
         return ExitCode::from(2);
     };
-    // The app's components' params, tokens of its design (D15).
-    let params = path
-        .parent()
-        .map(|dir| contract::tamber_params::params_of(&dir.join("app.contract")))
-        .unwrap_or_default();
+    // The app's own `.exact/`: the directory named, or the one its
+    // `app.contract` (or, given a design file alone, that file) is in.
+    let app = Path::new(&input);
+    let root = match app.is_dir() {
+        true => app.to_path_buf(),
+        false => app.parent().unwrap_or(Path::new(".")).to_path_buf(),
+    };
+    // The app's components' params, tokens of its design (D15), as its
+    // build checks them: a build that refuses writes no names.
+    let contract = root.join("app.contract");
+    if contract.is_file() {
+        if let Err(e) = contract::compile_path(&contract) {
+            eprintln!("{}: {}: {}", contract.display(), e.id, e.message);
+            return ExitCode::from(1);
+        }
+    }
+    let params = contract::tamber_params::params_of(&contract);
     let folding = match std::fs::read_to_string(&path)
         .map_err(|e| vec![e.to_string()])
         .and_then(|src| {
@@ -548,13 +560,6 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("{}: {why}", path.display());
         return ExitCode::from(1);
     }
-    // The app's own `.exact/`: the directory named, or the one its
-    // `app.contract` (or, given a design file alone, that file) is in.
-    let app = Path::new(&input);
-    let root = match app.is_dir() {
-        true => app.to_path_buf(),
-        false => app.parent().unwrap_or(Path::new(".")).to_path_buf(),
-    };
     let dir = out.unwrap_or_else(|| root.join(".exact").join("tamber"));
     let source = path
         .file_name()
