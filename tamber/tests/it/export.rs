@@ -803,7 +803,8 @@ fn every_kind_exports_as_its_type_and_round_trips() {
     )
     .unwrap();
     assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
-    let set: Vec<(String, Vec<(String, String)>, String)> = import
+    type Set = (String, Vec<(String, String)>, String);
+    let set: Vec<Set> = import
         .ops
         .iter()
         .filter_map(|op| match op {
