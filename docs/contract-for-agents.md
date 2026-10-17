@@ -1000,10 +1000,13 @@ A bake runs initial data work and packages first-frame values. A first-frame
 value is not the answer: every host asks the TypeScript module again at launch,
 natively once it loads after first pixel, even a source with no arguments
 (`logs`: `<resource> shows its build-time answer until its source answers`, then
-`<resource> answered: …`). A resource with an argument (one after `with` too) that
-reads `exactTime()` gets no first-frame value, since the bake's date is unknown:
-it shows its placeholder until the module answers with the launch's date, so a
-task waiting on `lib.loaded` never adopts an answer stamped at 1970. A `send` an action makes before the module loads (a
+`<resource> answered: …`). A resource with an argument (one after `with` too) made
+from `exactTime()`, through a derive, another resource or a state an action
+assigns it, gets no first-frame value, since the bake's date is unknown: it shows
+its placeholder until the module answers with the launch's date, so a task waiting
+on `lib.loaded` never adopts an answer stamped at 1970. Don't pass the clock into a
+source whose answer doesn't depend on it, or its first frame waits for the module:
+format times in Contract (`formatTime(at, time.utcOffset, "short")`). A `send` an action makes before the module loads (a
 document opened at launch) waits for it, `pending` meanwhile (`logs`: `send <name>:
 waits until the data source is ready`). Live requests run after that under host scheduling. Do not assume a secret store, disk database,
 or authenticated network session is available while baking. See

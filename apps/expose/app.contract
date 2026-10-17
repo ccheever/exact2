@@ -119,7 +119,7 @@ component Expose
   derive minuteKey = floor(epoch / 60000)
   resource clock = clock(minuteKey, time.utcOffset) as shape Clock
   derive weatherRevision = nowMs == 0 ? 0 : 1 + floor(nowMs / 600000)
-  resource weather = weather(weatherRevision, time.utcOffset) as shape Weather
+  resource weather = weather(weatherRevision) as shape Weather
   resource library = library() as shape Library
 
   mutation reply as shape Turn refreshes chat, inbox

@@ -378,23 +378,6 @@ impl<D: DataSource> Runner<D> {
         self.log(line);
     }
 
-    /// Whether an argument of resource `name`, `with` arguments included,
-    /// reads an `exactTime()` resource, directly or through derives: the
-    /// bake leaves its answer out of the plan (LLP 1027.000.000 D2), since
-    /// it would be asked at the bake's unknown date, zero, and shown at
-    /// launch as if it were the device's. Its placeholder shows until the
-    /// device's source answers. An `else source()` row is the bake's for
-    /// every launch (LLP 1048.003 D6) and is never this.
-    pub fn resource_reads_clock(&self, name: &str) -> bool {
-        let Some(i) = (0..self.plan.resources.len())
-            .find(|&i| self.plan.str(self.plan.resources[i].name) == name)
-        else {
-            return false;
-        };
-        !self.is_placeholder_row(i)
-            && (0..self.plan.resources[i].args.len as usize).any(|k| self.reads_clock(i, k))
-    }
-
     /// Whether resource `i`'s argument `k` reads, directly or through
     /// derives, an `exactTime()` resource.
     fn reads_clock(&self, i: usize, k: usize) -> bool {

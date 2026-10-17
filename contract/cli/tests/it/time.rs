@@ -200,6 +200,84 @@ fn the_bake_compiles_no_answer_asked_at_its_unknown_date() {
     );
 }
 
+/// The date reaches a resource's arguments by more than a derive: through
+/// another resource asked with it (and a field of its answer), a state an
+/// action assigns it (directly or through a `let`), and a state copied
+/// from another dated state. None of
+/// those answers is compiled. States that copy each other without the date
+/// terminate the analysis and keep theirs, as does a state the date only
+/// decided (a branch's condition).
+#[test]
+fn the_bake_follows_the_date_through_resources_and_states() {
+    const APP: &str = r#"shape Time
+  epochAtZero: number
+shape Stamp
+  at: number
+component App
+  resource time = exactTime() as shape Time
+  resource stamp = stampOf(time.epochAtZero) as shape Stamp
+  resource viaResource = answer() with stamp.at as shape number
+  state at = 0
+  state held = 0
+  state copied = 0
+  state a = 0
+  state b = 0
+  state flag = 0
+  action decide
+    if time.epochAtZero > 0
+      flag = 1
+  action prime
+    at = time.epochAtZero
+    let t = time.epochAtZero + 1
+    held = t
+  action copy
+    copied = at
+  action swap
+    a = b
+    b = a
+  task boot mount
+    after(1, prime)
+  resource viaAction = answer() with at as shape number
+  resource viaLet = answer(held) as shape number
+  resource viaCopy = answer(copied) as shape number
+  resource cycle = answer(a + b) as shape number
+  resource decided = answer(flag) as shape number
+  resource plain = answer(1) as shape number
+  view
+    text "{viaResource}{viaAction}{viaLet}{viaCopy}{cycle}{decided}{plain}"
+"#;
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            let n = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => 7.0,
+            };
+            Ok(match source {
+                "stampOf" => Value::record(vec![Value::Number(n)]),
+                _ => Value::Number(n),
+            })
+        }
+    }
+    let plan = contract::bake(contract::compile(APP).unwrap(), Source).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .find(|r| plan.str(r.name) == name)
+            .unwrap_or_else(|| panic!("no resource {name}"))
+            .initial
+            .len
+            > 0
+    };
+    for dated in ["stamp", "viaResource", "viaAction", "viaLet", "viaCopy"] {
+        assert!(
+            !compiled(dated),
+            "{dated} is asked at the bake's date: not compiled"
+        );
+    }
+    assert!(compiled("cycle") && compiled("decided") && compiled("plain"));
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]
