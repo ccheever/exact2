@@ -62,17 +62,20 @@ impl Name {
     }
 
     /// The names a whitespace-separated list attribute holds, split at the
-    /// whitespace in its written text; a choice (`c ? "a b" : ""`) holds every
-    /// name its arms do.
-    fn list(e: &Expr) -> Option<Vec<Name>> {
+    /// whitespace in its written text, and whether every one was read: a
+    /// choice (`c ? "a b" : ""`) holds the names of each arm it can read.
+    fn list(e: &Expr) -> (Vec<Name>, bool) {
         if let Expr::Ternary(_, a, b, _) = e {
-            let mut names = Name::list(a)?;
-            names.extend(Name::list(b)?);
-            return Some(names);
+            let ((mut names, read_a), (more, read_b)) = (Name::list(a), Name::list(b));
+            names.extend(more);
+            return (names, read_a && read_b);
         }
+        let Some(whole) = Name::of(e) else {
+            return (Vec::new(), false);
+        };
         let mut names = Vec::new();
         let mut name = Vec::new();
-        for piece in Name::of(e)?.0 {
+        for piece in whole.0 {
             let Piece::Text(text) = piece else {
                 name.push(piece);
                 continue;
@@ -89,7 +92,7 @@ impl Name {
         if !name.is_empty() {
             names.push(Name(name));
         }
-        Some(names)
+        (names, true)
     }
 
     fn literal(&self) -> Option<String> {
@@ -240,10 +243,10 @@ pub(super) fn swipe(attrs: &[Attr], children: &[Node], fresh: bool, out: &mut Ve
     let Some(contents) = Name::of(&content.value).map(|n| vec![n]) else {
         return;
     };
-    let named: Vec<(&Attr, Vec<Name>)> = actions
-        .iter()
-        .filter_map(|a| Some((*a, Name::list(&a.value)?)))
-        .collect();
+    let read: Vec<(&Attr, (Vec<Name>, bool))> =
+        actions.iter().map(|a| (*a, Name::list(&a.value))).collect();
+    let all_read = read.iter().all(|(_, (_, whole))| *whole);
+    let named: Vec<(&Attr, Vec<Name>)> = read.into_iter().map(|(a, (n, _))| (a, n)).collect();
     for c in &contents {
         if find(c).is_none() {
             warn(content.span, format!("`swipeContent` names {}, but no element inside this `scroll` has that `id`: iOS refuses the row (`logs`: `swipeContent … names no one descendant of it`) and the web shows it as a plain row. Give the box that holds what the row shows `id=…` to match, inside this `scroll` {SWIPE_FIX}", written(c)), out);
@@ -251,7 +254,7 @@ pub(super) fn swipe(attrs: &[Attr], children: &[Node], fresh: bool, out: &mut Ve
     }
     // No action only when every action is read and names none: one computed some
     // other way may name one.
-    if named.len() == actions.len() && named.iter().all(|(_, names)| names.is_empty()) {
+    if all_read && named.iter().all(|(_, names)| names.is_empty()) {
         warn(content.span, format!("`swipeContent` is written without `swipeLeading` or `swipeTrailing`, so the row has no action to reveal and iOS refuses it (`it names no swipeLeading or swipeTrailing control`): name the action button's `id` in `swipeTrailing`, a button inside this `scroll` after the content {SWIPE_FIX}"), out);
     }
     for (a, names) in &named {

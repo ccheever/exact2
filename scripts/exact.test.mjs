@@ -736,4 +736,13 @@ test('contract build regenerates app.contract.d.ts when a signature changed, and
   assert.match(readFileSync(types, 'utf8'), /"count"/);
   writeFileSync(resolve(dir, 'other.contract'), contract(''));
   assert.doesNotMatch(exact('contract', 'build', 'other.contract').stderr, /app\.contract\.d\.ts/);
+  // In an app's directory (an app.json beside it) the build type-checks app.ts as every host's build does,
+  // its report on stderr; outside one (above) it does not.
+  writeFileSync(resolve(dir, 'app.contract'), contract(''));
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' } }));
+  writeFileSync(resolve(dir, 'app.ts'), "export const appId: number = 'com.example.types';\n");
+  r = build();
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout.trim(), '[]', 'the build\'s reply stays JSON');
+  assert.match(r.stderr, /app\.ts\(1,14\): error TS2322/);
 }), 600_000); // The first call may compile the compiler.

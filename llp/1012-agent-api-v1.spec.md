@@ -773,7 +773,11 @@ deterministic and a smoke against real credentials leaves nothing behind.
   clock by `<ms>`, its timers firing as they would, and no wall time passes;
   under `--timing platform` `<ms>` of real time passes (the main run loop
   turns on iOS and macOS), so the platform's own motion runs on. A drag's
-  `press` and `hold` already were; Linux's always were.
+  `press` and `hold` already were; Linux's always were. Under `--touch
+  platform` on iOS the three are one real touch pressed at `tap up`: once it
+  has begun, the clock moves the holds' `<ms>` on real time under either
+  timing (the clock is the agent's then, as after any landed input), and the
+  finger lifts after it (LLP 1080.000 §14).
 - **iOS holds a contact.** Off a `pan` node, where no swipe or other drag
   could take it, `tap … down` is a recognized finger (`delivery: recognized`,
   `AgentPanIOS.swift`): its `pointerdown` as

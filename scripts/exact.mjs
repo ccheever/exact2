@@ -552,7 +552,8 @@ export function contract(args, env = process.env) {
  * target's `--check`), so a TypeScript error surfaces at the build an author runs most, not at an
  * iOS build. Its report goes to stderr, keeping `--json`'s reply alone on stdout. */
 function checkTypes(dir) {
-  if (!existsSync(resolve(dir, 'app.ts'))) return 0;
+  // An app's directory alone: the check is the app build's, which reads its app.json.
+  if (!existsSync(resolve(dir, 'app.ts')) || !existsSync(resolve(dir, 'app.json'))) return 0;
   const out = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   try {
     const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), basename(dir), '--check', '--out', out], { stdio: ['ignore', 2, 2], env: { ...process.env, EXACT_APP_DIR: dir } });

@@ -151,8 +151,17 @@ fn a_choice_of_swipe_actions_is_read_arm_by_arm() {
         "{:?}",
         messages(&src)
     );
-    // An action the compiler cannot read is the benefit of the doubt.
+    // An action the compiler cannot read is the benefit of the doubt, and an
+    // arm it cannot read hides nothing the other arm names.
     assert_eq!(warned(&row("i")), []);
+    let src = row("(i == \"Milk\" ? \"orphan\" : i)");
+    assert_eq!(warned(&src), [(SWIPE.to_string(), 8)]);
+    assert!(
+        messages(&src)[0].contains("`swipeTrailing` names \"orphan\""),
+        "{:?}",
+        messages(&src)
+    );
+    assert_eq!(warned(&row("(i == \"Milk\" ? \"\" : i)")), []);
 }
 
 #[test]

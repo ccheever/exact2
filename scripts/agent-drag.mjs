@@ -174,20 +174,25 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
 }
 
+/** How much longer than its holds a played contact stays down: the time to see the touch begin in the dispatch log
+ *  and to end the clock's real run, so the whole hold's clock passes before the lift. */
+export const HELD_LEAD = 250;
+
 /**
  * `tap <target> down` … `tap up` under `--touch platform`: one real touch, so a native view's own recognizers (a
  * `UILongPressGestureRecognizer`) see it held. The runner holds no finger across requests (LLP 1080.000 P3), so the
- * contact is played whole at its lift: `down` books the point (`at`, a viewport point, else the target's middle),
- * each `hold` adds its time, `up` presses there for the holds' sum, and `cancel` drops it with nothing pressed. The
- * app's clock moves on real time while the finger is down (a module's `context.after` runs as on a device: under
- * either timing the clock is the agent's once any op has moved it, LLP 1080.000 §12), and the rest of the holds after
- * the lift. A move is a drag's (`tap <target> drag`).
+ * contact is played whole at its lift: `down` books the point (`at`, else the target's middle, a viewport point kept
+ * from then on), each `hold` adds its time, `up` presses there, and `cancel` drops it with nothing pressed. Once the
+ * touch has begun the app's clock moves the holds' sum on real time (a module's `context.after` and UIKit's
+ * recognizers keep their order, as on a device), and the finger lifts after it, `HELD_LEAD` past the holds at most.
+ * Under either timing the clock is then the agent's (LLP 1080.000 §12: any landed input takes it). A move is a
+ * drag's (`tap <target> drag`).
  */
 export async function heldDown(s, node, at) {
   const b = (await s.layout()).nodes.find((n) => n.id === node.id);
   if (!b) throw new Error(`view ${node.id} has no box on screen`);
   const point = at ? [at.x, at.y] : [b.x + b.w / 2, b.y + b.h / 2];
-  s.contact = { x: point[0], y: point[1], whole: { id: node.id, at: at ? point : undefined, hold: 0 } };
+  s.contact = { x: point[0], y: point[1], whole: { id: node.id, hold: 0 } };
   return { contact: node.id, phase: 'down', at: point, delivery: 'platform', note: 'under --touch platform a held contact is one real touch, pressed at tap up for its holds: a read before then sees the screen unpressed; tap <target> drag 0 0 hold <ms> during "<op>" reads inside a press' };
 }
 
@@ -201,12 +206,16 @@ export async function heldPhase(s, carrier, phase, opts) {
   }
   s.contact = null;
   if (phase === 'cancel') return { phase, at, delivery: 'platform', note: 'nothing was pressed' };
-  // The clock's real run ends before the lift (realTap checks the finger is still down after it); the rest is sought.
-  const hold = whole.hold, real = hold >= 200 ? hold - Math.min(250, hold / 2) : 0;
-  const r = await carrier.input(whole.id, 'drag', { at: whole.at, drag: { dx: 0, dy: 0, press: 0, over: 0, hold, during: real ? [() => s.clock(`+${real} real`)] : [] } });
-  if (hold > real) await s.clock(`+${hold - real}`);
+  // The point the contact went down at, still on its target: a target that moved since is refused, never followed.
+  const b = (await s.layout()).nodes.find((n) => n.id === whole.id);
+  if (!b || at[0] < b.x || at[1] < b.y || at[0] > b.x + b.w || at[1] > b.y + b.h) throw new Error(`tap up: view ${whole.id} moved off (${at}), where the contact went down, so nothing was pressed: tap it down again`);
+  // A clock that fails once the touch is delivered is the reply's landError, the receipt kept: a retry would press twice.
+  const hold = whole.hold;
+  let clockError = null;
+  const clock = async () => { try { return await s.clock(`+${hold} real`); } catch (e) { clockError = e; return null; } };
+  const r = await carrier.input(whole.id, 'drag', { at, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: hold ? hold + HELD_LEAD : 0, during: hold ? [clock] : [] } });
   const { during, drag, ...reply } = r;
-  return { ...reply, phase, at, hold };
+  return { ...reply, phase, at, hold, ...(clockError ? { landError: `the touch was delivered; moving the clock ${hold} ms while it was down failed: ${clockError.message ?? clockError}` } : {}) };
 }
 
 /** The most strokes a drag past the viewport is split into, and how long each but the last rests before it lifts. */
