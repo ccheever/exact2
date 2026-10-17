@@ -162,9 +162,9 @@ struct State {
 struct Shared {
     state: Mutex<State>,
     ready: Condvar,
-    /// How often a worker's wait returned: a test counts an idle pool's.
+    /// Notifications issued by the executor, independent of wait scheduling.
     #[cfg(test)]
-    wakes: AtomicUsize,
+    worker_notifications: AtomicUsize,
     abort: AbortController,
     /// Where the app's files are, as the host names them; unset on a host or
     /// drive that has none.
@@ -288,7 +288,7 @@ impl Core {
             }),
             ready: Condvar::new(),
             #[cfg(test)]
-            wakes: AtomicUsize::new(0),
+            worker_notifications: AtomicUsize::new(0),
             abort: AbortController::new(),
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
@@ -363,6 +363,10 @@ impl Core {
                 // takes no work.
                 self.failed.store(true, Ordering::Release);
                 state.retired = true;
+                #[cfg(test)]
+                self.shared
+                    .worker_notifications
+                    .fetch_add(1, Ordering::Relaxed);
                 self.shared.ready.notify_all();
                 machine.stop(state);
             }
@@ -564,6 +568,10 @@ impl Core {
             limit,
             forgotten: false,
         });
+        #[cfg(test)]
+        self.shared
+            .worker_notifications
+            .fetch_add(1, Ordering::Relaxed);
         self.shared.ready.notify_all();
         Ok(())
     }
@@ -829,6 +837,10 @@ impl Core {
             state.waiting.clear();
             state.waiting_set.clear();
         }
+        #[cfg(test)]
+        self.shared
+            .worker_notifications
+            .fetch_add(1, Ordering::Relaxed);
         self.shared.ready.notify_all();
         if let Some(machine) = &self.machine {
             machine.retire();
@@ -860,6 +872,8 @@ impl Drop for WorkerSlot {
 /// Retirement wakes them itself.
 fn rouse(shared: &Shared, state: &State) {
     if !state.discard.is_empty() || state.jobs.iter().any(|lane| !lane.is_empty()) {
+        #[cfg(test)]
+        shared.worker_notifications.fetch_add(1, Ordering::Relaxed);
         shared.ready.notify_all();
     }
 }
@@ -869,6 +883,8 @@ fn rouse(shared: &Shared, state: &State) {
 fn discard(shared: &Shared, state: &mut State, work: Option<OwnedWork>) {
     if let Some(work) = work {
         state.discard.push(work);
+        #[cfg(test)]
+        shared.worker_notifications.fetch_add(1, Ordering::Relaxed);
         shared.ready.notify_all();
     }
 }
@@ -1159,8 +1175,6 @@ fn worker(
                     break next;
                 }
                 state = shared.ready.wait(state).unwrap();
-                #[cfg(test)]
-                shared.wakes.fetch_add(1, Ordering::Relaxed);
             }
         };
         let Job {

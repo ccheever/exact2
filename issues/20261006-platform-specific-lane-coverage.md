@@ -87,7 +87,9 @@ At 07fdd0ff4, on the fleet. Both machines ran the pinned Rust (1.97.0) and Bun
   `answer_paths`; the web, Apple and driver parsers do the same). That is a
   real bug for any absolute path that contains a space. In 1 of 3 full runs,
   `executor::core::idle_tests::an_idle_pool_is_not_woken` counted 87 worker
-  wakes while idle. Its "every worker back in its wait" is a fixed 100 ms sleep.
+  wakes while idle. The test now counts executor notification calls
+  synchronously, without sleeps. The cause of those 87 wait returns was not
+  established.
 
 Fixed here: `a_request_runs_on_the_executor_and_its_reply_commits` read one
 packet of the request and then closed. The reset lost the reply in 6 of 240
