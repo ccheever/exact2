@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, draftFields, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts } from './verify.mjs';
+import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -703,8 +703,8 @@ test('a finding on a view only one scheme shows is accepted by the testId that s
 });
 
 // LLP 1116.019 D2: each screen again at the largest text size; what spills is said once, where, with a remedy that keeps the
-// text's size, and never counted.
-test('the largest text size: its findings once each with the screens they were on and a remedy, not counted; a screen it could not read is named', async () => {
+// text's size, counted in the last line without failing the run (LLP 1116.020 D4).
+test('the largest text size: its findings once each with the screens they were on and a remedy, counted, never failing; a screen it could not read is named', async () => {
   const { judge, line } = await import('./agent-check.mjs');
   const { largeRemedy } = await import('./verify.mjs');
   const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
@@ -729,15 +729,37 @@ test('the largest text size: its findings once each with the screens they were o
   ];
   const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
   assert.deepEqual(r.lines.slice(1, 6), [
-    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (not counted; keep the text\'s size and give it room)',
+    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (give the text room; a smaller or fixed font is the tell)',
     `  (first screen only) ${lines[0].trim()}`,
     `  (first screen only) ${lines[1].trim()}`,
     lines[2],
     '  could not read relaunch: check did not answer',
   ]);
-  assert.equal(r.lines.at(-1), 'verify: clean in 2.0 s');
+  assert.equal(r.lines.at(-1), 'verify: 3 problems (3 at the largest text size; the tests passed) in 2.0 s');
   assert.equal(r.exit, 0);
+  const both = report({ host: 'ios', built: null, compiler: ['a warning'], tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
+  assert.equal(both.lines.at(-1), 'verify: 4 problems (1 finding, 3 at the largest text size; the tests passed) in 2.0 s');
   const web = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ screen: 'first screen', size: [390, 844], rootFontSize: 53, lines: [] }], shots: [], ms: 2000 });
   assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
 });
 
+
+// LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
+// app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.
+test("fixed type: each fixed font size in the app's Contract, counted; an accepted one listed apart", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      text "Total" font-size=28\n      text "12:00" font-size=72 testId="clock"\n      text "Fine" font-size="1.75rem"\n');
+    writeFileSync(resolve(dir, 'app.test.contract'), 'test "t"\n  expect text "clock" == "12:00"\n');
+    const accept = [{ finding: 'fixed-type', node: 'clock', why: 'a wall clock' }];
+    const fixed = await fixedType(dir, 'ios', accept);
+    assert.deepEqual(fixed.lines, ['  fixed    app.contract:4 text font-size=28: stays 28 pt as Dynamic Type grows; a role (`font="-exact-title1"`) or a `rem` size ("1.75rem") scales']);
+    assert.equal(fixed.accepted.length, 1);
+    const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], fixed, accept, shots: [], ms: 1000 });
+    assert.deepEqual(r.lines.slice(1, 3), ["fixed type: 1 font size the reader's text size does not move", fixed.lines[0]]);
+    assert.ok(r.lines.includes('accepted (app.json verify.accept, not counted): 1 finding'), r.lines.join('\n'));
+    assert.ok(!r.lines.some((l) => l.includes('accepts nothing')), r.lines.join('\n'));
+    assert.equal(r.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 1.0 s');
+    assert.equal(r.exit, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

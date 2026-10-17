@@ -262,6 +262,39 @@ export function tellsIn(source, tokens = new Set()) {
   return found;
 }
 
+// LLP 1116.020 D4: a font size that stays put as the reader's text size grows, which `verify` names: a bare number, px or pt,
+// whole or as a ternary's branch. `tabular-nums` excuses none of it (a readout's designed size is a rem one), and a native
+// control's own field sizes its text as the platform does. Exact's parts fixed on purpose (`RoundButton`'s title) are the
+// library's, not the app's files.
+const CONTROL_TAGS = new Set(['input', 'select', 'textarea', 'progress', 'meter']);
+function fixedSize(value) {
+  const sizes = literals(value).flatMap(word => { const m = /^(\d+(?:\.\d+)?)(px|pt)?$/.exec(word.trim()); return m ? [Number(m[1])] : []; });
+  const bare = value.replace(/"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""');
+  const whole = /^\(?\s*(\d+(?:\.\d+)?)\s*\)?$/.exec(bare.trim());
+  if (whole) sizes.push(Number(whole[1]));
+  else for (const m of bare.matchAll(/[?:]\s*(\d+(?:\.\d+)?)\s*(?=[):]|$)/g)) sizes.push(Number(m[1]));
+  return sizes.length ? Math.max(...sizes) : null;
+}
+
+/** Each fixed font size in one `.contract` source: `{ line, column, tag, value, size, testId }`, `testId` the node's literal one. */
+export function fixedSizesIn(source) {
+  const text = withoutTheme(uncomment(source)), rows = text.split('\n'), lines = source.split('\n'), heads = nodeHeads(rows), found = [];
+  const lineStarts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') lineStarts.push(i + 1);
+  const locate = offset => { let l = 0; while (l + 1 < lineStarts.length && lineStarts[l + 1] <= offset) l++; return [l + 1, offset - lineStarts[l] + 1]; };
+  for (const { name, value, at } of attributes(text)) {
+    if (name.toLowerCase() !== 'font-size') continue;
+    const [line, column] = locate(at), head = heads[line - 1], tag = rows[head].trim().split(/\s+/)[0];
+    if (/\/\/\s*no-tells:\s*\S/.test(lines[line - 1] ?? '') || CONTROL_TAGS.has(tag)) continue;
+    const size = fixedSize(value);
+    if (size == null) continue;
+    let testId = null;
+    for (let i = head; i < rows.length && (i === head || heads[i] === head) && testId == null; i++) testId = /(?:^|\s)testId=(?:"([^"]*)"|`([^`$]*)`)/.exec(rows[i])?.slice(1).find((v) => v != null) ?? null;
+    found.push({ line, column, tag, value, size, testId });
+  }
+  return found;
+}
+
 /** The `.contract` files an argument names: an app (by name under apps/ or by
  * directory, recursively, skipping node_modules and build output) or files
  * (a Markdown file stands for its `contract` blocks). */
