@@ -32,7 +32,7 @@ Stage the runtime and build the bundle first (the app README's Build and run). F
 `examples/t3-code/tools/second-environment`:
 
 ```sh
-bun env.mjs start second && bun env.mjs seed second [--turns] [--limits]
+bun env.mjs start second && bun env.mjs seed second [--turns] [--limits] [--pull-request]
 bun env.mjs status                       # pid, port, label; projects and threads with their ids
 bun env.mjs drive --local --pair second --storage s1 -- "tree sidebar" "screenshot /abs/out.png window"
 bun env.mjs stop all
@@ -69,6 +69,16 @@ Limits draws a Codex pool and a Claude pool with a segment per account (`usage-s
 indexes from 0).
 Two Codex accounts bank reset credits, so their popover has "Use reset" and its confirm; a
 consumed credit empties that account's session window. `stop all` stops the hub too.
+
+`seed second --pull-request` puts a `gh` stand-in (`gh-standin.mjs`) first on that server's
+`PATH` and adds "Notes branch thread" to `shared-notes` on the branch `feature/notes`; the seed
+waits until the server has linked the stand-in's open pull request, #7 "Keep the notes in one
+place". The thread then has the sidebar's PR glyph and the chat header's link, and the detail
+panel has its actions menu, Merge (whose confirm merges nothing: the stand-in refuses `gh pr
+merge`) and one unresolved review thread on `README.md` with a Reply. The stand-in answers the
+calls the reference server makes for these (`GitHubCli.ts`, `GitHubPullRequestCli.ts`), logs each
+to `envs/<name>/gh-calls.log` and refuses every other one, the Pull Requests page's listing among
+them.
 
 `drive` runs `scripts/agent.mjs macos` on the newest bundle (`EXACT_MAC_BIN` overrides) at
 1280x840. In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
