@@ -7,7 +7,7 @@ import { noteAutomationWindow } from './browser-automation';
 import type { T3Client } from './client';
 import { terminalAvailable, terminalOpen } from './terminal-drawer-view';
 import type { DispatchContext } from './keyboard-dispatch'; // terminal labels resolve with terminalFocus
-import { highlightPending } from './r12-render-highlight';
+import { highlightPendingSince } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastAction, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
 import type { Files, Native } from './protocol';
@@ -265,6 +265,7 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
  */
 export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
   page: { focused: boolean; visible: boolean } = { focused: true, visible: true }) {
+  const highlightPending = highlightPendingSince();
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
