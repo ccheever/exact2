@@ -560,6 +560,13 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   or app-owned pressed state. Ruled 2026-09-27: it composes through CSS's
   `scale` property and never writes `transform`, and it is kept under reduced
   motion, as a native button's highlight is.
+- **`-exact-press-opacity`, `-exact-press-background-color`, `-exact-press-color`**,
+  bits 212 to 214 ([LLP 1061 D7](1061-press-feel-and-reduced-motion.rfc.md)), are
+  not CSS (Charlie, 2026-10-17). They are the author's pressed paint, which CSS
+  writes as an `:active` rule; Contract has no selectors, and `:active` also
+  matches the pressed node's ancestors where the press is the innermost
+  pressable's. The host shows them from the press state it tracks for
+  `-exact-press-scale`, on its timing, with no runner round trip.
 - **`-exact-layout-transition`**, bit 143 ([LLP 1063 D1, D6](1063-presence-and-layout-motion.rfc.md)),
   is not CSS. It moves the presentation after committed layout, sizing only
   the box's surface while content keeps its final geometry. The separate row

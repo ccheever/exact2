@@ -493,6 +493,14 @@ screen, 2026-10-16.)
   placing them elsewhere. `-exact-hairline` is a device pixel natively; on the web below
   1.5 dppx (a 1.25 display) it is 1 CSS px (`host/web/index.html`), so this is advice for
   the native targets.
+- **A pressed style from `pointerdown`/`pointerup` state lags the finger.** React
+  Native's `style={({ pressed }) => [styles.row, pressed && styles.dim]}` (or
+  `TouchableOpacity`'s `activeOpacity`) ported as a `pressed` state the two handlers
+  set waits on the runner at each touch, and replaces the platform's own press with
+  nothing until it answers. Fix: `pressed && styles.dim` ports to
+  `-exact-press-opacity=0.5` (its opacity), a pressed `backgroundColor` to
+  `-exact-press-background-color`, a pressed text colour to `-exact-press-color`; the
+  host shows them while held (LLP 1061 D7). Drop the state and both handlers.
 - **A floating button's shadow is heavier than the original's.** Cause: on iOS React
   Native drops the shadow of a view with `overflow: "hidden"` (its layer masks to its
   bounds), so the shadow its style declares was never drawn; CSS draws a `box-shadow`

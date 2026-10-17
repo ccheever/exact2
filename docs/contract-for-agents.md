@@ -2316,6 +2316,22 @@ its schemes in `app.json`: `"host": { "ios": { "queriesSchemes":
 List at most 50 schemes, without `:` or `://`; changing the list requires a
 native rebuild.
 
+A pressed look is the host's, as UIKit's highlight is (LLP 1061 D7):
+`-exact-press-opacity` (0 to 1, a share of the node's own opacity),
+`-exact-press-background-color` and `-exact-press-color` (any colour row's
+values: a token, a role, `light-dark()`), beside `-exact-press-scale`, with
+which they compose. The host shows them while a finger or the mouse holds the
+node (the innermost pressable, inside its box; sliding off, a cancel or a pan
+lets go), eased in over 120 ms, at once under the agent's clock, so `"tap row
+down" "screenshot x.png" "tap up"` shows it. Nothing waits on the runner and no
+state changes. `-exact-press-color` reaches the node's text as `color` does
+(a text with its own colour keeps it). Any of them, 1 included, replaces the
+platform's unsaid press: iOS's dim, the Mac's darkening, a list row's cell
+highlight. Contract has no `:active` and no pressed block, so these are paint
+only; a press that changes layout is app state. Do not draw a press from
+`pointerdown`/`pointerup` state: each touch then waits on the runner. Say
+nothing to get the platform's own.
+
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
 trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |
