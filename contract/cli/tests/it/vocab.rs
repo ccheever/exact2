@@ -909,6 +909,9 @@ fn text_width_vocabulary_names_the_accessibility_warning_and_rem_repair() {
         let out = stdout(&vocab(&[name]));
         assert!(
             out.contains("lower-text-px-width")
+                && out.contains("fixed ceiling")
+                && out.contains("max-width=\"3rem\"")
+                && out.contains("width and its bounds")
                 && out.contains("rem")
                 && out.contains("Apple")
                 && out.contains("web controls inherit")

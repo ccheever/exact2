@@ -177,6 +177,7 @@ pub(crate) struct Lowerer<'a> {
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,
+    parent_horizontal_flex: Option<bool>,
     /// Where a native button may not be, from the nearest ancestor that says.
     pub(crate) button_context: Option<&'static str>,
     /// Whether the element being lowered is a popover's direct child.
@@ -303,6 +304,7 @@ fn lower_with_sites(
         element_children: false,
         parent_positioned: true,
         parent_bounded_column: false,
+        parent_horizontal_flex: Some(false),
         button_context: None,
         popover_child: false,
         nav_place: Default::default(),
@@ -741,6 +743,8 @@ impl<'a> Lowerer<'a> {
                 let popover_child = std::mem::replace(&mut self.popover_child, step.popover_child);
                 let bounded = std::mem::replace(&mut self.parent_bounded_column, step.bounded);
                 let nav_place = std::mem::replace(&mut self.nav_place, step.nav_place);
+                let parent_axis =
+                    std::mem::replace(&mut self.parent_horizontal_flex, step.horizontal_flex);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -749,6 +753,7 @@ impl<'a> Lowerer<'a> {
                     locals,
                     Some(step.tag),
                 );
+                self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
                 self.parent_bounded_column = bounded;
                 self.button_context = button_context;

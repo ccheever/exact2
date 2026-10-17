@@ -615,3 +615,54 @@ fn text_width_names_the_bound_to_repair() {
         assert_eq!(warned(&repaired), [], "{repaired}");
     }
 }
+
+#[test]
+fn text_width_uses_parents_inserted_by_lowering() {
+    let mut failures = Vec::new();
+    for (view, expected) in [
+        ("list height=200\n  for n in [1] key=n\n    row delete=remove(n) width=48 flex=\"0 0 8rem\"\n      text \"Mon\"", false),
+        ("list height=200\n  if on\n    row delete=remove(1) width=48 flex=1\n      text \"Mon\"", false),
+        ("list height=200 appearance=\"auto\"\n  section\n    for n in [1] key=n\n      row delete=remove(n) width=48 flex=\"0 0 8rem\"\n        text \"Mon\"", false),
+        ("list height=200 appearance=\"auto\"\n  section\n    match some(1)\n      case some(n)\n        row delete=remove(n) width=48 flex=1\n          text \"Mon\"\n      case none\n        text \"Empty\"", false),
+        ("list height=200\n  row delete=remove(1) max-width=48 flex=\"0 0 8rem\"\n    text \"Mon\"", true),
+        ("list height=200 appearance=\"auto\"\n  section display=\"flex\" flex-direction=\"row\"\n    row width=48 flex=\"0 0 8rem\"\n      text \"Mon\"", true),
+        ("list height=200 appearance=\"auto\"\n  section display=(on ? \"block\" : \"flex\")\n    row width=48 flex=1\n      text \"Mon\"", true),
+    ] {
+        let view: String = view.lines().map(|l| format!("    {l}\n")).collect();
+        let src = format!("component App\n  state on = true\n  state removed = 0\n  action remove(n: number)\n    removed = n\n  view\n{view}");
+        let (result, warnings) = contract::compile_warned(&src);
+        let got = warnings.iter().any(|w| w.id == "lower-text-px-width");
+        if result.is_err() || got != expected {
+            failures.push(format!("{src}\nexpected warning: {expected}, got {got}; errors: {:?}; warnings: {warnings:?}", result.err()));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+#[test]
+fn text_width_initial_minimum_preserves_a_fixed_ceiling() {
+    cases(&[
+        ("text \"Mon\" max-width=24 min-width=\"auto\"", true),
+        ("text \"Mon\" max-width=24 min-width=\"unset\"", true),
+        ("text \"Mon\" width=48 min-width=\"auto\"", true),
+        (
+            "row\n  text \"Mon\" max-width=24 min-width=\"auto\" flex=1",
+            true,
+        ),
+        ("text \"Mon\" min-width=\"auto\"", false),
+        ("text \"Mon\" max-width=24 min-width=\"3em\"", false),
+        ("text \"Mon\" max-width=24 min-width=\"3rem\"", false),
+        (
+            "text \"Mon\" max-width=24 min-width=(on ? \"auto\" : \"3rem\")",
+            false,
+        ),
+    ]);
+    let src = "style Floor\n  min-width=\"3rem\"\ncomponent App\n  view\n    box\n      text \"Mon\" max-width=24 class=Floor min-width=\"unset\"\n      text \"Tue\" max-width=24 class=Floor min-width=\"auto\"\n      text \"Wed\" max-width=24 class=Floor\n";
+    assert_eq!(
+        warned(src),
+        [
+            ("lower-text-px-width".into(), 6),
+            ("lower-text-px-width".into(), 7)
+        ]
+    );
+}

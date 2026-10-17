@@ -31,6 +31,8 @@ mod screens;
 mod title;
 mod width;
 
+pub(crate) use width::horizontal_flex;
+
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a
 /// repair of the first twenty would only show the next (rules/RULES.md,
@@ -52,6 +54,8 @@ pub(crate) struct TextStyle {
     pub(crate) native: Option<bool>,
     pub(crate) font: Option<Attr>,
     pub(crate) layout: Vec<Attr>,
+    /// The lowered parent includes list cards and swipe scrollers absent from the source.
+    pub(crate) parent_horizontal_flex: Option<bool>,
 }
 
 pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {

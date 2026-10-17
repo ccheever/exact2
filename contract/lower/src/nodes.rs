@@ -11,6 +11,7 @@ pub(super) struct ElementStep<'n> {
     pub(super) button_context: Option<&'static str>,
     pub(super) popover_child: bool,
     pub(super) bounded: bool,
+    pub(super) horizontal_flex: Option<bool>,
     pub(super) nav_place: routes::NavPlace,
 }
 
@@ -552,6 +553,7 @@ impl Lowerer<'_> {
         if let Some(styles) = &mut self.text_styles {
             let style = warnings::TextStyle {
                 native: native_font,
+                parent_horizontal_flex: self.parent_horizontal_flex,
                 font: expanded
                     .iter()
                     .rev()
@@ -631,6 +633,14 @@ impl Lowerer<'_> {
             button_context: controls::button_context(tag, control, self.popover_child),
             popover_child: expanded.iter().any(|a| a.name == "popover"),
             bounded: values::bounded_column(tag, expanded, self.parent_bounded_column),
+            horizontal_flex: if attrs
+                .iter()
+                .any(|a| a.name == "class" && !matches!(a.value, Expr::Ident(..)))
+            {
+                None
+            } else {
+                warnings::horizontal_flex(t.fixed_styles, expanded)
+            },
             nav_place,
         })
     }

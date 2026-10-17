@@ -303,10 +303,7 @@ pub(super) fn text_px_width(
     text_widths(
         view,
         Some(true),
-        TextContext {
-            horizontal_flex: Some(false),
-            ..TextContext::default()
-        },
+        TextContext::default(),
         styles,
         lowered,
         &mut BTreeSet::new(),
@@ -407,23 +404,26 @@ fn known_display(rows: &[&Attr]) -> bool {
 
 /// Whether flex sizes the children's widths. Tag defaults precede the
 /// effective rows; an unknown display or flex direction proves neither axis.
-fn horizontal_flex(tag: &str, rows: &[&Attr]) -> Option<bool> {
+pub(crate) fn horizontal_flex(
+    defaults: &[(exact_kernel::StyleId, &str)],
+    rows: &[Attr],
+) -> Option<bool> {
     use exact_kernel::StyleId;
-    let tag = crate::tags::tag(tag)?;
-    let word = |name: &str, id: StyleId, initial: &str| match last(rows, name) {
-        Some(Attr {
-            value: Expr::Str(s, _),
-            ..
-        }) => Some(s.trim().to_ascii_lowercase()),
-        Some(_) => None,
-        None => Some(
-            tag.fixed_styles
-                .iter()
-                .find(|(row, _)| *row == id)
-                .map_or(initial, |(_, value)| *value)
-                .to_string(),
-        ),
-    };
+    let word =
+        |name: &str, id: StyleId, initial: &str| match rows.iter().rev().find(|a| a.name == name) {
+            Some(Attr {
+                value: Expr::Str(s, _),
+                ..
+            }) => Some(s.trim().to_ascii_lowercase()),
+            Some(_) => None,
+            None => Some(
+                defaults
+                    .iter()
+                    .find(|(row, _)| *row == id)
+                    .map_or(initial, |(_, value)| *value)
+                    .to_string(),
+            ),
+        };
     match word("display", StyleId::Display, "block")?.as_str() {
         "block" | "grid" | "initial" | "unset" => Some(false),
         "flex" => match word("flex-direction", StyleId::FlexDirection, "row")?.as_str() {
@@ -488,7 +488,9 @@ fn proven_width<'a>(
         (Some(w), Some(m)) => Some(if m.0 < w.0 { m } else { w }),
         (w, m) => w.or(m),
     }?;
-    if let Some(minimum) = last(rows, "min-width") {
+    // The automatic minimum cannot exceed a definite maximum or preferred width.
+    if let Some(minimum) = last(rows, "min-width").filter(|a| !literal_word(a, &["auto", "unset"]))
+    {
         let n = fixed_bound(&minimum.value, font)?;
         if n > ceiling.0 {
             ceiling = (n, minimum);
@@ -502,7 +504,6 @@ struct TextContext {
     inline: bool,
     svg: bool,
     web_only: bool,
-    horizontal_flex: Option<bool>,
 }
 
 /// Returns whether this subtree contains text whose known font scales.
@@ -586,7 +587,6 @@ fn text_widths(
                     inline: !svg && tag == "text",
                     svg: svg && tag != "foreignObject",
                     web_only: context.web_only || tag == "foreignObject",
-                    horizontal_flex: known_class.then(|| horizontal_flex(tag, &layout)).flatten(),
                 };
                 let child_scales =
                     text_widths(children, font, child_context, styles, lowered, seen, out);
@@ -601,7 +601,10 @@ fn text_widths(
                 } else {
                     (field && font == Some(true)) || child_scales
                 };
-                if let Some(bound) = proven_width(&layout, font_row, context.horizontal_flex) {
+                let parent_axis = effective
+                    .and_then(|style| style.as_ref())
+                    .and_then(|style| style.parent_horizontal_flex);
+                if let Some(bound) = proven_width(&layout, font_row, parent_axis) {
                     if text_scales
                         && known_class
                         && !(tag == "text" && context.inline)
