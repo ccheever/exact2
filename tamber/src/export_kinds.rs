@@ -19,6 +19,9 @@
 use crate::{Length, Value, Vocab};
 use serde_json::{json, Map, Value as Json};
 
+/// A token's incoming name, value and its source tuple.
+type Incoming = (String, Json, Json);
+
 /// The root size the export writes a relative length at, CSS's `medium`.
 pub(crate) const ROOT_PX: f64 = 16.0;
 
@@ -383,7 +386,7 @@ pub(crate) fn reimport_ops(
     tuples: &[(Modes, [String; 2])],
     under: &[&str],
     changed: &dyn Fn(&str) -> bool,
-    incoming: &dyn Fn(&str) -> Option<(String, Json, Json)>,
+    incoming: &dyn Fn(&str) -> Option<Incoming>,
     baseline: &dyn Fn(&str) -> (Json, Json),
     branch: &dyn Fn(&Modes) -> Option<usize>,
     current: &str,
