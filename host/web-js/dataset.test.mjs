@@ -82,16 +82,17 @@ test('structural selectors retain the front modal and later popovers, with modal
   }
 }, 30000);
 
-test('structural selectors follow completed openings and recognize an already-open modal', async () => {
+test('unobserved modals rank below observed openings and auto popovers replace their siblings', async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/dataset.js') return new Response(Bun.file(new URL('./dataset.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     return new Response(`<main id="exact-root">
       <div id="page" data-mood="accent"></div>
-      <dialog id="a" data-mood="accent"></dialog>
-      <dialog id="b" data-mood="accent"></dialog>
-      <div id="pop" popover="manual" data-mood="accent"></div>
+      <dialog id="d" data-mood="accent"></dialog>
+      <dialog id="later" data-mood="accent"></dialog>
+      <div id="p" popover="auto" data-mood="accent"></div>
+      <div id="q" popover="auto" data-mood="accent"></div>
     </main>`, { headers: { 'content-type': 'text/html' } });
   } });
   let browser;
@@ -99,34 +100,31 @@ test('structural selectors follow completed openings and recognize an already-op
     browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
     const page = await browser.newPage();
     const results = {};
-    for (const scenario of ['nested-modal', 'nested-modal-unread', 'nested-popover', 'focus-modal', 'late-import', 'missed-event']) {
+    for (const scenario of ['late-import', 'late-import-unread', 'auto', 'auto-reopened']) {
       await page.goto(server.url.href);
       results[scenario] = await page.evaluate(async scenario => {
-        const a = document.getElementById('a'), b = document.getElementById('b'), pop = document.getElementById('pop');
-        const snapshots = [];
-        if (scenario === 'late-import') a.showModal();
-        if (scenario === 'missed-event') document.addEventListener('beforetoggle', e => e.stopImmediatePropagation(), { capture: true, once: true });
+        const el = id => document.getElementById(id), snapshots = [];
+        if (scenario.startsWith('late-import')) el('d').showModal();
         const { x_querySelectorAll } = await import('/dataset.js');
         const read = () => x_querySelectorAll('[data-mood~="accent"]');
-        if (scenario.startsWith('nested-')) {
-          a.addEventListener('beforetoggle', () => {
-            if (scenario === 'nested-popover') pop.showPopover(); else b.showModal();
-            if (scenario !== 'nested-modal-unread') snapshots.push(read());
-          }, { once: true });
+        if (scenario.startsWith('late-import')) {
+          if (scenario === 'late-import') snapshots.push(read());
+          el('later').showModal();
+        } else {
+          if (scenario === 'auto-reopened') { el('p').showPopover(); el('p').hidePopover(); }
+          el('d').showModal();
+          el('q').showPopover();
+          el('p').showPopover();
         }
-        if (scenario === 'focus-modal') a.addEventListener('focus', () => b.showModal(), { once: true });
-        if (scenario !== 'late-import') a.showModal();
         snapshots.push(read());
-        return { snapshots, front: document.elementFromPoint(1, 1)?.id };
+        return snapshots;
       }, scenario);
     }
     expect(results).toEqual({
-      'nested-modal': { snapshots: [['b'], ['a']], front: 'a' },
-      'nested-modal-unread': { snapshots: [['a']], front: 'a' },
-      'nested-popover': { snapshots: [['page', 'pop'], ['a']], front: 'a' },
-      'focus-modal': { snapshots: [['b']], front: 'b' },
-      'late-import': { snapshots: [['a']], front: 'a' },
-      'missed-event': { snapshots: [['a']], front: 'a' },
+      'late-import': [['d'], ['later']],
+      'late-import-unread': [['later']],
+      auto: [['d', 'p']],
+      'auto-reopened': [['d', 'p']],
     });
   } finally {
     await browser?.close();
