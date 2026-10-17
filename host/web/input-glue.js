@@ -211,40 +211,45 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // handler of its own, as a UIButton highlights (the shell dims its face).
   const feedback = new WeakMap();
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
-  // and on the same ease as the scale: the opacity as a fraction of the
-  // node's own, added to whatever the page gives it (a transition, a class,
-  // an inline row), and the background and text colours in place of its
-  // own, eased back to whatever they are by then. Its `color` reaches the
-  // subtree as CSS's does.
+  // and on the same ease as the scale. The shell's rules (index.html) paint
+  // it, important so the page's own declarations do not hide it, from the
+  // node's own properties, read live (one cleared while held stops
+  // showing, and the unsaid dim is then the press), and from what this
+  // piece animates: the press's progress and the node's opacity and colours
+  // as they were at the press, beneath. Its `color` reaches the subtree as
+  // CSS's does.
   const PAINT = ["--exact-press-opacity", "--exact-press-background-color", "--exact-press-color"];
   const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
   const paints = new WeakMap();
   const showPaint = (el, down) => {
     const old = paints.get(el);
     if ((old?.down ?? false) === down) return;
-    const [opacity, background, color] = PAINT.map(p => el.style.getPropertyValue(p).trim());
-    if (!old && !(opacity || background || color)) return;
-    const timing = { duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
+    if (!old && !PAINT.some(p => el.style.getPropertyValue(p))) return;
     const now = getComputedStyle(el);
-    // The opacity's share, from what shows: the underlying opacity is the
-    // computed one less the delta already added.
-    const shown = old?.dim ? parseFloat(now.opacity) - old.base : 0;
-    const base = old?.dim ? old.base : parseFloat(now.opacity);
-    const fraction = Number(opacity.includes("var(") ? now.getPropertyValue("--exact-press-opacity") : opacity);
-    const target = down && opacity && Number.isFinite(fraction) ? -base * (1 - Math.min(1, Math.max(0, fraction))) : 0;
-    const from = { offset: 0 }, to = { offset: 1 };
-    if (background || old?.inks?.backgroundColor) { from.backgroundColor = now.backgroundColor; if (down && background) to.backgroundColor = "var(--exact-press-background-color)"; }
-    if (color || old?.inks?.color) { from.color = now.color; if (down && color) to.color = "var(--exact-press-color)"; }
-    old?.dim?.cancel(); old?.inks?.animation.cancel();
-    const dim = (opacity || old?.dim) && (shown || target) ? el.animate([{ opacity: shown }, { opacity: target }], { ...timing, composite: "add" }) : null;
-    // A colour missing from the last frame eases to the element's own (an implicit keyframe).
-    const inks = Object.keys(from).length > 1 ? { animation: el.animate([from, to], timing), backgroundColor: !!from.backgroundColor, color: !!from.color } : null;
-    const state = { down, base, dim, inks };
+    const shown = old ? Number(now.getPropertyValue("--exact-press-paint")) || 0 : 0;
+    // A transition is above every declaration in the cascade, an important
+    // one included, so the painted properties take none while painted: the
+    // node's own list, then each of them at 0s, which wins over an earlier
+    // entry or `all` (CSS Transitions 1 §2). One running ends at the press.
+    const painted = ["opacity", "background-color", "color"].filter((_, i) => el.style.getPropertyValue(PAINT[i]));
+    const base = old?.base ?? {
+      "--exact-press-base-opacity": now.opacity, "--exact-press-base-background": now.backgroundColor, "--exact-press-base-color": now.color,
+      "--exact-press-transition": [now.transition, ...painted.map(p => `${p} 0s`)].filter(Boolean).join(", "),
+    };
+    old?.animation.cancel();
+    const animation = el.animate([{ ...base, "--exact-press-paint": shown }, { ...base, "--exact-press-paint": down ? 1 : 0 }], {
+      duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both",
+    });
+    el.setAttribute("data-exact-painting", "");
+    const state = { down, base, animation };
     paints.set(el, state);
-    const done = inks?.animation ?? dim;
-    if (!down && done) done.onfinish = () => { if (paints.get(el) === state) { dim?.cancel(); inks?.animation.cancel(); paints.delete(el); } };
-    else if (!down) paints.delete(el);
-    if (agentMode) { dim?.finish(); inks?.animation.finish(); }
+    if (!down) animation.onfinish = () => {
+      if (paints.get(el) !== state) return;
+      el.removeAttribute("data-exact-painting");
+      animation.cancel();
+      paints.delete(el);
+    };
+    if (agentMode) animation.finish();
   };
   const showPress = (el, down) => {
     el.toggleAttribute("data-pressed", down);
@@ -304,13 +309,17 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
+    // The button came up where this document did not hear it (outside the window).
+    if (e.buttons === 0) return release();
     const [l, t, r, b] = press.box;
     showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
-  // The window losing focus may take the release with it, as the pointer dispatch below assumes; a gesture that
-  // claims the contact (motion-glue's swipe) ends the press as it claims it, as a pan cancels a touch.
+  // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes; a
+  // gesture that claims the contact (motion-glue's swipe) ends the press as it claims it, as a pan cancels a touch.
   addEventListener("blur", e => { if (e.target === window) release(); });
+  addEventListener("pagehide", release);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) release(); });
   (globalThis.exact ??= {}).pressClaimed = id => { if (id === press?.id) release(); };
   // @ref LLP 1115.000 D4.2 — a route is a page, so the focus follows it, as a careful web app moves it when it
   // navigates. On a push (or a replace) it goes to the new route's header's heading, else to the route itself; on

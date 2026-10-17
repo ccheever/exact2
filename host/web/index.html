@@ -298,6 +298,16 @@
      during a CSS transition. Keep it local to the node, as `scale` is. */
   @property --exact-press-factor { syntax: "<number>"; inherits: false; initial-value: 1; }
   @property --exact-scale { syntax: "<number>"; inherits: false; initial-value: 1; }
+  /* LLP 1061 D7: the pressed paint, while the input glue paints a press (`data-exact-painting`): the node's own pressed
+     properties, read live, `--exact-press-paint` of the way (0 to 1, which the glue eases) over its opacity and colours
+     as they were at the press. Important, so the page's own declarations do not hide it, and the painted properties
+     take no transition meanwhile (`--exact-press-transition`: the node's own list, then each of them at 0s), since a
+     transition is above every declaration in the cascade. */
+  @property --exact-press-paint { syntax: "<number>"; inherits: false; initial-value: 0; }
+  #exact-root [data-exact-painting] { transition: var(--exact-press-transition) !important; }
+  #exact-root [data-exact-painting][style*="--exact-press-opacity:"] { opacity: calc(var(--exact-press-base-opacity) * (1 - var(--exact-press-paint) * (1 - clamp(0, var(--exact-press-opacity), 1)))) !important; }
+  #exact-root [data-exact-painting][style*="--exact-press-background-color:"] { background-color: color-mix(in srgb, var(--exact-press-background-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-background)) !important; }
+  #exact-root [data-exact-painting][style*="--exact-press-color:"] { color: color-mix(in srgb, var(--exact-press-color) calc(var(--exact-press-paint) * 100%), var(--exact-press-base-color)) !important; }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner
      scroller. Body and root grow with the content and the marked scroller is

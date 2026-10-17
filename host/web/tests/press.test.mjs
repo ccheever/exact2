@@ -451,8 +451,10 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
 check('the pressed paint shows by the press rule, eased, and replaces the platform default', async () => {
   const { call, evaluate, centre, mouse, close } = await open('/paint');
   try {
-    const look = (id) => evaluate(`(() => { const s = getComputedStyle(document.getElementById('${id}')); return [s.opacity, s.backgroundColor, s.color].join(' '); })()`);
-    const ink = (id) => evaluate(`getComputedStyle(document.getElementById('${id}')).color`);
+    // A mixed colour computes as `color(srgb …)`; the rest as `rgb()`.
+    await evaluate(`window.rgb = c => c.replace(/color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)\\)/g, (_, ...v) => \`rgb(\${v.slice(0, 3).map(x => Math.round(x * 255)).join(', ')})\`)`);
+    const look = (id) => evaluate(`(() => { const s = getComputedStyle(document.getElementById('${id}')); return rgb([s.opacity, s.backgroundColor, s.color].join(' ')); })()`);
+    const ink = (id) => evaluate(`rgb(getComputedStyle(document.getElementById('${id}')).color)`);
     const settle = () => evaluate(`document.getAnimations().forEach(a => { if (Number.isFinite(a.effect.getComputedTiming().endTime)) a.finish(); })`);
     const rest = '0.8 rgb(255, 255, 255) rgb(0, 0, 0)';
     expect(await look('painted')).toBe(rest);
@@ -467,7 +469,8 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     expect(part).toBeLessThan(0.8);
     expect(part).toBeGreaterThan(0.4);
     await settle();
-    expect(await look('painted')).toBe('0.4 rgb(0, 0, 255) rgb(255, 0, 0)');
+    const held = await look('painted');
+    expect(held).toBe('0.4 rgb(0, 0, 255) rgb(255, 0, 0)');
     expect([await ink('label'), await ink('kept')]).toEqual(['rgb(255, 0, 0)', 'rgb(0, 128, 0)']);
     expect(await evaluate(`getComputedStyle(document.getElementById('paintcard')).opacity`)).toBe('1');
     // Off the box it goes, and back it comes, as the scale does.
@@ -477,13 +480,26 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await mouse('mouseMoved', painted);
     await settle();
     expect(await look('painted')).toBe('0.4 rgb(0, 0, 255) rgb(255, 0, 0)');
-    // The dim is the share taken at the press, added to whatever the node's own is: it moves under a change.
-    await evaluate(`document.getElementById('painted').style.opacity = '0.6'`);
-    expect(await evaluate(`getComputedStyle(document.getElementById('painted')).opacity`)).toBe('0.2');
-    await evaluate(`document.getElementById('painted').style.opacity = '0.8'`);
     await mouse('mouseReleased', painted);
     await settle();
     expect(await look('painted')).toBe(rest);
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    expect(await evaluate(`document.getElementById('painted').hasAttribute('data-exact-painting')`)).toBe(false);
+    // An authored transition of the same properties, running at the press,
+    // does not hide the paint; released, the node shows its own again.
+    await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; getComputedStyle(el).opacity; }`);
+    expect(await evaluate(`document.getElementById('painted').getAnimations().filter(a => a instanceof CSSTransition).length`)).toBe(2);
+    await mouse('mousePressed', painted);
+    await evaluate(`document.getAnimations().filter(a => !(a instanceof CSSTransition)).forEach(a => a.finish())`);
+    const fading = (await look('painted')).split(' ');
+    expect(fading.slice(1).join(' ')).toBe('rgb(0, 0, 255) rgb(255, 0, 0)');
+    expect(parseFloat(fading[0])).toBeLessThan(0.45);
+    await mouse('mouseReleased', painted);
+    await settle();
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    await settle();
+    expect(await look('painted')).toBe('0.6 rgb(255, 255, 0) rgb(0, 0, 0)');
+    await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = ''; el.style.backgroundColor = 'rgb(255, 255, 255)'; el.style.opacity = '0.8'; }`);
     expect(await ink('label')).toBe('rgb(0, 0, 0)');
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     expect(await evaluate(`document.getElementById('painted').getAnimations().length`)).toBe(0);
@@ -508,8 +524,31 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     const hovered = await evaluate(`getComputedStyle(document.getElementById('paintrow')).backgroundImage`);
     await mouse('mousePressed', [x, y]);
     await settle();
-    expect(await evaluate(`(() => { const s = getComputedStyle(document.getElementById('paintrow')); return s.backgroundColor + ' ' + s.backgroundImage; })()`)).toBe(`rgb(0, 0, 255) ${hovered}`);
+    expect(await evaluate(`(() => { const s = getComputedStyle(document.getElementById('paintrow')); return rgb(s.backgroundColor) + ' ' + s.backgroundImage; })()`)).toBe(`rgb(0, 0, 255) ${hovered}`);
     await mouse('mouseReleased', await centre('paintrow'));
+    await settle();
+    // A pressed opacity cleared while held stops showing at once: the press
+    // is then the unsaid dim alone, never both.
+    await mouse('mousePressed', inked);
+    await evaluate(`document.getElementById('inked').style.setProperty('--exact-press-opacity', '0.5')`);
+    await settle();
+    expect(await evaluate(`getComputedStyle(document.getElementById('inked')).opacity`)).toBe('0.5');
+    await evaluate(`{ const el = document.getElementById('inked'); el.style.removeProperty('--exact-press-opacity'); el.style.removeProperty('--exact-press-color'); }`);
+    expect(await evaluate(`getComputedStyle(document.getElementById('inked')).opacity`)).toBe('0.65');
+    await mouse('mouseReleased', inked);
+    await settle();
+    await evaluate(`document.getElementById('inked').style.setProperty('--exact-press-color', 'rgb(255, 0, 0)')`);
+    // A press whose up never reaches the page (the window lost, the button
+    // up outside it) lets go.
+    for (const end of [`dispatchEvent(new Event('blur'))`, `document.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, isPrimary: true, buttons: 0 }))`]) {
+      await mouse('mousePressed', painted);
+      expect(await evaluate(`document.getElementById('painted').hasAttribute('data-pressed')`)).toBe(true);
+      await evaluate(end);
+      await settle();
+      expect([await evaluate(`document.getElementById('painted').hasAttribute('data-pressed')`), await look('painted')]).toEqual([false, rest]);
+      await mouse('mouseReleased', painted);
+      await settle();
+    }
   } finally {
     await close();
   }

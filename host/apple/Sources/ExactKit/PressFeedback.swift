@@ -96,6 +96,9 @@ extension NodeView {
     /// Mac/PressLookMac.swift).
     func pressChanged() {
         if pressed { pressHaptic() }
+        // What a press shows goes at its release whatever the style says now:
+        // an authored look the style dropped while held included.
+        if !pressed { paintPress(false); aimPress(false, release: true) }
         #if os(iOS)
         // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
         if platformPressDims, presenter?.rowCells.press(self, pressed) == true { return }
@@ -105,21 +108,24 @@ extension NodeView {
         if platformPressTints { tintPress(pressed); return }
         if !pressed { tintPress(false) }
         #endif
-        paintPress(pressed)
-        aimPress(pressed, release: !pressed)
+        guard pressed else { return }
+        paintPress(true)
+        aimPress(true)
     }
     /// The pointer moved while pressed: the feedback follows whether it is
     /// still inside, as the tap's own acceptance does on release.
     func pressFollows(inside: Bool) {
         guard pressed else { return }
+        if !inside { paintPress(false); aimPress(false) }
         #if os(iOS)
         if platformPressDims, presenter?.rowCells.press(self, inside) == true { return }
         if platformPressDims { dimPress(inside); return }
         #elseif os(macOS)
         if platformPressTints { tintPress(inside); return }
         #endif
-        paintPress(inside)
-        aimPress(inside)
+        guard inside else { return }
+        paintPress(true)
+        aimPress(true)
     }
 
     private func aimPress(_ down: Bool, release: Bool = false) {

@@ -941,11 +941,15 @@ pub fn style_json_presented(
     };
     let mut computed = node.computed_style(rows.union(node.style.written));
     // PlaceholderColor's initial payload is an unread sentinel; absence
-    // selects the platform placeholder colour, including after a clear.
+    // selects the platform placeholder colour, including after a clear. So
+    // for the pressed paint: a cleared row is no pressed look (LLP 1061 D7).
     computed.mask = computed.mask.union(
-        computed
-            .written
-            .minus(StyleMask::of(StyleId::PlaceholderColor)),
+        computed.written.minus(
+            StyleMask::of(StyleId::PlaceholderColor)
+                .union(StyleMask::of(StyleId::PressOpacity))
+                .union(StyleMask::of(StyleId::PressBackgroundColor))
+                .union(StyleMask::of(StyleId::PressColor)),
+        ),
     );
     computed.mask.set(StyleId::TextColor);
     paint_over(&mut computed, shown);

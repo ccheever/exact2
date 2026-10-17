@@ -115,14 +115,12 @@ extension NodeView {
     private func inkPress(_ down: Bool, still: Bool) {
         let changed: Bool
         if down {
-            var own: NodeStyle = [:]
-            if let fill = style["press_background_color"] { own["background_color"] = fill }
-            let ink = style["press_color"]
-            if let ink { own["text_color"] = ink }
-            guard !own.isEmpty else { return }
+            // Itself first, so a colour the engine gives it mid-press finds it.
             pressPaint.inked = [WeakNodeView(view: self)]
+            let own = Self.pressOverlay(style)
+            guard !own.isEmpty else { return }
             standInForPress(own)
-            if let ink { inkBelow(self, ink: ink, inherited: pressPaint.rest["text_color"] ?? nil) }
+            if let ink = own["text_color"] { inkBelow(self, ink: ink, inherited: pressPaint.rest["text_color"] ?? nil) }
             changed = true
         } else {
             changed = !pressPaint.inked.isEmpty
@@ -174,17 +172,46 @@ extension NodeView {
         restyleForPress(s)
     }
 
-    /// An engine style for this view: while a press stands in for some of its
-    /// keys, the engine's new values are kept for the release and the press's
-    /// still shown.
+    /// The keys a node's own press shows, from its style's press rows.
+    private static func pressOverlay(_ s: NodeStyle) -> NodeStyle {
+        var own: NodeStyle = [:]
+        if let fill = s["press_background_color"] { own["background_color"] = fill }
+        if let ink = s["press_color"] { own["text_color"] = ink }
+        return own
+    }
+
+    /// An engine style for this view while a press paints it: the engine's
+    /// new values are kept for the release, and what the press shows is
+    /// read again from it. The pressed node's own rows may have changed (a
+    /// new colour goes to its subtree again); a descendant that now writes
+    /// its own colour keeps it.
     func pressPainted(_ s: NodeStyle) -> NodeStyle {
-        guard !pressPaint.overlay.isEmpty else { return s }
+        guard pressPaint.down || !pressPaint.overlay.isEmpty else { return s }
         var s = s
-        for (key, value) in pressPaint.overlay {
+        var overlay = pressPaint.overlay
+        if pressPaint.down {
+            overlay = Self.pressOverlay(s)
+            if overlay["text_color"] != pressPaint.overlay["text_color"] {
+                for held in pressPaint.inked where held.view !== self { held.view?.endPressStandIn() }
+                pressPaint.inked = [WeakNodeView(view: self)]
+                if let ink = overlay["text_color"] { inkBelow(self, ink: ink, inherited: s["text_color"]) }
+            }
+        } else if Self.writes(s, "text_color") {
+            overlay["text_color"] = nil
+        }
+        for key in pressPaint.overlay.keys where overlay[key] == nil { pressPaint.rest[key] = nil }
+        for (key, value) in overlay {
             pressPaint.rest[key] = .some(s[key])
             s[key] = value
         }
+        pressPaint.overlay = overlay
         return s
+    }
+
+    /// Whether style `s` says its author wrote row `key`, as `wrote` reads a view's own.
+    private static func writes(_ s: NodeStyle, _ key: String) -> Bool {
+        guard case .array(let rows)? = s["written"] else { return false }
+        return rows.contains(.string(key))
     }
 
     private func restyleForPress(_ s: NodeStyle) {

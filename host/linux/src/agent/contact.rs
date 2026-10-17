@@ -160,6 +160,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
             _ => unreachable!(),
         }
     }
+    p.land_presses();
     Ok(reply(p, phase, Some(at)))
 }
 fn reply<D: DataSource>(p: &Presenter<D>, phase: &str, at: Option<(f32, f32)>) -> String {

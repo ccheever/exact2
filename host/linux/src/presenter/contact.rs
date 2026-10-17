@@ -234,6 +234,12 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn contact_position(&self) -> Option<(f32, f32)> {
         self.contact.as_ref().map(|c| c.position)
     }
+    /// The agent's contact phase is done: its press lands at once (LLP
+    /// 1061 D2, D7), the clock unmoved.
+    pub(crate) fn land_presses(&mut self) {
+        self.host.land_presses();
+        self.dirty = true;
+    }
     pub(crate) fn contact_event_ms(&self) -> Option<f64> {
         self.contact.as_ref().map(|c| c.event_ms)
     }

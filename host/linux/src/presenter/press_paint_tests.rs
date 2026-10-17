@@ -97,3 +97,28 @@ fn a_held_contact_shows_the_pressed_paint_and_lets_it_go() {
     assert!(!reddened(&mut p, inherits));
     assert!(!p.host.motion(), "the paint needs no more frames");
 }
+
+/// Under the agent's clock the paint lands at once both ways (LLP 1061
+/// D2): a read between `tap X down` and `tap up` sees it held.
+#[test]
+fn the_agents_contact_shows_the_paint_at_once() {
+    let mut p = boot();
+    let b = rect(&mut p, "painted");
+    let ground = (b.0 + b.2 - 4., b.1 + 4.);
+    let k = p.host().kernel();
+    let id = k.node_by_key(k.find_by_test_id("painted")[0]).unwrap().id;
+    let down = crate::agent::handle(
+        &mut p,
+        &format!(
+            r#"{{"op":"tap","phase":"down","id":{id},"x":{},"y":{}}}"#,
+            ground.0, ground.1
+        ),
+    );
+    assert!(!down.contains("error"), "{down}");
+    let held = pixel(&mut p, ground.0, ground.1);
+    assert!(held[0].abs_diff(127) <= 1 && held[2] == 255, "{held:?}");
+    let up = crate::agent::handle(&mut p, r#"{"op":"tap","phase":"up"}"#);
+    assert!(!up.contains("error"), "{up}");
+    assert_eq!(pixel(&mut p, ground.0, ground.1), [0, 255, 0]);
+    assert!(!p.host.motion());
+}

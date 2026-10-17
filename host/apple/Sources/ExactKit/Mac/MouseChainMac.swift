@@ -579,6 +579,9 @@ extension Presenter {
         guard agentPointer == nil, !ExactEnv.agentMode else { return }
         setHoverPath([])
         pointerCursor(over: nil, at: .zero)
+        // A button held as the window resigns has its up delivered to no
+        // view of it: the press and what it shows end here (LLP 1061 D7).
+        for view in views.values where view.pressed { view.pressed = false }
     }
 
 }

@@ -62,6 +62,16 @@ impl<D: DataSource> Host<D> {
         );
     }
 
+    /// Every press at its end now: under the agent's clock a press lands,
+    /// as Apple's and the web's do, so a read between `tap X down` and
+    /// `tap up` sees it held and one after sees it gone.
+    pub(crate) fn land_presses(&mut self) {
+        let now = self.now_ms;
+        for p in self.presses.values_mut() {
+            (p.from, p.start) = (p.to, now - DURATION);
+        }
+    }
+
     /// The press's progress on `key` now; 0 when none.
     pub(crate) fn press_progress(&self, key: NodeKey) -> f32 {
         self.presses
