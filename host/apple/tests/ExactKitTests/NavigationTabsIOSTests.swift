@@ -142,8 +142,8 @@ final class NavigationTabsIOSTests: XCTestCase {
     /// to UIKit: behind an alert UIKit dims an inherited tint once, and a
     /// bar tint read from a view's dimmed tint was dimmed again, so the
     /// selected tab went grey where a hand-built app's stays dark. Where an
-    /// ancestor the bar is not inside sets the colour, the bar takes that
-    /// ancestor's colour, never a view's tint.
+    /// ancestor the bar is not inside sets the colour, the bar is still
+    /// given the colour the tablist resolves.
     func testABarOnTheAppTintInheritsWhatTheTablistDoes() throws {
         let session = try fixture("tint-inherited")
         let p = session.presenter, list = try node(session, "tabs")
@@ -166,7 +166,8 @@ final class NavigationTabsIOSTests: XCTestCase {
         wrapper.addSubview(nested)
         XCTAssertFalse(tabs.tabBar.isDescendant(of: wrapper))
         p.navigation.tint(nested)
-        XCTAssertEqual(rgb(tabs.tabBar.tintColor), [0xcc, 0, 0], "the wrapper's colour, not the bar's inherited tint")
+        XCTAssertEqual(rgb(tabs.tabBar.tintColor), rgb(nested.tintColor), "the colour the nested tablist resolves, not the bar's inherited tint")
+        XCTAssertNotEqual(rgb(tabs.tabBar.tintColor), rgb(.systemRed))
         // An authored colour on the tablist is the bar's own.
         p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["accent_color": [0x38, 0x38, 0xf5, 255], "written": ["accent_color"]]]]))
         XCTAssertEqual(rgb(tabs.tabBar.tintColor), [0x38, 0x38, 0xf5])
