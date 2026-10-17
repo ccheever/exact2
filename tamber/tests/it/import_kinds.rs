@@ -489,3 +489,74 @@ fn round_two_values_are_written_out() {
     let text = accepted(&dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap());
     assert!(text.contains("  ds.t: type = 16px/normal\n"), "{text}");
 }
+
+/// An import checked against the design it lands in: a token one of the
+/// design's reads that would not fold once set, and a colour landing on a
+/// token of another kind, are reported, the count held.
+#[test]
+fn an_import_holds_where_it_lands_or_says_why() {
+    let held = |i: &Import| {
+        let c = i.counted;
+        assert_eq!(c.mapped + c.reported, c.source, "{c:?}");
+    };
+    let design = parse("tamber app\n\ntheme\n  tw.radius.md: length = 4px\n  derived: length = calc(tw.radius.md + 1px)\n").unwrap();
+    let i = tailwind::import("@theme { --radius-md: 1rem; }", "tw", &design).unwrap();
+    held(&i);
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    assert!(
+        why(&i, "--radius-md")[0].contains("the design's `derived` reads it"),
+        "{:?}",
+        why(&i, "--radius-md")
+    );
+
+    let design = parse("tamber app\n\ntheme\n  shadcn.primary: length = 8px\n").unwrap();
+    let i = shadcn::import(
+        ":root { --primary: #ffffff; --ring: #000000; }",
+        "shadcn",
+        &design,
+        &vocab(),
+    )
+    .unwrap();
+    held(&i);
+    assert_eq!(
+        why(&i, "--primary"),
+        ["the design's `shadcn.primary` is a length token, not a colour"]
+    );
+    assert!(
+        i.ops
+            .iter()
+            .all(|o| !format!("{o:?}").contains("shadcn.primary")),
+        "{:?}",
+        i.ops
+    );
+
+    let design = parse("tamber app\n\ntheme\n  tw.brand: number = 2\n").unwrap();
+    let i = tailwind::import("@theme { --color-brand: #ff0000; }", "tw", &design).unwrap();
+    held(&i);
+    assert_eq!(
+        why(&i, "--color-brand"),
+        ["the design's `tw.brand` is a number token, not a colour"]
+    );
+
+    let design = parse("tamber app\n\ntheme\n  ds.ink: length = 1px\n").unwrap();
+    let files = vec![(
+        "t.json".to_string(),
+        r##"{"ink": {"$type": "color", "$value": "#101010"}}"##.to_string(),
+    )];
+    let i = dtcg::import(&files, "ds", &design).unwrap();
+    held(&i);
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    assert_eq!(
+        why(&i, "ink"),
+        ["the design's `ds.ink` is a length token, not a colour"]
+    );
+
+    let design = parse("tamber app\n\ntheme\n  astryx.accent: length = 1px\n").unwrap();
+    let json = r##"{"source": "t", "core": "t", "light": {"--color-accent": "#111111"}, "dark": {"--color-accent": "#eeeeee"}}"##;
+    let i = astryx::import(json, "astryx", &design, &vocab()).unwrap();
+    held(&i);
+    assert_eq!(
+        why(&i, "--color-accent"),
+        ["the design's `astryx.accent` is a length token, not a colour"]
+    );
+}

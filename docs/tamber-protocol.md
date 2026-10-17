@@ -535,7 +535,9 @@ with.
 - **Every kind** (stage 6 H): a length, number, type, family, shadow, duration or easing
   is proposed as its kind's token, the `add-token` naming its `kind`, when it folds as that
   kind beside the import's other tokens; one that does not, or that has a value per side of
-  the scheme (only a colour has a dark side), is in `unmapped` with why.
+  the scheme (only a colour has a dark side), is in `unmapped` with why. Every token, a colour
+  too, is checked where it lands: one the design has of another kind, or one that would leave a
+  design token reading it unfolded, is in `unmapped` instead of `ops`.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,

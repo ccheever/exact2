@@ -257,6 +257,29 @@ pub fn import(
         design,
         vocab,
     );
+    // A colour that would not hold where it lands: its variable reported.
+    for (name, why) in super::landing::colours_refused(&mut tokens, &[], design, vocab) {
+        let Some(var) = made.get(&name) else { continue };
+        let (block, value) = match light.get(var).or_else(|| dark.get(var)) {
+            Some(v) => ("light | dark", v.as_str().unwrap_or_default().to_string()),
+            None => (
+                "localTokens",
+                local
+                    .get(var)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
+        };
+        mapped -= 1;
+        unmapped.push(Unmapped {
+            block: block.into(),
+            name: var.clone(),
+            value,
+            why,
+            token: Some(name),
+        });
+    }
     let ops = reconcile(design, &[], &[], &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
     let counted = counted(names.len() + local.len(), mapped, unmapped.len())?;

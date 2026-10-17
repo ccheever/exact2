@@ -15,6 +15,7 @@ pub mod astryx;
 pub mod dtcg;
 mod engine;
 mod kinds;
+mod landing;
 pub mod shadcn;
 pub mod tailwind;
 

@@ -338,6 +338,22 @@ pub fn import(
         &mut tokens,
         &mut unmapped,
     );
+    // A colour that would not hold where it lands: its declarations reported.
+    for (name, why) in super::landing::colours_refused(&mut tokens, &axes, design, vocab) {
+        for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
+            if *fate == Fate::Mapped && names.get(var) == Some(&name) {
+                mapped -= 1;
+                report(
+                    &mut unmapped,
+                    label,
+                    var,
+                    value,
+                    why.clone(),
+                    Some(name.clone()),
+                );
+            }
+        }
+    }
     let ops = reconcile(design, &axes, OWNED, &tokens);
     let offers = offers(prefix, design, vocab, &axes, &tokens);
     let derived = unmapped.iter().filter(|u| u.block == "(derived)").count();

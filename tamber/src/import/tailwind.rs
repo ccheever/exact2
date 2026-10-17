@@ -642,6 +642,24 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
         &mut tokens,
         &mut unmapped,
     );
+    // A colour that would not hold where it lands: its declarations reported.
+    let refused =
+        super::landing::colours_refused(&mut tokens, &[], design, &crate::Vocab::default());
+    for (name, why) in refused {
+        for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
+            if *fate == Fate::Mapped && named.names.get(var) == Some(&name) {
+                mapped -= 1;
+                report(
+                    &mut unmapped,
+                    label,
+                    var,
+                    value,
+                    why.clone(),
+                    Some(name.clone()),
+                );
+            }
+        }
+    }
     let ops = reconcile(design, &[], &[], &tokens);
     let reported = unmapped.len();
     let counted = counted(source, mapped, reported)?;

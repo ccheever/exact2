@@ -123,6 +123,23 @@ pub(super) fn folded(kind: &str, text: &str) -> Result<String, String> {
     }
 }
 
+/// [`unfolded`] for the tokens with a kind, and for a colour why it would
+/// not hold where it lands (`landing`).
+pub(super) fn refused(
+    tokens: &[Mapped],
+    axes: &[(String, Vec<String>)],
+    design: &crate::Design,
+    vocab: &Vocab,
+) -> Vec<Option<String>> {
+    let landed = super::landing::landing(tokens, axes, design, vocab);
+    let kinded = unfolded(tokens, axes, design, vocab);
+    tokens
+        .iter()
+        .zip(kinded.into_iter().zip(landed))
+        .map(|(t, (k, l))| if t.kind.is_some() { k } else { l })
+        .collect()
+}
+
 /// The names a value may hold.
 fn words(value: &str) -> impl Iterator<Item = &str> {
     value
@@ -141,30 +158,13 @@ pub(super) fn unfolded(
     vocab: &Vocab,
 ) -> Vec<Option<String>> {
     let mut why: Vec<Option<String>> = vec![None; tokens.len()];
-    // A token the design has already of another kind: a value of this one
-    // would not fit its line.
-    // Its kinds as it folds, or (where it does not fold against `vocab`) as
-    // written.
-    let checked = crate::check_design(design.clone(), vocab).ok();
-    for (t, why) in tokens.iter().zip(why.iter_mut()) {
+    // Where it lands: a design token of another kind, or one that reads it
+    // and would not fold (`landing`).
+    let landed = super::landing::landing(tokens, axes, design, vocab);
+    for ((t, why), landed) in tokens.iter().zip(why.iter_mut()).zip(landed) {
         let Some(kind) = t.kind else { continue };
-        let have = match &checked {
-            Some(f) => f
-                .tokens
-                .iter()
-                .find(|c| c.name == t.name)
-                .map(|c| c.kind.name().to_string()),
-            None => design
-                .tokens
-                .iter()
-                .find(|d| d.name.value == t.name)
-                .and_then(|d| d.kind.clone()),
-        };
-        if let Some(have) = have.filter(|h| h != kind) {
-            *why = Some(format!(
-                "the design's `{}` is a {have} token, not a {kind}",
-                t.name
-            ));
+        if landed.is_some() {
+            *why = landed;
             continue;
         }
         // A value the edit grammar takes on its own line (no unquoted `in`,

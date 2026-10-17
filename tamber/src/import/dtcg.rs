@@ -1414,14 +1414,15 @@ pub fn import(
         });
         made.push(path);
     }
-    // Each of another kind that does not fold makes no token.
-    let why = other::unfolded(&tokens, &axes, design, &crate::Vocab::default());
+    // Each of another kind that does not fold, and each colour that would not
+    // hold where it lands, makes no token.
+    let why = other::refused(&tokens, &axes, design, &crate::Vocab::default());
     for (path, why) in made.iter().zip(&why) {
         if let Some(why) = why {
-            fates.insert(
-                path,
-                format!("not a {} Tamber folds: {why}", kinds_of[path]),
-            );
+            let why = kinds_of
+                .get(path)
+                .map_or(why.clone(), |k| format!("not a {k} Tamber folds: {why}"));
+            fates.insert(path, why);
             values.remove(path);
         }
     }

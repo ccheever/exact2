@@ -2991,8 +2991,14 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   token the design already has of another kind is reported, not set (its line keeps its kind);
   so is a value that would change the kind of a design token with no kind written (`set-token`
   leaves it unsaid), and one the edit grammar would not take on its own line (an unquoted `in`).
-  The import is not folded into the destination design itself: a design token that reads an
-  imported one is not checked (QUEUE).
+  **The import is checked where it lands** (the follow-up, 2026-10-17, `import/landing.rs`):
+  each token it adds or sets is laid into the design as `reconcile` writes it, and the design
+  folded against the importer's vocabulary. A token the design has of another kind is reported
+  first, a colour too ("the design's `x` is a length token, not a colour"). So is one that leaves
+  a design token reading it unfolded ("the design's `derived` reads it, and would not fold once it
+  lands: …"), and one that does not fold there itself. Its source values move from mapped to
+  reported, so the count holds. A design that does not fold before the import (against
+  Tailwind's and DTCG's role-less vocabulary, say) is checked for kinds alone.
 - **References.** A `var(--x)` is the token `--x` becomes, named bare (D3), through a chain of
   them; one to a variable that makes no token (another's name, a redefined key) is reported. A
   string (a quoted family) is kept as written. A Tailwind shadow over `var(--color-ring)` names
