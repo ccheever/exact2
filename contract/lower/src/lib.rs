@@ -175,9 +175,9 @@ pub(crate) struct Lowerer<'a> {
     /// The element whose attributes are lowered has element children, which
     /// inherit its text rows (stage 6 C: no type token that varies there).
     pub(crate) element_children: bool,
-    /// The direct children of the list being lowered whose rows are cells
-    /// (LLP 1115.000 D16): a state part on one is `lower-state-target`.
-    pub(crate) cell_rows: Vec<(Span, u32)>,
+    /// How many element levels below the node being lowered a list's rows
+    /// are: 1 says it is one (LLP 1121 D8, `ElementStep::rows`).
+    pub(crate) row_depth: u8,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,
@@ -306,7 +306,7 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         element_children: false,
-        cell_rows: Vec::new(),
+        row_depth: 0,
         parent_positioned: true,
         parent_bounded_column: false,
         parent_horizontal_flex: Some(false),
@@ -754,6 +754,11 @@ impl<'a> Lowerer<'a> {
                 let nav_place = std::mem::replace(&mut self.nav_place, step.nav_place);
                 let parent_axis =
                     std::mem::replace(&mut self.parent_horizontal_flex, step.horizontal_flex);
+                let below = match step.rows {
+                    0 => self.row_depth.saturating_sub(1),
+                    n => n,
+                };
+                let row_depth = std::mem::replace(&mut self.row_depth, below);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -764,6 +769,7 @@ impl<'a> Lowerer<'a> {
                 );
                 self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
+                self.row_depth = row_depth;
                 self.parent_bounded_column = bounded;
                 self.button_context = button_context;
                 self.popover_child = popover_child;

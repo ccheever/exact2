@@ -95,11 +95,11 @@ fn longhands(row: &Attr) -> Result<Vec<(String, Expr)>, LowerError> {
 /// The base's value for longhand `l`: the last of `base` that writes it,
 /// a shorthand's part for it (`border-color`, `border`, `border-top` …);
 /// `None` where none does.
-fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
+fn base_of(base: &[Attr], l: &str) -> Result<Option<(Expr, bool)>, LowerError> {
     let mut out = None;
     for a in base {
         if a.name == l {
-            out = Some(a.value.clone());
+            out = Some((a.value.clone(), a.written));
             continue;
         }
         let Some(side) = SIDES.iter().position(|s| *s == l) else {
@@ -109,7 +109,10 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
         match a.name.as_str() {
             "border-color" => {
                 let sides = values::sides("border-color", &a.value)?;
-                out = Some(sides.map_or_else(|| a.value.clone(), |s| s[side].clone()));
+                out = Some((
+                    sides.map_or_else(|| a.value.clone(), |s| s[side].clone()),
+                    a.written,
+                ));
             }
             "border" | "border-top" | "border-right" | "border-bottom" | "border-left"
                 if a.name == "border" || a.name == edge =>
@@ -122,7 +125,7 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
                     BorderColorLeft,
                 ][side];
                 if let Some(index) = shorthands::rows(&a.name).iter().position(|r| *r == colour) {
-                    out = Some(shorthands::component(&a.value, &a.name, index)?);
+                    out = Some((shorthands::component(&a.value, &a.name, index)?, a.written));
                 }
             }
             _ => {}
@@ -133,7 +136,8 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
 
 /// `value` with each arm that is no value (`none`, a conditional class's
 /// side without the row) taken by `under`: a state that does not write a
-/// row in some arm leaves the base's.
+/// row in some arm leaves the base's. A `match`'s `some` arm keeps its own
+/// where `under` reads the name it binds.
 fn over(value: Expr, under: &Expr) -> Expr {
     match value {
         Expr::None(_) => under.clone(),
@@ -143,8 +147,97 @@ fn over(value: Expr, under: &Expr) -> Expr {
             Box::new(over(*b, under)),
             span,
         ),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            span,
+        } => {
+            let mut reads = Vec::new();
+            crate::disabled_look::free_reads(under, &mut Vec::new(), &mut reads);
+            let some = match reads.contains(&var) {
+                true => some,
+                false => Box::new(over(*some, under)),
+            };
+            Expr::Match {
+                subject,
+                var,
+                some,
+                none: Box::new(over(*none, under)),
+                span,
+            }
+        }
         other => other,
     }
+}
+
+/// Whether `e` is a choice with no value somewhere in it.
+fn unset_in(e: &Expr) -> bool {
+    match e {
+        Expr::None(_) => true,
+        Expr::Ternary(_, a, b, _) => unset_in(a) || unset_in(b),
+        Expr::Match { some, none, .. } => unset_in(some) || unset_in(none),
+        _ => false,
+    }
+}
+
+/// `value` as the cases it chooses between, each with the condition beside
+/// `condition` that picks it, in order; false where a `match` holds an arm
+/// with no value, which no chain can say.
+fn cases(
+    value: &Expr,
+    condition: Option<Expr>,
+    span: Span,
+    out: &mut Vec<(Option<Expr>, Expr)>,
+) -> bool {
+    let and = |a: &Option<Expr>, b: Expr| match a {
+        Some(a) => Expr::Binary(BinOp::And, Box::new(a.clone()), Box::new(b), span),
+        None => b,
+    };
+    match value {
+        Expr::None(_) => true,
+        Expr::Ternary(c, a, b, _) => {
+            let not = Expr::Unary(contract_syntax::UnOp::Not, c.clone(), span);
+            cases(a, Some(and(&condition, (**c).clone())), span, out)
+                && cases(b, Some(and(&condition, not)), span, out)
+        }
+        e if unset_in(e) => false,
+        e => {
+            out.push((condition, e.clone()));
+            true
+        }
+    }
+}
+
+/// `condition ? value : under`, a state's row over its base, written as a
+/// node's row may be: an arm of `value` that is no value is `under`'s, and
+/// where `under` is none too the choice is a chain whose last arm alone is
+/// none (`busy && on ? 0.5 : none`), the one place a row takes no value.
+fn choose(condition: Expr, value: Expr, under: Expr, span: Span) -> Result<Expr, LowerError> {
+    if !matches!(under, Expr::None(_)) || !unset_in(&value) {
+        return Ok(Expr::Ternary(
+            Box::new(condition),
+            Box::new(over(value, &under)),
+            Box::new(under),
+            span,
+        ));
+    }
+    let mut chosen = Vec::new();
+    if !cases(&value, Some(condition), span, &mut chosen) {
+        return err(
+            "lower-state-row",
+            "a state's row chooses no value in a `match` arm, and the node writes no base row for it to keep: write the row on the node too, or give each arm a value",
+            value.span(),
+        );
+    }
+    Ok(chosen
+        .into_iter()
+        .rev()
+        .fold(under, |rest, (c, v)| match c {
+            Some(c) => Expr::Ternary(Box::new(c), Box::new(v), Box::new(rest), span),
+            None => v,
+        }))
 }
 
 /// The CSS name of a row a state takes, for a tag's fixed row.
@@ -163,58 +256,6 @@ pub(crate) fn row_name(id: exact_kernel::StyleId) -> Option<&'static str> {
         BorderColorLeft => SIDES[3],
         _ => return None,
     })
-}
-
-/// `condition ? value : under`, a state's row over its base, written as a
-/// node's row may be: an arm of `value` that is no value is `under`'s, and
-/// where `under` is none too that arm folds into the condition
-/// (`busy && on ? 0.5 : none`), since a choice nested in a choice with no
-/// value is no row's type.
-fn choose(condition: Expr, value: Expr, under: Expr, span: Span) -> Expr {
-    let unset = |e: &Expr| matches!(e, Expr::None(_));
-    if unset(&under) {
-        if let Expr::Ternary(c, a, b, _) = &value {
-            let both = |c2: Expr| {
-                Expr::Binary(BinOp::And, Box::new(condition.clone()), Box::new(c2), span)
-            };
-            if unset(b) {
-                return choose(both((**c).clone()), (**a).clone(), under, span);
-            }
-            if unset(a) {
-                let not = Expr::Unary(contract_syntax::UnOp::Not, c.clone(), span);
-                return choose(both(not), (**b).clone(), under, span);
-            }
-        }
-    }
-    Expr::Ternary(
-        Box::new(condition),
-        Box::new(over(value, &under)),
-        Box::new(under),
-        span,
-    )
-}
-
-/// The elements a list's `children` make its rows, through its `for`,
-/// `if` and `match` regions, each by its span and instance (one
-/// component's element is many instances, a row in one place only).
-pub(crate) fn rows_of(children: &[Node], out: &mut Vec<(Span, u32)>) {
-    for child in children {
-        match child {
-            Node::When {
-                then, otherwise, ..
-            } => {
-                rows_of(then, out);
-                rows_of(otherwise, out);
-            }
-            Node::Each { body, .. } => rows_of(body, out),
-            Node::Match { some, none, .. } => {
-                rows_of(&some.1, out);
-                rows_of(none, out);
-            }
-            Node::Element { span, instance, .. } => out.push((*span, *instance)),
-            other => out.push((other.span(), 0)),
-        }
-    }
 }
 
 impl Lowerer<'_> {
@@ -361,27 +402,30 @@ impl Lowerer<'_> {
             let Some(condition) = condition else { continue };
             for (_, row, class) in parts.iter().filter(|(s, ..)| *s == state) {
                 for (l, v) in longhands(row)? {
-                    let (under, by_class) = match folded.iter().rposition(|(n, ..)| *n == l) {
-                        Some(i) => {
-                            let f = folded.remove(i);
-                            (f.1, f.4 && *class)
-                        }
-                        // The base's, else what the node takes unwritten (a
-                        // link's colour), else no row.
-                        None => {
-                            let base = base_of(&base, &l)?
-                                .or_else(|| {
-                                    implied
-                                        .iter()
-                                        .rfind(|(n, _)| *n == l)
-                                        .map(|(_, e)| e.clone())
-                                })
-                                .unwrap_or(Expr::None(row.span));
-                            (base, *class)
-                        }
-                    };
-                    let value = choose(condition.clone(), v, under, row.span);
-                    folded.push((l, value, row.span, row.written, by_class));
+                    let (under, by_class, written) =
+                        match folded.iter().rposition(|(n, ..)| *n == l) {
+                            Some(i) => {
+                                let f = folded.remove(i);
+                                (f.1, f.4 && *class, f.3)
+                            }
+                            // The base's, else what the node takes unwritten (a
+                            // link's colour), else no row. A row the compiler
+                            // implies keeps the fold implied: a metric it names
+                            // is no author's (a grouped list's ground).
+                            None => {
+                                let (base, written) = base_of(&base, &l)?
+                                    .or_else(|| {
+                                        implied
+                                            .iter()
+                                            .rfind(|(n, _)| *n == l)
+                                            .map(|(_, e)| (e.clone(), false))
+                                    })
+                                    .unwrap_or((Expr::None(row.span), true));
+                                (base, *class, written)
+                            }
+                        };
+                    let value = choose(condition.clone(), v, under, row.span)?;
+                    folded.push((l, value, row.span, row.written && written, by_class));
                 }
             }
         }

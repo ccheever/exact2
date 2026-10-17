@@ -319,3 +319,35 @@ fn a_computed_state_row_keeps_the_tokens_it_may_name() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review round 2: a grouped list's implied ground stays implied under a
+/// state; a `match` with no value in an arm and no base is said; a `match`
+/// arm with no value over a base keeps it; a refused look leaves a source
+/// map's sites in step.
+#[test]
+fn round_two_edges() {
+    // A `:disabled` background on a grouped list: its ground is a metric
+    // the compiler writes, kept implied in the fold.
+    assert_eq!(
+        refused("component App\n  state busy = false\n  view\n    list appearance=\"auto\" disabled=busy\n      :disabled\n        background-color = \"#eeeeee\"\n      section\n        text \"r\"\n"),
+        "compiled"
+    );
+    // No base and a match arm with no value: said, not a type error.
+    assert_eq!(
+        refused("component App\n  state busy = false\n  state opt: option<number> = none\n  view\n    column disabled=busy\n      :disabled\n        opacity=match opt { case some(x) => x, case none => none }\n      text \"b\"\n"),
+        "lower-state-row"
+    );
+    // A ternary with none in its first arm and no base: a chain.
+    assert_eq!(
+        refused("component App\n  state busy = false\n  state on = false\n  view\n    column disabled=busy\n      :disabled\n        opacity=(on ? none : 0.5)\n      text \"b\"\n"),
+        "compiled"
+    );
+    // A refused look in a mapped build: the compile says why, and panics not.
+    let src = "component App\n  view\n    column\n      column press=go\n        :hover\n          opacity=true\n        text \"a\"\n      column\n        text \"b\"\n  state n = 0\n  action go\n    n = n + 1\n";
+    let dir = std::env::temp_dir().join(format!("exact2-state-mapped-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.contract"), src).unwrap();
+    assert!(contract::compile_path_mapped(&dir.join("app.contract")).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

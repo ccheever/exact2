@@ -13,6 +13,10 @@ pub(super) struct ElementStep<'n> {
     pub(super) bounded: bool,
     pub(super) horizontal_flex: Option<bool>,
     pub(super) nav_place: routes::NavPlace,
+    /// How many element levels below this one a list's rows are (LLP 1121
+    /// D8's `lower-state-target`): 1 a cell list's, 3 a grouped list's
+    /// (its sections' group's); 0 none.
+    pub(super) rows: u8,
 }
 
 impl Lowerer<'_> {
@@ -167,45 +171,8 @@ impl Lowerer<'_> {
         self.check_collection(tag, expanded, children, *span, scope)?;
         // @ref LLP 1115.000 D16 — whether this list's rows are cells.
         let cells = cells::rows(tag, expanded, children, grouped.is_some());
+        let grouped_list = grouped.is_some();
         // A cell's row is no state part's target (LLP 1121 D8).
-        if cells {
-            crate::states::rows_of(children, &mut self.cell_rows);
-        }
-        // A grouped list's rows are its sections' group's (LLP 1084 D3:
-        // `grouped::sections` puts them in a `column` under each section).
-        if grouped.is_some() {
-            let mut sections = Vec::new();
-            fn elements<'n>(nodes: &'n [Node], out: &mut Vec<&'n Node>) {
-                for n in nodes {
-                    match n {
-                        Node::When {
-                            then, otherwise, ..
-                        } => {
-                            elements(then, out);
-                            elements(otherwise, out);
-                        }
-                        Node::Each { body, .. } => elements(body, out),
-                        Node::Match { some, none, .. } => {
-                            elements(&some.1, out);
-                            elements(none, out);
-                        }
-                        other => out.push(other),
-                    }
-                }
-            }
-            elements(children, &mut sections);
-            for section in sections {
-                if let Node::Element { children, .. } = section {
-                    for group in children {
-                        if let Node::Element { tag, children, .. } = group {
-                            if tag == "column" {
-                                crate::states::rows_of(children, &mut self.cell_rows);
-                            }
-                        }
-                    }
-                }
-            }
-        }
         // @ref LLP 1116.020 D1 — a cell's `delete=`, its swipe.
         let swiped = cells.then(|| swipe_rows::cells(children)).flatten();
         // A row list is a flex item of its column like any carousel;
@@ -294,7 +261,7 @@ impl Lowerer<'_> {
         // @ref LLP 1121 D8 — the state parts, folded or recorded.
         let target = if control.is_some() || t.node_type == NodeType::Control {
             Some("a native control")
-        } else if self.cell_rows.contains(&(*span, *instance)) {
+        } else if self.row_depth == 1 {
             Some("a list's row, whose press is the cell's highlight")
         } else {
             None
@@ -677,6 +644,33 @@ impl Lowerer<'_> {
                 })
                 .or_insert(Some(style));
         }
+        // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
+        // as the node's own literal rows are (before the node is made: a
+        // refusal leaves no node behind).
+        let mut look_rows = Vec::new();
+        for (state, attrs) in states.as_ref().map_or(&[][..], |s| s.looks.as_slice()) {
+            let mut bindings = Vec::new();
+            for a in attrs {
+                let (mut handlers, mut surface) = (Vec::new(), None);
+                self.attr(
+                    tag,
+                    None,
+                    a,
+                    scope,
+                    locals,
+                    &mut bindings,
+                    &mut handlers,
+                    &mut surface,
+                    &font,
+                )?;
+            }
+            let state = match state.as_str() {
+                "active" => 0,
+                "hover" => 1,
+                _ => 2,
+            };
+            look_rows.push((state, bindings));
+        }
         let id = self.b.node(
             t.node_type as u8,
             parent,
@@ -686,34 +680,8 @@ impl Lowerer<'_> {
             &handler_refs,
             surface,
         );
-        // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
-        // as the node's own literal rows are.
-        if let Some(looks) = states.as_ref().filter(|s| !s.looks.is_empty()) {
-            let mut rows = Vec::new();
-            for (state, attrs) in &looks.looks {
-                let mut bindings = Vec::new();
-                for a in attrs {
-                    let (mut handlers, mut surface) = (Vec::new(), None);
-                    self.attr(
-                        tag,
-                        None,
-                        a,
-                        scope,
-                        locals,
-                        &mut bindings,
-                        &mut handlers,
-                        &mut surface,
-                        &font,
-                    )?;
-                }
-                let state = match state.as_str() {
-                    "active" => 0,
-                    "hover" => 1,
-                    _ => 2,
-                };
-                rows.push((state, bindings));
-            }
-            self.b.set_looks(id, &rows);
+        if !look_rows.is_empty() {
+            self.b.set_looks(id, &look_rows);
         }
         if let Some(sites) = &mut self.sites {
             debug_assert_eq!(sites.nodes.len(), id.0 as usize);
@@ -760,6 +728,13 @@ impl Lowerer<'_> {
                 warnings::horizontal_flex(t.fixed_styles, expanded)
             },
             nav_place,
+            rows: if grouped_list {
+                3
+            } else if cells {
+                1
+            } else {
+                0
+            },
         })
     }
 }
