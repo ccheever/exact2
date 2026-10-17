@@ -1412,8 +1412,9 @@ layout already happened. Geometry reads are not reactive view expressions.
 
 SVG uses SVG's tags and presentation names: `svg`, `g`, `path`, `rect`, gradients,
 masks, filters, text, and the rest of the admitted vocabulary. SVG `text` is
-context-sensitive. `foreignObject` works on the web but is refused on native
-hosts until a native box-in-scene implementation exists.
+context-sensitive. `foreignObject` works on the web, but draws nothing through SVG
+`use`, and is refused on native hosts until a native box-in-scene implementation
+exists.
 
 Canvas has two distinct providers: an app data module can record Canvas 2D calls,
 and an optional GPU module can provide a surface. Contract declares the canvas

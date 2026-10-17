@@ -80,3 +80,53 @@ fn svg_use_foreign_object_checks_expanded_components_once_per_source() {
         .collect();
     assert_eq!(lines, [11]);
 }
+
+#[test]
+fn svg_use_foreign_object_keeps_repeated_source_definitions() {
+    let mut failures = Vec::new();
+    for copies in 1..=3 {
+        let src = format!(
+            "component App\n  view\n    column\n{}component Icon\n  view\n    svg\n      symbol id=\"label\"\n        foreignObject\n          text \"Monday\"\n      use href=\"#label\"\n",
+            "      Icon()\n".repeat(copies)
+        );
+        let (result, warnings) = contract::compile_warned(&src);
+        let lines: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.id == WARNING)
+            .map(|w| w.span.line)
+            .collect();
+        if result.is_err() || lines != [10 + copies as u32] {
+            failures.push(format!(
+                "{copies} copies: {lines:?}; errors: {:?}",
+                result.err()
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn svg_use_foreign_object_requires_all_copies_to_agree() {
+    let mut failures = Vec::new();
+    for (placements, expected) in [
+        ("Icon()\n  foreignObject\nIcon()\n  foreignObject", 1),
+        ("Icon()\n  rect\nIcon()\n  rect", 0),
+        ("Icon()\n  foreignObject\nIcon()\n  rect", 0),
+        ("Icon()\n  rect\nIcon()\n  foreignObject", 0),
+        ("Icon()\n  foreignObject\nIcon()\n  rect\nIcon()\n  foreignObject", 0),
+        ("Icon()\n  foreignObject\nif on\n  Icon()\n    foreignObject", 0),
+        ("if on\n  Icon()\n    foreignObject\nIcon()\n  foreignObject", 0),
+        ("Icon()\n  foreignObject\nif on\n  Icon()\n    foreignObject\nIcon()\n  foreignObject", 0),
+        ("svg\n  g id=\"label\"\n    foreignObject\nIcon()\n  foreignObject\nIcon()\n  foreignObject", 0),
+        ("Icon()\n  foreignObject\nIcon()\n  foreignObject\nsvg\n  g id=\"label\"\n    foreignObject", 0),
+    ] {
+        let placements: String = placements.lines().map(|line| format!("      {line}\n")).collect();
+        let src = format!("component App\n  state on = true\n  view\n    column\n{placements}component Icon\n  slot\n  view\n    svg\n      g id=\"label\"\n        children\n      use href=\"#label\"\n");
+        let (result, warnings) = contract::compile_warned(&src);
+        let count = warnings.iter().filter(|w| w.id == WARNING).count();
+        if result.is_err() || count != expected {
+            failures.push(format!("{src}\nexpected {expected}, got {count}; errors: {:?}", result.err()));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}

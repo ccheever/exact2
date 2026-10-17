@@ -11,7 +11,7 @@ pub(super) fn use_foreign_object(view: &[Node], out: &mut Vec<LowerError>) {
     }
     let mut seen = BTreeSet::new();
     for (id, span) in refs.uses {
-        if refs.targets.get(id) == Some(&Some(true)) && seen.insert(span) {
+        if matches!(refs.targets.get(id), Some(Some((_, true)))) && seen.insert(span) {
             out.push(LowerError {
                 id: "lower-svg-use-foreign-object",
                 message: format!(
@@ -25,9 +25,10 @@ pub(super) fn use_foreign_object(view: &[Node], out: &mut Vec<LowerError>) {
 
 #[derive(Default)]
 struct References<'a> {
-    // Only unique, unconditional SVG ids resolve. Other ids still count as
-    // collisions; a dynamic id can collide with any literal target.
-    targets: BTreeMap<&'a str, Option<bool>>,
+    // Copies of one source definition resolve only when all are unconditional
+    // SVG targets and agree on whether they contain a foreignObject. Other ids
+    // still collide; a dynamic id can collide with any literal target.
+    targets: BTreeMap<&'a str, Option<(Span, bool)>>,
     dynamic_id: bool,
     uses: Vec<(&'a str, Span)>,
 }
@@ -52,10 +53,15 @@ impl<'a> References<'a> {
                     let contains = foreign || child_foreign;
                     if let Some(id) = attrs.iter().rev().find(|a| a.name == "id") {
                         if let Expr::Str(id, _) = &id.value {
+                            let candidate = (svg && !conditional).then_some((*span, contains));
                             self.targets
                                 .entry(id)
-                                .and_modify(|target| *target = None)
-                                .or_insert((svg && !conditional).then_some(contains));
+                                .and_modify(|target| {
+                                    if *target != candidate {
+                                        *target = None;
+                                    }
+                                })
+                                .or_insert(candidate);
                         } else {
                             self.dynamic_id = true;
                         }
