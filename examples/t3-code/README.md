@@ -330,8 +330,10 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Data modules can send on a WebSocket now (LLP 1016.000 D7, [`issues/20261009-runner-owned-bidirectional-streams.md`](../../issues/20261009-runner-owned-bidirectional-streams.md),
   #126), but the sockets stay in `T3Transport.swift`, `T3Fleet.swift` and `R7DeviceClient.swift`: a
   `net.websocket` grant names one origin, fixed in `app.ts`, and the clone's servers are chosen at
-  run time (a gap with no record); only a mutation's synchronous call sends, so each frame's Ack
-  would be a mutation; and the 10 s Ping and the request deadlines need timers.
+  run time ([`issues/20261017-websocket-origin-chosen-at-run-time.md`](../../issues/20261017-websocket-origin-chosen-at-run-time.md));
+  a data module cannot answer a frame (an Ack, a Pong) in the turn it arrives
+  ([`issues/20261017-socket-reply-in-the-frames-turn.md`](../../issues/20261017-socket-reply-in-the-frames-turn.md));
+  and the 10 s Ping and the request deadlines need timers.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
@@ -394,7 +396,9 @@ could not, the comment at the fix says what happened and why the code is so.
 ## Work left
 
 As of 2026-10-17, after merging main's macOS fixes (exact2 PRs #636 to #640, #646, #647, #651,
-#655, #663, #664, #676, #679 and #681), a session with real keys on the terminal and the
+#655, #663, #664, #676, #679 and #681, then #687, hover following the pointer once a context menu
+closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view loop's first stop
+and a placeholder change keeping a field's focus, failure 2), a session with real keys on the terminal and the
 real-input and VoiceOver sessions G to K. Each item says what is wrong or missing; the open
 framework issues that someone using the app runs into are in the section above.
 
@@ -404,15 +408,14 @@ framework issues that someone using the app runs into are in the section above.
   cited text. VoiceOver then moves its cursor to the 'Scroll to end' pill that appears as the
   timeline leaves the end, and the keyboard focus follows it; the reference keeps the focus on
   the chip's link. Only VoiceOver's own press does this. A pointer press, or an accessibility
-  press from another client, leaves the focus on the prompt with the chip selected, and a
-  VO-Space while the pill is already showing keeps it there too. The app posts nothing that
-  names the pill before the focus moves (a macOS host issue: VoiceOver's press moves its cursor
-  to an element that appears during the press).
-- Escape in a new binding's recorder (Settings › Keybindings) with nothing recorded blurs the
-  field to the window on macOS, where the reference keeps it focused
-  ([`issues/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/20261016-escape-in-recorder-blurs-on-macos.md);
-  F-2). It is not VoiceOver's: after main's #681, real keys alone reproduce it, Tab into the field
-  then Escape 3 of 3 and a click into it then Escape 1 of 1 (VoiceOver then says 'scroll area').
+  press from another client, leaves the focus on the prompt, and a VO-Space while the pill is
+  already showing keeps it there too. exact2 #694 closed this as the clone's, because the chips'
+  elements were rebuilt on each refresh; they are now kept while their chip stays
+  (`T3ComposerChipNames.elements`). With real VoiceOver on that build (2026-10-17) VoiceOver
+  still went to the pill (1 of 1), though an accessibility client found the pressed link the
+  same, valid element after the press, with the pill shown. Posting a layout change that names
+  the link after the press did not keep VoiceOver there either. So the element's survival is not
+  the whole cause, and the record needs reopening on main.
 - A context-menu item that opens Rename project or Project grouping can still let VoiceOver
   re-read a long draft before the dialog, and the dialog's name is then not heard
   ([`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md);
@@ -505,6 +508,12 @@ buttons; the Snoozed header and Wake; and Tab through the legacy Rename project 
 reads 'Keybinding for Chat: New Press shortcut, edit text', and VO-F3 'Keybinding for Chat: New,
 edit text, is in the VoiceOver cursor' (2 of 2; before, 'scroll area'). The clone needed no change.
 
+**Checked by agent drive and real input after main's #687 and #688** (2026-10-17, bundle of
+`c4f9f4b38`): a press on the floating theme editor's swatch, its picker's plane and hue slider,
+Inspect and the inspector each counts as an outside press, as the window's other presses do (the
+window's count went 8 to 13, one per press). Escape in a new binding's recorder after a real
+click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeholder fix).
+
 **Fixed, not checked with real input or VoiceOver:**
 
 - Each Settings page opens at its top: each page has its own scroller, keyed on the route, the
@@ -573,10 +582,11 @@ permission helper's real grant (the user's), and a tailnet. Also:
   pass; the citation chip is the known difference above).
 - Kotoeri's ⌃K in the terminal has not been run: no Japanese input source is installed.
 - Outside presses that now reach the window's `main` by bubbling alone: a press on a diff gutter
-  and on the Files preview's gutter closing an open chip's details, and presses on the floating
-  theme editor's swatch, plane, hue slider and inspector counting as outside presses (an agent
-  drive confirmed it for a press in an answer and on a sidebar row's Snooze; it found no diff rows
-  in its tree).
+  and on the Files preview's gutter closing an open chip's details. The diff of the
+  `second-environment` fixture's completed-turn thread has two files (Uncommitted), both
+  collapsed: a drive must expand `README.md` (`diff-toggle-README.md`) before its rows exist.
+- The Usage page's pinned segment popover (its press, a press in its card, a press elsewhere on
+  the page): the fixture reports no subscription limits, so the page draws no segments.
 
 **Next real-input session:** each Settings page opening at its top after another page was
 scrolled, and the search jump still landing on its target; the rows session K did not run (under
@@ -587,11 +597,14 @@ approval, a device and turn diffs; and the list above.
 environment, a machines list and an ACP agent stand-in (each has its README). Still missing: a
 tailnet, and a server older than the client for the machines-update popover's busy states.
 
-**Framework issues opened by this app:** open on main are
-[`issues/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/20261016-escape-in-recorder-blurs-on-macos.md)
-and [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)
-(both under "Known differences" above); the VoiceOver press that moves its cursor to the 'Scroll
-to end' pill has no record yet. The macOS issues opened from 2026-10-13 to 2026-10-16 are closed
+**Framework issues opened by this app:** open on main is
+[`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)
+(under "Known differences" above). Closed with #688 is
+[`issues/closed/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/closed/20261016-escape-in-recorder-blurs-on-macos.md).
+The VoiceOver press that moves its cursor to the 'Scroll to end' pill
+([`issues/closed/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/closed/20261017-macos-voiceover-s-press-moves-its.md))
+was closed as the clone's (#694); the clone now keeps its chip elements, and VoiceOver still
+moves (the known difference above). The macOS issues opened from 2026-10-13 to 2026-10-16 are closed
 on main, the light-dismiss and VoiceOver ones (exact2 PRs #663, #664, #676, #679 and #681)
 included, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to every
 ancestor that hears them, and `stopPropagation()` stops them).
