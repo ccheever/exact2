@@ -6,7 +6,7 @@
 // cancelled setup brings its own header; once the agent's turn is live the
 // card collapses to one summary row (timeline-worktree.ts).
 use LiveActivity from "./timeline-work.contract"
-use TimelineIcon from "./timeline-icons.contract"
+use TimelineIcon from "./timeline-icons-kit.contract"
 use WorktreeSetupView from "./timeline-worktree-shapes.contract"
 
 keyframes tlSetupSpin

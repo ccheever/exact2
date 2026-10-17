@@ -9,7 +9,7 @@
 // of it. Toasts beyond the third are limited (hidden) as Base UI limits them.
 use ShellToast from "./shell-shapes.contract"
 use ShellIcon from "./shell-icons.contract"
-use ShellBadgedIcon from "./shell-icons.contract"
+use ShellBadgedIcon from "./shell-icons-kit.contract"
 use ProviderMark from "./icons.contract"
 use ShellToastDetail from "./shell-shapes.contract"
 use MorphCopyCheck from "./shell-morph.contract"

@@ -68,7 +68,7 @@ final class DrawnMenuReader: NSObject, NSMenuDelegate {
 }
 
 final class RealInput1010gTests: ShellMenuCase {
-    /// ToolActivityIcon (timeline-icons.contract) is a 1rem box › a `pointer-events="none"` hook box ›
+    /// ToolActivityIcon (timeline-icons-kit.contract) is a 1rem box › a `pointer-events="none"` hook box ›
     /// T3ToolActivityIcon's view. The click lands on the outer box; Copy Image copies the icon's own bitmap, as the
     /// reference's `<img>` gives Copy Image (DesktopWindow.ts `mediaType === "image"`).
     func testTheToolIconUnderItsPassThroughHookGetsCopyImage() throws {

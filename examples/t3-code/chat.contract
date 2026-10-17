@@ -4,7 +4,7 @@
 // composer and the jump-to-end control. Measured against the built reference.
 use Snapshot from "./shapes.contract"
 use Icon from "./icons.contract"
-use ProjectMark from "./icons.contract"
+use ProjectMark from "./icons-kit.contract"
 use ShellView from "./shell-shapes.contract"
 use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"

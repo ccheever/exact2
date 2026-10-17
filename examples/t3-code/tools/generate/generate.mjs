@@ -6,7 +6,8 @@
 //   gen-grammar.mjs    r12-render-grammar.ts and r12-render-grammar-<n>.ts: Shiki's grammars, the pierre themes
 //   gen-css-words.mjs  r7-polish-css-words.ts: the CSS grammar's word lists
 //   gen-icons.mjs      settings-b-lucide.ts, pages-icons.contract (Lucide); timeline-files.contract,
-//                      timeline-files-tables.ts, macos/pierre-icons.tsv, assets/composer-icons.json (Pierre)
+//                      timeline-files-tables.ts, macos/pierre-icons.tsv, assets/composer-icons.json (Pierre);
+//                      the icon tables of icon-tables.mjs and icon-marks.mjs (icons.contract and nine more)
 //   gen-morph.mjs      shell-morph.contract: morphicons' plan for each icon pair
 //   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations
 //

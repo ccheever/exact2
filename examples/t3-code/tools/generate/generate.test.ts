@@ -11,6 +11,18 @@ test('the generated sources on disk are what the generator makes', () => {
   expect(run.status).toBe(0);
 }, 120_000);
 
+// Built, not committed (rules/RULES.md): .gitignore lists every file a generator writes, and git tracks none.
+test('git ignores every generated source and tracks none', () => {
+  const list = spawnSync(process.execPath, ['-e', `const { outputs } = await import(${JSON.stringify(join(import.meta.dir, 'generate.mjs'))});
+console.log((await outputs()).files.map(({ file }) => file).join('\\n'));`], { encoding: 'utf8' });
+  expect(list.stderr).toBe('');
+  const files = list.stdout.trim().split('\n');
+  expect(files.length).toBeGreaterThan(20);
+  const git = (...args: string[]) => spawnSync('git', args, { cwd: import.meta.dir, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean);
+  expect(git('check-ignore', '--no-index', ...files).length).toBe(files.length);
+  expect(git('ls-files', '--', ...files)).toEqual([]);
+}, 120_000);
+
 test('the generator pins its packages at the integrity values the reference locks', () => {
   const lock = readFileSync(join(import.meta.dir, 'bun.lock'), 'utf8');
   for (const [name, integrity] of [

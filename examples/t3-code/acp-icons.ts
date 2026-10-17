@@ -2,7 +2,7 @@
 // packages/contracts/src/acpRegistry.ts:13-44 (officialAcpRegistryIconUrlForAgentId,
 // resolveOfficialAcpRegistryIconUrl) and apps/web/src/components/chat/ProviderInstanceIcon.tsx:48-58
 // (resolveProviderInstanceAcpRegistryIconUrl). Changes: the URL is drawn by Contract's `image`
-// (provider-icons.contract `AcpRegistryAgentIcon`), which shows the ACP glyph until the image
+// (provider-icons-kit.contract `AcpRegistryAgentIcon`), which shows the ACP glyph until the image
 // loads and keeps it when the load fails; AcpRegistryIcon.tsx's validating fetch, size cap and
 // CacheStorage are the host's image loading (#121, main #177), so only the allow-list is ported.
 import { obj, str, type Obj } from './domain';

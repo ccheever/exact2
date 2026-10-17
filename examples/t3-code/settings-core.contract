@@ -11,8 +11,8 @@ use KillConfirm from "./settings-a-telemetry.contract"
 use HostEditorView from "./settings-a-hosts.contract"
 use HostCheckGroup from "./settings-a-hosts.contract"
 use Wordmark from "./icons.contract"
-use ProviderInstanceMark from "./icons.contract"
-use SidebarUpdatePill from "./sidebar-icons.contract"
+use ProviderInstanceMark from "./icons-kit.contract"
+use SidebarUpdatePill from "./sidebar-icons-kit.contract"
 
 shape CoreOption
   id: string
