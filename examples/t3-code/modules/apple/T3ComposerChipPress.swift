@@ -61,6 +61,10 @@ final class T3ComposerChipPress {
     /// The text view whose scroll view stands aside for it (`T3ComposerChipOrder`).
     private weak var exposed: NSTextView?
     private var monitor: Any?
+    /// The thread a thread chip's accessibility press opens, until the editor holds its draft (`ownerChanged`).
+    private var opening: String?
+    /// Tells VoiceOver where the keyboard focus is (a test records it instead).
+    var tellFocus: (NSView) -> Void = { NSAccessibility.post(element: $0, notification: .focusedUIElementChanged) }
 
     init(styler: T3ComposerStyler) { self.styler = styler }
 
@@ -122,7 +126,22 @@ final class T3ComposerChipPress {
         if let view = styler?.view, let window = view.window, !view.hasMarkedText(), self.chip?.kind != "citation" {
             select(chip, in: view, window: window)
         }
-        if action { act(chip) } else { press(chip) }
+        if action { act(chip, opening: styler?.chipKind(chip) == "thread") } else { press(chip) }
+    }
+
+    /// The editor now holds `owner`'s draft (`[origin, environment, project, thread]`, client.ts `snapshotOwner`). When it
+    /// is the thread a thread chip's accessibility press opened, the prompt is told focused once the switch has run.
+    /// T3 Code focuses the composer when the thread changes (ChatView.tsx:6569-6577), and VoiceOver, measured on it, then
+    /// reads the new thread's empty Message. Here the prompt keeps the focus through the switch, so AppKit posts nothing,
+    /// and VoiceOver, its cursor on the chip that went with the old draft, said nothing of the prompt.
+    func ownerChanged(to owner: String) {
+        guard let thread = opening, let parts = (try? JSONSerialization.jsonObject(with: Data(owner.utf8))) as? [Any],
+              parts.last as? String == thread else { return }
+        opening = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let view = self.styler?.view, view.window?.firstResponder === view else { return }
+            self.tellFocus(view)
+        }
     }
 
     /// ProseMirror's NodeSelection of the pressed chip: its whole source, in the editor that has the focus.
@@ -140,7 +159,8 @@ final class T3ComposerChipPress {
     private(set) var acted: [String: Any]?
 
     /// A press on an action chip: it closes any open details, as a press elsewhere in the text does, and reports what to do.
-    func act(_ chip: T3ComposerChip) {
+    /// `opening`: a thread chip's accessibility press, which waits for the thread's draft (`ownerChanged`).
+    func act(_ chip: T3ComposerChip, opening: Bool = false) {
         guard let styler else { return }
         close()
         T3ComposerChipPress.lastSeq += 1
@@ -149,12 +169,15 @@ final class T3ComposerChipPress {
         if chip.kind == "mention" { value["path"] = chip.detail }
         if let path = styler.contextPath(chip), let slash = path.firstIndex(of: "/") { value["context"] = String(path[path.index(after: slash)...]) }
         if chip.kind == "citation", let view = styler.view, chip.end <= (view.string as NSString).length { value["link"] = (view.string as NSString).substring(with: chip.range) }
+        let context = value["context"] as? String ?? ""
+        self.opening = opening && context.hasPrefix("thread_") ? String(context.dropFirst("thread_".count)) : nil
         acted = value
         onChange()
     }
 
     /// A press on `chip`: opens its details, or closes them when they are open on it (PopoverTrigger toggles).
     func press(_ chip: T3ComposerChip) {
+        opening = nil
         if let open = self.chip, open == chip {
             // A citation's trigger toggles through the app, which commits a changed draft first (its textarea's blur).
             if open.kind != "citation" { close() }
@@ -382,6 +405,7 @@ final class T3ComposerChipPress {
         exposed = nil
         elements = []
         acted = nil
+        opening = nil
         close()
     }
 
