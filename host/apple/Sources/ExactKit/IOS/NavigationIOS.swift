@@ -887,6 +887,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         droppedEditor = (FirstResponder.current as? UIView).flatMap { presenter.mounts($0) ? $0 : nil }
         presenter.endEditing()
         presenter.flushKeyboardResize()
+        // On a phone the keyboard leaves with the swiped route instead of
+        // before the transition, and its hide is announced only as the swipe
+        // ends: both routes stayed cut at its top, a blank band under the
+        // route coming in. Its editor is put away, so the routes are laid out
+        // without it now (a cancelled swipe focuses the editor again, and
+        // its keyboard comes back as any does).
+        if presenter.keyboardTop != nil { presenter.applyKeyboard(top: nil, duration: 0, curve: 7) }
         presenter.session?.view?.fit()
         navigation?.view.layoutIfNeeded()
     }
