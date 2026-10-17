@@ -402,38 +402,24 @@ As of 2026-10-17, after merging main's macOS fixes (exact2 PRs #636 to #640, #64
 closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view loop's first stop
 and a placeholder change keeping a field's focus, failure 2), a session with real keys on the terminal, the
 real-input and VoiceOver sessions G to K, an agent drive and real-input session on the bundle
-of `94cc6831c`, and another on the bundle of `dd7643a86`, both with the fixtures below. Each item
-says what is wrong or missing; the open framework issues that someone using the app runs into are
-in the section above.
+of `94cc6831c`, and others on the bundles of `dd7643a86` and `3d6c75ad2`, each with the fixtures
+below. Each item says what is wrong or missing; the open framework issues that someone using the app
+runs into are in the section above.
 
-**Failures** (2026-10-17, bundle of `dd7643a86`):
+**Failures** (2026-10-17, bundle of `dd7643a86` unless a row names another):
 
-- On a pull request's Code tab a real click on a file header's chevron ('Expand diff', 'Collapse
-  diff', `pull-request-code-fold-<path>`) does nothing (4 of 4); a click on the file name beside it
-  folds the file, and so does the agent's press on the chevron. AX hit-testing finds the chevron
-  button at the point clicked. Not investigated.
+- VO-Space on a composer thread chip ('link, Thread, Turn with file edits') opens the thread, and
+  VoiceOver's cursor then lands on 'Go to threads, button', the window's first element, while the
+  keyboard focus is on the new thread's empty Message (3 of 3, bundle of `3d6c75ad2`, where the chip
+  leads to itself as the citation link does). The chip leaves with the old draft, so the element
+  VoiceOver follows the link to is gone. Not measured before `3d6c75ad2`, nor on the reference.
 - 'Archive thread' chosen from a flat sidebar row's native menu by typing its name and Return does
   nothing (6 of 6; the server received no command); a click on the item opens 'Archive thread "…"?'
   (4 of 4). Rename and Group into, chosen the same way from a project row, open their dialogs. Not
   investigated.
 
-**Fixed, not checked** (no build after them):
-
-- ⌘V with only an image on the pasteboard (a screenshot copied to the clipboard) attached nothing
-  in the session on the bundle of `dd7643a86`: AppKit enables Paste only for a pasteboard the text
-  view can read, and the plain-text composer read no image types, so `paste:` never came. The
-  composer now reads PNG and TIFF too (`1683137cd`, `macos/tests/composer/paste.swift`). A copied
-  file, an image file included, attached by ⌘V in that session.
-- The settings search jump to a legacy row by Return ("legacy", Return from Appearance) left
-  "Legacy features" closed and scrolled General to an arbitrary place: `SettingsWindow` tested the
-  result's id for "legacy-" where it is "search-result-legacy-…" (`188ae6a05`,
-  `settings-page-scroll.test.ts`). A press on the result opened the section already.
-
 **Known differences:**
 
-- ⇧⌘V (Paste as Text) with files on the pasteboard pastes text only; the reference's
-  paste-as-text shortcut still attaches the files, with no inline chip for an image
-  (ChatComposer.tsx `onComposerPaste`, `skipImageInlineChip`).
 - A context-menu item that opens Rename project or Project grouping can still let VoiceOver
   re-read a long draft before the dialog, and the dialog's name is then not heard
   ([`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md);
@@ -452,6 +438,15 @@ in the section above.
 
 **Not failures:**
 
+- The real clicks on a pull request's Code-tab chevron that did nothing in the session on
+  `dd7643a86` (4 of 4) landed on a system privacy prompt an earlier lane copy had left on screen
+  ("T3 Code Lane M would like to access files in your Documents folder", UserNotificationCenter,
+  screen points 546–806 × 160–368). It covered the chevron's point and ignores synthesized clicks;
+  the file name's centre lay outside it, and AX hit-testing, which asks only the app, still found
+  the chevron there. With the window clear of it, real clicks fold and unfold the file on that
+  bundle (4 of 4) and on `3d6c75ad2` (below), as the reference's chevron button does
+  (PullRequestCodeTab.tsx:777-797). A real-input session should check which window is topmost at a
+  point before it judges a click.
 - Tab into a new binding's recorder records nothing (2 of 2 by real keys on the bundle of
   `dd7643a86`; with Keyboard Navigation off the first Tab from the window goes to 'Search settings'
   and the second into the recorder, 'Press shortcut'). A Tab pressed while it records is recorded,
@@ -548,6 +543,22 @@ buttons; the Snoozed header and Wake; and Tab through the legacy Rename project 
 `aria-modal` row with no role, is served by its field. VO-Space on 'Edit shortcut for Chat: New'
 reads 'Keybinding for Chat: New Press shortcut, edit text', and VO-F3 'Keybinding for Chat: New,
 edit text, is in the VoiceOver cursor' (2 of 2; before, 'scroll area'). The clone needed no change.
+
+**Checked by agent drive and real input** (2026-10-17, bundle of `3d6c75ad2`, `second` seeded with
+`--turns --pull-request`; a lane copy for real input): the settings search jump to a legacy row by
+Return ("legacy", Return from a scrolled Appearance) opens General at "Legacy features", expanded,
+with 'Plan mode (legacy)' focused (agent and real input; `188ae6a05`, where `SettingsWindow` had
+tested the result's id for "legacy-" though it is "search-result-legacy-…"). By real input: ⌘V with
+only PNG data on the pasteboard attaches it, an 'image.png' tile on an emptied draft's shelf and no
+chip (`1683137cd`: AppKit enables Paste only for a pasteboard the text view can read, and the
+composer now reads PNG and TIFF); ⇧⌘V with a Markdown file and a PNG file on the pasteboard, after
+"look ", keeps the prose, adds the 'File attachment, paste-notes.md' chip and puts photo.png on the
+shelf with no image chip, as the reference's Paste as Text attaches them (ChatComposer.tsx
+`onComposerPaste`, `skipImageInlineChip`; `753fb8b9f`); and a click on a pull request's Code-tab
+chevron folds and unfolds the file (4 of 4, three HID clicks and one through orca), as a click on
+its name does. The agent drive stopped twice before its other ops, at `tap Dismiss` (the "Nightly
+needs the beta mobile app" notice, shown this time on Settings › General) and at `tap
+pr-filter-state` (hidden or inert); real input covered what they would have checked.
 
 **Checked by agent drive and real input** (2026-10-17, bundle of `dd7643a86`, the fixtures below; a
 lane copy for real input): a file attached with Attach files to an empty draft draws as
@@ -661,18 +672,13 @@ context meter), the branch's PR glyph, and bold and italic font faces. Also:
 - Escape on a git dialog or the Merge confirmation over the thread-details popover in a narrow
   window.
 - VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf and the
-  citation chip pass), and on a thread chip in particular: it is a link too, and a press that
-  changes the screen within about half a second might move VoiceOver as the citation chip's did.
-- The two fixes above that no build has carried yet: ⌘V of a copied image alone, and the legacy
-  search jump by Return.
+  citation chip pass; the thread chip's result is under "Failures").
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** ⌘V of a copied image alone and the legacy search jump by Return (the
-fixes above); VO-Space on a thread chip; G-5's Remove project by its native menu; and the list
-above.
+**Next real-input session:** G-5's Remove project by its native menu, and the list above.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
