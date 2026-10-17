@@ -115,17 +115,37 @@ impl NodeArena {
         }
     }
 
+    /// Whether stack `family` is the system's: as the plan said
+    /// ([`crate::Kernel::set_system_stacks`]), else a generic stack.
+    pub(crate) fn system_family(&self, family: u16) -> bool {
+        self.system_stacks
+            .get(usize::from(family))
+            .copied()
+            .unwrap_or(family < GENERIC_STACKS)
+    }
+
     /// `weight` as Bold Text draws it on `slot` in stack `family` (LLP
     /// 1115.000 D12.3): heavier in the system font, the generic stacks, when
     /// the person turned it on; a family the app ships is left alone, and so
-    /// is a native control and its title, which the platform's control
-    /// weights itself.
+    /// is what UIKit weights itself on iOS: a symbol (its configuration takes
+    /// the trait), and a native button whose title is in UIKit's own font
+    /// (neither it nor its title writes a size or a weight). A host that
+    /// paints its controls (Android's) and a font Exact pins (a field's) are
+    /// stepped here.
     pub(crate) fn emboldened(&self, slot: u32, weight: u16, family: u16) -> u16 {
-        let native = |s: u32| self.is_native_button(s) || self.is_native_text_control(s);
+        let uikit = metrics::column() == metrics::Column::Ios;
+        let fonted = |s: u32| {
+            let own = self.style(s);
+            own.mask.has(StyleId::FontSize) || own.mask.has(StyleId::FontWeight)
+        };
+        let uikit_font = |button: u32| {
+            uikit && self.is_native_button(button) && !fonted(button) && !fonted(slot)
+        };
         if self.bold_text
-            && family < GENERIC_STACKS
-            && !native(slot)
-            && !self.parents[slot as usize].is_some_and(native)
+            && self.system_family(family)
+            && !(uikit && self.node_types[slot as usize] == NodeType::Image)
+            && !uikit_font(slot)
+            && !self.parents[slot as usize].is_some_and(uikit_font)
         {
             bolder(weight)
         } else {

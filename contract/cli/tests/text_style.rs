@@ -246,7 +246,7 @@ fn a_text_style_gives_its_weight_and_leading_by_its_precedence_and_column() {
 #[test]
 fn bold_text_weights_the_system_font_and_leaves_a_named_family() {
     let plan = contract::compile(
-        "component App\n  view\n    column\n      text testId=\"plain\" \"Plain\"\n      text testId=\"authored\" font-weight=600 \"Authored\"\n      text testId=\"serif\" font-family=\"serif\" \"Serif\"\n      text testId=\"named\" font-family=\"Georgia, serif\" \"Named\"\n      text testId=\"para\"\n        text font-weight=500 \"Run\"\n",
+        "component App\n  view\n    column\n      text testId=\"plain\" \"Plain\"\n      text testId=\"authored\" font-weight=600 \"Authored\"\n      text testId=\"serif\" font-family=\"serif\" \"Serif\"\n      text testId=\"named\" font-family=\"Georgia, serif\" \"Named\"\n      text testId=\"list\" font-family=\"system-ui, sans-serif\" \"List\"\n      text testId=\"para\"\n        text font-weight=500 \"Run\"\n",
     )
     .unwrap_or_else(|e| panic!("{e}"));
     let mut r = Runner::boot(
@@ -282,10 +282,36 @@ fn bold_text_weights_the_system_font_and_leaves_a_named_family() {
             .font_weight
     };
     assert_eq!(run(&r), 700, "a run in a paragraph, 500 one step heavier");
+    assert_eq!(
+        drawn(&r, "list"),
+        600,
+        "a stack whose first is a generic is the system's"
+    );
+    let sent = {
+        let key = r.kernel().find_by_test_id("plain")[0];
+        r.kernel()
+            .node_by_key(key)
+            .unwrap()
+            .computed_style(exact_kernel::StyleMask::INHERITED)
+    };
+    assert!(
+        sent.mask.has(StyleId::FontWeight) && sent.font_weight == 600,
+        "the rows a host is sent say the stepped weight"
+    );
     assert!(
         r.set_bold_text(true).unwrap().is_none(),
         "the same setting commits nothing"
     );
     assert!(r.set_bold_text(false).unwrap().is_some());
     assert_eq!((drawn(&r, "plain"), drawn(&r, "authored")), (400, 600));
+    // Through the preferences, with no resource reading them: still a commit.
+    let bold = exact_runner::Preferences {
+        bold_text: true,
+        ..Default::default()
+    };
+    assert!(
+        r.set_preferences(bold).unwrap().is_some(),
+        "a change commits"
+    );
+    assert_eq!(drawn(&r, "plain"), 600);
 }

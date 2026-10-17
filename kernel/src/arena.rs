@@ -85,6 +85,8 @@ pub struct NodeArena {
     /// host says and its next commit applies.
     pub(crate) bold_text: bool,
     pub(crate) bold_text_next: Option<bool>,
+    /// Which font stacks are the system's, by id, as the plan says.
+    pub(crate) system_stacks: Vec<bool>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
@@ -165,6 +167,7 @@ impl Clone for NodeArena {
             display_scale_next: self.display_scale_next,
             bold_text: self.bold_text,
             bold_text_next: self.bold_text_next,
+            system_stacks: self.system_stacks.clone(),
             contents: self.contents.clone(),
             insets: self.insets.clone(),
             nonzero_insets: self.nonzero_insets.clone(),
@@ -571,6 +574,9 @@ impl NodeArena {
                 self.copy_inherited(slot, rows, take)
             });
         paragraph.markup = self.markup(slot);
+        // Bold Text, as its runs are (LLP 1115.000 D12.3).
+        let strut = &mut paragraph.strut;
+        strut.font_weight = self.emboldened(slot, strut.font_weight, strut.font_family);
         if scale != 1.0 {
             paragraph.strut = paragraph.strut.scaled(scale);
         }

@@ -41,6 +41,27 @@ fn fits(px: f64) -> bool {
     size.is_finite() && size > 0.0
 }
 
+/// What Bold Text needs of a boot (LLP 1115.000 D12.3): the person's
+/// setting, and which of the plan's font stacks are the system's (its first
+/// member a generic family, not one the app names).
+pub(super) fn bold_text_facts(
+    kernel: &mut exact_kernel::Kernel,
+    plan: &exact_plan::Plan,
+    on: bool,
+) {
+    let system = plan
+        .stacks
+        .iter()
+        .map(|stack| {
+            plan.stack_members[stack.members.start as usize..][..stack.members.len as usize]
+                .first()
+                .is_some_and(|m| m.kind != exact_plan::StackMemberKind::Family)
+        })
+        .collect();
+    kernel.set_system_stacks(system);
+    kernel.set_bold_text(on);
+}
+
 impl<D: DataSource> Runner<D> {
     /// The root font size in CSS pixels, as last set; 16 until a host says.
     pub fn root_font_size(&self) -> f64 {

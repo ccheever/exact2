@@ -210,12 +210,24 @@ impl NodeArena {
     /// not mark inherited, keep the effective own rows, including structural
     /// defaults below stored values and authored clears. One walk.
     pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
-        let mut out = self.effective_style(slot).into_owned();
-        self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
+        let mut out = self.computed_rows(slot, rows);
         if self.bold_text && (rows.has(StyleId::FontWeight) || out.mask.has(StyleId::FontWeight)) {
             let family = self.computed_source(slot, StyleId::FontFamily).font_family;
-            out.font_weight = self.emboldened(slot, out.font_weight, family);
+            let weight = self.emboldened(slot, out.font_weight, family);
+            if weight != out.font_weight {
+                // Said, so a host sent the rows paints what was measured.
+                out.font_weight = weight;
+                out.mask.set(StyleId::FontWeight);
+            }
         }
+        out
+    }
+
+    /// [`Self::computed_style`] as CSS computes it, before Bold Text (LLP
+    /// 1115.000 D12.3): what a cascade of its own (an SVG's) starts from.
+    pub(crate) fn computed_rows(&self, slot: u32, rows: StyleMask) -> StyleProps {
+        let mut out = self.effective_style(slot).into_owned();
+        self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
         out
     }
 

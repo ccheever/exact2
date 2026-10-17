@@ -613,6 +613,9 @@ mod tests {
         for bits in [0, 256, 512, 1024, 256 | 1024] {
             assert_eq!(Preferences::from_bits(bits).bits(), bits);
         }
+        // LLP 1115.000 D12.3: Bold Text.
+        assert!(Preferences::from_bits(1 << 14).bold_text);
+        assert_eq!(Preferences::from_bits(1 << 14 | 16).bits(), 1 << 14 | 16);
         let v = |bits| Viewport {
             preferences: Preferences::from_bits(bits),
             ..Viewport::default()

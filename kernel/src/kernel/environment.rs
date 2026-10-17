@@ -2,6 +2,13 @@
 use super::*;
 
 impl Kernel {
+    /// Say which font stacks, by id, are the system's (LLP 1115.000 D12.3):
+    /// those whose first member is a generic family. Bold Text weights
+    /// them; unsaid, the eight generic stacks are.
+    pub fn set_system_stacks(&mut self, system: Vec<bool>) {
+        self.arena.system_stacks = system;
+    }
+
     /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
     /// accessibility setting, which weights the system font, an authored
     /// weight included, and leaves a family the app ships alone. The next
