@@ -1,7 +1,6 @@
 # macOS: VoiceOver's press moves its cursor to an element that appears during the press
 
-**Status:** Closed
-**Resolution:** Not the framework's: measured against a hand-built AppKit window and a Contract repro with real VoiceOver, the host keeps VoiceOver on a pressed element that survives its press, as AppKit does; the T3 Code clone rebuilds its chip accessibility elements on each editor refresh, so the element VoiceOver pressed is destroyed and VoiceOver re-picks. The fix is the clone's.
+**Status:** Open
 **Systems:** host/apple macOS, accessibility, VoiceOver
 **Severity:** P3
 **Author:** Daehyeon Mun
@@ -19,3 +18,8 @@ Reproduction: a `button` whose press shows a second `button` elsewhere; VO-Space
 Fix: record an assistive press and, once its commit's commands have run, land VoiceOver as `tellLanding` does: post the layout change naming the pressed element if it is still in the tree, else the focus, so no element that appeared during the press is left as VoiceOver's only choice. Measure a hand-built AppKit window (an `NSButton` whose action unhides another) first, with an `AXObserver` in another process, to post only what AppKit posts.
 
 Acceptance: in the reproduction, after VO-Space VoiceOver stays on the pressed button and the focus does not move to the button that appeared; a pointer press and another client's AXPress behave as today; `AccessibilityClientMacTests` covers the posts.
+
+## Reopened, 2026-10-17
+
+It was closed (#694) as the clone's, and that was wrong. A Contract repro with real VoiceOver does not reproduce it: a pressed button that survives its press keeps VoiceOver, as in a hand-built AppKit window, where AppKit posts only AXValueChanged on the pressed button. The clone was then changed to keep its chip's accessibility elements across refreshes. An accessibility probe shows the pressed link is the same valid element after the press. VoiceOver still moves to 'Scroll to end' (1 of 1), and posting AXLayoutChanged naming the link after the press does not stop it. The cause is not found. What the repro lacks is the clone's shape: the pressed element is an `NSAccessibilityElement` child of a text view, not a NodeView, and the press scrolls a list, which shows the pill. Next: a repro with a custom accessibility element in a text view whose press scrolls a scroller and shows a button.
+
