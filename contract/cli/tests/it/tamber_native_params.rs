@@ -273,6 +273,12 @@ fn the_bindings_follow_the_build_and_an_icon_param_is_kept() {
         )),
         "{swift}"
     );
+    // Named by its file, the design is still its app's.
+    std::fs::remove_dir_all(dir.join(".exact")).unwrap();
+    let (ok, said) = gen("swift", &dir.join("design/theme.tamber"));
+    assert!(ok, "{said}");
+    let swift = std::fs::read_to_string(dir.join(".exact/tamber/tamber.swift")).unwrap();
+    assert!(swift.contains("static let mapCardPin"), "{swift}");
     // A design the build refuses writes no names.
     std::fs::write(
         dir.join("design/theme.tamber"),

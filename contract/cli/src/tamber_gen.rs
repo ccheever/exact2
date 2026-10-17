@@ -474,10 +474,14 @@ pub fn admitted(folding: &exact_tamber::Folding) -> Result<(), String> {
         ("SCREAMING_SNAKE", screaming),
     ] {
         for (a, b) in collisions(&names, map) {
-            refused.push(format!(
-                "`{a}` and `{b}` are both `{}` in {scheme}: rename one (LLP 1121 D12)",
-                map(&a)
-            ));
+            refused.push(match a == b {
+                // Two components of one name, in two files, each with the param.
+                true => format!("`{a}` is a param of two components named alike (in two files), both `{}` in {scheme}: rename one component (LLP 1121 D12)", map(&a)),
+                false => format!(
+                    "`{a}` and `{b}` are both `{}` in {scheme}: rename one (LLP 1121 D12)",
+                    map(&a)
+                ),
+            });
         }
     }
     match refused.is_empty() {
@@ -519,11 +523,23 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     };
     // The app's own `.exact/`: the directory named, or the one its
-    // `app.contract` (or, given a design file alone, that file) is in.
+    // `app.contract` is in; given a design file, the nearest directory
+    // above it whose app that design is (else the file's own).
     let app = Path::new(&input);
     let root = match app.is_dir() {
         true => app.to_path_buf(),
-        false => app.parent().unwrap_or(Path::new(".")).to_path_buf(),
+        false => {
+            let beside = app.parent().unwrap_or(Path::new(".")).to_path_buf();
+            let canonical = |p: &Path| p.canonicalize().ok();
+            beside
+                .ancestors()
+                .find(|dir| {
+                    dir.join("app.contract").is_file()
+                        && crate::tamber::design(dir).and_then(|d| canonical(&d))
+                            == canonical(&path)
+                })
+                .map_or(beside.clone(), Path::to_path_buf)
+        }
     };
     // The app's components' params, tokens of its design (D15), as its
     // build checks them: a build that refuses writes no names.

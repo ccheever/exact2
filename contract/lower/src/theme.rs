@@ -274,7 +274,8 @@ impl Lowerer<'_> {
                 .tokens
                 .iter()
                 .chain(&design.icons)
-                .filter(|t| t.name.value == name)
+                // A role's spelling in any case, as the fold reads one.
+                .filter(|t| t.name.value.eq_ignore_ascii_case(&name))
             {
                 let read =
                     std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
