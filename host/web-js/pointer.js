@@ -16,6 +16,7 @@
 // The record: the point from the element's content box in its own CSS px
 // (a scale undone), DOM's buttons and pressure, the device and its id, the
 // viewport point (`frame()`'s space, LLP 1094 D11), the modifiers held.
+import { inertAncestor } from './navigation.js';
 export function record(e, ev, lifted = false) {
   const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
   const sx = e.offsetWidth ? r.width / e.offsetWidth : 1, sy = e.offsetHeight ? r.height / e.offsetHeight : 1;
@@ -58,7 +59,7 @@ export function pointer(e, kind, f) {
       // nor past a handler further in that stopped this up (`$stopped`, rt.js).
       if (live() && !ev.$stopped) s.pointerup?.(record(e, ev.type === "blur" ? s.last : ev, true), ev);
     };
-    const enabled = () => live() && !e.matches(":disabled") && !e.hasAttribute("disabled") && !e.closest("[inert]");
+    const enabled = () => live() && !e.matches(":disabled") && !e.hasAttribute("disabled") && !inertAncestor(e);
     s.hold = ev => {
       // Any button, as the DOM's (studio diary R22: a secondary click's down; `buttons` says which).
       if (!ev.isPrimary || s.held !== null || !enabled()) return;
@@ -80,7 +81,7 @@ export function pointer(e, kind, f) {
     e.addEventListener("pointermove", ev => {
       if (ev.$pointerMover || !s.pointermove) return;
       ev.$pointerMover = e;
-      if (s.held === null && ev.buttons === 0 && !e.matches(":disabled") && !e.hasAttribute("disabled") && !e.closest("[inert]")) moved(ev);
+      if (s.held === null && ev.buttons === 0 && !e.matches(":disabled") && !e.hasAttribute("disabled") && !inertAncestor(e)) moved(ev);
     });
   }
   s[kind] = f;

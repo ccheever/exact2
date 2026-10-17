@@ -5,7 +5,8 @@ mock.module('./rt.js', () => ({
   inflight: { n: 0 }, Hosts: {}, OnHooks: {}, viewId: () => 1, Views: new Map(), data: {},
 }));
 mock.module('./pointer.js', () => ({ record: () => {} }));
-mock.module('./navigation.js', () => ({ reportPlace: () => '' }));
+const { inertAncestor } = await import('../web/navigation.js');
+mock.module('./navigation.js', () => ({ inertAncestor, reportPlace: () => '' }));
 // The real admission over the grant set the Rust parser writes for
 // `fs.read "app:/data/a b"` (runner/src/grants.rs `normalized_json`, pinned
 // byte for byte in save_file.rs's test), so a share's path check here is the

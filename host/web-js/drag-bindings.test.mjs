@@ -251,3 +251,17 @@ test('a rewritten SVG ancestor still makes a reorder binding ambiguous', async (
     expect((await browser.state()).slots.releases).toBe(0);
   } finally { await browser.close(); }
 }, 60_000);
+
+test.each(['transform', 'height', 'reorder'])('%s remains live inside a modal beneath an inert ancestor', async mode => {
+  const browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
+  try {
+    await browser.tap(mode);
+    await browser.carrier.evaluate(`(() => {
+      const root = document.getElementById('exact-root'), dialog = document.createElement('dialog');
+      dialog.append(...root.childNodes); root.append(dialog); dialog.showModal(); root.inert = true;
+    })()`);
+    await browser.tap(mode === 'reorder' ? 'handle-a' : 'handle', { drag: { dx: mode === 'transform' ? 25 : 0, dy: mode === 'reorder' ? 130 : mode === 'height' ? -20 : 0, over: 300 } });
+    await browser.clock('settle');
+    expect((await browser.state()).slots.releases).toBe(1);
+  } finally { await browser.close(); }
+}, 30000);

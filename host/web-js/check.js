@@ -6,6 +6,7 @@
 // the viewport's sides. Read from the page, never a second model; the
 // background a text stands on is the nearest fill painted under it (LLP
 // 1116.006 D5), else the driver's, from the pixels.
+import { inertAncestor } from './navigation.js';
 const CONTROL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="menuitem"], [data-exact-on~="press"]';
 // A user agent's own control at its own size (WCAG 2.5.8's exception), unless the author sized it.
 const AGENT_SIZED = 'input[type="checkbox"], input[type="radio"], input[type="range"], input[type="color"], input[type="date"], input[type="time"], input[type="datetime-local"], select, progress';
@@ -34,7 +35,7 @@ export function observe(views, inactive = () => false) {
   const modal = document.querySelector('dialog:modal');
   const shown = (el, b) => b.width > 0 && b.height > 0
     && (!el.checkVisibility || el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
-    && !el.closest('[inert], [data-exiting]') && (!modal || modal.contains(el)) && !inactive(el);
+    && !inertAncestor(el) && !el.closest('[data-exiting]') && (!modal || modal.contains(el)) && !inactive(el);
   const opacity = (el) => { let o = 1; for (let e = el; e && e !== document.documentElement; e = e.parentElement) o *= Number(getComputedStyle(e).opacity); return o; };
   // What paints that a computed colour does not say: a picture, a native widget, a gradient.
   const opaque = (e, s) => /^(img|svg|canvas|video|iframe|picture|object|embed)$/.test(e.localName) || s.backgroundImage !== 'none'

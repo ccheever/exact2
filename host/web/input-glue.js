@@ -285,7 +285,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
-  const lands = el => !!el?.isConnected && !el.closest("[inert]") && el.getClientRects().length > 0 && !el.matches(":disabled");
+  const lands = el => !!el?.isConnected && !inertAncestor(el) && el.getClientRects().length > 0 && !el.matches(":disabled");
   const titleOf = route => [...route.children].find(c => c.localName === "header")?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]");
   // @ref LLP 1115.000 D4.5 — a modal route (a sheet) is a dialog to assistive technology: `role="dialog"` and
   // `aria-modal`, named by its header's heading, and the focus moves into it and returns on close as it does for any

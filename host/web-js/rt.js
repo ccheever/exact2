@@ -799,7 +799,7 @@ export const painted = () => Painted ??= new Promise(r => { let o; const done = 
 /** A context menu's popover (LLP 1021 §5.1): after the node's own `contextmenu` (both fire), the popover its `contextpopover` names opens anchored to it,
  * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a text field's edit menu stays the browser's (navigation.js `editMenu`), and a disabled or inert node opens nothing. */
 export function cp(e) {
-  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || editMenu(ev.target) || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); contextAt(ev, () => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); if (p && !p.matches(":popover-open")) return [p, e]; }); });
+  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || editMenu(ev.target) || e.matches(":disabled") || inertAncestor(e)) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); contextAt(ev, () => { if (!e.isConnected || e.matches(":disabled") || inertAncestor(e)) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); if (p && !p.matches(":popover-open")) return [p, e]; }); });
 }
 /** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
  * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
@@ -948,7 +948,7 @@ export const onPointer = (e, kind, f, l) => { return pointer(e, kind, kind === "
 // A text field's own edit menu stays the browser's (navigation.js `editMenu`); a control's input has none, so its node's handler runs (#487). The nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
 export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (editMenu(ev.target)) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
 // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
-export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (ev.$stopped || e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
+export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (ev.$stopped || e.matches(":disabled") || inertAncestor(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
 // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
 export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
 // Normal blur commits before focusout chooses its DOM path. Flush callbacks run before post-flush focus commands or autofocus; retired owners never dispatch teardown blur.
