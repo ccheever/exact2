@@ -44,9 +44,13 @@ export function renderer(dist) {
    * any data is asked; `finish` settles it and composes the rest. */
   async function begin(location) {
     const document = createDocument(shell);
+    // The bake's page facts (runner/src/page.rs): visible, online, focused, no share sheet or pickers.
+    Object.assign(document, { visibilityState: 'visible', hasFocus: () => true });
     const url = new URL(location, 'http://render.invalid');
     const ctx = vm.createContext({
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
+      navigator: { onLine: true, language: 'en' },
+      getComputedStyle: () => ({ fontSize: '16px' }), devicePixelRatio: 1,
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
       // No reader's device facts: use runner/src/viewport.rs's default size and media bits.

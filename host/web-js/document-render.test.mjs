@@ -27,6 +27,31 @@ async function renderedPages(source, check, files = {}) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+test('JavaScript-rendered page uses server facts without a reader’s device', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+shape Page
+  visibilityState: string
+  onLine: bool
+  canShare: bool
+  canShareFiles: bool
+  canSharePictures: bool
+  canOpenFiles: bool
+  hasFocus: bool
+  navigationType: string
+
+component PageFacts
+  resource page = exactPage() as shape Page
+  view
+    main
+      head title=\`\${page.visibilityState}/\${page.onLine}/\${page.canShare}/\${page.canShareFiles}/\${page.canSharePictures}/\${page.canOpenFiles}/\${page.hasFocus}/\${page.navigationType}\`
+      text "Page facts"
+`, page => {
+    expect(page('')[0]).toBe('visible/true/false/false/false/false/true/navigate');
+  });
+}, 30000);
+
 test('JavaScript-rendered viewport uses default media facts without a reader’s device', async () => {
   await renderedPages(`routes nav
   home "/" render=build
