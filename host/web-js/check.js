@@ -104,6 +104,13 @@ export function observe(views, inactive = () => false) {
     }
     return { x: r2(l), y: r2(t), w: r2(Math.max(0, r - l)), h: r2(Math.max(0, btm - t)) };
   };
+  // Whether a box holds what a person reads or uses: a control, or a text whose words show. A bare text is
+  // `display: contents`, with no box of its own: its words' box is its.
+  const holds = (el) => [...el.querySelectorAll(`[data-exact-text], ${CONTROL}`)].some((e) => {
+    if (getComputedStyle(e).display !== 'contents') return shown(e, e.getBoundingClientRect());
+    const words = document.createRange(); words.selectNodeContents(e);
+    return getComputedStyle(e).visibility === 'visible' && shown(e.parentElement, words.getBoundingClientRect());
+  });
   const fixed = (el, upTo) => { for (let e = el; e && e !== upTo; e = e.parentElement) if (/^(fixed|sticky)$/.test(getComputedStyle(e).position)) return true; return false; };
   const scrolls = (e) => /^(auto|scroll)$/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1;
   // What keeps a box's sideways overflow its own: a box that clips on x, or one that scrolls sideways on purpose (an authored
@@ -262,15 +269,20 @@ export function observe(views, inactive = () => false) {
       }
       if (text && !item.cut && b.bottom - H >= 2 && b.top < H && !reach(el, null, false)) item.cut = { edge: 'bottom', dx: 0, dy: r2(b.bottom - H) };
     }
-    // A filled box that is not text or a control: a card, unless it is the page itself. A symbol's fill is its
-    // ink through a mask, and a picture is not a fill.
+    // A card: a filled box, not itself text or a control, that holds a text or a control, its fill what sets that group
+    // apart from the page. None is a box with square corners that reaches a side of the viewport (the page itself, or a
+    // band across it); a list, whose ground is the page under its rows (a grouped list's grey, its sections the cards);
+    // or a shape that holds no text or control (an illustration's, a map's), whether it shows or not
+    // (AgentCheckIOS.swift's is iOS's). A symbol's fill is its ink through a mask, and a picture is not a fill.
+    // `faded`: an ancestor's opacity composites it with what lies behind that ancestor, which the capture cannot separate.
     const picture = /^(img|svg|canvas|video|iframe)$/.test(el.localName) || el.hasAttribute('data-symbol-source') || cs.backgroundImage !== 'none' || (cs.maskImage ?? cs.webkitMaskImage ?? 'none') !== 'none' || (cs.webkitMaskImage ?? 'none') !== 'none';
-    const fill = !text && !item.control && !picture ? rgba(cs.backgroundColor) : null;
+    const fill = !text && !item.control && !picture && !el.hasAttribute('data-exact-list') ? rgba(cs.backgroundColor) : null;
     if (fill && b.width >= 16 && b.height >= 16) {
       const radius = parseFloat(cs.borderTopLeftRadius) || 0, inset = b.left >= 2 && b.right <= W - 2;
-      if (radius > 0 || inset) {
+      if ((radius > 0 || inset) && holds(el)) {
         fill[3] = r2(fill[3] * o);
         item.fill = fill; item.radius = radius;
+        if (o < Number(cs.opacity) * 0.999) item.faded = true;
         const fillRole = role(el, 'background-color');
         if (fillRole) item.fillRole = fillRole;
         const border = ['Top', 'Right', 'Bottom', 'Left'].some((side) => parseFloat(cs[`border${side}Width`]) > 0 && rgba(cs[`border${side}Color`]));
