@@ -174,6 +174,41 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
 }
 
+/**
+ * `tap <target> down` … `tap up` under `--touch platform`: one real touch, so a native view's own recognizers (a
+ * `UILongPressGestureRecognizer`) see it held. The runner holds no finger across requests (LLP 1080.000 P3), so the
+ * contact is played whole at its lift: `down` books the point (`at`, a viewport point, else the target's middle),
+ * each `hold` adds its time, `up` presses there for the holds' sum, and `cancel` drops it with nothing pressed. The
+ * app's clock moves on real time while the finger is down (a module's `context.after` runs as on a device: under
+ * either timing the clock is the agent's once any op has moved it, LLP 1080.000 §12), and the rest of the holds after
+ * the lift. A move is a drag's (`tap <target> drag`).
+ */
+export async function heldDown(s, node, at) {
+  const b = (await s.layout()).nodes.find((n) => n.id === node.id);
+  if (!b) throw new Error(`view ${node.id} has no box on screen`);
+  const point = at ? [at.x, at.y] : [b.x + b.w / 2, b.y + b.h / 2];
+  s.contact = { x: point[0], y: point[1], whole: { id: node.id, at: at ? point : undefined, hold: 0 } };
+  return { contact: node.id, phase: 'down', at: point, delivery: 'platform', note: 'under --touch platform a held contact is one real touch, pressed at tap up for its holds: a read before then sees the screen unpressed; tap <target> drag 0 0 hold <ms> during "<op>" reads inside a press' };
+}
+
+export async function heldPhase(s, carrier, phase, opts) {
+  const whole = s.contact.whole, at = [s.contact.x, s.contact.y];
+  if (phase === 'move') throw new Error('tap move: under --touch platform a finger that moves is one real gesture, tap <target> drag <dx> <dy> [press <ms>] [over <ms>] [hold <ms>]; tap up or tap cancel ends this contact');
+  if (phase === 'hold') {
+    if (whole.hold + opts.ms > DRAG_BOUNDS.hold) throw new MalformedOperation(`tap hold: a held real touch lasts at most ${DRAG_BOUNDS.hold} ms`);
+    whole.hold += opts.ms;
+    return { phase, at, delivery: 'platform', held: whole.hold };
+  }
+  s.contact = null;
+  if (phase === 'cancel') return { phase, at, delivery: 'platform', note: 'nothing was pressed' };
+  // The clock's real run ends before the lift (realTap checks the finger is still down after it); the rest is sought.
+  const hold = whole.hold, real = hold >= 200 ? hold - Math.min(250, hold / 2) : 0;
+  const r = await carrier.input(whole.id, 'drag', { at: whole.at, drag: { dx: 0, dy: 0, press: 0, over: 0, hold, during: real ? [() => s.clock(`+${real} real`)] : [] } });
+  if (hold > real) await s.clock(`+${hold - real}`);
+  const { during, drag, ...reply } = r;
+  return { ...reply, phase, at, hold };
+}
+
 /** The most strokes a drag past the viewport is split into, and how long each but the last rests before it lifts. */
 export const STROKES = { most: 8, rest: 150 };
 

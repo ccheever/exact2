@@ -3,7 +3,7 @@
 // through the touch runner (`--touch platform`), in both timing modes. Each
 // `tap` must reply `delivery: platform` with the touch the app's window
 // dispatched; what the tap did is read from `tree`, never from the reply.
-// A held contact is the recognized finger (P3 failed: §14); a whole real drag
+// A held contact is one real touch played at its lift (§14); a whole real drag
 // (`tap … drag`, §11) scrolls the stations, with a read while the finger is
 // down, and a still press opens them as a tap does. Prints the runner's
 // start and per-tap times (G2) as observations, never a gate. A runner that
@@ -65,10 +65,11 @@ for (const timing of ['agent', 'platform']) {
     if (timing === 'platform') await s.clock('settle');
     tree = await s.tree();
     check(byTestId(tree, 'station-name')?.props.text === 'Palo Alto', `${timing}: after a real tap on station-paloalto the station is ${byTestId(tree, 'station-name')?.props.text}`);
-    // A held contact is the recognized finger it is without real touches (LLP 1080.000 §14): the runner holds none (P3).
+    // A held contact is one real touch, played whole at its lift (LLP 1080.000 §14): the runner holds none across requests (P3).
     const down = await s.tap('station-name', { down: true });
-    check(down.delivery === 'recognized', `${timing}: a held contact replied ${JSON.stringify(down)}`);
-    if (down.delivery !== 'unsupported') await s.pointer('up');
+    await s.pointer('hold', { ms: 600 });
+    const up = await s.pointer('up');
+    check(down.delivery === 'platform' && up.delivery === 'platform' && up.touch?.type === 'direct' && up.touch.ended - up.touch.began > 0.5, `${timing}: a held contact was not one real touch held 600 ms: ${JSON.stringify({ down, up })}`);
     console.log(`${timing}: taps ${taps.join(', ')} ms`);
   } catch (error) {
     check(false, `${timing}: ${error.message}`);

@@ -783,6 +783,8 @@ deterministic and a smoke against real credentials leaves nothing behind.
   lifted there makes, if it is still on its target. It is no `UITouch`: no
   UIKit recognizer sees it, under either timing. A drag's contact still
   asks for a `pan` node's alone. `input` on iOS reports `contact` and `hold`.
+  Under `--touch platform` the contact is one real touch instead, played
+  whole at `tap up` (LLP 1080.000 §14).
 
 ## Amended (2026-10-16: an iOS screenshot says what it paints)
 

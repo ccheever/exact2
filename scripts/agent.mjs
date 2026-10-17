@@ -39,7 +39,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot } from './agent-compare.mjs';
-import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
+import { dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase } from './agent-drag.mjs';
 import { driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices } from './agent-keys.mjs';
 import { jsonLines, hangup } from './agent-wire.mjs';
@@ -744,9 +744,9 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
           if (kind === 'down' || canvasContact) {
-            // `pan`: a pan's or a canvas's contact alone, for a drag. A held finger is recognized under real touches too
-            // (`delivery: recognized`): the runner cannot hold one across requests (LLP 1080.000 P3), and press and hold is
-            // how a hold-to-charge control is driven (euxy FRICTION 10).
+            // `pan`: a pan's or a canvas's contact alone, for a drag. The recognized finger: under --touch platform the
+            // session plays a held contact as one real touch instead (agent-drag.mjs `heldPhase`), with a world
+            // entity's tap the one contact still sent here.
             const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.virtual ? { virtual: true } : {}), ...(opts.pan ? { pan: true } : {}) });
             if (r.error) throw new Error(r.error);
             if (r.delivery !== 'unsupported' || canvasContact) {
@@ -990,9 +990,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * and how each form is delivered — `platform` (a real input event through the platform's own path),
      * `recognized` (an already-recognized event injected), `activation` (a hit-test and a direct call),
      * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
-     * injects; it synthesizes no touch (LLP 1008 §9), so its held contact is recognized (AgentPanIOS.swift). */
+     * injects; it synthesizes no touch (LLP 1008 §9), so its held contact is recognized (AgentPanIOS.swift), a real one under --touch platform. */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: true, hold: true, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : (kind === 'drag' && carrier.touches || kind === 'press' && carrier.touch === 'platform') ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
+      ? { contact: true, hold: true, delivery: (kind) => ((kind === 'drag' && carrier.touches || ['press', 'down', 'hold', 'up', 'cancel'].includes(kind) && carrier.touch === 'platform') ? 'platform' : ['contextmenu', 'dblclick', 'hover', 'pinch', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows' || host === 'android'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu', 'mouse'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -1075,6 +1075,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if ((kind === 'down' || kind === 'press') && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first'); // one finger at a time
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
+      if (kind === 'down' && carrier.touches && touch === 'platform') return s.tagged({ ...await heldDown(s, node, at), tapped: node.id, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
       let r;
       try { r = await carrier.input(node.id, kind, { ...opts, ...at }); }
       catch(error) { throw await tapRefusal(s, target, await s.named(error)); }
@@ -1125,6 +1126,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         if (contacts.length > 1) throw new Error('multiple restored contacts; release one with tap and its contact ID');
       }
       if (!s.contact) throw new Error('no contact is down (tap <target> down first)');
+      if (s.contact.whole) return s[phase === 'up' ? 'landed' : 'tagged']({ ...await heldPhase(s, carrier, phase, opts), carrier: host, mode: timing }); // one real touch, played at the lift (agent-drag.mjs)
       const before = s.now, r = await carrier.input(null, phase, opts);
       if (r.delivery !== 'unsupported') {
         if (Number.isFinite(r.clock)) s.now = r.clock;

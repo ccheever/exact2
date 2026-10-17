@@ -32,11 +32,11 @@ menu and an alert's buttons take a drive without the flag.
 | `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert, sheet or menu is up. `screenshot <f> over 600 every 50 window` films it. |
 | `tap <id> down` `tap hold <ms>` `tap up` | Press and hold (hold to charge): `pointerdown`, the clock moved `<ms>`, `pointerup`. |
 | `clock settle` | Ends a transition; waits up to 1.5 s for the app's own `UIView.animate` (longer: `settled: false`). |
-| `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch. |
+| `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap, hold and drag a real touch. |
 | `--sim <udid\|name>` (`EXACT_SIM`) | Which simulator (default: the one the app is on). |
 
-- Drive by `testId`, never by coordinates; on a bar button, search field, segment or tab
-  it is the `accessibilityIdentifier`.
+- Drive by `testId` (a bar button's, search field's, segment's, tab's
+  `accessibilityIdentifier`), never by coordinates.
 - `tap` and `type` scroll their target into view first.
 - Without `--touch platform`, `tap <scroll or list> drag 0 -300` scrolls as a finger would, with
   no fling, past the screen too; any other drag is refused, naming the flag.
