@@ -1,10 +1,17 @@
 component App
   state selected = "a"
   state items = [1, 2, 3]
+  state seed = 1
+  state seen = 0
+  action bump
+    seed = seed + 1
+  action report(n: number)
+    seen = n
   action pick
     selected = "b"
   view
     main navigationKey=selected navigationBack="back" height=400
+      button "bump" press=bump testId="bump"
       row role="tablist"
         button "A" role="tab" aria-controls="a" aria-selected=(selected == "a")
         button "B" role="tab" aria-controls="b" aria-selected=(selected == "b") press=pick testId="pick"
@@ -13,18 +20,27 @@ component App
           text "first" testId="first"
       list role="tabpanel" id="b" testId="list" virtualized=true height=200
         for item in items key=item
-          Row(value=item)
+          Row(value=item, seed=seed, report=report)
 
 component Row
   props
     value: number
-  state n = value
+    seed: number
+    report: action
+  state n = seed + value
   view
-    text `${n}` testId=`row-${value}`
+    button press=report(n) testId=`report-${value}`
+      text `${n}` testId=`row-${value}`
 
 test "a virtualized panel keeps its for as its state owner"
   expect tree has "list"
   expect tree missing "row-1"
+  tap "bump"
   tap "pick"
   expect state selected == "b"
   expect tree has "list"
+  tap "report-1"
+  expect state seen == 3
+  tap "bump"
+  tap "report-1"
+  expect state seen == 3

@@ -213,7 +213,10 @@ cargo run -p contract-difftest -- random --seed 7 --count 2000 --js-only
 compiled by `exact-web-js` (the build's compiler), bundled with the runtime
 and run under Bun in a fresh VM context over the render DOM
 (`host/web-js/dom.js`) given event listeners, the clock the driver's
-(`advance`, as under the agent). Its sources answer synchronously from the
+(`advance`, as under the agent). It boots with the agent URL, so navigation
+tabs use the live runtime's deferred construction. It omits virtualized
+descendants by the collection attached to the element, including a list
+whose role is `tabpanel`. Its sources answer synchronously from the
 runner's oracle transcript, as the runner's do; the host's reserved sources
 (viewport, page, time…) answer what the runner answered at boot. A call the
 runner never made is noted (`# js: the oracle has no answer…`) and shows as
@@ -224,11 +227,6 @@ A tap goes to the element's `press` listener and a `type` to its `change`;
 an element without one is refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
-
-The driver currently sets `__exactRender`, which makes navigation tab panels
-use prerender's eager lifetime. The `corpus/components/tab-*.contract` cases
-therefore disagree with the runner under `--js`; they agree with Lean.
-The driver needs a runtime tab lifetime (tracked in `QUEUE.md`).
 
 A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics

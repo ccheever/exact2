@@ -93,6 +93,19 @@ def typeDiff (l r : Program) : Option String :=
 #guard !paramsAgree [("@capture:0:1", .unknown)] [("@capture:0:1", .number)]
 #guard !paramsAgree [("@capture:0:a1:0", .unknown)] []
 
+-- A virtualized panel must keep its `each` directly under the list: the
+-- collection owns its rows. A synthetic panel arm would hide that `each`.
+private def listPanel : CProgram :=
+  { root := { name := "App", view := [
+      .element "main" [] [("navigationKey", .str "a"), ("navigationBack", .str "back")] [] [
+        .element "list" [] [("role", .str "tabpanel"), ("virtualized", .bool true)] [] [
+          .each 0 "item" .none (.list []) (.var "item") [
+            .element "text" [.var "item"] [] [] []]]] ] } }
+
+#guard match Expand.expand listPanel with
+  | .ok { view := [.element _ _ _ _ [.element "list" _ _ _ [.each ..]]], .. } => true
+  | _ => false
+
 /-- Both checks for one case, as lines: `#expand-error`, `#struct`, `#types`
 (each with what differs, or `ok`), then the flat observation after
 `#flat` and the component-level one after `#comp`. -/

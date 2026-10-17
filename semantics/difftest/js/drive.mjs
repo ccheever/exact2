@@ -61,6 +61,11 @@ const NodeProto = Object.getPrototypeOf(ElementProto);
 Object.assign(NodeProto, {
   addEventListener(type, f) { ((this.$listeners ??= {})[type] ??= []).push(f); },
   removeEventListener(type, f) { const l = this.$listeners?.[type]; if (l && l.includes(f)) l.splice(l.indexOf(f), 1); },
+  getElementsByClassName(names) {
+    const classes = names.split(/\s+/).filter(Boolean), found = [];
+    const walk = n => { for (const c of n.childNodes) { if (c.nodeType === 1 && classes.every(k => c.classList.contains(k))) found.push(c); walk(c); } };
+    walk(this); return found;
+  },
 });
 Object.defineProperties(ElementProto, {
   type: { get() { return this.getAttribute('type') ?? ''; }, configurable: true },
@@ -123,13 +128,16 @@ async function drive(code, c, hostSources) {
     getItem: k => kept.has(k) ? kept.get(k) : null, setItem: (k, v) => { kept.set(k, String(v)); }, removeItem: k => { kept.delete(k); },
   };
   const ctx = vm.createContext({
-    document, location: { pathname: '/', search: '', href: 'http://difftest.invalid/', origin: 'http://difftest.invalid' },
+    // Agent mode owns the clock without prerender's eager tab construction.
+    document, location: { pathname: '/', search: '?agent', href: 'http://difftest.invalid/?agent', origin: 'http://difftest.invalid' },
     history: { replaceState() {}, pushState() {}, go() {}, state: null }, localStorage,
     addEventListener() {}, removeEventListener() {}, navigator: {},
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     setTimeout, clearTimeout, queueMicrotask, performance, console: quiet, fetch: () => Promise.reject(new Error('no network in a drive')), URL, URLSearchParams, TextEncoder, TextDecoder,
-    Event: class {}, CustomEvent: class {}, __exactRender: true,
+    Event: class {}, CustomEvent: class {},
+    // No browser layout runs here; symbol projection's observer has nothing to report.
+    MutationObserver: class { observe() {} disconnect() {} },
     // The render DOM has one element class: the runtime's `instanceof HTML…Element` is a tag check here.
     ...Object.fromEntries([['HTMLInputElement', 'input'], ['HTMLTextAreaElement', 'textarea'], ['HTMLSelectElement', 'select'], ['HTMLOptionElement', 'option'],
       ['HTMLButtonElement', 'button'], ['HTMLIFrameElement', 'iframe']].map(([name, tag]) => [name, { [Symbol.hasInstance]: el => el?.localName === tag }])),
@@ -193,10 +201,10 @@ async function drive(code, c, hostSources) {
   if (booted === 'poisoned') return [...out, ...notes];
   const root = document.root;
   // Elements in preorder; a virtualized list's rows are its window's (left out), as observe.rs leaves
-  // out a collection's. Such a list is the one list.js windows: its rows are `listitem` wrappers keyed
-  // by `data-listitemkey`. A grouped list (`list appearance="auto"`) scrolls too but builds every row.
+  // out a collection's. list.js attaches its collection as `$list`, regardless of the author's role.
+  // A grouped list (`list appearance="auto"`) scrolls too but builds every row.
   const walk = (e, f, windowed) => { for (const k of e.childNodes) if (k.nodeType === 1) { f(k); if (!(windowed && windowedList(k))) walk(k, f, windowed); } };
-  const windowedList = e => e.getAttribute('role') === 'list' && [...e.childNodes].some(k => k.nodeType === 1 && k.getAttribute('role') === 'listitem' && k.getAttribute('data-listitemkey') !== null);
+  const windowedList = e => !!e.$list;
   const find = id => { let hit = null; walk(root, e => { if (!hit && e.getAttribute('data-testid') === id) hit = e; }, false); return hit; };
   // What the store keeps for a persisted state, read back by its slot's type
   // (persist.js's text: a non-finite number as its name).
