@@ -96,7 +96,8 @@ describe("threads with a turn (seed --turns)", () => {
     expect(turnCompleted({ latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1" })).toBe(false);
     expect(turnCompleted(undefined)).toBe(false);
     const waiting = { latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1", pendingRuntimeRequest: { id: "q1", kind: "file-change" } };
-    expect([turnSeeded({ approval: true }, waiting), turnSeeded({ approval: true }, completed), turnSeeded({ approval: true }, { ...waiting, pendingRuntimeRequest: null })]).toEqual([true, true, false]);
+    const after = (status: string) => turnSeeded({ approval: true }, { ...completed, status });
+    expect([turnSeeded({ approval: true }, waiting), after("completed"), after("cancelled"), turnSeeded({ approval: true }, { ...waiting, pendingRuntimeRequest: null })]).toEqual([true, true, false, false]);
     expect(turnSeeded({}, waiting)).toBe(false);
   });
 

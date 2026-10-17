@@ -299,8 +299,11 @@ export async function addStandin(paths, name, conn, { timeoutMs = 20_000 } = {})
 
 /** A thread's turn is done when its shell row has a completion time for its latest run. */
 export const turnCompleted = (thread) => !!thread?.latestRunId && !!thread?.latestRunCompletedAt && !thread?.activeRunId;
-/** An approval turn is seeded once its thread waits on a runtime request (or a drive has answered it and the turn completed). */
-export const turnSeeded = (turn, thread) => (turn.approval ? !!thread?.pendingRuntimeRequest || turnCompleted(thread) : turnCompleted(thread));
+/**
+ * An approval turn is seeded while its thread waits on the runtime request, or once a drive has answered
+ * it and the turn completed; a server restart cancels the waiting turn, and the seed asks again.
+ */
+export const turnSeeded = (turn, thread) => (turn.approval ? !!thread?.pendingRuntimeRequest || (turnCompleted(thread) && thread.status === "completed") : turnCompleted(thread));
 
 /**
  * One completed turn: a thread on the stand-in's instance (`existing`, else a new one) is sent
@@ -360,6 +363,9 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? [], { turns = fal
   try {
     const out = [];
     if (limits) out.push({ usageHub: `http://127.0.0.1:${(await startHub(paths)).port}`, accounts: await addHub(conn, hubPort()) });
+    // An installed stand-in older than agent.mjs is rewritten, and probed again so its skill is listed.
+    if (turns && standinStatus(join(envDir(paths, name), "t3home")).installed && refreshStandin(join(envDir(paths, name), "t3home")))
+      await conn.request("server.refreshProviders", { instanceId: STANDIN_INSTANCE }).catch(() => {});
     for (const entry of seeds) {
       const workspaceRoot = seedRepository(paths, name, entry);
       const projectId = await ensureProject(conn, workspaceRoot, { title: entry.repo });

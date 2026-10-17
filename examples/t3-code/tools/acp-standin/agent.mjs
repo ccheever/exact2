@@ -12,6 +12,9 @@
 //   "Ask before editing the notes"  asks first (`session/request_permission`, an `edit` tool call), so a
 //                                   thread in the runtime mode "approval-required" waits on an approval;
 //                                   allowed, it writes notes/approved.md
+// After `session/new` and `session/load` it advertises one skill, `$frontend-design`
+// (`available_commands_update`; T3 lists a `$` command as a skill), so the composer's `$` menu can
+// insert a skill chip.
 // A session the server opened before it restarted comes back by `session/load`, with no history
 // replayed (the stand-in keeps none), so a later turn on the same thread runs too.
 //
@@ -43,6 +46,9 @@ if (process.argv.includes("--fixture-login")) {
   const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
   const update = (sessionId, body) => send({ method: "session/update", params: { sessionId, update: body } });
   const authRequired = { code: -32000, message: "Authentication required" };
+  const COMMANDS = [{ name: "$frontend-design", description: "Build distinctive, production-grade frontend interfaces" }];
+  // After the reply, as an agent's advertisement follows the session it is for.
+  const advertise = (sessionId) => setTimeout(() => update(sessionId, { sessionUpdate: "available_commands_update", availableCommands: COMMANDS }), 0);
   const sessions = new Map(); // session id → its directory (session/new's and session/load's `cwd`)
   const asked = new Map(); // id of a request to the client → its reply's resolver
   const request = (method, params) => new Promise((resolve) => { const id = `standin-${asked.size + 1}-${Date.now()}`; asked.set(id, resolve); send({ id, method, params }); });
@@ -72,11 +78,13 @@ if (process.argv.includes("--fixture-login")) {
       if (methods.length > 0 && !signedIn()) throw authRequired;
       const sessionId = `standin-${Date.now()}`;
       if (typeof cwd === "string") sessions.set(sessionId, cwd);
+      advertise(sessionId);
       return { sessionId };
     },
     "session/load": ({ sessionId, cwd }) => {
       if (methods.length > 0 && !signedIn()) throw authRequired;
       if (typeof cwd === "string") sessions.set(sessionId, cwd);
+      advertise(sessionId);
       return {};
     },
     "session/prompt": async ({ sessionId, prompt }) => {
