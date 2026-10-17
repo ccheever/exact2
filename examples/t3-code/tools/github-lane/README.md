@@ -14,7 +14,7 @@ and touches no repository but the approved sandbox and the second account's fork
 | --- | --- | --- |
 | `T3_GITHUB_LANE_SHARED` | `<checkout>/target/t3-ui-parity/github-lane` | `gh/` (primary account), `gh-second/` (second account), `sandbox.json` (the sandbox, the logins, the seeded numbers). Point every worktree at the base checkout's copy so the login is reused. |
 | `T3_GITHUB_LANE` | `<checkout>/target/github-lane` | this checkout's `bin/<account>/gh` wrappers, `home/<account>` (`.zprofile`, `.gitconfig`), `servers/<account>` (T3 home, Codex, Claude, XDG, tmp, the sandbox clone, `server.log`, `server.pid`), `work/` (the seed's object store), `logs/gh-calls.tsv`, `logs/probe-*.json` |
-| `T3_LANE_SERVER` | the staged release (`bun examples/t3-code/stage-runtime.mjs`), unpacked into `runtime/` | another server: a `t3` executable or a `bin.mjs` (run by `node`) |
+| `T3_LANE_SERVER` | the staged release (`bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs`), unpacked into `runtime/` | another server: a `t3` executable or a `bin.mjs` (run by `node`) |
 | `T3_GITHUB_LANE_GH` | `gh` on `PATH` | the real GitHub CLI the wrappers exec |
 
 A lane server's environment is built from nothing (`serverEnv`): `HOME`, `CODEX_HOME`,

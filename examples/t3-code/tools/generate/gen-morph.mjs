@@ -95,5 +95,5 @@ component MorphChevron
       ShellIcon(name=(quarter ? "chevron-right" : "chevron-down"), size=size, color=color)
 
 ${morphs.join('\n')}`;
-  return [{ file: join(example, 'shell-morph.contract'), text }];
+  return [{ file: join(example, 'src', 'shell', 'shell-morph.contract'), text }];
 }

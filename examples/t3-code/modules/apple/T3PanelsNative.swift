@@ -20,7 +20,7 @@ enum T3FileEditor {
         if element.isNew, element.id == fileEditorId { focusFileEditor(element, view) }
     }
 
-    /// The Files editor's textarea (`r4-surfaces-files.contract`).
+    /// The Files editor's textarea (`files-surface.contract`).
     static let fileEditorId = "file-editor"
 
     /// A press anywhere in a Files editor's body (`file-lines`: below the last line, the gutter)

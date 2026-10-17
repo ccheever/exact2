@@ -1,6 +1,6 @@
-// r7-polish-css-words.ts: the word lists of the CSS grammar the reference highlights with (Shiki 4.2,
+// css-words.ts: the word lists of the CSS grammar the reference highlights with (Shiki 4.2,
 // @shikijs/langs css, MIT, pinned in package.json; see LICENSE-T3), as two anchored, case-blind
-// alternations for r7-polish-html-syntax.ts. generate.mjs writes the file.
+// alternations for html-syntax.ts. generate.mjs writes the file.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -52,5 +52,5 @@ export const CSS_VALUE = new RegExp('^(?:'
 ${chunked(value)}
   + ')$', 'i');
 `;
-  return [{ file: join(example, 'r7-polish-css-words.ts'), text }];
+  return [{ file: join(example, 'src', 'highlight', 'css-words.ts'), text }];
 }

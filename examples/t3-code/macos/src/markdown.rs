@@ -87,8 +87,8 @@ impl DataSource for Markdown {
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         // renderPullRequestMarkdown: the same parse for a pull request body and its comments;
-        // renderFileMarkdown: a Markdown file in Files (r4-surfaces-files.ts)
-        // and a sent attachment's (r5-panels-attach.ts).
+        // renderFileMarkdown: a Markdown file in Files (files-surface.ts)
+        // and a sent attachment's (attachment-surface.ts).
         if source != "renderMarkdown"
             && source != "renderPullRequestMarkdown"
             && source != "renderFileMarkdown"
@@ -157,8 +157,8 @@ impl DataSource for Markdown {
 }
 
 include!("pierre_icons.rs");
-include!("r4_timeline_tables.rs");
-include!("r4_integrate_align.rs");
+include!("markdown_tables.rs");
+include!("markdown_table_align.rs");
 include!("markdown_links.rs");
 include!("markdown_media.rs");
 
@@ -225,7 +225,7 @@ fn chat_run(value: Value, link_start: bool) -> Value {
     let (kind, icon) = if let Some(rest) = href.strip_prefix("t3-context://v1/") {
         // A composer context reference: its kind picks the chip's accent and icon.
         let kind = rest.split('/').next().unwrap_or("");
-        // The href stays: r4-timeline-chips.ts resolves the chip by it.
+        // The href stays: message-chips.ts resolves the chip by it.
         // A mention (an @-tagged file or folder) is the mention chip MarkdownFileLink also draws.
         if kind == "mention" {
             ("file", pierre_icon_token(&text))
@@ -245,7 +245,7 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         if !quoted.is_empty() {
             fields[1] = Value::str(&quoted);
         }
-        // The href stays: r4-timeline-chips.ts resolves the chip by it.
+        // The href stays: message-chips.ts resolves the chip by it.
         ("context-citation", "")
     } else if href.starts_with(IMAGE_MARK) {
         // An image inside a line of text: FlowRuns draws it through its media chip.

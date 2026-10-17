@@ -26,7 +26,7 @@
   "commands": {
     "terminal": ["bun", "terminal-host/build.mjs"],
     "verify-terminal": ["bun", "terminal-host/verify-vendor.mjs"],
-    "runtime": ["bun", "stage-runtime.mjs"]
+    "runtime": ["bun", "tools/stage-runtime/stage-runtime.mjs"]
   },
   "hatches": [
     "t3-composer",

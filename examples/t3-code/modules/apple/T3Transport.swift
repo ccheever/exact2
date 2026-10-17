@@ -10,7 +10,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         /// one native reply gets its own transfer: one caller's release never strands another's.
         var joiners: [Completion] = []
         let deadline: Date
-        /// The app's trace id: a status read lists the traces still pending (r3-protocol-reader.ts).
+        /// The app's trace id: a status read lists the traces still pending (protocol-reader.ts).
         var trace: Int? = nil
         /// The traces of shared reads that joined this one: pending as long as it is.
         var joinedTraces: [Int] = []
@@ -532,7 +532,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
 
     /// The device hub's media credentials (resolveDeviceHubAccess): the server origin
     /// and a short-lived WebSocket ticket for requests that cannot carry the bearer header
-    /// (R6DeviceStream.swift). nil when not connected or the server issued no ticket.
+    /// (T3DeviceStream.swift). nil when not connected or the server issued no ticket.
     func deviceHubAccess(_ completion: @escaping (URL?, String?) -> Void) {
         queue.async { [self] in
             guard state == "connected", let origin else { return completion(nil, nil) }

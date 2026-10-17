@@ -12,7 +12,7 @@
 //   macos/pierre-icons.tsv        the same tables for the Markdown module's file chips (pierre_icons.rs)
 //   assets/composer-icons.json    the composer's chip icons as SVG (T3ComposerIcons.swift draws them)
 //   icons.contract, shell-icons.contract, sidebar-icons.contract, timeline-icons.contract,
-//   r4-surfaces-icons.contract, settings-icons.contract, provider-icons.contract, diff-glyphs.contract,
+//   panel-icons.contract, settings-icons.contract, provider-icons.contract, diff-glyphs.contract,
 //   editor-icons.contract, settings-brands.contract
 //                                 the icon tables: icon-tables.mjs's lists of Lucide names (and the
 //                                 geometry no Lucide icon has), and icon-marks.mjs's vendored marks
@@ -546,24 +546,24 @@ export async function generate() {
   const pierre = pierreModule(), symbols = pierreSymbols(pierre), tints = pierreTints();
   const tables = fileTables(pierre);
   return [
-    { file: join(example, 'settings-b-lucide.ts'), text: await lucideSet() },
-    { file: join(example, 'pages-icons.contract'), text: await pageIcons() },
-    { file: join(example, 'timeline-files.contract'), text: fileTypeIcon(symbols, tints) },
-    { file: join(example, 'timeline-files-tables.ts'), text: tables.ts },
+    { file: join(example, 'src', 'settings', 'settings-b-lucide.ts'), text: await lucideSet() },
+    { file: join(example, 'src', 'shared', 'pages-icons.contract'), text: await pageIcons() },
+    { file: join(example, 'src', 'shared', 'timeline-files.contract'), text: fileTypeIcon(symbols, tints) },
+    { file: join(example, 'src', 'shared', 'timeline-files-tables.ts'), text: tables.ts },
     { file: join(example, 'macos', 'pierre-icons.tsv'), text: tables.tsv },
     { file: join(example, 'assets', 'composer-icons.json'), text: await composerIcons(symbols, tints) },
-    { file: join(example, 'icons.contract'), text: await iconsContract() },
-    { file: join(example, 'shell-icons.contract'), text: await tableContract(`ShellIcon: the Lucide glyphs the window shell draws (toasts, panel controls, the
+    { file: join(example, 'src', 'shared', 'icons.contract'), text: await iconsContract() },
+    { file: join(example, 'src', 'shell', 'shell-icons.contract'), text: await tableContract(`ShellIcon: the Lucide glyphs the window shell draws (toasts, panel controls, the
 // surface chooser, the details panel and the title menu; ${LUCIDE_PIN}, ISC), each flattened to one path so a
 // use costs two nodes (icon-tables.mjs SHELL_ICON).`, 'shellIconGeometry', SHELL_ICON, 'ShellIcon') },
-    { file: join(example, 'sidebar-icons.contract'), text: await tableContract(`SidebarIcon: ${LUCIDE} for the sidebar's own glyphs, each
+    { file: join(example, 'src', 'sidebar', 'sidebar-icons.contract'), text: await tableContract(`SidebarIcon: ${LUCIDE} for the sidebar's own glyphs, each
 // flattened to one path (icon-tables.mjs SIDEBAR_ICON).`, 'sidebarIconGeometry', SIDEBAR_ICON, 'SidebarIcon') },
-    { file: join(example, 'timeline-icons.contract'), text: await timelineContract() },
-    { file: join(example, 'r4-surfaces-icons.contract'), text: await r4Contract() },
-    { file: join(example, 'settings-icons.contract'), text: await settingsContract() },
-    { file: join(example, 'provider-icons.contract'), text: await providerContract() },
-    { file: join(example, 'diff-glyphs.contract'), text: await diffContract(symbols) },
-    { file: join(example, 'editor-icons.contract'), text: await editorContract() },
-    { file: join(example, 'settings-brands.contract'), text: brandsContract() },
+    { file: join(example, 'src', 'timeline', 'timeline-icons.contract'), text: await timelineContract() },
+    { file: join(example, 'src', 'panel', 'panel-icons.contract'), text: await r4Contract() },
+    { file: join(example, 'src', 'settings', 'settings-icons.contract'), text: await settingsContract() },
+    { file: join(example, 'src', 'providers', 'provider-icons.contract'), text: await providerContract() },
+    { file: join(example, 'src', 'diff', 'diff-glyphs.contract'), text: await diffContract(symbols) },
+    { file: join(example, 'src', 'shell', 'editor-icons.contract'), text: await editorContract() },
+    { file: join(example, 'src', 'settings', 'settings-brands.contract'), text: brandsContract() },
   ];
 }

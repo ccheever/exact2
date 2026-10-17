@@ -1,42 +1,42 @@
-use ThemeUse, ThemeRoleUsage from "./settings-appearance-editor-shapes.contract"
-use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./app-shapes.contract" // first: the plan orders shapes by first use
-use HighlightStep from "./highlight.contract"
-use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas from "./shapes.contract"
-use R10PairFields from "./r10-connect-shapes.contract"
-use providerLinkVisit from "./app-settings.contract"
-use SshPromptView, SshPromptAnswer from "./ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
-use TranscriptMarkdown from "./markdown.contract"
-use TimelineAttachmentUrls from "./timeline-attachments.contract"
-use PagesHome, pageTrailNext from "./pages-hero.contract"
-use UsageView, UsageKey from "./pages-usage.contract"
-use PrListView from "./pages-prs.contract"
-use PrDetailView from "./pages-pr-detail.contract"
-use WelcomeView from "./pages-welcome.contract"
-use PaletteView, PaletteResult from "./palette.contract"
-use ProviderPage from "./providers.contract"
-use ProviderWizard, AcpRegistry from "./providers-wizard.contract"
-use ConnectionsPage, SbSshHosts, routeKeyboardSource from "./connections.contract"
-use routeKeyboardIdle, routeKeyboardLive, routeKeyboardNext, routeKeyboardCancel, routeKeyboardValue, routeKeyboardComplete from "./connections-routes.contract"
-use KeybindingPage from "./settings-keybindings.contract"
-use ScheduledPage from "./settings-scheduled.contract"
-use KeyDispatch from "./settings-shortcuts.contract"
-use SourceControlPage, IntegrationsPage from "./settings-source-control.contract"
-use StoragePage from "./settings-storage.contract"
-use ArchivePage from "./settings-archive.contract"
-use DiagnosticsPage from "./settings-diagnostics.contract"
-use CoreNav, SettingsCore from "./settings-core.contract"
-use AboutDelivery from "./settings-a-about.contract"
-use ProjectsPage from "./settings-projects.contract"
-use SbPicker from "./settings-b-icons.contract"
-use PickerCatalog, PickerTarget, ComposerBranches from "./composer-shapes.contract"
-use ComposerEditorView from "./composer-editor.contract"
-use ChipPopover from "./composer-chip-popover.contract"
-use ShellView, ShellDetails from "./shell-shapes.contract"
-use T3Window from "./app-window.contract" // the window's view; its uses load the view's files here, in this order
-use ChatCanvasView from "./chat-canvas.contract"
-use TerminalDrawerView from "./terminal.contract"
-use HoverTip, noHoverTip, hoverDelay, hoverOpenDelay from "./hover-layer.contract"
-use legacyTipOwner from "./legacy-sidebar.contract"
+use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-shapes.contract"
+use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./src/shell/app-shapes.contract" // first: the plan orders shapes by first use
+use HighlightStep from "./src/highlight/highlight.contract"
+use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas from "./src/shared/shapes.contract"
+use R10PairFields from "./src/connections/pairing-shapes.contract"
+use providerLinkVisit from "./src/shell/app-settings.contract"
+use SshPromptView, SshPromptAnswer from "./src/connections/ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
+use TranscriptMarkdown from "./src/timeline/markdown.contract"
+use TimelineAttachmentUrls from "./src/timeline/timeline-attachments.contract"
+use PagesHome, pageTrailNext from "./src/pages/pages-hero.contract"
+use UsageView, UsageKey from "./src/usage/pages-usage.contract"
+use PrListView from "./src/pull-requests/pages-prs.contract"
+use PrDetailView from "./src/pull-requests/pages-pr-detail.contract"
+use WelcomeView from "./src/pages/pages-welcome.contract"
+use PaletteView, PaletteResult from "./src/palette/palette.contract"
+use ProviderPage from "./src/providers/providers.contract"
+use ProviderWizard, AcpRegistry from "./src/providers/providers-wizard.contract"
+use ConnectionsPage, SbSshHosts, routeKeyboardSource from "./src/connections/connections.contract"
+use routeKeyboardIdle, routeKeyboardLive, routeKeyboardNext, routeKeyboardCancel, routeKeyboardValue, routeKeyboardComplete from "./src/connections/connections-routes.contract"
+use KeybindingPage from "./src/settings/settings-keybindings.contract"
+use ScheduledPage from "./src/settings/settings-scheduled.contract"
+use KeyDispatch from "./src/settings/settings-shortcuts.contract"
+use SourceControlPage, IntegrationsPage from "./src/settings/settings-source-control.contract"
+use StoragePage from "./src/settings/settings-storage.contract"
+use ArchivePage from "./src/settings/settings-archive.contract"
+use DiagnosticsPage from "./src/settings/settings-diagnostics.contract"
+use CoreNav, SettingsCore from "./src/settings/settings-core.contract"
+use AboutDelivery from "./src/settings/settings-a-about.contract"
+use ProjectsPage from "./src/settings/settings-projects.contract"
+use SbPicker from "./src/settings/settings-b-icons.contract"
+use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
+use ComposerEditorView from "./src/composer/composer-editor.contract"
+use ChipPopover from "./src/composer/composer-chip-popover.contract"
+use ShellView, ShellDetails from "./src/shell/shell-shapes.contract"
+use T3Window from "./src/shell/app-window.contract" // the window's view; its uses load the view's files here, in this order
+use ChatCanvasView from "./src/shell/chat-canvas.contract"
+use TerminalDrawerView from "./src/terminal/terminal.contract"
+use HoverTip, noHoverTip, hoverDelay, hoverOpenDelay from "./src/shell/hover-layer.contract"
+use legacyTipOwner from "./src/sidebar/legacy-sidebar.contract"
 component T3Code
   state themeInspecting = false // Color inspection owns Escape while its floating editor remains open.
   action setThemeInspecting(value: bool)
@@ -534,7 +534,7 @@ component T3Code
   state keybindingWhen = ""
   state keybindingRecording = false
   resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision) as shape KeybindingPage
-  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, taskBase, shellClock) as shape ScheduledPage // shellClock: the base-branch picker's next page (r6-polish-refs.ts)
+  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, taskBase, shellClock) as shape ScheduledPage // shellClock: the base-branch picker's next page (ref-loading.ts)
   state licenseQuery = ""
   state licenseExpanded = ""
   state licenseRetry = 0
@@ -709,8 +709,8 @@ component T3Code
     jumpRequest = jumpRequest + 1
     foldHold = false
   derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
-  resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (r4-polish-sidebar-width.ts): no stored width sizes the sidebar once at load
-  derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: r12-sidebar-width.ts), leaving 40rem of main content
+  resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (sidebar-width.ts): no stored width sizes the sidebar once at load
+  derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: sidebar-min-width.ts), leaving 40rem of main content
   derive narrowDiff = viewport.width <= 980
   state diffUserWidth = 540
   derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
@@ -1444,7 +1444,7 @@ component T3Code
         utilityPage = ""
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
-  action panelUi(what: string, id: string) // tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
+  action panelUi(what: string, id: string) // tabs and surfaces live in the client (panel-surfaces.ts, shell.panel)
     let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
     rightPanelAt = closingTerminal ? rightPanelAt : (what == "toggle" or what == "close" or what == "tab-close" ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")) ? shell.panel.key : ""
     if what == "toggle" or what == "close" or what == "tab-close"

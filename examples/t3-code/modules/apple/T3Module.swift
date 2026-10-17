@@ -16,13 +16,13 @@ final class T3Module: ExactModule {
     let promptPreview = T3ComposerEditor(changed: { _ in }, hatch: .t3PromptPreview)
     let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
-    private let scrollEnds: R5ComposerScroll // Ref lists' next-page signal (R5ComposerScroll.swift).
+    private let scrollEnds: R5ComposerScroll // Ref lists' next-page signal (T3RefPaging.swift).
     let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
     let rowDrop: T3RowDrop // Files dropped on a legacy sidebar row (T3RowDrop.swift).
     private let video: T3ComposerVideo // A shelf video's expanded preview (T3ComposerVideo.swift).
-    private let media: R6MediaPreview // Attachment PDF and HTML bodies (R6MediaPreview.swift).
+    private let media: R6MediaPreview // Attachment PDF and HTML bodies (T3MediaPreview.swift).
     private let mediaFocus = T3MediaFocus() // A press elsewhere takes the focus off a media node (T3MediaActions.swift).
-    let devices: R6DeviceStreams // Device screens, input and screenshots (R6DeviceStream.swift).
+    let devices: R6DeviceStreams // Device screens, input and screenshots (T3DeviceStream.swift).
     private let timeline: T3Timeline
     let turns = T3TimelineTurns() // A citation's jump to its answer (T3TimelineTurns.swift).
     let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
@@ -32,11 +32,11 @@ final class T3Module: ExactModule {
     let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
     let sidebar: T3Sidebar // Thread menu, held-key hints and speed mode (T3Sidebar.swift).
-    let measure = R8KeysMeasure() // Drawn frames for window-level popups (R8KeysMeasure.swift).
-    private let r9: R9Input // Composer focus and composing text, the transcript's remembered position (R9Input.swift).
+    let measure = R8KeysMeasure() // Drawn frames for window-level popups (T3Measure.swift).
+    private let r9: R9Input // Composer focus and composing text, the transcript's remembered position (T3ComposerInput.swift).
     let browserSessions: T3BrowserSessions // This session's Browser pages (T3BrowserSessions.swift)
     let browserAutomation: T3BrowserAutomation // The previewAutomation host's executor (T3BrowserAutomation.swift)
-    private let r10: R10Connect // Wake, chords by physical key, hover under a still pointer (R10Connect.swift).
+    private let r10: R10Connect // Wake, chords by physical key, hover under a still pointer (T3LatinChords.swift).
     let textMenu: T3TextContextMenu // the desktop shell's context menu wherever the page shows none (T3TextContextMenu.swift).
     // The SSH password dialog's secure field (T3SshAuth.swift). (The keybinding recorder is Contract's, key-recorder.contract.)
     override class var views: [String: ExactNativeFactory] { ["t3-ssh-password": ExactNativeFactory { props, events in T3SshPasswordField(props: props, events: events) },

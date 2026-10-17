@@ -1,57 +1,57 @@
-import { snapshotSettings } from './snapshot-settings';
-import { keyboardSettings, keybindingSettings } from './keybinding-settings';
-import { claimBoldChord, richTextComposer } from './r8-keys-chords'; // ⌘B bolds in the rich-text composer
-import { taskFromArguments } from './scheduled-settings';
-import { scheduledPage } from './scheduled-view';
-import { sourceControlPage, integrationsPage } from './source-control-view';
-import { browserProfilesView, emptyBrowserProfilesView } from './browser-profiles-settings';
-import { viewState } from './settings-rest-commands';
-import { keyboardDispatchSource } from './keyboard-dispatch';
-import { projectsView } from './projects-view';
-import { groupOfMember, PROJECT_SCOPED_PAGES, settingsPageClient } from './projects-fleet';
-import { diagnosticsPage } from './diagnostics-view';
-import { settingsNavigation, searchContext } from './settings-search';
-import { settingsCore } from './settings-core-view';
-import { archivedSettings, licenseSettings, storageSettings } from './settings-data';
-import { T3Client } from './client';
-import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './composer-editor';
-import { chipPopoverView } from './composer-chip-popover'; // a skill chip's details popover
-import { composerBranches } from './composer-controls-branch';
-import { providerFieldValues } from './providers';
-import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './providers-scope';
-import { connectionsPage } from './connections';
-import { iconPicker } from './settings-b-icons';
-import { sshHostsView } from './settings-b-ssh';
-import { sshPromptSource, sshPromptAnswer } from './ssh-auth'; // the SSH password dialog
-import { pairingFields } from './r10-connect-pairing';
-import { pagesHome } from './pages-home';
-import { usagePage, usageKeys, plotWidth } from './pages-usage';
-import { pagesSource } from './pages-sources';
-import { ariaChord } from './keyboard-dispatch';
-import { snapshot, modelCatalog } from './presentation';
-import { obj, str, type Obj } from './domain';
-import { nativeFiles, type Native, type Files } from './protocol';
-import { paletteView } from './palette-view';
-import { attachmentUrls } from './timeline-attachments';
-import { noteNow } from './composer-controls';
-import { prepareTimeline, refreshTimelineReads } from './timeline-prepare';
-import { paletteCommand } from './palette-commands';
-import { shellView } from './shell';
-import { shellDetails } from './shell-details';
-import { chatCanvasView } from './chat-canvas-view';
-import { sidebarLaunchWidth } from './r4-polish-sidebar-width';
-import { highlightSlice, startHighlightTurn } from './r12-render-highlight';
-import { noteServerUpdateClock } from './server-update-notices';
-import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
-import { terminalFocused } from './terminal-focus';
-import { codexContext, codexPrepare, codexTarget } from './codex-setup-host'; // ManagedCodexSetup's commands and effects
-import { codexSetupOp } from './codex-setup-ops';
-import { chatGptPlanSnapshot } from './chatgpt-plan-view';
-import { autoBalancePrepare } from './auto-balance'; // Settings › Load balancing, read for the composer
-import { letGoAware } from './let-go';
-import { keepAlivePrepare } from './keep-alive'; // running threads' detail streams
-import { migrationToast } from './local-lifecycle'; // a let-go answer's native calls reject as 'superseded', never as an error
-import { activationPrepare } from './desktop-activation';
+import { snapshotSettings } from './src/snapshot/snapshot-settings';
+import { keyboardSettings, keybindingSettings } from './src/settings/keybinding-settings';
+import { claimBoldChord, richTextComposer } from './src/shell/button-chords'; // ⌘B bolds in the rich-text composer
+import { taskFromArguments } from './src/settings/scheduled-settings';
+import { scheduledPage } from './src/settings/scheduled-view';
+import { sourceControlPage, integrationsPage } from './src/settings/source-control-view';
+import { browserProfilesView, emptyBrowserProfilesView } from './src/browser/browser-profiles-settings';
+import { viewState } from './src/settings/settings-rest-commands';
+import { keyboardDispatchSource } from './src/shell/keyboard-dispatch';
+import { projectsView } from './src/settings/projects-view';
+import { groupOfMember, PROJECT_SCOPED_PAGES, settingsPageClient } from './src/settings/projects-fleet';
+import { diagnosticsPage } from './src/settings/diagnostics-view';
+import { settingsNavigation, searchContext } from './src/settings/settings-search';
+import { settingsCore } from './src/settings/settings-core-view';
+import { archivedSettings, licenseSettings, storageSettings } from './src/settings/settings-data';
+import { T3Client } from './src/client/client';
+import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './src/composer/composer-editor';
+import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
+import { composerBranches } from './src/composer/composer-controls-branch';
+import { providerFieldValues } from './src/providers/providers';
+import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './src/providers/providers-scope';
+import { connectionsPage } from './src/connections/connections';
+import { iconPicker } from './src/settings/settings-b-icons';
+import { sshHostsView } from './src/connections/settings-b-ssh';
+import { sshPromptSource, sshPromptAnswer } from './src/connections/ssh-auth'; // the SSH password dialog
+import { pairingFields } from './src/connections/pairing-fields';
+import { pagesHome } from './src/pages/pages-home';
+import { usagePage, usageKeys, plotWidth } from './src/usage/pages-usage';
+import { pagesSource } from './src/pages/pages-sources';
+import { ariaChord } from './src/shell/keyboard-dispatch';
+import { snapshot, modelCatalog } from './src/client/presentation';
+import { obj, str, type Obj } from './src/client/domain';
+import { nativeFiles, type Native, type Files } from './src/client/protocol';
+import { paletteView } from './src/palette/palette-view';
+import { attachmentUrls } from './src/timeline/timeline-attachments';
+import { noteNow } from './src/composer/composer-controls';
+import { prepareTimeline, refreshTimelineReads } from './src/timeline/timeline-prepare';
+import { paletteCommand } from './src/palette/palette-commands';
+import { shellView } from './src/shell/shell';
+import { shellDetails } from './src/details/shell-details';
+import { chatCanvasView } from './src/shell/chat-canvas-view';
+import { sidebarLaunchWidth } from './src/sidebar/sidebar-width';
+import { highlightSlice, startHighlightTurn } from './src/highlight/shiki-highlight';
+import { noteServerUpdateClock } from './src/connections/server-update-notices';
+import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
+import { terminalFocused } from './src/terminal/terminal-focus';
+import { codexContext, codexPrepare, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands and effects
+import { codexSetupOp } from './src/providers/codex-setup-ops';
+import { chatGptPlanSnapshot } from './src/providers/chatgpt-plan-view';
+import { autoBalancePrepare } from './src/composer/auto-balance'; // Settings › Load balancing, read for the composer
+import { letGoAware } from './src/client/let-go';
+import { keepAlivePrepare } from './src/client/keep-alive'; // running threads' detail streams
+import { migrationToast } from './src/connections/local-lifecycle'; // a let-go answer's native calls reject as 'superseded', never as an error
+import { activationPrepare } from './src/shell/desktop-activation';
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -98,7 +98,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'timelineAttachments') return attachmentUrls(client, native, Number(args[1]) || 0); // timeline-attachments.ts
   if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
-  if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // r10-connect-pairing.ts
+  if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // pairing-fields.ts
   if (source === 'sshPrompt') return sshPromptSource(native, Number(args[0]) || 0); // ssh-auth.ts: the password dialog's queue
   if (source === 'sshPromptAnswer') return sshPromptAnswer(native, String(args[0] || ''), String(args[1] || ''));
   if (source === 'settingsBSshHosts') return sshHostsView(client, native, args[0] === true, String(args[1] ?? '')); // settings-b-ssh.ts

@@ -78,7 +78,7 @@ final class TabInputTests: XCTestCase {
         XCTAssertTrue(tabActions.isEmpty)
     }
     func testDoubleClickIsLeftToTheTitleButtonsOwnDblclick() {
-        // r4-surfaces.contract R4TabChip: the title button's `dblclick` starts rename, so the
+        // panel.contract R4TabChip: the title button's `dblclick` starts rename, so the
         // agent's `tap … dblclick` and a person's reach the same path; the monitor passes it on.
         XCTAssertNotNil(input.handle(mouse(.leftMouseDown, count: 2)))
         XCTAssertTrue(tabActions.isEmpty)
@@ -90,7 +90,7 @@ final class TabInputTests: XCTestCase {
         XCTAssertTrue(tabActions.isEmpty)
     }
     func testShiftF10PassesToTheTabsOwnKeyHandler() {
-        // The tab's buttons answer Shift+F10 in Contract (r4-surfaces.contract R4TabChip tabKey); the monitor leaves it alone.
+        // The tab's buttons answer Shift+F10 in Contract (panel.contract R4TabChip tabKey); the monitor leaves it alone.
         let button = NSButton(frame: NSRect(x: 24, y: 0, width: 90, height: 24))
         elements[0].view!.addSubview(button)
         window.makeFirstResponder(button)

@@ -7,7 +7,7 @@ import WebKit
 import XCTest
 
 // T3MediaActions.swift (the media menu, Save, Copy image, Copy path) against a
-// loopback server, and the rendered HTML preview's external hosts (R6MediaPreview.swift). Every
+// loopback server, and the rendered HTML preview's external hosts (T3MediaPreview.swift). Every
 // pasteboard write goes to the agent's private pasteboard; saves go to a temporary exports/.
 // `T3_MEDIA_ACTIONS_NETWORK=1` adds the public https host (needs the network).
 

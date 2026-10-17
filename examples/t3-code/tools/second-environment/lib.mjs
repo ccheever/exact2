@@ -122,14 +122,14 @@ export function serverEnv(paths, name, base = process.env) {
   };
 }
 
-/** The staged release (`bun examples/t3-code/stage-runtime.mjs`), unpacked once under the fixture root. */
+/** The staged release (`bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs`), unpacked once under the fixture root. */
 export function serverExecutable(paths) {
   if (process.env.T3_FIXTURE_SERVER) return process.env.T3_FIXTURE_SERVER;
   const pin = JSON.parse(readFileSync(join(example, "server-runtime/runtime-pin.json"), "utf8"));
   const tree = join(paths.runtime, pin.version), t3 = join(tree, "t3");
   if (!existsSync(t3)) {
     const archive = join(example, "server-runtime", pin.asset);
-    if (!existsSync(archive)) throw new Error("no staged server: run `bun examples/t3-code/stage-runtime.mjs` first (or set T3_FIXTURE_SERVER)");
+    if (!existsSync(archive)) throw new Error("no staged server: run `bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs` first (or set T3_FIXTURE_SERVER)");
     mkdirSync(tree, { recursive: true });
     run("/usr/bin/tar", ["-xzf", archive, "-C", tree, "--strip-components=1"]);
   }
