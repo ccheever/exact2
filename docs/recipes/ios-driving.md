@@ -16,9 +16,9 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
   "type add-title Milk" "tap add-save" "clock data" "clock settle" "screenshot .exact/ios-saved.png window"
 ```
 
-**Matching a port's screens to the original's screenshots** (no AXe needed): `bun
+**Matching a port's screens to the original's screenshots**: `bun
 exact.mjs agent ios --touch platform … "clock settle" "screenshot .exact/x.png compare ref/x.png"`
-captures as a device does, a focused field's keyboard too (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
+captures as a device does, the keyboard too on a simulator it booted (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
 says where they differ: each region by node, where its content moved, a box measured in both
 (in `x.diff.png`). Each tap is a real touch: it picks from a pull-down menu,
 switches tabs, reaches a native module's controls. A context menu, a row scrolled out of its

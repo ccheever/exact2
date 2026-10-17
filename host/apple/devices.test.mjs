@@ -1,7 +1,7 @@
 // LLP 1116.008 D8: a window capture of the app with the software keyboard put in from the simulator's display.
 // A fake `xcrun` stands for `simctl io <udid> screenshot`: it copies a prepared display picture to the path it is given.
 import { test, expect } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
@@ -58,27 +58,39 @@ async function withFakeSimctl(displays, body) {
 }
 const reads = (dir) => { try { return Number(readFileSync(resolve(dir, 'n'), 'utf8')); } catch { return 0; } };
 
-test('a simulator that minimizes its software keyboard has the key cleared; one that does not is left alone', () => {
-  const home = mkdtempSync(resolve(tmpdir(), 'devices-kb-')), bin = mkdtempSync(resolve(tmpdir(), 'devices-kb-bin-'));
-  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR }, calls = resolve(bin, 'calls');
+test('a drive shows the software keyboard on a simulator it booted and puts the setting back; on another it only says so', () => {
+  // A fake `xcrun simctl spawn <udid> defaults <verb> …` over one state file: the key's value, absent when deleted.
+  const bin = mkdtempSync(resolve(tmpdir(), 'devices-kb-bin-'));
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR }, calls = resolve(bin, 'calls'), state = resolve(bin, 'state');
+  const verbs = () => readFileSync(calls, 'utf8').trim().split('\n').map((l) => l.split(' ')[4]);
   try {
-    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$@" >> '${calls}'\n`);
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$@" >> '${calls}'\ncase "$5" in\n  read) [ -f '${state}' ] && cat '${state}' || { echo 'does not exist' >&2; exit 1; } ;;\n  delete) rm -f '${state}' ;;\n  write) echo 1 > '${state}' ;;\nesac\n`);
     chmodSync(resolve(bin, 'xcrun'), 0o755);
     process.env.PATH = `${bin}:${saved.PATH}`;
     process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
-    const prefs = resolve(home, 'Library/Developer/CoreSimulator/Devices/U1/data/Library/Preferences');
-    expect(softwareKeyboard('U1', home)).toBe(false); // no preferences yet: a fresh device
-    mkdirSync(prefs, { recursive: true });
-    writeFileSync(resolve(prefs, 'com.apple.keyboard.preferences.plist'), 'bplist00 DictationLanguagesEnabled');
-    expect(softwareKeyboard('U1', home)).toBe(false);
-    expect(() => readFileSync(calls)).toThrow();
-    writeFileSync(resolve(prefs, 'com.apple.keyboard.preferences.plist'), 'bplist00 AutomaticMinimizationEnabled');
-    expect(softwareKeyboard('U1', home)).toBe(true);
-    expect(readFileSync(calls, 'utf8').trim()).toBe('simctl spawn U1 defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled');
+    // No key: nothing to do, nothing to say.
+    const fresh = softwareKeyboard('U1', { owned: true });
+    expect([fresh.cleared, fresh.note]).toEqual([false, null]);
+    fresh.restore();
+    expect(verbs()).toEqual(['read']);
+    // The key, on a simulator another booted: left, and said.
+    writeFileSync(state, '1\n');
+    const theirs = softwareKeyboard('U1');
+    expect(theirs.cleared).toBe(false);
+    expect(theirs.note).toMatch(/minimizes its software keyboard .* defaults delete com\.apple\.keyboard\.preferences AutomaticMinimizationEnabled/);
+    theirs.restore();
+    expect(readFileSync(state, 'utf8').trim()).toBe('1');
+    // The key, on the drive's own: cleared, then put back once, however many times restore is called.
+    const ours = softwareKeyboard('U1', { owned: true });
+    expect([ours.cleared, ours.note]).toEqual([true, null]);
+    expect(existsSync(state)).toBe(false);
+    ours.restore(); ours.restore();
+    expect(readFileSync(state, 'utf8').trim()).toBe('1');
+    expect(verbs()).toEqual(['read', 'read', 'read', 'delete', 'write']);
   } finally {
     process.env.PATH = saved.PATH;
     if (saved.DEVELOPER_DIR === undefined) delete process.env.DEVELOPER_DIR;
-    rmSync(home, { recursive: true, force: true }); rmSync(bin, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
   }
 });
 

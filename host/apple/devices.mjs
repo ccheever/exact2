@@ -177,7 +177,7 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
   if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
-  return dev;
+  return { ...dev, bootedHere: true };
 }
 
 /** Bring Simulator.app up showing `dev`, so a person watching sees what is
@@ -208,16 +208,20 @@ export function installedAlready(udid, id, bundle, executable) {
   } catch { return false; }
 }
 
-/** Let a simulator raise its software keyboard for a focused field, as a person's iPhone does. Once a Device Hub has
- *  attached the Mac's keyboard, the device keeps `com.apple.keyboard.preferences` `AutomaticMinimizationEnabled = 1`
- *  and minimizes the software keyboard behind it from then on (LLP 1078, "The pushed route's keyboard, found"): a
- *  drive's screenshot of a focused field then shows none, unlike the device. Cleared before the app launches; a device
- *  without the key costs a file read. */
-export function softwareKeyboard(udid, home = homedir()) {
-  let plist;
-  try { plist = readFileSync(resolve(home, 'Library/Developer/CoreSimulator/Devices', udid, 'data/Library/Preferences/com.apple.keyboard.preferences.plist')); } catch { return false; }
-  if (!plist.includes('AutomaticMinimizationEnabled')) return false;
-  return read('xcrun', ['simctl', 'spawn', udid, 'defaults', 'delete', 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled'], { timeout: 20000 }).status === 0;
+/** A simulator's software keyboard for a drive: shown for a focused field, as a person's iPhone shows it. Once a Device
+ *  Hub has attached the Mac's keyboard, the device keeps `com.apple.keyboard.preferences` `AutomaticMinimizationEnabled
+ *  = 1` and minimizes its software keyboard behind it (LLP 1078, "The pushed route's keyboard, found"). Read and
+ *  changed through the device's own `defaults` (`simctl spawn`), which cfprefsd answers before it writes the plist.
+ *  On a simulator this drive booted (`owned`) the key is cleared and `restore()` puts it back; on any other it is
+ *  left as it is and `note` says the keyboard may be hidden. `restore()` is safe to call more than once. */
+export function softwareKeyboard(udid, { owned = false } = {}) {
+  const defaults = (...args) => read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...args, 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled', ...(args[0] === 'write' ? ['-bool', 'true'] : [])], { timeout: 20000 });
+  const r = defaults('read');
+  if (r.status !== 0 || !/^\s*1\s*$/.test(r.stdout ?? '')) return { cleared: false, note: null, restore() {} };
+  if (!owned) return { cleared: false, restore() {}, note: `this simulator minimizes its software keyboard (AutomaticMinimizationEnabled = 1, kept since the Mac's keyboard was attached), so a focused field shows none in a screenshot, unlike an iPhone; a simulator the drive boots has it cleared for the drive, or clear it here: xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled` };
+  if (defaults('delete').status !== 0) return { cleared: false, note: 'the simulator\'s software keyboard is minimized and could not be shown (simctl spawn defaults delete failed)', restore() {} };
+  let restored = false;
+  return { cleared: true, note: null, restore() { if (!restored) { restored = true; defaults('write'); } } };
 }
 /** Crash reports macOS wrote since `since` (ms) for an executable named
  *  `name`, newest first — a simulator app crashes as a Mac process, reported
