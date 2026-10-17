@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { FINISH_WELCOME, pairOps, redact } from "./env.mjs";
 import { forget as forgetStandin } from "../acp-standin/install.mjs";
 import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
+import { answer, PULL_REQUEST } from "./gh-standin.mjs";
 import { ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
@@ -139,6 +140,24 @@ describe("the usage hub stand-in (seed --limits)", () => {
     expect(call("lane-4", "https://api.anthropic.com/api/oauth/usage").five_hour).toEqual({ utilization: 55, resets_at: new Date(now + 3 * 3_600_000).toISOString() });
     expect(hub("POST", "/v0/management/reset-quota", { auth_index: "lane-1" })[0]).toBe(200);
     expect(checkPort(HUB.port, {})).toBe(HUB.port);
+  });
+});
+
+describe("the gh stand-in (seed --pull-request)", () => {
+  test("links its pull request to the thread's branch and answers the panel's reads; refuses the rest, as a gh off GitHub would", () => {
+    const json = (argv: string[], stdin = "") => { const result = answer(argv, () => stdin); expect(result.code).toBe(0); return JSON.parse(result.out); };
+    const byHead = (head: string) => json(["api", "graphql", "--hostname", "github.com", "--input", "-"],
+      JSON.stringify({ query: "query PullRequestsByHead($owner: String!) {}", variables: { owner: "t3-fixture", name: "shared-notes", h0: head, s0: ["OPEN"] } })).data.repository.h0.nodes;
+    expect(byHead("feature/notes")).toEqual([expect.objectContaining({ number: PULL_REQUEST.number, headRefName: "feature/notes", isCrossRepository: false, url: "https://github.com/t3-fixture/shared-notes/pull/7" })]);
+    expect(byHead("main")).toEqual([]);
+    const summaries = json(["api", "graphql", "-f", 'query=query PullRequestSummaries {\n  s0: repository(owner: "t3-fixture", name: "shared-notes") { pullRequest(number: 7) { number } }\n  s1: repository(owner: "other", name: "repo") { pullRequest(number: 7) { number } }\n}']).data;
+    expect([summaries.s0.pullRequest.state, summaries.s1.pullRequest]).toEqual(["OPEN", null]);
+    const asked = ["api", "graphql", "-f", "owner=t3-fixture", "-f", "name=shared-notes", "-F", "number=7"];
+    expect(json([...asked, "-f", "query=query { repository { mergeCommitAllowed } }"]).data.repository).toMatchObject({ viewerPermission: "WRITE", pullRequest: { state: "OPEN", mergeable: "MERGEABLE" } });
+    expect(json([...asked, "-F", "cursor=null", "-f", "query=query { reviewThreads(first: 50) }"]).data.repository.pullRequest.reviewThreads.nodes[0]).toMatchObject({ path: "README.md", isResolved: false });
+    expect(answer(["api", "--hostname", "github.com", "repos/t3-fixture/shared-notes/stacks?pull_request=7"]).out).toBe("[]");
+    expect(json(["pr", "view", "7", "--repo", "github.com/t3-fixture/shared-notes", "--json", "author,comments,reviews,commits"]).comments).toEqual([]);
+    for (const refused of [["pr", "merge", "7"], ["auth", "token"], ["api", "graphql", "-f", "query=query { search }"]]) expect(answer(refused).code).toBe(1);
   });
 });
 

@@ -2,10 +2,11 @@
 // Extra T3 environments for drives of the clone. README.md has the recipe.
 //
 //   bun env.mjs start <name> [--port N]   an offline lane server for second | third (16510, 16511)
-//   bun env.mjs seed <name> [--turns] [--limits]
+//   bun env.mjs seed <name> [--turns] [--limits] [--pull-request]
 //                                         its projects and threads (idempotent); --turns adds the
-//                                         threads with a completed turn, answered by the ACP stand-in;
-//                                         --limits starts the usage hub stand-in and makes it a source
+//                                         threads with a turn, answered by the ACP stand-in; --limits
+//                                         starts the usage hub stand-in and makes it a source;
+//                                         --pull-request the gh stand-in and a thread on its branch
 //   bun env.mjs status                    each environment: pid, port, id, label, projects and threads with ids
 //   bun env.mjs stop <name|all>           stops the servers this fixture started (recorded pids only; all: the hub too)
 //   bun env.mjs drive [--local] [--pair second,third] [--keep-welcome] [--storage S] [--size WxH] [--json] -- <op> …
@@ -83,7 +84,7 @@ if (import.meta.main) {
       const name = nameArg();
       const port = flag(process.argv, "--port");
       console.log(JSON.stringify(await startServer(paths, name, port ? { port: Number(port) } : {})));
-    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg(), undefined, { turns: process.argv.includes("--turns"), limits: process.argv.includes("--limits") }), null, 2));
+    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg(), undefined, { turns: process.argv.includes("--turns"), limits: process.argv.includes("--limits"), pullRequest: process.argv.includes("--pull-request") }), null, 2));
     else if (command === "stop") {
       const names = process.argv[3] === "all" ? Object.keys(ENVIRONMENTS) : [nameArg()];
       for (const name of names) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
@@ -104,6 +105,6 @@ if (import.meta.main) {
       if (!existsSync(file)) throw new Error(`${name} has never started`);
       const { origin, environmentId } = JSON.parse(readFileSync(file, "utf8"));
       console.log(forgetKeychain(origin, environmentId) ? "removed" : "none saved");
-    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 15).join("\n")); process.exitCode = command ? 2 : 0; }
+    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 16).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
