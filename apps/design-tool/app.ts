@@ -11,6 +11,8 @@ import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } 
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf } from './dials';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
+import { partsOf } from './parts';
+export { joined, partsOf } from './parts';
 
 export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
@@ -122,7 +124,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [], icons: [] });
 let designs = 0;
 
 
@@ -736,7 +738,7 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map(ir.tokens.map((t: { name: string; kind: string }) => [t.name, t.kind])) });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens].map((t: { name: string; kind: string }) => [t.name, t.kind])) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -746,6 +748,7 @@ const sources: Sources = {
         columns: columns.map(({ id, label }) => ({ id, label })),
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
+        icons: (ir.icons ?? []).map((i: { name: string; sf: string | null; material: string | null; svg: string | null }) => ({ name: i.name, sf: i.sf ?? '', material: i.material ?? '', svg: i.svg ?? '' })),
       };
     } catch (e) {
       if ((e as { code?: string }).code === 'bake') throw e;
@@ -774,6 +777,13 @@ const sources: Sources = {
       ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
     };
+  },
+  // The branch editor's typed fields for a value (parts.ts), the names in
+  // it read by their kinds in the design read (a token's or a dial's).
+  loadParts: async ([kind, value, answer]) => {
+    const kinds = snapshots.get(answer)?.kinds;
+    const found = partsOf(kind, value, name => kinds?.get(name));
+    return found ? { ok: true, of: value, ...found } : { ok: false, of: value, parts: [], tail: '' };
   },
   proposeEdit: async ([file, kind, target, when, value]) => {
     const key = keyOf(file, kind, target, when, value);

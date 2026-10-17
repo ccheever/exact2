@@ -287,6 +287,15 @@ shape Design
   tokenGroups: TokenGroup[]
   names: string[]
   axes: AxisChoice[]
+  // The design's icons (LLP 1121 D10), read only: no operation writes one.
+  icons: IconRow[]
+
+shape IconRow
+  name: string
+  // Each source as written, "" where unwritten.
+  sf: string
+  material: string
+  svg: string
 
 // A dial an expression names, and where its control is.
 shape DialInput
@@ -319,6 +328,29 @@ shape Branch
   own: string
   // The design read it is of.
   answer: number
+
+// The branch editor's typed fields (stage 6's kinds): the value shown, cut
+// into parts by its kind, the source between them kept as `fixed` parts.
+// Joined again they are the value byte for byte; an optional part left
+// empty is dropped with its `pre` and `post`.
+shape Part
+  index: number
+  key: string
+  label: string
+  // number, select, inset, style, text; fixed: written as it is, not shown.
+  control: string
+  text: string
+  pre: string
+  post: string
+  optional: bool
+  options: string[]
+
+shape Typed
+  // A field fits this value (not an expression, a `calc()` or a named length).
+  ok: bool
+  of: string
+  parts: Part[]
+  tail: string
 
 // An edit before it is written: `propose`'s answer.
 // The scrub as the data module keeps it (LLP 1122 D6): `live` from Scrub
@@ -502,6 +534,15 @@ component DesignTool
   state editTarget = ""
   state editWhen = ""
   state editValue = ""
+  // The typed fields' cut (stage 6's kinds): the value they are cut from is
+  // the branch's, or what its text field set (`rawBase`, for `rawFor`'s
+  // branch); a field's edits keep the cut, so a part mid-typing (`1` on its
+  // way to `1px`) leaves every field where it is. `partTexts`: the fields'
+  // texts, for `partFor`'s cut.
+  state rawBase = ""
+  state rawFor = ""
+  state partTexts: string[] = []
+  state partFor = ""
   state newName = ""
   state newValue = ""
   state renameTo = ""
@@ -548,6 +589,16 @@ component DesignTool
   // A cell's edit whose branch the grid no longer shows (another client
   // changed it): not applied, lest it make a `when` no one asked for.
   derive draftStale = editKind == "set-token" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
+  // The branch's value as the draft has it, and its typed fields.
+  derive shownValue = editKind == "set-token" and editTarget == branch.token and not draftStale ? editValue : branch.value
+  derive branchKey = `${branch.token}␟${branch.column}␟${branch.answer}`
+  derive partsBase = rawFor == branchKey ? rawBase : branch.value
+  resource typed = loadParts(branch.kind, partsBase, design.answer) as shape Typed else empty(ok=false)
+  derive partsKey = `${branchKey}␟${typed.of}`
+  derive fieldTexts = partFor == partsKey ? partTexts : typed.parts.map(p => p.text)
+  // Fields that must hold something and are empty: emptied, a later part
+  // would read in its place, so nothing is drafted until they are filled.
+  derive partMissing = typed.parts.filter(p => p.control != "fixed" and not p.optional and fieldTexts.slice(p.index, p.index + 1).join("") == "").map(p => p.label).join(", ")
 
   // The oldest highlight here fades after 3 s, then the next.
   task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
@@ -648,6 +699,8 @@ component DesignTool
     scopeOwn = false
     focusDial = ""
     editKind = ""
+    rawFor = ""
+    partFor = ""
     impactToken = token
   action showImpact(token: string)
     impactToken = token
@@ -667,6 +720,8 @@ component DesignTool
     scopeOwn = false
     focusDial = ""
     editKind = ""
+    rawFor = ""
+    partFor = ""
   action showDial(name: string, group: string, more: bool)
     if more and not opened.includes(group)
       opened = opened.concat([group])
@@ -676,6 +731,22 @@ component DesignTool
     editTarget = branch.token
     editWhen = scopeOwn ? branch.own : branch.when
     editValue = v.trim()
+    // The typed fields are cut from this text now.
+    rawBase = v.trim()
+    rawFor = branchKey
+    partFor = ""
+  action partEdit(i: number, v: string)
+    // One typed field: the value with this part changed and every other as
+    // written, so the line written changes only there.
+    if typed.ok and typed.of == partsBase
+      let texts = fieldTexts.map((t, j) => j == i ? v.trim() : t)
+      let missing = typed.parts.filter(p => p.control != "fixed" and not p.optional and texts.slice(p.index, p.index + 1).join("") == "").length > 0
+      partTexts = texts
+      partFor = partsKey
+      editKind = "set-token"
+      editTarget = branch.token
+      editWhen = scopeOwn ? branch.own : branch.when
+      editValue = missing ? "" : [typed.parts.map(p => p.control == "fixed" ? p.text : (texts.slice(p.index, p.index + 1).join("") == "" and p.optional ? "" : [p.pre, texts.slice(p.index, p.index + 1).join(""), p.post].join(""))).join(""), typed.tail].join("")
   action onlyThisMode
     // A value already typed for this cell is kept, now for this mode alone.
     if not (editKind == "set-token" and editTarget == branch.token)
@@ -726,6 +797,8 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     editKind = ""
     scopeOwn = false
+    rawFor = ""
+    partFor = ""
   action startScrub
     if not scrub.live and not pending(written)
       scrubAsk = scrubAsk + 1
@@ -753,6 +826,8 @@ component DesignTool
         if w.ok and w.key != "" and w.key == draftKey
           editKind = ""
           scopeOwn = false
+          rawFor = ""
+          partFor = ""
           if w.last == "remove" or w.last == "rename"
             selToken = ""
       case none
@@ -1078,13 +1153,23 @@ component DesignTool
                               text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
                               for b in cell.pairs key=b.name
                                 text `${b.ratio} on ${b.name}` font="-exact-caption2" color=(b.low ? "-exact-system-red" : "-exact-secondary-label") line-clamp=1 testId=`pair-${t.name}-${cell.column}-${b.name}`
+              if design.icons.length > 0
+                column gap=4 testId="icons"
+                  text "Icons" font="-exact-subheadline" padding="8px 0 2px"
+                  text "Read only: no edit operation writes an icon, so change one in the design file." color="-exact-secondary-label" font="-exact-footnote"
+                  for ic in design.icons key=ic.name
+                    row gap=8 align-items="center" testId=`icon-${ic.name}`
+                      text ic.name width="12rem" flex-shrink=0
+                      text [ic.sf != "" ? `sf ${ic.sf}` : "", ic.material != "" ? `material ${ic.material}` : "", ic.svg != "" ? "svg" : ""].filter(x => x != "").join(" · ") color="-exact-secondary-label" font="-exact-footnote" testId=`icon-${ic.name}-sources`
               // The branch of the cell chosen, read of the grid shown.
               if selPlace != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and branch.place != selPlace
                 text "The design's axes changed since that copy was selected, so this column is another branch now: select it again." color="-exact-system-orange" testId="branch-moved"
               if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
                   text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
-                  if branch.expression and not pinning
+                  if branch.kind == "duration" or branch.kind == "easing"
+                    text "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub." font="-exact-footnote" color="-exact-secondary-label" testId="branch-rebuilds"
+                  if branch.expression and not pinning and not typed.ok
                     text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
                     for n in branch.inputs key=n
                       button press=selectCell(n, selColumn) testId=`input-${n}`
@@ -1100,9 +1185,41 @@ component DesignTool
                     button press=pin buttonStyle="bordered" testId="pin"
                       text "Pin a value"
                   else
-                    if branch.expression
+                    if branch.expression and typed.ok
+                      // Its fields keep the names it holds (a shadow's colour token).
+                      text `Names ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: its fields keep them; edit those for their own values.` color="-exact-secondary-label" testId="branch-names"
+                      for n in branch.inputs key=n
+                        button press=selectCell(n, selColumn) testId=`input-${n}`
+                          text n
+                      for d in branch.dials.filter(d => not d.hidden) key=d.name
+                        button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
+                          text `${d.name} (dial)`
+                    else if branch.expression
                       text `Pinned here: no longer follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}.` color="-exact-system-orange" testId="pinned"
-                    input value=branch.value change=cellText aria-label=`${branch.token} value` testId="branch-value"
+                    if typed.ok and typed.of == partsBase
+                      column gap=6 testId="typed"
+                        for p in typed.parts.filter(p => p.control != "fixed") key=p.key
+                          row gap=8 align-items="center" testId=`part-${p.key}`
+                            text p.label width="7rem" color="-exact-secondary-label" font="-exact-footnote"
+                            if p.control == "number"
+                              input type="number" value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                            else if p.control == "select"
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                for o in p.options key=o
+                                  option (o == "" ? "none" : o) value=o
+                            else if p.control == "inset"
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                option "outside" value=""
+                                option "inset" value="inset"
+                            else if p.control == "style"
+                              select value=fieldTexts.slice(p.index, p.index + 1).join("") change=partEdit(p.index) aria-label=`${branch.token} ${p.label}` testId=`part-${p.key}-field`
+                                option "unsaid" value=""
+                                option "italic" value="italic"
+                            else
+                              input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
+                        if partMissing != ""
+                          text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
+                    input value=shownValue change=cellText aria-label=`${branch.token} value` testId="branch-value"
                   if not branch.exact
                     button press=onlyThisMode testId="only-this-mode"
                       text "Only this mode"

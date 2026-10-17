@@ -33,8 +33,8 @@ const present = new Set<string>();
 // a preview takes `previewMs` (`/__stub/slow-preview`), and a release a
 // test refuses as moved (`/__stub/refuse-release`) names who moved it. An
 // edit of the warmth dial is rebuild-class (as if it fed a role override),
-// both proposed and scrubbed.
-const REBUILDS = new Set(['warmth']);
+// both proposed and scrubbed; so is a motion token's, as the server says.
+const REBUILDS = new Set(['warmth', 'duration.fast', 'easing.standard']);
 // The design's axes in the other order, as a test reorders them
 // (`/__stub/reverse-axes`): describe says so from then on.
 let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false;

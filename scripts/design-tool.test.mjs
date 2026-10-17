@@ -1085,3 +1085,91 @@ test('controls from metadata that does not fit, steps, select values, column lab
   expect(contrast('#000000', '#ffffff80')).toBe('translucent background');
   expect(contrast('oklch(0.5 0 0)', '#ffffff')).toBe('not a colour');
 });
+
+test('typed fields: every value joins back byte for byte, and a field edits only its part', async () => {
+  const { partsOf, joined } = await import('../apps/design-tool/app.ts');
+  const kinds = new Map([['space.blur', 'length'], ['border.subtle', 'color'], ['type.body', 'type'], ['family.body', 'family']]);
+  const isLength = name => kinds.get(name);
+  const values = [
+    ['length', '12px'], ['length', ' 1.5rem '], ['length', '0'], ['number', '0.5'],
+    ['box-shadow', '0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle'], ['box-shadow', '0  1px space.blur #000'],
+    ['box-shadow', '0 1px 2px 3px red inset'], ['box-shadow', 'inset 0 1px light-dark(#000, #fff),0 0 1px  2px accent'],
+    ['text-shadow', '1px 1px'], ['text-shadow', '0 1px 2px rgba(0,0,0,.5)'],
+    ['type', 'italic 600 1.25rem/1.4 family.body'], ['type', 'bold -exact-title3 / 1.2 "Inter", sans-serif'], ['type', '1rem'], ['type', '600.0 16px'],
+    ['text-shadow', '0 1px +2px'], ['box-shadow', '0 1e0px 2px INSET red'],
+  ];
+  for (const [kind, v] of values) {
+    const p = partsOf(kind, v, isLength);
+    expect(p).not.toBeNull();
+    expect(joined(p.parts, p.tail)).toBe(v);
+  }
+  // No field where none fits: a function, a named length, an expression, a kind with none.
+  for (const [kind, v] of [['length', 'calc(1px + 2px)'], ['length', '-exact-hairline'], ['number', 'lift'], ['box-shadow', '0 red'], ['box-shadow', '0 1px 2px red blue'], ['text-shadow', 'inset 0 1px red'], ['text-shadow', '1px 1px red, 0 0 blue'], ['type', 'type.body'], ['type', 'normal 16px'], ['type', 'oblique 16px'], ['duration', '200ms'], ['color', '#fff']]) expect(partsOf(kind, v, isLength)).toBeNull();
+  // Each word read as the server reads it: a signed or exponent length is a
+  // length, not the colour; a weight with a fraction is the weight; a weight
+  // before `italic` leaves `italic` the size, as typeface.rs refuses it.
+  const fields = (kind, v) => Object.fromEntries(partsOf(kind, v, isLength).parts.filter(x => x.control !== 'fixed').map(x => [x.key, x.text]));
+  expect(fields('text-shadow', '0 1px +2px')).toEqual({ '0.x': '0', '0.y': '1px', '0.blur': '+2px', '0.color': '' });
+  expect(fields('box-shadow', '0 1e0px 2px INSET red')).toMatchObject({ '0.y': '1e0px', '0.inset': 'INSET', '0.color': 'red' });
+  expect(fields('type', '600.0 16px')).toMatchObject({ weight: '600.0', size: '16px', family: '' });
+  expect(fields('type', '600 italic 16px')).toMatchObject({ weight: '600', size: 'italic', style: '' });
+  // A text style is a size; a type token's name is its whole value.
+  expect(fields('type', '-exact-body')).toMatchObject({ size: '-exact-body' });
+  const edit = (kind, v, key, text) => { const p = partsOf(kind, v, isLength); return joined(p.parts.map(x => (x.key === key ? { ...x, text } : x)), p.tail); };
+  const ring = '0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle';
+  expect(edit('box-shadow', ring, '1.inset', '')).toBe('0 1px 2px rgb(0 0 0 / 0.2), 0 0 0 1px border.subtle');
+  expect(edit('box-shadow', ring, '0.inset', 'inset')).toBe('inset 0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle');
+  expect(edit('box-shadow', ring, '0.spread', '4px')).toBe('0 1px 2px 4px rgb(0 0 0 / 0.2), inset 0 0 0 1px border.subtle');
+  expect(edit('box-shadow', ring, '1.color', 'accent')).toBe('0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 1px accent');
+  expect(edit('box-shadow', ring, '1.spread', '')).toBe('0 1px 2px rgb(0 0 0 / 0.2), inset 0 0 0 border.subtle');
+  expect(edit('box-shadow', '0 1px 2px 3px red inset', '0.inset', '')).toBe('0 1px 2px 3px red');
+  expect(edit('text-shadow', '1px 1px', '0.color', 'red')).toBe('1px 1px red');
+  expect(edit('text-shadow', '0 1px 2px rgba(0,0,0,.5)', '0.color', '')).toBe('0 1px 2px');
+  expect(edit('type', 'italic 600 1.25rem/1.4 family.body', 'style', '')).toBe('600 1.25rem/1.4 family.body');
+  expect(edit('type', 'italic 600 1.25rem/1.4 family.body', 'leading', '')).toBe('italic 600 1.25rem family.body');
+  expect(edit('type', '1rem', 'weight', '700')).toBe('700 1rem');
+  expect(edit('type', '1rem', 'style', 'italic')).toBe('italic 1rem');
+  expect(edit('type', '1rem', 'leading', '1.5')).toBe('1rem/1.5');
+  expect(edit('type', '1rem', 'family', 'family.mono')).toBe('1rem family.mono');
+  expect(edit('length', '12px', 'unit', 'rem')).toBe('12rem');
+  // Labels name the shadow in a list, for aria.
+  expect(partsOf('box-shadow', ring, isLength).parts.filter(x => x.control !== 'fixed').map(x => x.label)).toEqual([
+    'shadow 1 inset', 'shadow 1 x', 'shadow 1 y', 'shadow 1 blur', 'shadow 1 spread', 'shadow 1 colour',
+    'shadow 2 inset', 'shadow 2 x', 'shadow 2 y', 'shadow 2 blur', 'shadow 2 spread', 'shadow 2 colour',
+  ]);
+});
+
+test('typed fields write one line through set-token for each kind: a length, a number, a shadow list with inset and a token colour, a text shadow, a type longhand', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-typed-'));
+  const original = readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8');
+  writeFileSync(join(app, 'app.tamber'), original);
+  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  // Each: the cell, its field edits, the line before and after.
+  const edits = [
+    ['space.edge', ['type part-amount-field 16'], '  space.edge = 12px', '  space.edge = 16px'],
+    ['opacity.muted', ['type part-amount-field 0.25'], '  opacity.muted = 0.5', '  opacity.muted = 0.25'],
+    ['shadow.ring', ['type part-0.spread-field 1px', 'type part-0.inset-field inset'], '  shadow.ring: box-shadow = 0px 1px 2px #00000033, inset 0px 0px 0px 1px surface.inset', '  shadow.ring: box-shadow = inset 0px 1px 2px 1px #00000033, inset 0px 0px 0px 1px surface.inset'],
+    ['shadow.text', ['type part-0.blur-field 3px'], '  shadow.text: text-shadow = 0px 1px 2px #00000080', '  shadow.text: text-shadow = 0px 1px 3px #00000080'],
+    ['type.title', ['type part-style-field italic'], '  type.title: type = 600 1.25rem/1.25', '  type.title: type = italic 600 1.25rem/1.25'],
+  ];
+  const tool = await proxied(app, () => {});
+  try {
+    const replies = await drive(tool.url, `design-tool-typed-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      ...edits.flatMap(([cell, ops]) => ['clock +1', 'clock data', `tap cell-${cell}-0-light`, 'clock data', ...ops.flatMap(o => [o, 'clock data']), 'state', 'tap apply', 'clock data']),
+    ]);
+    const states = replies.filter(r => r.resources);
+    for (const st of states) expect(st.resources.proposal).toMatchObject({ ok: true, active: true });
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual(edits.map(() => ['transaction', true]));
+    let before = original;
+    for (const [k, [, , from, to]] of edits.entries()) {
+      expect(edit(before, tool.writes[k].after)).toEqual({ at: original.split('\n').indexOf(from), removed: [from], added: [to] });
+      before = tool.writes[k].after;
+    }
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);

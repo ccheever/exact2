@@ -1,7 +1,7 @@
 {
  "describe": {
   "files": {
-   "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+   "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
   },
   "ir": {
    "axes": [
@@ -161,9 +161,17 @@
      "value": "4px"
     }
    ],
-   "digest": "2f7038d6113a6d5c",
+   "digest": "965289ed0d59ed59",
    "exports": null,
    "format": 1,
+   "icons": [
+    {
+     "material": "star",
+     "name": "icon.star",
+     "sf": "star",
+     "svg": null
+    }
+   ],
    "name": "dials",
    "tokens": [
     {
@@ -303,6 +311,110 @@
      "role": null,
      "values": [
       "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "12px",
+      "12px"
+     ],
+     "kind": "length",
+     "name": "space.edge",
+     "role": null,
+     "values": [
+      "12px"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": [
+      0,
+      1,
+      0,
+      1
+     ],
+     "fallback": [
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)",
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)"
+     ],
+     "kind": "box-shadow",
+     "name": "shadow.ring",
+     "role": null,
+     "values": [
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)",
+      "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#eef0f2ff, #0c0e10ff)"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "0px 1px 2px #00000080",
+      "0px 1px 2px #00000080"
+     ],
+     "kind": "text-shadow",
+     "name": "shadow.text",
+     "role": null,
+     "values": [
+      "0px 1px 2px #00000080"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "600 1.25rem/1.25",
+      "600 1.25rem/1.25"
+     ],
+     "kind": "type",
+     "name": "type.title",
+     "role": null,
+     "values": [
+      "600 1.25rem/1.25"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "0.5",
+      "0.5"
+     ],
+     "kind": "number",
+     "name": "opacity.muted",
+     "role": null,
+     "values": [
+      "0.5"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "150ms",
+      "150ms"
+     ],
+     "kind": "duration",
+     "name": "duration.fast",
+     "role": null,
+     "values": [
+      "150ms"
+     ]
+    },
+    {
+     "dials": [],
+     "entries": null,
+     "fallback": [
+      "cubic-bezier(0.2, 0, 0, 1)",
+      "cubic-bezier(0.2, 0, 0, 1)"
+     ],
+     "kind": "easing",
+     "name": "easing.standard",
+     "role": null,
+     "values": [
+      "cubic-bezier(0.2, 0, 0, 1)"
      ]
     },
     {
@@ -606,14 +718,20 @@
     "-exact-label": [],
     "accent.fill": [],
     "accent.soft": [],
+    "duration.fast": [],
+    "easing.standard": [],
     "ink.on-brand": [
      [
       "scheme",
       "fixed"
      ]
     ],
+    "opacity.muted": [],
     "paint.pick": [],
     "shadow.card": [],
+    "shadow.ring": [],
+    "shadow.text": [],
+    "space.edge": [],
     "space.gap": [],
     "space.inset": [],
     "surface.card": [],
@@ -634,7 +752,8 @@
       "pair",
       "surface.page"
      ]
-    ]
+    ],
+    "type.title": []
    }
   },
   "pairs": {
@@ -658,7 +777,7 @@
     "col": 3,
     "file": "app.tamber",
     "id": "tamber-contrast",
-    "line": 38,
+    "line": 47,
     "message": "`tone.warm` on `surface.page` is 2.78:1 in light: below 4.5:1, WCAG's ratio for text"
    }
   ]
@@ -666,7 +785,7 @@
  "resolve": {
   "surface.page": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "surface.page",
    "tuples": [
@@ -726,7 +845,7 @@
   },
   "surface.card": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "surface.card",
    "tuples": [
@@ -786,7 +905,7 @@
   },
   "surface.inset": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "surface.inset",
    "tuples": [
@@ -846,7 +965,7 @@
   },
   "accent.fill": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "accent.fill",
    "tuples": [
@@ -906,7 +1025,7 @@
   },
   "accent.soft": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "accent.soft",
    "tuples": [
@@ -966,7 +1085,7 @@
   },
   "space.gap": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "space.gap",
    "tuples": [
@@ -1014,7 +1133,7 @@
   },
   "space.inset": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "space.inset",
    "tuples": [
@@ -1062,7 +1181,7 @@
   },
   "shadow.card": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "shadow.card",
    "tuples": [
@@ -1144,9 +1263,453 @@
     }
    ]
   },
+  "space.edge": {
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "token": "space.edge",
+   "tuples": [
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "unit": "px",
+     "value": "12px"
+    },
+    {
+     "amount": 12,
+     "kind": "length",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "unit": "px",
+     "value": "12px"
+    }
+   ]
+  },
+  "shadow.ring": {
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "token": "shadow.ring",
+   "tuples": [
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#f8f9faff, #101214ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#eef0f2ff, #0c0e10ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#eef0f2ff, #0c0e10ff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#f8f9faff, #101214ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#f8f9faff, #101214ff)"
+    },
+    {
+     "kind": "box-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000033",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      },
+      {
+       "color": "light-dark(#eef0f2ff, #0c0e10ff)",
+       "inset": true,
+       "lengths": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px light-dark(#eef0f2ff, #0c0e10ff)"
+    }
+   ]
+  },
+  "shadow.text": {
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "token": "shadow.text",
+   "tuples": [
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    },
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    },
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    },
+    {
+     "kind": "text-shadow",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "shadows": [
+      {
+       "color": "#00000080",
+       "inset": false,
+       "lengths": [
+        0,
+        1,
+        2
+       ]
+      }
+     ],
+     "value": "0px 1px 2px #00000080"
+    }
+   ]
+  },
+  "type.title": {
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "token": "type.title",
+   "tuples": [
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    },
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    },
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    },
+    {
+     "family": null,
+     "kind": "type",
+     "leading": "1.25",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "size": "1.25rem",
+     "style": null,
+     "value": "600 1.25rem/1.25",
+     "weight": 600
+    }
+   ]
+  },
+  "opacity.muted": {
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "token": "opacity.muted",
+   "tuples": [
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "value": "0.5"
+    },
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "value": "0.5"
+    },
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "value": "0.5"
+    },
+    {
+     "amount": 0.5,
+     "kind": "number",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "value": "0.5"
+    }
+   ]
+  },
+  "duration.fast": {
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "token": "duration.fast",
+   "tuples": [
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "ms": 150,
+     "value": "150ms"
+    },
+    {
+     "kind": "duration",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "ms": 150,
+     "value": "150ms"
+    }
+   ]
+  },
+  "easing.standard": {
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "token": "easing.standard",
+   "tuples": [
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "black",
+      "density": "regular"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    },
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "black",
+      "density": "compact"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    },
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "dim",
+      "density": "regular"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    },
+    {
+     "kind": "easing",
+     "modes": {
+      "dark-style": "dim",
+      "density": "compact"
+     },
+     "value": "cubic-bezier(0.2, 0, 0, 1)"
+    }
+   ]
+  },
   "tone.base": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "tone.base",
    "tuples": [
@@ -1206,7 +1769,7 @@
   },
   "tone.warm": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "tone.warm",
    "tuples": [
@@ -1266,7 +1829,7 @@
   },
   "tone.fine": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "tone.fine",
    "tuples": [
@@ -1326,7 +1889,7 @@
   },
   "paint.pick": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "paint.pick",
    "tuples": [
@@ -1386,7 +1949,7 @@
   },
   "tone.deep": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "tone.deep",
    "tuples": [
@@ -1446,7 +2009,7 @@
   },
   "text.primary": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "text.primary",
    "tuples": [
@@ -1506,7 +2069,7 @@
   },
   "text.system": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "text.system",
    "tuples": [
@@ -1562,7 +2125,7 @@
   },
   "ink.on-brand": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "ink.on-brand",
    "tuples": [
@@ -1622,7 +2185,7 @@
   },
   "-exact-label": {
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "token": "-exact-label",
    "tuples": [
@@ -1685,7 +2248,7 @@
   "surface.page": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "surface.page",
@@ -1705,7 +2268,7 @@
   "surface.card": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "surface.card",
@@ -1725,7 +2288,7 @@
   "surface.inset": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "surface.inset",
@@ -1747,7 +2310,7 @@
     "accent"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "accent.fill",
@@ -1760,7 +2323,7 @@
     "lift"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "accent.soft",
@@ -1772,7 +2335,7 @@
     "gap"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "space.gap",
@@ -1784,7 +2347,7 @@
     "inset"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "space.inset",
@@ -1794,11 +2357,83 @@
   "shadow.card": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "shadow.card",
    "value": "0px 1px 3px light-dark(#000000, #ffffff)",
+   "whens": []
+  },
+  "space.edge": {
+   "dials": [],
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "names": [],
+   "token": "space.edge",
+   "value": "12px",
+   "whens": []
+  },
+  "shadow.ring": {
+   "dials": [],
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "names": [
+    "surface.inset"
+   ],
+   "token": "shadow.ring",
+   "value": "0px 1px 2px #00000033, inset 0px 0px 0px 1px surface.inset",
+   "whens": []
+  },
+  "shadow.text": {
+   "dials": [],
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "names": [],
+   "token": "shadow.text",
+   "value": "0px 1px 2px #00000080",
+   "whens": []
+  },
+  "type.title": {
+   "dials": [],
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "names": [],
+   "token": "type.title",
+   "value": "600 1.25rem/1.25",
+   "whens": []
+  },
+  "opacity.muted": {
+   "dials": [],
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "names": [],
+   "token": "opacity.muted",
+   "value": "0.5",
+   "whens": []
+  },
+  "duration.fast": {
+   "dials": [],
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "names": [],
+   "token": "duration.fast",
+   "value": "150ms",
+   "whens": []
+  },
+  "easing.standard": {
+   "dials": [],
+   "files": {
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
+   },
+   "names": [],
+   "token": "easing.standard",
+   "value": "cubic-bezier(0.2, 0, 0, 1)",
    "whens": []
   },
   "tone.base": {
@@ -1807,7 +2442,7 @@
     "hue"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "tone.base",
@@ -1819,7 +2454,7 @@
     "warmth"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "tone.warm",
@@ -1831,7 +2466,7 @@
     "fine"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "tone.fine",
@@ -1843,7 +2478,7 @@
     "paint"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "paint.pick",
@@ -1856,7 +2491,7 @@
     "shade"
    ],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "tone.deep",
@@ -1866,7 +2501,7 @@
   "text.primary": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "text.primary",
@@ -1876,7 +2511,7 @@
   "text.system": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "text.system",
@@ -1886,7 +2521,7 @@
   "ink.on-brand": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [],
    "token": "ink.on-brand",
@@ -1896,7 +2531,7 @@
   "-exact-label": {
    "dials": [],
    "files": {
-    "app.tamber": "f34b0ddd3cf8d79a6813f33e393ec9edeff2205b4edaa8811821f1cc76e6b1b3"
+    "app.tamber": "af482a2e987659f4a69ad4df06263b9ca8f628f589e968fffa5e9032045003f0"
    },
    "names": [
     "text.primary"

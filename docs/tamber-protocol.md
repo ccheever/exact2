@@ -356,7 +356,12 @@ design.
   other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
   app's build stops before its design). A `live` edit reaches running development builds as a batch, with
-  no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads;
+  no reload (see [The live table](#the-live-table-llp-1121-stage-4-12)); a `rebuild` one reloads.
+  `propose` through the JS target's dev loop is also `rebuild` when the edit moves a token its pages
+  write inline (a `font-weight` number, an SVG attribute's length or number, a type or family
+  token: LLP 1121 stage 6), since such a token has no property to change in place. This holds
+  while the loop's design reader is built; without the reader the session's class stands, and
+  the release rebuilds;
 - `synthetic: [{expr, values}]` (*1.2*): each synthetic token whose value the edit changes, its new
   value as CSS text per app tuple, for the live batch;
 - `files`: the digests it planned against;

@@ -104,6 +104,107 @@ test "a length dial's slider and stepper write a px length, as a length dial tak
   expect state editTarget == "inset"
   expect state editValue == "6px"
 
+test "typed fields by kind: each edits its part of the value and leaves the rest as written"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // A length: its amount and unit.
+  tap "cell-space.edge-0-light"
+  clock data
+  expect tree has "typed"
+  type "part-amount-field" "16"
+  expect state editTarget == "space.edge"
+  expect state editValue == "16px"
+  type "part-unit-field" "rem"
+  expect state editValue == "16rem"
+  // A shadow list: per shadow, inset, its lengths and its colour (a token's
+  // name, which it keeps: no pin), every other shadow as written.
+  tap "cell-shadow.ring-0-light"
+  clock data
+  expect tree has "branch-names"
+  expect tree has "input-surface.inset"
+  expect tree missing "pinned"
+  expect tree has "part-1.color-field"
+  // Typed a character at a time, with no answer between: the fields stay.
+  type "part-0.spread-field" "1"
+  expect state editValue == "0px 1px 2px 1 #00000033, inset 0px 0px 0px 1px surface.inset"
+  type "part-0.spread-field" "1px"
+  expect tree has "part-0.spread-field"
+  expect state editValue == "0px 1px 2px 1px #00000033, inset 0px 0px 0px 1px surface.inset"
+  type "part-1.inset-field" ""
+  expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 0px 1px surface.inset"
+  clock data
+  expect text "proposal-tokens" == "shadow.ring"
+  // A required part emptied drafts nothing, and says so.
+  type "part-1.blur-field" ""
+  expect text "typed-missing" == "Give shadow 2 blur a value: emptied, the part after it would be read in its place."
+  expect state editValue == ""
+  type "part-1.blur-field" "2px"
+  expect tree missing "typed-missing"
+  expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 2px 1px surface.inset"
+  // A type: each longhand, one it leaves out offered empty.
+  tap "cell-type.title-0-light"
+  clock data
+  type "part-style-field" "italic"
+  expect state editValue == "italic 600 1.25rem/1.25"
+  type "part-family-field" "system-ui"
+  expect state editValue == "italic 600 1.25rem/1.25 system-ui"
+  // Only this mode: a field's edit is for its own branch.
+  tap "cell-opacity.muted-0-light"
+  clock data
+  tap "only-this-mode"
+  type "part-amount-field" "0.25"
+  expect state editValue == "0.25"
+  expect state editWhen == "density=regular"
+  // An expression has no typed fields.
+  tap "cell-space.gap-0-light"
+  clock data
+  expect tree missing "typed"
+
+test "a typed field's edit scrubs live, each value previewed, and Keep writes the last"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  tap "cell-shadow.ring-0-light"
+  clock data
+  type "part-0.blur-field" "3px"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  type "part-0.blur-field" "4px"
+  clock data
+  expect state editValue == "0px 1px 4px #00000033, inset 0px 0px 0px 1px surface.inset"
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  tap "scrub-keep"
+  clock data
+  expect tree missing "scrub"
+  expect text "undo" == "Undo (1)"
+  // The stub's live table off again, as the tests after this one expect.
+  request POST "/__stub/live" {"live": false} as ada
+
+test "a motion token says it rebuilds before the gesture, with no scrub; icons are listed read only"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-duration.fast-0-light"
+  clock data
+  expect text "branch-rebuilds" == "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub."
+  expect tree missing "typed"
+  type "branch-value" "200ms"
+  type "branch-value" key "Enter"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect disabled "scrub-start"
+  expect text "icon-icon.star-sources" == "sf star · material star"
+  tap "cell-space.edge-0-light"
+  clock data
+  expect tree missing "branch-rebuilds"
+
 test "the token grid: every mode tuple light and dark, swatches, residuals, what each follows"
   type "name" "Ada"
   tap "save-name"

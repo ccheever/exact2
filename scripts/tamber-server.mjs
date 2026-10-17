@@ -541,7 +541,24 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       forget(request.proposal, { client: request.client, reason: 'dropped' });
       return { ok: { dropped: request.proposal } };
     }
+    if (request.method === 'propose' && scrub?.inline) return proposeHere(request);
     return ask(request);
+  }
+
+  /** `propose` through a dev loop whose pages write some tokens inline (the
+   * JS target, LLP 1121 stage 6): a `live` edit that moves one is `rebuild`
+   * there, since `class` is the serving loop's (LLP 1121 D13), so the tool
+   * says so before the gesture rather than failing a scrub. */
+  async function proposeHere(request) {
+    const reply = await ask({ ...request, texts: true });
+    if (!reply.ok) return reply;
+    const ok = { ...reply.ok };
+    if (ok.class === 'live' && ok.texts) {
+      const why = await scrub.inline(ok.texts).catch(() => null);
+      if (why) { ok.class = 'rebuild'; log(`tamber: propose is rebuild here: ${why}`); }
+    }
+    if (request.texts !== true) delete ok.texts;
+    return { ...reply, ok };
   }
 
   /** `inspect` `{client, build?, on?, refresh?}` (LLP 1122 D4, D5): inspect
