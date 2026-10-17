@@ -85,7 +85,7 @@ component SettingsAppearance
             for mode in data.modes key=mode.id
               button press=change("themeMode", mode.id) disabled=(not data.ready)
                 role="radio" aria-checked=mode.selected aria-label=`${mode.label} appearance` testId=`settings-mode-${mode.id}`
-                min-width=0 flex=1 gap=7 padding=7 box-sizing="border-box" border-radius=24
+                display="flex" flex-direction="column" min-width=0 flex=1 gap=7 padding=7 box-sizing="border-box" border-radius=24
                 border-width=(mode.selected ? 2 : 1) border-style="solid" border-color=(mode.selected ? data.colors.primary : data.colors.border)
                 background-color=(mode.selected ? data.colors.subtle : data.colors.grouped)
                 SettingsModePreview(mode=mode)
