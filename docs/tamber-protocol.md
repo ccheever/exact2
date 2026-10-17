@@ -811,12 +811,14 @@ The tool drives no input into an app; a command changes only what `prefer` would
     own hit view, that stands for a plan node, a walk that stops at a system bar or the title bar
     (a plan node the bar hosts, its title, a bar or toolbar item, a tab, is selected; UIKit's and
     AppKit's own parts, Back, a window button, the bar, select nothing, and the banner says so);
-    a finger down (the pointer over a view, on the Mac) highlights what it would select. tvOS,
-    the Linux host and a development JS page (until the JS target names the capability) answer
-    `inspect` unsupported. A build that registers again
+    a finger down (the pointer over a view, on the Mac) highlights what it would select. The JS target's
+    development page does as the wasm page does (T2b): it has no runner, so it builds each row from
+    the plan's inspect table (`/dev-inspect.json`, which the JS dev loop makes when first asked) and the page, and a
+    row bound by an expression is the element's computed CSS, said `computed: true` (*1.9*). tvOS and
+    the Linux host answer `inspect` unsupported. A build that registers again
     is told inspect mode as the server holds it. A build that can says
-    `inspect` among its `capabilities` (the wasm web page, and the iOS and Mac hosts; the JS
-    target later). Development builds only.
+    `inspect` among its `capabilities` (the wasm and JS web pages, and the iOS and Mac hosts).
+    Development builds only.
   - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
     `{clear: true}`. Each build is sent its own plan's sites, from that plan's map (*1.9*: by the

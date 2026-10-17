@@ -474,6 +474,14 @@ test('no web build ships inspect: it lives in dev.js, which no build copies', as
   expect(Object.keys(shipped)).not.toContain('dev.js');
   for (const [name, source] of Object.entries(shipped)) if (name.endsWith('.js')) expect([name, readFileSync(resolve(ROOT, source), 'utf8').includes('exact-inspect')]).toEqual([name, false]);
   expect(readFileSync(resolve(ROOT, 'host/web/dev.js'), 'utf8')).toContain('exact-inspect');
+  // The JS target's half, and its table, are served by its dev loop
+  // (inspect-dev.js; `exact-web-js inspect-table` when first asked): no
+  // build makes or copies either.
+  const build = readFileSync(resolve(ROOT, 'host/web-js/build.mjs'), 'utf8');
+  expect(build).not.toContain('inspect-dev.js');
+  expect(build).not.toContain('dev-inspect');
+  expect(readFileSync(resolve(ROOT, 'host/web-js/dev.mjs'), 'utf8')).toContain("url.pathname === '/dev-inspect.json'");
+  expect(readFileSync(resolve(ROOT, 'host/web-js/inspect-dev.js'), 'utf8')).toContain('exact-inspect');
 });
 
 // LLP 1122 T2b: inspect mode in the wasm host, on the theme fixture's page.
@@ -602,6 +610,80 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
     polling = false;
     await browser.close();
     await stop();
+  }
+}, 900_000);
+
+// LLP 1122 T2b, the JS target: the same node on the theme fixture answers
+// the same on the JS loop as on the wasm loop (the gate's line), its rows
+// built in the page from the build's inspect table, and the join and
+// outline drawn from the page's own plan's map.
+test('inspect on the JS page: no tap reaches the app, and each node answers as on the wasm page, row for row, joined to the same source, with the same editability', async () => {
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const ids = ['page', 'dim', 'swap', 'card', 'light', 'dim-preview', 'black-preview'];
+  const polls = [], stops = [];
+  try {
+    const answers = [];
+    // One loop at a time (each builds; two would wait on each other's Cargo).
+    for (const flags of [['--wasm'], []]) {
+      const loop = await devLoop(flags, 'theme-fixture'), { base, said } = loop;
+      stops.push(loop.stop);
+      const { token } = await (await fetch(`${base}/__tamber/token`)).json();
+      const post = async (body, path = '/__tamber') => (await fetch(`${base}${path}`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(body) })).json();
+      const events = [], state = { polling: true };
+      polls.push(state);
+      const poll = (async () => { let after = 0, epoch; while (state.polling) { const r = await post(epoch ? { after, epoch, client: 'tool' } : { after: 0, wait: false, client: 'tool' }, '/__tamber/events'); events.push(...(r.events ?? [])); after = r.seq ?? after; epoch = r.epoch; } })();
+      const until = async (pass, ms = 30_000, what = '') => { const end = Date.now() + ms; for (;;) { const got = await pass(); if (got) return got; if (Date.now() > end) throw new Error(`not seen: ${what} on ${base}: ${JSON.stringify(events.slice(-3)).slice(0, 600)}`); await new Promise(ok => setTimeout(ok, 200)); } };
+      const page = await browser.newPage({ viewport: { width: 420, height: 900 } });
+      await page.goto(`${base}/`);
+      await until(() => said().includes('plan ready'), 300_000);
+      const build = await until(async () => (await post({ method: 'hello' })).ok?.builds?.find(b => b.host.startsWith('web')), 120_000);
+      expect(build.capabilities).toContain('inspect');
+      const dim = () => page.locator('[data-testid="dim-preview"]').evaluate(e => getComputedStyle(e).backgroundColor);
+      const before = await dim();
+      expect((await post({ method: 'inspect', client: 'tool', on: true })).ok).toEqual({ builds: [build.id], unsupported: [] });
+      await page.locator('#exact-inspect').waitFor();
+      const got = {};
+      for (const id of ids) {
+        const box = await page.locator(`[data-testid="${id}"]`).first().boundingBox();
+        const seen = events.length;
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        const selected = await until(() => events.slice(seen).find(e => e.event === 'selected'), 30_000, `${id} selected`);
+        const selection = await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, `${id} selection`);
+        got[id] = { selected, selection };
+      }
+      // Swap pins was clicked: the app never heard it.
+      expect(await dim()).toBe(before);
+      // The selection's copies are outlined on the page.
+      await until(async () => (await page.locator('[data-exact-outline]').count()) >= 1);
+      // Escape leaves, and the server's clients are told.
+      await page.keyboard.press('Escape');
+      await page.locator('#exact-inspect').waitFor({ state: 'detached' });
+      await until(() => events.find(e => e.event === 'selected' && e.selected === null));
+      answers.push({ build, got });
+      state.polling = false;
+      await poll.catch(() => {});
+      await page.close();
+      await loop.stop();
+    }
+    const [wasm, js] = answers;
+    expect(js.build.host).toBe('web-js');
+    expect(js.build.planDigest).toBe(wasm.build.planDigest);
+    // A row as both say it: its value, source and token (a view id differs by page).
+    // (And no row the wasm page reads from the kernel is the JS page's computed CSS.)
+    const rows = (s) => s.rows.map(({ name, value, source, token, computed }) => ({ name, value, source, token: token ?? null, computed: !!computed }));
+    for (const id of ids) {
+      const [a, b] = [wasm.got[id], js.got[id]];
+      expect([id, b.selected.selected.site, b.selected.selected.type, b.selected.selected.testId, b.selected.selected.instance, b.selected.selected.tuple]).toEqual([id, a.selected.selected.site, a.selected.selected.type, a.selected.selected.testId, a.selected.selected.instance, a.selected.selected.tuple]);
+      expect([id, rows(b.selected.selected)]).toEqual([id, rows(a.selected.selected)]);
+      // The same source, and the same editability, row for row.
+      expect([id, b.selection.source.line, b.selection.readOnly]).toEqual([id, a.selection.source.line, a.selection.readOnly]);
+      expect([id, b.selection.rows.map(r => [r.name, r.editable])]).toEqual([id, a.selection.rows.map(r => [r.name, r.editable])]);
+    }
+  } finally {
+    for (const p of polls) p.polling = false;
+    await browser.close();
+    for (const stop of stops) await stop();
   }
 }, 900_000);
 

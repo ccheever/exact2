@@ -24,6 +24,7 @@ import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-
 import { mapCard, pullMap } from '../../scripts/tamber-inspect.mjs';
 import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
+import { INSPECT_EVENTS } from './inspect-dev.js';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -222,6 +223,32 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     return false;
   };
   buildTool();
+  // The page's inspect table (LLP 1122 T2b, inspect.rs), made for dist's
+  // plan when the page first asks (seconds for a large app, so no build
+  // makes it), kept by the plan's digest, the 4 last; it names that plan,
+  // and one made while dist moved on is not served.
+  const tables = new Map();
+  const inspectTable = (digest) => {
+    if (!tables.has(digest)) {
+      tables.set(digest, new Promise((done) => {
+        const out = resolve(app.target, `inspect-${digest}.json`);
+        const compiler = toolFresh() ? { cmd: tool.path, pre: [], done() {} } : webCompiler();
+        const child = spawn(compiler.cmd, [...compiler.pre, 'inspect-table', resolve(dist, 'app.plan'), out], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
+        let err = '';
+        child.stderr.on('data', (d) => { err += d; });
+        child.on('exit', (code) => {
+          compiler.done();
+          let bytes = null;
+          try { bytes = code === 0 ? readFileSync(out) : null; if (bytes && JSON.parse(bytes).plan !== digest) bytes = null; } catch { bytes = null; }
+          rmSync(out, { force: true });
+          if (!bytes) { tables.delete(digest); if (err.trim()) console.log(`inspect table: ${err.trim().split('\n').slice(-3).join('\n')}`); }
+          done(bytes);
+        });
+      }));
+      for (const old of [...tables.keys()].slice(0, Math.max(0, tables.size - 4))) tables.delete(old);
+    }
+    return tables.get(digest);
+  };
   const designOf = (text) => new Promise((done) => {
     const compiler = toolFresh() ? { cmd: tool.path, pre: [] } : webCompiler();
     // A group: the debug fallback is a `cargo run`, stopped with its compilers.
@@ -464,9 +491,11 @@ const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Pro
 let liveQ=Promise.resolve();const live=m=>{liveQ=liveQ.then(async()=>{const x=await ready().then(()=>globalThis.exact),was=x?.designDigest;const out=x?.design?.(m);if(out?.live==='stale'){const r=await fetch('/__dev/design',{cache:'no-store'});if(r.status===200)x.design(await r.json())}if(x?.designDigest!==was&&ch.nonce)status()}).catch(e=>console.error('exact dev:',e))};
 const ch={nonce:null,registered:null,revision:null,before:null,told:null},bid=(async()=>{const fresh=()=>'web-js-'+crypto.getRandomValues(new Uint32Array(2)).join('');let i;try{i=sessionStorage.getItem('exact.dev.build')}catch{return fresh()}const t=typeof BroadcastChannel==='function'?new BroadcastChannel('exact.dev.build'):null;if(i&&t){const mine=i;if(await new Promise(done=>{t.onmessage=e=>{if(e.data==='taken:'+mine)done(true)};t.postMessage('who:'+mine);setTimeout(()=>done(false),60)}))i=null}i??=fresh();if(t){const own=i;t.onmessage=e=>{if(e.data==='who:'+own)t.postMessage('taken:'+own)}}try{sessionStorage.setItem('exact.dev.build',i)}catch{}return i})(),post=(n,b,ms)=>fetch('/__dev/report',{method:'POST',body:JSON.stringify({nonce:n,...b}),...(ms?{signal:AbortSignal.timeout(ms)}:{})}),rep=b=>{const{nonce:n,registered:r}=ch;if(!n)return Promise.resolve();if(ch.queue?.n!==n)ch.queue={n,tail:Promise.resolve()};const q=ch.queue;return q.tail=q.tail.then(async()=>{if(!(await r)||ch.nonce!==n||ch.registered!==r)return;await post(n,b,10000).catch(()=>{})})};
 const facts=()=>{const s=getComputedStyle(document.documentElement),cs=s.colorScheme,x=globalThis.exact;return{kind:'status',scheme:/dark/.test(cs)&&!/light/.test(cs)?'dark':/light/.test(cs)&&!/dark/.test(cs)?'light':x?.systemScheme??(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),contrast:matchMedia('(prefers-contrast: more)').matches?'more':matchMedia('(prefers-contrast: less)').matches?'less':'no-preference',mode:x?.modes?.read?.()??null,rootFontSize:parseFloat(s.fontSize),plan:null,planDigest:x?.plan??null,design:x?.designDigest??null,revision:ch.revision}},status=()=>{const b=facts();ch.told=JSON.stringify(b);rep(b)};for(const q of['(prefers-color-scheme: dark)','(prefers-contrast: more)','(prefers-contrast: less)'])matchMedia(q).addEventListener?.('change',()=>{if(ch.nonce)status()});
+let gate=null,held=(()=>{try{return sessionStorage.getItem('exact.dev.inspect')!=null}catch{return false}})();const early=()=>{for(const id of['exact-inspect-early','exact-inspect-early-shield'])document.getElementById(id)?.remove()},letGo=exit=>{held=false;early();try{const k=sessionStorage.getItem('exact.dev.inspect');if(exit&&k)sessionStorage.setItem('exact.dev.inspect.left',k);sessionStorage.removeItem('exact.dev.inspect')}catch{}};if(held){const sh=document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-inspect-early-shield',textContent:'iframe, frame, embed, object { pointer-events: none !important; }'}));const c=Object.assign(document.createElement('div'),{id:'exact-inspect-early'});c.style.cssText='position:fixed;inset:0;z-index:2147483644;background:transparent;touch-action:none';(document.body??document.documentElement).append(c)}for(const ty of ${JSON.stringify([...INSPECT_EVENTS, 'pointermove', 'focusin'])})addEventListener(ty,e=>{if(gate)return gate(e);if(!held)return;if(ty==='keydown'&&e.key==='Escape')letGo(true);if((ty==='focusin'||ty==='blur')&&document.activeElement?.tagName==='IFRAME')document.activeElement.blur();e.preventDefault();e.stopImmediatePropagation()},{capture:true,passive:false});
+const inspector=import('/__dev/inspect.js').then(m=>{m.install({report:rep,status:async()=>status(),facts:()=>({plan:null,design:globalThis.exact?.designDigest??null,revision:ch.revision})});gate=m.gate;return m}).catch(e=>{letGo(false);throw e});
 let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>{due=false;const b=facts();if(JSON.stringify(b)!==ch.told){ch.told=JSON.stringify(b);rep(b)}},0)},seen=new MutationObserver(moved);seen.observe(document.documentElement,{attributes:true,attributeFilter:['style','data-x-modes']});seen.observe(document.head,{childList:true,subtree:true,characterData:true});
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const mode=Object.entries({...ch.before.mode,...(p?.mode??{})});if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rep({kind:'unsupported',what:'pin.mode',detail:why,revision:m.revision});x.modes.set(Object.entries(ch.before.mode))}}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast",revision:m.revision});if(!p)ch.before=null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin'],plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='inspect'||m.kind==='outline'){inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.kind==='hold'){rep({kind:'unsupported',what:m.kind});return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>(await post(n,{kind:'register',id:await bid,host:'web-js',capabilities:['pin','inspect'],plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null})).ok).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
@@ -557,6 +586,21 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     // The build channel (LLP 1122 D4): the page's stream gives it a nonce;
     // reports come up by POST; a build with no stream here (the resident
     // loop's devices, Linux) opens a polled one.
+    // The page's inspect table, for the plan dist serves now.
+    if (url.pathname === '/dev-inspect.json' && req.method === 'GET') {
+      let digest = null;
+      try { digest = createHash('sha256').update(readFileSync(resolve(dist, 'app.plan'))).digest('hex'); } catch { /* no build */ }
+      const bytes = digest && await inspectTable(digest);
+      if (!bytes) { res.writeHead(503, { 'cache-control': 'no-store' }); return res.end(); }
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(bytes);
+    }
+    // Inspect mode's half in the page (LLP 1122 T2b, the JS target): the
+    // dev client loads it; it is in no build.
+    if (url.pathname === '/__dev/inspect.js' && (req.method === 'GET' || req.method === 'HEAD')) {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(req.method === 'HEAD' ? undefined : readFileSync(resolve(root, 'host/web-js/inspect-dev.js')));
+    }
     if (url.pathname === '/__dev/report' && req.method === 'POST') {
       if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
       await serveReport(tamber.channel, req, res);
