@@ -327,8 +327,11 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
   #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
   Contract tasks.
-- Data modules cannot send on a WebSocket ([`issues/20261009-runner-owned-bidirectional-streams.md`](../../issues/20261009-runner-owned-bidirectional-streams.md),
-  #126), so the RPC transport lives in the Swift module.
+- Data modules can send on a WebSocket now (LLP 1016.000 D7, [`issues/20261009-runner-owned-bidirectional-streams.md`](../../issues/20261009-runner-owned-bidirectional-streams.md),
+  #126), but the sockets stay in `T3Transport.swift`, `T3Fleet.swift` and `R7DeviceClient.swift`: a
+  `net.websocket` grant names one origin, fixed in `app.ts`, and the clone's servers are chosen at
+  run time (a gap with no record); only a mutation's synchronous call sends, so each frame's Ack
+  would be a mutation; and the 10 s Ping and the request deadlines need timers.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
