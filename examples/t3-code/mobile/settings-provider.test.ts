@@ -105,6 +105,7 @@ interface EmailFixture {
   row(instanceId?: string): EmailRow;
   emit(instanceId: string, ...states: Obj[]): Promise<void>;
   press(captured: EmailPress): ReturnType<typeof mobileProviderCommand>;
+  holdSession(): { entered: Promise<void>; release(permissions: string[]): void };
 }
 const emailPress = (row: EmailRow): EmailPress => ({ key: row.key, value: str(obj(row).emailToken) });
 async function withEmailAccounts(run: (fixture: EmailFixture) => Promise<void>) {
@@ -113,6 +114,7 @@ async function withEmailAccounts(run: (fixture: EmailFixture) => Promise<void>) 
   const origin = 'http://email-provider.test', environmentId = 'email-provider-test', requests: Obj[] = [], unexpected: Obj[] = [];
   const keys = new Map<string, string>();
   let sequence = 0, events: Obj[] = [];
+  let heldSession: { entered(): void; reply: Promise<Obj> } | null = null;
   Object.assign(mobileClient, { origin, environmentId, connection: 'connected', generation: 381,
     config: { providers: [signedProvider()], settings: {}, environment: { label: 'Email workstation' } } });
   const raw: Native = { available: true, watch(topic) {
@@ -121,7 +123,11 @@ async function withEmailAccounts(run: (fixture: EmailFixture) => Promise<void>) 
     const request = obj(input); requests.push(request);
     let value: unknown;
     if (request.op === 'environments') value = { saved: [{ origin, environmentId }] };
-    else if (request.op === 'http' && request.path === '/api/auth/session' && (request.method === undefined || request.method === 'GET')) value = { authenticated: true, permissions: ['providers:manage'] };
+    else if (request.op === 'http' && request.path === '/api/auth/session' && (request.method === undefined || request.method === 'GET')) {
+      const held = heldSession; heldSession = null;
+      if (held) { held.entered(); value = await held.reply; }
+      else value = { authenticated: true, permissions: ['providers:manage'] };
+    }
     else if (request.op === 'subscribe' && request.method === 'provider.auth.subscribe') {
       keys.set(str(obj(request.payload).instanceId), str(request.key));
       value = { id: `email-subscription:${mobileClient.generation}:${str(request.key)}` };
@@ -148,6 +154,14 @@ async function withEmailAccounts(run: (fixture: EmailFixture) => Promise<void>) 
       await native.later({ op: 'events', after: 0 });
     },
     press: captured => mobileProviderCommand('reveal', captured.key, captured.value, native),
+    holdSession() {
+      if (heldSession) throw new Error('A provider session read is already held');
+      let entered!: () => void, release!: (permissions: string[]) => void;
+      const ready = new Promise<void>(resolve => { entered = resolve; });
+      const reply = new Promise<Obj>(resolve => { release = permissions => resolve({ authenticated: true, permissions }); });
+      heldSession = { entered, reply };
+      return { entered: ready, release };
+    },
   };
   try { await run(fixture); }
   finally {
@@ -265,4 +279,42 @@ test('provider email tokens isolate rows and replacement or removal resets only 
   expect(f.row('other-provider').email).toBe('other@example.test'); expect(emailPress(f.row('other-provider'))).toEqual(other);
   const returnedRevision = mobileClient.revision; await f.press(b);
   expect(f.row().email).toBe(emailMask); expect(mobileClient.revision).toBe(returnedRevision);
+}));
+
+for (const initiallyRevealed of [false, true]) test(`email ${initiallyRevealed ? 'hide' : 'reveal'} remains local while an account command is pending`, async () => withEmailAccounts(async f => {
+  await f.prepare(); const stale = emailPress(f.row());
+  f.providers([signedProvider('b@example.test')]); await f.prepare();
+  await f.emit('test-provider', { phase: 'idle', methods: [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }], authorizationUrl: 'https://example.test' });
+  const current = emailPress(f.row());
+  await mobileProviderCommand('choose', current.key, '', f.native);
+  expect(f.row().actions.some(action => action.op === 'choose-cancel')).toBe(true);
+  if (initiallyRevealed) await f.press(current);
+  const held = f.holdSession(), pending = mobileProviderCommand('logout-confirmed', current.key, '', f.native);
+  try {
+    await held.entered;
+    expect(f.row().pending).toBe(true);
+    const before = f.requests.length, revision = mobileClient.revision;
+    for (const captured of [stale, { key: current.key, value: '' }]) {
+      const refused = await f.press(captured);
+      expect(refused.revision).toBe(revision); expect(mobileClient.revision).toBe(revision);
+    }
+    for (const op of ['choose-cancel', 'choose', 'logout-confirmed', 'docs', 'unknown']) {
+      const refused = await mobileProviderCommand(op, current.key, '', f.native);
+      expect(refused.revision).toBe(revision); expect(mobileClient.revision).toBe(revision);
+    }
+    expect(mobileProviderField(current.key, 'callback', 'blocked while pending').revision).toBe(revision);
+    expect(f.row().fields.find(field => field.name === 'callback')!.value).toBe('');
+    expect(f.row().actions.some(action => action.op === 'choose-cancel')).toBe(true);
+    expect(f.requests.length).toBe(before);
+    await f.press(current);
+    expect(f.row().email).toBe(initiallyRevealed ? emailMask : 'b@example.test');
+    expect(mobileClient.revision).toBe(revision + 1);
+    await f.press(current);
+    expect(f.row().email).toBe(initiallyRevealed ? 'b@example.test' : emailMask);
+    expect(mobileClient.revision).toBe(revision + 2);
+    expect(f.row().pending).toBe(true); expect(f.requests.length).toBe(before);
+  } finally { held.release([]); await pending; }
+  expect(f.row().pending).toBe(false);
+  expect(f.row().error).toBe('This connection does not allow provider account changes.');
+  expect(f.requests.some(request => request.op === 'request')).toBe(false);
 }));
