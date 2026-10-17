@@ -42,7 +42,9 @@ final class PromptField: NSObject, UITextFieldDelegate {
             field.autocapitalizationType = own.autocapitalizationType
             field.autocorrectionType = own.autocorrectionType
             field.spellCheckingType = own.spellCheckingType
-            field.returnKeyType = own.returnKeyType
+            // An unsaid `enterkeyhint` keeps the alert field's own Return
+            // key (`.default`, ↵), not the Done an authored field takes.
+            if node.props["enterKeyHint"] != nil { field.returnKeyType = own.returnKeyType }
         } else {
             field.placeholder = node.props["placeholder"]
         }
