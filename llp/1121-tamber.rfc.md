@@ -3036,3 +3036,54 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
     name is reported, a second text style's too. 268 = 261 + 7: the six duration tiers and the line style.
 - **Counts.** Every importer's count still holds (source = mapped + reported), and re-importing
   proposes nothing (`tamber/tests/it/import.rs`, `import_kinds.rs`).
+
+### Stage 6, commit H: the importers propose every kind (`636ff1263`..`7948bfc5f`)
+
+Values that stages 3a–3d reported as `kind pending (stage 6)` (lengths, numbers, type, families,
+shadows, motion) are now proposed. Each importer's count still holds, and re-importing proposes
+nothing.
+
+| Importer | Source values | Mapped | Reported |
+|---|---|---|---|
+| shadcn | 47 | 47 | 0 |
+| Tailwind's default theme | 419 | 364 | 55 |
+| Figma Variables | 104 | 101 | 3 |
+| Tokens Studio | 49 | 49 | 0 |
+| Astryx | 268 | 261 | 7 |
+
+Two items are queued: folding an import into its destination design, and an incoming colour set
+onto a token of another kind.
+
+### Stage 6's gate: met (2026-10-17; the run is `~/x2theme/stage6-gate-run.txt`)
+
+The lines are §5 stage 6's, plus stage 9's for icons, brought forward.
+
+| Gate line | Result |
+|---|---|
+| Expose's 48 `font-family` writes and its radii become tokens, with screens identical on the web, iOS and the Mac | **Met:** 4 of 4 screens with 0 pixels different on each host, an identical native dump, and byte-identical JS CSS. |
+| Under Bold Text, a system-font type token is bolded, one with an authored weight too, and a bundled family isn't | **Met** on the Mac and the iOS simulator: system and authored-600 tokens bolded, and "Exposure Sans" unchanged. |
+| A length token's value edit is live on the clone and lays out; a shadow edit is live; a motion token's edit rebuilds | **Met** on the wasm loop. A length edit took about 1 s with no generation, the padding and width moved, and a typed draft was kept. A shadow edit was the same. A duration edit was `rebuild`, restarting with state carried. |
+| The sample host draws a `font(…)` and a `length(…)` that follow Dynamic Type and Bold Text | **Met** on the Mac and the iOS simulator. |
+| An export with every kind re-imports with no operations | **Met:** 13 of 13, with 0 operations. |
+| Stage 9's: the clone's `symbol:sf/…` uses draw on the web from icon tokens; a missing source fails the build | **Met:** every SVG on five routes drew, and a missing icon file fails naming the token and the file. F4 is merged into the clone's main. |
+| Expose, the readers and an app with no design are unchanged | **Met** by plan contents against the commit before stage 6. The only new rows are A's `fontShorthand` markers. Conform is 12 of 12 on Expose and 15 of 15 on tamber-modes. |
+
+**Stage 6's breaks:**
+- B moved the plan format and kernel schema digests (theme rows gain `kind`).
+- A moved the kernel schema digest (text style columns, `fontShorthand`).
+- F moved the plan format digest (the `icons` table).
+
+No host binary shipped between them, so users see one break. Both digests are now pinned by tests.
+
+**Known limits carried:**
+- the JS target writes type and family tokens, and inline font weights and SVG attributes, as literals, so they rebuild there and refuse to vary by axis;
+- a bare `font-size` style fills nothing on the JS target;
+- Apple draws only an icon's SF Symbol;
+- a varying type or family token is refused on a container's inherited rows (`tamber-inherited-axis`);
+- `calc()` with `rem` waits on QUEUE's item.
+
+**D3, amended by this stage:** `duration`, `easing` and `icon` token names must be dotted
+(`tamber-motion-name`, `tamber-icon-name`), so a transition's words or a symbol's name can't be
+mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
+
+**Stage 6 is closed** (with stage 9's icons).
