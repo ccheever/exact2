@@ -65,7 +65,7 @@ export function settleTraces(client: T3Client, status: Obj, ticket: number): num
 /**
  * A status read for the traces still live, ending those the transport no longer lists. A refresh reads
  * the status only when a topic changes, so a quiet window keeps an answered request whose answer was
- * let go until the next refresh (or until T3Transport's 30 s deadline, shell-slow.ts). Nothing calls
+ * let go until the next refresh (or until the transport's 30 s deadline, shell-slow.ts). Nothing calls
  * this yet: shellView would, on each tick while `tracking(client)`.
  */
 export async function settleLiveTraces(client: T3Client, native: Native): Promise<number> {

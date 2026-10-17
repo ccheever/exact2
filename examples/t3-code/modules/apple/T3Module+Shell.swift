@@ -1,19 +1,14 @@
 // T3Module's desktop-shell ops (T3Module.swift routes them): the
-// project icon picker's "Open in Finder" (T3Menus.pickProjectFavicon), and the page's window
-// facts for the activity reporter (`activityFacts`: exactPage() visibilityState and hasFocus,
-// exact2 #219; shell-notify.ts reportWindowFacts).
+// project icon picker's "Open in Finder" (T3Menus.pickProjectFavicon), and when the reader last
+// pointed, typed or scrolled (`activityLastInteraction`, T3ActivityInput.swift).
 import Foundation
 import AppKit
 
 extension T3Module {
     func shellOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        if request["op"] as? String == "activityFacts" {
-            activity.facts(visible: request["visible"] as? Bool ?? false, focused: request["focused"] as? Bool ?? false)
-            return reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:] as [String: Any]])
-        }
-        // useLiveRefresh's last interaction (pages-pr-refresh.ts): the reporter's pointer, key and wheel time, in Unix ms.
+        // useLiveRefresh's last interaction (pages-pr-refresh.ts) and the activity reporter's: the pointer, key and wheel time, in Unix ms.
         if request["op"] as? String == "activityLastInteraction" {
-            return reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["at": activity.lastInteractionAt()] as [String: Any]])
+            return reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["at": activityInput.lastInteractionAt()] as [String: Any]])
         }
         if request["op"] as? String == "pickProjectFavicon" {
             let imports = exportsRoot.map { $0.deletingLastPathComponent().appendingPathComponent("imports", isDirectory: true) }

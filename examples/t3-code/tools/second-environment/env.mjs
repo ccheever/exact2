@@ -13,7 +13,7 @@
 //                                         an agent drive of the bundle: with --local "This machine" too,
 //                                         each named environment paired in the welcome wizard (fresh
 //                                         tokens, kept off the terminal), the wizard finished, then the ops
-//   bun env.mjs forget <name>             removes the Keychain token a normal launch saved for it
+//   bun env.mjs forget <name> [--app ID]  removes what a normal launch of the app ID (default com.exact.t3code.macos) saved for it
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -106,7 +106,8 @@ if (import.meta.main) {
       const { origin, environmentId } = JSON.parse(readFileSync(file, "utf8"));
       // A pairing through a stand-in in front of the server (route.json) saved its token under the stand-in's origin.
       const route = routeOf(paths, name), origins = [origin, ...(route ? [`http://127.0.0.1:${route.port}`] : [])];
-      console.log(origins.map((each) => forgetKeychain(each, environmentId)).some(Boolean) ? "removed" : "none saved");
+      const app = flag(process.argv.slice(3), "--app") ?? "com.exact.t3code.macos";
+      console.log(forgetKeychain(app, origins, environmentId) ? "removed" : "none saved");
     } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 16).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

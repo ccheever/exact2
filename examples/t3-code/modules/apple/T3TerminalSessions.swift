@@ -7,23 +7,23 @@ import Foundation
 /// terminal.ts `attach`); the viewport writes what is new since its cursor (ThreadTerminalDrawer.tsx
 /// TerminalViewport) and sends input and grid sizes with `terminal.write` / `terminal.resize`.
 /// Changes from the reference, for exact2:
-/// - The stream and its buffer are native: chunks go from the socket (T3Transport+Terminal.swift) to the
-///   session's `T3TerminalOutput` to the bound `t3-terminal` views, never through the TypeScript inbox.
-///   A chunk is acknowledged once the buffer holds it.
+/// - The stream and its buffer are native: chunks go from the module's link to the environment
+///   (T3Link.swift) to the session's `T3TerminalOutput` to the bound `t3-terminal` views, never through
+///   the data module. A chunk is acknowledged once the buffer holds it.
 /// - A session lives while a view shows it or while the drawer keeps its thread mounted (`retain`, the
 ///   reference's MAX_HIDDEN_MOUNTED_TERMINAL_THREADS hidden threads plus the active one), so a hidden
 ///   thread keeps its stream and buffer without a web view; its view replays the buffer
 ///   when it shows again. An unretained session without views detaches after a short grace.
-/// - A lost socket ends every attach stream; the sessions attach again on the next socket (the
-///   reference's durable subscription waits for the next session the same way). A stream that fails
+/// - A lost socket ends every attach stream; the sessions attach again once the data module's connection
+///   is back (the reference's durable subscription waits for the next session the same way). A stream that fails
 ///   (an authorization error, a bad cwd) is not retried until the drawer shows the terminal again.
 /// - Writes are one RPC per input, as in the reference: a paste over 65,536 characters is refused by
 ///   the server and shown as `[terminal] <message>`.
 /// - Resizes are latest-wins per session (the reference's `concurrency: latest` scheduler).
 /// - A session goes to its own environment's server, as the reference's terminal commands take the
-///   thread's `environmentId`: the focused transport while that
-///   environment is the focus, otherwise the environment's background transport (T3Fleet). A session
-///   whose environment has no connected transport waits for one, never attaching to another server.
+///   thread's `environmentId`: the link to that environment, which the data module hands over while it
+///   is connected (focused or in the background). A session whose environment has no link waits for one,
+///   never attaching to another server.
 final class T3TerminalSession {
     let key: String, environment: String, threadId: String, terminalId: String
     var cwd = "", worktreePath = "", providerInstance = "", env: [String: String] = [:]
@@ -33,9 +33,9 @@ final class T3TerminalSession {
     var label = "", hasRunningSubprocess = false
     var streamId: String? = nil, attaching = false, failed = false
     var retained = false
-    /// The transport the current stream is opening or open on (the stream ends with that transport's socket);
+    /// The link the current stream is opening or open on (the stream ends with that link's socket);
     /// nil once it ends or fails to open, so the status's `via` names only a stream the session has.
-    fileprivate weak var streamTransport: T3Transport?
+    fileprivate weak var streamLink: T3Link?
     fileprivate var views: [WeakView] = []
     fileprivate var detachWork: DispatchWorkItem?
     fileprivate var resizing = false, pendingSize: (cols: Int, rows: Int)? = nil
@@ -49,8 +49,6 @@ final class T3TerminalSession {
 }
 
 fileprivate struct WeakView { weak var view: T3TerminalView? }
-/// A connected transport and the environment it reached (its descriptor's `environmentId`).
-fileprivate struct Route { weak var transport: T3Transport?; let environment: String }
 
 /// The module that owns the sessions (T3Module+Terminal.swift). A protocol, so the XCTests that leave out
 /// T3Module*.swift still compile the terminal view.
@@ -58,64 +56,39 @@ protocol T3TerminalSessionOwner: AnyObject { var terminalSessions: T3TerminalSes
 
 final class T3TerminalSessions {
     private static var registries: [ObjectIdentifier: T3TerminalSessions] = [:]
-    /// The module's sessions, by its focused transport; background environments' transports join with `observe`.
-    static func of(_ transport: T3Transport) -> T3TerminalSessions {
-        if let found = registries[ObjectIdentifier(transport)] { return found }
-        let made = T3TerminalSessions(transport: transport)
-        registries[ObjectIdentifier(transport)] = made
+    /// The module's sessions, by its links.
+    static func of(_ links: T3Links) -> T3TerminalSessions {
+        if let found = registries[ObjectIdentifier(links)] { return found }
+        let made = T3TerminalSessions(links: links)
+        registries[ObjectIdentifier(links)] = made
         return made
     }
     static var all: [T3TerminalSessions] { Array(registries.values) }
 
-    private weak var transport: T3Transport?
-    /// Each connected transport's environment: the focused one and every observed background one.
-    private var routes: [ObjectIdentifier: Route] = [:]
+    private weak var links: T3Links?
     private(set) var sessions: [String: T3TerminalSession] = [:]
     private var retainedKeys: Set<String> = []
     private static var attachGeneration = 0
     /// Seconds an unretained session keeps its stream after its last view goes (a thread switch's remount).
     var detachGrace: TimeInterval = 2
 
-    init(transport: T3Transport) {
-        self.transport = transport
-        observe(transport)
+    init(links: T3Links) {
+        self.links = links
+        links.changed.append { [weak self] environment, link in self?.linkChanged(environment, link) }
     }
 
-    /// T3Fleet's hook (T3Module.swift): each background environment's transport carries that environment's sessions.
-    static func fleetObserver(focused: T3Transport) -> (T3Transport) -> Void {
-        { [weak focused] created in DispatchQueue.main.async { if let focused { T3TerminalSessions.of(focused).observe(created) } } }
-    }
-
-    /// Follows a transport's connections: when it reaches an environment, that environment's waiting sessions attach on it.
-    func observe(_ other: T3Transport) {
-        let id = ObjectIdentifier(other)
-        other.queue.async { [weak self, weak other] in
-            guard let other else { return }
-            // A transport that is gone still reports its socket's end, so its route never outlives it.
-            other.terminalConnection = { [weak self, weak other] connected, environment in
-                DispatchQueue.main.async { self?.connectionChanged(id, other, connected: connected, environment: environment) }
-            }
-            guard other.state == "connected" else { return }
-            let environment = other.descriptor["environmentId"] as? String ?? ""
-            DispatchQueue.main.async { [weak other] in self?.connectionChanged(id, other, connected: true, environment: environment) }
-        }
-    }
-
-    /// The transport that reaches an environment now: the focused one first, else a background environment's.
-    func reaching(_ environment: String) -> T3Transport? {
-        if let transport, let route = routes[ObjectIdentifier(transport)], route.transport === transport, route.environment == environment { return transport }
-        return routes.values.first { $0.environment == environment && $0.transport != nil }?.transport
-    }
+    /// The link that reaches an environment now, while the data module keeps it connected.
+    func reaching(_ environment: String) -> T3Link? { links?.link(environment: environment) }
 
     /// `JSON.stringify([environmentId, threadId, terminalId])`, the reference's terminal session key.
     static func key(environment: String, thread: String, terminal: String) -> String {
         T3TerminalView.json([environment, thread, terminal])
     }
 
-    /// Provider Account input shares the focused transport, but has its own serial queue in the view.
+    /// Provider Account input goes to the focused environment, but has its own serial queue in the view.
     func providerAuthCall(_ payload: [String: Any], done: @escaping (T3Failure?) -> Void) {
-        guard let transport else { return done(T3Failure(kind: "Closed", message: "The server is not connected.")) }
-        transport.terminalCall("provider.auth.respond", payload: payload) { error in
+        guard let link = links?.focusedLink else { return done(T3Failure(kind: "Closed", message: "The server is not connected.")) }
+        link.terminalCall("provider.auth.respond", payload: payload) { error in
             DispatchQueue.main.async { done(error) }
         }
     }
@@ -160,28 +133,28 @@ final class T3TerminalSessions {
     private func drop(_ session: T3TerminalSession) {
         guard sessions[session.key] === session else { return }
         session.detachWork?.cancel(); session.detachWork = nil
-        if let id = session.streamId { session.streamTransport?.terminalDetach(id) }
-        session.streamId = nil; session.streamTransport = nil
+        if let id = session.streamId { session.streamLink?.terminalDetach(id) }
+        session.streamId = nil; session.streamLink = nil
         sessions[session.key] = nil
     }
 
     // MARK: Stream
 
-    /// A transport reached an environment (its sessions attach there) or lost its socket (its streams have ended;
-    /// another transport that still reaches the environment takes its sessions).
-    private func connectionChanged(_ id: ObjectIdentifier, _ changed: T3Transport?, connected: Bool, environment: String) {
-        let reached = connected ? environment : routes[id]?.environment ?? ""
-        if let changed, connected, !environment.isEmpty { routes[id] = Route(transport: changed, environment: environment) } else { routes[id] = nil }
-        guard !reached.isEmpty, reaching(reached) != nil else { return }
-        for session in sessions.values where session.environment == reached && session.streamId == nil && !session.failed
-            && (session.retained || !session.liveViews.isEmpty) { attach(session) }
+    /// The data module connected an environment (or reconnected it: its sessions attach there) or let it go (its
+    /// streams have ended with the link's socket).
+    private func linkChanged(_ environment: String, _ link: T3Link?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, link != nil, self.reaching(environment) != nil else { return }
+            for session in self.sessions.values where session.environment == environment && session.streamId == nil && !session.failed
+                && (session.retained || !session.liveViews.isEmpty) { self.attach(session) }
+        }
     }
 
     private func attach(_ session: T3TerminalSession) {
-        guard let transport = reaching(session.environment), session.streamId == nil, !session.attaching, !session.failed,
+        guard let link = reaching(session.environment), session.streamId == nil, !session.attaching, !session.failed,
               !session.cwd.isEmpty else { return }
         session.attaching = true
-        session.streamTransport = transport
+        session.streamLink = link
         // nextTerminalAttachSeedState: a reinstalled stream never reuses an old renderer's cursor.
         Self.attachGeneration += 1
         session.output = T3TerminalOutput(); session.output.generation = Self.attachGeneration
@@ -194,7 +167,7 @@ final class T3TerminalSessions {
         if !session.providerInstance.isEmpty { payload["providerInstanceId"] = session.providerInstance }
         // A closed terminal ID may be reused before queued delivery from its old stream drains.
         let key = session.key, generation = session.output.generation
-        transport.terminalAttach(payload: payload, receive: { [weak self, weak session] values, acknowledge in
+        link.terminalAttach(payload: payload, receive: { [weak self, weak session] values, acknowledge in
             DispatchQueue.main.async {
                 if let self, let session, self.sessions[key] === session, session.output.generation == generation {
                     session.chunks += 1
@@ -207,7 +180,7 @@ final class T3TerminalSessions {
         }, ended: { [weak self, weak session] failure, lost in
             DispatchQueue.main.async {
                 guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { return }
-                session.streamId = nil; session.attaching = false; session.streamTransport = nil
+                session.streamId = nil; session.attaching = false; session.streamLink = nil
                 if let failure {
                     // useAttachedTerminalSession: an attach error shows as the session's error.
                     session.failed = true
@@ -222,10 +195,10 @@ final class T3TerminalSessions {
             }
         }, opened: { [weak self, weak session] id, failure in
             DispatchQueue.main.async {
-                guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { if let id { transport.terminalDetach(id) }; return }
+                guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { if let id { link.terminalDetach(id) }; return }
                 session.attaching = false
                 if let id { session.streamId = id; return }
-                session.streamTransport = nil
+                session.streamLink = nil
                 // Not connected yet: the connection's return attaches. Any other refusal shows as the error.
                 if let failure, failure.kind != "Disconnected" {
                     session.failed = true
@@ -290,11 +263,11 @@ final class T3TerminalSessions {
             session.writeFailures += 1
             return view.systemMessage(Self.schemaRefusal)
         }
-        guard let transport = reaching(session.environment) else {
+        guard let link = reaching(session.environment) else {
             session.writeFailures += 1
             return view.systemMessage("The server is not connected.")
         }
-        transport.terminalCall("terminal.write", payload: ["threadId": session.threadId, "terminalId": session.terminalId, "data": data]) { [weak view] failure in
+        link.terminalCall("terminal.write", payload: ["threadId": session.threadId, "terminalId": session.terminalId, "data": data]) { [weak view] failure in
             guard let failure else { return }
             DispatchQueue.main.async {
                 session.writeFailures += 1
@@ -310,9 +283,9 @@ final class T3TerminalSessions {
         session.desiredSize = size
         if session.resizing { session.pendingSize = size; return }
         if size == session.lastSize { return } // the page's ready size and its first fit are often the same
-        guard let transport = reaching(session.environment) else { return } // applied on the next attach's snapshot
+        guard let link = reaching(session.environment) else { return } // applied on the next attach's snapshot
         session.resizing = true
-        transport.terminalCall("terminal.resize", payload: ["threadId": session.threadId, "terminalId": session.terminalId, "cols": size.cols, "rows": size.rows]) { [weak self] failure in
+        link.terminalCall("terminal.resize", payload: ["threadId": session.threadId, "terminalId": session.terminalId, "cols": size.cols, "rows": size.rows]) { [weak self] failure in
             DispatchQueue.main.async {
                 guard let self, self.sessions[session.key] === session else { return }
                 session.resizing = false
@@ -329,7 +302,7 @@ final class T3TerminalSessions {
 
     var status: [[String: Any]] {
         sessions.values.sorted { $0.key < $1.key }.map { session in
-            ["key": session.key, "environment": session.environment, "via": session.streamTransport == nil ? "" : session.streamTransport === transport ? "focused" : "background",
+            ["key": session.key, "environment": session.environment, "via": session.streamLink == nil ? "" : session.streamLink === links?.focusedLink ? "focused" : "background",
              "threadId": session.threadId, "terminalId": session.terminalId, "status": session.status,
              "error": session.error ?? "", "label": session.label, "attached": session.streamId != nil, "retained": session.retained,
              "views": session.liveViews.count, "retainedBytes": session.output.retainedBytes, "chunks": session.chunks,

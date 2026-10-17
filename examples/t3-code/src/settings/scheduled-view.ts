@@ -200,7 +200,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const moved = visit.picker !== `${shown}\n${search}`, opening = visit.looks++ === 0;
     visit.picker = `${shown}\n${search}`;
     // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
-    // environment's read is shared (T3Transport `share`): an answer asked again before its reply joins it.
+    // environment's read is shared (the request's `share`): an answer asked again before its reply joins it.
     const listRefs = async (payload: Obj) => (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload));
     const kept = visit, presentation = obj(client.presentation);
     let pending = false;

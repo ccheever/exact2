@@ -8,7 +8,7 @@
 // (subscribeDeviceState); only "Check versions" sends inspectOnly (IntegrationsSettings.tsx:610-745).
 // These tests go through the app's own answer(), as the Contract asks it, with a small runner of the two resources.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { answer } from '../../app';
+import { answerClient as answer } from '../../app'; // the client against this file's scripted bridge
 import { Backend, nextAppGeneration, storage } from '../support/client-fixture';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { DEVICE_STATE_KEY } from '../../src/device/device-surface';

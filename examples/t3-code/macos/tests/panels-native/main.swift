@@ -133,14 +133,6 @@ final class PanelsTests: XCTestCase {
         XCTAssertTrue(f.window.firstResponder === f.composer)
     }
 
-    func testUnavailableMessages() {
-        XCTAssertEqual(T3PullRequestErrors.unavailable(reason: "cli-unauthenticated", provider: "github"), "GitHub CLI is not authenticated. Run `gh auth login` and retry.")
-        XCTAssertEqual(T3PullRequestErrors.unavailable(reason: "cli-missing", provider: "gitlab"), "GitLab CLI (`glab`) is required to browse change requests on this host. Install it from https://gitlab.com/gitlab-org/cli and reload.")
-        XCTAssertEqual(T3PullRequestErrors.unavailable(reason: "cli-unauthenticated", provider: ""), "This host has no working credentials.")
-        XCTAssertEqual(T3PullRequestErrors.unavailable(reason: "provider-unsupported", provider: "github"), "Change requests cannot be browsed for this project's host yet.")
-        XCTAssertEqual(T3PullRequestErrors.unavailable(reason: "other", provider: "github"), "")
-    }
-
     func testAssetRouteOnly() {
         XCTAssertNotNil(T3AttachmentFiles.assetURL("http://127.0.0.1:1/api/assets/abc"))
         XCTAssertNil(T3AttachmentFiles.assetURL("file:///etc/hosts"))

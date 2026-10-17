@@ -15,7 +15,7 @@ export async function connectionOps(this: T3Client, op: string, id: string, valu
     if (op === 'connect' || op === 'reconnect') {
       const target = parsePairing(id || this.origin, value);
       if (target.unreachable) throw new ClientError(environmentFetchFailure(target.origin), 'Network');
-      // Retry without a new credential probes a live socket instead of replacing it (T3Transport retryNow, 9333509).
+      // Retry without a new credential probes a live socket instead of replacing it (the session's retryNow, 9333509).
       const response = await this.raw(native, { op: op === 'reconnect' && !target.credential ? 'retry' : 'connect', ...withStandardScope(target) });
       if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind);
       this.adoptStatus(obj(response.value), response.generation);

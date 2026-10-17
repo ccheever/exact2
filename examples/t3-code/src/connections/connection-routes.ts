@@ -2,12 +2,12 @@
 // routes.ts and githubRoutingPermissions.ts gitHubRoutingConnectionKey, commits 979ca66ced and
 // 745c225f92; MIT, see LICENSE-T3). A saved environment keeps an ordered list of routes: direct
 // URLs (loopback, LAN, tailnet, public) and SSH tunnels. The client connects over the first route
-// that answers as the same environment (T3Routes.swift walks them) and moves back to a better one
+// that answers as the same environment (transport-routes.ts walks them) and moves back to a better one
 // when it becomes reachable again.
 //
-// Port changes: routes are plain records, the shape T3SavedEnvironments stores
+// Port changes: routes are plain records, the shape the connection catalog stores (transport-catalog.ts)
 // (`{ id, origin, kind, learned, credential, authorization?, ssh? }`), not Effect classes. A
-// paired route's id is its origin, which is also the Keychain account its token is saved under;
+// paired route's id is its origin, which is also the origin its token is saved under;
 // a learned route's id is `learned:<environment>:<origin>@<owner id>` and borrows the owner's
 // token. An SSH route's origin is the tunnel's loopback address, so its kind comes from the stored
 // `kind`, never from the address. `allowInsecure` is always true here (a native app is not an
@@ -263,7 +263,7 @@ export function reorderRoutes(routes: readonly ConnectionRoute[], ids: readonly 
   }
   return ids.map(id => byId.get(id)!);
 }
-// ── Decoding the native store (T3SavedEnvironments) ──────────────────────
+// ── Decoding the catalog's store ─────────────────────────────────────────
 const asString = (value: unknown) => typeof value === 'string' ? value : '';
 function decodeSsh(value: unknown): RouteSshTarget | undefined {
   if (!value || typeof value !== 'object') return undefined;
@@ -286,7 +286,7 @@ export function savedRoutes(entry: Record<string, unknown>): ConnectionRoute[] {
   const origin = trimSlash(asString(entry.origin));
   return routes.length || !origin ? routes : [{ id: origin, origin, kind: '' }];
 }
-/** The record T3SavedEnvironments stores for a route: `credential` names the Keychain account's origin. */
+/** The record the catalog stores for a route: `credential` names the origin whose token it uses. */
 export function storedRoute(route: ConnectionRoute): Record<string, unknown> {
   return { id: route.id, origin: route.origin, kind: route.kind ?? '', learned: route.learned === true, credential: credentialConnectionId(route.id),
     ...(route.authorization ? { authorization: route.authorization } : {}), ...(route.ssh ? { ssh: route.ssh } : {}) };

@@ -15,6 +15,9 @@ extension T3Module {
     func localOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         let generation = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
+        // The primary's bearer for the data module's connection to it (src/transport/transport-session.ts; memory only).
+        case "localBearer":
+            reply.send(["ok": true, "generation": generation, "value": ["token": T3LocalBackend.shared.bearerToken() ?? ""]])
         case "localBackendStatus":
             reply.send(["ok": true, "generation": generation, "value": T3LocalBackend.shared.statusValue()])
         case "localBackendSetEnabled":

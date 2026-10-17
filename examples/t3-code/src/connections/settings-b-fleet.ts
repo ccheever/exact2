@@ -2,7 +2,7 @@
 // switched-on saved environment connected at once (ConnectionsSettings.tsx
 // SavedBackendListRow, environmentCatalog.setEnabled). The focused environment
 // stays T3Client's own connection; every other switched-on environment is a
-// background transport in T3Fleet.swift, addressed by `fleet: <origin\nid>`.
+// background session of the transport (transport.ts), addressed by `fleet: <origin\nid>`.
 // This module keeps each one's connection facts, server config and shell
 // (projects and threads) so the sidebar, scope menus and Connections page can
 // cover them all. The primary environment (local-primary.ts, the embedded server)
@@ -44,12 +44,12 @@ export interface FocusedHost { origin: string; environmentId: string; connection
 export const trimOrigin = (origin: string) => origin.trim().replace(/\/+$/, '');
 /**
  * A saved environment's key: its home origin (the address it was first saved under,
- * T3SavedEnvironments) and its id. One entry per environment id holds every route, so the
+ * the connection catalog) and its id. One entry per environment id holds every route, so the
  * focused connection (whose origin is the route in use) is matched by id, never by this key.
  */
 export const environmentKey = (origin: string, environmentId: string) => `${trimOrigin(origin)}\n${environmentId}`;
 
-/** The transport facts T3Transport reports, as the reference's connection phases. */
+/** The facts a session's status reports, as the reference's connection phases. */
 export function phaseOf(status: Obj): { phase: FleetPhase; message: string; traceId: string } {
   const state = str(status.state), kind = str(status.failureKind), raw = str(status.message);
   const message = raw.replace(/\s*Reconnecting in \d+s…$/, '').trim();
@@ -97,7 +97,6 @@ export class EnvironmentFleet {
   async sync(native: Native | null | undefined, focused: FocusedHost): Promise<void> {
     if (!native?.available) return;
     const epoch = ++this.epoch;
-    native.watch('t3.fleet');
     try {
       const listed = await bridgeReply(native, { op: 'environments' });
       if (epoch !== this.epoch || !listed.ok) return;
@@ -147,7 +146,7 @@ export class EnvironmentFleet {
     const value = obj(status.value), next = phaseOf(value);
     if (str(value.state) === 'disconnected' && !entry.requested) {
       // Opening completes only when the socket opens; its progress arrives as
-      // t3.fleet changes, so this answer never waits on the network.
+      // fleet news (the snapshot is asked again), so this answer never waits on the network.
       entry.requested = true; entry.phase = 'connecting'; this.revision++;
       void native.later({ op: 'connect', fleet: entry.key, origin: entry.origin, ...(entry.primary ? { primary: true } : { credential: '' }) }).catch(() => {});
       return;
@@ -197,7 +196,7 @@ export class EnvironmentFleet {
 
   private async drain(remote: Native, entry: FleetEntry): Promise<void> {
     // A stream the transport scheduled to resubscribe on this session (`_retryDue`:
-    // the app became active again, T3Transport.applicationActive, or a failed stream's backoff came due).
+    // the app became active again, the transport's `foreground`, or a failed stream's backoff came due).
     for (let pass = 0; pass < 8; pass++) {
       const batch = await this.call(remote, entry, { op: 'events', after: entry.lastEvent });
       if (batch.reset === true) { if (entry.lastEvent > 0) usageFleetReset(entry); entry.synchronized = -1; } // usage-replies.ts: an overflowed inbox may have dropped a reply

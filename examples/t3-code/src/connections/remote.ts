@@ -23,7 +23,7 @@ export function resolveRemotePairingTarget(input: { pairingUrl: string }): { ori
     catch { throw new ClientError('Backend URL is invalid.'); }
     if (!supportedProtocols.has(url.protocol)) throw new ClientError('Backend URL is invalid.');
   }
-  // The native transport takes only an origin, never URL userinfo or paths.
+  // The transport takes only an origin, never URL userinfo or paths.
   url.protocol = url.protocol === 'ws:' ? 'http:' : url.protocol === 'wss:' ? 'https:' : url.protocol;
   return { origin: url.origin, credential };
 }

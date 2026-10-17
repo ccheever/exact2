@@ -2,7 +2,7 @@
 // reference 1e2ecbd975: packages/client-runtime/src/state/server.ts ServerUpdateState,
 // serverUpdateStateAtom and updateServer; apps/web/src/components/ServerUpdateAction.tsx
 // useServerUpdate, ServerUpdateAction and UPDATE_STAGE_LABELS).
-// Port changes: the update itself runs in T3Fleet.swift (T3OutdatedHosts, `mode:
+// Port changes: the update itself runs in the transport (transport-outdated.ts, `mode:
 // "connected"`): a socket of its own (naming protocol 2) carries `server.updateServerWithProgress` (else
 // `server.updateServer`, a dropped boot-service/respawn socket being the handoff),
 // a desktop-managed result is committed with `server.commitDesktopUpdate`, and the
@@ -45,7 +45,7 @@ export function serverUpdateFailureMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Server update failed.';
 }
 
-/** One reason of an Effect Cause, as the clone's transport reports it (T3Fleet's `.dropped` is a socket error). */
+/** One reason of an Effect Cause, as the clone's transport reports it (a dropped job socket is a socket error). */
 export type UpdateFailureReason = { readonly kind: 'interrupt' } | { readonly kind: 'fail'; readonly error: unknown };
 const SOCKET_ERRORS = ['SocketReadError', 'SocketWriteError', 'SocketCloseError'];
 function isRpcSocketError(error: unknown): boolean {
@@ -86,7 +86,7 @@ export function nudgesReconnectDuringUpdateRestart(state: { readonly phase: stri
 const UPDATE_STAGE_LABELS: Record<ServerUpdateStage, string> = { downloading: 'Downloading…', installing: 'Downloading…', resuming: 'Restarting…' };
 export const serverUpdateStageLabel = (stage: ServerUpdateStage) => UPDATE_STAGE_LABELS[stage] ?? 'Downloading…';
 
-// ── The store: T3Fleet's job table ────────────────────────────────────────
+// ── The store: the transport's job table ──────────────────────────────────
 const asStage = (stage: string): ServerUpdateStage => stage === 'installing' || stage === 'resuming' ? stage : 'downloading';
 /** A job as ServerUpdateState. A finished job waits as "Restarting…" until its connection reports the version. */
 export function serverUpdateStateForJob(job: OutdatedJob | undefined): ServerUpdateState {
@@ -114,7 +114,7 @@ export function serverUpdateStateFor(environmentId: string, serverVersion: strin
 
 // ── useServerUpdate / ServerUpdateAction ──────────────────────────────────
 export interface ServerUpdateTarget {
-  /** The saved environment's key (`origin\nid`) T3Fleet runs the job under. */
+  /** The saved environment's key (`origin\nid`) the transport runs the job under. */
   readonly environmentKey: string;
   readonly environmentId: string;
   readonly serverLabel: string;

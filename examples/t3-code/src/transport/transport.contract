@@ -2,11 +2,13 @@
 // the tick and its tasks (app.contract, "The server connections").
 
 // A session slot: the session's key ("focused", a background environment's `origin\nid`, or "" when
-// free), the attempt whose socket it wants, and the better-route checks asked for while connected.
+// free), its attempt, the better-route checks asked for while connected, and the socket's URL once
+// the attempt's ticket is in.
 shape TransportSlot
   key: string
   attempt: number
   check: number
+  url: string
 // An update job's slot (an outdated host's self-update): its job key and step.
 shape TransportUpdateSlot
   key: string
@@ -31,10 +33,9 @@ shape TransportTable
   u1: TransportUpdateSlot
   u2: TransportUpdateSlot
   u3: TransportUpdateSlot
-// A slot attempt's HTTP steps: the socket URL once its ticket is in.
+// A slot's own attempt (the ladder's) or better-route check.
 shape TransportConnect
   attempt: number
-  url: string
   seq: number
 // An update job's step: its socket URL while the update runs.
 shape TransportUpdateStep

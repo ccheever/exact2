@@ -1,5 +1,5 @@
-//! The native T3 client: Contract views, TypeScript projections, and an app-local
-//! Swift transport. T3's separately running server owns all agent execution.
+//! The native T3 client: Contract views, TypeScript projections and server connections, and an
+//! app-local Swift module for the native views. T3's separately running server owns all agent execution.
 
 mod markdown;
 

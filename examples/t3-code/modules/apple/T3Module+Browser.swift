@@ -28,21 +28,26 @@ extension T3Module: T3BrowserSessionOwner {
     }
 
     /// The executor's pages and its connection: each new page gets the host's scripts; a response goes out on the
-    /// focused transport under the generation the request came in on.
+    /// module's link to the environment the request came from (T3Link.swift), focused or in the background.
     func attachBrowserAutomation() {
         browserSessions.created = { [weak browserAutomation] session in browserAutomation?.prepare(session) }
         browserSessions.ended = { [weak browserAutomation] id in browserAutomation?.forget(id) }
         browserAutomation.changed = { [weak browserSessions] in browserSessions?.publish() }
-        browserAutomation.send = { [weak transport, weak fleet] request, generation, key, done in
-            var request = request
-            request["generation"] = generation
-            if let key { guard let fleet else { return done(["ok": false]) }; return fleet.perform(key, request, completion: done) }
-            guard let transport else { return done(["ok": false]) }
-            transport.perform(request, completion: done)
+        let reply = { (done: @escaping ([String: Any]) -> Void) -> T3Link.Done in
+            { failure, value in done(failure.map { ["ok": false, "error": $0.json] } ?? ["ok": true, "value": value ?? NSNull()]) }
         }
-        browserAutomation.rpc = { [weak browserAutomation] method, payload, generation, key, done in
-            guard let browserAutomation else { return done(["ok": false]) }
-            browserAutomation.send(["op": "request", "method": method, "payload": payload], generation, key, done)
+        browserAutomation.send = { [links] request, _, key, done in
+            DispatchQueue.main.async {
+                guard request["op"] as? String == "uploadAttachment", let link = links.link(fleet: key) else { return done(["ok": false]) }
+                let data = Data(base64Encoded: request["base64"] as? String ?? "") ?? Data()
+                link.upload(path: request["path"] as? String ?? "", data: data, contentType: request["contentType"] as? String ?? "application/octet-stream", done: reply(done))
+            }
+        }
+        browserAutomation.rpc = { [links] method, payload, _, key, done in
+            DispatchQueue.main.async {
+                guard let link = links.link(fleet: key) else { return done(["ok": false, "error": T3Failure(kind: "Disconnected", message: "The server is not connected.").json]) }
+                link.request(method, payload: payload, done: reply(done))
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 // A background environment as a provider-setup host: the welcome shows
 // every chosen computer's Codex rows (WelcomeWizard.tsx ConnectedAgentsStep, one
 // OnboardingCodexSetup per instance and environment), so a computer the app is not focused on
-// runs the same streams and commands through its T3Fleet transport. The fleet's drain hands this
+// runs the same streams and commands through its background session (transport.ts). The fleet's drain hands this
 // host its provider-auth / provider-install entries (settings-b-fleet.ts). Settings › Providers
 // shows a background environment through this host too (providers-scope.ts): `owner` is then the
 // window's client, whose device preferences (model favorites and order) and toasts the page uses.
@@ -27,7 +27,7 @@ export class FleetSetupHost implements CodexHost {
   get writable(): boolean { return this.ready && this.entry.scopes.includes('orchestration:operate'); }
   /** A managed Codex setup's command target on this environment (codex-setup-host.ts codexTarget). */
   setupTarget(instanceId: string): string { return `${this.entry.key}\t${instanceId}`; }
-  /** New ids from this environment's transport (T3Transport `ids`), as T3Client.ids. */
+  /** New ids from this environment's session (the transport's `ids`), as T3Client.ids. */
   async ids(native: Native, count: number): Promise<string[]> {
     const reply = await bridgeReply(native, { op: 'ids', count });
     if (!reply.ok || !Array.isArray(reply.value)) throw new ClientError(reply.error?.message || 'Could not allocate request identifiers.');

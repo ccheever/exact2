@@ -10,7 +10,9 @@
 // - A request is queued and sent by the transport's tick, a mutation (`transportPump`) the window runs
 //   every 16 ms while an answer waits and every second while connected; it also checks deadlines, pings,
 //   starts the next attempt when its backoff is over and runs the activity reporter's debounce and cadence.
-// - The HTTP steps of each attempt run in `transportConnect`, an answer of its own (it may fetch).
+// - The HTTP steps of an attempt run in the answer that asked for the connection (`connect`, `retry`), or,
+//   for the ladder's attempts and a better-route check, in the slot's `transportConnect`; the tick then
+//   publishes the socket's URL to the slot's socket resource.
 // - Replies are resolved in `transportDeliver`, an answer asked again whenever a socket, a connect answer
 //   or the tick has news, so the answer that awaited a reply continues inside an answer (and may fetch).
 //
@@ -40,7 +42,7 @@ const SESSION_OPS = new Set(['status', 'ids', 'connect', 'retry', 'disconnect', 
   'readChunk', 'releaseChunk', 'environments', 'connectionPreferences', 'setConnectionPreferences', 'setEnvironmentEnabled', 'forgetEnvironment',
   'pairEnvironment', 'setRoutes', 'prDiff']);
 
-export interface Slot { key: string; attempt: number; check: number }
+export interface Slot { key: string; attempt: number; check: number; url: string }
 export interface UpdateSlot { key: string; step: number }
 /** What the tick publishes for the window: the sockets it wants and when it wants to run again. */
 export interface Table {
@@ -49,10 +51,14 @@ export interface Table {
   u0: UpdateSlot; u1: UpdateSlot; u2: UpdateSlot; u3: UpdateSlot;
 }
 
-/** fetch with exact2's deadline and no redirects followed (a credential never follows one). */
+/**
+ * fetch with exact2's deadline and no redirects followed (a credential never follows one). Each request may overlap
+ * the others and settle in any order, as the native transport's did: exact2 runs a source's fetches one at a time
+ * unless it says so (LLP 1041 §8.4), and a route check that waits out its 2.5 s would hold every other read.
+ */
 export const fetchHttp: Http = async (url, init) => {
   const response = await fetch(url, { method: init.method ?? 'GET', headers: init.headers, body: init.body, signal: init.signal,
-    redirect: 'manual', exactTimeout: init.timeoutMs } as RequestInit);
+    redirect: 'manual', exactTimeout: init.timeoutMs, exactIndependentHttp: { maxResponseBytes: init.maxBytes ?? 1024 * 1024 } } as RequestInit);
   const reply: HttpReply = { status: response.status, text: await response.text() };
   return reply;
 };
@@ -86,6 +92,8 @@ export class Transport {
   }
 
   now(): number { return this.clock; }
+  /** A time an answer knows (the window's clock, coarser than the tick's), taken only before the first tick. */
+  observe(now: number): void { if (!this.clock && Number.isFinite(now) && now > 0) this.clock = now; }
   wall(now: number): string { return new Date(now).toISOString(); }
   private bump(): void { this.seq += 1; }
   private fleetChanged(): void { this.news += 1; this.fleetNews += 1; this.bump(); }
@@ -124,13 +132,13 @@ export class Transport {
   }
 
   /** The HTTP steps of a slot's attempt, or the better-route check it was asked for. */
-  async connect(slot: number, key: string, attempt: number, check: number, module: Bridge | null | undefined): Promise<{ attempt: number; url: string; seq: number }> {
+  async connect(slot: number, key: string, attempt: number, check: number, module: Bridge | null | undefined): Promise<{ attempt: number; seq: number }> {
     if (module?.available) this.module = module;
     const session = this.sessionAt(slot);
-    if (!session || !key || (slot === 0 ? key !== FOCUSED : session.key !== key)) return { attempt, url: '', seq: this.seq };
+    if (!session || !key || (slot === 0 ? key !== FOCUSED : session.key !== key)) return { attempt, seq: this.seq };
     if (session.wantsFlow(attempt)) await session.connectFlow(attempt);
     else if (check > 0) await session.checkRoutes(check).catch(() => undefined);
-    return { attempt, url: session.attempt === attempt ? session.url : '', seq: this.seq };
+    return { attempt, seq: this.seq };
   }
 
   /** An update job's step: the descriptor and ticket that open its socket, or one poll while the host restarts. */
@@ -175,14 +183,14 @@ export class Transport {
   table(): Table {
     const slot = (index: number): Slot => {
       const session = this.sessionAt(index);
-      return session ? { key: index === 0 ? FOCUSED : session.key, attempt: session.attempt, check: session.check } : { key: '', attempt: 0, check: 0 };
+      return session ? { key: index === 0 ? FOCUSED : session.key, attempt: session.attempt, check: session.check, url: session.url } : { key: '', attempt: 0, check: 0, url: '' };
     };
     const updates = this.outdated.slotTable();
     const update = (index: number): UpdateSlot => updates[index] ?? { key: '', step: 0 };
     const sessions = this.sessions;
     return {
       deliver: this.seq,
-      fast: this.queue.length > 0 || sessions.some(session => session.hasOutbox),
+      fast: this.queue.length > 0 || sessions.some(session => session.hasOutbox || session.establishing),
       soon: sessions.some(session => session.soon) || this.activity.soon || this.outdated.busy,
       live: sessions.some(session => session.wantsConnection || session.state === 'connected') || this.activity.live,
       s0: slot(0), s1: slot(1), s2: slot(2), s3: slot(3), s4: slot(4), s5: slot(5), s6: slot(6), s7: slot(7), s8: slot(8),

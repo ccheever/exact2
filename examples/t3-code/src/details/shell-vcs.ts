@@ -11,7 +11,7 @@
 // The stream's first events can be drained before the subscribe reply reaches
 // the answer that asked (or that reply can be dropped with an abandoned
 // answer), so the current stream is the newest subscription id seen after the
-// latest subscribe: T3Transport numbers requests `<generation>-<serial>` with
+// latest subscribe: the transport numbers requests `<generation>-<serial>` with
 // a serial that only grows, and subscribing again under one key replaces the
 // stream.
 import type { T3Client } from '../client/client';

@@ -5,7 +5,7 @@
 // leads Load balancing and GitHub sharing. Every server this client pairs with is a
 // saved environment, listed under Environments with its own switch and row menu.
 // Several stay connected at once: the focused one is T3Client's
-// connection, the rest are background transports (settings-b-fleet.ts / T3Fleet.swift).
+// connection, the rest are background sessions (settings-b-fleet.ts, transport.ts).
 import { obj, str, arr, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, environmentFetchFailure, parsePairing, type Native } from '../client/protocol';
 import { fleet, environmentKey, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
@@ -238,7 +238,6 @@ export async function connectionsPage(host: ConnectionHost, native: Native | nul
     if (native?.available && 'local' in host) await networkPage(host as T3Client, native, false, now, false);
     return connectionsProjection(host, []);
   }
-  native.watch('t3.fleet');
   const [listed, prefs, status, ssh] = await Promise.all([bridgeReply(native, { op: 'environments' }), bridgeReply(native, { op: 'connectionPreferences' }),
     bridgeReply(native, { op: 'status' }), sshTargets(native)]);
   const saved = listed.ok ? arr(obj(listed.value).saved) : [], focusStatus = status.ok ? obj(status.value) : {};
@@ -494,7 +493,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     return { status: null, generation: -1 };
   }
   if (op === 'environment-update-outdated') {
-    // OutdatedServerUpdateAction: single-flight per environment; progress and toasts follow "t3.fleet".
+    // OutdatedServerUpdateAction: single-flight per environment; progress and toasts follow the fleet news.
     const [origin, environmentId] = splitKey(id), key = environmentKey(origin, environmentId);
     try {
       if (!environmentId) throw new ClientError('Choose a saved environment to update.');

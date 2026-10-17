@@ -469,18 +469,33 @@ export async function addHub(conn, port, { timeoutMs = 20_000 } = {}) {
   return source.accounts.length;
 }
 
-/** The app's Keychain service for access tokens (modules/apple/T3Credentials.swift). */
-export const KEYCHAIN_SERVICE = "com.exact.t3code.macos.access-token";
 /**
- * Removes the access token a normal (non-agent) launch saved for a fixture environment: only the
- * account `<origin>\n<environmentId>` of that fixture's loopback origin. Returns whether one was there.
+ * The connection catalog a normal launch keeps: one Keychain item, service the app's bundle id and account the
+ * secret's name (src/transport/transport-catalog.ts, `secret.keep t3-catalog`), holding the saved environments
+ * and their tokens by `<origin>\n<environmentId>`.
  */
-export function forgetKeychain(origin, environmentId) {
-  if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) throw new Error(`not a fixture origin: ${origin}`);
-  checkPort(Number(origin.split(":").at(-1)));
-  const result = run("/usr/bin/security", ["delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", `${origin}\n${environmentId}`], { allowFail: true });
-  if (result.status !== 0 && result.status !== 44) throw new Error(`security: exit ${result.status}: ${result.stderr.trim()}`);
-  return result.status === 0;
+export const CATALOG_ACCOUNT = "t3-catalog";
+/**
+ * Removes what a normal (non-agent) launch of the app `app` (a bundle id) saved for a fixture environment: its
+ * tokens at that fixture's loopback origins and its saved entry. Returns whether anything was there.
+ */
+export function forgetKeychain(app, origins, environmentId) {
+  for (const origin of origins) {
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) throw new Error(`not a fixture origin: ${origin}`);
+    checkPort(Number(origin.split(":").at(-1)));
+  }
+  const read = run("/usr/bin/security", ["find-generic-password", "-s", app, "-a", CATALOG_ACCOUNT, "-w"], { allowFail: true });
+  if (read.status === 44) return false;
+  if (read.status !== 0) throw new Error(`security: exit ${read.status}: ${read.stderr.trim()}`);
+  const catalog = JSON.parse(read.stdout.trim());
+  const accounts = origins.map((origin) => `${origin}\n${environmentId}`).filter((account) => account in (catalog.tokens ?? {}));
+  const saved = (catalog.saved ?? []).filter((entry) => entry.environmentId !== environmentId);
+  if (!accounts.length && saved.length === (catalog.saved ?? []).length) return false;
+  for (const account of accounts) delete catalog.tokens[account];
+  catalog.saved = saved;
+  const write = run("/usr/bin/security", ["add-generic-password", "-U", "-s", app, "-a", CATALOG_ACCOUNT, "-w", JSON.stringify(catalog)], { allowFail: true });
+  if (write.status !== 0) throw new Error(`security: exit ${write.status}: ${write.stderr.trim()}`);
+  return true;
 }
 
 /**

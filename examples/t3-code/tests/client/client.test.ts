@@ -4,7 +4,7 @@ import { T3Client } from '../../src/client/client';
 import { snapshot, transcriptPresentation, modelCatalog, providerBanner, projectIdentity, providerBadge } from '../../src/client/presentation';
 import { environmentFetchFailure, parsePairing, nativeFiles, type Native, type Files } from '../../src/client/protocol';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
-import { answer } from '../../app';
+import { answerClient as answer } from '../../app'; // the client against this file's scripted bridge
 import { chatLocal } from '../../src/timeline/timeline-presentation';
 import { timestamp, thread, storage, Backend, connected, opened } from '../support/client-fixture';
 import { appPath } from '../support/app-files';
@@ -495,7 +495,7 @@ describe('connection and bootstrap', () => {
     expect(client.ready).toBe(true);
     expect(client.runtimeMode).toBe('full-access');
     expect(client.interactionMode).toBe('default');
-    expect(native.watchers).toContain('t3.events');
+    expect(native.watchers).toContain('t3.status');
   });
   test('a misrouted events reply cannot replace the last valid connection status', async () => {
     const { client, native, disk } = await opened();

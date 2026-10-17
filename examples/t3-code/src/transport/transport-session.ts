@@ -11,6 +11,11 @@
 // Replies that resume an answer are handed to `hooks.deliver`, which a separate answer runs, so the
 // awaiting answer continues inside an answer of its own (exact2's prelude keeps a fetch made after a
 // mapper-resolved await, and only then).
+//
+// An answer may await only what a fetch, a storage step or an open stream in this module will settle
+// (else the prelude refuses it as pending on nothing). So `connect` and `retry` run the connect flow in
+// the answer that asked, whose own fetches keep it alive, and reply once the socket's URL is in, not
+// once the socket opens: no stream may be open yet. The ladder's attempts run in the slot's own answer.
 import { Inbox } from './transport-inbox';
 import { RouteState, blocks, json, type Http, type HttpReply } from './transport-routes';
 import { credentialOrigins, type Catalog, type Route } from './transport-catalog';
@@ -92,7 +97,10 @@ export class Session {
   private probeUnanswered = false;
   private lastPong = 0;
   private nextPing = 0;
-  private opening: Done | null = null;
+  /** The attempt whose connect flow is running, in whichever answer runs it; -1 when none is. */
+  private flowRunning = -1;
+  /** Why the last attempt failed: what a `connect` or `retry` that ran it replies. */
+  private lastFailure: TransportFailure | null = null;
   /** When the next attempt starts (ms), while the ladder waits. */
   reconnectAt: number | null = null;
   /** The socket's URL for the current attempt, once the connect flow has a ticket; '' while none. */
@@ -140,8 +148,8 @@ export class Session {
           if (!(count >= 1 && count <= 16)) throw this.argument('ids requires a count from 1 to 16.');
           return this.ok(Array.from({ length: count }, () => this.hooks.uuid()));
         }
-        case 'connect': return await new Promise<Reply>(done => this.connect(request, done));
-        case 'retry': return await new Promise<Reply>(done => this.retryNow(request, done));
+        case 'connect': return await this.connect(request);
+        case 'retry': return await this.retryNow(request);
         case 'disconnect': return this.disconnect(request);
         case 'http': return await this.readHTTP(request);
         case 'uploadAttachment': return await this.uploadAttachment(request);
@@ -239,23 +247,30 @@ export class Session {
 
   // MARK: Connecting
 
-  private connect(request: Obj, done: Done): void {
-    let next: string, credential: string;
-    try {
-      next = parseOrigin(str(request.origin));
-      const toPrimary = request.primary === true;
-      credential = toPrimary ? '' : parseCredential(str(request.credential), next);
-      this.reconnectAt = null; this.wantsConnection = false;
-      this.retire(new TransportFailure('Replaced', 'The connection was replaced.', true));
-      this.origin = next; this.descriptor = {}; this.token = ''; this.primary = toPrimary;
-    } catch (error) { return done(this.bad(this.failure(error))); }
+  private async connect(request: Obj): Promise<Reply> {
+    const next = parseOrigin(str(request.origin));
+    const toPrimary = request.primary === true;
+    const credential = toPrimary ? '' : parseCredential(str(request.credential), next);
+    this.reconnectAt = null; this.wantsConnection = false;
+    this.retire(new TransportFailure('Replaced', 'The connection was replaced.', true));
+    this.origin = next; this.descriptor = {}; this.token = ''; this.primary = toPrimary;
     this.failureKind = ''; this.failureTrace = ''; this.lastHTTPTrace = '';
     this.privateValues = credential ? [credential] : []; this.exchangeScope = str(request.scope);
     // The primary walks no saved routes: one loopback address, its bearer from the embedded server.
     if (this.primary) this.routes.stop(); else this.routes.load(next, this.hooks.catalog);
-    this.wantsConnection = true; this.failures = 0; this.everConnected = false; this.opening = done;
+    this.wantsConnection = true; this.failures = 0; this.everConnected = false;
     // The origin is remembered once its socket opens; a failed pairing leaves nothing behind.
     this.start(credential);
+    return this.attemptHere();
+  }
+
+  /** Runs the attempt `start` began in this answer: its status once the socket's URL is in, else why it failed. */
+  private async attemptHere(): Promise<Reply> {
+    const attempt = this.connectAttempt;
+    this.lastFailure = null;
+    const url = await this.connectFlow(attempt);
+    if (url || (this.attempt === attempt && this.state === 'connected')) return this.ok(this.status());
+    return this.bad(this.lastFailure ?? new TransportFailure('Replaced', 'The connection was replaced.', true));
   }
 
   /** A new attempt: the next connect flow runs for it. */
@@ -270,7 +285,11 @@ export class Session {
   }
 
   /** Whether the connect flow for `attempt` should run (an answer asks before it fetches). */
-  wantsFlow(attempt: number): boolean { return this.alive && this.wantsConnection && attempt === this.connectAttempt && !this.url && this.state !== 'connected'; }
+  wantsFlow(attempt: number): boolean {
+    return this.alive && this.wantsConnection && attempt === this.connectAttempt && this.flowRunning !== attempt && !this.url && this.state !== 'connected';
+  }
+  /** A connection is being made: a flow runs, or its socket has a URL and has not opened. The tick runs fast meanwhile. */
+  get establishing(): boolean { return this.flowRunning >= 0 || (!!this.url && this.state !== 'connected'); }
 
   /**
    * The HTTP steps of one attempt, in the answer the transport asks for it: the route walk, the descriptor, the
@@ -279,6 +298,12 @@ export class Session {
    */
   async connectFlow(attempt: number): Promise<string> {
     if (!this.wantsFlow(attempt)) return '';
+    this.flowRunning = attempt;
+    try { return await this.runFlow(attempt); }
+    finally { if (this.flowRunning === attempt) this.flowRunning = -1; }
+  }
+
+  private async runFlow(attempt: number): Promise<string> {
     const credential = this.pendingCredential;
     const walking = !credential && !this.primary;
     if (this.walkFresh) {
@@ -360,14 +385,14 @@ export class Session {
   }
 
   /** One request on the connected origin; the JSON reply, or the failure the reference reports. */
-  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; contentType?: string; authorized?: boolean; long?: boolean }): Promise<unknown> {
+  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; contentType?: string; authorized?: boolean; long?: boolean; large?: boolean }): Promise<unknown> {
     if (!this.origin) throw new TransportFailure('Disconnected', 'Connect to a server first.');
     const url = onOrigin(target, this.origin);
     const headers: Record<string, string> = { 'x-t3-orchestration-protocol': '2', Accept: 'application/json' };
     if (options.body !== undefined) headers['Content-Type'] = options.contentType ?? 'application/json';
     if (options.authorized !== false) headers.Authorization = `Bearer ${this.token}`;
     let reply: HttpReply;
-    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, timeoutMs: options.long ? 60_000 : 30_000, signal: this.abort?.signal }); }
+    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, timeoutMs: options.long ? 60_000 : 30_000, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
     catch (error) {
       if (!this.alive || this.generation !== options.epoch) throw new TransportFailure('Replaced', 'The connection changed during the request.');
       throw new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)));
@@ -431,7 +456,6 @@ export class Session {
       }
     } catch { /* the catalog keeps what it had */ }
     this.lastPong = now; this.nextPing = now + PING_INTERVAL_MS;
-    if (this.opening) { const waiter = this.opening; this.opening = null; this.deliver(waiter, this.ok(this.status())); }
     this.flush(handle);
   }
 
@@ -650,7 +674,6 @@ export class Session {
     for (const waiters of this.pendingDiffs.values()) for (const waiter of waiters) this.deliver(waiter, failed(this.generation));
     this.pendingDiffs.clear();
     this.streams.clear(); this.streamRetries.clear(); this.failedStreams.clear(); this.retryDue.clear();
-    if (this.opening) { const waiter = this.opening; this.opening = null; this.deliver(waiter, failed(this.generation)); }
   }
 
   /** A walk's route failed: the walk moves on in a fresh generation (a new attempt when its socket had a URL). */
@@ -662,6 +685,7 @@ export class Session {
   connectionFailed(error: TransportFailure, epoch: number): void {
     if (!this.alive || this.generation !== epoch || !this.wantsConnection || this.reconnectAt !== null) return;
     const problem = this.failure(error);
+    this.lastFailure = problem.with({ uncertain: true });
     // connectOverRoutes: a route that fails moves on to the next; an incompatible server is the same on every route.
     if (this.routes.walksSeveral && problem.kind !== 'Protocol') {
       this.routes.record(problem); this.lastHTTPTrace = '';
@@ -707,21 +731,22 @@ export class Session {
   }
 
   /** The connection buttons' Retry (supervisor retryNow): a live socket is probed, not replaced; a waiting retry runs now. */
-  private retryNow(request: Obj, done: Done): void {
-    try {
-      const raw = str(request.origin);
-      if (raw && this.origin && parseOrigin(raw) !== this.origin && !this.routes.routes.some(route => route.origin === trimmed(raw))) return this.connect(request, done);
-      if (!this.origin) throw new TransportFailure('Disconnected', 'Connect to a server first.');
-    } catch (error) { return done(this.bad(this.failure(error))); }
-    if (this.wantsConnection && this.state === 'connected' && this.socket) return this.probe(QUICK_PROBE_MS, done);
+  private async retryNow(request: Obj): Promise<Reply> {
+    const raw = str(request.origin);
+    if (raw && this.origin && parseOrigin(raw) !== this.origin && !this.routes.routes.some(route => route.origin === trimmed(raw))) return this.connect(request);
+    if (!this.origin) throw new TransportFailure('Disconnected', 'Connect to a server first.');
+    // The probe's reply comes over the open socket, whose stream keeps this answer alive.
+    if (this.wantsConnection && this.state === 'connected' && this.socket) return await new Promise<Reply>(done => this.probe(QUICK_PROBE_MS, done));
     if (this.wantsConnection && this.reconnectAt !== null) {
-      this.reconnectAt = null; this.failures = 0; this.opening = done; this.start(); return;
+      this.reconnectAt = null; this.failures = 0; this.start();
+      return this.attemptHere();
     }
     // An attempt in flight restarts; a stopped connection starts again from saved credentials.
     this.retire(new TransportFailure('Replaced', 'The connection was retried.', true));
     this.failureKind = ''; this.failureTrace = '';
-    this.wantsConnection = true; this.failures = 0; this.opening = done;
+    this.wantsConnection = true; this.failures = 0;
     this.start();
+    return this.attemptHere();
   }
 
   private disconnect(request: Obj): Reply {
@@ -821,7 +846,7 @@ export class Session {
     if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
     const target = str(request.path);
     if (!target || (str(request.method) || 'GET') !== 'GET' || request.body !== undefined) throw this.argument('The client HTTP interface is read-only.');
-    return this.ok(await this.http(target, { epoch: this.generation }));
+    return this.ok(await this.http(target, { epoch: this.generation, large: true }));
   }
 
   private async uploadAttachment(request: Obj): Promise<Reply> {
@@ -837,7 +862,7 @@ export class Session {
     }
     const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
     if (!typed && !png.every((byte, index) => data![index] === byte)) throw this.argument('The captured image is not a PNG.');
-    return this.ok(await this.http(target, { epoch: this.generation, method: 'POST', body: data, contentType: typed ? declared : 'image/png', authorized: false }));
+    return this.ok(await this.http(target, { epoch: this.generation, method: 'POST', body: data, contentType: typed ? declared : 'image/png', authorized: false, large: true }));
   }
 
   /** `POST /api/pull-requests/diff` (PullRequestDiffInput; the reference's client gives it 60 s); identical reads join. */
@@ -850,7 +875,7 @@ export class Session {
     const waiters: Done[] = [];
     this.pendingDiffs.set(key, waiters);
     let reply: Reply;
-    try { reply = this.ok(await this.http('/api/pull-requests/diff', { epoch: this.generation, method: 'POST', body, long: true })); }
+    try { reply = this.ok(await this.http('/api/pull-requests/diff', { epoch: this.generation, method: 'POST', body, long: true, large: true })); }
     catch (error) { reply = this.bad(this.failure(error)); }
     if (this.pendingDiffs.get(key) === waiters) this.pendingDiffs.delete(key);
     for (const waiter of waiters) waiter(reply);

@@ -4,7 +4,7 @@
 // kept this Mac's providers whichever environment the menu ticked, and the second server got no
 // provider queries. These tests go through the app's own answer(), as the Contract asks it.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { answer } from '../../app';
+import { answerClient as answer } from '../../app'; // the client against this file's scripted bridge
 import { Backend, nextAppGeneration, storage } from '../support/client-fixture';
 import { environmentKey, fleet } from '../../src/connections/settings-b-fleet';
 import { initialShell, obj, arr, str, type Obj } from '../../src/client/domain';

@@ -9,7 +9,7 @@
 //   when it lands absorbs it (the readers note the epoch when their read completes).
 // - apps/web/src/hooks/useLiveRefresh.ts: when each view last read (kept outside the panel, so a
 //   view reopened later is an arrival, not a first read), and the reader's last interaction (the
-//   activity reporter's, T3ActivityReporter.swift, asked through `activityLastInteraction`).
+//   module's input monitor, T3ActivityInput.swift, asked through `activityLastInteraction`).
 // - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot: the snapshots live in the
 //   app's versioned preference file (t3-code.json, `prDetailSnapshots`), bounded to the 24 newest.
 // The stream rides T3Client's transport (one dispatch line in client.ts drain, as shell-vcs.ts);

@@ -3,8 +3,8 @@
 // ServerUpdateAction.tsx OutdatedServerUpdateAction and ConnectionsSettings.tsx).
 // A host whose orchestration protocol is older than this client's cannot open a
 // session. One that can update itself is still paired (saved switched off) and
-// its row offers Update (Retry update after a failure): T3Fleet.swift
-// T3OutdatedHosts opens a bare socket without the protocol gate, runs the
+// its row offers Update (Retry update after a failure): the transport's
+// OutdatedHosts (transport-outdated.ts) opens a bare socket without the protocol gate, runs the
 // self-update RPCs, waits for the host to answer protocol 2 and switches it back
 // on. Progress lands in the row as "Downloading…" then "Restarting…".
 import { obj, str, type Obj } from '../client/domain';
@@ -14,7 +14,7 @@ import type { T3Client } from '../client/client';
 import { withStandardScope } from './remote-scopes';
 
 export const ORCHESTRATION_PROTOCOL_VERSION = 2;
-/** One T3Fleet update job; `mode` is "connected" for a connected server older than this client (server-update.ts), `attempt` numbers each start. */
+/** One update job of the transport's; `mode` is "connected" for a connected server older than this client (server-update.ts), `attempt` numbers each start. */
 export type OutdatedJob = { status: string; stage: string; fromVersion: string; targetVersion: string; message: string; resultVersion: string; label: string; mode: string; attempt: string };
 export type Compatibility = { message: string; serverUpdateRequired: boolean };
 
@@ -37,7 +37,7 @@ export const stageLabel = (stage: string) => stage === 'resuming' ? 'Restarting�
 // Data sources have no clock: each opening of the page probes again (forgetProbes), then reuses the answer.
 const probes = new Map<string, { descriptor: Obj | null }>();
 let jobs: Record<string, OutdatedJob> = {};
-/** Jobs live in this process's T3Fleet only: until one starts (or a read finds one), the fleet pass never asks. */
+/** Jobs live in this process's transport only: until one starts (or a read finds one), the fleet pass never asks. */
 let jobsMayExist = false;
 
 /** The page closed: its next opening probes every blocked environment again. */
@@ -61,7 +61,7 @@ const decodeJob = (value: unknown): OutdatedJob => {
   const job = obj(value);
   return { status: str(job.status), stage: str(job.stage), fromVersion: str(job.fromVersion), targetVersion: str(job.targetVersion), message: str(job.message), resultVersion: str(job.resultVersion), label: str(job.label), mode: str(job.mode, 'outdated'), attempt: str(job.attempt) };
 };
-/** Every outdated-host update job T3Fleet holds, by environment key. */
+/** Every outdated-host update job the transport holds, by environment key. */
 export async function readJobs(native: Native): Promise<Record<string, OutdatedJob>> {
   try {
     const reply = await bridgeReply(native, { op: 'fleetOutdatedJobs', fleet: '\n' });
@@ -90,7 +90,7 @@ export function outdatedRow(key: string, label: string, descriptor: Obj | undefi
   };
 }
 
-/** Starts the single-flight update; T3Fleet answers at once and reports through "t3.fleet". */
+/** Starts the single-flight update; the transport answers at once and reports each change as fleet news. */
 export async function startOutdatedUpdate(native: Native, key: string, label: string, fromVersion: string, targetVersion: string): Promise<boolean> {
   return (await startUpdateJob(native, key, { label, fromVersion, targetVersion })).started === true;
 }

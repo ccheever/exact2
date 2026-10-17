@@ -7,7 +7,7 @@ import XCTest
 final class TerminalDrawerTests: XCTestCase {
     private var window: NSWindow!
     private var views: [T3TerminalView] = []
-    private var transport: T3Transport!
+    private var links: T3Links!
     private var sessions: T3TerminalSessions!
 
     override func setUpWithError() throws {
@@ -15,8 +15,8 @@ final class TerminalDrawerTests: XCTestCase {
         setenv("EXACT_ASSETS", app, 1)
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
         if ProcessInfo.processInfo.environment["T3_TERMINAL_HIDDEN"] != "1" { window.orderFrontRegardless() }
-        transport = T3Transport(persistent: false, signals: false, changed: { _ in })
-        sessions = T3TerminalSessions.of(transport)
+        links = T3Links() // no environment linked: nothing is connected
+        sessions = T3TerminalSessions.of(links)
         sessions.detachGrace = 0.1
         drawerMessages = []
         drawerFocusEvents = []
@@ -27,7 +27,7 @@ final class TerminalDrawerTests: XCTestCase {
     override func tearDown() {
         for view in views { view.destroy() }
         views = []
-        transport.destroy()
+        links.destroy()
         window.orderOut(nil)
     }
 
@@ -401,7 +401,7 @@ final class TerminalDrawerTests: XCTestCase {
         spin(until: { view.ready })
         sessions.write(String(repeating: "x", count: 65_537), to: session, from: view)
         XCTAssertEqual([session.writes, session.writeFailures], [1, 1])
-        // At the bound it goes on to the transport (here none is connected, so that is what it reports).
+        // At the bound it goes on to the link (here none is connected, so that is what it reports).
         sessions.write(String(repeating: "x", count: 65_536), to: session, from: view)
         XCTAssertEqual([session.writes, session.writeFailures], [2, 2])
         view.systemMessage("Expected a value with a length of at most 65536\n  at [\"data\"]")

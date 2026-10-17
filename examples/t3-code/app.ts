@@ -52,20 +52,41 @@ import { letGoAware } from './src/client/let-go';
 import { keepAlivePrepare } from './src/client/keep-alive'; // running threads' detail streams
 import { migrationToast } from './src/connections/local-lifecycle'; // a let-go answer's native calls reject as 'superseded', never as an error
 import { activationPrepare } from './src/shell/desktop-activation';
+import { Transport } from './src/transport/transport';
+import type { SecretStore } from './src/transport/transport-catalog';
 
 export const appId = 'com.exact.t3code.macos';
-export const grants = '';
+// The server connections (src/transport/transport.ts): servers are named at run time (a pairing link, a learned
+// route, the embedded server's port), so whole schemes; the tokens and saved environments are one secret.
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog';
 const client = new T3Client();
+const transport = new Transport();
 
-// The disconnected answer is baked. Native work starts only when Exact reports
+// The transport's own sources answer first and synchronously where they must: a socket's stream answer is the fetch
+// itself, and the tick is a mutation that sends, which answers now (LLP 1016.000 D7).
+// Its return is the generated `Answer`'s, per source, which a dispatcher over every source cannot name (`answerClient`'s is `any` too).
+export function answer(source: string, args: unknown[], store: unknown, storage: Files, native: Native | null | undefined): any {
+  transport.store = store as SecretStore;
+  if (source === 'transportSocket') return transport.socket(Number(args[0]) || 0, String(args[1] ?? ''));
+  if (source === 'transportConnect') return transport.connect(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0, Number(args[3]) || 0, native);
+  if (source === 'transportUpdateStep') return transport.updateStep(Number(args[0]) || 0, String(args[1] ?? ''), Number(args[2]) || 0);
+  if (source === 'transportUpdateSocket') return transport.updateSocket(Number(args[0]) || 0, String(args[1] ?? ''));
+  if (source === 'transportDeliver') return transport.deliver();
+  if (source === 'transportPump') return transport.pump(Number(args[0]) || 0, String(args[1] ?? ''));
+  return answerClient(source, args, store, storage, transport.wrap(native) as Native | null | undefined);
+}
+
+// The client's answers, given the bridge it talks to: `answer` puts the transport in front of the app's module; a test
+// hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
-export async function answer(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
+export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
   if (native?.available) native = letGoAware(native);
   const storage = native?.available ? nativeFiles(native) : _storage;
   if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
   startHighlightTurn(); // any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
+    transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
