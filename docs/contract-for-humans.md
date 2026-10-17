@@ -891,8 +891,8 @@ bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
-A scratch store is kept between drives on every host, so a second drive with the
-same `--storage demo` opens the list the first one saved: on the web, Chrome's
+A drive empties its scratch store first unless it is given `--keep-storage`, so a
+second drive with `--storage demo --keep-storage` opens the list the first one saved: on the web, Chrome's
 profile for that name, served at one origin (Firefox and WebKit drives start
 fresh). A test's `reload` restarts the app on its store within one drive,
 including a data module's `secret.keep`.

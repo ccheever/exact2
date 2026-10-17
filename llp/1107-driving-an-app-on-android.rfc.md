@@ -41,7 +41,7 @@ The carrier pushes the app's Android-built Linux host and its `assets/` to `/dat
 
 A screenshot is written on the device and pulled to the path asked for.
 - **Per drive:** each drive deploys into a run directory of its own (`run-<pid>-<time>`, removed when its process ends; one a killed `adb` orphaned goes after a day), so two drives of one app share neither a binary nor a screenshot. An authored test run's scratch stores carry the run's own tag, as on the desktop.
-- **Kept:** `HOME` is the app's and survives, so a named scratch store (`--storage`) persists between drives as on the desktop carriers.
+- **Kept:** `HOME` is the app's and survives, so a named scratch store (`--storage`) persists between drives given `--keep-storage`, as on the desktop carriers.
 - **Plans and URLs:** a local `--plan` is pushed and read on the device, with the replacement Rust module beside it (`rust/`) when there is one; a launch URL reaches the host as its argv. Fonts are `/system/fonts` unless the drive names `EXACT_FONTS` or `EXACT_FONT`.
 - **A known limit:** a drive whose local `adb` client is killed can leave its process running on the device until that session ends. It cannot touch another drive's files, but it shares the app's `HOME`. No APK, Gradle or Kotlin is involved, and the host's own agent answers, so the carrier's contract is the Linux one.
 

@@ -596,6 +596,14 @@ serve proof provisions uniquely keyed fixtures or logs in to an existing
 test account. Existing managed-auth `E_AUTH` handling forgets the refused
 current token, preserving a newer token after a late old-token refusal.
 
+**Native stores follow (2026-10-17):** `agent ios|macos|linux --storage NAME`
+starts empty too, and `--keep-storage` reopens it. The CLI had asked only
+Chrome to empty a store, so `--reset-storage` on iOS did nothing and a second
+drive read the first one's `app:/data` file (the euxy port lost ten minutes to
+it). A native host empties the store's whole tree at its first boot: the
+`app:/` data, cache and temporary roots, the data module's SQLite files, kept
+state and secrets (`host/apple/src/picker.rs`, `host/linux/src/picker.rs`).
+
 
 **EX7 visibility (2026-10-14):** before opening any test browser, `test web` prints
 `fresh: reseeding before each of N tests`, counting the compiled tests that actually

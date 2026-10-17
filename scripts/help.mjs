@@ -26,8 +26,8 @@ const takesValue = (spec) => spec.includes(' ');
 const DRIVE = [
   ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
   ['--backend <url>', 'web: select the backend origin for this build'],
-  ['--storage <name>', 'a scratch store; Chrome starts empty each drive'],
-  ['--keep-storage · --reset-storage', 'Chrome: reopen a named store · explicitly empty it'],
+  ['--storage <name>', 'a scratch store, empty at the start of each drive'],
+  ['--keep-storage · --reset-storage', 'reopen a named store as the last drive left it · empty it (the default)'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
   ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],

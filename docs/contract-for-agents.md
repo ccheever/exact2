@@ -158,8 +158,8 @@ or the red button would (the agent's window is never key, so a typed ⌘W reache
 nothing): the window asks its `beforeunload` first, and the reply says
 `closed: true`, or `closed: false` for a window a handler kept (the web's
 "Leave site?" is answered "Stay"). macOS and the web; iOS and Linux refuse it.
-`--storage <name>` gives a drive a named scratch store, kept between drives on
-macOS, iOS, Linux and web Chrome (a kept browser profile served on one port per
+`--storage <name>` gives a drive a named scratch store, emptied when the drive
+starts unless it is given `--keep-storage`, on macOS, iOS, Linux and web Chrome (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
 for the drive, including its `reload`). Without it a drive has no
 app storage: an `app:/` file or SQLite request is refused (`storage is unavailable

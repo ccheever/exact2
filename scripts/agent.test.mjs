@@ -287,6 +287,20 @@ test('compare: the CLI form and the reference are checked before any comparison'
   assert.match(helpText('agent'), /\(a select, date or checkbox: its value\)/);
 });
 
+test('a named store starts empty on every host unless the drive keeps it', async () => {
+  const quiet = [console.log, console.error];
+  console.log = () => {}; console.error = () => {};
+  try {
+    for (const [host, flags, fresh] of [['ios', [], true], ['ios', ['--reset-storage'], true], ['ios', ['--keep-storage'], false],
+      ['macos', ['--reset-storage'], true], ['linux', ['--keep-storage'], false], ['web', [], true], ['web', ['--keep-storage'], false]]) {
+      let env = 'unopened';
+      const fakeOpen = async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; };
+      assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: fakeOpen, driveServer: async () => null }), 0);
+      assert.equal(env?.EXACT_AGENT_STORAGE_FRESH === '1', fresh, `${host} ${flags.join(' ')}`);
+    }
+  } finally { [console.log, console.error] = quiet; }
+});
+
 test('compare on a capture: nodes where the window has them, its safe area not scored, a scaled viewport refused, its notes said', async () => {
   const { compareOp } = await import('./agent-compare.mjs');
   const { encodePng } = await import('./png.mjs');
