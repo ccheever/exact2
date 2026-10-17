@@ -288,7 +288,7 @@ extension Agent {
             return CGPoint(x: scrollsX ? min(max(p.x, -i.left), maxX) : p.x, y: scrollsY ? min(max(p.y, -i.top), maxY) : p.y)
         }
         let o = sv.contentOffset
-        let to = inRange(CGPoint(x: o.x - CGFloat(delta[0]), y: o.y - CGFloat(delta[1])))
+        let to = inRange(CGPoint(x: scrollsX ? o.x - CGFloat(delta[0]) : o.x, y: scrollsY ? o.y - CGFloat(delta[1]) : o.y))
         // A drag ends a smooth correction, as a wheel does (LLP 1070.000 §11).
         if let owner = sv.superview as? NodeView, presenter.collections.animating.contains(owner.id) { presenter.collections.animationEnded(owner.id, dragging: true) }
         sv.setContentOffset(to, animated: false)
@@ -296,11 +296,14 @@ extension Agent {
         // under the lifted finger (UIKit takes the title's height off the top
         // inset and adds it to the offset), which left the content 52 points
         // past its end; UIKit's bounce brings it back inside, here at once.
+        // Within the range the added height is no motion of the content, so
+        // the drag's own distance is what it scrolled by.
         win.layoutIfNeeded()
         let rest = inRange(sv.contentOffset)
+        let by = rest != sv.contentOffset ? rest : to
         if rest != sv.contentOffset { sv.setContentOffset(rest, animated: false) }
         presenter.settlePump()
-        return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(sv.contentOffset.x - o.x), Agent.r2(sv.contentOffset.y - o.y)],
+        return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(by.x - o.x), Agent.r2(by.y - o.y)],
                 "delivery": "recognized", "native": "scroll"]
     }
 

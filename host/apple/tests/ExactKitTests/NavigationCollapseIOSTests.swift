@@ -147,6 +147,31 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertEqual(sv.contentOffset.y, end, accuracy: 0.5, "at the end, not past it")
     }
 
+    /// A diagonal agent drag moves a scroller along the axes it scrolls
+    /// alone, though its content overflows the other (the page is 800 wide,
+    /// the strip's row 100 tall), and reports the drag's own distance while
+    /// the collapsing title adds its height to the offset.
+    func testADiagonalAgentDragMovesAScrollerAlongItsOwnAxisAlone() throws {
+        let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title-diagonal", beforeItsWindow: true)
+        let agent = Agent(session: session)
+        let page = try node(session, "home-scroll"), sv = try XCTUnwrap(page.scroll)
+        let strip = try node(session, "home-strip"), row = try XCTUnwrap(strip.scroll)
+        XCTAssertEqual(page.scroll?.scrollsX, false)
+        XCTAssertEqual(strip.scroll?.scrollsY, false)
+        let across = agent.tap(["id": Int(strip.id), "scrollDrag": [-240.0, -30.0]])
+        XCTAssertNil(across["error"], "\(across)")
+        XCTAssertEqual(row.contentOffset.x, 240, accuracy: 0.5, "the strip scrolls sideways")
+        XCTAssertEqual(row.contentOffset.y, 0, accuracy: 0.5, "and not down")
+        let x = sv.contentOffset.x, y = sv.contentOffset.y
+        let down = agent.tap(["id": Int(page.id), "scrollDrag": [-40.0, -300.0]])
+        XCTAssertNil(down["error"], "\(down)")
+        XCTAssertEqual(sv.contentOffset.x, x, accuracy: 0.5, "the page scrolls down and not sideways")
+        XCTAssertGreaterThan(sv.contentOffset.y, y + 299)
+        let by = try XCTUnwrap(down["scrolledBy"] as? [Double])
+        XCTAssertEqual(by[0], 0, accuracy: 0.5)
+        XCTAssertEqual(by[1], 300, accuracy: 0.5, "the drag's 300, not the title's height besides")
+    }
+
     /// LLP 1115.000 D11.1: a route that names no scroller has one all the
     /// same, its first that scrolls vertically, as a hand-built screen's
     /// scroll view is its bar's with nothing written. Right after the header
