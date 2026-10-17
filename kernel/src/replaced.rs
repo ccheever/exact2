@@ -50,9 +50,10 @@ pub(crate) fn measure(
     if let Some(ratio) = unsized_ratio {
         // @ref LLP 1055.000 D4 — a replaced element with a ratio and no
         // natural size fills the offered width (CSS Sizing's stretch fit, as
-        // Chrome sizes one). To a min-content or max-content size it
-        // contributes no width, except that Chrome gives a percentage width
-        // left unresolved the default object width at max-content.
+        // Chrome sizes one). It contributes no width to a min-content or
+        // max-content size, except that at max-content a percentage width
+        // that cannot resolve takes the 300 px default object width, as in
+        // Chrome.
         let percent = style.size.width.into_raw().uses_percentage();
         let width = known
             .width

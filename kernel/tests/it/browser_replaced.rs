@@ -9,7 +9,7 @@
 use crate::browser_cases::{css_rows as rows, lay_out_as, mismatches, props};
 use crate::support::reader::number as n;
 use exact_kernel::StyleId::*;
-use exact_kernel::{GridTrack, GridTracks, NodeType, Op, PropId};
+use exact_kernel::{GridTrack, GridTracks, Kernel, NodeType, Op, PropId};
 
 type Frames = &'static [[f32; 4]];
 
@@ -865,71 +865,79 @@ const CONTENT: &[(&str, &str, &str, [Frames; 4])] = &[
     ),
 ];
 
+/// `layout` (a `CONTENT` layout) holding a `kind` styled `item`, with
+/// `viewBox="0 0 100 50"` when `view_box`, laid out.
+fn lay_out_held(layout: &str, item: &str, kind: NodeType, view_box: bool) -> Kernel {
+    // The wrapper's rows, the boxes it holds and their rows, and each
+    // element's id and parent.
+    type Layout = (
+        &'static str,
+        &'static [(u32, &'static str)],
+        &'static [(u32, u32)],
+    );
+    let (wrapper, inner, held): Layout = match layout {
+        "wrap" => (
+            "display:flex;flex-wrap:wrap",
+            &[
+                (3, "flex-grow:1;flex-shrink:1;flex-basis:160px"),
+                (4, "flex-grow:1;flex-shrink:1;flex-basis:160px"),
+            ],
+            &[(5, 3), (6, 4)],
+        ),
+        "row" => ("display:flex", &[(3, ""), (4, "")], &[(5, 3), (6, 4)]),
+        _ => ("position:absolute", &[], &[(3, 2)]),
+    };
+    let root = props(&[vec![(Width, n(400.0))], rows("position:relative")].concat());
+    let mut nodes = vec![(2, 1, rows(wrapper))];
+    nodes.extend(inner.iter().map(|(id, r)| (*id, 2, rows(r))));
+    let mut k = lay_out_as(root, nodes, &[], &[], NodeType::View);
+    let mut ops = Vec::new();
+    for (id, parent) in held {
+        ops.push(Op::CreateView {
+            id: *id,
+            node_type: kind,
+        });
+        ops.push(Op::SetStyle {
+            id: *id,
+            patch: Box::new(props(&rows(item))),
+        });
+        if view_box {
+            ops.push(Op::SetProp {
+                id: *id,
+                prop: PropId::ViewBox,
+                value: "0 0 100 50".into(),
+            });
+        }
+        ops.push(Op::SetChildren {
+            id: *parent,
+            children: vec![*id],
+        });
+    }
+    k.apply(0, 2, &ops).unwrap();
+    k.compute_layout(1, exact_kernel::Offer::definite(800.0, 600.0))
+        .unwrap();
+    k
+}
+
 /// What a replaced element contributes to the min-content and max-content
 /// width of what holds it (CSS Sizing 3 §5.2): one with a ratio and no
 /// natural size contributes no width, though it fills a definite width
 /// (above), and at `width: 100%` Chrome gives its max-content contribution
-/// the default object width (`abs width 100%`). `wrap bare` is the `svg`
-/// that wrapped two `flex: 1 1 160px` items onto two lines.
+/// the default object width (`abs width 100%`). The canvas, whose natural
+/// size it contributes, is the contrast. `wrap bare` is the `svg` that
+/// wrapped two `flex: 1 1 160px` items onto two lines.
 #[test]
-fn replaced_elements_contribute_their_natural_or_default_width_to_content_sizes() {
+fn replaced_elements_with_a_ratio_and_no_natural_size_contribute_no_content_width() {
+    let kinds = [
+        ("canvas", NodeType::Canvas),
+        ("iframe", NodeType::WebView),
+        ("video", NodeType::Video),
+        ("svg viewBox", NodeType::Svg),
+    ];
     let mut failures = Vec::new();
     for (name, layout, item, frames) in CONTENT {
-        // The wrapper's rows, the boxes it holds and their rows, and each
-        // element's id and parent.
-        type Layout = (
-            &'static str,
-            &'static [(u32, &'static str)],
-            &'static [(u32, u32)],
-        );
-        let (wrapper, inner, held): Layout = match *layout {
-            "wrap" => (
-                "display:flex;flex-wrap:wrap",
-                &[
-                    (3, "flex-grow:1;flex-shrink:1;flex-basis:160px"),
-                    (4, "flex-grow:1;flex-shrink:1;flex-basis:160px"),
-                ],
-                &[(5, 3), (6, 4)],
-            ),
-            "row" => ("display:flex", &[(3, ""), (4, "")], &[(5, 3), (6, 4)]),
-            _ => ("position:absolute", &[], &[(3, 2)]),
-        };
-        let root = props(&[vec![(Width, n(400.0))], rows("position:relative")].concat());
-        let mut nodes = vec![(2, 1, rows(wrapper))];
-        nodes.extend(inner.iter().map(|(id, r)| (*id, 2, rows(r))));
-        let kinds = [
-            ("canvas", NodeType::Canvas),
-            ("iframe", NodeType::WebView),
-            ("video", NodeType::Video),
-            ("svg viewBox", NodeType::Svg),
-        ];
         for ((tag, kind), want) in kinds.iter().zip(frames) {
-            let mut k = lay_out_as(root.clone(), nodes.clone(), &[], &[], NodeType::View);
-            let mut ops = Vec::new();
-            for (id, parent) in held {
-                ops.push(Op::CreateView {
-                    id: *id,
-                    node_type: *kind,
-                });
-                ops.push(Op::SetStyle {
-                    id: *id,
-                    patch: Box::new(props(&rows(item))),
-                });
-                if *tag == "svg viewBox" {
-                    ops.push(Op::SetProp {
-                        id: *id,
-                        prop: PropId::ViewBox,
-                        value: "0 0 100 50".into(),
-                    });
-                }
-                ops.push(Op::SetChildren {
-                    id: *parent,
-                    children: vec![*id],
-                });
-            }
-            k.apply(0, 2, &ops).unwrap();
-            k.compute_layout(1, exact_kernel::Offer::definite(800.0, 600.0))
-                .unwrap();
+            let k = lay_out_held(layout, item, *kind, *tag == "svg viewBox");
             let want: Vec<_> = want
                 .iter()
                 .enumerate()
@@ -944,4 +952,52 @@ fn replaced_elements_contribute_their_natural_or_default_width_to_content_sizes(
         failures.join("\n"),
         failures.len()
     );
+}
+
+/// A view-box `svg` whose width holds a percentage contributes no width to
+/// a min-content size, whatever length the percentage is added to: two
+/// `flex: 1 1 160px` items holding one stay 200 wide, and the `svg`
+/// overflows its item. Chrome 151, 2026-10-17, as `CONTENT`'s `wrap`
+/// (frames of the row, the items, then the `svg`s).
+#[test]
+fn a_percentage_width_contributes_no_min_content_width() {
+    let cases: &[(&str, [[f32; 4]; 5])] = &[
+        (
+            "width:100%",
+            [
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+            ],
+        ),
+        (
+            "width:calc(250px + 10%)",
+            [
+                [0.0, 0.0, 400.0, 135.0],
+                [0.0, 0.0, 200.0, 135.0],
+                [200.0, 0.0, 200.0, 135.0],
+                [0.0, 0.0, 270.0, 135.0],
+                [200.0, 0.0, 270.0, 135.0],
+            ],
+        ),
+        (
+            "width:max(250px, 30%)",
+            [
+                [0.0, 0.0, 400.0, 125.0],
+                [0.0, 0.0, 200.0, 125.0],
+                [200.0, 0.0, 200.0, 125.0],
+                [0.0, 0.0, 250.0, 125.0],
+                [200.0, 0.0, 250.0, 125.0],
+            ],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (item, frames) in cases {
+        let k = lay_out_held("wrap", item, NodeType::Svg, true);
+        let want: Vec<_> = (2..).zip(*frames).collect();
+        failures.extend(mismatches(item, &k, &want));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
