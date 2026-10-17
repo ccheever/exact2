@@ -33,6 +33,9 @@ beforeAll(async () => {
     binding = value
   action rename
     targetName = targetName == "target" ? "renamed" : "target"
+  action rootName
+    targetName = "exact-root"
+    binding = "exact-root"
   action matchName
     binding = targetName
   action duplicateName
@@ -76,6 +79,11 @@ beforeAll(async () => {
           text "Duplicate"
         button testId="literal" press=useLiteral
           text "Literal"
+      row
+        button testId="fixed-reorder" press=choose("fixed-reorder")
+          text "Literal reorder"
+        button testId="root" press=rootName
+          text "Root ID"
       text \`\${releases}\` testId="releases"
       column id="sibling" height=1
       column id=(duplicate ? targetName : "outer")
@@ -91,6 +99,11 @@ ${handle('heightDragFor', 'heightrelease=resized', 12)}
             for item in rows key=item
               column height=60 box-sizing="border-box"
 ${handle('reorderFor', '', 16)}
+        if mode == "fixed-reorder"
+          list id="target" testId="target" virtualized=true estimated-item-height=60 reorderdrop=reordered width=300 height=240
+            for item in rows key=item
+              column height=60 box-sizing="border-box"
+                column reorderFor="target" testId=\`handle-\${item}\` width="100%" height=40 touch-action="none" background-color="#6699aa"
 `);
   const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'drag-bindings', '--out', resolve(dir, 'dist'), '--render', 'none'], {
     cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
@@ -154,5 +167,45 @@ test.each(['transform', 'height', 'reorder'])('%s resolves computed bindings and
     expect((await browser.state()).slots.releases).toBe(releases);
     await browser.tap('rename');
     await drag(true);
+  } finally { await browser.close(); }
+}, 60_000);
+
+test('height target can share the mounting container ID', async () => {
+  const browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
+  try {
+    await browser.tap('height');
+    await browser.tap('root');
+    const drag = async releases => {
+      await browser.tap('handle', { drag: { dx: 0, dy: -20, over: 300 } });
+      await browser.clock('settle');
+      expect((await browser.state()).slots.releases).toBe(releases);
+    };
+    await drag(1);
+    await browser.tap('duplicate');
+    await drag(1);
+    await browser.tap('duplicate');
+    await drag(2);
+  } finally { await browser.close(); }
+}, 60_000);
+
+test('literal reorder cancels a contact when an ancestor ID becomes ambiguous', async () => {
+  const browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
+  try {
+    await browser.tap('fixed-reorder');
+    const drag = async releases => {
+      await browser.tap('handle-a', { drag: { dx: 0, dy: 130, over: 300 } });
+      await browser.clock('settle');
+      expect((await browser.state()).slots.releases).toBe(releases);
+    };
+    await drag(1);
+    await browser.tap('handle-a', { down: true });
+    await browser.pointer('move', { dx: 0, dy: 130, ms: 300 });
+    await browser.carrier.evaluate('document.querySelector(\'[data-testid="duplicate"]\').click()');
+    await browser.pointer('up');
+    await browser.clock('settle');
+    expect((await browser.state()).slots.releases).toBe(1);
+    await drag(1);
+    await browser.tap('duplicate');
+    await drag(2);
   } finally { await browser.close(); }
 }, 60_000);
