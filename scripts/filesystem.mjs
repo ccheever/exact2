@@ -131,7 +131,9 @@ function decode(response) {
 }
 const request = (input) => ({ ...input, token: randomBytes(24).toString('hex') });
 export function filesystem(input) {
-  const result = spawnSync(executable(), [], { input: `${JSON.stringify(request(input))}\n`, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // A game asset tree includes every GPU texture family; base64 also adds a
+  // third to the on-disk size. A 210 MiB native bundle exceeds a 256 MiB reply.
+  const result = spawnSync(executable(), [], { input: `${JSON.stringify(request(input))}\n`, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`exact-filesystem exited before replying (status ${result.status}, signal ${result.signal ?? 'none'})${result.stderr ? `: ${result.stderr}` : ''}`);
   return decode(JSON.parse(result.stdout));
