@@ -311,6 +311,8 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(field.placeholder, "Name")
         XCTAssertEqual(field.accessibilityIdentifier, "name")
         XCTAssertEqual(field.returnKeyType, .default, "an unsaid enterkeyhint keeps the alert field's Return key")
+        XCTAssertEqual(field.autocorrectionType, .no, "unsaid, the alert field's own: no correction")
+        XCTAssertEqual(field.autocapitalizationType, .none, "unsaid, the alert field's own: no capitalization")
         XCTAssertNil(alert.preferredAction, "no action drawn bold, as a hand-built prompt's")
 
         field.text = "Kick"
