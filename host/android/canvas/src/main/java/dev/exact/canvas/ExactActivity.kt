@@ -338,7 +338,7 @@ open class ExactActivity : Activity() {
      * bars, the display cutout, the software keyboard and the system's gestures, in pixels. */
     private fun edges(insets: android.view.WindowInsets): IntArray {
         val out = IntArray(16)
-        if (Build.VERSION.SDK_INT < 30) { Legacy.edges(insets, out); return out }
+        if (Build.VERSION.SDK_INT < 30) { Legacy.edges(root.rootWindowInsets ?: insets, out); return out }
         val kinds = intArrayOf(
             android.view.WindowInsets.Type.systemBars(), android.view.WindowInsets.Type.displayCutout(),
             android.view.WindowInsets.Type.ime(), android.view.WindowInsets.Type.systemGestures(),

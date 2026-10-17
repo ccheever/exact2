@@ -50,7 +50,8 @@ object Legacy {
         v.systemUiVisibility = if (light) v.systemUiVisibility or bits else v.systemUiVisibility and bits.inv()
     }
 
-    /** [ExactActivity]'s four insets from what API 29 has (`WindowInsets.Type` is API 30). Under `ADJUST_RESIZE` the
+    /** [ExactActivity]'s four insets from what API 29 has (`WindowInsets.Type` is API 30), read from the root's
+     * window insets: the decor view consumes the stable insets of those it dispatches. Under `ADJUST_RESIZE` the
      * system window insets include the software keyboard; the stable insets are the bars alone, shown or not. */
     internal fun edges(insets: WindowInsets, out: IntArray) {
         val system = insets.systemWindowInsets; val stable = insets.stableInsets
