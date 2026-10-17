@@ -60,11 +60,43 @@ const helpers = { projectIdentity: (name: string) => ({ projectMark: name.slice(
 const strip = (payloads: Obj[]) => payloads.map(({ commandId: _id, ...rest }) => rest);
 
 describe('sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort)', () => {
-  test('a right press names the row for its context popover and focuses it, as Chromium focuses the reference\'s row', () => {
+  test('a right press names the row for its context popover and focuses what it landed on, as Chromium does', () => {
     const sidebar = contractComponent('sidebar.contract', 'Sidebar'), state = sidebar.state(), focused: string[] = [];
-    sidebar.call('threadMenu', state, { focus: (id: string) => { focused.push(id); } }, ['fleet:env-2:t1']);
+    const scope = { focus: (id: string) => { focused.push(id); } };
+    sidebar.call('threadMenu', state, scope, ['fleet:env-2:t1', 'thread-fleet:env-2:t1']);
     expect(state.menuThread).toBe('fleet:env-2:t1');
-    expect(focused).toEqual(['thread-fleet:env-2:t1']);
+    sidebar.call('threadMenu', state, scope, ['t2', 'unpin-t2']);
+    expect(state.menuThread).toBe('t2');
+    // The draft row is a role="button" with a tabIndex (Sidebar.tsx:872-873), so it takes the focus from the prompt.
+    sidebar.call('draftMenu', state, scope, ['p1', 'draft-p1']);
+    expect(state.menuDraft).toBe('p1');
+    expect(focused).toEqual(['thread-fleet:env-2:t1', 'unpin-t2', 'draft-p1']);
+  });
+  test('every focusable control in a sidebar row answers a right press with itself, and the row with the row', async () => {
+    // A control without its own `contextmenu` leaves the press to the row's, which focuses the row, where Chromium
+    // focuses the control (a <button>) and the event still reaches the row's handler.
+    const source = (await Bun.file(new URL('./sidebar-row.contract', import.meta.url)).text()).split('\n');
+    const view = (name: string) => {
+      const from = source.indexOf(`component ${name}`), to = source.findIndex((line, i) => i > from && /^(component|style|fn) /.test(line));
+      return source.slice(from, to).join('\n');
+    };
+    const controls: [string, string, string][] = [];
+    for (const [name, menu, owner] of [['ThreadRow', 'thread-menu', 't'], ['SidebarCardActions', 'thread-menu', 't'], ['SidebarPinButton', 'thread-menu', 't'],
+      ['SidebarWokeButton', 'thread-menu', 't'], ['DraftCard', 'draft-menu', 'd']] as const) {
+      for (const line of view(name).split('\n').filter(line => /^\s*button /.test(line))) {
+        const id = /\bid=(`[^`]+`)/.exec(line)?.[1];
+        if (!id) throw new Error(`${name}: a button with no id cannot take a right press's focus: ${line.trim().slice(0, 80)}`);
+        controls.push([name, id, line]);
+        if (id === `\`thread-\${t.id}\`` || id === `\`draft-\${d.id}\``) {
+          // The row itself: its parent column's `contextmenu` names it.
+          expect(view(name)).toContain(`contextmenu=menu(${owner}.id, ${id}) contextPopover="${menu}"`);
+        } else {
+          expect(line).toContain(`contextmenu=menu(${owner}.id, ${id}) contextPopover="${menu}"`);
+        }
+      }
+    }
+    expect(controls.map(([, id]) => id)).toEqual(expect.arrayContaining(['`unpin-${t.id}`', '`snooze-trigger-${t.id}`', '`discard-trigger-${t.id}`',
+      '`sweep-${t.id}`', '`woke-${t.id}`', '`draft-${d.id}`', '`discard-draft-${d.id}`']));
   });
   test('status: approval and input outrank work; idle with background tasks waits; usage limits read Limited', () => {
     expect(sidebarStatus(shell('a', { pendingRuntimeRequest: { kind: 'command_approval' } }))).toBe('approval');
