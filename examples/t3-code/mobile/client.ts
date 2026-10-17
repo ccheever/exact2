@@ -237,6 +237,21 @@ export async function mobileCommand(args: unknown[], nativeInput: Native | null 
   try { return await runMobileCommand(args, nativeInput, suppliedStorage); }
   finally { mobileVoiceObserveDraft(mobileClient); }
 }
+
+/** One ordinary button's stamp stays inside its command's answer lifetime. */
+export async function mobileMessageCopyCommand(client: T3Client, id: string, stamp: string, now: number, native: Native, storage: Files) {
+  let wrote = false;
+  const handle: Native = { available: native.available, watch: topic => native.watch(topic), async later(request) {
+    const fields = obj(request);
+    if (fields.op !== 'copyText') return native.later(request);
+    const response = await native.later({ ...fields, messageCopyStamp: stamp, messageCopyId: id });
+    const envelope = obj(response);
+    wrote = envelope.ok === true && envelope.generation === fields.generation && obj(envelope.value).copied === true;
+    return response;
+  } };
+  const result = await client.command('chatlocal:copy', id, stamp, now, handle, storage);
+  return wrote && result.message === 'Copied message' ? { ...result, message: '' } : result;
+}
 async function runMobileCommand(args: unknown[], nativeInput: Native | null | undefined, suppliedStorage: Files) {
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
@@ -324,5 +339,6 @@ async function runMobileCommand(args: unknown[], nativeInput: Native | null | un
   }
   // Do not expose desktop host capabilities through a mobile command source.
   if (op.startsWith('ssh') || op.startsWith('environment-ssh')) return { revision: mobileClient.revision, message: 'SSH environments are only available in the desktop app.' };
+  if (op === 'chatlocal:copy' && value) return mobileMessageCopyCommand(mobileClient, id, value, Number(args[3]) || 0, native, storage);
   return mobileClient.command(op, id, value, Number(args[3]) || 0, native, storage);
 }

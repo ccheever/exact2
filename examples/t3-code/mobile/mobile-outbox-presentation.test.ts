@@ -28,7 +28,7 @@ test('queued route retains original owner and prompt without requesting local at
   const client = await loaded([original]), before = [client.threadId, client.projectId, client.pending];
   const view = mobileOutboxThread('env', original.threadId, now, false, client)!;
   expect(view).toMatchObject({ queued: true, queuedOwner: mobileOutboxOwner(original), title: 'Inspect the app', loaded: true, loading: false,
-    rows: [{ id: 'm', kind: 'pending', body: original.text, media: [] }],
+    rows: [{ id: 'm', kind: 'pending', body: original.text, copyConfiguration: '', media: [] }],
     composer: { contentOwner: '', canOperate: false, canSend: false, canStop: false, draft: '' } });
   expect([client.threadId, client.projectId, client.pending]).toEqual(before);
   expect(mobileOutboxThread('different', original.threadId, now, false, client)).toBeNull();
@@ -83,21 +83,29 @@ test('durable ACK and ambiguous outcomes use distinct status labels', () => {
 
 test('a preparing route uses the real echoed prompt while waiting for its turn', async () => {
   const original = record(), client = await loaded([original]); client.threadId = original.threadId;
+  Object.assign(client, { origin: original.origin, projectId: 'project', generation: 7, threadEpoch: 11 });
+  const visit = 'preparing|visit:one/漢字';
   const item: Obj = { id: 'user-item', type: 'user_message', threadId: original.threadId, runId: null, ordinal: 1,
     text: 'Canonical server prompt', messageId: original.messageId, status: 'completed', createdBy: 'user', attachments: [] };
   client.shell.threads = [{ id: original.threadId, latestRun: null }];
   client.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
     projection: { thread: { id: original.threadId }, messages: [{ id: original.messageId }], runs: [], attempts: [], nodes: [], checkpoints: [],
       visibleTurnItems: [{ position: 0, visibility: 'local', sourceThreadId: original.threadId, sourceItemId: item.id, item }] } };
-  const preparing = mobileOutboxThread('env', original.threadId, now, false, client)!;
+  const preparing = mobileOutboxThread('env', original.threadId, now, false, client, visit)!;
   expect(preparing.queuedCanSelect).toBe(true); expect(preparing.rows.map(row => row.body)).toEqual(['Canonical server prompt']);
+  const configuration = { id: JSON.stringify([original.threadId, item.id]), text: 'Canonical server prompt', owner: {
+    origin: original.origin, environment: 'env', generation: 7, project: 'project', thread: original.threadId,
+    epoch: 11, route: visit, sourceThread: original.threadId, sourceItem: item.id } };
+  expect(JSON.parse(preparing.rows[0]!.copyConfiguration)).toEqual(configuration);
   expect(preparing.composer.canSend).toBe(false);
   client.thread.projection.messages = [];
-  const awaitingPrompt = mobileOutboxThread('env', original.threadId, now, false, client)!;
+  const awaitingPrompt = mobileOutboxThread('env', original.threadId, now, false, client, visit)!;
   expect(awaitingPrompt.rows.map(row => [row.first, row.last])).toEqual([[true, false], [false, true]]);
+  expect(JSON.parse(awaitingPrompt.rows[0]!.copyConfiguration)).toEqual(configuration);
+  expect(awaitingPrompt.rows[1]).toMatchObject({ kind: 'pending', copyConfiguration: '' });
   client.thread.projection.messages = [{ id: original.messageId }];
   client.thread.projection.runs = [{ id: 'first', status: 'running' }];
-  expect(mobileOutboxThread('env', original.threadId, now, false, client)).toBeNull();
+  expect(mobileOutboxThread('env', original.threadId, now, false, client, visit)).toBeNull();
 });
 test('only matching prompt plus turn or a terminal detail releases creation presentation', () => {
   const original = record();

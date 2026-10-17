@@ -83,7 +83,7 @@ component ThreadMessage
               text row.intent font-size=12 line-height="16px" font-weight=500 color=colors.secondary
             text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
             if row.body.trim().length > 0 and row.kind != "pending"
-              ThreadCopy(row=row, action=action, colors=colors)
+              ThreadCopy(row=row, action=action, active=active, colors=colors)
             if row.kind == "pending" and row.toggleOp != ""
               button press=action(row.toggleOp, row.toggleId, "") min-height=28 padding-left=7 padding-right=7 aria-label="Retry pending message"
                 text "Retry" font-size=13 line-height="17px" color=colors.primary
@@ -105,7 +105,7 @@ component ThreadMessage
                       t3-archive-spinner spinner-tint=colors.iconSubtle width=20 height=20
                     else
                       t3-symbol symbol-name="arrow.triangle.branch" symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
-              ThreadCopy(row=row, action=action, colors=colors)
+              ThreadCopy(row=row, action=action, active=active, colors=colors)
               text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
       else
         column
@@ -127,11 +127,11 @@ component ThreadCopy
   props
     row: ThreadRow
     action: action
+    active: bool
     colors: ThreadColors
   view
-    button press=action("chatlocal:copy", row.id, "") width=28 height=28 padding=0 aria-label="Copy message"
-      column width=28 height=28 align-items="center" justify-content="center"
-        t3-symbol symbol-name=(row.copied ? "checkmark" : "doc.on.doc") symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+    t3-message-copy configuration=row.copyConfiguration copy-active=active row-icon=colors.iconSubtle
+      message=action("chatlocal:copy", row.id) width=28 height=28 padding=0
 
 component ThreadAttachment
   props

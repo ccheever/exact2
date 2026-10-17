@@ -46,7 +46,7 @@ export function mobileOutboxCreationDetailReady(record: MobileOutboxRecord, deta
 /** A mounted route keeps its last creation through shell/outcome collection.
  * It may load the real detail while its preparing presentation stays visible. */
 export function mobileOutboxThread(environmentId: string, threadId: string, now: number, dark = false,
-  client: T3Client = mobileClient): ThreadSnapshot | null {
+  client: T3Client = mobileClient, routeKey = ''): ThreadSnapshot | null {
   const key = JSON.stringify([environmentId, threadId]);
   if (previous.get(client)?.key !== key || !environmentId || !threadId) previous.delete(client);
   if (!environmentId || !threadId) return null;
@@ -63,7 +63,7 @@ export function mobileOutboxThread(environmentId: string, threadId: string, now:
   }
   if (!failure) previous.set(client, { key, item: { ...item!, record: JSON.parse(JSON.stringify(record)) } });
   const status = failure ? 'Could not start task' : mobileOutboxStatus(item!.status);
-  const rows = detail ? mobileThreadRows(client, now, dark) : [];
+  const rows = detail ? mobileThreadRows(client, now, dark, routeKey) : [];
   return { pendingInput: emptyPendingInput(), revision: client.revision, environmentId, threadId, title: homeDraftTitle(record.text, record.attachments.length),
     queuedCanSelect: !!shell && !failure, queued: true, queuedOwner: mobileOutboxOwner(record), queuedStatus: status, queuedReason: failure?.reason ?? item!.reason,
     queuedCanRetry: !failure && item!.canRetry, queuedFailed: !!failure, queuedCanEdit: failure?.editable ?? false,
@@ -71,7 +71,7 @@ export function mobileOutboxThread(environmentId: string, threadId: string, now:
     historyLoading: false, historyError: '', readsNeeded: false, answerFilesOwner: '', answerFilesRequest: '', approvals: [],
     rows: [...rows, ...(detail && arr(detail.messages).some(message => message.id === record.messageId) ? [] : [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileThreadBlocks(record.text, dark),
       user: true, timestamp: mobileMessageTime(record.createdAt), showMeta: true, streaming: false, attribution: '', intent: status,
-      copied: false, expanded: false, toggleOp: '', toggleId: '', failed: false, live: false, activities: [],
+      copyConfiguration: '', expanded: false, toggleOp: '', toggleId: '', failed: false, live: false, activities: [],
       htmlRender: { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false }, media: [], first: rows.length === 0, last: true, canFork: false, forkKey: '', forkBusy: false }])].map((row, index, all) => ({ ...row, first: index === 0, last: index === all.length - 1 })),
     composer: { editing: false, saving: false, canCancel: false, editNotice: '', editNoticeDismissKey: '', editPendingId: '', canRetryEdit: false,
       contentOwner: '', draft: '', placeholder: 'Waiting for this task to start…', canSend: false, canStop: false, showStop: false,

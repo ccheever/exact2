@@ -35,7 +35,7 @@ export interface ThreadMedia { id: string; name: string; kind: string; url: stri
 export interface ThreadHtmlPresentation { context: string; width: number; theme: HtmlRenderTheme; iconColor: string }
 const emptyHtmlRender: HtmlRenderSnapshot = { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false };
 export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: ThreadBlock[]; user: boolean;
-  timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; intent: string; copied: boolean;
+  timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; intent: string; copyConfiguration: string;
   expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
   htmlRender: HtmlRenderSnapshot; media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }
 export interface ThreadApprovalOption { id: string; label: string; tone: string; warning: string }
@@ -87,7 +87,11 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
     rows.push({ id: message.id, kind: message.kind, title, body, blocks: mobileThreadBlocks(body, dark), user,
       timestamp: mobileMessageTime(user ? item?.startedAt ?? message.createdAt : item?.updatedAt ?? message.createdAt), showMeta,
       streaming: message.streaming === true, attribution: message.attribution === 'automation' ? 'Sent by automation' : message.attribution === 'agent' ? 'Sent by agent' : '',
-      intent: message.intent ?? '', copied: (view.copies.get(message.id)?.nonce ?? 0) > 0 && view.copies.get(message.id)?.ok !== false,
+      intent: message.intent ?? '', copyConfiguration: item && ['user', 'assistant', 'plan'].includes(message.kind) ? JSON.stringify({ id: message.id,
+        owner: { origin: client.origin, environment: client.environmentId, generation: client.generation, project: client.projectId,
+          thread: client.threadId, epoch: client.threadEpoch, route: routeKey,
+          sourceThread: str(projected.get(message.id)?.sourceThreadId), sourceItem: str(projected.get(message.id)?.sourceItemId) },
+        text: item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '' }) : '',
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
       live: message.live === true, htmlRender: message.kind === 'html-render' && html
         ? mobileHtmlRenderSnapshot(client, html.context, message.htmlRenderKey ?? '', true, html.width, html.theme, html.iconColor) : emptyHtmlRender, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
@@ -101,7 +105,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
     const record=pending.record;
     rows.push({id:`outbox:${record.messageId}`,kind:'pending',title:pending.reason,body:record.text,
       blocks:mobileThreadBlocks(record.text,dark),user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
-      showMeta:true,streaming:false,attribution:'',intent:threadOutboxStatus(pending.status),copied:false,expanded:false,
+      showMeta:true,streaming:false,attribution:'',intent:threadOutboxStatus(pending.status),copyConfiguration:'',expanded:false,
       toggleOp:pending.canRetry?'outbox:retry':'',toggleId:pending.owner,failed:pending.status==='recovery-required',live:false,activities:[],
       canFork:false,forkKey:'',forkBusy:false,htmlRender:emptyHtmlRender,media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',
         url:threadOutboxPreview(client,record,file,now)})),first:false,last:false});
