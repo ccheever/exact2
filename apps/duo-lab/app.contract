@@ -97,6 +97,13 @@ component DuoLab
   derive current = top(nav)
   derive twoAcross = viewport.horizontalViewportSegments == 2
   derive twoDown = viewport.verticalViewportSegments == 2
+  // Partially folded like a book (two segments across), Combinations and the note
+  // screen, one pane each, take the trailing segment, off the hinge: the default
+  // docs/recipes/foldables.md chooses, as Apple's talk moves an alert there, under the
+  // outer display as the device closes. Segment 0 keeps a pane on the leading side.
+  derive paneLeft = twoAcross ? "env(viewport-segment-left 1 0)" : "0px"
+  derive paneWidth = twoAcross ? "env(viewport-segment-width 1 0)" : "100%"
+  derive paneInset = twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)"
   action choose(id: number)
     selected = id
   action selectTab(name: string)
@@ -176,7 +183,7 @@ component DuoLab
                             text post.who font-size=14 font-weight=600 flex-shrink=0 width=72
                             text post.body font-size=14 flex=1 min-width=0
                 if entry.name == "combos"
-                  column flex=1 min-height=0 width="100%" class=Safe
+                  column flex=1 min-height=0 margin-left=paneLeft width=paneWidth class=Safe padding-left=paneInset
                     text "Combinations" class=Title testId="combos-title"
                     text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
                     column padding=16 gap=12
@@ -184,13 +191,13 @@ component DuoLab
                         text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
                       text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
                 if entry.name == "note"
-                  column flex=1 min-height=0 width="100%" class=Safe
+                  column flex=1 min-height=0 margin-left=paneLeft width=paneWidth class=Safe padding-left=paneInset
                     row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12
                       button press=back testId="note-back" padding=8 border-radius=8 background-color="-exact-tertiary-fill"
                         text "Back" font-size=14 font-weight=600 color="AccentColor"
                       text "Note" font-size=20 font-weight=700 testId="note-title"
                     text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
-                  column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left="calc(env(-exact-safe-area-corners-inset-left) + 16px)" gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
+                  column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
                     column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                       text "Note" font-size=18 font-weight=600
                       text "Drag to resize" font-size=11 color="-exact-secondary-label"
