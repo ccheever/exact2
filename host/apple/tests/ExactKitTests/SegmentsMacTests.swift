@@ -72,6 +72,19 @@ final class SegmentsMacTests: XCTestCase {
         p.onPress = { pressed.append($0) }
         p.press(11)
         XCTAssertEqual(pressed, [11])
+        // An authored radio group keeps WAI-ARIA's keys: one Tab stop, and the
+        // arrows press the next or previous radio, wrapping.
+        let (one, two) = (try XCTUnwrap(p.views[11]), try XCTUnwrap(p.views[12]))
+        if role == "radiogroup" {
+            XCTAssertEqual([one, two].map(\.ariaRadioTabStop), [true, false], "none checked: the first is the stop")
+            XCTAssertFalse(two.tabbable)
+            pressed = []
+            XCTAssertTrue(p.controls.radioKey(one, "ArrowDown", held: ""))
+            XCTAssertTrue(p.controls.radioKey(one, "ArrowUp", held: ""))
+            XCTAssertEqual(pressed, [12, 12])
+        } else {
+            XCTAssertNil(one.ariaRadioGroup)
+        }
         p.apply(wireBatch([["op": "style", "id": 10, "style": ["appearance": "auto", "written": ["appearance"]]]]))
         XCTAssertNotNil(p.segments.control(of: 10))
     }

@@ -485,8 +485,8 @@ package final class Presenter {
     private static func tabbable(_ v: NodeView) -> Bool {
         if v.formDisabled || v.inert || v.cssVisibilityHidden || v.bounds.width == 0 || v.bounds.height == 0 { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
-        // A radio group is one stop (x2apps survey #2).
-        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
+        // A radio group is one stop (x2apps survey #2), an authored one too.
+        return v.ariaRadioGroup != nil ? v.ariaRadioTabStop : v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
     }
 
     lazy var popoverEvents = PopoverEvents(self)

@@ -41,6 +41,36 @@ extension NodeView {
         if members.contains(where: controls.radioShows) { return controls.radioShows(id) }
         return members.first { presenter?.views[$0]?.formDisabled == false } == id
     }
+
+    /// The `radiogroup` an authored ARIA radio belongs to: a pressable
+    /// `button role="radio"` whose parent element is a radio group the host
+    /// draws as written, with no segmented control standing in for it (its
+    /// `appearance: none`, a vertical group). Such a group takes WAI-ARIA's
+    /// radio group keys (APG, "Radio Group Pattern"), as an `input
+    /// type="radio"` group takes HTML's.
+    var ariaRadioGroup: NodeView? {
+        guard isButton, props["accessibilityRole"] == "radio", handlers.contains("press") else { return nil }
+        var up = superview
+        while let view = up, !(view is NodeView) { up = view.superview }
+        guard let owner = up as? NodeView, owner.props["accessibilityRole"] == "radiogroup",
+              presenter?.segments.control(of: owner.id) == nil else { return nil }
+        return owner
+    }
+
+    /// The enabled radios of an authored radio group, in tree order.
+    static func ariaRadios(of owner: NodeView) -> [NodeView] {
+        owner.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == "radio" && $0.handlers.contains("press") && !$0.formDisabled && !$0.inert
+        }
+    }
+
+    /// An authored radio group's one Tab stop: its checked radio
+    /// (`aria-checked`), else its first enabled one.
+    var ariaRadioTabStop: Bool {
+        guard let owner = ariaRadioGroup else { return false }
+        let radios = Self.ariaRadios(of: owner)
+        return (radios.first { $0.props["accessibilityChecked"] == "true" } ?? radios.first) === self
+    }
 }
 
 extension ControlHost {
@@ -85,6 +115,7 @@ extension ControlHost {
     /// and ArrowLeft to the previous, wrapping; Space checks it. True when
     /// the key was the radio's.
     func radioKey(_ node: NodeView, _ name: String, held: String) -> Bool {
+        if let owner = node.ariaRadioGroup { return ariaRadioKey(node, owner, name, held: held) }
         guard node.isRadio, !node.formDisabled, !node.inert, held.isEmpty || held == "Shift+" else { return false }
         switch name {
         case " ":
@@ -100,6 +131,22 @@ extension ControlHost {
         default:
             return false
         }
+    }
+
+    /// An arrow at an authored radio moves the focus to the next enabled radio
+    /// of its group in tree order (ArrowDown, ArrowRight) or the previous
+    /// (ArrowUp, ArrowLeft), wrapping, and presses it: the author's action is
+    /// what checks it. Space and Enter are the button's own.
+    private func ariaRadioKey(_ node: NodeView, _ owner: NodeView, _ name: String, held: String) -> Bool {
+        guard !node.formDisabled, !node.inert, held.isEmpty || held == "Shift+",
+              ["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].contains(name) else { return false }
+        let radios = NodeView.ariaRadios(of: owner)
+        guard let at = radios.firstIndex(where: { $0 === node }), radios.count > 1 else { return true }
+        let step = name == "ArrowDown" || name == "ArrowRight" ? 1 : radios.count - 1
+        let to = radios[(at + step) % radios.count]
+        focusRadio(to, keyboard: true)
+        presenter.press(to.id)
+        return true
     }
 
     /// The agent's `type <radio> true`: checked as a click checks it. A

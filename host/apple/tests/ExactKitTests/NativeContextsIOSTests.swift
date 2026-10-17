@@ -135,7 +135,7 @@ final class NativeContextsIOSTests: XCTestCase {
         var ops = view(1, ["accessibilityRole": role])
         for (i, id) in [2, 3, 4].enumerated() {
             var props = ["accessibilityRole": role == "radiogroup" ? "radio" : "tab"]
-            if i == 0 { props["accessibilitySelected"] = "true" }
+            if i == 0 { props[role == "radiogroup" ? "accessibilityChecked" : "accessibilitySelected"] = "true" }
             if let label = labels[id] { props["accessibilityLabel"] = label }
             ops += native(id, props, x: Double(i) * 100, w: 100)
         }
@@ -143,7 +143,9 @@ final class NativeContextsIOSTests: XCTestCase {
     }
 
     /// A written `appearance="none"` keeps a radio group's authored keys, as it
-    /// keeps a tablist's: the author's design, not `UISegmentedControl`.
+    /// keeps a tablist's: the author's design, not `UISegmentedControl`, with
+    /// WAI-ARIA's radio group keys: one Tab stop (the checked radio), and the
+    /// arrows focus and press the next or previous radio, wrapping.
     func testAWrittenAppearanceNoneKeepsAnAuthoredRadioGroup() throws {
         let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")], role: "radiogroup")
         XCTAssertNotNil(p.segments.control(of: 1), "a radio group is a segmented control")
@@ -154,7 +156,17 @@ final class NativeContextsIOSTests: XCTestCase {
         p.onPress = { pressed.append($0) }
         p.press(3)
         XCTAssertEqual(pressed, [3])
+        let (day, week, month) = (try XCTUnwrap(p.views[2]), try XCTUnwrap(p.views[3]), try XCTUnwrap(p.views[4]))
+        XCTAssertEqual([day, week, month].map(\.ariaRadioTabStop), [true, false, false], "the checked radio is the one stop")
+        pressed = []
+        XCTAssertTrue(p.controls.radioKey(day, "ArrowRight", held: ""))
+        XCTAssertTrue(p.controls.radioKey(day, "ArrowLeft", held: ""))
+        XCTAssertFalse(p.controls.radioKey(day, "a", held: ""))
+        XCTAssertEqual(pressed, [3, 4], "the next radio, then the previous one wrapping")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityChecked": "false"]], ["op": "props", "id": 3, "set": ["accessibilityChecked": "true"]]]))
+        XCTAssertEqual([day, week, month].map(\.ariaRadioTabStop), [false, true, false])
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "auto", "written": ["appearance"]]]]))
+        XCTAssertNil(day.ariaRadioGroup, "a projected group's keys are the segmented control's")
         XCTAssertNotNil(p.segments.control(of: 1))
     }
 
