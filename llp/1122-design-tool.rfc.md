@@ -1113,7 +1113,7 @@ the iOS simulator and the Mac.
 | Inherited, dynamic and boundary rows are read-only, with their reason | **Met** for inherited and dynamic on the clone. Boundary rows are met on the theme fixture by tests, since the clone's signed-out screens have no boundary. |
 | Taps don't reach the app while inspect is on | **Met.** |
 
-The JS target's half follows, with the same gate on the clone's JS loop.
+The JS target's half followed (below, after T2c), with the same gate on the clone's JS loop.
 
 ### T2c: native inspect, maps per plan (`abc6490e9`, `9d24e4ebc`, `efd03e95a`; optional *1.9* fields, no bump)
 
@@ -1159,3 +1159,53 @@ T2c went before T2b's JS half (the lead's order, 2026-10-17).
 | Taps don't reach the app while inspect is on | **Met** on both, with real touches on iOS. |
 | A tap on platform chrome selects nothing; a node a bar hosts is selected | **Met by the host tests on real bars** (UINavigationBar's title and Back, UITabBar's items and space, the Mac title bar and close button). The clone draws its own chrome, and its back glyph is correctly selected as the app's view. |
 | A real phone | **Pending:** it needs Charlie's device. |
+
+### T2b, the JS target's half (`b19d1e1a2`, `316744fc3`, `731357ac2`; optional *1.9* field `computed`)
+
+- **The page says its plan** (`planDigest`, the SHA-256 of dist's app.plan). The JS loop keeps
+  each plan's map by that digest, so a selection on the JS page is joined to, and outlined from,
+  the JS plan's own map. `designServed` is set only for a design the builds take: a value-only
+  edit, a kept build, or a reload whose shape held.
+- **The inspect table** (host/web-js/src/inspect.rs, `exact-web-js inspect-table`) says of each
+  site what the runner's `node` op says of each view made from it. That is the type, the
+  regions above it (arms; an `each` row's key is the page's), and every own row: its value in
+  each app tuple in `node`'s words, read from per-tuple static trees, plus dynamic or heading,
+  the tokens it reads and its text. It also gives the text-style sources, the initial values
+  (a control's start included), the boundaries and their implied rows, and each row's CSS
+  property.
+  - The dev loop makes the table when a page first asks for it (1.8 s on the Bluesky clone),
+    keyed by plan. No build makes it, so release bytes are unchanged: production builds of
+    theme-fixture, realworld and the clone, and all 88 conformance contracts, were compared
+    against main byte for byte.
+  - rt.js itself has no hook. A `--dev` copy gains two lines (module.mjs `withInspectHooks`):
+    the view id, and every `each` region with its rows and key function.
+- **The page's inspect mode** (host/web-js/inspect-dev.js, served by the dev loop) works as the
+  wasm page's does.
+  - Its gate is the dev client's, on the window before the app's module runs, with a cover, a
+    guest-frame shield and Escape while the module loads.
+  - Each report is row for row `node`'s. Static and token rows are in the kernel's format; a
+    token's row follows the page's current design after a live edit (theme2's ruling).
+  - A row an expression binds is own only while the page has it set, and its value is the
+    computed CSS, marked `computed: true`.
+- **Known limits:**
+  - a text style's size (a heading's too) is its ramp at the 16 px root, so a pinned root moves
+    it in `node` and not on the page;
+  - a text style or heading chosen by an expression is not a style source the table knows;
+  - a control start or a style fallback under an ancestor row that only an expression sets is
+    not recorded;
+  - tokens an expression names are recovered only through custom properties, so not family,
+    type or inline tokens, and not the exact text of an expression that mixes them with other
+    text;
+  - an expression row's ownership is read from what the page wrote: an animation's `none`, a
+    tint's `unset`, and SVG geometry written as attributes disagree with `node`;
+  - `css_property` misses a few rows the emitter writes elsewhere (the press scale, the control
+    size, legacy line clamps, timelines);
+  - a row root a host replaces (the markup editor's textarea) loses its key;
+  - outline marks follow document order, and `from` and `node` are the page's own view ids.
+
+### T2b's gate, the JS half: met (2026-10-17; the run is `~/x2theme/t2b-js-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| The same node on the clone answers the same on the JS and wasm loops | **Met** for five nodes: both tabs, the hamburger, the wordmark and a post's avatar. Identity, rows, sources, tokens, joins and editability match. Static and token values match exactly; expression rows match by source and token (theme2's ruling). Seven theme-fixture nodes, two of them boundaries, are compared on every test run. |
+| A live token edit, then the node inspected → the new value | **Met** on the theme fixture's JS loop. On this machine the loop served the edit by a rebuild and reload, so the value came from the new plan's table; the value-only batch path was not driven. |
