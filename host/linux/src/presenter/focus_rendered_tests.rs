@@ -173,30 +173,27 @@ fn alert_focus_stops_at_the_presented_root_for_hidden_placements() {
 }
 
 #[test]
-fn alert_focus_stops_at_the_presented_root_for_inert_ancestors() {
+fn inert_focus_is_checked_after_alert_synchronization() {
     if !neutral_process() {
         return;
     }
-    let mut p = nested_alert();
-    let target = named(&p, "yes");
-    let container = named(&p, "container");
-    let root = named(&p, "confirm");
-    for (node, allowed) in [(container, true), (root, false), (target, false)] {
+    for name in ["container", "confirm", "yes"] {
+        let mut p = nested_alert();
+        let target = named(&p, "yes");
+        let root = named(&p, "confirm");
+        let node = named(&p, name);
         p.blur();
         p.host.apply_test_ops(&[exact_kernel::Op::SetProp {
             id: node,
             prop: PropId::Inert,
             value: exact_kernel::PropValue::Bool(true),
         }]);
-        assert_eq!(
-            p.focus_command(&[Value::str("yes")]),
-            allowed.then_some(target)
-        );
-        p.host.apply_test_ops(&[exact_kernel::Op::SetProp {
-            id: node,
-            prop: PropId::Inert,
-            value: exact_kernel::PropValue::Bool(false),
-        }]);
+        p.frame();
+        assert!(p.last_frame_succeeded);
+        // Admission closes the alert when its root or an ancestor is inert.
+        assert_eq!(p.alert_root(), (node == target).then_some(root), "{name}");
+        assert_eq!(p.focus_command(&[Value::str("yes")]), None, "{name}");
+        assert_ne!(p.focus(), Some(target), "{name}");
     }
 }
 
