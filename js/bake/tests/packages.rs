@@ -6,6 +6,7 @@ use exact_js_bake::{bake, Tools};
 use exact_kernel::Kernel;
 use exact_runner::{Runner, Value};
 use serde_json::Value as Json;
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 const CONTRACT: &str = r#"
@@ -102,21 +103,44 @@ fn message(app: &App) -> Value {
     runner.resource("message").unwrap().clone()
 }
 
+/// A side effect on this machine, written as no static check sees it: it
+/// runs only if something executes the file in the build's own process.
+fn sentinel(ran: &Path) -> String {
+    format!(
+        "globalThis['pro' + 'cess']?.getBuiltinModule?.('fs')?.writeFileSync({:?}, 'ran');\n",
+        ran.to_str().unwrap()
+    )
+}
+
+/// The web build's record of the captured package code.
+fn record(app: &App) -> Json {
+    serde_json::from_slice(
+        &std::fs::read(app.0.join("web-out/.gen/typescript/__exact_packages.json")).unwrap(),
+    )
+    .unwrap()
+}
+
 /// ESM and CommonJS packages (`exports` with a `browser` condition, `main`,
 /// a `browser` field's `false`, `.mjs`/`.cjs`, JSON, a nested dependency) and
-/// the app's own `.js` bundle from the capture alike in every producer; the
-/// bake records each captured file by its digest and is reproducible.
+/// the app's own `.js` bundle from the capture alike in every producer: the
+/// page and Hermes run the `browser` file, the unselected Node entry never
+/// runs, each captured file's recorded digest is its bytes, the receipt
+/// carries the record's digests, and a bake is reproducible.
 #[test]
 fn installed_packages_and_app_javascript_bundle_from_the_capture() {
     let app = App::new("bundle");
+    let ran = app.0.join("ran");
     app.put(
         "node_modules/esm/package.json",
         r#"{"name":"esm","version":"2.0.0","type":"module","exports":{".":{"browser":"./web.js","default":"./node.js"},"./extra":"./extra.mjs"}}"#,
     );
-    app.put("node_modules/esm/web.js", "export const where = 'web';\n");
+    app.put(
+        "node_modules/esm/web.js",
+        "export const where = 'web-build';\n",
+    );
     app.put(
         "node_modules/esm/node.js",
-        "import { readFileSync } from 'node:fs';\nexport const where = readFileSync;\n",
+        &format!("{}export const where = 'node-build';\n", sentinel(&ran)),
     );
     app.put("node_modules/esm/extra.mjs", "export default 'extra';\n");
     app.put(
@@ -136,7 +160,7 @@ fn installed_packages_and_app_javascript_bundle_from_the_capture() {
         "node_modules/cjs/node_modules/pad/package.json",
         r#"{"name":"pad","version":"0.1.0"}"#,
     );
-    // Tested before use: a package that runs without the DOM is not refused.
+    // A dominating test: a package that runs without the DOM is not refused.
     app.put(
         "node_modules/cjs/node_modules/pad/index.js",
         "module.exports = (s) => (typeof window !== 'undefined' ? window.name : '') + '<' + s + '>';\n",
@@ -156,36 +180,58 @@ fn installed_packages_and_app_javascript_bundle_from_the_capture() {
     for result in every(&app) {
         result.unwrap();
     }
-    let record: Json = serde_json::from_slice(
-        &std::fs::read(app.0.join("web-out/.gen/typescript/__exact_packages.json")).unwrap(),
-    )
-    .unwrap();
-    let files: Vec<(String, String)> = record["files"]
+    assert!(!ran.exists(), "the unselected Node entry never runs");
+    let page: String = std::fs::read_dir(app.0.join("web-out"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|x| x == "js"))
+        .map(|e| std::fs::read_to_string(e.path()).unwrap())
+        .collect();
+    assert!(
+        page.contains("web-build") && !page.contains("node-build"),
+        "the page bundles the browser file"
+    );
+    let record = record(&app);
+    let files = record["files"].as_array().unwrap();
+    for file in files {
+        let bytes = std::fs::read(file[2].as_str().unwrap()).unwrap();
+        assert_eq!(
+            file[3].as_str().unwrap(),
+            format!("{:x}", Sha256::digest(&bytes)),
+            "{file}"
+        );
+    }
+    let names: Vec<String> = files
+        .iter()
+        .map(|f| format!("{}/{}", f[0].as_str().unwrap(), f[1].as_str().unwrap()))
+        .collect();
+    assert!(
+        names.contains(&"cjs@1.5.4/lib/twice.cjs".into())
+            && names.contains(&"pad@0.1.0/index.js".into()),
+        "{names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n.ends_with("node.js")),
+        "only what the bundle reaches is captured: {names:?}"
+    );
+    let installed = record["packages"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|f| {
-            (
-                format!("{}/{}", f[0].as_str().unwrap(), f[1].as_str().unwrap()),
-                f[3].as_str().unwrap().to_string(),
-            )
-        })
-        .collect();
+        .find(|p| p[0] == "pad@0.1.0")
+        .unwrap()[2]
+        .clone();
     assert!(
-        files
-            .iter()
-            .any(|(path, sha)| path == "cjs@1.5.4/lib/twice.cjs" && sha.len() == 64),
-        "{files:?}"
-    );
-    assert!(files.iter().any(|(path, _)| path == "pad@0.1.0/index.js"));
-    assert!(
-        !files.iter().any(|(path, _)| path.ends_with("node.js")),
-        "only the files the bundle reaches are captured: {files:?}"
+        installed[0]
+            .as_str()
+            .unwrap()
+            .ends_with("node_modules/cjs/node_modules/pad"),
+        "{installed}"
     );
     if !exact_js::ENGINE_LINKED {
         return;
     }
-    assert_eq!(message(&app), Value::str("web extra <100>fs"));
+    assert_eq!(message(&app), Value::str("web-build extra <100>fs"));
     let first = bake(&app.0, &Tools::default()).unwrap();
     let again = bake(&app.0, &Tools::default()).unwrap();
     assert_eq!(
@@ -193,20 +239,17 @@ fn installed_packages_and_app_javascript_bundle_from_the_capture() {
         (&again.bytecode, &again.receipt)
     );
     let receipt: Json = serde_json::from_str(&first.receipt).unwrap();
-    for key in ["esm@2.0.0", "cjs@1.5.4", "pad@0.1.0"] {
-        assert_eq!(
-            receipt["packages"][key].as_str().map(str::len),
-            Some(64),
-            "{key}: {receipt}"
-        );
-    }
+    assert_eq!(
+        receipt["packages"], record["digests"],
+        "the receipt carries the capture's digests"
+    );
     // A captured file changed is another bake.
     app.put(
         "node_modules/cjs/lib/twice.cjs",
         "module.exports = (n) => n * 3;\n",
     );
-    let changed = bake(&app.0, &Tools::default()).unwrap();
-    let changed: Json = serde_json::from_str(&changed.receipt).unwrap();
+    let changed: Json =
+        serde_json::from_str(&bake(&app.0, &Tools::default()).unwrap().receipt).unwrap();
     assert_ne!(
         changed["packages"]["cjs@1.5.4"],
         receipt["packages"]["cjs@1.5.4"]
@@ -217,16 +260,86 @@ fn installed_packages_and_app_javascript_bundle_from_the_capture() {
     );
 }
 
+/// An install that is a link (as Bun's and pnpm's isolated layouts make
+/// them) is recorded where it is installed, and retargeting it to another
+/// copy of the same version is another bake; links swapped between two
+/// packages change the record too.
+#[cfg(unix)]
+#[test]
+fn a_retargeted_install_link_is_another_bake() {
+    let app = App::new("links");
+    for (dir, word) in [
+        ("node_modules/.store/a1", "first"),
+        ("node_modules/.store/a2", "second"),
+        ("node_modules/.store/b", "bee"),
+    ] {
+        let name = if dir.ends_with("/b") { "b" } else { "a" };
+        app.put(
+            &format!("{dir}/package.json"),
+            &format!(r#"{{"name":"{name}","version":"1.0.0","main":"index.js"}}"#),
+        );
+        app.put(
+            &format!("{dir}/index.js"),
+            &format!("module.exports = '{word}';\n"),
+        );
+    }
+    std::fs::create_dir_all(app.0.join("node_modules")).unwrap();
+    let link = |name: &str, to: &str| {
+        let path = app.0.join("node_modules").join(name);
+        let _ = std::fs::remove_file(&path);
+        std::os::unix::fs::symlink(app.0.join(to), path).unwrap();
+    };
+    link("a", "node_modules/.store/a1");
+    link("b", "node_modules/.store/b");
+    app.put("packages.d.ts", "declare module 'a' { const a: string; export default a; }\ndeclare module 'b' { const b: string; export default b; }\n");
+    app.answer("import a from 'a';\nimport b from 'b';", "a + b + count");
+    web_build(&app.0).unwrap();
+    let installed = record(&app)["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p[0] == "a@1.0.0")
+        .unwrap()[2]
+        .clone();
+    assert_eq!(
+        installed[0].as_str().unwrap(),
+        app.0
+            .canonicalize()
+            .unwrap()
+            .join("node_modules/a")
+            .to_str()
+            .unwrap(),
+        "recorded as installed, not as stored"
+    );
+    let digests = record(&app)["digests"].clone();
+    link("a", "node_modules/.store/a2");
+    web_build(&app.0).unwrap();
+    assert_ne!(
+        record(&app)["digests"]["a@1.0.0"],
+        digests["a@1.0.0"],
+        "a retargeted link is another capture"
+    );
+    if exact_js::ENGINE_LINKED {
+        assert_eq!(message(&app), Value::str("secondbee0"));
+    }
+    // The same files reached by each other's names: the resolutions are captured too.
+    let digests = record(&app)["digests"].clone();
+    link("a", "node_modules/.store/b");
+    link("b", "node_modules/.store/a2");
+    web_build(&app.0).unwrap();
+    let swapped = record(&app)["digests"].clone();
+    assert!(swapped["a@1.0.0"] != digests["a@1.0.0"] && swapped["b@1.0.0"] != digests["b@1.0.0"]);
+}
+
 /// What no executor has is refused by every producer, naming the package,
 /// its version and the file: a Node built-in, a native addon, a dependency
-/// not installed, the DOM, Node's globals, and a computed `require`.
+/// not installed, the DOM, Node's globals, and a computed `require`. Nothing
+/// of a package runs in the build's process, refused or not.
 #[test]
 fn package_code_no_executor_runs_is_refused_by_package_and_file() {
     let app = App::new("refused");
-    app.put(
-        "packages.d.ts",
-        "declare module 'bad' { const bad: string; export default bad; }\n",
-    );
+    app.put("packages.d.ts", "declare module 'bad' { const bad: string; export default bad; }\ndeclare module 'absent' { const a: string; export default a; }\n");
+    // Each after the sentinel line, so a position is on line 2.
     let cases = [
         (
             "const fs = require('fs');\nmodule.exports = 'x';\n",
@@ -242,15 +355,33 @@ fn package_code_no_executor_runs_is_refused_by_package_and_file() {
         ),
         (
             "module.exports = document.title;\n",
-            "bad@3.1.0 (index.js:1:18) uses the DOM's 'document'",
+            "bad@3.1.0 (index.js:2:18) uses the DOM's 'document'",
         ),
         (
             "module.exports = Buffer.from('x').toString();\n",
-            "bad@3.1.0 (index.js:1:18) uses Node's 'Buffer'",
+            "bad@3.1.0 (index.js:2:18) uses Node's 'Buffer'",
         ),
         (
             "const name = 'x';\nmodule.exports = require('./' + name);\n",
-            "bad@3.1.0 (index.js:2:18) loads a module by a computed name",
+            "bad@3.1.0 (index.js:3:18) loads a module by a computed name",
+        ),
+        // An unrelated test of the name, or a parameter of that name in another function, guards nothing.
+        (
+            "typeof document;\nmodule.exports = document.title;\n",
+            "bad@3.1.0 (index.js:3:18) uses the DOM's 'document'",
+        ),
+        (
+            "function f(document) { return document; }\nmodule.exports = () => document.title;\n",
+            "bad@3.1.0 (index.js:3:24) uses the DOM's 'document'",
+        ),
+        // Nor does a `try`, or reaching it through the global object.
+        (
+            "try { module.exports = document.cookie; } catch (e) {}\n",
+            "bad@3.1.0 (index.js:2:24) uses the DOM's 'document'",
+        ),
+        (
+            "module.exports = () => globalThis.localStorage.getItem('k');\n",
+            "bad@3.1.0 (index.js:2:24) uses the DOM's 'localStorage'",
         ),
     ];
     app.put(
@@ -261,13 +392,9 @@ fn package_code_no_executor_runs_is_refused_by_package_and_file() {
     let ran = app.0.join("ran");
     app.answer("import bad from 'bad';", "bad + count");
     for (code, why) in cases {
-        // Its code says so if it ever runs (the web build's Bun import of app.ts).
         app.put(
             "node_modules/bad/index.js",
-            &format!(
-                "{code}globalThis.process?.getBuiltinModule('fs').writeFileSync({:?}, 'ran');\n",
-                ran.to_str().unwrap()
-            ),
+            &format!("{}{code}", sentinel(&ran)),
         );
         for result in every(&app) {
             let error = result.expect_err(why);
@@ -285,4 +412,69 @@ fn package_code_no_executor_runs_is_refused_by_package_and_file() {
             "{error}"
         );
     }
+    std::fs::remove_file(app.0.join("node_modules/bad/binding.gyp")).unwrap();
+    // A direct dependency the app declares but nobody installed.
+    app.answer("import absent from 'absent';", "absent + count");
+    for result in every(&app) {
+        let error = result.expect_err("absent");
+        assert!(
+            error.contains("app.ts imports 'absent', which is not installed"),
+            "{error}"
+        );
+    }
+    // The app's own JavaScript is held to the same.
+    app.put(
+        "src/helper.js",
+        "export const encode = (s) => Buffer.from(s).toString('hex');\n",
+    );
+    app.answer(
+        "import { encode } from './src/helper.js';",
+        "encode('a') + count",
+    );
+    for result in every(&app) {
+        let error = result.expect_err("helper");
+        assert!(
+            error.contains("src/helper.js:1:30 uses Node's 'Buffer'"),
+            "{error}"
+        );
+    }
+    // A package's identity names a place in the capture: one that would leave it is refused, writing nothing.
+    app.put(
+        "node_modules/bad/package.json",
+        r#"{"name":"bad","version":"../../../../escaped"}"#,
+    );
+    app.put("node_modules/bad/index.js", "module.exports = 'x';\n");
+    app.answer("import bad from 'bad';", "bad + count");
+    for result in every(&app) {
+        let error = result.expect_err("identity");
+        assert!(
+            error.contains("not an npm package name and version"),
+            "{error}"
+        );
+    }
+    assert!(!std::env::temp_dir().join("escaped").exists() && !app.0.join("escaped").exists());
+}
+
+/// A use the static check cannot see (an alias of the global object) finds
+/// the DOM absent on Hermes, as the web's module bindings make it on the page.
+#[test]
+fn an_aliased_dom_global_is_absent_where_the_module_runs() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let app = App::new("alias");
+    app.put(
+        "node_modules/sly/package.json",
+        r#"{"name":"sly","version":"1.0.0"}"#,
+    );
+    app.put("node_modules/sly/index.js", "const g = globalThis, key = ['docu', 'ment'].join('');\nmodule.exports = () => typeof g[key];\n");
+    app.put(
+        "packages.d.ts",
+        "declare module 'sly' { const sly: () => string; export default sly; }\n",
+    );
+    app.answer("import sly from 'sly';", "sly() + count");
+    for result in every(&app) {
+        result.unwrap();
+    }
+    assert_eq!(message(&app), Value::str("undefined0"));
 }

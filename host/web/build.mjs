@@ -89,7 +89,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // Keep TypeScript's lines (`app.ts(2,8): error TS…`), the shared ambient
   // check's file:line:col diagnostics, including paths with spaces, and its
   // refusals of package code (js/bake/src/typescript.mjs `capturedSources`).
-  const packageRefusal = (l) => / (?:imports Node's built-in|uses the DOM's|uses Node's|loads a module by a computed name)|, (?:which is not installed|a native addon)|^(?:Error: )?two copies of /.test(l);
+  const packageRefusal = (l) => / (?:imports Node's built-in|uses the DOM's|uses Node's|loads a module by a computed name)|, (?:which is not installed|a native addon|which the checked capture did not resolve)|: not an npm package name and version|^(?:Error: )?(?:two copies of |app\.ts does not load where)/.test(l);
   const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b/.test(l))
     // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
     .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));

@@ -1,4 +1,4 @@
-import { backendOrigin, bundleOptions, injectBackendOrigin } from '../../js/bake/src/typescript.mjs';
+import { bundleOptions } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createContext, runInContext } from 'node:vm';
 import { transformSync, parseSync } from 'rolldown/utils';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withoutDev } from './module.mjs';
@@ -148,7 +149,6 @@ function mounted(spec, importer) {
   return [base, `${base}.ts`, `${base}.js`, resolve(base, 'index.ts')].find(path => statSync(path, { throwIfNoEntry: false })?.isFile()) ?? null;
 }
 const mountResolver = build => build.onResolve({ filter: /^\.\.?\// }, args => { const path = mounted(args.path, args.importer); return path ? { path } : undefined; });
-if (tsMounts.length) Bun.plugin({ name: 'exact-mounts', setup: mountResolver });
 const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
@@ -183,7 +183,10 @@ const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
 if (canvas2d && !rust && !ts) { console.error(`${app}: a Canvas 2D surface with no data source to draw it`); process.exit(1); }
 cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
 const tsDraws = canvas2d && ts && /export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(resolve(appDir, 'app.ts'), 'utf8'));
-if (tsDraws) writeFileSync(resolve(gen, 'ts-draw.js'), readFileSync(resolve(here, 'ts-draw.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts')).replace('__RECORDER__', resolve(root, 'canvas/recorder.js')));
+// The checked capture of app.ts and what it imports (typecheck, below): the
+// page and its server render bundle it, never the app's own directory.
+const tsStage = resolve(realpathSync(gen), 'typescript'), pageAppTs = resolve(tsStage, 'app.ts');
+if (tsDraws) writeFileSync(resolve(gen, 'ts-draw.js'), readFileSync(resolve(here, 'ts-draw.js'), 'utf8').replace('__APP_TS__', pageAppTs).replace('__RECORDER__', resolve(root, 'canvas/recorder.js')));
 if (tsDraws) writeFileSync(resolve(gen, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
 writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-draw.js';\n" : 'export const drawer = null;\n');
 // `exactTime`: the runner's reserved source (runner/src/time.rs), answered
@@ -209,21 +212,23 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
   const r = spawnSync('cargo', ['check', '-q', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit' });
   if (r.status !== 0) { console.error(`${app}: its web build script failed`); process.exit(1); }
 }
-// `app.ts` is type-checked as the native bake checks it: the same
-// configuration and check (js/bake/src/typescript.mjs) over the same capture
-// and entry, against this plan's declarations, so an app.ts the web builds
-// is one every host builds, refused with the same diagnostics (calc F2,
-// calendar F9/F11). It runs while the page bundles; the build waits for it.
-// Not under `--data`: a synthetic plan over another app's sources (a
-// conformance fixture) is not app.ts's plan. That app's own build checked it
-// against its own plan; against the fixture's declarations every source it
-// answers is unknown, and its declarations stay its own.
-// The capture's bundle, settled before the build's own Bun import of app.ts
-// below runs any package's code: null, or why it refused.
-let bundleSettled;
-const bundleVerdict = new Promise((settle) => { bundleSettled = settle; });
-const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error).then((error) => { bundleSettled(error); return error; }) : null;
-async function typecheck() {
+// `app.ts` is captured and type-checked as the native bake does it: the
+// same configuration and check (js/bake/src/typescript.mjs) over the same
+// capture and entry, against this plan's declarations, so an app.ts the web
+// builds is one every host builds, refused with the same diagnostics (calc
+// F2, calendar F9/F11). The type check runs while the page bundles; the
+// build waits for it at the end. The capture is the module's one graph: its
+// bundle answers appId, grants and the exports, run in a realm of its own
+// (`moduleFacts`), and the page and server bundles replay it
+// (`replayCaptured`); nothing of the app or its packages is imported into
+// this process. Under `--data` (a conformance fixture's synthetic plan over
+// another app's sources) it is captured but not checked: against the
+// fixture's declarations every source that app answers is unknown.
+const captured = ts ? await typecheck(!opt('--data')).catch((error) => {
+  console.error(`${error.message ?? error}\nerror: ${app}: app.ts failed the type check every host's build runs`);
+  process.exit(1);
+}) : null;
+async function typecheck(checking) {
   const { configure, check, capturedSources } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
@@ -234,7 +239,7 @@ async function typecheck() {
   // one line, as `exact.mjs contract build` says it (LLP 1116.001 D4.5).
   const beside = resolve(appDir, 'app.contract.d.ts');
   const before = existsSync(beside) ? readFileSync(beside, 'utf8') : null;
-  if (!production && before !== declarations) {
+  if (checking && !production && before !== declarations) {
     writeFileSync(beside, declarations);
     console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
   }
@@ -272,10 +277,11 @@ async function typecheck() {
   // An overlay shows writes over the resources they change (js/bake's entry does the same).
   const overlay = /export\s+(const|function|let)\s+overlay\b|export\s*\{[^}]*\boverlay\b/.test(readFileSync(resolve(stage, 'app.ts'), 'utf8'))
     ? "import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n" : '';
-  writeFileSync(resolve(stage, '__exact_entry.ts'), "import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n" + overlay);
+  writeFileSync(resolve(stage, '__exact_entry.ts'), "import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\nexport const exported: string[] = Object.keys(app);\n" + overlay);
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   writeFileSync(resolve(stage,'__exact_backend_source.json'), JSON.stringify(readFileSync(resolve(stage,'app.ts'),'utf8')));
   const real = realpathSync(stage);
+  if (real !== tsStage) throw new Error(`the TypeScript stage moved: ${real}`);
   configure(real, false, parseSync);
   // The packages whose declarations the check reads (typescript.mjs
   // `stagePackages`) are inputs the dev loop watches too, as it watches the
@@ -297,23 +303,82 @@ async function typecheck() {
   // Both run, and every diagnostic is reported, as the resident compiler joins them.
   const why = [];
   const { rolldown } = await import('rolldown');
-  const typed = check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error);
-  const bundled = (async () => {
+  const typed = checking ? check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error) : Promise.resolve(null);
+  let code, failed;
+  try {
     const bundle = await rolldown({ ...bundleOptions, cwd: real, input: resolve(real, '__exact_entry.ts'), tsconfig: resolve(real, '__exact_tsconfig.json'),
       logLevel: 'silent', plugins: [capturedSources(real, why)] });
-    try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
-  })().then(() => null, error => error);
-  bundleSettled((await bundled) ?? (why.length ? new Error(why.join('\n')) : null));
-  // The packages whose code it captured are inputs the dev loop watches, as it watches their declarations.
-  if (devReload && existsSync(resolve(real, '__exact_packages.json'))) {
+    try { code = (await bundle.generate({ format: 'iife', name: 'exact' })).output[0].code; } finally { await bundle.close(); }
+  } catch (error) { failed = error; }
+  if (failed || why.length) {
+    const errors = [failed, ...why.map(line => new Error(line)), await typed].filter(Boolean);
+    throw new Error(errors.map(e => e.message ?? String(e)).join('\n'));
+  }
+  // The packages whose code it captured are inputs the dev loop watches, as
+  // their declarations are: each package's tree, and each place it is
+  // installed (a link retargeted, or a reinstall, is an edit there).
+  if (devReload) {
     const listed = resolve(gen, 'dev-sources.json');
     const sources = existsSync(listed) ? JSON.parse(readFileSync(listed, 'utf8')) : {};
-    const roots = JSON.parse(readFileSync(resolve(real, '__exact_packages.json'), 'utf8')).packages.map(([, dir]) => dir);
-    sources.packages = [...new Set([...(sources.packages ?? []), ...roots])];
+    const packages = JSON.parse(readFileSync(resolve(real, '__exact_packages.json'), 'utf8')).packages;
+    sources.packages = [...new Set([...(sources.packages ?? []), ...packages.map(([, dir]) => dir)])];
+    sources.shallow = [...(sources.shallow ?? []), ...packages.flatMap(([, , installed]) => installed.map(path => [dirname(path), basename(path)]))];
     writeFileSync(listed, JSON.stringify(sources));
   }
-  const errors = [await bundled, ...why.map(line => new Error(line)), await typed].filter(Boolean);
-  if (errors.length) throw new Error(errors.map(e => e.message ?? String(e)).join('\n'));
+  // A module that does not load says why, after what the check found.
+  try { return { facts: moduleFacts(code), typed }; } catch (error) {
+    throw new Error([await typed, error].filter(Boolean).map(e => e.message ?? String(e)).join('\n'));
+  }
+}
+/** appId, grants and the export names of the captured bundle `code`, run as
+ * Hermes runs it: in a realm of its own (no Node, Bun or page object in it:
+ * everything below is made inside it), after the executor's prelude, under
+ * a deadline. Of the web APIs Ibex gives Hermes natively, the realm makes
+ * the text coders a module builds as it loads; the rest are absent here. */
+function moduleRealm() { return `delete globalThis.console;
+globalThis.console = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
+globalThis.__exact_host = function () {};
+globalThis.crypto = { getRandomValues() { throw new Error('crypto.getRandomValues() is unavailable while the build reads appId and grants'); } };
+globalThis.TextEncoder = class TextEncoder {
+  get encoding() { return 'utf-8'; }
+  encode(text = '') {
+    const out = [];
+    for (const ch of String(text)) {
+      let c = ch.codePointAt(0);
+      if (c >= 0xd800 && c <= 0xdfff) c = 0xfffd;
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xc0 | c >> 6, 0x80 | c & 63);
+      else if (c < 0x10000) out.push(0xe0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63);
+      else out.push(0xf0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63);
+    }
+    return new Uint8Array(out);
+  }
+};
+globalThis.TextDecoder = class TextDecoder {
+  constructor(label = 'utf-8', options = {}) { this.fatal = !!options.fatal; }
+  get encoding() { return 'utf-8'; }
+  decode(input = new Uint8Array()) {
+    const b = input instanceof Uint8Array ? input : new Uint8Array(input.buffer ?? input);
+    let text = '';
+    for (let i = 0; i < b.length;) {
+      const n = b[i] < 0x80 ? 1 : b[i] >> 5 === 6 ? 2 : b[i] >> 4 === 14 ? 3 : b[i] >> 3 === 30 ? 4 : 0;
+      let c = n === 1 ? b[i] : n ? b[i] & (0xff >> (n + 1)) : -1;
+      for (let k = 1; k < n; k++) c = (b[i + k] >> 6) === 2 ? c << 6 | b[i + k] & 63 : -1;
+      if (c < 0 || i + n > b.length) { if (this.fatal) throw new TypeError('The encoded data was not valid utf-8'); text += '\\ufffd'; i++; continue; }
+      text += String.fromCodePoint(c); i += n;
+    }
+    return text;
+  }
+};`; }
+function moduleFacts(code) {
+  const realm = createContext({});
+  runInContext(moduleRealm(), realm);
+  runInContext(readFileSync(resolve(root, 'js/src/prelude.js'), 'utf8'), realm, { timeout: 10_000 });
+  try {
+    return JSON.parse(runInContext(`${code}\n;JSON.stringify({ appId: exact.appId, grants: exact.grants, exported: exact.exported })`, realm, { timeout: 10_000 }));
+  } catch (error) {
+    throw new Error(`app.ts does not load where the build reads its appId and grants (the language, the executor's prelude, TextEncoder and TextDecoder): ${error?.message ?? error}`);
+  }
 }
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
@@ -324,29 +389,7 @@ const normalizeGrants = (label, spec, stem) => {
   if (set.error) throw new Error(`grant-parse: ${label}: ${set.error}`);
   return set;
 };
-// app.ts runs under Bun here, to read its appId and grants, and runs the
-// packages it imports: only once the capture's bundle has taken them
-// (js/bake/src/typescript.mjs `capturedSources`), so a refused package's code
-// never runs, at build or after. With no capture (`--data`), none loads.
-if (ts && typeChecked && await bundleVerdict) {
-  const typeError = await typeChecked;
-  console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`);
-  process.exit(1);
-}
-if (ts && !typeChecked) {
-  const installed = [...appRoots, ...tsMounts.map(([, dir]) => dir)].map(dir => join(dir, 'node_modules'));
-  const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  Bun.plugin({ name: 'exact-packages', setup(build) {
-    build.onLoad({ filter: new RegExp(`^(?:${installed.map(escape).join('|')})[\\\\/]`) }, args => {
-      throw new Error(`module outside captured app: ${args.path}`);
-    });
-  } });
-}
-const selectedBackend = backendOrigin(appDir);
-if (ts && selectedBackend) Bun.plugin({name: 'backend-origin', setup(build) {
-  build.onLoad({filter: /[/\\]app\.ts$/}, ({path}) => path===appTs ? {contents: injectBackendOrigin(readFileSync(path,'utf8'),selectedBackend,parseSync), loader: 'ts'} : undefined);
-}});
-const tsModule = ts ? await import(resolve(appDir, 'app.ts')) : null;
+const tsModule = captured?.facts ?? null;
 const grants = ts ? String(tsModule.grants ?? '') : '';
 // What the native bake refuses of the module (js/bake/src/lib.rs `bake_in`,
 // bake/src/receipt.rs), refused here as well, so the web loop fails where a
@@ -356,7 +399,7 @@ if (ts) {
   const problems = [
     ...['__exact_backend_source.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
-    ...('draw' in tsModule) !== ('surfaces' in tsModule) ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
+    ...tsModule.exported.includes('draw') !== tsModule.exported.includes('surfaces') ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],
   ];
   if (problems.length) { console.error(problems.map(p => `error: ${p}`).join('\n')); process.exit(1); }
@@ -444,7 +487,7 @@ for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(g
 writeFileSync(resolve(gen, 'agent.js'), localImports(readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'")));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const auth = /^\s*auth\.session\s/m.test(grants);
-if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(appDir, 'app.ts')))
+if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(pageAppTs))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
 writeFileSync(resolve(gen, 'grant-admission.js'), grantSection); // the section navigation.js re-exports (above)
@@ -509,27 +552,31 @@ if (!production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))
 // Bun's bundler, in this process, for the server bundle. A build that
 // renders nothing (the dev loop's) makes no server bundle.
 const how = opt('--render') ?? 'rust';
-// Inject only into the app's module graph, never the copied host runtime.
-// Oxc resolves lexical bindings, so an authored local `fetch` stays local.
+// Inject only into the app's module graph (the capture, under gen), never
+// the copied host runtime. Oxc resolves lexical bindings, so an authored
+// local `fetch` stays local.
 const generatedRoots = [gen, realpathSync(gen)];
+const inside = (path, root) => { const child = relative(root, path); return child === '' || !isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep); };
 const scopedModule = (code, id) => {
-  if (!ts || !/\.[cm]?[jt]sx?$/.test(id)) return null;
-  if (generatedRoots.some(root => {
-    const path = relative(root, id);
-    return path === '' || !isAbsolute(path) && path !== '..' && !path.startsWith('..' + sep);
-  })) return null;
+  if (!ts || !isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
+  if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
   // and the browser's own I/O, as the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
     'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto'];
-  if (id===appTs) code=injectBackendOrigin(code,selectedBackend,parseSync);
+  // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
+  const absent = ['window', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage', 'indexedDB', 'HTMLElement', 'Element',
+    'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
   const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
-    ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
+    ...Object.fromEntries(absent.map(name => [name, [resolve(gen, 'ts-fetch.js'), 'absent']])),
+    ...Object.fromEntries(['globalThis', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
   return result.code;
 };
+// Both bundles take app.ts and its packages from the checked capture alone.
+const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).replayCaptured(tsStage) : null;
 const bundle = async (options) => {
-  const r = await Bun.build({ ...options, plugins: [{ name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
+  const r = await Bun.build({ ...options, plugins: [...(replay ? [{ name: 'captured-replay', setup: replay.bun }] : []), { name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
   } }] });
   for (const m of r.logs) console.error(String(m));
@@ -544,12 +591,12 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [{ name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [...(replay ? [replay.rolldown] : []), { name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.
   const fromData = (id, getModuleInfo, seen = new Set()) => {
-    if (id === appTs) return true;
+    if (id === pageAppTs) return true;
     if (seen.has(id)) return false;
     seen.add(id);
     return (getModuleInfo(id)?.importers ?? []).some(parent => fromData(parent, getModuleInfo, seen));
@@ -564,7 +611,7 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
   const built = await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js',
     postBanner: (chunk) => chunk.isEntry ? '//# allFunctionsCalledOnLoad' : undefined,
     ...(devReload && ts ? { manualChunks: (id, { getModuleInfo }) => fromData(id, getModuleInfo) ? 'dev-data' : undefined } : {}) });
-  if (devReload && ts) for (const chunk of built.output.filter(file => file.type === 'chunk' && Object.keys(file.modules).includes(appTs))) {
+  if (devReload && ts) for (const chunk of built.output.filter(file => file.type === 'chunk' && Object.keys(file.modules).includes(pageAppTs))) {
     devLogic.push(['typescript', createHash('sha256').update(readFileSync(resolve(out, chunk.fileName))).digest('hex')]);
   }
   await b.close();
@@ -716,7 +763,7 @@ if (!production) {
 }
 // The type check, which ran while the page bundled: its diagnostics are the
 // native bake's (host/web/build.mjs keeps them in its summary).
-const typeError = await typeChecked;
+const typeError = await captured?.typed;
 if (typeError) { console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
 // Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
 // native render entry (`<app>-render`, exact_render) over this shell;

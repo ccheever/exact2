@@ -172,10 +172,17 @@ export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame,
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.
 const methods = new WeakMap();
-export const appGlobal = new Proxy(globalThis, { get(target, name) {
+// What Hermes's realm lacks and the page has: the DOM and Node's globals,
+// absent from the module here too, so a test of one (`typeof document`)
+// answers as it does natively (js/bake/src/typescript.mjs `packageRefusals`).
+const ABSENT = new Set(['window', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage', 'indexedDB', 'HTMLElement', 'Element',
+  'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global']);
+export const absent = undefined;
+export const appGlobal = new Proxy(globalThis, { has(target, name) { return !ABSENT.has(name) && Reflect.has(target, name); }, get(target, name) {
   if (name === 'fetch') return fetch;
   if (Object.hasOwn(guarded, name)) return guarded[name];
-  if (name === 'globalThis' || name === 'self' || name === 'window') return appGlobal;
+  if (ABSENT.has(name)) return undefined;
+  if (name === 'globalThis' || name === 'self') return appGlobal;
   const value = Reflect.get(target, name, target);
   if (typeof value !== 'function') return value;
   if (!methods.has(value)) methods.set(value, new Proxy(value, { apply(fn, receiver, args) { return Reflect.apply(fn, receiver === appGlobal ? target : receiver, args); } }));
