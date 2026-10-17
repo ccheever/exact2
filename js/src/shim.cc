@@ -72,38 +72,40 @@ struct State {
   size_t capture_limit;
   size_t capture_bytes = 0;
   std::vector<CapturedString> captures;
-  // The heap's counters when the last collection was seen (collect_if_due).
-  int64_t collections = 0;
+  // At the last full collection (collect_garbage): the heap's total
+  // allocation then and what it held, all of it live.
   int64_t collected_at = 0;
   int64_t live = 0;
 };
 
 constexpr size_t kLogLines = 256;
 
+// A full collection, after which the heap holds only what is live.
+void collect_garbage(State *state, const char *cause) {
+  auto &instrumentation = state->rt->instrumentation();
+  instrumentation.collectGarbage(cause);
+  auto info = instrumentation.getHeapInfo(false);
+  state->collected_at = info["hermes_totalAllocatedBytes"];
+  state->live = info["hermes_allocatedBytes"];
+}
+
 // Hermes' young generation keeps every page it has touched (exact_js_harden),
 // and Hades lets it grow over a session to its whole 4 MB segment: each young
 // collection ends it at a share of the segment that starts at a half and grows
 // by a tenth with every collection under 10 ms. A module that allocates a
 // little per call collects here instead, between calls, once it has allocated
-// as much as it holds live and at least kCollectEvery since the last
-// collection, so its young generation stays near boot's. A full collection's
-// cost follows the live heap, so this is at most one per that much allocation.
+// as much as it held live at the last full collection and at least
+// kCollectEvery since, so its young generation stays near boot's. A full
+// collection's cost follows the live heap, so this is at most one per that
+// much allocation. The total counts what Hermes' own young collections
+// already reclaimed, so after one this collects early, never late.
 constexpr int64_t kCollectEvery = 512 << 10;
 
 void collect_if_due(State *state) {
-  auto &instrumentation = state->rt->instrumentation();
-  auto info = instrumentation.getHeapInfo(false);
+  auto info = state->rt->instrumentation().getHeapInfo(false);
   int64_t total = info["hermes_totalAllocatedBytes"];
-  int64_t collections = info["hermes_numCollections"];
-  if (collections == state->collections) {
-    if (total - state->collected_at < std::max(kCollectEvery, state->live)) return;
-    instrumentation.collectGarbage("between calls");
-    info = instrumentation.getHeapInfo(false);
-  }
-  // Else one of Hermes' own collections ran since the last check: count from now.
-  state->collections = info["hermes_numCollections"];
-  state->collected_at = info["hermes_totalAllocatedBytes"];
-  state->live = info["hermes_allocatedBytes"];
+  if (total - state->collected_at >= std::max(kCollectEvery, state->live))
+    collect_garbage(state, "between calls");
 }
 
 void clear_captures(State *state) {
@@ -338,7 +340,7 @@ int exact_js_harden(void *h, const uint8_t *harden, size_t harden_len, char **ou
     state->rt->instrumentation().collectGarbage("bootstrap");
     ibex2::jsi_adapter::CompiledScript script{"harden", harden, harden_len};
     state->adapter->harden(script);
-    state->rt->instrumentation().collectGarbage("hardened");
+    collect_garbage(state, "hardened");
     return 0;
   } catch (const jsi::JSError &e) {
     return fail(out, e.getMessage(), 1);

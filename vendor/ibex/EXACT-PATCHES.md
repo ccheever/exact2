@@ -282,9 +282,11 @@ two collections, so the two together set the data module's young-generation
 footprint. With the collection each reuses the other's pages: in Exact's
 template and in euxy (Release, iPhone 17 simulator, 10 s after launch) the
 young generation keeps 528 KB rather than 944, for 0.15 ms of boot. A
-collection runs no JavaScript and changes no reachability, and the
-allocation could have triggered one at the same point. To go upstream to
-expo/ibex; replay it on a refresh until it is there.
+collection runs no JavaScript (finalization callbacks wait for the next
+microtask drain), and the guard's temporaries are dead by then while the
+bootstrap identities it checked stay rooted in the adapter's state, so the
+graph `harden.js` freezes is the same. To go upstream to expo/ibex; replay
+it on a refresh until it is there.
 
 ## Qualification boundaries
 
