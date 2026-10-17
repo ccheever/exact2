@@ -64,6 +64,8 @@ final class PointerRecognizer: UIGestureRecognizer {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
         if touch == nil, let relay { node = relay.listener(touches.first?.view) { $0.wantsPointer } }
+        // A contact going down ends a live press's handoff before its `pointerdown` runs.
+        node?.presenter?.supersedePress(touching: touches.first?.view)
         guard touch == nil, let first = touches.first, let node, !node.disabled, relay != nil || !nearer(first.view) else { return }
         touch = first
         touchId += 1
@@ -458,6 +460,9 @@ extension NodeView {
         guard let target = activationTarget(at: windowPoint) else { return nil }
         let bubbled = (presenter?.pressBox(of: target, from: self) ?? target) !== target
         if !bubbled, target.isSurfaceControl { return target.control("down") && target.control("up") ? target : nil }
+        // VoiceOver's activation of a focused opener hands its focus on as a tap's does.
+        let handoff = target.presenter?.beginPress(control: target.textArea ?? target.field ?? target)
+        defer { handoff?.dispatched() }
         target.presenter?.press(target.id, bubbled: bubbled)
         return target
     }
@@ -515,7 +520,7 @@ extension NodeView {
     /// dispatch has returned (PressHandoffIOS).
     func focusForPress(target: NodeView?) -> PressHandoff? {
         guard let presenter else { return nil }
-        let handoff = presenter.beginPress(control: target)
+        let handoff = presenter.beginPress(control: target.map { $0.textArea ?? $0.field ?? $0 })
         guard !presenter.contextRetainsFocus(self) else { return handoff }
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
         var at: UIView? = self

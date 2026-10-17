@@ -238,7 +238,11 @@ extension Agent {
         var handoff: PressHandoff?
         defer { handoff?.dispatched() }
         while let cur = f {
-            if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
+            if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field {
+                handoff = presenter.beginPress(control: field)
+                if !field.isFirstResponder { _ = field.becomeFirstResponder() }
+                took = true; break
+            }
             // A node settles the press's focus as a finger's does
             if let node = cur as? NodeView { handoff = node.focusForPress(target: reach.action?.live(in: presenter)); took = true; break }
             // A native module's responder takes it, unless under `retainFocus`
@@ -337,6 +341,7 @@ extension Agent {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
                 let touched = seen ?? v
+                presenter.supersedePress(touching: touched)
                 let contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
                                        reach: fingerReach(touched, at: p), at: at, t: t, held: Agent.heldPrefix(req))
                 panContact = contact
@@ -348,8 +353,10 @@ extension Agent {
             // a draggable card) presses that node if the pan never begins.
             let pressInside = hit.isDescendant(of: node) && sequence(first: hit, next: { $0.superview }).prefix { $0 !== node }
                 .contains { ($0 as? NodeView)?.handlers.contains("press") == true }
+            presenter.supersedePress(touching: hit)
             var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
-            if pressInside { contact.reach = fingerReach(hit, at: p) }
+            // A lift that never panned is the press it landed on, through a finger's lift (`lift`).
+            if pressInside || node.handlers.contains("press") { contact.reach = fingerReach(hit, at: p) }
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]
@@ -413,10 +420,6 @@ extension Agent {
                     reply.merge(lift(reach, at: windowPoint(contact.at), held: contact.held)) { _, b in b }
                 }
                 return reply
-            }
-            if node.handlers.contains("press") {
-                presenter.press(node.id)
-                return ["phase": "up", "at": point(contact.at), "delivery": "recognized", "pressed": Int(node.id)]
             }
             return ["phase": "up", "at": point(contact.at), "delivery": "recognized"]
         case "cancel":

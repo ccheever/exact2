@@ -22,6 +22,11 @@ public final class ExactWindow: UIWindow {
             return
         }
         #endif
+        // A contact going down, a native control's included, ends a live
+        // press's focus handoff before anything hears it (PressHandoffIOS).
+        if event.type == .touches, let began = event.allTouches?.first(where: { $0.phase == .began }) {
+            for session in ExactApp.shared.sessions { session.presenter.supersedePress(touching: began.view) }
+        }
         super.sendEvent(event)
         if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
     }

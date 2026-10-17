@@ -240,6 +240,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
     private var pendingSync = false
+    /// The press whose commit a deferred sync still owes (PressHandoffIOS).
+    private var pendingPressWork: (() -> Void)?
     /// A sync was deferred (a transition ran, or there was no window yet)
     /// and is still owed, or UIKit moved a stack itself (its back button, a
     /// swipe) since the last one: the next batch syncs, whatever it holds.
@@ -481,8 +483,17 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { syncTabs(p) }
         // Initial content draws before a presentation covers it.
         if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
-        guard !changing, !presenter.modals.inTransition else { pendingSync = true; return }
+        guard !changing, !presenter.modals.inTransition else {
+            pendingSync = true
+            pendingPressWork = pendingPressWork ?? presenter.holdPress() // the press whose commit waits
+            return
+        }
         pendingSync = false
+        // A press's handoff waits for the sync it deferred, which takes its own
+        // hold for what it presents or pushes, or for the one after if it defers again.
+        let carried = pendingPressWork
+        pendingPressWork = nil
+        defer { if pendingSync { pendingPressWork = carried ?? presenter.holdPress() } else { carried?() } }
         let boundaries = parts.dropFirst().map { wanted[$0.lowerBound].node }
         let mounted = presenter.modals.routes
         let common = zip(boundaries, mounted).prefix {
@@ -508,7 +519,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 recordOwned(nav)
                 // The press that pushed may hand its control's focus to the arriving route's autofocus
                 // until the push is over (PressHandoffIOS).
-                if animated { pushWork = presenter.holdPress() }
+                if animated { pushWork = presenter.holdPress(destination: (stack.last as? RouteController)?.node) }
             }
             nav.view.layoutIfNeeded()
             if let pushWork, nav.transitionCoordinator?.animate(alongsideTransition: nil, completion: { _ in pushWork() }) != true { pushWork() }
@@ -1112,6 +1123,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         controllers.removeAll()
         routeIDs = []
         pendingSync = false
+        pendingPressWork?(); pendingPressWork = nil
         keyboardDropped = false
         droppedEditor = nil
         lastTransition = "idle"

@@ -633,13 +633,13 @@ extension Presenter {
             // view holding it for its shortcuts (ShortcutsIOS), a surface control's from its touch, which the
             // author did not ask for, and the focus a press left on its control while that press's work runs,
             // which an autofocus the work mounts takes (PressHandoffIOS).
-            func yields(_ view: UIView) -> Bool { (view as? NodeView)?.focusedBySurfaceTouch == true || pressHandsOff(view) }
+            func yields(_ view: UIView) -> Bool { (view as? NodeView)?.focusedBySurfaceTouch == true || pressHandsOff(view, to: node) }
             func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !yields(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
             guard let window = node.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
             guard !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
-            node.focusedBySurfaceTouch = false // the app's focus now, as Tab's and focus(id)'s
+            chooseFocus(node) // the app's focus now, as Tab's and focus(id)'s; a press hands on nothing more
             _ = target.becomeFirstResponder()
             #endif
         }

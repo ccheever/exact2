@@ -542,6 +542,7 @@ extension NodeView {
         incarnation = NodePool.issue()
         scrollEnd?.reset()
         focusedBySurfaceTouch = false
+        if presenter?.pressHandoff?.control === self { presenter?.pressHandoff = nil } // another node's view now
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }

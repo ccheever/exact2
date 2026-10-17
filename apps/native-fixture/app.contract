@@ -251,11 +251,19 @@ component NativeFixture
   action openNote
     nav = push(nav, "/note")
   // A composer: an opener that asked for focus (a tabindex) presents a
-  // sheet whose textarea autofocuses as UIKit presents it.
+  // sheet whose textarea a later answer mounts, after the sheet is up, and
+  // which autofocuses.
   state focusNote = false
+  state noteLoading = false
   action openFocusedNote
-    focusNote = true
+    focusNote = false
+    noteLoading = true
     nav = push(nav, "/note")
+  action noteLoaded
+    noteLoading = false
+    focusNote = true
+  task loadNote when noteLoading
+    after(1000, noteLoaded)
   action follow(url: string)
     nav = go(nav, url)
   action breakOwnership

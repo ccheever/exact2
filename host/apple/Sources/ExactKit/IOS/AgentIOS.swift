@@ -751,6 +751,7 @@ extension Agent {
         if let why = unreached, fingers.isEmpty { return ["error": "unsupported: tap #\(v.id) at (\(at[0]), \(at[1])) \(why)"] }
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = Agent.heldPrefix(req)
+        presenter.supersedePress(touching: hit) // before its `pointerdown`, as a real contact's
         fingerPointer(.down, fingers, at: p, held: held)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
@@ -1073,6 +1074,7 @@ extension Agent {
             // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).
             #if os(iOS)
             if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
+                presenter.supersedePress() // a key, as `keyDown` and `performShortcut` take it
                 presenter.press(node.id)
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
