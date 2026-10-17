@@ -366,7 +366,7 @@ pub fn import(
         design,
         vocab,
         &mut unmapped,
-    );
+    )?;
     let ops = reconcile(design, &axes, OWNED, &tokens);
     let offers = offers(prefix, design, vocab, &axes, &tokens);
     let derived = unmapped.iter().filter(|u| u.block == "(derived)").count();

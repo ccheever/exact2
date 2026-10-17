@@ -504,7 +504,7 @@ fn an_import_holds_where_it_lands_or_says_why() {
     held(&i);
     assert!(i.ops.is_empty(), "{:?}", i.ops);
     assert!(
-        why(&i, "--radius-md")[0].contains("the design's `derived` reads it"),
+        why(&i, "--radius-md")[0].contains("the design's `derived` would not fold"),
         "{:?}",
         why(&i, "--radius-md")
     );
@@ -573,22 +573,38 @@ fn the_landing_check_charges_what_breaks_and_only_that() {
         i.ops
             .iter()
             .filter_map(|o| match o {
-                exact_tamber::Op::AddToken { name, .. } | exact_tamber::Op::SetToken { name, .. } => Some(name.clone()),
+                exact_tamber::Op::AddToken { name, .. }
+                | exact_tamber::Op::SetToken { name, .. } => Some(name.clone()),
                 _ => None,
             })
             .collect()
     };
     // A refused colour takes its aliases, and the role offer over them.
     let design = parse("tamber app\n\ntheme\n  shadcn.base: length = 8px\n").unwrap();
-    let i = shadcn::import(":root { --base: #ffffff; --primary: var(--base); --background: var(--primary); }", "shadcn", &design, &vocab).unwrap();
+    let i = shadcn::import(
+        ":root { --base: #ffffff; --primary: var(--base); --background: var(--primary); }",
+        "shadcn",
+        &design,
+        &vocab,
+    )
+    .unwrap();
     held(&i);
     assert!(names(&i).is_empty(), "{:?}", i.ops);
     assert!(i.offers.iter().all(|o| o.ops.is_empty()), "{:?}", i.offers);
-    assert_eq!(why(&i, "--primary"), ["it names `shadcn.base`, which this import does not set"]);
+    assert_eq!(
+        why(&i, "--primary"),
+        ["it names `shadcn.base`, which this import does not set"]
+    );
     // A design with a role, checked against the app's vocabulary: a
     // dependent and an untyped length are both seen.
     let design = parse("tamber app\n\ntheme\n  -exact-background = #ffffff\n  tw.radius.md: length = 4px\n  derived: length = calc(tw.radius.md + 1px)\n  tw.brand = 8px\n").unwrap();
-    let i = tailwind::import_with("@theme { --radius-md: 1rem; --color-brand: #ff0000; }", "tw", &design, &vocab).unwrap();
+    let i = tailwind::import_with(
+        "@theme { --radius-md: 1rem; --color-brand: #ff0000; }",
+        "tw",
+        &design,
+        &vocab,
+    )
+    .unwrap();
     held(&i);
     assert!(names(&i).is_empty(), "{:?}", i.ops);
     assert!(why(&i, "--color-brand")[0].contains("is a length token, not a colour"));
@@ -618,7 +634,118 @@ fn the_landing_check_charges_what_breaks_and_only_that() {
     assert!(names(&i).is_empty(), "{:?}", i.ops);
     // One branch's failure charges only what that branch reads.
     let design = parse("tamber app\n\naxes\n  mode = normal | compact\n\ntheme\n  tw.radius.bad: length = 4px\n  tw.radius.good: length = 8px\n  derived: length = calc(tw.radius.bad + 1px)\n    when mode=compact: calc(tw.radius.good + 1px)\n").unwrap();
-    let i = tailwind::import("@theme { --radius-bad: 1rem; --radius-good: 12px; }", "tw", &design).unwrap();
+    let i = tailwind::import(
+        "@theme { --radius-bad: 1rem; --radius-good: 12px; }",
+        "tw",
+        &design,
+    )
+    .unwrap();
     held(&i);
     assert_eq!(names(&i), ["tw.radius.good"], "{:?}", i.ops);
+}
+
+/// Review round 2 of the landing check: the operations an import returns
+/// apply to the design they were planned against, and what holds is kept.
+#[test]
+fn the_landing_check_keeps_what_holds_and_refuses_axes_that_do_not() {
+    let vocab = vocab();
+    let lands = |design: &str, i: &Import| {
+        let text = apply_all(design, &i.ops, &vocab)
+            .unwrap_or_else(|e| panic!("{e:?}\n{:?}", i.ops))
+            .text;
+        check(&text, &vocab).unwrap_or_else(|e| panic!("{e:?}\n{text}"));
+    };
+    let names = |i: &Import| -> Vec<String> {
+        i.ops
+            .iter()
+            .filter_map(|o| match o {
+                exact_tamber::Op::AddToken { name, .. }
+                | exact_tamber::Op::SetToken { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    // An axis value that leaves the design unfolded refuses the import.
+    let design = "tamber app\n\naxes\n  theme = default | blue\n\ntheme\n  size: length = 1rem\n    when theme=default: 4px\n    when theme=blue: 8px\n  derived: length = calc(size + 1px)\n";
+    let e = shadcn::import(
+        ":root { --ink: #ffffff; } .theme-red { --ink: #000000; }",
+        "shadcn",
+        &parse(design).unwrap(),
+        &vocab,
+    )
+    .unwrap_err();
+    assert_eq!(e[0].id, "tamber-import-axis", "{e:?}");
+    // A colour whose name the edit grammar refuses is reported.
+    let i = shadcn::import(
+        ":root { --café: #ffffff; }",
+        "shadcn",
+        &parse(EMPTY).unwrap(),
+        &vocab,
+    )
+    .unwrap();
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    assert_eq!(i.counted.reported, 1);
+    // A design that does not fold before still knows an untyped length.
+    let design = "tamber app\n\ndials\n  unused: color = #ffffff\n\ntheme\n  tw.brand = 8px\n";
+    let i = tailwind::import_with(
+        "@theme { --color-brand: #ff0000; }",
+        "tw",
+        &parse(design).unwrap(),
+        &vocab,
+    )
+    .unwrap();
+    assert!(
+        why(&i, "--color-brand")[0].contains("is a length token, not a colour"),
+        "{:?}",
+        i.unmapped
+    );
+    // A kept `when` charges what it reads, not its owner.
+    let design = "tamber app\n\naxes\n  mode = normal | compact\n\ntheme\n  tw.radius.a: length = 4px\n  tw.radius.b: length = 8px\n    when mode=compact: calc(tw.radius.a + 1px)\n";
+    let i = tailwind::import(
+        "@theme { --radius-a: 1rem; --radius-b: 12px; }",
+        "tw",
+        &parse(design).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(names(&i), ["tw.radius.b"], "{:?}", i.unmapped);
+    lands(design, &i);
+    // A `when` compared with its default charges what the default reads.
+    let design = "tamber app\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  tw.brand = #ffffff\n  derived = tw.brand\n    when dark-style=dim: light-dark(#ffffff, #222222)\n";
+    let i = tailwind::import(
+        "@theme { --color-brand: #000000; --color-safe: #ff0000; }",
+        "tw",
+        &parse(design).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(names(&i), ["tw.safe"], "{:?}", i.unmapped);
+    lands(design, &i);
+    // Two causes of one refusal, and an innocent third kept.
+    let design = "tamber app\n\ntheme\n  tw.radius.a: length = 1px\n  tw.radius.b: length = 1px\n  tw.radius.c: length = 1px\n  total: length = calc(tw.radius.a + tw.radius.b + tw.radius.c)\n";
+    let i = tailwind::import(
+        "@theme { --radius-a: 1rem; --radius-b: 1rem; --radius-c: 2px; }",
+        "tw",
+        &parse(design).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(names(&i), ["tw.radius.c"], "{:?}", i.unmapped);
+    lands(design, &i);
+    // A quoted family name is no reference to a refused token.
+    let design = "tamber app\n\ntheme\n  tw.brand: length = 8px\n";
+    let i = tailwind::import(
+        "@theme { --color-brand: #ff0000; --font-sans: \"tw.brand\"; }",
+        "tw",
+        &parse(design).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(names(&i), ["tw.family.sans"], "{:?}", i.unmapped);
+    // A kept `when` naming a token the import breaks: the update holds.
+    let design = "tamber app\n\naxes\n  mode = normal | compact\n\ntheme\n  tw.radius.md: length = 4px\n    when mode=compact: tw.radius.sm\n  tw.radius.sm: length = 2px\n  derived: length = calc(tw.radius.md + 1px)\n";
+    let i = tailwind::import(
+        "@theme { --radius-md: 8px; --radius-sm: 1rem; }",
+        "tw",
+        &parse(design).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(names(&i), ["tw.radius.md"], "{:?}", i.unmapped);
+    lands(design, &i);
 }

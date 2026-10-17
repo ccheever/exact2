@@ -131,15 +131,15 @@ pub(super) fn refused(
     (axes, owned): (&[(String, Vec<String>)], &[&str]),
     design: &crate::Design,
     vocab: &Vocab,
-) -> Vec<Option<String>> {
+) -> Result<Vec<Option<String>>, crate::Diagnostic> {
     let mut why = unfolded(tokens, axes, design, vocab);
     let kept: Vec<usize> = (0..tokens.len()).filter(|&i| why[i].is_none()).collect();
     let laid: Vec<Mapped> = kept.iter().map(|&i| tokens[i].clone()).collect();
-    let landed = super::landing::landing(&laid, axes, owned, design, vocab);
+    let landed = super::landing::landing(&laid, axes, owned, design, vocab)?;
     for (i, w) in kept.into_iter().zip(landed) {
         why[i] = w;
     }
-    why
+    Ok(why)
 }
 
 /// The names a value may hold.

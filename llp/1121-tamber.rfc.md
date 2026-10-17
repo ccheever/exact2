@@ -2996,12 +2996,17 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   importer's own axes it no longer gives taken out), and the design folded against the app's
   vocabulary (`tailwind::import_with`, `dtcg::import_with`; the CLI and the server pass it).
   - A token the design has of another kind is reported first, a colour too ("the design's `x` is
-    a length token, not a colour"). A token naming a refused one goes with it.
+    a length token, not a colour"): its kind as the design folds, or, where it does not, as what
+    folds once the lines it refuses are left out. So is a line the edit grammar would not take
+    (a colour named `--café`). A token naming a refused one goes with it, a quoted name aside.
+  - The import's axes are laid first: one that would leave the design unfolded refuses the import
+    whole (`tamber-import-axis`).
   - Each refusal the fold makes that the design did not make before is charged to its cause: a
-    laid token's own line, a kept `when` of it included; a design token's failing value, through
-    the design tokens it reads, to the laid token whose absence clears it ("the design's `derived`
-    reads it, and would not fold once it lands: …"); a dial left unused to the token that no
-    longer reads it; anything else to every token laid. Until the design folds.
+    laid token's own line; a design token's failing value (a `when` with its default), through
+    the tokens it reads as laid (kept `when` lines too), to the laid tokens whose absence clears
+    it, or, where none alone does, to those it holds with all the others out ("the design's
+    `derived` would not fold once it lands: …"); a dial left unused to the token that no longer
+    reads it; anything else to every token laid. Until the design folds.
   - The refused tokens' source values move from mapped to reported, so the count holds; a role
     offer over a refused token is not made.
 - **References.** A `var(--x)` is the token `--x` becomes, named bare (D3), through a chain of

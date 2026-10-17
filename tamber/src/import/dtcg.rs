@@ -1383,7 +1383,7 @@ pub fn import_with(
     // Each of another kind that does not fold, and each colour that would not
     // hold where it lands, makes no token.
     let owned: Vec<&str> = axes.iter().map(|(a, _)| a.as_str()).collect();
-    let why = other::refused(&tokens, (&axes, &owned), design, vocab);
+    let why = other::refused(&tokens, (&axes, &owned), design, vocab).map_err(|d| vec![d])?;
     for (path, why) in made.iter().zip(&why) {
         if let Some(why) = why {
             let why = kinds_of

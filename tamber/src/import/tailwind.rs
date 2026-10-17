@@ -678,7 +678,7 @@ pub fn import_with(
         design,
         vocab,
         &mut unmapped,
-    );
+    )?;
     let ops = reconcile(design, &[], &[], &tokens);
     let reported = unmapped.len();
     let counted = counted(source, mapped, reported)?;

@@ -287,7 +287,7 @@ pub fn import(
         design,
         vocab,
         &mut unmapped,
-    );
+    )?;
     let ops = reconcile(design, &[], &[], &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
     let counted = counted(names.len() + local.len(), mapped, unmapped.len())?;
