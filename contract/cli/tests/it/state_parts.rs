@@ -455,6 +455,16 @@ fn a_param_read_only_by_a_state_part_is_reached() {
             .computed(StyleId::Opacity)
     );
     assert!(o.contains("0.4"), "{o}");
+    // A live edit of the param (set-param's value) reaches the folded row.
+    r.set_token(&faded, "0.6", &[]).unwrap();
+    let o = format!(
+        "{:?}",
+        r.kernel()
+            .node_by_key(key)
+            .unwrap()
+            .computed(StyleId::Opacity)
+    );
+    assert!(o.contains("0.6") || o.contains("0.59999"), "{o}");
     // In a style's state part, which any component may apply, a param is
     // out of scope, as in a style's row.
     std::fs::write(dir.join("app.contract"), "component App\n  view\n    PostButton()\n\nstyle Look\n  :active\n    background-color = \"param.fill\"\n\ncomponent PostButton\n  params\n    fill: color = \"accent.fill\"\n  view\n    column class=Look background-color=\"param.fill\"\n      text \"Post\"\n").unwrap();
