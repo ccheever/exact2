@@ -1114,6 +1114,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             eprintln!("exact: {e}");
         }
         p.set_live_clock(Some(crate::presenter::wall_since(started)));
+        p.wake_development();
         // What the reader read of the device, before the first frame (D3.1).
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
             eprintln!("exact: device: {e}");
@@ -1252,6 +1253,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 eprintln!("exact: {e}");
             }
             p.poll_update();
+            p.poll_development(D::default); // the dev loop's, as on the Linux display
             p.run_commands(D::default);
             p.hatch_turn();
         }
@@ -1362,6 +1364,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = self.p.pump(now) {
             eprintln!("exact: {e}");
         }
+        self.p.poll_development(D::default);
         self.p.run_commands(D::default);
         self.p.poll_images();
         // The executor fd also wakes when a data source finishes loading.
@@ -1468,8 +1471,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
-        let timer = (self.p.timer_due_ms()).map(|due| (due - self.now()).max(0.0));
-        self.settle_due(timer)
+        self.settle_due(self.p.turn_due_ms(self.now()))
     }
 
     /// The descriptors that wake the presenter (executor replies, decoded images).

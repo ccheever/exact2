@@ -127,7 +127,14 @@ pub(crate) struct Poller {
     channel_due: std::time::Instant,
     /// Since when the generation it fetched has waited on requests in flight.
     pub held_since: Option<std::time::Instant>,
+    /// Woken when a worker's answer lands, for a host that turns only when
+    /// woken (the Android reader's canvas host); `None` where a loop polls
+    /// on its own (the Linux display).
+    pub waker: Option<Waker>,
 }
+
+/// What a worker calls when its answer is in.
+pub(crate) type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
 
 type Tick = (FetchOutcome, Option<Option<String>>);
 
@@ -153,7 +160,21 @@ impl Poller {
             link,
             channel: None,
             channel_due: now,
+            waker: None,
         }
+    }
+
+    /// How long until this wants polling again: its next tick, or the
+    /// channel's, whichever is first and not already in flight.
+    pub fn due_in(&self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        let tick = self.worker.is_none().then_some(self.due);
+        let channel = (self.link.is_some() && self.channel.is_none()).then_some(self.channel_due);
+        [tick, channel]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|at| at.saturating_duration_since(now))
     }
 
     /// A `/__dev/design` answer: a snapshot is kept for the presenter; a
@@ -190,8 +211,10 @@ impl Poller {
             let url = self.url.clone();
             let (send, receive) = std::sync::mpsc::channel();
             self.channel = Some(receive);
+            let waker = self.waker.clone();
             std::thread::spawn(move || {
                 let _ = send.send(exchange.run(&url));
+                waker.inspect(|wake| wake());
             });
         }
     }
@@ -231,10 +254,12 @@ impl Poller {
             self.asked_design = design;
             let (send, receive) = std::sync::mpsc::channel();
             self.worker = Some(receive);
+            let waker = self.waker.clone();
             std::thread::spawn(move || {
                 let changed = fetch_changed(&url, &compat, previous.as_deref());
                 let design = design.then(|| fetch_design(&url)).flatten();
                 let _ = send.send((changed, design));
+                waker.inspect(|wake| wake());
             });
         }
         Ok(None)

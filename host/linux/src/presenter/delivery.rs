@@ -28,6 +28,33 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// Wake through the executor's fd when the development poll's answer
+    /// lands, so a host that turns only when woken (the Android reader's
+    /// canvas host, LLP 1122 D4) takes it at once. Nothing without a
+    /// development URL.
+    pub fn wake_development(&mut self) {
+        let waker = self.executor.waker();
+        if let Some(dev) = self.dev.as_mut() {
+            dev.waker = Some(waker);
+        }
+    }
+
+    /// Milliseconds from `now` until a turn is owed: the next timer, or the
+    /// development poll's next tick when sooner (attached, and the first
+    /// pixel out: it polls after). A host that turns only when woken asks
+    /// this (the Android reader's canvas host).
+    pub fn turn_due_ms(&self, now: f64) -> Option<f64> {
+        let timer = self.timer_due_ms().map(|due| (due - now).max(0.0));
+        let dev = self.dev.as_ref().filter(|_| self.painted);
+        let poll = dev
+            .and_then(|d| d.due_in())
+            .map(|d| d.as_secs_f64() * 1000.0);
+        match (timer, poll) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
     /// Apply a finished URL generation without blocking the presentation thread.
     pub fn poll_development(&mut self, data: impl FnOnce() -> D) {
         if !self.painted {

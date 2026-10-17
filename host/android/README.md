@@ -64,6 +64,16 @@ and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
 `bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
 
+**In a dev loop** (LLP 1122 D4): give the launch the loop's page URL as `x_dev_plan` (exact2's `EXACT_DEV_PLAN`),
+through `adb reverse` since the loop serves this Mac's loopback only: `adb reverse tcp:<port> tcp:<port>`, then
+`adb shell am start -n <app id>/dev.exact.app.MainActivity --es x_dev_plan http://127.0.0.1:<port>/`. The reader
+polls it as the Linux display does (`CanvasHost`'s turn and wakes): a plan the loop compiles replaces the running
+one with its state carried, and the build channel brings the design server's live batches, pins and `prefer`s, and
+registers the build, so the design tool sees it. A generation whose Rust pair changed is refused with the URL loop's
+message and the running app kept: the APK's Rust is baked in its library, so a Rust edit needs a new APK. A drive
+takes the same URL as `--url` (`agent.mjs android --reader --url http://127.0.0.1:<port>/ …`), which reverses the
+port itself. A production bake opens no build channel.
+
 It builds on a Mac as on the Linux build box (tried 2026-10-12 with an SDK under `~/android`: platform-tools, NDK
 27.1.12297006, a JDK, and `ANDROID_HOME`, `ANDROID_NDK_HOME` and `JAVA_HOME` naming them). Gradle fetches what the
 SDK lacks when its licences are accepted there: it installed build-tools 36.0.0 and platform 37.2 on that run. The
@@ -142,7 +152,7 @@ or root: any app on the phone can reach an abstract socket). adb forwards it; th
 (`agent-android.mjs relay`) carries lines between `agent.mjs`'s stdio carrier and the socket. Each request is one
 call, `Native.agent(line)`, on exact2's thread, into `host/linux/src/canvas/agent.rs`, which hands it to the handler
 the headless carrier uses (`exact_linux::agent::handle`). The drive's `EXACT_AGENT` and `EXACT_AGENT_*` (its store,
-epoch, locale, seed and fetch faults) reach the app as `x_<name>` launch extras; a launch whose environment does
+epoch, locale, seed and fetch faults), and a `--url`'s `EXACT_DEV_PLAN`, reach the app as `x_<name>` launch extras; a launch whose environment does
 not say `EXACT_AGENT=1` answers no request, and a production bake drops that variable (LLP 1069.007 D2).
 
 **What the Canvas host adds to that handler**, which assumes a host with no display:

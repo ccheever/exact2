@@ -135,10 +135,15 @@ const readerApk = (app) => resolve(READER, 'app/build', app.name, 'outputs/apk/r
  * launches the app under a driver and relays the agent protocol's lines between its stdio and the app (`relay`).
  * The package is the app's id with the suffix the APK was built with (ORG_GRADLE_PROJECT_idSuffix, as the build
  * reads it). The app boots its own baked plan with its own assets, at the phone's size, in the phone's fonts: a
- * drive's `--plan`, `--world`, `--size` and launch URL do not reach it, and all but the size are refused. */
+ * drive's `--plan`, `--world`, `--size` and launch URL do not reach it, and all but the size are refused. A dev
+ * loop's `--url` does: the reader polls it (LLP 1122 D4), through `adb reverse` when it is this Mac's loopback. */
 function readerDeploy(app, apk, env) {
-  for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_DEV_PLAN', 'a development plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
+  for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
     if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
+  // A dev loop's URL (`--url`, LLP 1122 D4): the reader polls it, as the Linux display does, through
+  // `adb reverse` when it is this Mac's loopback; a file path is no URL a phone reads.
+  const dev = env.EXACT_DEV_PLAN;
+  if (dev && !/^https?:\/\//i.test(dev)) throw new Error('android --reader: a development plan is a dev loop\'s http(s) URL (--url), not a file');
   const serial = androidDevice(env), tool = adb(env), id = app.id.replaceAll('-', '_') + (env.ORG_GRADLE_PROJECT_idSuffix ?? ''); // as the Gradle shell names the package
   const dir = `/data/local/tmp/exact/${id}`, shot = `${dir}/reader-shot-${process.pid}.png`;
   const run = (args, what) => {
@@ -147,9 +152,13 @@ function readerDeploy(app, apk, env) {
   };
   run(['install', '-r', apk], `install ${apk}`);
   run(['shell', `mkdir -p ${quote(dir)}`], 'prepare');
+  if (dev && ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(dev).hostname)) {
+    const port = new URL(dev).port || (dev.startsWith('https') ? '443' : '80');
+    run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
+  }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_')));
+  // seed, the fetch faults), and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN'));
   return {
     serial, dir, shot,
     spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
