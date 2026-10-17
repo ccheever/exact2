@@ -110,10 +110,22 @@ pub fn runtime_family_members(list: &str) -> Vec<RuntimeFamilyMember> {
 pub enum BridgeError {
     UnknownProp(u16),
     UnknownStyle(u16),
-    PropKind { prop: PropId, value: Value },
+    PropKind {
+        prop: PropId,
+        value: Value,
+    },
+    /// A value that says the row has none (`backgroundMaterial="none"`):
+    /// cleared, with nothing refused.
+    Unset(PropId),
     Style(StyleValueError),
-    StyleKind { style: StyleId, value: Value },
-    FontStack { index: u32, stacks: usize },
+    StyleKind {
+        style: StyleId,
+        value: Value,
+    },
+    FontStack {
+        index: u32,
+        stacks: usize,
+    },
 }
 
 /// A prop value by the prop's declared kind.
@@ -142,6 +154,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
         (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),
         _ => return Err(mismatch()),
     };
+    // `none` is no material, as CSS's `backdrop-filter: none` is no backdrop.
+    if prop == PropId::BackgroundMaterial
+        && matches!(&out, PropValue::Str(s) if s.as_str() == "none")
+    {
+        return Err(BridgeError::Unset(prop));
+    }
     // A computed `wakelock` outside its two words is refused here, so the
     // row is unset (`none`) and journaled (LLP 1125 D11).
     if prop == PropId::Wakelock
@@ -822,5 +840,52 @@ mod tests {
         )
         .unwrap();
         assert_eq!(style.rare.grid_template_columns.css(), "100%");
+    }
+
+    /// A computed `none` is no material: the row cleared, nothing journaled
+    /// (euxy's capsule, glass at rest and none while a charge holds).
+    #[test]
+    fn a_computed_none_material_clears_the_row() {
+        use crate::{DataError, DataSource, Event, Runner};
+        struct NoData;
+        impl DataSource for NoData {
+            fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+                Err(DataError::UnknownSource(source.into()))
+            }
+        }
+        let plan = contract::compile("component App\n  state on = false\n  action flip\n    on = not on\n  view\n    button press=flip testId=\"cap\" backgroundMaterial=(on ? \"none\" : \"glass\")\n      text \"x\"\n").unwrap();
+        let mut r = Runner::boot(
+            plan,
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let material = |r: &Runner<NoData>| {
+            let k = r.kernel();
+            let node = k.node_by_key(k.find_by_test_id("cap")[0]).unwrap();
+            (
+                node.id,
+                node.props
+                    .str(PropId::BackgroundMaterial)
+                    .map(str::to_owned),
+            )
+        };
+        let (id, glass) = material(&r);
+        assert_eq!(glass.as_deref(), Some("glass"));
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(material(&r).1, None);
+        assert!(
+            !r.journal().any(|l| l.contains("invalid")),
+            "{:?}",
+            r.journal().collect::<Vec<_>>()
+        );
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(material(&r).1.as_deref(), Some("glass"));
+        assert_eq!(
+            prop_value(PropId::BackgroundMaterial as u16, &Value::str("none")),
+            Err(BridgeError::Unset(PropId::BackgroundMaterial))
+        );
     }
 }

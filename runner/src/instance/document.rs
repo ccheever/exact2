@@ -349,7 +349,10 @@ impl Build<'_> {
                         props.set(prop, value);
                     }
                     // Cleared, with a journal line on a kernel's commit.
-                    Err(bridge::BridgeError::PropKind { prop, .. }) => {
+                    Err(
+                        bridge::BridgeError::PropKind { prop, .. }
+                        | bridge::BridgeError::Unset(prop),
+                    ) => {
                         props.remove(prop);
                     }
                     Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),

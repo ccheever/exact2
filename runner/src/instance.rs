@@ -1048,12 +1048,15 @@ impl NodeInst {
                         prop,
                         value: pv,
                     }),
-                    Err(bridge::BridgeError::PropKind { prop, .. }) => {
-                        u.ops.push(Op::ClearProp {
-                            id: self.view,
-                            prop,
-                        });
-                        u.notes.push(invalid(self.view, prop.name(), &value));
+                    Err(
+                        e @ (bridge::BridgeError::PropKind { prop, .. }
+                        | bridge::BridgeError::Unset(prop)),
+                    ) => {
+                        let id = self.view;
+                        u.ops.push(Op::ClearProp { id, prop });
+                        if matches!(e, bridge::BridgeError::PropKind { .. }) {
+                            u.notes.push(invalid(id, prop.name(), &value));
+                        }
                     }
                     Err(e) => return Err(InstanceError::Bridge(e)),
                 },

@@ -144,15 +144,15 @@ pub fn project(
             let row = plan.binding(b);
             let code = plan.code(row.expr);
             match (row.kind, literal(plan, code)) {
-                (BindingKind::Prop, Some(v)) => {
-                    let (prop, value) =
-                        bridge::prop_value(row.id, &v).map_err(|e| format!("node {i}: {e:?}"))?;
-                    ops.push(Op::SetProp {
+                (BindingKind::Prop, Some(v)) => match bridge::prop_value(row.id, &v) {
+                    Ok((prop, value)) => ops.push(Op::SetProp {
                         id: view(i),
                         prop,
                         value,
-                    });
-                }
+                    }),
+                    Err(bridge::BridgeError::Unset(_)) => {}
+                    Err(e) => return Err(format!("node {i}: {e:?}")),
+                },
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
                     if decides_tag(plan, node, prop) {

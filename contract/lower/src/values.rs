@@ -1155,17 +1155,20 @@ pub(crate) fn check_prop_value(
             return err("lower-attr-value", why, span);
         }
     }
-    // @ref LLP 1053.000 D4 — a material is a name in the schema's table.
+    // @ref LLP 1053.000 D4 — a material is a name in the schema's table, or
+    // `none`, no material; each string a computed value can take is one.
     if prop == PropId::BackgroundMaterial {
-        if let Expr::Str(name, _) = value {
-            if exact_kernel::generated::material(name).is_none() {
+        let mut leaves = Vec::new();
+        string_leaves(value, &mut leaves);
+        for (name, at) in leaves {
+            if name != "none" && exact_kernel::generated::material(name).is_none() {
                 return err(
                     "lower-attr-value",
                     format!(
-                        "`backgroundMaterial=\"{name}\"` is not a material; materials: {}",
+                        "`backgroundMaterial=\"{name}\"` is not a material; materials: {}, or `none` for no material",
                         exact_kernel::generated::MATERIALS.join(", ")
                     ),
-                    span,
+                    if matches!(value, Expr::Str(..)) { span } else { at },
                 );
             }
         }
@@ -1235,6 +1238,21 @@ pub(crate) fn check_prop_value(
         );
     }
     Ok(())
+}
+/// The string literals `e` can be: itself, or the arms of a `?:`, `match` or `let`.
+fn string_leaves<'e>(e: &'e Expr, out: &mut Vec<(&'e str, Span)>) {
+    match e {
+        Expr::Str(s, span) => out.push((s, *span)),
+        Expr::Ternary(_, a, b, _)
+        | Expr::Match {
+            some: a, none: b, ..
+        } => {
+            string_leaves(a, out);
+            string_leaves(b, out);
+        }
+        Expr::Let { body: inner, .. } | Expr::Typed(inner, _, _) => string_leaves(inner, out),
+        _ => {}
+    }
 }
 /// @ref LLP 1053.000.000 D6 — where a glass group cannot be: beside the
 /// element's own material (the group's glass would fuse with it), on a
