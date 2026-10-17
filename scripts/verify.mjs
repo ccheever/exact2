@@ -587,7 +587,9 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   const refusals = await refusalsIn(s);
   const reloaded = await reloadEnd(s, t, persisted);
   const large = await largestText(s, t.name);
-  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded, large };
+  // A web test runs on a page origin of its own (agent-test.mjs `launch`), and what it stored is that origin's: the relaunch opens it.
+  const port = host === 'web' ? s.carrier?.port : undefined;
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded, large, ...(port ? { port } : {}) };
 };
 
 /** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
@@ -700,7 +702,7 @@ async function freshUnder(host, app, launch, store) {
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0], ...(test.end.port ? { port: test.end.port } : {}) } : { chrome: 'platform' }) });
   try {
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
     const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device).map((p) => p.name), ...(b(st) ? ['storage'] : [])];

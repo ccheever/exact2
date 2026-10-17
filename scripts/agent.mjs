@@ -281,7 +281,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     };
     const ask = req => rawAsk(req).then(MalformedOperation.reply);
     return {
-      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts, mediaClock, lineHeight,
+      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts, mediaClock, lineHeight, port, // `port`: the page's origin, which keeps what it stored
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
