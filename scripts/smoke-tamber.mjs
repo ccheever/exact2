@@ -33,6 +33,7 @@ export async function tamberSmoke({ host, open, check }) {
     const size = (text) => Number(text.match(/font (\d+)/)?.[1] ?? 0);
     const face = (text) => text.match(/font \d+ (\S+ w\d+)/)?.[1] ?? '';
     check(inset(font.window) > inset(dark.window) && size(font.window) > size(dark.window), `${host} tamber: a length and a font follow the text size: ${dark.window} → ${font.window}`);
+    check(/ code fixed/.test(font.window), `${host} tamber: a monospaced system stack stays fixed-pitch in a module's font: ${font.window}`);
     await s.prefer({ 'bold-text': true }); await settle();
     const bold = await at();
     check(times(bold.window) > times(font.window) && face(bold.window) !== face(font.window), `${host} tamber: Bold Text fires the observation and weights the font: ${font.window} → ${bold.window}`);

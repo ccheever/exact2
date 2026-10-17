@@ -911,3 +911,87 @@ fn reprints_unsaid_parts_scheme_shadows_and_units_read_back() {
     .unwrap();
     assert!(again.ops.is_empty(), "{:?}", again.ops);
 }
+
+/// Review round 2 (stage 6 G): a reprinted file with an edit keeps a type's
+/// text style; a line height edited over a unit's placeholder is taken; a
+/// `currentcolor` shadow given a colour takes it; an edit to one side of an
+/// axis under scheme=dark, which a length cannot vary by, is refused rather
+/// than spread to the other side.
+#[test]
+fn reprinted_edits_placeholders_and_dark_axes() {
+    const KINDS: &str = "tamber kinds\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  type.body = -exact-body/1.35 Inter\n  type.code = 14px/1.5rem Inter\n  glow: text-shadow = 1px 1px currentcolor\n  radius = 12px\n";
+    let (text, doc) = exported(KINDS);
+    fn ints(v: &mut Value) {
+        match v {
+            Value::Number(n)
+                if n.as_f64()
+                    .is_some_and(|f| f.fract() == 0.0 && f.abs() < 1e15) =>
+            {
+                *v = serde_json::json!(n.as_f64().unwrap() as i64)
+            }
+            Value::Array(a) => a.iter_mut().for_each(ints),
+            Value::Object(o) => o.values_mut().for_each(ints),
+            _ => {}
+        }
+    }
+    let contexts: Vec<String> = doc["modifiers"]["mode"]["contexts"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    let mut edited = doc.clone();
+    ints(&mut edited);
+    for c in &contexts {
+        let tree = &mut edited["modifiers"]["mode"]["contexts"][c][0];
+        tree["type"]["body"]["$value"]["fontWeight"] = serde_json::json!(600);
+        tree["type"]["code"]["$value"]["lineHeight"] = serde_json::json!(2);
+        tree["glow"]["$value"]["color"] =
+            serde_json::json!({"colorSpace": "srgb", "components": [1, 0, 0], "hex": "#ff0000"});
+    }
+    let import = reimport(
+        &edited.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let values: Vec<(String, String)> = import
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetToken { name, value, .. } => Some((name.clone(), value.clone())),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        values.contains(&("type.body".into(), "600 -exact-body/1.35 Inter".into())),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&("type.code".into(), "14px/2 Inter".into())),
+        "{values:?}"
+    );
+    assert!(
+        values
+            .iter()
+            .any(|(n, v)| n == "glow" && (v.contains("#ff0000") || v.contains("srgb 1 0 0"))),
+        "{values:?}"
+    );
+    // The dim side alone, in both its schemes.
+    let mut dim = doc.clone();
+    for c in contexts.iter().filter(|c| c.contains("dim")) {
+        dim["modifiers"]["mode"]["contexts"][c][0]["radius"]["$value"] =
+            serde_json::json!({"value": 16, "unit": "px"});
+    }
+    let import = reimport(
+        &dim.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.ops.is_empty(), "{:?}", import.ops);
+    assert_eq!(import.unmapped.len(), 1, "{:?}", import.unmapped);
+}

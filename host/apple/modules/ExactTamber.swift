@@ -8,14 +8,19 @@
 // the module's `tamber` entry (at 216): every place asks whether what it
 // read moved (the inputs fold in the tint), and each that moved asks again
 // for its names, redraws its view and tells its observers.
+import CoreText
 #if os(macOS)
 import AppKit
 public typealias ExactTamberColor = NSColor
 public typealias ExactTamberFont = NSFont
+typealias ExactTamberDesign = NSFontDescriptor.SystemDesign
+typealias ExactTamberFontAttribute = NSFontDescriptor.AttributeName
 #else
 import UIKit
 public typealias ExactTamberColor = UIColor
 public typealias ExactTamberFont = UIFont
+typealias ExactTamberDesign = UIFontDescriptor.SystemDesign
+typealias ExactTamberFontAttribute = UIFontDescriptor.AttributeName
 #endif
 
 /// A design token by its name (`contract tamber gen swift` writes each as a
@@ -100,12 +105,23 @@ public struct ExactTamber {
     public func font(_ token: ExactTamberToken, fallback: ExactTamberFont) -> ExactTamberFont {
         guard let f = finder.place?.measure("fonts", token.name) as? [String: Any],
               let size = f["size"] as? Double, let name = f["name"] as? String else { return fallback }
-        if f["system"] as? Bool != true, let named = ExactTamberFont(name: name, size: CGFloat(size)) { return named }
-        // The system font, which no name opens: at the weight, italic where said.
         let css = f["weight"] as? Double ?? 400
+        if f["system"] as? Bool != true, let named = ExactTamberFont(name: name, size: CGFloat(size)) {
+            // A variable file has one name: its weight is an axis.
+            let axis: [NSNumber: NSNumber] = [NSNumber(value: 0x77676874): NSNumber(value: css)]
+            let key = ExactTamberFontAttribute(rawValue: kCTFontVariationAttribute as String)
+            return ExactTamberFont(descriptor: named.fontDescriptor.addingAttributes([key: axis]), size: CGFloat(size)) ?? named
+        }
+        // The system font, which no name opens: at the weight, in the
+        // stack's design, italic where said.
         let weights: [(Double, ExactTamberFont.Weight)] = [(100, .ultraLight), (200, .thin), (300, .light), (400, .regular), (500, .medium), (600, .semibold), (700, .bold), (800, .heavy), (900, .black)]
         let weight = weights.min { abs($0.0 - css) < abs($1.0 - css) }?.1 ?? .regular
-        let system = ExactTamberFont.systemFont(ofSize: CGFloat(size), weight: weight)
+        var system = ExactTamberFont.systemFont(ofSize: CGFloat(size), weight: weight)
+        let designs: [String: ExactTamberDesign] = ["serif": .serif, "monospaced": .monospaced, "rounded": .rounded]
+        if let design = (f["design"] as? String).flatMap({ designs[$0] }),
+           let designed = system.fontDescriptor.withDesign(design) {
+            system = ExactTamberFont(descriptor: designed, size: CGFloat(size)) ?? system
+        }
         guard f["italic"] as? Bool == true else { return system }
         #if os(macOS)
         return ExactTamberFont(descriptor: system.fontDescriptor.withSymbolicTraits(.italic), size: CGFloat(size)) ?? system

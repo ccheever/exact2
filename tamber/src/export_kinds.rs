@@ -312,14 +312,18 @@ pub(crate) fn read(ty: &str, v: &Json, base: &Json, exact: &Json) -> Option<Stri
             if said("fontWeight") {
                 out.push(num(v["fontWeight"].as_f64()?));
             }
+            // A source the export lost (a text style, a leading in a unit)
+            // where the file did not move its placeholder; its own value
+            // where it did.
             let size = match exact["lossy"].as_str() {
-                Some(source) if v["fontSize"] == base["fontSize"] => source.to_string(),
+                Some(source) if alike(&v["fontSize"], &base["fontSize"]) => source.to_string(),
                 _ => read_dimension(&v["fontSize"])?,
             };
+            let kept = alike(&v["lineHeight"], &base["lineHeight"]);
             out.push(match (said("lineHeight"), exact["leading"].as_str()) {
                 (false, _) => size,
-                (true, Some(source)) => format!("{size}/{source}"),
-                (true, None) => format!("{size}/{}", num(v["lineHeight"].as_f64()?)),
+                (true, Some(source)) if kept => format!("{size}/{source}"),
+                (true, _) => format!("{size}/{}", num(v["lineHeight"].as_f64()?)),
             });
             if said("fontFamily") {
                 out.push(read_family(&v["fontFamily"])?);
@@ -332,8 +336,12 @@ pub(crate) fn read(ty: &str, v: &Json, base: &Json, exact: &Json) -> Option<Stri
                 one => vec![one.clone()],
             };
             let text = exact["kind"] == "text-shadow";
+            let bases = match base {
+                Json::Array(a) => a.clone(),
+                one => vec![one.clone()],
+            };
             let mut parts = Vec::new();
-            for s in &list {
+            for (i, s) in list.iter().enumerate() {
                 let px = |k: &str| s[k]["value"].as_f64().filter(|_| s[k]["unit"] == "px");
                 let mut words = Vec::new();
                 if s["inset"] == true {
@@ -342,7 +350,12 @@ pub(crate) fn read(ty: &str, v: &Json, base: &Json, exact: &Json) -> Option<Stri
                 let lengths = [px("offsetX")?, px("offsetY")?, px("blur")?, px("spread")?];
                 let keep = if text { 3 } else { 4 };
                 words.extend(lengths[..keep].iter().map(|n| format!("{}px", num(*n))));
-                if exact["currentcolor"] != true {
+                // `currentcolor` stays, unless the file gave the shadow a colour.
+                let current = exact["currentcolor"] == true
+                    && bases
+                        .get(i)
+                        .is_some_and(|b| alike(&b["color"], &s["color"]));
+                if !current {
                     words.push(crate::import::dtcg::colour(&s["color"])?);
                 }
                 parts.push(words.join(" "));
@@ -492,8 +505,21 @@ pub(crate) fn reimport_ops(
     if edited.text == current {
         return Ok(Vec::new());
     }
+    // A tuple the file left alone keeps the design's value: a line the
+    // edit needs that reaches it too (an axis under scheme=dark, which a
+    // `when` of this kind cannot name) is no edit this design takes.
+    let before = crate::check(current, vocab).ok();
+    let was = |pins: &[(&str, &str)]| {
+        let f = before.as_ref()?;
+        let t = f
+            .tokens
+            .iter()
+            .zip(&f.design.tokens)
+            .find(|(_, t)| t.name.value == written)?
+            .0;
+        t.values.get(f.tuple(pins)?).map(Value::css)
+    };
     for (i, (modes, sides)) in tuples.iter().enumerate() {
-        let Some(want) = want(i) else { continue };
         let pins: Vec<(&str, &str)> = modes
             .iter()
             .map(|(a, v)| (a.as_str(), v.as_str()))
@@ -501,10 +527,17 @@ pub(crate) fn reimport_ops(
         let Some(value) = folding.tuple(&pins).and_then(|t| checked.values.get(t)) else {
             continue;
         };
-        if value.css() != canonical(want, value, vocab) {
+        let target = match want(i) {
+            Some(want) => canonical(want, value, vocab),
+            None => match was(&pins) {
+                Some(css) => css,
+                None => continue,
+            },
+        };
+        if value.css() != target {
             return Err((
                 sides[0].clone(),
-                "no lines this design takes give every context its value".into(),
+                "no lines this design takes give every context its value (a token of this kind varies by no axis under scheme=dark)".into(),
             ));
         }
     }

@@ -2945,7 +2945,11 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   left unsaid becomes said once edited; a shadow whose colour differs by scheme as one value with
   `light-dark()` colours), proposing per tuple the line that wins where every tuple it wins in
   moved, else a `when` of the tuple's axes, and checks each changed tuple folds to the file's value
-  (`0.2s` is `200ms`); an edit the design already has proposes nothing. An export and re-import of a design with every kind proposes
+  (`0.2s` is `200ms`) and each other keeps the design's (so an edit to one side of an axis under
+  scheme=dark, which no kind but colour varies by, is refused); an edit the design already has
+  proposes nothing. A placeholder the file moved (a type's size, a line height in a unit, a
+  `currentcolor` shadow's colour) is taken as its value. A shadow's colour reference is written
+  back as its folded colour once the shadow is edited. An export and re-import of a design with every kind proposes
   nothing. The vocabulary carries each named length's px (`Vocab::sizes`).
 - **Bindings.** Rust: `Token<Length>`, `Token<Number>`, `Token<Type>` beside `Token<Color>`
   (`tamber gen rust`), resolved per place (`Tamber::length`, `number`, `font`: a `Font` of points,
@@ -2954,7 +2958,9 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   `inputs` moves with Bold Text and the person's text size, so `observe` hears both. Swift:
   `ExactTamber(view).length(_:)`, `number(_:)`, `font(_:fallback:)` (a `UIFont`/`NSFont` the host's
   text engine resolves), in the process and in a native module's library (over the same host
-  table's JSON, a font as its face's name). Kotlin: `length` and `number`. TypeScript: a union per
+  table's JSON: a bundled face by its name at its weight, a variable file's `wght` set; a system
+  stack, which no name opens, as the system font at the weight in its design, serif, monospaced
+  or rounded). Kotlin: `length` and `number`. TypeScript: a union per
   kind (`LengthToken`, `NumberToken`, `TypeToken`, `FamilyToken`, the shadows), bounded by
   `exports`; a motion token has none, as it is written into its rows at build and no module names it
   (D13). `tamber gen` writes each kind; `tamber.css` writes a text style, an `em` and the

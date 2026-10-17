@@ -77,7 +77,14 @@ final class SwatchView: ExactNativeView {
         #else
         let weight = Int(((font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat ?? 0) * 1000)
         #endif
-        said?("\(hex) inset \(Int(inset.rounded())) font \(Int(font.pointSize.rounded())) \(font.fontName) w\(weight)")
+        // A system stack's design (`ui-monospace`) is the module library's to keep.
+        let code = tamber.font(ExactTamberToken("type.code"), fallback: .systemFont(ofSize: 9))
+        #if os(macOS)
+        let fixed = code.isFixedPitch
+        #else
+        let fixed = code.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
+        #endif
+        said?("\(hex) inset \(Int(inset.rounded())) font \(Int(font.pointSize.rounded())) \(font.fontName) w\(weight) code \(fixed ? "fixed" : "proportional")")
     }
 
     private func start() {
