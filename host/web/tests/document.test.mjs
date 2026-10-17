@@ -218,7 +218,11 @@ function browser() {
   if (launched) return launched;
   const started = launched = (async () => {
     const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
+    // The renderer uses Viewport::default(): a fine pointer with hover. Headless
+    // Linux without input devices reports none; parity needs the same input facts
+    // (Blink's PointerType 4 is fine, HoverType 2 is hover).
     const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
+      '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2',
       `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
       '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
     { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
@@ -990,7 +994,9 @@ async function withFocusContract(target, webDist, contract, drive) {
   try {
     const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
     writeFileSync(source, contract);
-    const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    const compiler = resolve(app.target, 'debug/contract');
+    const built = spawnSync(compiler, ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    if (built.error) throw built.error;
     if (built.status !== 0) throw new Error(built.stderr);
     let server;
     let options = { plan, webDist: target === 'wasm' ? resolve(webDist) : undefined };
