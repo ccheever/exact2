@@ -1409,3 +1409,14 @@ screen, 2026-10-16.)
   the interactive command. `type @attachment a.png b.png` deliberately names
   two files; authored-test `pick` and the interactive alias preserve one quoted
   path through both web and native delivery. (EX8, 2026-10-16.)
+
+## `transformDragFor` has one owner at a time
+
+The first valid target keeps ownership until it has no valid binding (LLP 1071).
+Several handles may name that target, but another target cannot take over while
+it remains valid. In a gallery, mount the handle for the current page; do not
+leave a binding on every page or list row. Keep `transformDragFor` literal on the
+JS target: computed target strings are not resolved. The runtime journal names
+each passed-over target view and the owner once, then reports it again only after
+its valid bindings disappear and return. Read it with
+`bun scripts/agent.mjs web logs` (or the native host).

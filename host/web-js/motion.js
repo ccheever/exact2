@@ -153,7 +153,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     w.m_height(id, h, now() / 1000);
   }
   const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: el => !!el.closest('[inert]') });
-  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight });
+  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight, say });
   const A = arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatch, authored, holds, held, hooks, After: globalThis.exact.After });
   // A list's wrappers during a preview are motion nodes too (list.js).
   hooks.observe = observe;
