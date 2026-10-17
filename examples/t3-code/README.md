@@ -39,7 +39,7 @@ packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the ver
 reference locks; network once) and from committed inputs: the Shiki grammar tables
 (`src/highlight/grammar*.ts`), the CSS word lists (`src/highlight/css-words.ts`), the Lucide and
 Pierre icon data (`src/settings/settings-b-lucide.ts`, `src/shared/pages-icons.contract`,
-`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `macos/pierre-icons.tsv`,
+`src/shared/timeline-files.contract` and `timeline-files-tables.ts`, `data/pierre-icons.tsv`,
 `assets/composer-icons.json`), the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
 `timeline-icons`, `panel-icons`, `settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons`
 and `settings-brands`, each a `.contract` in its feature's folder under `src/`, from the Lucide names
@@ -47,7 +47,7 @@ in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their han
 components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
 and the terminal buffer vectors
 (`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
-`gen-vectors.mjs`). The app build runs it before it bakes (`macos/build.rs`);
+`gen-vectors.mjs`). The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
 
 ```sh
@@ -818,8 +818,12 @@ root's (`…Root`). `src/client/client.ts`, `protocol.ts`, `domain.ts` and `pres
 data source, commands and event projection. A labelled `button` or `link` that may mount no text says `title=""`: since
 LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
 give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
-applies the host's rule to the view tree). `modules/apple/` is the native module; `macos/` holds the bake adapter crate (`t3-code-macos`)
-and the AppKit tests; `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
+applies the host's rule to the view tree). `modules/apple/` is the native module. `data/` is the
+Rust data source (`t3-code-data`): the chat Markdown that `app.ts` leaves to Rust (`renderMarkdown`,
+`renderPullRequestMarkdown`, `renderFileMarkdown`) over `apps/markdown/parse`, with its tests; it does
+no I/O when it runs, so any host can link it, and its build script runs the generator below. `macos/`
+is the macOS host crate (`t3-code-macos`: the bake and the Apple host's entry), its tests of the baked
+plan, and the AppKit tests. `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
 of the generated sources (`generate/`), the embedded server's staging (`stage-runtime/`) and the
 Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
 
@@ -849,6 +853,7 @@ bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module E
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
 cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app: app.contract and its imports (minutes)
 cargo test --manifest-path examples/t3-code/Cargo.toml --lib   # the app's workspace: the bake, then its tests (Hermes env of the root setup)
+cargo test --manifest-path examples/t3-code/Cargo.toml -p t3-code-data   # the chat Markdown's tests alone, without the app's bake
 ```
 
 A Cargo build alone does not compile or launch the Apple crate's Swift module. Use the app

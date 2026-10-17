@@ -6,22 +6,23 @@
 //   gen-grammar.mjs    src/highlight/grammar.ts and grammar-<n>.ts: Shiki's grammars, the pierre themes
 //   gen-css-words.mjs  src/highlight/css-words.ts: the CSS grammar's word lists
 //   gen-icons.mjs      src/settings/settings-b-lucide.ts, src/shared/pages-icons.contract (Lucide);
-//                      src/shared/timeline-files.contract and timeline-files-tables.ts, macos/pierre-icons.tsv,
+//                      src/shared/timeline-files.contract and timeline-files-tables.ts, data/pierre-icons.tsv,
 //                      assets/composer-icons.json (Pierre); the icon tables of icon-tables.mjs and
 //                      icon-marks.mjs (src/shared/icons.contract and nine more in their features' folders)
 //   gen-morph.mjs      src/shell/shell-morph.contract: morphicons' plan for each icon pair
 //   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations
 //
-// The app build runs it before it bakes (macos/build.rs). Run it by hand before anything else reads
+// The app build runs it before it bakes (data/build.rs). Run it by hand before anything else reads
 // them: `bun test examples/t3-code`, the strict tsc, `contract build`, the AppKit tests.
 //
 //   bun examples/t3-code/tools/generate/generate.mjs          write what differs
 //   bun examples/t3-code/tools/generate/generate.mjs --check  exit 1 when an output differs or is missing
 //
 // A file is written only when its bytes change, dated as its newest input, and a new file leaves its
-// directory's time as it was. Cargo bakes again when a file it watches is newer than the last bake
-// started (the bake watches each source it reads, and the whole of assets/), and macos/build.rs runs
-// this inside that bake: an output it writes must not look newer than the bake that read it.
+// directory's time as it was. Cargo runs a build script again when a file it watches is newer than
+// that script's last run started, and data/build.rs runs this and watches every input and output (the
+// bake, after it, watches each source it reads and the whole of assets/): an output it writes must not
+// look newer than the run that wrote it.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
@@ -40,7 +41,7 @@ export function inputs() {
 /** The pinned packages: a frozen install with nothing to do takes milliseconds; a missing package is fetched once.
  *  The directories an install makes are dated as bun.lock, and this directory keeps its time: a Cargo
  *  build watches the whole app directory (the bake's missing `deck/` root falls back to it), so a
- *  first install inside the bake would otherwise bake once more. */
+ *  first install during a build would otherwise bake once more. */
 function install() {
   const kept = statSync(here), lock = statSync(join(here, 'bun.lock')).mtime;
   const installed = spawnSync(process.execPath, ['install', '--frozen-lockfile'], { cwd: here, encoding: 'utf8' });
@@ -77,7 +78,7 @@ if (import.meta.main && !process.argv.includes('--installed')) {
   const { files, stale } = await outputs();
   const time = new Date(Math.max(...inputs().map(file => statSync(file).mtimeMs)));
   const name = file => relative(example, file);
-  // Under Cargo (macos/build.rs) every input and output is watched: a changed input or a missing
+  // Under Cargo (data/build.rs) every input and output is watched: a changed input or a missing
   // output generates again.
   if (process.env.OUT_DIR && process.env.CARGO_MANIFEST_DIR) for (const file of [...inputs(), ...files.map(({ file }) => file)]) console.log(`cargo:rerun-if-changed=${file}`);
   let differs = 0;
