@@ -167,6 +167,9 @@ async function drive(code, c, hostSources) {
   let commands = [];
   const record = name => (...args) => { commands.push(`command ${name}${args.map(a => ' ' + untyped(a)).join('')}`); };
   for (const k of Object.keys(Hosts)) Hosts[k] = record(k);
+  // `setMode` is the runtime's own, as the runner's (LLP 1121 D5): no host is
+  // told, and the window's mode selects presentation, which no line shows.
+  Hosts.setMode = () => {};
   // The voice table's commands are the runtime's own (rt.js `Sounds.own`): they reach `Sounds.apply`
   // with the commit's whole command list, in order, not `Hosts`. Record the list as the runner does:
   // the host commands just recorded from it are replaced by the whole of it.

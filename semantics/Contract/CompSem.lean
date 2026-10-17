@@ -689,11 +689,11 @@ def crunAction (p : CProgram) (o : Oracle) (c : CConfig) (f : Frame) (name : Str
           match renderRoot p slots st c.now store c.view with
           | .ok (view, live) =>
             ({ c with slots, settled := st, store := live, view,
-                      commands := c.commands ++ fx.commands,
+                      commands := c.commands ++ hostCommands fx.commands,
                       armed := armThens rp c.armed fx.sends c.now }, .ok)
           | .error e =>
             ({ c with slots, settled := st, store, poisoned := true,
-                      commands := c.commands ++ fx.commands }, .poisoned e)
+                      commands := c.commands ++ hostCommands fx.commands }, .poisoned e)
 
 /-- Boot: the root's slots, its timers, settlement, then the root's view,
 every instance initialized as it first renders. -/

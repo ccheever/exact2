@@ -1,0 +1,9 @@
+// One app axis for `setMode` to move (LLP 1121 D5).
+tamber modes
+
+axes
+  dark-style = black | dim  under scheme=dark
+
+theme
+  surface.page = light-dark(#ffffff, #000000)
+    when dark-style=dim: light-dark(#ffffff, #15202b)

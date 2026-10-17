@@ -777,6 +777,13 @@ def Config.armNexts (p : Program) (c : Config) : Config :=
 /-- At most this many sends wait per mutation (the runner's `QUEUE_BOUND`). -/
 def queueBound : Nat := 64
 
+/-- The commands a commit tells a host: all but `setMode`, which the
+runner takes out and applies itself in the commit (LLP 1121 D5; the
+runner's `take_set_modes`). The window's mode only selects presentation,
+which the semantics does not evaluate. -/
+def hostCommands (cs : List (String × List Value)) : List (String × List Value) :=
+  cs.filter (·.1 != "setMode")
+
 /-- Run an action as one commit. `rows` are the rows in force where the
 event arrived (none for a timer). -/
 def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : List Value)
@@ -827,11 +834,11 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
             match r with
             | .ok (view, live) =>
               (({ c with slots, settled := st, store := live, view, timers,
-                         commands := c.commands ++ fx.commands, queued,
+                         commands := c.commands ++ hostCommands fx.commands, queued,
                          armed := armThens p c.armed split.1 c.now }.unstall).armNexts p, .ok)
             | .error e =>
               ({ c with slots, settled := st, store, poisoned := true,
-                        commands := c.commands ++ fx.commands, queued := [], stalled := [],
+                        commands := c.commands ++ hostCommands fx.commands, queued := [], stalled := [],
                         nexts := [] }, .poisoned e)
 
 /-- The armed `next` due earliest by `t` (ties by declaration order): the

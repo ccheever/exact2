@@ -59,8 +59,9 @@ embedding stale when it is added.
 **Differential testing.** For each case, `difftest` compiles the program to a
 plan and boots it on the runner, delivers the script's events, and prints a
 canonical observation after every step: the outcome, every root slot, derive
-and resource, the commands issued, and the text of every element with a
-`testId`. Then it emits the program with the Lean backend, and runs many cases
+and resource, the commands issued to a host (not `setMode`, which the
+runner takes and applies itself: `hostCommands`), and the text of every
+element with a `testId`. Then it emits the program with the Lean backend, and runs many cases
 in one generated Lean module whose `main` prints `Contract.Observe.run` for
 each. The two texts must match line for line. Data sources are a seeded oracle
 that answers any call with a value of the declared shape. The runner's
