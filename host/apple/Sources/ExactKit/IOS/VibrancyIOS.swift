@@ -42,7 +42,7 @@ extension NodeView {
         let target = container
         let holders = [self, materialView?.contentView].compactMap { $0 }
         let strays = holders.filter { $0 !== target }.flatMap(\.subviews).compactMap { $0 as? NodeView }
-        for child in strays { target.addSubview(child) }
+        if !strays.isEmpty { GlassGroups.moving(in: self) { for child in strays { target.addSubview(child) } } }
         let last = objc_getAssociatedObject(self, &Self.containerSlot) as? WeakView
         let moved = !strays.isEmpty || (last != nil && last?.view !== target)
         // A glass group keeps `container` while the material starts or stops
