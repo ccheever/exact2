@@ -391,7 +391,11 @@ extension NodeView {
         let e = event ?? NSApp.currentEvent
         let point = e.map { local(Self.point($0, in: window)) } ?? .zero
         let box = contentBox()
-        let pen = e?.subtype == .tabletPoint
+        // `subtype` is a mouse event's: read from a key event, an enter or an
+        // exit, it raises. A menu item chosen with Return leaves its key's up
+        // as the current event when `popUp` returns, where the right press
+        // that opened the menu ends its hold (MenusMac.swift `track`).
+        let pen = e.map { Self.subtyped.contains($0.type) && $0.subtype == .tabletPoint } ?? false
         // The event's own button too: a synthesized one (the agent's) moves
         // no hardware state.
         var buttons = NSEvent.pressedMouseButtons
@@ -409,6 +413,9 @@ extension NodeView {
                              pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1,
                              clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(e?.modifierFlags ?? []))
     }
+    /// The events whose `subtype` can be read: a button's, a move, a drag.
+    static let subtyped: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+        .otherMouseDown, .otherMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
     /// `event`'s point in `window`'s coordinates: a press in a native
     /// popover, its own window, bubbles to authored ancestors in the page's.
     static func point(_ event: NSEvent, in window: NSWindow?) -> NSPoint {
