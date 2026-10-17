@@ -203,4 +203,20 @@ describe('stable snapshot reader and pure root projection', () => {
     const projected = answer('appearance', [JSON.stringify({ planModeEnabled: true, followUpBehavior: 'steer' }), 'light'], undefined, undefined, native);
     expect(projected.scheme).toBe('light'); expect(calls).toBe(0);
   });
+  test('local Thread switches retain unavailable and invalid-write errors before preferences load', async () => {
+    let calls = 0;
+    const native = { available: false, watch() {}, async later() { calls++; throw new Error('Unavailable preference owner was called'); } };
+    const before = await answer('preferences', [], undefined, undefined, native);
+    expect(before.ready).toBe(false);
+    for (const key of ['workingEnabled', 'planModeEnabled']) {
+      const result = await answer('preferenceChange', [key, 'true'], undefined, undefined, native);
+      expect(result).toEqual({ revision: 0, message: before.error });
+      native.available = true;
+      expect(await answer('preferenceChange', [key, 'yes'], undefined, undefined, native))
+        .toEqual({ revision: 0, message: 'Choose on or off.' });
+      native.available = false;
+    }
+    expect(await answer('preferences', [], undefined, undefined, native)).toEqual(before);
+    expect(calls).toBe(0);
+  });
 });

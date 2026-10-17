@@ -78,13 +78,13 @@ component SettingsThreadPreferences
           column gap=7
             SettingsSectionLabel(title="Beta", colors=colors, roles=roles)
             column background-color=colors.grouped border-radius=24 overflow="hidden"
-              ThreadPreferenceSwitch(id="workingEnabled", label="Working section", icon="bolt.circle", checked=data.workingEnabled, mixed=false, disabled=(not data.preferencesReady), colors=colors, roles=roles, change=preference)
+              ThreadPreferenceSwitch(id="workingEnabled", label="Working section", icon="bolt.circle", checked=data.workingEnabled, mixed=false, disabled=false, colors=colors, roles=roles, change=preference)
           text "Fold working and monitoring threads into a Working section. They return to the top of the list when they need you. While this is on, active threads are ordered by time and cannot be moved." padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
         column gap=10.5
           column gap=7
             SettingsSectionLabel(title="Legacy", colors=colors, roles=roles)
             column background-color=colors.grouped border-radius=24 overflow="hidden"
-              ThreadPreferenceSwitch(id="planModeEnabled", label="Plan Mode", icon="hammer", checked=data.planModeEnabled, mixed=false, disabled=(not data.preferencesReady), colors=colors, roles=roles, change=preference)
+              ThreadPreferenceSwitch(id="planModeEnabled", label="Plan Mode", icon="hammer", checked=data.planModeEnabled, mixed=false, disabled=false, colors=colors, roles=roles, change=preference)
           text "Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan control; otherwise every task runs in Build mode." padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
 component ThreadPreferenceSwitch
   props
