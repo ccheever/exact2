@@ -49,7 +49,6 @@ style Screen
   bottom=0
   display="flex"
   flex-direction="column"
-  background-color="#f4f1ea"
 // The safe area kept clear of the panel's rounded corners (LLP 1123 D10)
 style Safe
   box-sizing="border-box"
@@ -67,7 +66,7 @@ style Title
   padding-bottom=4
 style Note
   font-size=13
-  color="#6b655a"
+  color="-exact-secondary-label"
   padding-left=16
   padding-right=16
 style Fact
@@ -75,7 +74,7 @@ style Fact
   font-weight=600
   font-family="monospace"
 style Card
-  background-color="#ffffff"
+  background-color="-exact-secondary-background"
   border-radius=12
   padding=12
   box-sizing="border-box"
@@ -83,13 +82,13 @@ style TabOn
   flex=1
   padding-top=10
   padding-bottom=10
-  background-color="#1b1a17"
+  background-color="AccentColor"
   border-radius=10
 style TabOff
   flex=1
   padding-top=10
   padding-bottom=10
-  background-color="#e6e0d2"
+  background-color="-exact-tertiary-fill"
   border-radius=10
 
 // A sheet snaps between a peek and a reading height from where it was let go.
@@ -133,7 +132,7 @@ component DuoLab
   action dismiss
     blur()
   view
-    main testId="root" navigationKey=`${current.id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" position="relative" overflow="hidden" background-color="#f4f1ea" color="#1b1a17" font-family="system-ui"
+    main testId="root" navigationKey=`${current.id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" position="relative" overflow="hidden" font-family="system-ui"
       for entry in stack(nav) key=entry.id
         // Every screen draws its own chrome (the note's header and Back), so
         // it says it has no system bar (LLP 1115.000 D5.2).
@@ -150,21 +149,21 @@ component DuoLab
                 Facts(viewport=viewport)
                 ItemList(items=items, selected=selected, choose=choose)
                 TabBar(tab=nav.tab, select=selectTab)
-              column testId="pane-detail" position="absolute" top=0 left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" background-color="#ebe6da"
+              column testId="pane-detail" position="absolute" top=0 left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" background-color="-exact-secondary-background"
                 Detail(items=items, selected=selected)
             else
               if twoDown
                 column testId="pane-list" width="100%" height="env(viewport-segment-height 0 0)" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
                   Facts(viewport=viewport)
                   ItemList(items=items, selected=selected, choose=choose)
-                column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" width="100%" height="env(viewport-segment-height 0 1)" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="#ebe6da"
+                column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" width="100%" height="env(viewport-segment-height 0 1)" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
                   Detail(items=items, selected=selected)
                   TabBar(tab=nav.tab, select=selectTab)
               else
                 column testId="pane-list" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
                   Facts(viewport=viewport)
                   ItemList(items=items, selected=selected, choose=choose)
-                column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="#ebe6da"
+                column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
                   Detail(items=items, selected=selected)
                   TabBar(tab=nav.tab, select=selectTab)
           if entry.name == "images"
@@ -174,8 +173,8 @@ component DuoLab
               list appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" overflow-x="hidden" testId="image-list"
                 for row in rows key=row.id
                   column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`
-                    image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="#d9d4c7"
-                    text row.caption font-size=13 padding-top=6 color="#6b655a"
+                    image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="-exact-secondary-background"
+                    text row.caption font-size=13 padding-top=6 color="-exact-secondary-label"
               TabBar(tab=nav.tab, select=selectTab)
           if entry.name == "reflow"
             column flex=1 min-height=0 width="100%" class=Safe
@@ -194,28 +193,28 @@ component DuoLab
               text "Combinations" class=Title testId="combos-title"
               text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
               column padding=16 gap=12
-                button press=openNote testId="open-note" padding=14 border-radius=10 background-color="#1b1a17"
-                  text "Push the note screen" font-size=16 font-weight=600 color="#ffffff"
-                text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="#6b655a"
+                button press=openNote testId="open-note" padding=14 border-radius=10 background-color="AccentColor"
+                  text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
+                text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
               column flex=1
               TabBar(tab=nav.tab, select=selectTab)
           if entry.name == "note"
-            column flex=1 min-height=0 width="100%" class=Safe background-color="#ddd6c6"
+            column flex=1 min-height=0 width="100%" class=Safe
               row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12
-                button press=back testId="note-back" padding=8 border-radius=8 background-color="#1b1a17"
-                  text "Back" font-size=14 font-weight=600 color="#ffffff"
+                button press=back testId="note-back" padding=8 border-radius=8 background-color="-exact-tertiary-fill"
+                  text "Back" font-size=14 font-weight=600 color="AccentColor"
                 text "Note" font-size=20 font-weight=700 testId="note-title"
               text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
-            column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left="calc(env(-exact-safe-area-corners-inset-left) + 16px)" gap=12 background-color="#ffffff" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
+            column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left="calc(env(-exact-safe-area-corners-inset-left) + 16px)" gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
               column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                 text "Note" font-size=18 font-weight=600
-                text "Drag to resize" font-size=11 color="#6b655a"
+                text "Drag to resize" font-size=11 color="-exact-secondary-label"
               row gap=12 align-items="center"
-                button press=dismiss testId="note-dismiss" padding=10 border-radius=8 background-color="#e6e0d2"
+                button press=dismiss testId="note-dismiss" padding=10 border-radius=8 background-color="-exact-tertiary-fill"
                   text "Dismiss the keyboard" font-size=14 font-weight=600
-                text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="#6b655a"
-              input appearance="none" value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16
-              textarea appearance="none" value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16 line-height="22px"
+                text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="-exact-secondary-label"
+              input appearance="none" value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16
+              textarea appearance="none" value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16 line-height="22px"
 
 // The three facts and the viewport, printed so a screenshot is its own evidence.
 component Facts
@@ -246,9 +245,9 @@ component ItemList
     scroll flex=1 min-height=0 width="100%" testId="item-list"
       column padding=12 gap=8
         for item in items key=item.id
-          button press=choose(item.id) testId=`item-${item.id}` class=Card display="flex" flex-direction="column" gap=3 align-items="flex-start" background-color=(item.id == selected ? "#1b1a17" : "#ffffff") text-align="start"
-            text item.title font-size=16 font-weight=600 color=(item.id == selected ? "#ffffff" : "#1b1a17")
-            text item.summary font-size=13 color=(item.id == selected ? "#d9d4c7" : "#6b655a")
+          button press=choose(item.id) testId=`item-${item.id}` class=Card display="flex" flex-direction="column" gap=3 align-items="flex-start" background-color=(item.id == selected ? "AccentColor" : "-exact-secondary-background") text-align="start"
+            text item.title font-size=16 font-weight=600 color=(item.id == selected ? "AccentColorText" : "-exact-label")
+            text item.summary font-size=13 color=(item.id == selected ? "AccentColorText" : "-exact-secondary-label")
 
 component Detail
   props
@@ -260,7 +259,7 @@ component Detail
         for item in items key=item.id
           if item.id == selected
             text item.title font-size=24 font-weight=700 testId="detail-title"
-            text item.summary font-size=15 color="#6b655a"
+            text item.summary font-size=15 color="-exact-secondary-label"
             text item.body font-size=16 line-height="24px" testId="detail-body"
 
 component TabBar
@@ -270,10 +269,10 @@ component TabBar
   view
     row gap=8 padding=12 flex-shrink=0 testId="tab-bar"
       button press=select("fold") class=(tab == "fold" ? TabOn : TabOff) testId="tab-fold"
-        text "Fold" font-size=13 font-weight=600 color=(tab == "fold" ? "#ffffff" : "#1b1a17")
+        text "Fold" font-size=13 font-weight=600 color=(tab == "fold" ? "AccentColorText" : "-exact-label")
       button press=select("images") class=(tab == "images" ? TabOn : TabOff) testId="tab-images"
-        text "Images" font-size=13 font-weight=600 color=(tab == "images" ? "#ffffff" : "#1b1a17")
+        text "Images" font-size=13 font-weight=600 color=(tab == "images" ? "AccentColorText" : "-exact-label")
       button press=select("reflow") class=(tab == "reflow" ? TabOn : TabOff) testId="tab-reflow"
-        text "Reflow" font-size=13 font-weight=600 color=(tab == "reflow" ? "#ffffff" : "#1b1a17")
+        text "Reflow" font-size=13 font-weight=600 color=(tab == "reflow" ? "AccentColorText" : "-exact-label")
       button press=select("combos") class=(tab == "combos" ? TabOn : TabOff) testId="tab-combos"
-        text "Combos" font-size=13 font-weight=600 color=(tab == "combos" ? "#ffffff" : "#1b1a17")
+        text "Combos" font-size=13 font-weight=600 color=(tab == "combos" ? "AccentColorText" : "-exact-label")
