@@ -228,6 +228,15 @@ an element without one is refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
 
+The JS target's `sin` and `cos` are the browser's `Math.sin` and
+`Math.cos`, held to the runner's pinned libm by value, not by bits (LLP
+1003 §7); the semantics is held to the runner's bits. So a program that
+calls either, whose observations differ only in numbers at most four units
+in the last place apart (as bits or as printed text, line by line), is
+counted apart as agreeing but for sin/cos's last bits, not as a
+divergence. A last bit that changes a branch, a rounding or a printed
+integer still diverges.
+
 A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
 agreed with the runner, and is kept under `target/difftest/failures/`

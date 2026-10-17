@@ -21,6 +21,11 @@ use std::process::Command;
 pub enum JsVerdict {
     /// The JS target printed the runner's observation.
     Agree,
+    /// The program calls `sin` or `cos`, and the observations differ only
+    /// in numbers a few units in the last place apart: the web's
+    /// `Math.sin` and `Math.cos` are not the runner's pinned libm, and are
+    /// held to it by value, not by bits (LLP 1003 §7).
+    Trig,
     /// The compiler refused the program (the runner never ran it).
     Refused(String),
     /// `exact-web-js` refused it: outside the JS target.
@@ -126,6 +131,8 @@ fn event(e: &Event) -> String {
 struct Ready {
     rust: Vec<String>,
     json: String,
+    /// Whether the program calls `sin` or `cos`.
+    trig: bool,
 }
 
 /// Run `case` on the runner and write its half of a batch; the program goes
@@ -189,7 +196,11 @@ fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
         stored.join(","),
         persisted.join(",")
     );
-    Ok(Ready { rust, json })
+    Ok(Ready {
+        rust,
+        json,
+        trig: calls_trig(&case.source),
+    })
 }
 
 /// One driver process over `ready`; each case's result line.
@@ -242,7 +253,7 @@ fn field(line: &serde_json::Value, name: &str) -> Option<Vec<String>> {
     }
 }
 
-fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
+fn verdict(rust: Vec<String>, text: &str, trig: bool) -> JsVerdict {
     let line: serde_json::Value = match serde_json::from_str(text) {
         Ok(l) => l,
         Err(e) => return JsVerdict::Error(format!("{e}: {text}")),
@@ -266,6 +277,9 @@ fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
     let at = r.iter().zip(&j).position(|(a, b)| a != b);
     match at {
         None if r.len() == j.len() => JsVerdict::Agree,
+        Some(_) if trig && r.len() == j.len() && r.iter().zip(&j).all(|(a, b)| near(a, b)) => {
+            JsVerdict::Trig
+        }
         None => JsVerdict::Diverge {
             at: r.len().min(j.len()),
             rust,
@@ -273,6 +287,79 @@ fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
         },
         Some(at) => JsVerdict::Diverge { at, rust, js },
     }
+}
+
+/// Whether `source` calls `sin` or `cos` (a longer name ending in either,
+/// as `asin(`, does not count).
+fn calls_trig(source: &str) -> bool {
+    ["sin(", "cos("].iter().any(|f| {
+        source.match_indices(f).any(|(i, _)| {
+            !source[..i]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+    })
+}
+
+/// How far apart, in units in the last place, two results of the same
+/// `sin` or `cos` may land on two conforming implementations after the
+/// arithmetic a program does with them.
+const ULPS: u64 = 4;
+
+/// Whether two observation lines are the same but for numbers at most
+/// [`ULPS`] apart: a number as its bits (`n3fe0000000000000`) or as text
+/// (`0.5`, `1e-7`).
+fn near(a: &str, b: &str) -> bool {
+    let (a, b) = (tokens(a), tokens(b));
+    a.len() == b.len()
+        && a.iter().zip(&b).all(|(x, y)| {
+            x == y || matches!((printed(x), printed(y)), (Some(x), Some(y)) if apart(x, y) <= ULPS)
+        })
+}
+
+/// Maximal runs of letters, digits and `.` (an exponent's sign kept inside
+/// its number); every other character a token of its own.
+fn tokens(line: &str) -> Vec<&str> {
+    let bytes = line.as_bytes();
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'.';
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        if word(bytes[i]) {
+            while i < bytes.len()
+                && (word(bytes[i])
+                    || (matches!(bytes[i], b'+' | b'-')
+                        && matches!(bytes[i - 1], b'e' | b'E')
+                        && bytes[start].is_ascii_digit()
+                        && bytes.get(i + 1).is_some_and(u8::is_ascii_digit)))
+            {
+                i += 1;
+            }
+        } else {
+            i += line[i..].chars().next().map_or(1, char::len_utf8);
+        }
+        out.push(&line[start..i]);
+    }
+    out
+}
+
+/// A token as the number it prints: `n` and sixteen hex digits are its bits.
+fn printed(t: &str) -> Option<f64> {
+    match t.strip_prefix('n') {
+        Some(hex) if hex.len() == 16 => u64::from_str_radix(hex, 16).ok().map(f64::from_bits),
+        _ if t.starts_with(|c: char| c.is_ascii_digit()) => t.parse().ok(),
+        _ => None,
+    }
+}
+
+/// Units in the last place between two finite numbers of one sign.
+fn apart(x: f64, y: f64) -> u64 {
+    if !x.is_finite() || !y.is_finite() || x.is_sign_negative() != y.is_sign_negative() {
+        return u64::MAX;
+    }
+    x.to_bits().abs_diff(y.to_bits())
 }
 
 /// Run `cases` on the runner and the JS target, `batch` cases per driver
@@ -335,7 +422,7 @@ fn run_chunk(compiler: &Path, chunk: &[Case], dir: &Path) -> Result<Vec<JsVerdic
     Ok(prepared
         .into_iter()
         .map(|p| match p {
-            Ok(r) => verdict(r.rust, &lines.next().expect("one line per case")),
+            Ok(r) => verdict(r.rust, &lines.next().expect("one line per case"), r.trig),
             Err(v) => v,
         })
         .collect())
@@ -379,12 +466,14 @@ pub fn report(
     shrinking: bool,
     verbose_outside: bool,
 ) -> Result<bool, String> {
-    let (mut agree, mut diverge, mut outside, mut refused, mut errors) = (0, 0, 0, 0, 0);
+    let (mut agree, mut trig, mut diverge, mut outside, mut refused, mut errors) =
+        (0, 0, 0, 0, 0, 0);
     let dir = crate::work_dir().join("failures");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (i, (case, v)) in cases.iter().zip(verdicts).enumerate() {
         match v {
             JsVerdict::Agree => agree += 1,
+            JsVerdict::Trig => trig += 1,
             JsVerdict::Refused(_) => refused += 1,
             JsVerdict::Outside(why) => {
                 outside += 1;
@@ -453,7 +542,7 @@ pub fn report(
         }
     }
     println!(
-        "difftest js: {} cases: {agree} agree, {diverge} diverge, {outside} outside the JS target, {refused} refused by the compiler, {errors} driver errors",
+        "difftest js: {} cases: {agree} agree, {trig} agree but for sin/cos's last bits, {diverge} diverge, {outside} outside the JS target, {refused} refused by the compiler, {errors} driver errors",
         cases.len()
     );
     Ok(diverge == 0 && errors == 0)
