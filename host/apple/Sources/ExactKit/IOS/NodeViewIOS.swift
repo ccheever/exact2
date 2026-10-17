@@ -678,6 +678,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
+        if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
+    }
+    /// Still off every window a turn later (a tab not shown, a covered
+    /// route, a parked row; not a view moved within a batch), its text lets
+    /// go of its pixels, as Core Animation lets go of a backing store there.
+    /// `display` paints them again when it is back: at once where it shows.
+    private func dropTextRasterOffWindow() {
+        guard window == nil, textRaster != nil else { return }
+        dropTextRaster()
+        layer.setNeedsDisplay()
     }
 
     /// Glass content participates in UIKit's interactive effect. Other
