@@ -135,6 +135,7 @@ mod tamber_gen;
 mod tamber_measures;
 mod tamber_scheme;
 mod tamber_serve;
+mod tamber_shadows;
 mod tests_decl;
 mod text_item;
 mod text_px_width;

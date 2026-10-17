@@ -22,6 +22,7 @@ mod ir;
 mod lex;
 mod measure;
 mod session;
+mod shadow;
 mod syntax;
 
 pub use check::{Checked, MAX_TUPLES};
@@ -31,6 +32,7 @@ pub use fold::{Folded, Half, Host};
 pub use ir::FORMAT;
 pub use measure::{Kind, Length, Value};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
+pub use shadow::{Shadow, Shadows};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
 
 /// A refusal, at a line and column of the source.

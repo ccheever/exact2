@@ -19,6 +19,10 @@ pub enum Kind {
     Length,
     /// A number.
     Number,
+    /// A `box-shadow` row's value (stage 6 D).
+    BoxShadow,
+    /// A `text-shadow` row's value (stage 6 D).
+    TextShadow,
 }
 
 impl Kind {
@@ -28,6 +32,8 @@ impl Kind {
             Kind::Color => "color",
             Kind::Length => "length",
             Kind::Number => "number",
+            Kind::BoxShadow => "box-shadow",
+            Kind::TextShadow => "text-shadow",
         }
     }
 
@@ -37,6 +43,8 @@ impl Kind {
             "color" => Some(Kind::Color),
             "length" => Some(Kind::Length),
             "number" => Some(Kind::Number),
+            "box-shadow" => Some(Kind::BoxShadow),
+            "text-shadow" => Some(Kind::TextShadow),
             _ => None,
         }
     }
@@ -77,6 +85,8 @@ pub enum Value {
     Length(Length),
     /// A number.
     Number(f64),
+    /// A shadow row's value.
+    Shadow(crate::shadow::Shadows),
 }
 
 impl Value {
@@ -86,6 +96,8 @@ impl Value {
             Value::Color(_) => Kind::Color,
             Value::Length(_) => Kind::Length,
             Value::Number(_) => Kind::Number,
+            Value::Shadow(s) if s.text => Kind::TextShadow,
+            Value::Shadow(_) => Kind::BoxShadow,
         }
     }
 
@@ -95,6 +107,7 @@ impl Value {
             Value::Color(f) => f.css(),
             Value::Length(l) => l.css(),
             Value::Number(n) => num(*n),
+            Value::Shadow(s) => s.css(),
         }
     }
 

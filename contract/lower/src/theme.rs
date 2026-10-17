@@ -43,6 +43,8 @@ fn kind_code(kind: tamber::Kind) -> u8 {
         tamber::Kind::Color => 0,
         tamber::Kind::Length => 1,
         tamber::Kind::Number => 2,
+        tamber::Kind::BoxShadow => 3,
+        tamber::Kind::TextShadow => 4,
     }
 }
 
@@ -53,6 +55,8 @@ fn kernel_kind(kind: tamber::Kind) -> exact_kernel::style::theme::Kind {
         tamber::Kind::Color => Kind::Color,
         tamber::Kind::Length => Kind::Length,
         tamber::Kind::Number => Kind::Number,
+        tamber::Kind::BoxShadow => Kind::BoxShadow,
+        tamber::Kind::TextShadow => Kind::TextShadow,
     }
 }
 

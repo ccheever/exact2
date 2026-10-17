@@ -205,7 +205,7 @@ pub(crate) fn color(items: &[Item], names: &mut dyn Names) -> Result<Folded, Fol
 pub(crate) fn not_color_kind<T>() -> Result<T, FoldError> {
     fail(
         "tamber-stage",
-        "only colour, length and number tokens are built yet; type, shadow and motion tokens arrive later in stage 6",
+        "only colour, length, number and shadow tokens are built yet; type and motion tokens arrive later in stage 6",
     )
 }
 

@@ -44,6 +44,10 @@ pub enum Kind {
     Length,
     /// A number.
     Number,
+    /// A `box-shadow` row's value.
+    BoxShadow,
+    /// A `text-shadow` row's value.
+    TextShadow,
 }
 
 impl Kind {
@@ -54,6 +58,8 @@ impl Kind {
             0 => Some(Kind::Color),
             1 => Some(Kind::Length),
             2 => Some(Kind::Number),
+            3 => Some(Kind::BoxShadow),
+            4 => Some(Kind::TextShadow),
             _ => None,
         }
     }
@@ -226,8 +232,9 @@ const NUMBER_ROWS: [crate::StyleId; 5] = [
 
 /// Whether row `id` may name a token of `kind` (LLP 1121 D3): a colour a
 /// row that holds a colour; a number the rows D3 lists; a length any other
-/// row but those that take only a number (`line-height` takes both). The
-/// row's codec still reads the value: a text style only as a font size.
+/// row but those that take only a number (`line-height` takes both); a
+/// shadow its own row. The row's codec still reads the value: a text style
+/// only as a font size.
 pub fn admits(kind: Kind, id: crate::StyleId) -> bool {
     use crate::generated::StyleCodec as C;
     let colour = matches!(
@@ -249,6 +256,8 @@ pub fn admits(kind: Kind, id: crate::StyleId) -> bool {
         Kind::Color => colour,
         Kind::Number => NUMBER_ROWS.contains(&id),
         Kind::Length => !colour && (id == crate::StyleId::LineHeight || !NUMBER_ROWS.contains(&id)),
+        Kind::BoxShadow => id == crate::StyleId::BoxShadow,
+        Kind::TextShadow => id == crate::StyleId::TextShadow,
     }
 }
 

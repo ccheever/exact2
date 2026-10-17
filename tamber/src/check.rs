@@ -585,7 +585,7 @@ impl<'a> Checker<'a> {
             }
             match t.kind.as_deref() {
                 None | Some("color") => {}
-                Some("length" | "number") if role.is_some() => {
+                Some("length" | "number" | "box-shadow" | "text-shadow") if role.is_some() => {
                     self.at(
                         &t.name,
                         "tamber-kind",
@@ -604,9 +604,9 @@ impl<'a> Checker<'a> {
                     self.at(&t.name, "tamber-under-kind", "only a colour may vary by an axis `under scheme=dark`: the kernel picks a length's slice without knowing the scheme");
                     continue;
                 }
-                Some("length" | "number") => {}
-                Some("type" | "family" | "box-shadow" | "text-shadow" | "duration" | "easing") => {
-                    self.at(&t.name, "tamber-stage", "only colour, length and number tokens are built yet; type, shadow and motion tokens arrive later in stage 6");
+                Some("length" | "number" | "box-shadow" | "text-shadow") => {}
+                Some("type" | "family" | "duration" | "easing") => {
+                    self.at(&t.name, "tamber-stage", "only colour, length, number and shadow tokens are built yet; type and motion tokens arrive later in stage 6");
                     continue;
                 }
                 Some("icon") => {
@@ -653,8 +653,18 @@ impl<'a> Checker<'a> {
         for i in 0..design.tokens.len() {
             let mut path = vec![false; design.tokens.len()];
             self.kinds[i] = self.kind_of(i, &mut path);
-            // A role override is a colour, written or inferred.
             let t = &design.tokens[i];
+            // A shadow's kind is written: two rows read alike values.
+            if !self.refused[i]
+                && self.kinds[i] == Kind::Color
+                && t.kind.is_none()
+                && crate::shadow::looks(&t.value.value)
+            {
+                self.refused[i] = true;
+                self.at(&t.name, "tamber-kind", format!("`{}` reads as a shadow: write its kind, `{}: box-shadow` or `{}: text-shadow`", t.name.value, t.name.value, t.name.value));
+                continue;
+            }
+            // A role override is a colour, written or inferred.
             if !self.refused[i]
                 && self.kinds[i] != Kind::Color
                 && self.role_key(&t.name.value).is_some()
@@ -981,8 +991,11 @@ impl<'a> Checker<'a> {
         if kind == Kind::Color {
             return self.fold_at(tuple, value).map(Value::Color);
         }
+        // A shadow list's commas are its own: its fold splits the text.
+        let shadow = matches!(kind, Kind::BoxShadow | Kind::TextShadow);
         let items = match css::parse(&value.value) {
             Ok(items) => items,
+            Err(_) if shadow => Vec::new(),
             Err(m) => {
                 self.at(value, "tamber-syntax", m);
                 return None;
@@ -995,6 +1008,10 @@ impl<'a> Checker<'a> {
         };
         let folded = match kind {
             Kind::Length => measure::length(&items, &mut scope, named_length).map(Value::Length),
+            Kind::BoxShadow | Kind::TextShadow => {
+                crate::shadow::fold(&value.value, kind == Kind::TextShadow, &mut scope)
+                    .map(Value::Shadow)
+            }
             _ => measure::number(&items, &mut scope).map(Value::Number),
         };
         match folded {
@@ -1199,6 +1216,8 @@ impl Names for Scope<'_, '_> {
                     Value::Color(f) => Named::Color(f),
                     Value::Length(l) => Named::Length(l),
                     Value::Number(n) => Named::Number(n),
+                    // No value names a shadow token: it is a whole row's.
+                    Value::Shadow(_) => Named::Unknown,
                 })
                 .ok_or_else(quiet);
         }

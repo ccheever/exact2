@@ -134,6 +134,9 @@ pub struct Modes {
     /// Each varying token: its name, its property and its sentinel's texts
     /// (the value first, then the CSS it writes).
     tokens: Vec<(String, String, Vec<String>)>,
+    /// Each varying token's kind, as [`Modes::project`] found it: a shadow's
+    /// sentinel marks the whole declaration it writes.
+    kinds: Vec<Kind>,
     /// The varying tokens whose value names the accent in some tuple, by
     /// property: an element with its own `accent-color` declares them again.
     accent: Vec<String>,
@@ -153,6 +156,7 @@ impl Modes {
             .collect();
         let mut modes = Modes {
             tokens,
+            kinds: Vec::new(),
             accent: Vec::new(),
             texts: Vec::new(),
         };
@@ -208,6 +212,7 @@ impl Modes {
                 *f = forms(k, i);
                 bridge::edit_token(plan, name, &f[0], &[]);
             }
+            self.kinds = kinds;
             let projected = crate::style::project(plan, sites, &mut Vec::new());
             // The plan's own tokens again (an edit is the runner's, D13).
             let _ = bridge::role_overrides(plan);
@@ -231,7 +236,24 @@ impl Modes {
     /// `text` with each sentinel its token's `var()`.
     fn substitute(&self, text: &str) -> String {
         let mut out = text.to_string();
-        for (_, prop, forms) in &self.tokens {
+        for (i, (_, prop, forms)) in self.tokens.iter().enumerate() {
+            // A shadow's: each declaration whose value holds its marker.
+            if matches!(self.kinds.get(i), Some(Kind::BoxShadow | Kind::TextShadow)) {
+                let marker = forms[1].as_str();
+                let mut next = String::new();
+                for (name, value) in declarations(&out) {
+                    let value = if value.contains(marker) {
+                        format!("var({prop})")
+                    } else {
+                        value.to_string()
+                    };
+                    let _ = write!(next, "{name}:{value};");
+                }
+                if out.contains(marker) {
+                    out = next;
+                }
+                continue;
+            }
             for form in forms {
                 if out.contains(form.as_str()) {
                     out = out.replace(form.as_str(), &format!("var({prop})"));

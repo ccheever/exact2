@@ -76,6 +76,8 @@ fn every_corpus_value_parses_in_the_kernel() {
                             .is_ok()
                     }),
                     Kind::Number => text.parse::<f64>().is_ok(),
+                    Kind::BoxShadow => exact_kernel::style::BoxShadows::check(&text).is_ok(),
+                    Kind::TextShadow => exact_kernel::style::TextShadow::check(&text).is_ok(),
                 };
                 assert!(read, "{}: {}: {text}", path.display(), token.name);
             }

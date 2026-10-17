@@ -295,3 +295,34 @@ fn a_compared_name_is_no_inline_use() {
     );
     assert!(crate::emit::emit(&plan, false, false).is_ok());
 }
+
+/// LLP 1121 stage 6 D: a shadow token that varies is a property whose
+/// value per tuple is the row's CSS; a bound shadow row maps its name.
+#[test]
+fn a_varying_shadow_is_a_property_and_a_bound_row_maps_its_name() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  shade = #00000040\n    when density=compact: #00000080\n  shadow.card: box-shadow = 0 1px 3px shade, inset 0 0 0 1px #ffffff\n  glow: text-shadow = 0 0 2px #ff0000\n";
+    let plan = plan(
+        "shadows",
+        design,
+        "component App\n  state on = false\n  view\n    column box-shadow=\"shadow.card\"\n      text \"a\" text-shadow=\"glow\"\n      text \"b\" box-shadow=(on ? \"shadow.card\" : \"none\")\n",
+    );
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let css = &out.css;
+    assert!(css.contains("box-shadow:var(--x-shadow-card)"), "{css}");
+    assert!(css.contains("text-shadow:0px 0px 2px #ff0000ff"), "{css}");
+    let compact = css.find("[data-x-modes=\"density=compact\"]{").expect(css);
+    assert!(
+        css[compact..].contains(
+            "--x-shadow-card:0px 1px 3px 0px #00000080, inset 0px 0px 0px 1px #ffffffff;"
+        ),
+        "{css}"
+    );
+    assert!(!css.contains("70000"), "{css}");
+    assert!(
+        out.js.contains("\"shadow.card\":\"var(--x-shadow-card)\""),
+        "{}",
+        out.js
+    );
+    let dev = crate::emit::emit(&plan, false, true).unwrap();
+    assert!(dev.css.contains("text-shadow:var(--x-glow)"), "{}", dev.css);
+}

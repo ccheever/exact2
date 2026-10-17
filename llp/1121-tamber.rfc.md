@@ -2728,3 +2728,27 @@ channel (queued).
 - **The wire** (`tamber/1.5`): each IR token's `kind`; `resolve`'s length `{unit, amount}` and number
   `{amount}`; `uses` over rows of the token's kind. The concrete px of a `rem`, `em` or named
   length is the build's (`resolve-on`, LLP 1122 T2b).
+
+### Stage 6, commit D: shadow tokens
+
+- **The crate** (`tamber/src/shadow.rs`) folds `box-shadow` and `text-shadow` tokens, each its row's
+  own syntax: a list (at most 8) of `inset`? and two to four lengths with one colour for a box
+  shadow; one shadow of two or three lengths with a colour or none (`currentcolor`) for a text
+  shadow, which has no spread and is never `inset`. A length is px, unitless zero, a length token
+  or dial; `rem`/`em` inside one is refused naming QUEUE's `rem`/`em` item. A colour is a literal, a
+  colour token, a role or a colour expression over tokens, folded per tuple as a colour token is,
+  so a shadow's value per tuple is its row's text with its colours folded. Its kind is always
+  written: a value that reads as a shadow with none is refused, asking for it.
+- **The plan** numbers the kinds 3 and 4; no new break (B's `kind` byte holds them). The kernel
+  reads one only in its own row (`admits`).
+- **A colour token inside a shadow follows its own live edit**: the session refolds every token, so
+  an edit of the colour moves the shadow's value too, and the batch carries both (live; tested at
+  the session). A shadow edit paints: it lays nothing out.
+- **A text shadow is an inherited row**, so a text-shadow token that varies by an app axis is
+  `tamber-inherited-axis` (only colours re-select at a mode boundary), as for lengths and numbers.
+- **The JS target:** a varying shadow token, and in a development build every one, is a property
+  whose value per tuple is the row's CSS as `css.rs` writes the literal's; its sentinel is a shadow
+  whose spread (a text shadow's offset) is a marker length, and the whole declaration holding the
+  marker becomes the `var()`. A bound shadow row maps a name through its own constant (`$tb`,
+  `$tt`).
+- **The wire** (`tamber/1.8`): the kinds, and `resolve`'s shadow tuples.

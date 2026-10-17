@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.7`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.8`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.7"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.8"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -46,6 +46,8 @@ on macOS and Linux.
 - `tamber/1.6` (LLP 1122 T2b) added the `inspect` event: inspect mode's owners as they move.
 - `tamber/1.7` (LLP 1122 T2b) added a click's token on `selected`, which the `outline` answering it
   names.
+- `tamber/1.8` (LLP 1121 stage 6, commit D) added shadow tokens: the IR's `box-shadow` and
+  `text-shadow` kinds, and `resolve`'s shadow tuples.
 
 ## Where it runs
 
@@ -164,7 +166,7 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - `format`, `digest`, `name`, `tuples`;
   - the axes and the dials (with each dial's `range`);
   - the tokens, each with its `kind` (`color`, `length` or `number`, *1.5*: written, or inferred from
-    its value), its folded `values` per tuple, `entries`, the `dials` it depends on and its
+    its value; `box-shadow` or `text-shadow`, *1.8*, always written), its folded `values` per tuple, `entries`, the `dials` it depends on and its
     `fallback` (a length's or number's is its default tuple's value, twice);
   - `exports`.
 
@@ -199,6 +201,9 @@ tuple:
   (null for a named length). A `rem`, `em` or named length's px is the build's, which depends on its
   text size: `resolve-on` (LLP 1122 T2b) gives it.
 - **A number** (*1.5*) is `{modes, value, kind: "number", amount}`.
+- **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
+  `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
+  written) and its colour's folded CSS (null for a text shadow's `currentcolor`).
 
 **`explain`** `{token, file?}` answers `{token, value, whens, dials, names, files}`:
 - `value` and each `whens[].value` are source text, as written;

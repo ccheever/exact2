@@ -98,7 +98,7 @@ impl Said {
                 let colour = colour_attr(&a.name);
                 computed |= colour && !literal(&a.value);
                 computed_measure |=
-                    !colour && measure_attr(&a.name) && !literal(&a.value) && !number(&a.value);
+                    measure_attr(&a.name) && !literal(&a.value) && !number(&a.value);
                 // A colour row's own value must fold; a literal elsewhere in
                 // it (a condition's, a call's argument) may not be one.
                 if colour {
@@ -201,7 +201,14 @@ fn measure_attr(name: &str) -> bool {
     match crate::tags::attr(name) {
         Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| {
             use exact_kernel::style::theme::{admits, Kind};
-            admits(Kind::Length, *r) || admits(Kind::Number, *r)
+            [
+                Kind::Length,
+                Kind::Number,
+                Kind::BoxShadow,
+                Kind::TextShadow,
+            ]
+            .into_iter()
+            .any(|k| admits(k, *r))
         }),
         _ => false,
     }

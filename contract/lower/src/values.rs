@@ -644,7 +644,11 @@ fn style_value(
                 }
             }
             // @ref LLP 1066, LLP 1077 — the kernel's parse says why, by name.
-            let why = if rows.contains(&StyleId::BackgroundImage) {
+            // A shadow token's name: its values were checked as this row's
+            // (`theme::measure_row`), not the name's own text.
+            let why = if crate::theme::measure_named(v).is_some() {
+                None
+            } else if rows.contains(&StyleId::BackgroundImage) {
                 exact_kernel::gradient::BackgroundImage::check(v).err()
             } else if rows.contains(&StyleId::MaskImage) {
                 exact_kernel::gradient::BackgroundImage::check_mask(v).err()

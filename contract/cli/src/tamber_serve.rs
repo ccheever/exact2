@@ -64,7 +64,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.7";
+pub const PROTOCOL: &str = "tamber/1.8";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -789,6 +789,16 @@ impl Server {
                     }
                     exact_tamber::Value::Number(n) => {
                         return json!({"modes": modes, "value": v.css(), "kind": "number", "amount": n});
+                    }
+                    // Each shadow: its lengths in px and its colour's CSS
+                    // (null for a text shadow's currentcolor).
+                    exact_tamber::Value::Shadow(s) => {
+                        let shadows: Vec<Value> = s
+                            .list
+                            .iter()
+                            .map(|one| json!({"inset": one.inset, "lengths": one.lengths, "color": one.color.as_ref().map(|c| c.css())}))
+                            .collect();
+                        return json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
                     }
                     exact_tamber::Value::Color(c) => c,
                 };

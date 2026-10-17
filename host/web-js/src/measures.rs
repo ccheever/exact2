@@ -20,8 +20,18 @@ pub fn kind(row: &exact_plan::ThemeRow) -> Option<Kind> {
 /// literal on a row: a length's text, a text style as its `rem`, the
 /// hairline as the sheet's property; a number's text.
 pub fn css(kind: Kind, value: &str) -> String {
-    if kind != Kind::Length {
-        return value.trim().to_string();
+    // A shadow is its row's CSS, as css.rs writes the literal's.
+    match kind {
+        Kind::BoxShadow => {
+            return exact_kernel::style::BoxShadows::parse(value)
+                .map_or_else(|| value.trim().to_string(), |s| s.css())
+        }
+        Kind::TextShadow => {
+            return exact_kernel::style::TextShadow::parse(value)
+                .map_or_else(|| value.trim().to_string(), |s| s.css())
+        }
+        Kind::Length => {}
+        _ => return value.trim().to_string(),
     }
     match relative::parse(value) {
         Some((Unit::TextStyle(id), n)) => {
@@ -36,11 +46,18 @@ pub fn css(kind: Kind, value: &str) -> String {
     }
 }
 
-/// Whether a row may read a length or number token: those the kernel
+/// Whether a row may read a length, number or shadow token: those the kernel
 /// resolves one in (`style::theme::admits`).
 pub fn row(id: StyleId) -> bool {
     use exact_kernel::style::theme::admits;
-    admits(Kind::Length, id) || admits(Kind::Number, id)
+    [
+        Kind::Length,
+        Kind::Number,
+        Kind::BoxShadow,
+        Kind::TextShadow,
+    ]
+    .into_iter()
+    .any(|k| admits(k, id))
 }
 
 /// The tokens the page must write inline, each with what writes it: a
@@ -114,6 +131,16 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
             let px = format!("7{n:05}.25");
             vec![format!("{px}px"), format!("{px}px"), px]
         }
+        // A shadow whose spread (or a text shadow's offset) is such a length:
+        // its marker, which `modes` finds in the declaration it writes.
+        Kind::BoxShadow | Kind::TextShadow => {
+            let px = format!("7{n:05}.25px");
+            let value = match kind {
+                Kind::BoxShadow => format!("0px 0px 0px {px} #000000ff"),
+                _ => format!("{px} 0px #000000ff"),
+            };
+            vec![value, px]
+        }
         // A fraction in (0, 1) an opacity, a flex factor and a press scale
         // take, its last digit a 9, so no zero is dropped.
         _ => {
@@ -131,9 +158,15 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
 pub fn map_name(id: StyleId, attribute: bool) -> String {
     use exact_kernel::style::theme::admits;
     format!(
-        "$t{}{}{}",
+        "$t{}{}{}{}{}",
         if admits(Kind::Length, id) { "l" } else { "" },
         if admits(Kind::Number, id) { "n" } else { "" },
+        if admits(Kind::BoxShadow, id) { "b" } else { "" },
+        if admits(Kind::TextShadow, id) {
+            "t"
+        } else {
+            ""
+        },
         if attribute { "a" } else { "" }
     )
 }
@@ -167,6 +200,7 @@ pub fn map(
             let value = match props.iter().find(|(n, _)| n == name && !attribute) {
                 Some((_, prop)) => serde_json::to_string(&format!("var({prop})")).unwrap(),
                 None if kind == Kind::Number => css(kind, plan.str(r.value)),
+                // A shadow's text is a string, whatever it holds.
                 None => serde_json::to_string(&css(kind, plan.str(r.value))).unwrap(),
             };
             Some(format!("{}:{value}", serde_json::to_string(name).unwrap()))

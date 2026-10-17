@@ -1,0 +1,18 @@
+tamber shadows
+
+axes
+  dark-style = black | dim  under scheme=dark
+
+theme
+  ink = #000000
+  unwritten = 0 1px 2px #000
+  spread.text: text-shadow = 0 1px 2px 4px #000
+  inset.text: text-shadow = inset 0 1px #000
+  list.text: text-shadow = 0 1px #000, 0 2px #111
+  no.colour: box-shadow = 0 1px 2px
+  rem.inside: box-shadow = 0 1rem 2px #000
+  one.length: box-shadow = 1px #000
+  two.colours: box-shadow = 0 1px #000 #fff
+  under: box-shadow = 0 1px #000
+    when dark-style=dim: 0 2px #000
+  negative.blur: box-shadow = 0 1px -2px #000

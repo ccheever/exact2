@@ -1,0 +1,17 @@
+tamber shadows
+
+axes
+  density = regular | compact
+
+dials
+  lift: length = 2px  in 0px..8px
+
+theme
+  ink = light-dark(#000000, #ffffff)
+  shade = #00000040
+    when density=compact: #00000080
+  shadow.card: box-shadow = 0 1px 3px shade, 0 4px 12px color-mix(in srgb, ink 20%, transparent)
+  shadow.inset: box-shadow = inset 0 lift 4px -1px #000
+  shadow.none: box-shadow = none
+  shadow.label: text-shadow = 0 1px 2px -exact-label
+  shadow.current: text-shadow = 1px 1px currentcolor
