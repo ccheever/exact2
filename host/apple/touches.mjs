@@ -126,7 +126,9 @@ function lock(udid) {
   const create = () => { try { writeFileSync(path, token, { flag: 'wx' }); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; } };
   const holder = () => { try { return readFileSync(path, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } };
   const owner = (t) => { try { return JSON.parse(t).pid; } catch { return Number(t.split(':')[0]); } };
-  const live = (t) => t.startsWith('{') ? claimLive(t) : alive(owner(t)); // a lock written before the start time was recorded: its pid
+  // Live unless shown dead: a holder whose start `ps` cannot read, or a lock that does not parse, is live (claimLive);
+  // a lock written before the start time was recorded is its pid's.
+  const live = (t) => /^\d+:[0-9a-f]+$/.test(t) ? alive(owner(t)) : claimLive(t);
   for (let attempt = 0; !create(); attempt++) {
     if (attempt > 20) throw new Error(`the device's touch lock keeps changing hands (${path})`);
     const seen = holder();
@@ -179,6 +181,7 @@ function conversation(socket, tail) {
  * only once its xcodebuild is gone; one that will not exit keeps its record
  * and fails the drive, so no second runner starts beside it. */
 async function retire(udid, kept) {
+  if (!kept) return; // nothing loaded: a record on disk is another's to retire, never unlinked unread
   const running = () => kept?.pid && isRunner(kept.pid, kept.run);
   for (const signal of ['SIGTERM', 'SIGKILL']) {
     if (!running()) break;
@@ -228,8 +231,8 @@ export async function openTouches({ udid, appId }) {
         try { child.kill(signal); } catch {}
         if ((gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout')) break;
       }
+      if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock and its record ${keptPath(udid)} are kept`);
       rmSync(keptPath(udid), { force: true });
-      if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock is kept`);
     } else await retire(udid, kept);
     release();
   };

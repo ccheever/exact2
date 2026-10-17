@@ -23,8 +23,8 @@
 //   {"op":"quit"}                ends the test
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`); without
-// it, or when that SPI is missing, refuses or does not complete, the public
-// `XCUICoordinate` call makes it. A drag
+// it, or when that SPI is missing or refuses it, the public `XCUICoordinate`
+// call makes it; one it has not finished in 5 s fails, never tapped again. A drag
 // is always the public call's: a synthesized one reached the app with its
 // moves batched, faster than asked, and flung further than a finger would.
 // It never launches, activates or terminates the app: the driver launched it.
@@ -68,10 +68,13 @@ final class ExactTouches: XCTestCase {
                 guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
                 let start = Date().timeIntervalSince1970 * 1000
                 var via = "synthesizer"
-                // The public tap when the SPI is missing, refuses or never completes: a synthesized touch that did land
-                // after all makes two, which the driver's barrier refuses as ambiguous rather than passing.
-                if (req["screen"] as? [Double]).flatMap({ $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil })
-                    .flatMap(Synthesizer.tap) != true {
+                let screen = (req["screen"] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil }
+                switch screen.map(Synthesizer.tap) ?? .missing {
+                case .injected: break
+                // Only a tap that was never injected falls back to the public one; one still in flight may yet land, and
+                // a second tap would press twice (a toggle back where it was), so it fails instead.
+                case .unfinished: session.send(["error": "XCTest's event synthesizer did not finish the tap in 5 s; nothing more was injected"]); continue
+                case .missing, .refused:
                     via = "coordinate"
                     target.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p[0], dy: p[1])).tap()
                 }
@@ -132,18 +135,20 @@ enum Synthesizer {
         return (sel, unsafeBitCast(method_getImplementation(method), to: type))
     }
 
-    /// A touch down at `at`, in portrait screen points, lifted 50 ms later.
-    /// True once injected; false when refused or not completed in 2 s; nil
-    /// when this Xcode has no such SPI.
-    static func tap(_ at: CGPoint) -> Bool? {
+    enum Outcome { case injected, refused, unfinished, missing }
+
+    /// A touch down at `at`, in portrait screen points, lifted 50 ms later:
+    /// `injected` or `refused` by the completion, `unfinished` when none came
+    /// in 5 s (it may still land), `missing` when this Xcode has no such SPI.
+    static func tap(_ at: CGPoint) -> Outcome {
         let pathClass: AnyClass? = NSClassFromString("XCPointerEventPath"), recordClass: AnyClass? = NSClassFromString("XCSynthesizedEventRecord")
         guard let alloc = imp(pathClass, "alloc", Alloc.self, classMethod: true), let recordAlloc = imp(recordClass, "alloc", Alloc.self, classMethod: true),
               let initPath = imp(pathClass, "initForTouchAtPoint:offset:", InitPath.self),
               let up = imp(pathClass, "liftUpAtOffset:", Lift.self), let initRecord = imp(recordClass, "initWithName:interfaceOrientation:", InitRecord.self),
               let add = imp(recordClass, "addPointerEventPath:", Add.self), let synthesizer = imp(XCUIDevice.self, "eventSynthesizer", Get.self),
-              let device = synthesizer.1(XCUIDevice.shared, synthesizer.0) else { return nil }
+              let device = synthesizer.1(XCUIDevice.shared, synthesizer.0) else { return .missing }
         let syn = NSSelectorFromString("synthesizeEvent:completion:")
-        guard let method = class_getInstanceMethod(object_getClass(device), syn) else { return nil }
+        guard let method = class_getInstanceMethod(object_getClass(device), syn) else { return .missing }
         let path = initPath.1(alloc.1(pathClass!, alloc.0), initPath.0, at, 0)
         up.1(path, up.0, 0.05)
         let record = initRecord.1(recordAlloc.1(recordClass!, recordAlloc.0), initRecord.0, "exact" as NSString, UIInterfaceOrientation.portrait.rawValue)
@@ -151,9 +156,9 @@ enum Synthesizer {
         var result: Bool?
         unsafeBitCast(method_getImplementation(method), to: Synthesize.self)(device, syn, record) { ok, _ in DispatchQueue.main.async { result = ok } }
         // The completion comes once the tap has been played (0.3 s when it works).
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(5)
         while result == nil, Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
-        return result ?? false
+        return result.map { $0 ? .injected : .refused } ?? .unfinished
     }
 }
 
