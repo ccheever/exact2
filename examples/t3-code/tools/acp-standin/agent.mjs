@@ -7,7 +7,8 @@
 // once with one `agent_message_chunk` update, "Stand-in reply: <the first line of the user's words>", a
 // `usage_update` (so the thread has a context meter), and the stop reason `end_turn`, so a fixture
 // thread can hold a completed turn. Two first lines do more, in the session's directory:
-//   "Edit the notes"                edits README.md and writes notes/plan.md before the turn ends, so
+//   "Edit the notes"                edits README.md and writes notes/plan.md and notes/outline.ts (code,
+//                                   for a file preview with a gutter) before the turn ends, so
 //                                   the turn's checkpoint (a Git snapshot) has a diff; one `edit` tool call
 //   "Ask before editing the notes"  asks first (`session/request_permission`, an `edit` tool call), so a
 //                                   thread in the runtime mode "approval-required" waits on an approval;
@@ -53,12 +54,13 @@ if (process.argv.includes("--fixture-login")) {
   const asked = new Map(); // id of a request to the client → its reply's resolver
   const request = (method, params) => new Promise((resolve) => { const id = `standin-${asked.size + 1}-${Date.now()}`; asked.set(id, resolve); send({ id, method, params }); });
   const editNotes = (cwd) => {
-    const readme = join(cwd, "README.md"), plan = join(cwd, "notes/plan.md");
+    const readme = join(cwd, "README.md"), plan = join(cwd, "notes/plan.md"), outline = join(cwd, "notes/outline.ts");
     const before = existsSync(readme) ? readFileSync(readme, "utf8") : "";
     writeFileSync(readme, `${before.replace("A fixture repository.", "A fixture repository, edited by the ACP stand-in.")}\n## Notes\n\n- Keep the plan in notes/plan.md.\n- Review it before each release.\n`);
     mkdirSync(join(cwd, "notes"), { recursive: true });
     writeFileSync(plan, "# Plan\n\n1. Write the outline.\n2. Fill in each section.\n3. Read it once more.\n\nOpen questions:\n\n- Who reviews the draft?\n");
-    return [readme, plan];
+    writeFileSync(outline, "export const sections = [\n  \"Introduction\",\n  \"Method\",\n  \"Results\",\n];\n\nexport function title(index: number): string {\n  return sections[index] ?? \"Appendix\";\n}\n");
+    return [readme, plan, outline];
   };
   const handlers = {
     initialize: () => ({
@@ -109,7 +111,7 @@ if (process.argv.includes("--fixture-login")) {
         text = allowed ? "Stand-in reply: wrote notes/approved.md" : "Stand-in reply: left the notes as they were";
       } else if (cwd && /^edit the notes/i.test(first)) {
         const paths = editNotes(cwd);
-        update(sessionId, { sessionUpdate: "tool_call", toolCallId: `edit-${Date.now()}`, title: "Edit README.md and notes/plan.md", kind: "edit", status: "completed", locations: paths.map((path) => ({ path })) });
+        update(sessionId, { sessionUpdate: "tool_call", toolCallId: `edit-${Date.now()}`, title: "Edit README.md and write the notes", kind: "edit", status: "completed", locations: paths.map((path) => ({ path })) });
       }
       update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
       update(sessionId, { sessionUpdate: "usage_update", used: 12480, size: 200000 });

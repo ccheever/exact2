@@ -9,9 +9,9 @@ anywhere; its only state is `state.json` beside it.
 A turn (`session/prompt`) is answered at once: one `agent_message_chunk` update, "Stand-in
 reply: " and the first line of the user's words, a `usage_update` (12,480 of 200,000 tokens, so
 the thread has a context meter), then the stop reason `end_turn`. Two first lines do more, in
-the session's directory: "Edit the notes" edits `README.md` and writes `notes/plan.md` before the
-turn ends, so the turn's checkpoint (a Git snapshot the server takes) has a diff; "Ask before
-editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
+the session's directory: "Edit the notes" edits `README.md` and writes `notes/plan.md` and
+`notes/outline.ts` before the turn ends, so the turn's checkpoint (a Git snapshot the server
+takes) has a diff; "Ask before editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
 server turns into an approval on a thread in the runtime mode "approval-required" (in
 "full-access" it allows it itself), and writes `notes/approved.md` only if allowed. Each new or
 loaded session advertises one skill, `$frontend-design` (`available_commands_update`, which T3

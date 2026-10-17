@@ -96,6 +96,7 @@ describe("the agent", () => {
     await talk(executable, [{ method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } }, { method: "session/prompt", params: { sessionId, prompt: first("Edit the notes") } }], notes);
     expect(readFileSync(join(repo, "README.md"), "utf8")).toContain("edited by the ACP stand-in");
     expect(readFileSync(join(repo, "notes/plan.md"), "utf8")).toStartWith("# Plan");
+    expect(readFileSync(join(repo, "notes/outline.ts"), "utf8")).toContain("export function title");
     expect(notes.find((note) => note.params.update.sessionUpdate === "tool_call")!.params.update).toMatchObject({ kind: "edit", status: "completed" });
 
     // The permission request goes to the client; the turn ends with its answer.

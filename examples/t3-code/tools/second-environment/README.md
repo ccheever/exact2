@@ -49,10 +49,11 @@ composer's `$` menu offers the stand-in's skill, Frontend Design:
 
 - "Background thread (completed turn)" in `background-only`: one completed turn, visited at its
   completion, so it starts read.
-- "Turn with file edits" in `agent-edits`: the turn edits `README.md` and writes `notes/plan.md`,
-  so the diff panel's Turn submenu has "Turn 1" and the turn's diff has both files (collapsed: a
-  drive presses `diff-toggle-README.md` before its rows exist). The edits stay in the working tree,
-  so `agent-edits`' Uncommitted scope shows them too.
+- "Turn with file edits" in `agent-edits`: the turn edits `README.md` and writes `notes/plan.md`
+  and `notes/outline.ts`, so the diff panel's Turn submenu has "Turn 1" and the turn's diff has
+  the three files (collapsed: a drive presses `diff-toggle-README.md` before its rows exist), and
+  the Files preview of `notes/outline.ts` has a gutter. The edits stay in the working tree, so
+  `agent-edits`' Uncommitted scope shows them too.
 - "Edit awaiting approval" in `agent-edits`, in the runtime mode "approval-required": the turn
   waits on the stand-in's permission request (Allow once, Always allow, Reject; what the card
   does not show as buttons is in its `approval-more-<id>` menu). The request lives in the
