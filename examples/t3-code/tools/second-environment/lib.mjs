@@ -237,7 +237,9 @@ export function pairingUrl(paths, name, label) {
 export const SEEDS = {
   second: [
     { repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: ["Shared notes on second"] },
+    // Its action (a project script) gives project settings an action to edit and delete.
     { repo: "background-only", origin: "https://github.com/t3-fixture/background-only.git", threads: ["Background thread (no run)", "Background follow-up"],
+      scripts: [{ id: "echo-test", name: "Echo test", command: "echo test", icon: "test", runOnWorktreeCreate: false }],
       turns: [{ title: "Background thread (completed turn)", prompt: "Say hello from the stand-in" }] },
     // A project with no thread: the legacy sidebar's Remove project needs one.
     { repo: "empty-project", origin: "https://github.com/t3-fixture/empty-project.git", threads: [] },
@@ -368,7 +370,7 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? [], { turns = fal
       await conn.request("server.refreshProviders", { instanceId: STANDIN_INSTANCE }).catch(() => {});
     for (const entry of seeds) {
       const workspaceRoot = seedRepository(paths, name, entry);
-      const projectId = await ensureProject(conn, workspaceRoot, { title: entry.repo });
+      const projectId = await ensureProject(conn, workspaceRoot, { title: entry.repo, ...(entry.scripts ? { scripts: entry.scripts } : {}) });
       const shell = await shellSnapshot(conn);
       const live = (shell.threads ?? []).filter((t) => t.projectId === projectId && !t.archivedAt && !t.deletedAt);
       const have = new Set(live.map((t) => t.title));

@@ -40,8 +40,9 @@ bun env.mjs stop all
 
 The seed: `shared-notes` in both environments (one Git origin, so the clone groups it as one
 logical project) with a thread each, and in `second` only `background-only` with "Background
-thread (no run)" and "Background follow-up", and `empty-project` with no thread (the legacy
-sidebar's Remove project). Threads are created with `thread.create` and never get a turn.
+thread (no run)" and "Background follow-up" and the action "Echo test" (its project settings'
+action to edit and delete), and `empty-project` with no thread (the legacy sidebar's Remove
+project). Threads are created with `thread.create` and never get a turn.
 
 `seed second --turns` makes the ACP stand-in (`../acp-standin/`) a provider of that server and
 adds threads with a turn on it, each with a context meter (the stand-in reports its usage); their
