@@ -160,7 +160,13 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
     let stripped;
     let colours = if design.tokens.iter().any(icon::misplaced) {
         let mut d = design.clone();
-        d.tokens.retain(|t| !icon::misplaced(t));
+        // Kept as a colour no one sees, so a value naming it is not
+        // refused a second time.
+        for t in d.tokens.iter_mut().filter(|t| icon::misplaced(t)) {
+            t.kind = None;
+            t.value.value = "transparent".into();
+            t.whens.clear();
+        }
         stripped = d;
         &stripped
     } else {

@@ -182,6 +182,7 @@ fn ambiguous(d: &Design) -> Option<String> {
     twice(d.axes.iter().map(|x| &x.name.value).collect(), "axis")
         .or_else(|| twice(d.dials.iter().map(|x| &x.name.value).collect(), "dial"))
         .or_else(|| twice(d.tokens.iter().map(|x| &x.name.value).collect(), "token"))
+        .or_else(|| twice(d.icons.iter().map(|x| &x.name.value).collect(), "icon"))
         .or_else(|| {
             d.tokens.iter().find_map(|t| {
                 t.whens
@@ -586,6 +587,8 @@ mod tests {
         assert_eq!(all.len(), 1, "{all:?}");
         assert_eq!(all[0].what, What::Other);
         assert_eq!(all[0].name, "icon icon.reply");
+        let twice = v1.replace("icons\n", "icons\n  icon.reply = icon(sf \"b\")\n");
+        assert!(edits(Some(&d(&twice)), Some(&d(&v2))).is_err());
     }
 
     #[test]

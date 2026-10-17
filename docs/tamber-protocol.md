@@ -184,7 +184,8 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
     written, null where unwritten (D10).
 
-  The IR has no `when` lines. A token's source lines come from `explain`.
+  The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
+  `describe` and `resolve` only.
 - `files`;
 - `meta`: `{dials: {name: [[key, value], …]}, tokens: {…}}`, the `key=value` metadata words as
   written (`control`, `step`, `label`, `help`, `options`, `group`, `priority`, `pair`, …). It is
