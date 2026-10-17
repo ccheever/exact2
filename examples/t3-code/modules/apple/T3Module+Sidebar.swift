@@ -1,13 +1,13 @@
-// T3Module's sidebar ops (T3Module.swift routes them): the sidebar's native
-// menus and reads, and the thread notifications, sound and Dock badge.
+// T3Module's sidebar ops (T3Module.swift routes them): the legacy sidebar's
+// members menu and the sidebar's reads, and the thread notifications, sound and Dock badge.
 import Foundation
 import AppKit
 
 extension T3Module {
-    /// The thread menu, the speed-mode read and jump hints (T3Sidebar.swift); thread notifications (T3Notifications.swift).
+    /// The members menu, the speed-mode read and jump hints (T3Sidebar.swift); thread notifications (T3Notifications.swift).
     func sidebarOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         if let op = request["op"] as? String, op.hasPrefix("sidebar") {
-            // The thread menu pops up outside a main-queue block (T3MenuTurn, T3ContextMenu.swift).
+            // The members menu pops up outside a main-queue block (T3MenuTurn, T3ContextMenu.swift).
             let work = { [weak self] in self?.sidebar.perform(request) { reply.send($0) }; return () }
             if op == "sidebarMenu" { T3MenuTurn.run(work) } else { DispatchQueue.main.async(execute: work) }
             return

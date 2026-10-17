@@ -31,7 +31,7 @@ final class T3Module: ExactModule {
     let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
     let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
-    let sidebar: T3Sidebar // Thread menu, held-key hints and speed mode (T3Sidebar.swift).
+    let sidebar: T3Sidebar // The legacy members menu, held-key hints and speed mode (T3Sidebar.swift).
     let measure = T3Measure() // Drawn frames for window-level popups (T3Measure.swift).
     private let composerInput: T3ComposerInput // Composer focus and composing text, the transcript's remembered position (T3ComposerInput.swift).
     let browserSessions: T3BrowserSessions // This session's Browser pages (T3BrowserSessions.swift)

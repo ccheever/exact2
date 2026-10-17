@@ -1,10 +1,11 @@
 import AppKit
 import XCTest
 
-// The sidebar's native pieces (T3Sidebar.swift) with real AppKit: the thread
-// action menu built from the client's ElectronMenu-shaped template, the
-// selection a menu item reports, the exact-⌘ jump-hint predicate and its
-// 200 ms delay, and the module requests the client makes.
+// The sidebar's native pieces (T3Sidebar.swift) with real AppKit: a menu built
+// from the client's ElectronMenu-shaped template (the legacy members menu's builder,
+// shown here with the richest template, a thread menu's), the selection a menu item
+// reports, the exact-⌘ jump-hint predicate and its 200 ms delay, and the module
+// requests the client makes.
 final class T3SidebarTests: XCTestCase {
     let template: [[String: Any]] = [
         ["type": "item", "id": "pin", "label": "Pin thread", "enabled": true, "destructive": false],

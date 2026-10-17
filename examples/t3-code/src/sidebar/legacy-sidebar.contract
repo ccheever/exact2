@@ -24,6 +24,7 @@ use SidebarProjectGlyph from "./sidebar-icons-kit.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
 use HoverTip, hoverTipAtFrame from "../shell/hover-layer.contract"
 use SidebarTip from "./sidebar-row.contract"
+use SidebarMenuCard, SidebarMenuItem from "./sidebar-row.contract"
 use TerminalGlyph from "./sidebar-row.contract"
 use ProviderPill from "./sidebar-control-tips.contract"
 use SettingsConfirm from "../settings/settings-rest-dialogs.contract"
@@ -97,8 +98,18 @@ component LegacySidebar
   // Manual order: a project dropped before another (or at the end) keeps that place across launches.
   action dropped(item: string, before: option<string>)
     local("legacy-reorder", item, match before { case some(b) => b, case none => "" })
+  // The row or header a right press named, for the sidebar's one thread and one project context popover
+  // (LegacyThreadMenu, LegacyProjectMenu): the node's `contextmenu` runs before the host reads the popover.
+  state menuThread = ""
+  state menuProject = ""
+  action threadMenu(id: string)
+    menuThread = id
+  action projectMenu(key: string)
+    menuProject = key
   view
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar" id="legacy-sidebar" data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
+      LegacyThreadMenu(projects=legacy.projects, owner=menuThread, run=run)
+      LegacyProjectMenu(projects=legacy.projects, owner=menuProject, run=run)
       // SidebarChromeHeader: the titlebar row with the stage artwork or the version pill.
       if data.look.artwork
         NightlyBackdrop()
@@ -131,7 +142,7 @@ component LegacySidebar
       // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
       list appearance="none" id="legacy-projects" reorderdrop=dropped virtualized=true estimated-item-height=120 flex=1 min-height=0 width="100%" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" overflow-x="hidden" aria-label="Projects" testId="legacy-project-list"
         for p in legacy.projects key=p.key
-          LegacyProject(reduced=reduced, p=p, legacy=legacy, now=now, page=page, busy=busy, open=open, local=local, run=run)
+          LegacyProject(reduced=reduced, p=p, legacy=legacy, now=now, page=page, busy=busy, open=open, local=local, run=run, menu=projectMenu, threadMenu=threadMenu)
       if legacy.noProjects
         text "No projects yet" padding-left="0.5rem" padding-right="0.5rem" padding-top="1rem" font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717b, #818181)" testId="legacy-no-projects" flex-shrink=0
       // SidebarChromeFooter: the undo notice, the provider pill and the utility menu.
@@ -279,6 +290,9 @@ component LegacyProject
     open: action
     local: action
     run: action
+    // The header's and each row's context popover owner (LegacySidebar).
+    menu: action
+    threadMenu: action
   state over = false
   // group-focus-within/project-header: the focus on the header or its New thread shows New thread and hides the badge.
   state inside = false
@@ -301,7 +315,7 @@ component LegacyProject
     // Chromium focuses the reference's header on a right press (LegacySidebar.tsx:2373-2381). Writing it is the
     // author's choice, and LLP 1115.000 D7 keeps a focus an action set over D7.1's default.
     focus(`legacy-project-toggle-${p.key}`)
-    run("legacy-project-menu", p.key, "")
+    menu(p.key)
   derive pointed = over or inner
   derive revealed = pointed or inside
   view
@@ -312,7 +326,7 @@ component LegacyProject
         if legacy.manual
           box reorderFor="legacy-projects" touch-action="none" aria-label=`Drag ${p.name} to reorder` testId=`legacy-project-grip-${p.key}` width="0.875rem" height="2rem" margin-left="-0.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 cursor="grab"
             LegacyIcon(name="grip-vertical", size=12, color=(pointed ? "light-dark(#71717b, #818181)" : "light-dark(#71717b4d, #8181814d)"))
-        button cursor="pointer" press=local("legacy-toggle", p.key, "") contextmenu=openMenu focus=within(true) blur=within(false) aria-expanded=p.expanded aria-label=p.name testId=`legacy-project-toggle-${p.key}` flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color=(pointed ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" id=`legacy-project-toggle-${p.key}`
+        button cursor="pointer" press=local("legacy-toggle", p.key, "") contextmenu=openMenu contextPopover="legacy-project-menu" focus=within(true) blur=within(false) aria-expanded=p.expanded aria-label=p.name testId=`legacy-project-toggle-${p.key}` flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color=(pointed ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" id=`legacy-project-toggle-${p.key}`
           LegacyRowTip(label=p.statusLabel, side="top", align="start", tipId=`legacy-tip-status-${p.key}`, shown=(not p.expanded and p.statusLabel != ""), relay=innerHover)
             if not p.expanded and p.statusLabel != ""
               box width="0.875rem" height="0.875rem" margin-left="-0.125rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 role="img" aria-label=p.statusLabel testId=`legacy-project-status-${p.key}`
@@ -343,7 +357,7 @@ component LegacyProject
             row height="2rem" padding-left="0.5rem" padding-right="0.5rem" align-items="center" testId=`legacy-empty-${p.key}`
               text "No threads yet" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bbf, #818181bf)"
           for t in p.threads key=t.dropKey // the scoped thread: kept while an open moves the window to its environment
-            LegacyThread(reduced=reduced, t=t, legacy=legacy, page=page, busy=busy, open=open, local=local, run=run)
+            LegacyThread(reduced=reduced, t=t, legacy=legacy, page=page, busy=busy, open=open, local=local, run=run, menu=threadMenu)
           if p.showMore
             button cursor="pointer" press=local("legacy-more", p.key, "") testId=`legacy-show-more-${p.key}` height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
               if p.hiddenLabel != ""
@@ -372,6 +386,8 @@ component LegacyThread
     open: action
     local: action
     run: action
+    // The sidebar's thread context popover owner (LegacySidebar `threadMenu`).
+    menu: action
   state over = false
   state confirming = false
   // The pointer on one of the row's own tooltip triggers (title, pull request, port, worktree, terminal, Archive): the host
@@ -440,20 +456,16 @@ component LegacyThread
   action confirmArchive
     confirming = false
     run("legacy-archive", t.id, "")
-  // As Archive's press: the row's menu can archive or delete it, so its tooltip (the title's) goes first.
+  // As Archive's press: the row's menu can archive or delete it, so its tooltip (the title's) goes first. The row's
+  // ContextMenu key reaches this through the host's default (exact2 #314), which opens the menu at the row's centre, as
+  // Chromium's keyboard contextmenu does; a right press outside the selection clears it (legacy-sidebar-commands `thread-menu`).
   action openMenu
     hoverTipAt(legacyTipOff(), "trigger", false)
     // Chromium focuses the reference's row on a right press (LegacySidebar.tsx:715-717). Writing it is the author's
     // choice, and LLP 1115.000 D7 keeps a focus an action set over D7.1's default.
     focus(`thread-${t.id}`)
+    menu(t.id)
     run("legacy-thread-menu", t.id, "")
-  // The row's own ContextMenu menu at its centre (legacy-sidebar-commands `row-key`); prevented, so the
-  // host's default (exact2 #314) does not also run `contextmenu`, whose menu opens at the pointer.
-  action rowKey(name: string)
-    if name == "ContextMenu"
-      preventDefault()
-    if name != "Enter" and name != " "
-      run("legacy-row-key", t.id, name)
   derive isOpen = t.active and page == ""
   derive highlighted = isOpen or t.selected
   derive pointed = over or inner
@@ -467,7 +479,7 @@ component LegacyThread
         row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color=surface
           LegacyRenameField(t=t, local=local, run=run, within=within)
       else
-        button cursor="pointer" press=openPress dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.dropKey data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
+        button cursor="pointer" press=openPress dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu contextPopover="legacy-thread-menu" focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.dropKey data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
           row flex=1 min-width=0 gap="0.375rem" align-items="center"
             // handlePrClick: the pull request beside the thread, on the Pull Requests page, or as a link (legacy-sidebar-links.ts).
             LegacyRowTip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", tipId=`legacy-tip-pr-${t.id}`, shown=(t.prIcon != ""), relay=innerHover)
@@ -524,6 +536,67 @@ component LegacyThread
 // the host hovers only the nearest node with a hover handler). With `shown` false its box draws nothing (display none;
 // the trigger's own `when` is inside) but stays, so a pointer resting on it as its trigger goes hears the leave when the
 // host's hit-test after the layout moves the hover: a destroyed node's is dropped (Presenter `send`).
+// handleRowContextMenu, handleThreadContextMenu and handleMultiSelectContextMenu (LegacySidebar.tsx:544-592, 2241-2352,
+// 1895-1999) as the legacy rows' one
+// context popover, as the flat sidebar's ThreadMenu (sidebar-row.contract): macOS presents it as an NSMenu at the
+// pointer with the 12pt trash glyph on Delete, as ElectronMenu.ts shows the reference's; the web and the agent paint
+// it at the row. A selected row's rows are the multi-selection menu (legacy-sidebar-view.ts `menu`).
+component LegacyThreadMenu
+  props
+    projects: LegacyProjectRow[]
+    owner: string
+    run: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="legacy-thread-menu" popover="auto" position-try-fallbacks="none" role="menu" class=SidebarMenuCard testId="legacy-thread-menu"
+        for p in projects key=p.key
+          for t in p.threads key=t.id
+            if t.id == owner
+              for e in t.menu key=e.id
+                if e.separated
+                  hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+                button press=run("legacy-thread-choice", owner, e.id) popovertarget="legacy-thread-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`legacy-thread-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  if e.destructive
+                    image "symbol:sf/trash" width=12 height=12 object-fit="contain"
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+
+// handleProjectButtonContextMenu (LegacySidebar.tsx:1683-1788) as the project headers' one context popover: Rename,
+// Group into…, Copy Path, Project settings, Remove; with several members each targeted row is a submenu of the members
+// (LLP 1021 §5.2), its destructive rows with the trash glyph.
+component LegacyProjectMenu
+  props
+    projects: LegacyProjectRow[]
+    owner: string
+    run: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="legacy-project-menu" popover="auto" position-try-fallbacks="none" role="menu" class=SidebarMenuCard testId="legacy-project-menu"
+        for p in projects key=p.key
+          if p.key == owner
+            for e in p.menu.filter((e) => e.parent == "") key=e.id
+              if e.separated
+                hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+              if e.sub
+                button popovertarget=`legacy-project-menu-sub-${e.id}` aria-haspopup="menu" role="menuitem" disabled=e.disabled testId=`legacy-project-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+                  text "›" aria-hidden=true font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+              else
+                button press=run("legacy-project-choice", owner, e.id) popovertarget="legacy-project-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`legacy-project-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  if e.destructive
+                    image "symbol:sf/trash" width=12 height=12 object-fit="contain"
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      for p in projects key=p.key
+        if p.key == owner
+          for s in p.menu.filter((e) => e.sub) key=s.id
+            column id=`legacy-project-menu-sub-${s.id}` popover="auto" position-try-fallbacks="flip-inline" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`legacy-project-menu-sub-${s.id}`
+              for e in p.menu.filter((c) => c.parent == s.id) key=e.id
+                if e.separated
+                  hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+                button press=run("legacy-project-choice", owner, e.id) popovertarget="legacy-project-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`legacy-project-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+                  if e.destructive
+                    image "symbol:sf/trash" width=12 height=12 object-fit="contain"
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+
 component LegacyRowTip
   inject
     rem: number
