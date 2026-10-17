@@ -1805,6 +1805,11 @@ A new Mac window puts the caret in its first stop, as AppKit does: with Keyboard
 navigation off the first text field, and with no stop nothing. An `autofocus` you wrote
 elsewhere wins, and a window whose first stop is in a `canvas` that takes input opens
 with nothing focused. The web and iOS focus nothing on load unless `autofocus` says so.
+An `autofocus` mounted later takes the focus only when nothing holds it, as in Chrome: a
+`tabindex` button a tap focused keeps it when a timer remounts an `autofocus` element.
+The tap's own work is the exception on the web and iOS: a field it shows, or the
+`autofocus` field of a sheet, dialog or popover it opens, takes the focus from the control
+tapped ([LLP 1035.000](../llp/1035.000-dependable-host-semantics.rfc.md) D9).
 
 `aria-disabled=true` (or `aria-disabled="true"`) reports an unavailable control
 to accessibility while keeping its focus and Tab behavior. It accepts a bound
