@@ -676,7 +676,7 @@
     },
     {
       "name": "theme",
-      "_comment": "@ref LLP 1095 D4: the app's `theme`, one row an entry: its name, the role it overrides as a row writes it (`-exact-secondary-label`, `Canvas`; empty for none), and the colour text it stands for, which names no entry. A colour string naming an entry or an overridden role reads that text, in the compiler and when the runner sets a row.",
+      "_comment": "@ref LLP 1095 D4: the app's `theme`, one row an entry: its name, the role it overrides as a row writes it (`-exact-secondary-label`, `Canvas`; empty for none), the text it stands for, which names no entry, and its kind. A string row naming an entry of its kind or an overridden role reads that text, in the compiler and when the runner sets a row.",
       "fields": [
         {
           "name": "name",
@@ -691,6 +691,11 @@
           "codec": "str"
         },
         {
+          "name": "kind",
+          "codec": "u8",
+          "_comment": "@ref LLP 1121 D3, D7: the token's kind, which rows may name it: 0 a colour, 1 a length (px text, one `rem` or `em`, or a named length), 2 a number. A string row reads an entry of its row's kind; `value` and the slices are its text in that kind."
+        },
+        {
           "name": "slices",
           "codec": "range:theme_slices",
           "_comment": "@ref LLP 1121 D5, D7: a token that varies by an app axis has one slice per full app tuple, in tuple order (mixed radix over `axes`, the first axis most significant); `value` is the default tuple's. Empty for a token that does not vary."
@@ -699,7 +704,7 @@
     },
     {
       "name": "theme_slices",
-      "_comment": "@ref LLP 1121 D5: one token's colour text for one full app tuple; a `theme` row's `slices` range names its own.",
+      "_comment": "@ref LLP 1121 D5: one token's text for one full app tuple; a `theme` row's `slices` range names its own.",
       "fields": [
         {
           "name": "value",

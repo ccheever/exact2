@@ -1,0 +1,32 @@
+tamber measures
+
+axes
+  dark-style = black | dim  under scheme=dark
+
+dials
+  lift: number = 0.5  in 0..1
+
+theme
+  ink = #000000
+  bare: length = 12
+  percent: length = 50%
+  rem.in.calc = calc(1rem + 2px)
+  two.lengths: length = 1px 2px
+  angle: length = 10deg
+  colour.as.length: length = ink
+  number.as.length: length = lift
+  opacity.percent: number = 50%
+  number.px: number = 12px
+  length.as.number: number = space.ok
+  space.ok = 4px
+  mixed = calc(1px + 2)
+  squared = calc(2px * 3px)
+  under.length = 4px
+    when dark-style=dim: 6px
+  fixed.length = 4px  scheme=fixed
+  paired.length = 4px  pair=ink
+  label: length = 4px
+  rem.token = 1rem
+  rem.through = calc(rem.token * 2)
+  ink.on: color = space.ok
+  unknown.length: length = nowhere

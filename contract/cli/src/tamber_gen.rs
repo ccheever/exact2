@@ -102,10 +102,17 @@ fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
         .iter()
         .zip(&folding.design.tokens)
         .filter(|(t, _)| exported(t))
-        .map(|(t, declared)| Token {
+        .map(|(t, _)| Token {
             name: t.name.clone(),
-            kind: declared.kind.clone().unwrap_or_else(|| "color".into()),
-            css: t.values.iter().map(|v| standalone(v, &vocab)).collect(),
+            kind: t.kind.name().into(),
+            css: t
+                .values
+                .iter()
+                .map(|v| match v.color() {
+                    Some(c) => standalone(c, &vocab),
+                    None => v.css(),
+                })
+                .collect(),
         })
         .collect()
 }

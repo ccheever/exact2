@@ -21,5 +21,20 @@ pub fn vocab() -> Vocab {
             ],
         });
     }
-    Vocab { roles }
+    let named_lengths = Vocab::named_lengths(
+        schema["textStyles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| (r[0].as_str().unwrap(), r[1].as_str().unwrap())),
+        schema["lengths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l.as_str().unwrap()),
+    );
+    Vocab {
+        roles,
+        named_lengths,
+    }
 }

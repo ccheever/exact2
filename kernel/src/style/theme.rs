@@ -12,12 +12,49 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 /// A plan's theme as a parse reads it: each entry's name (a role's spelling
-/// for an override) and the colour text it stands for, which names no entry.
-/// Built once per plan; binding one is a pointer swap.
-/// A role's spelling (`true`) matches as roles do, without case; a name
-/// exactly. A role drawn in the view's tint is never in it: it stays the
-/// role in its row, and a host makes the theme's colour the app's tint.
-pub type Table = Arc<[(Box<str>, Box<str>, bool)]>;
+/// for an override), the text it stands for, which names no entry, and its
+/// kind. Built once per plan; binding one is a pointer swap.
+/// A role's spelling matches as roles do, without case; a name exactly. A
+/// role drawn in the view's tint is never in it: it stays the role in its
+/// row, and a host makes the theme's colour the app's tint.
+pub type Table = Arc<[Entry]>;
+
+/// One entry of a [`Table`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry {
+    /// Its name, or a role's spelling for an override.
+    pub name: Box<str>,
+    /// The text it stands for, in its kind.
+    pub value: Box<str>,
+    /// A role's spelling, matched without case.
+    pub role: bool,
+    /// Which rows read it (LLP 1121 D3).
+    pub kind: Kind,
+}
+
+/// A token's kind (LLP 1121 D3), as the plan's `theme.kind` numbers it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A colour: read wherever a colour is parsed.
+    Color,
+    /// A length: px text, one `rem` or `em`, or a named length.
+    Length,
+    /// A number.
+    Number,
+}
+
+impl Kind {
+    /// The kind the plan's `theme.kind` numbers; `None` for one this build
+    /// does not know.
+    pub fn of(code: u8) -> Option<Kind> {
+        match code {
+            0 => Some(Kind::Color),
+            1 => Some(Kind::Length),
+            2 => Some(Kind::Number),
+            _ => None,
+        }
+    }
+}
 
 thread_local! {
     static ENTRIES: RefCell<Option<Table>> = const { RefCell::new(None) };
@@ -68,11 +105,21 @@ pub struct ThemeScope {
     thread: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 
-/// A table from `(name, colour text, a role's spelling)`.
+/// A table of colours from `(name, colour text, a role's spelling)`.
 pub fn table<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool)>) -> Table {
+    kinded(entries.into_iter().map(|(n, v, r)| (n, v, r, Kind::Color)))
+}
+
+/// A table from `(name, text, a role's spelling, kind)`.
+pub fn kinded<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool, Kind)>) -> Table {
     entries
         .into_iter()
-        .map(|(n, v, r)| (n.into(), v.into(), r))
+        .map(|(n, v, r, kind)| Entry {
+            name: n.into(),
+            value: v.into(),
+            role: r,
+            kind,
+        })
         .collect()
 }
 
@@ -82,7 +129,7 @@ pub fn names(text: &str) -> bool {
     ENTRIES.with(|e| {
         e.borrow().as_ref().is_some_and(|t| {
             t.iter()
-                .any(|(name, _, role)| **name == *text || *role && name.eq_ignore_ascii_case(text))
+                .any(|e| *e.name == *text || e.role && e.name.eq_ignore_ascii_case(text))
         })
     })
 }
@@ -113,6 +160,65 @@ impl Drop for ThemeScope {
     }
 }
 
+/// Record that a parse read entry `name` ([`take_named`], [`recorded`]).
+fn note(name: &str) {
+    NAMED.with(|n| n.set(n.get() | name_bit(name)));
+    RECORD.with(|r| {
+        if let Some(names) = r.borrow_mut().as_mut() {
+            if !names.iter().any(|n| **n == *name) {
+                names.push(name.into());
+            }
+        }
+    });
+}
+
+/// The text entry `text` stands for in the bound theme, of any kind, its
+/// read not recorded: what a diagnostic quotes.
+pub fn declared(text: &str) -> Option<Box<str>> {
+    ENTRIES.with(|e| {
+        e.borrow()
+            .as_ref()?
+            .iter()
+            .find(|e| *e.name == *text.trim())
+            .map(|e| e.value.clone())
+    })
+}
+
+/// The text a length or number entry `text` names in the bound theme, and
+/// its kind (LLP 1121 D3, D7): a row's whole value naming one, exactly; the
+/// read recorded as a colour's is. `None` when it names none.
+pub fn measure(text: &str) -> Option<(Kind, Box<str>)> {
+    let text = text.trim();
+    if text.is_empty() || text.contains([' ', '(', '#']) {
+        return None;
+    }
+    let (kind, name, value) = ENTRIES.with(|e| {
+        let e = e.borrow();
+        let e = e
+            .as_ref()?
+            .iter()
+            .find(|e| e.kind != Kind::Color && *e.name == *text)?;
+        Some((e.kind, e.name.clone(), e.value.clone()))
+    })?;
+    note(&name);
+    Some((kind, value))
+}
+
+/// A row's value with a length or number token it names replaced by the
+/// token's (LLP 1121 D7): a length's text, which the row's codec and the
+/// relative side table read as the literal's; a number's number. `None`
+/// when it names no such token, and the value stands.
+pub fn measured(value: &super::StyleValue) -> Option<super::StyleValue<'static>> {
+    let super::StyleValue::Text(text) = value else {
+        return None;
+    };
+    let (kind, value) = measure(text)?;
+    Some(match kind {
+        Kind::Number => super::StyleValue::Number(exact_num::parse_f64(value.trim()).ok()?),
+        _ => super::StyleValue::Text(String::from(value).into()),
+    })
+}
+
 /// `parse` of the colour text a theme name stands for, in the bound theme;
 /// `None` when `text` names no entry. A role's spelling matches as roles do,
 /// without case. The entry's own text is parsed with the theme unbound, so a
@@ -129,17 +235,11 @@ pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T
         return None;
     }
     let table = ENTRIES.with(|e| e.borrow().clone())?;
-    let (name, value, _) = table.iter().find(|(name, _, role)| {
-        **name == *text || !synthetic && *role && name.eq_ignore_ascii_case(text)
+    let Entry { name, value, .. } = table.iter().find(|e| {
+        e.kind == Kind::Color
+            && (*e.name == *text || !synthetic && e.role && e.name.eq_ignore_ascii_case(text))
     })?;
-    NAMED.with(|n| n.set(n.get() | name_bit(name)));
-    RECORD.with(|r| {
-        if let Some(names) = r.borrow_mut().as_mut() {
-            if !names.contains(name) {
-                names.push(name.clone());
-            }
-        }
-    });
+    note(name);
     INSIDE.with(|i| i.set(true));
     struct Out;
     impl Drop for Out {

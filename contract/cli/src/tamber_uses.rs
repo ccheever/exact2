@@ -320,6 +320,12 @@ pub fn sites(
             break;
         }
     }
+    // The token's kind, as the plan keeps it (a colour when it keeps none).
+    let kind = plan
+        .theme
+        .iter()
+        .find(|t| plan.str(t.name) == token)
+        .map_or(0, |t| t.kind);
     let mut out = Vec::new();
     for (i, node) in plan.nodes.iter().enumerate() {
         let site = &map["nodes"][i];
@@ -329,9 +335,11 @@ pub fn sites(
             if b.kind != BindingKind::Style {
                 continue;
             }
-            // A token is a colour (LLP 1121 until stage 6): only a row that
-            // takes one reads it (`text-align: center` names no token).
-            let Some(row) = exact_kernel::StyleId::from_bit(b.id as u32).filter(|r| colours(*r))
+            // A row of the token's kind reads it (LLP 1121 D3): a colour
+            // only a row that takes one (`text-align: center` names none),
+            // a length or number only a row that takes no colour.
+            let Some(row) =
+                exact_kernel::StyleId::from_bit(b.id as u32).filter(|r| colours(*r) == (kind == 0))
             else {
                 continue;
             };

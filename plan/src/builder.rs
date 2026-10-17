@@ -321,15 +321,23 @@ impl PlanBuilder {
         ProfilesId(self.plan.profiles.len() as u32 - 1)
     }
 
-    /// One `theme` entry (LLP 1095 D4): its name, the role it overrides
-    /// (`""` for none) and the colour text it stands for.
+    /// One colour `theme` entry (LLP 1095 D4): its name, the role it
+    /// overrides (`""` for none) and the colour text it stands for.
     pub fn theme_entry(&mut self, name: &str, role: &str, value: &str) -> ThemeId {
-        self.theme_token(name, role, value, &[])
+        self.theme_token(name, role, value, 0, &[])
     }
 
-    /// A `theme` entry that varies by the app's axes (LLP 1121 D5): its
-    /// value for every full tuple, in tuple order; `value` is the default's.
-    pub fn theme_token(&mut self, name: &str, role: &str, value: &str, slices: &[&str]) -> ThemeId {
+    /// A `theme` entry of `kind` (LLP 1121 D3: 0 a colour, 1 a length, 2 a
+    /// number) that varies by the app's axes (D5): its value for every full
+    /// tuple, in tuple order; `value` is the default's.
+    pub fn theme_token(
+        &mut self,
+        name: &str,
+        role: &str,
+        value: &str,
+        kind: u8,
+        slices: &[&str],
+    ) -> ThemeId {
         let (name, role) = (self.str(name), self.str(role));
         // The values wait for `finish`; the empty string stands until then.
         let pending = self.str("");
@@ -354,6 +362,7 @@ impl PlanBuilder {
             name,
             role,
             value,
+            kind,
             slices,
         });
         ThemeId(self.plan.theme.len() as u32 - 1)

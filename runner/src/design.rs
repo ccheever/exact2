@@ -77,6 +77,8 @@ pub fn shape(plan: &Plan) -> String {
         text(plan.str(row.name));
         text(plan.str(row.role));
         text(&row.slices.len.to_string());
+        // A kind is which rows may name the token: a change is structure.
+        text(&row.kind.to_string());
     }
     hex(&bytes)
 }

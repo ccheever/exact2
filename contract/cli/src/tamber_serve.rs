@@ -64,7 +64,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.4";
+pub const PROTOCOL: &str = "tamber/1.5";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -764,6 +764,24 @@ impl Server {
             .enumerate()
             .map(|(tuple, v)| {
                 let modes = modes_of(axes, tuple);
+                let v = match v {
+                    // A length's stored form: px, or the unit or named
+                    // length it keeps, whose px is the build's (its text
+                    // size, `resolve-on`).
+                    exact_tamber::Value::Length(l) => {
+                        let (unit, amount) = match l {
+                            exact_tamber::Length::Px(n) => ("px", json!(n)),
+                            exact_tamber::Length::Rem(n) => ("rem", json!(n)),
+                            exact_tamber::Length::Em(n) => ("em", json!(n)),
+                            exact_tamber::Length::Named(_) => ("named", Value::Null),
+                        };
+                        return json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
+                    }
+                    exact_tamber::Value::Number(n) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "number", "amount": n});
+                    }
+                    exact_tamber::Value::Color(c) => c,
+                };
                 match v {
                     // `srgb`: each side's 8-bit sRGB clip, what a contrast
                     // ratio is taken on (`light` and `dark` keep the wide value).

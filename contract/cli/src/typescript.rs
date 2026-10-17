@@ -177,7 +177,8 @@ pub fn design_exports(contract: &std::path::Path) -> Option<Vec<String>> {
 /// a row writes) is no name a module returns.
 fn tokens(plan: &Plan, exports: Option<&[String]>, out: &mut String) {
     let mut names: Vec<&str> = Vec::new();
-    for row in &plan.theme {
+    // Colour tokens: the other kinds' unions are stage 6's commit G.
+    for row in plan.theme.iter().filter(|r| r.kind == 0) {
         let role = Some(plan.str(row.role)).filter(|r| !r.is_empty());
         // A role override by the role's spelling, as a row writes it and the
         // generators name it (`CanvasText`, `-exact-secondary-label`).

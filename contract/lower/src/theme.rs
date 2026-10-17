@@ -33,6 +33,27 @@ pub(crate) struct ThemeEntry {
     pub value: String,
     /// Its text for every full app tuple (LLP 1121 D5) when it varies.
     pub slices: Vec<String>,
+    /// Its kind (D3).
+    pub kind: tamber::Kind,
+}
+
+/// The plan's `theme.kind` for a kind (LLP 1121 D3).
+fn kind_code(kind: tamber::Kind) -> u8 {
+    match kind {
+        tamber::Kind::Color => 0,
+        tamber::Kind::Length => 1,
+        tamber::Kind::Number => 2,
+    }
+}
+
+/// The kernel's kind for a kind.
+fn kernel_kind(kind: tamber::Kind) -> exact_kernel::style::theme::Kind {
+    use exact_kernel::style::theme::Kind;
+    match kind {
+        tamber::Kind::Color => Kind::Color,
+        tamber::Kind::Length => Kind::Length,
+        tamber::Kind::Number => Kind::Number,
+    }
 }
 
 /// A role's id, as a row writes it (`-exact-label`, `CanvasText`) or as a
@@ -69,6 +90,10 @@ pub fn vocab() -> tamber::Vocab {
                 fallback: [hex(r.light), hex(r.dark)],
             })
             .collect(),
+        named_lengths: tamber::Vocab::named_lengths(
+            exact_kernel::TEXT_STYLES.iter().map(|s| (s.name, s.alias)),
+            exact_kernel::NAMED_LENGTHS.iter().copied(),
+        ),
     }
 }
 
@@ -160,6 +185,7 @@ impl Lowerer<'_> {
     ) -> exact_kernel::style::theme::ThemeScope {
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
+        MEASURES.with(|m| m.borrow_mut().clear());
         let Some((mut design, origin)) = self.design(file) else {
             return exact_kernel::style::theme::declarations([]);
         };
@@ -242,7 +268,9 @@ impl Lowerer<'_> {
             let role = synthetic.is_none().then(|| role_named(&name)).flatten();
             let at = &folding.design.tokens[i].name;
             if synthetic.is_none()
-                && !self.admitted(&name, role.as_ref(), value, (at.line, at.col), &origin)
+                && value.color().is_some_and(|v| {
+                    !self.admitted(&name, role.as_ref(), v, (at.line, at.col), &origin)
+                })
             {
                 continue;
             }
@@ -277,9 +305,18 @@ impl Lowerer<'_> {
                 role: role.map(|(_, row)| row),
                 value,
                 slices,
+                kind: t.kind,
             });
         }
         self.theme = entries;
+        MEASURES.with(|m| {
+            *m.borrow_mut() = self
+                .theme
+                .iter()
+                .filter(|e| e.kind != tamber::Kind::Color)
+                .map(|e| (e.name.clone(), e.kind, !e.slices.is_empty()))
+                .collect()
+        });
         // The app's axes, which a pin and `setMode` name (D5).
         for axis in &folding.design.axes {
             let values: Vec<&str> = axis.values.iter().map(String::as_str).collect();
@@ -304,28 +341,45 @@ impl Lowerer<'_> {
             })
         };
         for e in &self.theme {
-            if e.role.is_some() || said.computed || said.names(&e.name) || bindable && exported(e) {
+            // A computed string may name any token of a kind its row reads.
+            let computed = match e.kind {
+                tamber::Kind::Color => said.computed,
+                _ => said.computed_measure,
+            };
+            if e.role.is_some() || computed || said.names(&e.name) || bindable && exported(e) {
                 let slices: Vec<&str> = e.slices.iter().map(String::as_str).collect();
-                self.b
-                    .theme_token(&e.name, e.role.as_deref().unwrap_or(""), &e.value, &slices);
+                self.b.theme_token(
+                    &e.name,
+                    e.role.as_deref().unwrap_or(""),
+                    &e.value,
+                    kind_code(e.kind),
+                    &slices,
+                );
             }
         }
-        exact_kernel::style::theme::declarations(self.theme.iter().flat_map(|e| {
-            let tint = e
-                .role
-                .as_deref()
-                .and_then(roles::role)
-                .is_some_and(roles::tint);
-            (!tint)
-                .then_some((e.name.as_str(), e.value.as_str(), false))
-                .into_iter()
-                .chain(
-                    e.role
-                        .as_deref()
-                        .filter(|_| !tint)
-                        .map(|r| (r, e.value.as_str(), true)),
-                )
-        }))
+        exact_kernel::style::theme::bind(&exact_kernel::style::theme::kinded(
+            self.theme.iter().flat_map(|e| {
+                let tint = e
+                    .role
+                    .as_deref()
+                    .and_then(roles::role)
+                    .is_some_and(roles::tint);
+                (!tint)
+                    .then_some((
+                        e.name.as_str(),
+                        e.value.as_str(),
+                        false,
+                        kernel_kind(e.kind),
+                    ))
+                    .into_iter()
+                    .chain(
+                        e.role
+                            .as_deref()
+                            .filter(|_| !tint)
+                            .map(|r| (r, e.value.as_str(), true, kernel_kind(e.kind))),
+                    )
+            }),
+        ))
     }
 
     /// The app's design as the crate reads it: `app.tamber` parsed, or the
@@ -517,6 +571,9 @@ thread_local! {
     /// have (D3), each its expression, before those that do not fold are
     /// dropped: what the design server re-folds (LLP 1121 stage 4).
     static CANDIDATES: std::cell::RefCell<Vec<(String, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The design's length and number tokens while its styles are lowered
+    /// (LLP 1121 D3): each name, kind and whether it varies by an app axis.
+    static MEASURES: std::cell::RefCell<Vec<(String, tamber::Kind, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The synthetic tokens the last build on this thread could have, folding
@@ -764,14 +821,122 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
         .filter_map(|(t, declared)| {
             // Opaque only: a translucent one is an overlay, which reads over
             // either scheme's ground, and a transparent one paints nothing.
-            let one = t
+            let one = t.values.iter().find(|v| {
+                matches!(v, tamber::Value::Color(tamber::Folded::One(h)) if h.wide().alpha >= 1.0 - 1e-9)
+            })?;
+            let every = t
                 .values
                 .iter()
-                .find(|v| matches!(v, tamber::Folded::One(h) if h.wide().alpha >= 1.0 - 1e-9))?;
-            let every = t.values.iter().all(|v| matches!(v, tamber::Folded::One(_)));
+                .all(|v| matches!(v, tamber::Value::Color(tamber::Folded::One(_))));
             Some((declared.name.value.clone(), one.css(), every))
         })
         .collect()
+}
+
+/// The design's length or number token `text` names, while its styles are
+/// lowered: its kind and whether it varies by an app axis.
+pub(crate) fn measure_named(text: &str) -> Option<(tamber::Kind, bool)> {
+    MEASURES.with(|m| {
+        m.borrow()
+            .iter()
+            .find(|(name, ..)| name == text.trim())
+            .map(|(_, kind, varies)| (*kind, *varies))
+    })
+}
+
+/// Whether every string a value may be, through `?:`, `match` and `let`,
+/// names a length or number token, and one does (LLP 1121 D3).
+pub(crate) fn names_measures(v: &Expr) -> bool {
+    match v {
+        Expr::Str(text, _) => measure_named(text).is_some(),
+        Expr::Ternary(_, yes, no, _) => {
+            let leaf = |e: &Expr| matches!(e, Expr::Number(..)) || names_measures(e);
+            leaf(yes) && leaf(no) && (names_measures(yes) || names_measures(no))
+        }
+        Expr::Match { some, none, .. } => {
+            let leaf = |e: &Expr| matches!(e, Expr::Number(..)) || names_measures(e);
+            leaf(some) && leaf(none) && (names_measures(some) || names_measures(none))
+        }
+        Expr::Let { body, .. } => names_measures(body),
+        _ => false,
+    }
+}
+
+/// The rows a number token may name (LLP 1121 D3).
+const NUMBER_ROWS: &[exact_kernel::StyleId] = &[
+    exact_kernel::StyleId::Opacity,
+    exact_kernel::StyleId::LineHeight,
+    exact_kernel::StyleId::FlexGrow,
+    exact_kernel::StyleId::FontWeight,
+    exact_kernel::StyleId::PressScale,
+];
+
+/// `tamber-kind` and `tamber-inherited-axis` (LLP 1121 D3, D7) for a row's
+/// literals that name a length or number token: a number only in the rows
+/// D3 lists; a length in no colour row and no row that takes only a
+/// number; neither, when it varies by an app axis, in an inherited row,
+/// since only colours re-select at a mode boundary. The kernel then reads
+/// the token's value as the row's (a text style only as a font size, …).
+pub(crate) fn measure_row(a: &Attr, rows: &[exact_kernel::StyleId]) -> Result<(), LowerError> {
+    fn literals<'e>(v: &'e Expr, out: &mut Vec<(&'e str, Span)>) {
+        match v {
+            Expr::Str(text, s) => out.push((text, *s)),
+            Expr::Ternary(_, yes, no, _) => {
+                literals(yes, out);
+                literals(no, out);
+            }
+            Expr::Match { some, none, .. } => {
+                literals(some, out);
+                literals(none, out);
+            }
+            Expr::Let { body, .. } => literals(body, out),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    literals(&a.value, &mut found);
+    for (text, span) in found {
+        let Some((kind, varies)) = measure_named(text) else {
+            continue;
+        };
+        let text = text.trim();
+        let refuse = |id: &'static str, message: String| Err(LowerError { id, message, span });
+        let kind_name = kind.name();
+        if let Some(row) = rows.iter().find(|r| scan::colour_codec(**r)) {
+            let _ = row;
+            return refuse(
+                "tamber-kind",
+                format!(
+                    "`{}=\"{text}\"`: `{text}` is a {kind_name} token, and `{}` takes a colour",
+                    a.name, a.name
+                ),
+            );
+        }
+        let numbers = rows.iter().all(|r| NUMBER_ROWS.contains(r));
+        match kind {
+            tamber::Kind::Number if !numbers => {
+                return refuse("tamber-kind", format!("`{}=\"{text}\"`: `{text}` is a number token, which `opacity`, `line-height`, `flex-grow`, `font-weight` and `-exact-press-scale` take, not `{}`", a.name, a.name));
+            }
+            tamber::Kind::Length
+                if rows.iter().any(|r| {
+                    NUMBER_ROWS.contains(r) && *r != exact_kernel::StyleId::LineHeight
+                }) =>
+            {
+                return refuse(
+                    "tamber-kind",
+                    format!(
+                        "`{}=\"{text}\"`: `{text}` is a length token, and `{}` takes a number",
+                        a.name, a.name
+                    ),
+                );
+            }
+            _ => {}
+        }
+        if varies && rows.iter().any(|r| r.inherited()) {
+            return refuse("tamber-inherited-axis", format!("`{}=\"{text}\"`: `{text}` varies by an app axis, and `{}` is inherited: only a colour is chosen again at a mode boundary, so an inherited row names a token with one value (LLP 1121 D7)", a.name, a.name));
+        }
+    }
+    Ok(())
 }
 
 /// `tamber-unknown-token` and `tamber-kind` (LLP 1121 D3) for a row's
@@ -804,6 +969,25 @@ pub(crate) fn token_error(a: &Attr, rows: &[exact_kernel::StyleId], e: LowerErro
     if e.id != "lower-attr-value" || !name_like || !exact_kernel::style::theme::bound() {
         return e;
     }
+    // A length token whose form the row does not take (a text style is a
+    // font size only, a hairline no font's): the kernel's reason.
+    if let Some((kind, _)) = measure_named(text) {
+        let value = exact_kernel::style::theme::declared(text).unwrap_or_default();
+        let why = e
+            .message
+            .rsplit_once(": ")
+            .map_or(e.message.as_str(), |(_, why)| why);
+        return LowerError {
+            id: "tamber-kind",
+            message: format!(
+                "`{}=\"{text}\"`: `{text}` is the {} `{value}`, which `{}` does not take: {why}",
+                a.name,
+                kind.name(),
+                a.name
+            ),
+            span,
+        };
+    }
     let colour = rows.iter().any(|r| scan::colour_codec(*r));
     let named = exact_kernel::style::theme::names(text);
     let (id, message) = match (colour, named) {
@@ -813,7 +997,7 @@ pub(crate) fn token_error(a: &Attr, rows: &[exact_kernel::StyleId], e: LowerErro
         ),
         (false, true) => (
             "tamber-kind",
-            format!("`{}=\"{text}\"`: `{text}` is a colour token, and `{}` takes no colour (only colour tokens are built yet: LLP 1121 stage 2)", a.name, a.name),
+            format!("`{}=\"{text}\"`: `{text}` is a colour token, and `{}` takes no colour", a.name, a.name),
         ),
         _ => return e,
     };

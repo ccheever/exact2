@@ -59,10 +59,10 @@ pub(crate) fn fail<T>(id: &'static str, message: impl Into<String>) -> Result<T,
 pub(crate) enum Named {
     /// A token or colour dial's value.
     Color(Folded),
-    /// A number dial's value.
+    /// A number dial's or number token's value.
     Number(f64),
-    /// A length dial, which no colour takes.
-    Length,
+    /// A length dial's or length token's value, which no colour takes.
+    Length(crate::measure::Length),
     /// A colour role no token overrides.
     Role(String),
     /// Nothing the design declares.
@@ -205,7 +205,7 @@ pub(crate) fn color(items: &[Item], names: &mut dyn Names) -> Result<Folded, Fol
 pub(crate) fn not_color_kind<T>() -> Result<T, FoldError> {
     fail(
         "tamber-stage",
-        "only colour tokens are built yet; length, number, type, shadow and motion tokens arrive in stage 6",
+        "only colour, length and number tokens are built yet; type, shadow and motion tokens arrive later in stage 6",
     )
 }
 
@@ -226,16 +226,10 @@ fn ident(name: &str, names: &mut dyn Names) -> Result<Folded, FoldError> {
     match names.named(name)? {
         Named::Color(f) => return Ok(f),
         Named::Number(_) => {
-            return fail(
-                "tamber-kind",
-                format!("`{name}` is a number dial, not a colour"),
-            )
+            return fail("tamber-kind", format!("`{name}` is a number, not a colour"))
         }
-        Named::Length => {
-            return fail(
-                "tamber-kind",
-                format!("`{name}` is a length dial, not a colour"),
-            )
+        Named::Length(_) => {
+            return fail("tamber-kind", format!("`{name}` is a length, not a colour"))
         }
         Named::Role(r) => return Ok(Folded::Host(Host::Role(r))),
         Named::Unknown => {}

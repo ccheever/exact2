@@ -1242,6 +1242,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    pub fn set_dynamic(&mut self, id: StyleId, value: &StyleValue) -> Result<(), StyleValueError> {{").unwrap();
     // Dispatch disjoint length suffixes once; ordinary style text needs no conversion.
     // A metric's name is its value in this platform's column, or no row (LLP 1115.002 D6).
+    // A length or number token's name is its value in the node's slice (LLP 1121 D7).
+    w.push_str("        let measured = crate::style::theme::measured(value);\n        let value = measured.as_ref().unwrap_or(value);\n");
     w.push_str("        let metric = crate::style::metrics::of(id, value);\n        let Some(value) = metric.as_ref().map_or(Some(value), Option::as_ref) else { return Ok(()) };\n");
     w.push_str("        let (relative, converted) = crate::style::relative::prepare(id, value)?;\n        let value = converted.as_ref().unwrap_or(value);\n");
     writeln!(w, "        match id {{").unwrap();

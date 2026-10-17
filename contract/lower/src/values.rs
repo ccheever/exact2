@@ -470,6 +470,8 @@ pub(crate) fn check_style_value(
     if rows == [StyleId::Mode] {
         return crate::theme::mode_pins(a);
     }
+    // A length or number token in a row of another kind (LLP 1121 D3).
+    crate::theme::measure_row(a, rows)?;
     // A name the design lacks, or a colour token in another row (LLP 1121 D3).
     style_value(a, rows, ty, fonts, scope, shapes)
         .map_err(|e| crate::theme::token_error(a, rows, e))
@@ -880,7 +882,10 @@ fn style_value(
     // A metric in a sheet the compiler wrote is a string that every host
     // reads as its platform's number (LLP 1115.002 D6).
     let metric = !a.written && crate::metrics::names(&a.value);
-    if !metric && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
+    // So is a number token's name, which the runner reads as its number
+    // (LLP 1121 D3).
+    let token = crate::theme::names_measures(&a.value);
+    if !metric && !token && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
         let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
             (ty.is_string() && !css_wide_branches(&a.value, rows)).then_some(a.value.span())
         });

@@ -89,7 +89,7 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for (i, row) in plan.theme.iter().enumerate() {
         let role = roles::role(plan.str(row.role));
-        if row.slices.len == 0 && !every_token() || role.is_some_and(roles::tint) {
+        if row.kind != 0 || row.slices.len == 0 && !every_token() || role.is_some_and(roles::tint) {
             continue;
         }
         let name = plan.str(row.name);
@@ -415,7 +415,8 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
             format!("{selector}{{")
         });
         for (name, prop) in props {
-            let Some((_, value, _)) = table.iter().find(|(n, _, role)| **n == **name && !role)
+            let Some(exact_kernel::style::theme::Entry { value, .. }) =
+                table.iter().find(|e| *e.name == **name && !e.role)
             else {
                 continue;
             };
@@ -478,8 +479,8 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                     .map(|table| {
                         table
                             .iter()
-                            .find(|(n, _, role)| **n == *t.name && !role)
-                            .map_or_else(|| "transparent".to_string(), |(_, v, _)| css_of(v))
+                            .find(|e| *e.name == *t.name && !e.role)
+                            .map_or_else(|| "transparent".to_string(), |e| css_of(&e.value))
                     })
                     .collect();
                 // Which tuples name the accent: the build writes a companion

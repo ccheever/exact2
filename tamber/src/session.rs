@@ -137,7 +137,7 @@ pub fn plan(
                     let values = after
                         .as_ref()
                         .and_then(|f| f.tokens.iter().find(|c| c.name == t))
-                        .map(|c| c.values.clone())
+                        .map(|c| c.values.iter().filter_map(|v| v.color().cloned()).collect())
                         .unwrap_or_default();
                     moved.push((exprs[i].0.clone(), values));
                 }
@@ -243,7 +243,7 @@ const SYNTHETIC: u32 = 1 << 30;
 /// The tokens whose values differ between two folds, or that one has and
 /// the other lacks.
 fn changed_tokens(before: Option<&Folding>, after: Option<&Folding>) -> Vec<String> {
-    let values = |f: Option<&Folding>| -> Vec<(String, Vec<crate::Folded>)> {
+    let values = |f: Option<&Folding>| -> Vec<(String, Vec<crate::Value>)> {
         f.map(|f| {
             f.tokens
                 .iter()

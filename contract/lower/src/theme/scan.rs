@@ -78,6 +78,9 @@ pub(crate) struct Said {
     pub synthetic: Vec<Synthetic>,
     /// A colour row's value is computed somewhere: any token may be named.
     pub computed: bool,
+    /// A length or number row's value is computed and may be a string
+    /// somewhere: any length or number token may be named (LLP 1121 D7).
+    pub computed_measure: bool,
     /// Every word the literals write that is a token's name.
     words: HashSet<String>,
 }
@@ -88,10 +91,13 @@ impl Said {
     pub(crate) fn of(file: &File, root: &Component, design: &Design) -> Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
+        let mut computed_measure = false;
         let mut attrs = |attrs: &[Attr]| {
             for a in attrs {
                 let colour = colour_attr(&a.name);
                 computed |= colour && !literal(&a.value);
+                computed_measure |=
+                    !colour && measure_attr(&a.name) && !literal(&a.value) && !number(&a.value);
                 // A colour row's own value must fold; a literal elsewhere in
                 // it (a condition's, a call's argument) may not be one.
                 if colour {
@@ -150,6 +156,7 @@ impl Said {
         };
         let mut said = Said {
             computed,
+            computed_measure,
             ..Default::default()
         };
         for (text, span, strict) in literals {
@@ -177,6 +184,35 @@ impl Said {
     /// synthetic token's expression.
     pub(crate) fn names(&self, name: &str) -> bool {
         self.words.contains(name) || self.synthetic.iter().any(|s| s.expr == name)
+    }
+}
+
+/// An attribute that sets a row a length or number token may name.
+fn measure_attr(name: &str) -> bool {
+    match crate::tags::attr(name) {
+        Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| {
+            !colour_codec(*r)
+                && matches!(
+                    r.codec(),
+                    StyleCodec::Dimension
+                        | StyleCodec::LineHeight
+                        | StyleCodec::F32
+                        | StyleCodec::U16
+                )
+        }),
+        _ => false,
+    }
+}
+
+/// Whether a value is a number however it is chosen: its leaves through
+/// `?:`, `match` and `let` are number literals.
+fn number(e: &Expr) -> bool {
+    match e {
+        Expr::Number(..) => true,
+        Expr::Ternary(_, yes, no, _) => number(yes) && number(no),
+        Expr::Match { some, none, .. } => number(some) && number(none),
+        Expr::Let { body, .. } => number(body),
+        _ => false,
     }
 }
 

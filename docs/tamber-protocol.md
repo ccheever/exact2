@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.4`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.5`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.4"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.5"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -40,6 +40,9 @@ on macOS and Linux.
   - the items marked *1.3* below.
 - `tamber/1.4` (LLP 1121 stage 5, commit 6) added `export`, and `import`'s reading of a Tamber export
   against its baseline.
+- `tamber/1.5` (LLP 1121 stage 6, commit B) added length and number tokens: each IR token's real
+  `kind` (`color`, `length`, `number`), `resolve`'s length and number tuples, and `uses` over the rows
+  of a length or number token's kind.
 
 ## Where it runs
 
@@ -157,8 +160,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
 - `ir`: the folded IR (LLP 1121 D2):
   - `format`, `digest`, `name`, `tuples`;
   - the axes and the dials (with each dial's `range`);
-  - the tokens, each with its folded `values` per tuple, `entries`, the `dials` it depends on and
-    its `fallback`;
+  - the tokens, each with its `kind` (`color`, `length` or `number`, *1.5*: written, or inferred from
+    its value), its folded `values` per tuple, `entries`, the `dials` it depends on and its
+    `fallback` (a length's or number's is its default tuple's value, twice);
   - `exports`.
 
   The IR has no `when` lines. A token's source lines come from `explain`.
@@ -187,6 +191,11 @@ tuple:
   `light`, `dark` or `srgb`.
   - `fallback` is `{light, dark}`, labelled as a fallback, never as the value.
   - `fallback` is null when the vocabulary has none.
+- **A length** (*1.5*) is `{modes, value, kind: "length", unit, amount}`: `value` is the stored text;
+  `unit` is `px`, `rem`, `em` or `named` (a text style, `-exact-hairline`), and `amount` its number
+  (null for a named length). A `rem`, `em` or named length's px is the build's, which depends on its
+  text size: `resolve-on` (LLP 1122 T2b) gives it.
+- **A number** (*1.5*) is `{modes, value, kind: "number", amount}`.
 
 **`explain`** `{token, file?}` answers `{token, value, whens, dials, names, files}`:
 - `value` and each `whens[].value` are source text, as written;
@@ -200,7 +209,8 @@ given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected`
 runner resolves it.
 
 **`uses`** `{token, file?}` (*1.2*, stage 4 commit 6) says where the app reads a token,
-statically: every row of the plan that takes a colour and whose expression names it, directly,
+statically: every row of the plan of the token's kind (one that takes a colour for a colour token,
+one that takes none for a length or number token, *1.5*) whose expression names it, directly,
 through a token whose value names it, through a synthetic token (a row's expression over
 tokens) that reads it, or through a slot or derive that may hold it (a slot whose initial
 value, or a value an action stores in it, names it). A value compared (`mode == "brand"`) is no

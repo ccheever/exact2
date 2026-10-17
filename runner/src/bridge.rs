@@ -392,7 +392,10 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
                 .cloned()
                 .collect()
         });
-        let table = exact_kernel::style::theme::table(plan.theme.iter().flat_map(|row| {
+        use exact_kernel::style::theme::Kind;
+        let table = exact_kernel::style::theme::kinded(plan.theme.iter().flat_map(|row| {
+            // A kind this build does not know is no entry: its rows stand.
+            let kind = Kind::of(row.kind);
             let (name, role) = (plan.str(row.name), plan.str(row.role));
             let edit = edits.iter().find(|(_, n, ..)| n == name);
             let value = match (edit, row.slices.len) {
@@ -405,10 +408,17 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
             };
             // A tint role stays the role in its row (`ColorValue::themed`).
             let tint = roles::role(role).is_some_and(roles::tint);
-            (!tint)
-                .then_some((name, value, false))
+            kind.filter(|_| !tint)
+                .map(|kind| (name, value, false, kind))
                 .into_iter()
-                .chain((!role.is_empty() && !tint).then_some((role, value, true)))
+                .chain(
+                    (!role.is_empty() && !tint && kind == Some(Kind::Color)).then_some((
+                        role,
+                        value,
+                        true,
+                        Kind::Color,
+                    )),
+                )
         }));
         if tables.len() <= slot {
             tables.resize(slot + 1, None);
