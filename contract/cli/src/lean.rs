@@ -45,6 +45,7 @@ fn lean_source(src: &str, name: &str, ascribed: bool) -> Result<String, CompileE
     crate::compile(src)?;
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    crate::params(&mut file)?;
     emit_file(&file, name, None, ascribed)
 }
 

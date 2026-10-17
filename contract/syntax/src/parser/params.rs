@@ -23,7 +23,8 @@ impl Parser {
 
     /// `radius: length = "radius.md"  range="0..40"  step=1`.
     fn param(&mut self) -> R<ComponentParam> {
-        let (name, span) = self.ident()?;
+        // A field's name, a reserved word too (`if: color = …`).
+        let (name, span) = self.field_name()?;
         self.expect_punct(":")?;
         // A kind with a hyphen (`box-shadow`) is one word.
         let (mut kind, mut end) = self.ident()?;

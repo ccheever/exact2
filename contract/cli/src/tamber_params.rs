@@ -26,6 +26,41 @@ pub fn params_of(app_contract: &Path) -> Vec<ParamToken> {
     }
 }
 
+/// `text`, a design, folded with `params` (each refusal naming a param in
+/// full), and the design as parsed, without them.
+pub fn fold_with(
+    text: &str,
+    params: &[ParamToken],
+    vocab: &exact_tamber::Vocab,
+) -> Result<(exact_tamber::Folding, exact_tamber::Design), Vec<exact_tamber::Diagnostic>> {
+    let design = exact_tamber::parse(text)?;
+    let mut laid = design.clone();
+    params::add_to(&mut laid, params);
+    let folding = exact_tamber::check_design(laid, vocab).map_err(|all| {
+        all.into_iter()
+            .map(|mut d| {
+                d.message = params::shown(&d.message, params);
+                d
+            })
+            .collect::<Vec<_>>()
+    })?;
+    Ok((folding, design))
+}
+
+/// The IR's tokens with every param's left out: a tool reads params by
+/// full name, in `components`, never by their names below the IR.
+pub fn hide(ir: &mut Value) {
+    for list in ["tokens", "icons"] {
+        if let Some(items) = ir.get_mut(list).and_then(Value::as_array_mut) {
+            items.retain(|t| {
+                !t["name"]
+                    .as_str()
+                    .is_some_and(|n| n.starts_with(params::PREFIX))
+            });
+        }
+    }
+}
+
 /// A param's short name, `Component.param`, when no other component of
 /// that name declares params.
 fn short(p: &ParamToken, all: &[ParamToken]) -> Option<String> {
@@ -65,9 +100,17 @@ pub fn components(
             .map(|q| {
                 let attr = |name: &str| q.param.attr(name).map(ParamValue::text);
                 let num = |name: &str| q.param.attr(name).and_then(params::number);
-                let values: Option<Vec<String>> = folding.as_ref().and_then(|f| {
-                    let t = f.tokens.iter().find(|t| t.name == q.token)?;
-                    Some(t.values.iter().map(|v| v.css()).collect())
+                // An icon's sources, the same in every tuple.
+                let values: Option<Value> = folding.as_ref().and_then(|f| match q.param.kind.as_str() {
+                    "icon" => {
+                        let i = f.icons.iter().find(|i| i.name == q.token)?;
+                        let one = json!({"sf": i.sf, "material": i.material, "svg": i.svg});
+                        Some(json!(vec![one; f.tuples]))
+                    }
+                    _ => {
+                        let t = f.tokens.iter().find(|t| t.name == q.token)?;
+                        Some(json!(t.values.iter().map(|v| v.css()).collect::<Vec<_>>()))
+                    }
                 });
                 json!({
                     "name": q.full,

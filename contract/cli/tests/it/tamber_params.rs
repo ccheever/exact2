@@ -122,8 +122,7 @@ fn a_short_name_two_components_share_is_ambiguous() {
     let e = contract_lower::params::resolve(&params, "Card.inset").unwrap_err();
     assert_eq!(e.id, "tamber-param-ambiguous");
     assert!(
-        e.message.contains("a.contract#Card.inset")
-            && e.message.contains("b/c.contract#Card.inset"),
+        e.message.contains("`a.contract#Card`") && e.message.contains("`b/c.contract#Card`"),
         "{}",
         e.message
     );

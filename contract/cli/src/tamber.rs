@@ -82,25 +82,45 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     }
-    let Some(path) = design(Path::new(&input)) else {
-        eprintln!("contract tamber: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
-        return ExitCode::from(2);
-    };
-    let src = match std::fs::read_to_string(&path) {
-        Ok(src) => src,
-        Err(e) => {
-            eprintln!("contract tamber: {}: {e}", path.display());
+    // The app's components' params (LLP 1121 D15) fold with its design; an
+    // app with params and no design has them alone.
+    let params = contract::tamber_params::params_of(&app_contract(Path::new(&input)));
+    let (path, src) = match design(Path::new(&input)) {
+        Some(path) => match std::fs::read_to_string(&path) {
+            Ok(src) => (path, src),
+            Err(e) => {
+                eprintln!("contract tamber: {}: {e}", path.display());
+                return ExitCode::from(2);
+            }
+        },
+        None if !params.is_empty() && verb != "fmt" => {
+            let dir = app_contract(Path::new(&input))
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+            (dir.join("app.tamber"), "tamber app\n".to_string())
+        }
+        None => {
+            eprintln!("contract tamber: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
             return ExitCode::from(2);
         }
     };
     if verb == "fmt" {
         return fmt(&path, &src, !rest.is_empty());
     }
-    let folding = match exact_tamber::check(&src, &contract_lower::tamber_vocab()) {
+    let folded = match params.is_empty() {
+        true => exact_tamber::check(&src, &contract_lower::tamber_vocab()),
+        false => exact_tamber::parse(&src).and_then(|mut d| {
+            contract_lower::params::add_to(&mut d, &params);
+            exact_tamber::check_design(d, &contract_lower::tamber_vocab())
+        }),
+    };
+    let folding = match folded {
         Ok(folding) => folding,
         Err(all) => {
             for d in &all {
-                eprintln!("{}:{d}", path.display());
+                let shown = contract_lower::params::shown(&d.to_string(), &params);
+                eprintln!("{}:{shown}", path.display());
             }
             // A profile's colour is the compiler's to resolve, with the
             // declarations in the app's Contract (LLP 1100 D3).
@@ -154,11 +174,11 @@ pub fn run(args: &[String]) -> ExitCode {
         ("eval", []) => eval(&folding, ""),
         ("eval", [flag, modes]) if flag == "--mode" => eval(&folding, modes),
         ("ir", []) => {
-            println!("{}", ir(&path, &folding));
+            println!("{}", ir(&src, &params, &folding));
             ExitCode::SUCCESS
         }
         ("ir", [flag, out]) if flag == "-o" => {
-            match std::fs::write(out, ir(&path, &folding) + "\n") {
+            match std::fs::write(out, ir(&src, &params, &folding) + "\n") {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("contract tamber: {out}: {e}");
@@ -289,22 +309,40 @@ fn fmt(path: &Path, src: &str, check: bool) -> ExitCode {
 }
 
 /// The design's IR, with its app's components' params (LLP 1121 D15) when
-/// it declares any.
-fn ir(design: &Path, folding: &exact_tamber::Folding) -> String {
-    let all = design
-        .parent()
-        .map(|dir| contract::tamber_params::params_of(&dir.join("app.contract")))
-        .unwrap_or_default();
-    if all.is_empty() {
+/// it declares any: under `components` by full name, never among the
+/// tokens by their names below the IR.
+fn ir(
+    src: &str,
+    params: &[contract_lower::params::ParamToken],
+    folding: &exact_tamber::Folding,
+) -> String {
+    if params.is_empty() {
         return folding.ir();
     }
     let Ok(mut ir) = serde_json::from_str::<serde_json::Value>(&folding.ir()) else {
         return folding.ir();
     };
+    contract::tamber_params::hide(&mut ir);
+    let design = exact_tamber::parse(src).ok();
     ir["components"] = contract::tamber_params::components(
-        &all,
-        Some(&folding.design),
+        params,
+        design.as_ref(),
         &contract_lower::tamber_vocab(),
     );
     serde_json::to_string_pretty(&ir).unwrap_or_else(|_| folding.ir())
+}
+
+/// The app's root Contract for an input: the directory's `app.contract`,
+/// the file itself, or the `app.contract` beside a design.
+fn app_contract(input: &Path) -> std::path::PathBuf {
+    if input.is_dir() {
+        return input.join("app.contract");
+    }
+    if input.extension().is_some_and(|e| e == "contract") {
+        return input.to_path_buf();
+    }
+    input
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("app.contract")
 }

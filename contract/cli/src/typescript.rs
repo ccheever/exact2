@@ -199,7 +199,10 @@ fn tokens(plan: &Plan, exports: Option<&[String]>, out: &mut String) {
                     .iter()
                     .any(|line| exact_tamber::exports_names(line, name, role))
             });
-            if exported && !name.contains('(') && !names.contains(&name) {
+            // A component's param is named by its full name, which no binding
+            // spells (LLP 1121 D15): never by its name below the IR.
+            let param = name.starts_with(contract_lower::params::PREFIX);
+            if exported && !param && !name.contains('(') && !names.contains(&name) {
                 names.push(name);
             }
         }

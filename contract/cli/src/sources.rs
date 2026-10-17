@@ -185,7 +185,8 @@ pub(crate) fn load(
 }
 
 /// A source's file as a component's identity names it (LLP 1121 D15): an
-/// app's relative to the app's directory, a package's under its name.
+/// app's relative to the app's directory, a package's under its declared
+/// name.
 fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
     let shown = |root: &Path| {
         let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
@@ -199,7 +200,20 @@ fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
     };
     match origin {
         Origin::App => shown(app_root),
-        Origin::Package { name, root, .. } => format!("{name}/{}", shown(root)),
+        // By the package's own name (its `package.json`'s), not the name
+        // one `use` reached it by, so two aliases of one package are one.
+        Origin::Package {
+            name,
+            root,
+            manifest,
+            ..
+        } => {
+            let declared = std::fs::read_to_string(manifest)
+                .ok()
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                .and_then(|m| m["name"].as_str().map(str::to_string));
+            format!("{}/{}", declared.as_deref().unwrap_or(name), shown(root))
+        }
         Origin::Builtin => path.to_string_lossy().into_owned(),
     }
 }
@@ -409,7 +423,14 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         declared: Vec::new(),
         motion: Vec::new(),
     };
-    let errors = match loader.load_source(&root_key, src, 0) {
+    let loaded = loader.load_source(&root_key, src, 0);
+    // The components' params (LLP 1121 D15): an icon param's SVG is read too.
+    let params: Vec<_> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .collect();
+    let errors = match loaded {
         Err(all) => all,
         Ok(()) => loader.scope().err().unwrap_or_default(),
     };
@@ -431,10 +452,19 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // watches it (LLP 1121 D2).
     let design = design_path(&root_key);
     // An icon token's SVG too, which the build reads (LLP 1121 D10).
-    let icons: Vec<PathBuf> = design
+    let text = match design
         .as_ref()
         .and_then(|d| std::fs::read_to_string(d).ok())
-        .and_then(|text| exact_tamber::check(&text, &contract_lower::tamber_vocab()).ok())
+    {
+        Some(text) => Some(text),
+        None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
+    };
+    let icons: Vec<PathBuf> = text
+        .and_then(|text| exact_tamber::parse(&text).ok())
+        .and_then(|mut d| {
+            contract_lower::params::add_to(&mut d, &params);
+            exact_tamber::check_design(d, &contract_lower::tamber_vocab()).ok()
+        })
         .map(|folding| {
             let assets = root_key.parent().unwrap_or(Path::new(".")).join("assets");
             folding

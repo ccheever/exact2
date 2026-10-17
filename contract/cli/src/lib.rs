@@ -229,8 +229,14 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
 }
 from_pass!(contract_lower::LowerError, "lower");
 /// A source text's components' `param.` names as their tokens (LLP 1121
-/// D15), as the loader writes them for a file.
-fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+/// D15), as the loader writes them for a file; a text with no path is
+/// `app.contract`, as an app's root is.
+pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+    for c in &mut file.components {
+        c.params
+            .identity
+            .get_or_insert_with(|| format!("app.contract#{}", c.name));
+    }
     let mut refused = contract_lower::params::rewrite(file);
     refused.extend(contract_lower::params::unused(file));
     match refused.into_iter().next() {

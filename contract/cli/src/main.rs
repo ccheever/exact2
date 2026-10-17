@@ -18,6 +18,7 @@ mod tamber_export;
 mod tamber_gen;
 mod tamber_history;
 mod tamber_import;
+mod tamber_ops;
 mod tamber_serve;
 mod verify;
 mod vocab;

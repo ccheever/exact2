@@ -3162,7 +3162,10 @@ an expression over tokens and the component's other params), and its rows and
 defaults name it `param.radius`. Every instance shares it. Its full name is the
 component's declaring file and name, `post.contract#PostButton.radius` (an import
 alias never changes it; moving the file makes it a new param), and
-`PostButton.radius` where no other component of that name has params. A param no
+`PostButton.radius` where no other component has that name. A param is named in
+its component's own rows (a style, shorthand or motion row, an image's source)
+and defaults; one in a `style`, a `keyframes`, another component's argument or a
+state's value is refused (`tamber-param-scope`). A param no
 row of its component reads, directly or through another param, is refused
 (`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
 default must be inside the range in every mode; `control` follows the kind

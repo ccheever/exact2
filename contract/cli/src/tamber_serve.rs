@@ -679,6 +679,30 @@ impl Server {
 
     /// The file a read names (`file`, the app's design when unsaid),
     /// checked, from one snapshot that also gives the digests.
+    /// [`Self::design`], folded with the app's components' params (D15),
+    /// and the design as parsed, without them.
+    fn design_with(
+        &self,
+        request: &Value,
+        params: &[contract_lower::params::ParamToken],
+    ) -> Result<(Snapshot, exact_tamber::Folding, exact_tamber::Design), Value> {
+        if params.is_empty() {
+            let (snap, folding) = self.design(request)?;
+            let design = folding.design.clone();
+            return Ok((snap, folding, design));
+        }
+        let snap = self.snapshot()?;
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        let text = &snap
+            .iter()
+            .find(|(f, _, _)| *f == file)
+            .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
+            .1;
+        let (folding, design) = contract::tamber_params::fold_with(text, params, &self.vocab)
+            .map_err(|all| refused(&file, all))?;
+        Ok((snap, folding, design))
+    }
+
     fn design(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding), Value> {
         let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
         let snap = self.snapshot()?;
@@ -711,14 +735,16 @@ impl Server {
     }
 
     fn describe(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
+        // The app's components' params (LLP 1121 D15) fold with the design,
+        // so a dial only a param reads is read; listed by full name.
+        let all = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let (snap, folding, design) = self.design_with(request, &all)?;
         let mut ir: Value =
             serde_json::from_str(&folding.ir()).map_err(|e| json!({"message": e.to_string()}))?;
-        // The app's components' params (LLP 1121 D15), each by its full name.
-        let all = contract::tamber_params::params_of(&self.dir.join("app.contract"));
         if !all.is_empty() {
+            contract::tamber_params::hide(&mut ir);
             ir["components"] =
-                contract::tamber_params::components(&all, Some(&folding.design), &self.vocab);
+                contract::tamber_params::components(&all, Some(&design), &self.vocab);
         }
         let meta =
             |m: &[(String, String)]| m.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>();
@@ -733,6 +759,7 @@ impl Server {
             .tokens
             .iter()
             .zip(&folding.design.tokens)
+            .filter(|(t, _)| !t.name.starts_with(contract_lower::params::PREFIX))
             .map(|(t, declared)| (t.name.clone(), json!(meta(&declared.meta))))
             .collect();
         // What each token is drawn on (`pair=`): a token by its name, a role
@@ -740,7 +767,7 @@ impl Server {
         let pairs: serde_json::Map<String, Value> = folding
             .tokens
             .iter()
-            .filter(|t| !t.pairs.is_empty())
+            .filter(|t| !t.pairs.is_empty() && !t.name.starts_with(contract_lower::params::PREFIX))
             .map(|t| {
                 let named = t.pairs.iter().map(|p| {
                     let token = folding.tokens.iter().any(|u| &u.name == p);
@@ -942,7 +969,7 @@ impl Server {
     /// must carry the digest the client saw (a `propose` checks the ones it
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
-        let ops = parse_ops(&request["ops"], &self.design)?;
+        let ops = crate::tamber_ops::parse_ops(&request["ops"], &self.design)?;
         let seen = seen_files(request, "files")?;
         // Files it does not edit but was planned on (a revert's file already
         // as before), each as the plan read it.
@@ -1323,7 +1350,7 @@ fn temp_name(name: &str) -> bool {
 
 /// A string field when the request has it; a field of another type is an
 /// error, not absent.
-fn optional(v: &Value, key: &str) -> Result<Option<String>, Value> {
+pub(crate) fn optional(v: &Value, key: &str) -> Result<Option<String>, Value> {
     match &v[key] {
         Value::Null => Ok(None),
         Value::String(s) => Ok(Some(s.clone())),
@@ -1331,7 +1358,7 @@ fn optional(v: &Value, key: &str) -> Result<Option<String>, Value> {
     }
 }
 
-fn required(v: &Value, key: &str) -> Result<String, Value> {
+pub(crate) fn required(v: &Value, key: &str) -> Result<String, Value> {
     optional(v, key)?.ok_or_else(|| json!({"message": format!("`{key}` is a string, and needed")}))
 }
 
@@ -1378,110 +1405,4 @@ fn modes_of(axes: &[exact_tamber::Axis], tuple: usize) -> Value {
         rest /= a.values.len();
     }
     Value::Object(out.into_iter().map(|(a, v)| (a, json!(v))).collect())
-}
-
-/// The wire's operations (D13's names, kebab-case; named fields), each with
-/// the file it edits (the design's own when unsaid). A `restore` is no
-/// client's to send.
-fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, Value> {
-    let bad = |m: String| json!({"message": m});
-    let s = required;
-    let opt = optional;
-    let list = |v: &Value, k: &str| -> Result<Vec<Value>, Value> {
-        match &v[k] {
-            Value::Null => Ok(Vec::new()),
-            Value::Array(a) => Ok(a.clone()),
-            _ => Err(bad(format!("`{k}` is a list"))),
-        }
-    };
-    let conds = |v: &Value| -> Result<Vec<(String, String)>, Value> {
-        list(v, "when")?
-            .iter()
-            .map(|c| Ok((s(c, "axis")?, s(c, "value")?)))
-            .collect()
-    };
-    let mut out = Vec::new();
-    for v in ops
-        .as_array()
-        .ok_or_else(|| bad("`ops` is a list".into()))?
-    {
-        if !v.is_object() {
-            return Err(bad("each of `ops` is an object".into()));
-        }
-        let file = opt(v, "file")?.unwrap_or_else(|| design.to_string());
-        let op = match v["op"].as_str() {
-            Some("set-dial") => Op::SetDial {
-                name: s(v, "name")?,
-                value: s(v, "value")?,
-            },
-            Some("set-token") => Op::SetToken {
-                name: s(v, "name")?,
-                when: conds(v)?,
-                value: s(v, "value")?,
-                at: None,
-                comment: opt(v, "comment")?,
-            },
-            Some("unset-token-when") => Op::UnsetTokenWhen {
-                name: s(v, "name")?,
-                when: conds(v)?,
-            },
-            Some("add-token") => Op::AddToken {
-                name: s(v, "name")?,
-                kind: opt(v, "kind")?,
-                value: s(v, "value")?,
-                // `key=value` words, as the source writes them.
-                meta: list(v, "meta")?
-                    .iter()
-                    .map(|m| {
-                        m.as_str()
-                            .map(str::to_string)
-                            .ok_or_else(|| bad("each of `meta` is a `key=value` string".into()))
-                    })
-                    .collect::<Result<_, _>>()?,
-                whens: list(v, "whens")?
-                    .iter()
-                    .map(|w| Ok((conds(w)?, s(w, "value")?, opt(w, "comment")?)))
-                    .collect::<Result<Vec<_>, Value>>()?,
-                comment: opt(v, "comment")?,
-                before: opt(v, "before")?,
-            },
-            Some("rename-token") => Op::RenameToken {
-                from: s(v, "from")?,
-                to: s(v, "to")?,
-            },
-            Some("remove-token") => Op::RemoveToken {
-                name: s(v, "name")?,
-            },
-            Some("add-axis-value") => Op::AddAxisValue {
-                axis: s(v, "axis")?,
-                value: s(v, "value")?,
-                before: opt(v, "before")?,
-            },
-            Some("add-axis") => Op::AddAxis {
-                name: s(v, "name")?,
-                values: list(v, "values")?
-                    .iter()
-                    .map(|x| {
-                        x.as_str()
-                            .map(str::to_string)
-                            .ok_or_else(|| bad("each of `values` is a string".into()))
-                    })
-                    .collect::<Result<_, _>>()?,
-                under_dark: match opt(v, "under")?.as_deref() {
-                    None => false,
-                    Some("scheme=dark") => true,
-                    Some(other) => {
-                        return Err(bad(format!("`under` is `scheme=dark`, not `{other}`")))
-                    }
-                },
-            },
-            Some("remove-axis-value") => Op::RemoveAxisValue {
-                axis: s(v, "axis")?,
-                value: s(v, "value")?,
-            },
-            other => return Err(bad(format!("no operation {}", other.unwrap_or("(none)")))),
-        };
-        out.push((file, op));
-    }
-    Ok(out)
 }

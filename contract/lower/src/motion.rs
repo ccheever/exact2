@@ -13,6 +13,11 @@
 use contract_syntax::{Attr, Expr, File, Node, Span, TemplatePart};
 use exact_tamber as tamber;
 
+/// Whether `name` is a motion row (a param may stand in one, D15).
+pub(crate) fn is_row(name: &str) -> bool {
+    row(name)
+}
+
 /// Whether `name` is a motion row: a shorthand or a timing longhand, in
 /// either spelling.
 fn row(name: &str) -> bool {

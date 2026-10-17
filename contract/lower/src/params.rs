@@ -8,9 +8,13 @@
 //! arguments and its params' defaults to that name before anything reads
 //! them, so a param is read, folded, retained and bound as any token is.
 
+mod rewrite;
+
+pub use rewrite::{rewrite, unused};
+
 use crate::LowerError;
 use contract_syntax::params::{ComponentParam, ParamValue};
-use contract_syntax::{Attr, Expr, File, Node, Span, TemplatePart};
+use contract_syntax::{File, Span};
 
 /// The prefix every param's token name has, which no design token may.
 pub const PREFIX: &str = "param.";
@@ -66,151 +70,6 @@ pub fn tokens(file: &File) -> Vec<ParamToken> {
         .collect()
 }
 
-/// `text` with each `param.<name>` a word of it written as `name`'s token
-/// name by `named`; a name `named` does not know is refused, by `bad`.
-fn words(text: &str, named: &dyn Fn(&str) -> Option<String>, bad: &mut Vec<String>) -> String {
-    let ident = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-');
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(at) = rest.find(PREFIX) {
-        let before = rest[..at].chars().next_back();
-        let tail = &rest[at + PREFIX.len()..];
-        let len = tail.find(|c: char| !ident(c)).unwrap_or(tail.len());
-        let name = &tail[..len];
-        // A whole word: not inside another name (`my.param.x`), nor a longer
-        // dotted name (`param.x.y`, a design token's).
-        let whole = before.is_none_or(|c| !ident(c) && c != '.')
-            && !name.is_empty()
-            && !tail[len..].starts_with('.');
-        out.push_str(&rest[..at]);
-        match (whole, whole.then(|| named(name)).flatten()) {
-            (true, Some(token)) => out.push_str(&token),
-            (true, None) => {
-                bad.push(name.to_string());
-                out.push_str(&rest[at..at + PREFIX.len() + len]);
-            }
-            (false, _) => out.push_str(&rest[at..at + PREFIX.len() + len]),
-        }
-        rest = &tail[len..];
-    }
-    out.push_str(rest);
-    out
-}
-
-/// `e`'s strings with their `param.` names rewritten.
-fn expr(e: &mut Expr, named: &dyn Fn(&str) -> Option<String>, bad: &mut Vec<(String, Span)>) {
-    let mut found = Vec::new();
-    match e {
-        Expr::Str(s, span) => {
-            *s = words(s, named, &mut found);
-            bad.extend(found.into_iter().map(|n| (n, *span)));
-        }
-        Expr::Template(parts, span) => {
-            for part in parts.iter_mut() {
-                match part {
-                    TemplatePart::Text(s) => *s = words(s, named, &mut found),
-                    TemplatePart::Expr(e) => expr(e, named, bad),
-                }
-            }
-            bad.extend(found.into_iter().map(|n| (n, *span)));
-        }
-        Expr::Ternary(_, yes, no, _) => {
-            expr(yes, named, bad);
-            expr(no, named, bad);
-        }
-        Expr::Match { some, none, .. } => {
-            expr(some, named, bad);
-            expr(none, named, bad);
-        }
-        Expr::Let { value, body, .. } => {
-            expr(value, named, bad);
-            expr(body, named, bad);
-        }
-        Expr::Binary(_, left, right, _) => {
-            expr(left, named, bad);
-            expr(right, named, bad);
-        }
-        _ => {}
-    }
-}
-
-fn attrs(list: &mut [Attr], named: &dyn Fn(&str) -> Option<String>, bad: &mut Vec<(String, Span)>) {
-    for a in list {
-        expr(&mut a.value, named, bad);
-    }
-}
-
-fn nodes(list: &mut [Node], named: &dyn Fn(&str) -> Option<String>, bad: &mut Vec<(String, Span)>) {
-    for node in list {
-        match node {
-            // A text's content is no row: it is left as written.
-            Node::Element {
-                attrs: a, children, ..
-            } => {
-                attrs(a, named, bad);
-                nodes(children, named, bad);
-            }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                nodes(then, named, bad);
-                nodes(otherwise, named, bad);
-            }
-            Node::Each { body, .. } => nodes(body, named, bad),
-            Node::Match { some, none, .. } => {
-                nodes(&mut some.1, named, bad);
-                nodes(none, named, bad);
-            }
-            Node::Use { args, children, .. } => {
-                attrs(args, named, bad);
-                nodes(children, named, bad);
-            }
-            Node::Children { .. } => {}
-        }
-    }
-}
-
-/// Rewrite `param.<name>` in each component of `file` (its view's rows, its
-/// uses' arguments, its params' defaults) to the token name of
-/// the component's param `name`. A `param.` name the component does not
-/// declare is refused, as is one written in a component with no params.
-pub fn rewrite(file: &mut File) -> Vec<LowerError> {
-    let mut errors = Vec::new();
-    for c in &mut file.components {
-        let identity = c.params.identity.clone().unwrap_or_else(|| c.name.clone());
-        let declared: Vec<String> = c.params.list.iter().map(|p| p.name.clone()).collect();
-        let named = |n: &str| {
-            declared
-                .iter()
-                .any(|d| d == n)
-                .then(|| token_name(&identity, n))
-        };
-        let mut bad = Vec::new();
-        nodes(&mut c.view, &named, &mut bad);
-        for p in &mut c.params.list {
-            let mut found = Vec::new();
-            p.default = words(&p.default, &named, &mut found);
-            bad.extend(found.into_iter().map(|n| (n, p.default_span)));
-        }
-        for (name, span) in bad {
-            errors.push(LowerError {
-                id: "tamber-param-unknown",
-                message: format!(
-                    "`param.{name}`: `{}` declares no param `{name}`{}",
-                    c.name,
-                    if declared.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" (its params: {})", declared.join(", "))
-                    }
-                ),
-                span,
-            });
-        }
-    }
-    errors
-}
-
 /// Two declaring files whose paths hash alike: their params' token names
 /// would be one, so the build is refused, naming both.
 pub fn collisions(params: &[ParamToken]) -> Vec<LowerError> {
@@ -222,118 +81,10 @@ pub fn collisions(params: &[ParamToken]) -> Vec<LowerError> {
         match seen.iter().find(|(h, f, _)| *h == hash && *f != file) {
             Some((_, other, _)) => errors.push(LowerError {
                 id: "tamber-param-collision",
-                message: format!("`{file}` and `{other}` give their params one token name (`{PREFIX}{hash}…`): rename either file"),
+                message: format!("`{file}` and `{other}` would give their params one token name below the IR: rename either file"),
                 span: p.param.span,
             }),
             None => seen.push((hash, file, p.param.span)),
-        }
-    }
-    errors
-}
-
-/// The words a component's view reads: its rows' and its uses' arguments'
-/// literals.
-fn read(list: &[Node], out: &mut Vec<String>) {
-    fn text(e: &Expr, out: &mut Vec<String>) {
-        match e {
-            Expr::Str(s, _) => out.push(s.clone()),
-            Expr::Template(parts, _) => {
-                for p in parts {
-                    match p {
-                        TemplatePart::Text(s) => out.push(s.clone()),
-                        TemplatePart::Expr(e) => text(e, out),
-                    }
-                }
-            }
-            Expr::Ternary(_, a, b, _)
-            | Expr::Match {
-                some: a, none: b, ..
-            }
-            | Expr::Let {
-                value: a, body: b, ..
-            }
-            | Expr::Binary(_, a, b, _) => {
-                text(a, out);
-                text(b, out);
-            }
-            _ => {}
-        }
-    }
-    for node in list {
-        match node {
-            Node::Element {
-                attrs, children, ..
-            } => {
-                attrs.iter().for_each(|a| text(&a.value, out));
-                read(children, out);
-            }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                read(then, out);
-                read(otherwise, out);
-            }
-            Node::Each { body, .. } => read(body, out),
-            Node::Match { some, none, .. } => {
-                read(&some.1, out);
-                read(none, out);
-            }
-            Node::Use { args, children, .. } => {
-                args.iter().for_each(|a| text(&a.value, out));
-                read(children, out);
-            }
-            Node::Children { .. } => {}
-        }
-    }
-}
-
-/// Each param of `file` no row of its component reaches, through any chain
-/// of its params (`tamber-param-unused`). A state part's rows (D8) land
-/// with stage 8, so a param only one would read is refused here too.
-pub fn unused(file: &File) -> Vec<LowerError> {
-    let names = |text: &str| -> Vec<String> {
-        text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-            .filter(|w| w.starts_with(PREFIX))
-            .map(str::to_string)
-            .collect()
-    };
-    let mut errors = Vec::new();
-    for c in &file.components {
-        if c.params.list.is_empty() {
-            continue;
-        }
-        let identity = c.params.identity.clone().unwrap_or_else(|| c.name.clone());
-        let mut texts = Vec::new();
-        read(&c.view, &mut texts);
-        let mut reached: Vec<String> = texts.iter().flat_map(|t| names(t)).collect();
-        // Through the defaults of the params reached.
-        loop {
-            let more: Vec<String> = c
-                .params
-                .list
-                .iter()
-                .filter(|p| reached.contains(&token_name(&identity, &p.name)))
-                .flat_map(|p| names(&p.default))
-                .filter(|n| !reached.contains(n))
-                .collect();
-            if more.is_empty() {
-                break;
-            }
-            reached.extend(more);
-        }
-        for p in &c.params.list {
-            if !reached.contains(&token_name(&identity, &p.name)) {
-                errors.push(LowerError {
-                    id: "tamber-param-unused",
-                    message: format!(
-                        "param `{}` is read by no row of `{}`, directly or through another of its params: read it in a row (`param.{}`), or remove it; a param read only by a state part (D8) lands with stage 8",
-                        full_name(&identity, &p.name),
-                        c.name,
-                        p.name
-                    ),
-                    span: p.span,
-                });
-            }
         }
     }
     errors
@@ -364,6 +115,25 @@ pub fn add_to(design: &mut exact_tamber::Design, params: &[ParamToken]) {
         match icon {
             true => design.icons.push(token),
             false => design.tokens.push(token),
+        }
+    }
+    // An icon param whose default names another icon (a param's, or the
+    // design's) takes that icon's sources: the icons block folds literals.
+    for _ in 0..params.len() {
+        let mut changed = false;
+        for i in 0..design.icons.len() {
+            let name = design.icons[i].value.value.trim().to_string();
+            if name.contains('(') {
+                continue;
+            }
+            if let Some(src) = design.icons.iter().find(|t| t.name.value == name) {
+                let value = src.value.value.clone();
+                design.icons[i].value.value = value;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
         }
     }
 }
@@ -577,16 +347,41 @@ pub fn resolve<'a>(params: &'a [ParamToken], name: &str) -> Result<&'a ParamToke
     if let Some(p) = params.iter().find(|p| p.full == name) {
         return Ok(p);
     }
+    // A short name is a component's: two components of that name (two
+    // identities) make it ambiguous, whichever of them has the param.
+    let component = |p: &ParamToken| {
+        p.identity
+            .rsplit_once('#')
+            .map_or(p.identity.clone(), |(_, c)| c.to_string())
+    };
     let found: Vec<&ParamToken> = params
         .iter()
-        .filter(|p| {
-            let component = p
-                .identity
-                .rsplit_once('#')
-                .map_or(p.identity.as_str(), |(_, c)| c);
-            format!("{component}.{}", p.param.name) == name
-        })
+        .filter(|p| format!("{}.{}", component(p), p.param.name) == name)
         .collect();
+    if let Some(p) = found.first() {
+        let mut owners: Vec<&str> = params
+            .iter()
+            .filter(|q| component(q) == component(p))
+            .map(|q| q.identity.as_str())
+            .collect();
+        owners.dedup();
+        owners.sort_unstable();
+        owners.dedup();
+        if owners.len() > 1 {
+            return Err(refuse(
+                "tamber-param-ambiguous",
+                format!(
+                    "`{name}`: more than one component is called `{}` ({}): name the param in full",
+                    component(p),
+                    owners
+                        .iter()
+                        .map(|o| format!("`{o}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        }
+    }
     match found.as_slice() {
         [one] => Ok(one),
         [] => Err(refuse(
@@ -630,26 +425,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_param_is_named_by_its_identity_and_rewritten_as_a_whole_word() {
+    fn a_param_is_named_by_its_identity() {
         let t = token_name("post.contract#PostButton", "radius");
         assert!(
-            t.starts_with("param.") && t.ends_with(".PostButton.radius"),
+            t.starts_with("param.f") && t.ends_with(".PostButton.radius"),
             "{t}"
         );
         assert_ne!(t, token_name("screens/post.contract#PostButton", "radius"));
-        let named = |n: &str| (n == "fill").then(|| "T".to_string());
-        let mut bad = Vec::new();
-        assert_eq!(
-            words(
-                "color-mix(in oklab, param.fill 88%, x.param.fill) param.fill.y",
-                &named,
-                &mut bad
-            ),
-            "color-mix(in oklab, T 88%, x.param.fill) param.fill.y"
-        );
-        assert!(bad.is_empty());
-        words("param.nope", &named, &mut bad);
-        assert_eq!(bad, ["nope"]);
     }
 
     #[test]

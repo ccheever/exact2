@@ -218,13 +218,14 @@ impl Lowerer<'_> {
         // params and no design has one of them alone.
         let params = crate::params::tokens(file);
         PARAMS.with(|p| *p.borrow_mut() = params.clone());
+        SHOWN.with(|p| *p.borrow_mut() = params.clone());
         let found = self.design(file).or_else(|| {
             (!params.is_empty()).then(|| (tamber::Design::default(), Origin::Inline(Vec::new())))
         });
         let Some((mut design, origin)) = found else {
             return exact_kernel::style::theme::declarations([]);
         };
-        for t in &design.tokens {
+        for t in design.tokens.iter().chain(&design.icons) {
             if t.name.value.starts_with(crate::params::PREFIX) {
                 self.push(LowerError {
                     id: "tamber-param-name",
@@ -709,12 +710,14 @@ thread_local! {
     /// The app's components' params as tokens while its styles are lowered
     /// (D15): what a refusal names by full name, and what checks them.
     static PARAMS: std::cell::RefCell<Vec<crate::params::ParamToken>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Every param, a bad kind's too: what a refusal names by full name.
+    static SHOWN: std::cell::RefCell<Vec<crate::params::ParamToken>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// `errors` with each param's token name written as its full name (D15):
 /// an author never reads the hash.
 pub(crate) fn shown_errors(errors: Vec<LowerError>) -> Vec<LowerError> {
-    PARAMS.with(|p| {
+    SHOWN.with(|p| {
         let params = p.borrow();
         if params.is_empty() {
             return errors;
