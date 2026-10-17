@@ -38,7 +38,10 @@ component Note
 - Two panes go in reading order: the starting one on the leading segment, the next on
   the trailing one. Segments count from the left, so in a right-to-left language the
   leading segment is 1.
-- Propped up like a laptop, Apple's guidance can move a lone element to the top segment.
+- Propped up like a laptop (two segments down), controls go on the bottom segment, as
+  Apple's talk and UIKit's own sheets do: cap a bottom sheet's `max-height` at
+  `env(viewport-segment-height 0 1)`. The keyboard then covers that segment and the sheet
+  rides above it, so leave its header room as well.
 - Change the values on one node, as above, so a fold keeps the field and its text. UIKit
   itself can still end the editing when the device switches panels.
 - The platform's own sheets, alerts, menus and tab bar keep off the hinge by themselves.
