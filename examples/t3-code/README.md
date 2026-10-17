@@ -401,9 +401,10 @@ closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view 
 and a placeholder change keeping a field's focus, failure 2, then #712, a context menu's item chosen
 by typing its name and Return pressing it), a session with real keys on the terminal, the
 real-input and VoiceOver sessions G to K, an agent drive and real-input session on the bundle
-of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2`, `c067957ad`, `966bb0d79` and
-`ea15f98f0` with `571d07c17`, each with the fixtures below. Each item says what is wrong or missing; the
-open framework issues that someone using the app runs into are in the section above.
+of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2`, `c067957ad`, `966bb0d79`,
+`ea15f98f0` with `571d07c17`, and `6b1fc7dde`, each with the fixtures below. Each item says what is
+wrong or missing; the open framework issues that someone using the app runs into are in the section
+above.
 
 **Known differences:**
 
@@ -411,11 +412,12 @@ open framework issues that someone using the app runs into are in the section ab
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
   has the keyboard focus, as VoiceOver's cursor does in an AppKit window. The clone also reads the old
-  draft's text as it leaves ("see Turn with file edits now"), VoiceOver's echo of text removed from
-  the focused text view; the reference reads nothing of it.
-- A right press on a flat sidebar draft row leaves the focus in the prompt, and one on a control
-  inside a thread row (pin, snooze) focuses the row. Chromium focuses what was pressed: the draft
-  row, a `role="button"` with a tabIndex (Sidebar.tsx:872-873), or the control.
+  draft's text as it leaves ("see Turn with file edits now", about 0.65 s after the press, cutting off
+  "Message, edit text"; 3 of 3): Exact's textarea writes the new thread's draft into the same text view
+  (`TextAreaMac.swift` `writeValue`, `NSTextView.string`), for which AppKit posts only
+  `AXSelectedTextChanged`, and VoiceOver echoes text removed from the text view it is on. In the reference
+  the keyboard focus is on the chip link, where VoiceOver's cursor moved it, and Chromium's value change
+  (its removed text included) comes as the focus returns to the prompt; VoiceOver reads only the prompt.
 
 **Not failures:**
 
@@ -503,6 +505,13 @@ open framework issues that someone using the app runs into are in the section ab
   J9, J11, J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran on the
   T3 lane instead of PR #676's test app (58 of 58 outside presses closed the popovers), and J19's
   NSPopover path does not exist in the clone.
+
+**Checked with real pointer** (2026-10-17, bundle of `6b1fc7dde`, the flat sidebar, a lane copy): with
+the prompt focused, a right press on a draft row focuses the row ('draft for the row check, Unsent draft,
+agent-edits') and opens its menu (Copy, …), and Escape leaves the focus on it. On a hovered card, a right
+press on Unpin thread, Snooze thread or Settle thread, or on the draft row's Discard draft, focuses that
+control, as Chromium focuses a button it presses, and opens the row's menu; Escape leaves the focus on
+the control. A right press on the card's body still focuses the row (1 of 1 each).
 
 **Checked with real pointer, keys and VoiceOver, and by agent drive** (2026-10-17, bundle of
 `966bb0d79`, main's #712 in it; `second` seeded, its home as This machine's, a lane copy on an
