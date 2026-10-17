@@ -230,6 +230,23 @@ pub fn type_properties(plan: &Plan, every: bool) -> Vec<(String, StyleId, String
     out
 }
 
+/// Each type token's size property whose size is a text style in the
+/// default tuple, with that style's name: a bound `font` naming it writes
+/// the style's weight and leading where the token writes none, as the
+/// literal's name does (`rows.rs`), so a development build matches release.
+pub fn size_styles(plan: &Plan, every: bool) -> Vec<(String, String)> {
+    type_properties(plan, every)
+        .into_iter()
+        .filter(|(_, id, _)| *id == StyleId::FontSize)
+        .filter_map(|(name, _, prop)| {
+            let row = plan.theme.iter().find(|r| plan.str(r.name) == name)?;
+            let size = exact_kernel::style::theme::typeface::parts(value_at(plan, row, 0))?.size;
+            let style = size.starts_with("-exact-") || size.starts_with("-apple-system-");
+            style.then(|| (format!("var({prop})"), size.to_string()))
+        })
+        .collect()
+}
+
 /// Token `i`'s sentinel of `kind` at offset `k`: the value text a parse
 /// reads first, then the CSS texts the projection may write for it, the
 /// longer first (a length is unitless in an SVG stroke's CSS). Every one is

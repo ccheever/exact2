@@ -563,3 +563,30 @@ fn a_type_tokens_properties_hold_their_edges() {
         "the row is cleared: {container}"
     );
 }
+
+/// theme2's condition (17:36): a bound `font` naming a type token whose size
+/// is a text style writes that style's weight and leading where the token
+/// writes none, in a development build as in release.
+#[test]
+fn a_bound_font_keeps_its_styles_weight_in_a_development_build() {
+    let design = "tamber t\n\ntheme\n  type.a = -exact-body Georgia, serif\n  type.b = -exact-title1 Georgia, serif\n";
+    let p = plan(
+        "type-bound-style",
+        design,
+        "component App\n  state big = false\n  view\n    text \"a\" font=(big ? \"type.b\" : \"type.a\")\n",
+    );
+    let dev = crate::emit::emit(&p, false, true).unwrap();
+    assert!(
+        dev.js.contains(
+            "\"var(--x-type-a-size)\":\"-exact-body\",\"var(--x-type-b-size)\":\"-exact-title1\""
+        ),
+        "{}",
+        dev.js
+    );
+    let release = crate::emit::emit(&p, false, false).unwrap();
+    assert!(
+        !release.js.contains("var(--x-type-a-size)"),
+        "{}",
+        release.js
+    );
+}

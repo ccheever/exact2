@@ -344,6 +344,17 @@ impl Em<'_> {
             // custom property that binding falls back on (below).
             StyleId::FontSize if parts.props.contains_key("data-fontshorthand") => {
                 let [weight, leading] = &*style::TEXT_STYLE_ROWS;
+                // A type token's size property stands for its text style
+                // here, as the literal's name would (`measures::size_styles`).
+                let styles = crate::measures::size_styles(plan, crate::modes::every_token());
+                let back = |map: &String| match styles.is_empty() {
+                    true => map.clone(),
+                    false => {
+                        let pairs: Vec<String> = styles.iter().map(|(v, s)| format!("{}:{}", serde_json::to_string(v).unwrap(), serde_json::to_string(s).unwrap())).collect();
+                        format!("(B=>v=>({map})(typeof v===\"string\"&&Object.hasOwn(B,v)?B[v]:v))({{{}}})", pairs.join(","))
+                    }
+                };
+                let (weight, leading) = (&back(weight), &back(leading));
                 let written = |name: &str| parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")));
                 let mut w = vec![("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string()))];
                 for (row, name, map) in [(StyleId::FontWeight, "font-weight", weight), (StyleId::LineHeight, "line-height", leading)] {
