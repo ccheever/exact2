@@ -115,6 +115,110 @@ fn a_computed_part_composes_one_animation() {
 }
 
 #[test]
+fn attribute_lengths_refuse_deferred_units_and_functions() {
+    let attrs = [
+        ("line", "x1"),
+        ("line", "y1"),
+        ("line", "x2"),
+        ("line", "y2"),
+        ("linearGradient", "x1"),
+        ("linearGradient", "y1"),
+        ("linearGradient", "x2"),
+        ("linearGradient", "y2"),
+        ("radialGradient", "fx"),
+        ("radialGradient", "fy"),
+        ("radialGradient", "fr"),
+        ("marker", "markerWidth"),
+        ("marker", "markerHeight"),
+        ("marker", "refX"),
+        ("marker", "refY"),
+        ("text", "x"),
+        ("text", "y"),
+        ("text", "dx"),
+        ("text", "dy"),
+        ("tspan", "x"),
+        ("tspan", "y"),
+        ("tspan", "dx"),
+        ("tspan", "dy"),
+    ];
+    let source = |tag: &str, attr: &str, value: &str| {
+        let child = format!("{tag} {attr}={value}");
+        let child = if tag == "tspan" {
+            format!("text\n        {child}")
+        } else {
+            child
+        };
+        format!("component A\n  state n = 2\n  state on = true\n  view\n    svg\n      {child}\n")
+    };
+    for (tag, attr) in attrs {
+        for unit in [
+            "em", "rem", "ex", "ch", "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh", "svmin",
+            "svmax", "lvw", "lvh", "lvmin", "lvmax", "dvw", "dvh", "dvmin", "dvmax", "lh", "rlh",
+            "q", "REM",
+        ] {
+            let value = if matches!(tag, "text" | "tspan") {
+                format!("\"10px, 20% 2{unit}\"")
+            } else {
+                format!("\"2{unit}\"")
+            };
+            let error = refused(&source(tag, attr, &value));
+            for expected in [
+                "lower-svg-length",
+                "refused (LLP 1055.000 D4)",
+                unit,
+                attr,
+                "px",
+                "%",
+            ] {
+                assert!(
+                    error.contains(expected),
+                    "{tag} {attr}: missing {expected}: {error}"
+                );
+            }
+        }
+        for (value, name) in [
+            ("\"calc(10px + 2%)\"", "calc()"),
+            ("\"env(safe-area-inset-top)\"", "env()"),
+            ("\"var(--position)\"", "var()"),
+            ("`${n}em`", "em"),
+            ("`10px, ${n}vh`", "vh"),
+            ("`calc(${n}px + 1px)`", "calc()"),
+            ("(on ? \"2rem\" : \"1px\")", "rem"),
+        ] {
+            let error = refused(&source(tag, attr, value));
+            assert!(
+                error.contains("lower-svg-length") && error.contains(name),
+                "{error}"
+            );
+        }
+        for value in [
+            "2",
+            "\"2\"",
+            "\"2px\"",
+            "\"2in\"",
+            "\"2cm\"",
+            "\"2mm\"",
+            "\"2pt\"",
+            "\"2pc\"",
+            "\"20%\"",
+            "\"1e2PX\"",
+            "\"-1E-2pt\"",
+            "n",
+            "`${n}px`",
+            "`${n}%`",
+        ] {
+            let src = source(tag, attr, value);
+            contract::compile(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        }
+        if matches!(tag, "text" | "tspan") {
+            contract::compile(&source(tag, attr, "\"1px, -2.5% 3e2mm\"")).unwrap();
+        }
+    }
+    let src = "component A\n  view\n    svg\n      rect x=\"2em\" y=\"3vh\" width=\"calc(10px + 2%)\"\n      marker orient=\"auto-start-reverse\"\n      linearGradient\n        stop offset=\"2em\"\n      filter\n        feOffset dx=\"2em\" dy=\"calc(1px + 2%)\"\n";
+    contract::compile(src).unwrap();
+}
+
+#[test]
 fn refusals_are_named() {
     let svg = |body: &str| {
         format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    svg width=10 height=10\n      {body}\n")

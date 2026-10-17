@@ -2264,6 +2264,13 @@ SVG uses SVG names. Native SVG geometry has incomplete support for `calc()`,
 `min()`, `max()` and `clamp()`, including nested SVG viewports and `<use>`
 placement and sizing. Use numeric lengths or percentages there; CSS layout math
 on the outer SVG element does not imply support inside its scene.
+SVG attribute-only lengths accept user units (unitless), `px`, `in`, `cm`, `mm`,
+`pt`, `pc` and `%`: line/linearGradient `x1`/`y1`/`x2`/`y2`, radialGradient
+`fx`/`fy`/`fr`, marker `markerWidth`/`markerHeight`/`refX`/`refY`, and each item
+of SVG text/tspan `x`/`y`/`dx`/`dy`. Relative units and function text such as
+`calc()`, `env()` and `var()` are refused in literals and literal template parts
+(LLP 1055.000 D4). Bound values must use the same units; they are not checked
+at compile time.
 `foreignObject` compiles and renders on the web; native hosts refuse it at run
 time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A

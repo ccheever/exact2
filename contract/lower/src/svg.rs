@@ -649,6 +649,18 @@ impl Lowerer<'_> {
                     a.span,
                 );
             }
+            let length = match a.name.as_str() {
+                "textX" => Some("x"),
+                "textY" => Some("y"),
+                "textDx" => Some("dx"),
+                "textDy" => Some("dy"),
+                "x1" | "y1" | "x2" | "y2" | "fx" | "fy" | "fr" | "markerWidth" | "markerHeight"
+                | "refX" | "refY" => Some(a.name.as_str()),
+                _ => None,
+            };
+            if let Some(name) = length.filter(|_| element) {
+                check_length(name, &a.value)?;
+            }
             if matches!(a.name.as_str(), "animation" | "-exact-exit-animation") {
                 self.check_animation_names(tag, &a.value)?;
             }
@@ -910,6 +922,57 @@ fn exit_ends(value: &Expr) -> Result<(), LowerError> {
         }
         _ => Ok(()),
     }
+}
+
+// These props bypass CSS length resolution. Check literal text even inside
+// templates and conditional branches; a bound value still needs a runtime check.
+fn check_length(name: &str, value: &Expr) -> Result<(), LowerError> {
+    match value {
+        Expr::Str(text, span) => check_length_text(name, text, *span),
+        Expr::Template(parts, span) => {
+            for part in parts {
+                match part {
+                    TemplatePart::Text(text) => check_length_text(name, text, *span)?,
+                    TemplatePart::Expr(value) => check_length(name, value)?,
+                }
+            }
+            Ok(())
+        }
+        Expr::Ternary(_, yes, no, _) => {
+            check_length(name, yes)?;
+            check_length(name, no)
+        }
+        _ => Ok(()),
+    }
+}
+
+fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerError> {
+    let refuse = |value: &str| {
+        err(
+            "lower-svg-length",
+            format!("`{value}` on SVG `{name}` is refused (LLP 1055.000 D4): use user units (unitless), px, in, cm, mm, pt, pc or %"),
+            span,
+        )
+    };
+    if let Some((before, _)) = text.split_once('(') {
+        let before = before.trim_end();
+        let start = before
+            .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '-')
+            .len();
+        return refuse(&format!("{}()", &before[start..]));
+    }
+    for word in text.split(|c: char| c == ',' || c.is_ascii_whitespace()) {
+        let start = word
+            .trim_end_matches(|c: char| c.is_ascii_alphabetic())
+            .len();
+        let unit = &word[start..];
+        // Probe the kernel's unit grammar, including a template's `${n}px`
+        // suffix. Scientific notation's exponent stays in the numeric prefix.
+        if !unit.is_empty() && exact_kernel::svg::Length::parse(&format!("1{unit}")).is_none() {
+            return refuse(unit);
+        }
+    }
+    Ok(())
 }
 
 /// SVG length props take text (LLP 1055.000 D4): a number literal becomes
