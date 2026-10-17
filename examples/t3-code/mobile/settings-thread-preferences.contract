@@ -107,7 +107,7 @@ component ThreadPreferenceSwitch
         button press=change(id, "true") disabled=disabled padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 background-color=colors.subtle border-radius=99 aria-label=`Set ${label} on for selected environments`
           text "Mixed · Set on" font-size=roles.footnote.size font-weight=500 color=colors.foreground
       else
-        input type="checkbox" switch checked=checked disabled=disabled change=toggle aria-label=label accent-color=colors.switchOn background-color=colors.switchOff margin=0
+        input type="checkbox" switch checked=checked disabled=disabled change=toggle aria-label=label accent-color=colors.switchOn background-color=colors.switchOff margin=0 margin-right=2
 component ThreadPreferenceDays
   props
     nativePicker: bool
