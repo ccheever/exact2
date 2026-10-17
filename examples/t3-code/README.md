@@ -411,13 +411,14 @@ above.
 - After VO-Space on a composer thread chip, the reference's VoiceOver cursor ends on the window's close
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
-  has the keyboard focus, as VoiceOver's cursor does in an AppKit window. The clone also reads the old
-  draft's text as it leaves ("see Turn with file edits now", about 0.65 s after the press, cutting off
-  "Message, edit text"; 3 of 3): Exact's textarea writes the new thread's draft into the same text view
-  (`TextAreaMac.swift` `writeValue`, `NSTextView.string`), for which AppKit posts only
-  `AXSelectedTextChanged`, and VoiceOver echoes text removed from the text view it is on. In the reference
-  the keyboard focus is on the chip link, where VoiceOver's cursor moved it, and Chromium's value change
-  (its removed text included) comes as the focus returns to the prompt; VoiceOver reads only the prompt.
+  has the keyboard focus, as VoiceOver's cursor does in an AppKit window.
+- When a thread switch replaces a draft in the focused prompt, VoiceOver reads the old draft as it
+  leaves ("see Turn with file edits now", about 0.6 s after VO-Space on a composer thread chip, cutting
+  off "Message, edit text", or after ⌘⇧[; 3 of 3 each); the reference's reads none of it. Exact's
+  textarea writes the new draft into the same text view (`TextAreaMac.swift` `writeValue`), for which
+  AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
+  view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
+  removed text, which VoiceOver does not read.
 
 **Not failures:**
 
