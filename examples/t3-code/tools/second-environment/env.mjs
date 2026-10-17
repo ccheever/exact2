@@ -17,7 +17,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, seed, shellOf, startServer, stopHub, stopServer } from "./lib.mjs";
+import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, routeOf, seed, shellOf, startServer, stopHub, stopServer } from "./lib.mjs";
 
 const paths = fixturePaths();
 const nameArg = (index = 3) => {
@@ -104,7 +104,9 @@ if (import.meta.main) {
       const file = join(envDir(paths, name), "environment.json");
       if (!existsSync(file)) throw new Error(`${name} has never started`);
       const { origin, environmentId } = JSON.parse(readFileSync(file, "utf8"));
-      console.log(forgetKeychain(origin, environmentId) ? "removed" : "none saved");
+      // A pairing through a stand-in in front of the server (route.json) saved its token under the stand-in's origin.
+      const route = routeOf(paths, name), origins = [origin, ...(route ? [`http://127.0.0.1:${route.port}`] : [])];
+      console.log(origins.map((each) => forgetKeychain(each, environmentId)).some(Boolean) ? "removed" : "none saved");
     } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 16).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
