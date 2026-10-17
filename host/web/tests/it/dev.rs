@@ -544,6 +544,19 @@ fn a_value_only_design_edit_writes_no_plan_and_sends_a_batch() {
     // A value, saved in place.
     save(&design, &tamber.replace("#111111", "#222222"), 1);
     let edit = s.poll::<NoData>().expect("a design edit").unwrap();
+    // Dated by the design's save, not the older root's.
+    let design_ms = std::fs::metadata(&design)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as f64;
+    assert!(
+        edit.saved_ms >= design_ms - 1.0,
+        "{} < {design_ms}",
+        edit.saved_ms
+    );
     let live = edit.live.expect("value-only");
     assert_eq!(std::fs::read(&out).unwrap(), edit.bytes, "the file follows");
     assert_ne!(edit.bytes, on_disk);
