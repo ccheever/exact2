@@ -52,13 +52,22 @@ pub struct Site {
     pub tokens: Vec<String>,
 }
 
-/// The design's duration and easing tokens, each name and value; none
-/// when it does not check (lowering reports why). An inline `theme`'s names
+/// The design's duration and easing tokens, and its components' params of
+/// those kinds, each name and value; none when it does not check (lowering
+/// reports why). An inline `theme`'s names
 /// are undotted, so it declares none (`tamber-motion-name`).
-pub fn tokens(design: &str) -> Vec<(String, String)> {
-    let Ok(mut design) = tamber::parse(design) else {
-        return Vec::new();
+pub fn tokens(design: Option<&str>, params: &[crate::params::ParamToken]) -> Vec<(String, String)> {
+    let mut design = match design {
+        Some(text) => match tamber::parse(text) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        },
+        None if params.is_empty() => return Vec::new(),
+        None => tamber::Design::default(),
     };
+    // A component's duration and easing params are written in as its rows
+    // read them (LLP 1121 D15).
+    crate::params::add_to(&mut design, params);
     crate::theme::stand_in_profiles(&mut design);
     let Ok(folding) = tamber::check_design(design, &crate::theme::vocab()) else {
         return Vec::new();

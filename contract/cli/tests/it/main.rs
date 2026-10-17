@@ -137,6 +137,7 @@ mod tamber_gen;
 mod tamber_icons;
 mod tamber_measures;
 mod tamber_motion;
+mod tamber_params;
 mod tamber_scheme;
 mod tamber_serve;
 mod tamber_shadows;

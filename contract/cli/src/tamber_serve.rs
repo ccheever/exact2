@@ -64,7 +64,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.9";
+pub const PROTOCOL: &str = "tamber/1.10";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -712,8 +712,14 @@ impl Server {
 
     fn describe(&self, request: &Value) -> Result<Value, Value> {
         let (snap, folding) = self.design(request)?;
-        let ir: Value =
+        let mut ir: Value =
             serde_json::from_str(&folding.ir()).map_err(|e| json!({"message": e.to_string()}))?;
+        // The app's components' params (LLP 1121 D15), each by its full name.
+        let all = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        if !all.is_empty() {
+            ir["components"] =
+                contract::tamber_params::components(&all, Some(&folding.design), &self.vocab);
+        }
         let meta =
             |m: &[(String, String)]| m.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>();
         let dials: serde_json::Map<String, Value> = folding

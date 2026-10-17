@@ -49,6 +49,7 @@ pub mod motion;
 mod native;
 mod nodes;
 mod overflow;
+pub mod params;
 mod routes;
 mod shorthands;
 mod sites;
@@ -215,7 +216,7 @@ pub fn lower(
 ) -> Result<Plan, LowerError> {
     lower_with_sites(checked, _analysis, asset_root, false, Profile::Web, None)
         .map(|(plan, _)| plan)
-        .map_err(|mut all| all.swap_remove(0))
+        .map_err(|all| theme::shown_errors(all).swap_remove(0))
 }
 
 /// Lower, reporting every independent refusal: each element and each of its
@@ -250,7 +251,7 @@ pub fn lower_all(
     if let Some(out) = warned {
         out.extend(warnings::with_text_styles(checked, &text_styles));
     }
-    result
+    result.map_err(theme::shown_errors)
 }
 
 fn lower_with_sites(

@@ -154,16 +154,18 @@ pub fn run(args: &[String]) -> ExitCode {
         ("eval", []) => eval(&folding, ""),
         ("eval", [flag, modes]) if flag == "--mode" => eval(&folding, modes),
         ("ir", []) => {
-            println!("{}", folding.ir());
+            println!("{}", ir(&path, &folding));
             ExitCode::SUCCESS
         }
-        ("ir", [flag, out]) if flag == "-o" => match std::fs::write(out, folding.ir() + "\n") {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("contract tamber: {out}: {e}");
-                ExitCode::from(2)
+        ("ir", [flag, out]) if flag == "-o" => {
+            match std::fs::write(out, ir(&path, &folding) + "\n") {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("contract tamber: {out}: {e}");
+                    ExitCode::from(2)
+                }
             }
-        },
+        }
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -284,4 +286,25 @@ fn fmt(path: &Path, src: &str, check: bool) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// The design's IR, with its app's components' params (LLP 1121 D15) when
+/// it declares any.
+fn ir(design: &Path, folding: &exact_tamber::Folding) -> String {
+    let all = design
+        .parent()
+        .map(|dir| contract::tamber_params::params_of(&dir.join("app.contract")))
+        .unwrap_or_default();
+    if all.is_empty() {
+        return folding.ir();
+    }
+    let Ok(mut ir) = serde_json::from_str::<serde_json::Value>(&folding.ir()) else {
+        return folding.ir();
+    };
+    ir["components"] = contract::tamber_params::components(
+        &all,
+        Some(&folding.design),
+        &contract_lower::tamber_vocab(),
+    );
+    serde_json::to_string_pretty(&ir).unwrap_or_else(|_| folding.ir())
 }

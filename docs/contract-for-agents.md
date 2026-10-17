@@ -3154,6 +3154,22 @@ weight applies where it names none, and a size in px is warned of
 is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
 One that varies by a mode goes on the text, not its container
 (`tamber-inherited-axis`); on the JS target it may not vary yet.
+A component declares what a designer may tweak in a `params` section (LLP 1121
+D15), one param a line: `radius: length = "radius.md"  range="0..40"  step=1
+control="slider"  group="Shape"  priority=1  label="Corner radius"`. A param is a
+token the component owns: its default is any token value (a literal, a token, or
+an expression over tokens and the component's other params), and its rows and
+defaults name it `param.radius`. Every instance shares it. Its full name is the
+component's declaring file and name, `post.contract#PostButton.radius` (an import
+alias never changes it; moving the file makes it a new param), and
+`PostButton.radius` where no other component of that name has params. A param no
+row of its component reads, directly or through another param, is refused
+(`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
+default must be inside the range in every mode; `control` follows the kind
+(`color`, `slider`, `stepper`, `token`, `select` with `options="a|b"`, `none`),
+and `priority` is 1 to 3. A design token may not be named `param.…`.
+`contract tamber ir` and the design server's `describe` list them under
+`components`.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into

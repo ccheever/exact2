@@ -214,9 +214,40 @@ impl Lowerer<'_> {
         MEASURES.with(|m| m.borrow_mut().clear());
         RETENTION.with(|r| *r.borrow_mut() = None);
         MOTION.with(|m| m.borrow_mut().clear());
-        let Some((mut design, origin)) = self.design(file) else {
+        // The components' params, tokens of the design (D15): an app with
+        // params and no design has one of them alone.
+        let params = crate::params::tokens(file);
+        PARAMS.with(|p| *p.borrow_mut() = params.clone());
+        let found = self.design(file).or_else(|| {
+            (!params.is_empty()).then(|| (tamber::Design::default(), Origin::Inline(Vec::new())))
+        });
+        let Some((mut design, origin)) = found else {
             return exact_kernel::style::theme::declarations([]);
         };
+        for t in &design.tokens {
+            if t.name.value.starts_with(crate::params::PREFIX) {
+                self.push(LowerError {
+                    id: "tamber-param-name",
+                    message: format!("`{}`: a token named `param.…` is a component's param, which its component's `params` section declares (D15); name this token otherwise", t.name.value),
+                    span: self.token_span(&origin, t.name.line, t.name.col),
+                });
+            }
+        }
+        // Each param as declared, then those of a kind, into the design.
+        let (refused, unkinded) = crate::params::declared(&params);
+        // (Whether each is read is the driver's, before a motion param is
+        // written into its rows: `params::unused`.)
+        for e in refused {
+            self.push(e);
+        }
+        let kinded: Vec<crate::params::ParamToken> = params
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !unkinded.contains(i))
+            .map(|(_, p)| p.clone())
+            .collect();
+        PARAMS.with(|p| *p.borrow_mut() = kinded.clone());
+        crate::params::add_to(&mut design, &kinded);
         let mut said = Said::of(file, root, &design);
         // D7's retention, left for the design server before the design is
         // folded, as it does not depend on the fold.
@@ -290,6 +321,9 @@ impl Lowerer<'_> {
                 }
             }
         };
+        for e in crate::params::folded(&kinded, &folding) {
+            self.push(e);
+        }
         // @ref LLP 1121 D10 — the icons' SVGs, and a source per shipped target.
         let exports = &folding.design.exports;
         let exported = |name: &str| {
@@ -595,6 +629,13 @@ impl Lowerer<'_> {
     /// Where a design's token line is: its entry's span, or its place in
     /// the design file.
     fn token_span(&self, origin: &Origin, line: u32, col: u32) -> Span {
+        // A param's token: its default, where its component declares it.
+        if (crate::params::LINE..SYNTHETIC).contains(&line) {
+            let at = (line - crate::params::LINE) as usize;
+            if let Some(span) = PARAMS.with(|p| p.borrow().get(at).map(|p| p.param.default_span)) {
+                return span;
+            }
+        }
         match origin {
             Origin::Inline(spans) => spans
                 .get(line.saturating_sub(1) as usize)
@@ -612,7 +653,19 @@ impl Lowerer<'_> {
     /// The crate's refusal, where it was written: an inline entry, a
     /// synthetic token's row, or the design file's line.
     fn design_refusal(&mut self, d: &tamber::Diagnostic, origin: &Origin, said: &Said) {
-        let (span, message) = if d.line >= SYNTHETIC {
+        let param = (crate::params::LINE..SYNTHETIC).contains(&d.line).then(|| {
+            PARAMS.with(|p| {
+                p.borrow()
+                    .get((d.line - crate::params::LINE) as usize)
+                    .cloned()
+            })
+        });
+        let (span, message) = if let Some(p) = param.flatten() {
+            (
+                p.param.default_span,
+                format!("param `{}`: {}", p.full, d.message),
+            )
+        } else if d.line >= SYNTHETIC {
             let s = &said.synthetic[(d.line - SYNTHETIC) as usize];
             (s.span, format!("`{}`: {}", s.expr, d.message))
         } else {
@@ -653,6 +706,27 @@ thread_local! {
     /// The design's duration and easing tokens while its styles are lowered
     /// (D3): each name and its value, which the build writes in its place.
     static MOTION: std::cell::RefCell<Vec<(String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The app's components' params as tokens while its styles are lowered
+    /// (D15): what a refusal names by full name, and what checks them.
+    static PARAMS: std::cell::RefCell<Vec<crate::params::ParamToken>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `errors` with each param's token name written as its full name (D15):
+/// an author never reads the hash.
+pub(crate) fn shown_errors(errors: Vec<LowerError>) -> Vec<LowerError> {
+    PARAMS.with(|p| {
+        let params = p.borrow();
+        if params.is_empty() {
+            return errors;
+        }
+        errors
+            .into_iter()
+            .map(|mut e| {
+                e.message = crate::params::shown(&e.message, &params);
+                e
+            })
+            .collect()
+    })
 }
 
 /// The synthetic tokens the last build on this thread could have, folding
@@ -795,12 +869,20 @@ pub(crate) fn check_pins(text: &str, axes: &[(String, Vec<String>)]) -> Result<(
 /// a length token stands in a length row as the build reads it. A design
 /// that does not fold binds every name as a colour, as before.
 pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope {
+    let mut params = crate::params::tokens(file);
+    let unkinded = crate::params::declared(&params).1;
+    let mut i = 0;
+    params.retain(|_| {
+        i += 1;
+        !unkinded.contains(&(i - 1))
+    });
     let design = match (&file.theme, &file.design) {
         (Some(theme), _) => Some(inline_design(theme)),
         (None, Some(source)) => tamber::parse(&source.text).ok(),
-        _ => None,
+        _ => (!params.is_empty()).then(tamber::Design::default),
     };
     let folding = design.and_then(|mut d| {
+        crate::params::add_to(&mut d, &params);
         stand_in_profiles(&mut d);
         tamber::check_design(d, &vocab()).ok()
     });

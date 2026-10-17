@@ -29,6 +29,7 @@ mod symbols;
 mod tests_json;
 pub use tests_json::tests_json;
 /// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_params;
 pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
@@ -227,12 +228,23 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
     }
 }
 from_pass!(contract_lower::LowerError, "lower");
+/// A source text's components' `param.` names as their tokens (LLP 1121
+/// D15), as the loader writes them for a file.
+fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+    let mut refused = contract_lower::params::rewrite(file);
+    refused.extend(contract_lower::params::unused(file));
+    match refused.into_iter().next() {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
+}
 /// Compile one source text to a validated plan. A text has no path, so a
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
 /// that uses others with [`compile_path`].
 pub fn compile(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    params(&mut file)?;
     if let Some(u) = file.uses.first() {
         return Err(CompileError {
             pass: "use",
@@ -257,6 +269,7 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         .map_err(CompileError::from)
         .and_then(|mut file| {
             contract_syntax::resolve_clock_timelines(&mut file)?;
+            params(&mut file)?;
             picker::check(&file, None).map_err(first)?;
             compile_file_warned(
                 &file,
@@ -277,6 +290,7 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
 pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_syntax::resolve_clock_timelines(&mut file)?;
+    params(&mut file)?;
     terminal::check(&file).map_err(first)?;
     picker::check(&file, None).map_err(first)?;
     compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)

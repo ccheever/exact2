@@ -686,6 +686,8 @@ pub struct Component {
     pub sequences: Vec<crate::sequence::Sequence>,
     /// The view's top-level nodes.
     pub view: Vec<Node>,
+    /// The `params` section and the component's identity (LLP 1121 D15).
+    pub params: crate::params::Params,
     /// Where.
     pub span: Span,
 }

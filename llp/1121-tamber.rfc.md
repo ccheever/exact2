@@ -3093,3 +3093,50 @@ No host binary shipped between them, so users see one break. Both digests are no
 mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
 
 **Stage 6 is closed** (with stage 9's icons).
+
+### Stage 7, commit A: the `params` section (draft for theme2)
+
+- **Grammar.** A component takes one `params` section. Each line is `name: kind = "default"`
+  followed by attributes `range`, `step`, `control`, `options`, `label`, `help`, `group` and
+  `priority` (a string or a number; any other is `syntax-param-attribute`). The AST holds it as
+  `Component.params` (`contract_syntax::params`). `contract fmt` keeps it as written.
+- **Identity and naming** (theme2's ruling, 2026-10-17). The loader gives each component its
+  identity: its file relative to the app's directory, or `<package>/<file>`, and its name
+  (`post.contract#PostButton`). A param's full name adds the param
+  (`post.contract#PostButton.radius`); its short name is `Component.param`.
+  - Below the IR (the reference table, the fold, the live table, `uses`, the JS target), a param is
+    the dotted token `param.f<hash>.<Component>.<param>`. The hash is FNV-1a of the file's path, as
+    eight hex digits after an `f`, since a name's segment starts with a letter.
+  - The loader rewrites `param.<name>` in a component's rows, its uses' arguments and its params'
+    defaults to that token before anything reads them. A text's content is left alone. So a param
+    is read, folded, retained (D7) and bound as any token is, and an import alias never redirects
+    it.
+  - Every refusal names the full name, never the hash: the lowering's errors pass through
+    `params::shown`.
+- **Folded with the design.** The compiler adds each param to the design it checks, as a token
+  of its kind (an icon param among the icons), on lines past the design's own. A refusal on one is
+  charged to its default's span. An app with params and no design folds them alone. A duration or
+  easing param is written into its rows at build, as a motion token is.
+- **Checks:**
+  - `tamber-param-unknown`: a `param.<name>` the component doesn't declare.
+  - `tamber-param-unused`: a param no row of its component reaches, directly or through another
+    param. The message says a param read only by a state part lands with stage 8, since state
+    parts don't parse yet.
+  - `tamber-param-kind`: no kind. A param's kind against its rows is D3's `tamber-kind`.
+  - `tamber-param-control`: a control the kind doesn't take, `select` without `options`, or
+    `options` without `select`.
+  - `tamber-param-range`: a range on a kind without one, a range that isn't `low..high`, or a
+    default outside its range in some tuple.
+  - `tamber-range-unit`: a ranged length that isn't px.
+  - `tamber-param-options`: an option that is no token of the kind.
+  - `tamber-param-step` and `tamber-param-priority`.
+  - `tamber-param-name`: a design token named `param.…`. The check is the compiler's, since the
+    crate checks the param tokens themselves.
+  - `tamber-param-collision`: two declaring files whose hashes match, naming both.
+- **The IR's `components` block.** `describe` and `contract tamber ir` return it, at
+  *tamber/1.10*, the stage's protocol version. Per component it gives the identity; per param, the
+  full and short names, token, kind, default (params named in full), values per tuple, range,
+  step, control (default `token`), options, label, help, group and priority (default 2).
+  `params::resolve` reads a full or short name, and refuses a short name two components share
+  (`tamber-param-ambiguous`), naming both. B's `set-param` and `resolve` take it.
+- **No digest moves.** A param is a token in the reference table.

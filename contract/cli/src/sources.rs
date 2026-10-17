@@ -141,19 +141,66 @@ pub(crate) fn load(
     if let Err(all) = loader.load_source(&root_key, src, 0) {
         return Err(resolve(&loader.sources, all));
     }
-    // The design, read before scoping: its motion tokens are written into
-    // the views first (`contract_lower::motion`).
+    // Each component's `param.` names, as their tokens (LLP 1121 D15),
+    // before anything reads a row.
+    let mut refused: Vec<CompileError> = Vec::new();
+    for unit in &mut loader.units {
+        refused.extend(
+            contract_lower::params::rewrite(&mut unit.file)
+                .into_iter()
+                .map(CompileError::from),
+        );
+        // Read by a row, before a motion param is written into it.
+        refused.extend(
+            contract_lower::params::unused(&unit.file)
+                .into_iter()
+                .map(CompileError::from),
+        );
+    }
+    let params: Vec<_> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::tokens(&u.file))
+        .collect();
+    refused.extend(
+        contract_lower::params::collisions(&params)
+            .into_iter()
+            .map(CompileError::from),
+    );
+    if !refused.is_empty() {
+        return Err(resolve(&loader.sources, refused));
+    }
+    // The design, read before scoping: its motion tokens, and the params of
+    // those kinds, are written into the views first (`contract_lower::motion`).
     let design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
-    loader.motion = design
-        .as_ref()
-        .map(|d| contract_lower::motion::tokens(&d.text))
-        .unwrap_or_default();
+    loader.motion =
+        contract_lower::motion::tokens(design.as_ref().map(|d| d.text.as_str()), &params);
     match loader.scope() {
         Ok(mut file) => {
             file.design = design;
             Ok((file, loader.sources))
         }
         Err(all) => Err(resolve(&loader.sources, all)),
+    }
+}
+
+/// A source's file as a component's identity names it (LLP 1121 D15): an
+/// app's relative to the app's directory, a package's under its name.
+fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
+    let shown = |root: &Path| {
+        let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        path.strip_prefix(&canonical)
+            .or_else(|_| path.strip_prefix(root))
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| {
+                path.file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            })
+    };
+    match origin {
+        Origin::App => shown(app_root),
+        Origin::Package { name, root, .. } => format!("{name}/{}", shown(root)),
+        Origin::Builtin => path.to_string_lossy().into_owned(),
     }
 }
 
@@ -458,8 +505,18 @@ impl Loader<'_> {
         source_id: u32,
     ) -> Result<(), Vec<CompileError>> {
         // Every syntax refusal in this file, not only its first.
-        let file = contract_syntax::parse_source_all(src, source_id)
+        let mut file = contract_syntax::parse_source_all(src, source_id)
             .map_err(|all| all.into_iter().map(CompileError::from).collect::<Vec<_>>())?;
+        // Each component's identity, its file relative to its root and its
+        // name (LLP 1121 D15): what its params are named by.
+        let home = home(
+            path,
+            &self.sources.origins[source_id as usize],
+            self.app_root,
+        );
+        for c in &mut file.components {
+            c.params.identity = Some(format!("{home}#{}", c.name));
+        }
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
         let uses = file.uses.clone();

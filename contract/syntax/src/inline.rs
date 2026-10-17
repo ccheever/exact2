@@ -247,6 +247,7 @@ fn expand_with_sites(
         tasks: source.tasks.clone(),
         sequences: source.sequences.clone(),
         view: Vec::new(),
+        params: source.params.clone(),
         span: source.span,
     };
     // @ref LLP 1038 D3 — a compiler slot, before authored initializers and

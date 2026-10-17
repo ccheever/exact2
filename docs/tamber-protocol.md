@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.9`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.10`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.9"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.10"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -60,6 +60,9 @@ on macOS and Linux.
   changes only a type token's style, weight, size or line height is `live`.
   Stage 6 F added under the same version: the IR's `icons` and `resolve`'s icon tuples. A
   transaction or `propose` that changes an icon is `rebuild`; an operation does not write one.
+- `tamber/1.10` (LLP 1121 stage 7, commit A) added component params: `describe`'s
+  `ir.components` (and `contract tamber ir`'s), each component's params by full name. Stage 7's
+  later wire changes add under the same version.
 
 ## Where it runs
 
@@ -183,6 +186,15 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - `exports`;
   - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
     written, null where unwritten (D10).
+  - `components` (*1.10*, LLP 1121 D15), when the app's Contract declares params: each
+    component `{identity, name, params}`, its identity its declaring file and name
+    (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
+    range, step, control, options, label, help, group, priority}`. `name` is its full name
+    (`post.contract#PostButton.radius`), `short` the `Component.param` form or null where another
+    component of that name has params, `token` its name below the IR (`param.f<hash>.…`, which no
+    author or tool writes), `default` as written with each param named in full, and `values` per
+    tuple, folded with the design. `control` defaults to `token`, `priority` to 2. Moving the
+    declaring file is a new identity, so an override keyed by the old one no longer applies.
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
   `describe` and `resolve` only.

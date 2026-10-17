@@ -281,6 +281,7 @@ impl Rewriter<'_> {
             tasks,
             sequences,
             view,
+            params: _,
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;

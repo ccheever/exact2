@@ -15,6 +15,7 @@ mod keyframes;
 mod media_session;
 mod midi;
 mod names;
+mod params;
 mod parts;
 #[path = "routes.rs"]
 mod routes;
@@ -778,6 +779,7 @@ impl Parser {
             tasks: Vec::new(),
             sequences: Vec::new(),
             view: Vec::new(),
+            params: Default::default(),
             span,
         };
         if !matches!(self.peek_kind(), TokenKind::Indent) {
@@ -796,7 +798,10 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) => {
-                    if matches!(w.as_str(), "props" | "inject" | "provide" | "slot" | "view") {
+                    if matches!(
+                        w.as_str(),
+                        "props" | "inject" | "provide" | "slot" | "view" | "params"
+                    ) {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
                             return duplicate("component section", &w, section_span, *first);
@@ -889,6 +894,7 @@ impl Parser {
                                 c.derives.push(b)
                             }
                         }
+                        "params" => c.params.list = self.params_section()?,
                         "resource" => c.resources.push(self.resource()?),
                         "mutation" => c.mutations.push(self.mutation()?),
                         "action" => c.actions.push(self.action()?),
