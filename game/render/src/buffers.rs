@@ -159,7 +159,7 @@ impl Targets {
                 | if retained {
                     wgpu::TextureUsages::TEXTURE_BINDING
                 } else {
-                    wgpu::TextureUsages::TRANSIENT_ATTACHMENT
+                    transient_usage()
                 },
         );
         let resolved = texture(
@@ -179,7 +179,7 @@ impl Targets {
                     | if retained {
                         wgpu::TextureUsages::empty()
                     } else {
-                        wgpu::TextureUsages::TRANSIENT_ATTACHMENT
+                        transient_usage()
                     },
             )
         };
@@ -240,7 +240,7 @@ impl DirectTargets {
                     format,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                         | if transient {
-                            wgpu::TextureUsages::TRANSIENT_ATTACHMENT
+                            transient_usage()
                         } else {
                             wgpu::TextureUsages::empty()
                         },
@@ -260,4 +260,23 @@ impl DirectTargets {
     pub fn textures(&self) -> u64 {
         1 + u64::from(self.color.is_some())
     }
+}
+
+/// `TRANSIENT_ATTACHMENT`, or no usage where the browser's WebGPU predates it: Android
+/// WebView 136 (Dawn) refuses the bit without its `transient-attachments` feature, so
+/// every frame's attachments were invalid and the canvas stayed black.
+fn transient_usage() -> wgpu::TextureUsages {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use web_sys::js_sys::{global, Reflect};
+        thread_local! {
+            static KNOWN: bool = Reflect::get(&global(), &"GPUTextureUsage".into())
+                .and_then(|usage| Reflect::has(&usage, &"TRANSIENT_ATTACHMENT".into()))
+                .unwrap_or(false);
+        }
+        if !KNOWN.with(|known| *known) {
+            return wgpu::TextureUsages::empty();
+        }
+    }
+    wgpu::TextureUsages::TRANSIENT_ATTACHMENT
 }
