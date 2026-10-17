@@ -307,10 +307,26 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertEqual(fixture.press.state["anchor"] as? String, "chip")
     }
 
+    /// VoiceOver follows a link it pressed to the link's linked elements, and with none it took the 'Scroll to end' pill
+    /// that the press's scroll showed (the keyboard focus followed). The source link leads to itself, so VoiceOver stays
+    /// on it, as on the reference's link; the comment button is no link and names none.
+    func testTheSourceLinkLeadsToItself() {
+        let fixture = CitationFixture("See " + link(quoteHref) + " now ")
+        let elements = fixture.press.accessibilityElements
+        XCTAssertEqual(elements.map { $0.accessibilityRole() }, [.link, .popUpButton])
+        XCTAssertTrue((elements[0].accessibilityLinkedUIElements() ?? []).elementsEqual([elements[0]]) { $0 as AnyObject === $1 })
+        XCTAssertTrue((elements[1].accessibilityLinkedUIElements() ?? []).isEmpty)
+        XCTAssertTrue(axPress(elements[0]))
+        fixture.base.tick()
+        XCTAssertEqual(fixture.press.state["act"] as? String, "citation")
+        let after = fixture.press.accessibilityElements
+        XCTAssertTrue(after[0] === elements[0], "the pressed link stays")
+        XCTAssertTrue((after[0].accessibilityLinkedUIElements() ?? []).elementsEqual([after[0]]) { $0 as AnyObject === $1 })
+    }
+
     func testAPressedElementSurvivesTheRefreshesItsPressCauses() {
-        // VO-Space selects the chip and opens its details, and each refreshes the chips' elements; AppKit keeps VoiceOver
-        // on a pressed element that survives its press, and a replaced one sent VoiceOver's cursor, then the keyboard
-        // focus, to the 'Scroll to end' pill (exact2 #694).
+        // VO-Space selects the chip and opens its details, and each refreshes the chips' elements; a replaced element would
+        // leave VoiceOver's cursor on one that is gone.
         let fixture = CitationFixture("See " + link(quoteHref) + " now ")
         let before = fixture.press.accessibilityElements
         XCTAssertEqual(before.count, 2)
