@@ -95,9 +95,32 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertEqual(agent.recognizedPan("down", ["id": Int(row.id)])?["contact"] as? Int, Int(surface.id), "a swipe that never begins is no candidate")
         _ = agent.recognizedPan("cancel", [:])
         row.style["touch_action"] = .string("pan-y")
+        // Walked from the view hit at the point: the row's point over its button is the button's.
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(row.id), "x": 40.0, "y": 20.0])?["contact"] as? Int, Int(surface.id), "the row at its button: the button keeps it from the swipe")
+        _ = agent.recognizedPan("cancel", [:])
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(row.id), "x": 5.0, "y": 60.0])?["contact"] as? Int, Int(surface.id), "a swipe begins only past the screen edge")
+        _ = agent.recognizedPan("cancel", [:])
+        // An open row whose `touch-action` leaves the rightward drag to the platform still closes leftward.
+        row.style["touch_action"] = .string("pan-left")
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(row.id), "x": 200.0, "y": 60.0])?["contact"] as? Int, Int(surface.id), "closed: the swipe never begins")
+        _ = agent.recognizedPan("cancel", [:])
+        row.translatePx = CGPoint(x: 60, y: 0)
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(row.id), "x": 200.0, "y": 60.0])?["delivery"] as? String, "unsupported", "open: it may close leftward")
+        row.translatePx = .zero
+        row.style["touch_action"] = .string("pan-y")
         surface.handlers = ["pointerdown"]
         XCTAssertEqual(agent.recognizedPan("down", ["id": Int(button.id)])?["delivery"] as? String, "recognized", "no pan: the button's finger, the swipe kept from it")
         _ = agent.recognizedPan("cancel", [:])
+        // A height binding is offered no touch through a scroll view below it.
+        let sheet = make(UInt32.max - 5, CGRect(x: 0, y: 520, width: 400, height: 300), p.viewport, [])
+        sheet.heightRecognizer = UIPanGestureRecognizer()
+        let scroller = UIScrollView(frame: sheet.bounds)
+        sheet.addSubview(scroller)
+        let item = make(UInt32.max - 4, CGRect(x: 0, y: 0, width: 400, height: 60), scroller, ["pointerdown"])
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(item.id)])?["delivery"] as? String, "recognized", "through a scroll view: a finger")
+        _ = agent.recognizedPan("cancel", [:])
+        let handle = make(UInt32.max - 3, CGRect(x: 0, y: 0, width: 400, height: 20), sheet, ["pointerdown"])
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(handle.id)])?["delivery"] as? String, "unsupported", "beside the scroll view the binding is offered it")
     }
 
     /// The agent's tap is what a finger there delivers (LLP 1012 §1): its

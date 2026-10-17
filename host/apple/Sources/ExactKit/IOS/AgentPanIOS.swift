@@ -67,29 +67,34 @@ extension Agent {
         case finger
     }
 
-    /// What a contact on `view` would reach, offered the touch as UIKit offers
-    /// it (`gestureRecognizer(_:shouldReceive:)`, GesturePrecedenceIOS.swift):
+    /// What a contact on `view` (the view hit where it lands, at window x
+    /// `x`) would reach, offered the touch as UIKit offers it
+    /// (`gestureRecognizer(_:shouldReceive:)` and `gestureRecognizerShouldBegin`):
     /// from the view up, a press below a node keeps its swipe and drag
-    /// bindings from the touch (rule 3) though a `pan` passes it, a field or a
-    /// text area keeps every drag above it, and a swipe whose `touch-action`
-    /// leaves the horizontal to the platform never begins. The innermost `pan`
-    /// still offered the touch is its node's unless a swipe or a binding below
-    /// it, or on it, is offered too (`contested`); with no pan, an offered
-    /// swipe or binding is `contested` and nothing is a finger.
-    static func heldReach(from view: UIView) -> HeldReach {
+    /// bindings from the touch (rule 3) though a `pan` passes it, a scroll view
+    /// below keeps its height and transform bindings, a field or a text area
+    /// keeps every drag above it, and a swipe begins only from past the screen
+    /// edge in a direction its `touch-action` does not leave to the platform
+    /// (rightward, or leftward to close a row already open). The innermost
+    /// `pan` still offered the touch is its node's unless a swipe or a binding
+    /// below it, or on it, is offered too (`contested`); with no pan, an
+    /// offered swipe or binding is `contested` and nothing is a finger.
+    static func heldReach(from view: UIView, x: CGFloat) -> HeldReach {
         var at: UIView? = view
-        var pressBelow = false, offered = false
+        var pressBelow = false, scrollBelow = false, offered = false
         while let current = at {
             if let node = current as? NodeView {
                 if !pressBelow {
-                    let bound = node.reorderPan != nil || node.transformRecognizer != nil || node.heightRecognizer != nil
-                    let swipe = node.swipeRecognizer != nil && !node.disabled && !node.allowsTouchPan(CGPoint(x: 1, y: 0))
+                    let bound = node.reorderPan != nil || (!scrollBelow && (node.transformRecognizer != nil || node.heightRecognizer != nil))
+                    let swipe = node.swipeRecognizer != nil && !node.disabled && Double(x) >= Gesture.edge
+                        && (!node.allowsTouchPan(CGPoint(x: 1, y: 0)) || (node.translate.x > 0.5 && !node.allowsTouchPan(CGPoint(x: -1, y: 0))))
                     if bound || swipe { offered = true }
                 }
                 if node.handlers.contains("pan"), SwipeInput.allows(node) { return offered ? .contested : .pan(node) }
                 if node.field != nil || node.textArea != nil { break }
                 if node.handlers.contains("press") { pressBelow = true }
             }
+            if current is UIScrollView { scrollBelow = true }
             at = current.superview
         }
         return offered ? .contested : .finger
@@ -284,7 +289,11 @@ extension Agent {
             let at = CGPoint(x: (req["x"] as? Double) ?? b.midX, y: (req["y"] as? Double) ?? b.midY)
             guard at.x.isFinite, at.y.isFinite else { return ["error": "tap down: the point must be finite"] }
             let t = CACurrentMediaTime()
-            let reach = Agent.heldReach(from: v)
+            // Offered as UIKit offers the touch: from the view hit where it
+            // lands (a button inside the named row), when that is in the target.
+            let p = windowPoint(at), seen = win.hitTest(p, with: nil)
+            let hit = seen.flatMap { $0 === v || $0.isDescendant(of: v) ? $0 : nil } ?? v
+            let reach = Agent.heldReach(from: hit, x: p.x)
             guard case .pan(let node) = reach else {
                 // A drag's contact (`pan`) is a pan's or none: a finger held elsewhere moves nothing.
                 if req["pan"] != nil { return nil }
@@ -293,7 +302,6 @@ extension Agent {
                             "reason": "a swipe or drag binding UIKit would offer this touch; only UIKit's arbitration could give it the contact, and no recognizer sees a recognized one (LLP 1035.003 D1)"]
                 }
                 // A finger held still: it lands only where the target is seen, as a tap's does.
-                let p = windowPoint(at), seen = win.hitTest(p, with: nil)
                 if let why = offscreen(v, box: CGRect(origin: at, size: .zero), hit: seen) ?? seen.flatMap({ obscured(v, at: p, hit: $0) }) {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
@@ -307,11 +315,10 @@ extension Agent {
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
             // A contact that lands on a press inside the pan node (a button in
             // a draggable card) presses that node if the pan never begins.
-            let p = windowPoint(at), touched = win.hitTest(p, with: nil) ?? v
-            let pressInside = touched.isDescendant(of: node) && sequence(first: touched, next: { $0.superview }).prefix { $0 !== node }
+            let pressInside = hit.isDescendant(of: node) && sequence(first: hit, next: { $0.superview }).prefix { $0 !== node }
                 .contains { ($0 as? NodeView)?.handlers.contains("press") == true }
-            var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v).map(HeldNode.init), path: Agent.fingerPath(from: v), at: at, t: t, held: Agent.heldPrefix(req))
-            if pressInside { contact.reach = fingerReach(touched, at: p) }
+            var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
+            if pressInside { contact.reach = fingerReach(hit, at: p) }
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]

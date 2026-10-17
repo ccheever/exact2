@@ -1125,7 +1125,7 @@ if (deckFixture) {
         await g.clock('settle');
         return true;
       };
-      // The counts go on from what was delivered; what a carrier could not hold is said, unverified.
+      // What a carrier cannot hold is said, not counted: on iOS the row's two drags (only UIKit could give them to the swipe or the pan).
       const n = [0, 0, 0], unheld = [];
       for (const [what, target, at, moves, adds, expected] of [
         ['a horizontal drag on the row', 'row', [200, 50], [[20, 0], [100, 0]], [1, 0, 0], 'the swipe alone'],
@@ -1136,6 +1136,7 @@ if (deckFixture) {
         adds.forEach((v, i) => { n[i] += v; });
         check(await slots() === n.join('/'), `${what}: replies/panned/pressed ${await slots()}, expected ${expected} (${n.join('/')})`);
       }
+      const skips = host === 'ios' ? ['a horizontal drag on the row', 'a vertical drag on the row'] : []; check(unheld.join() === skips.join() && await slots() === (skips.length ? '0/30/1' : '1/60/1'), `precedence: unsupported [${unheld.join(', ')}], expected [${skips.join(', ')}]; ${await slots()}`);
       console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)${unheld.length ? `; unsupported, unverified here: ${unheld.join(', ')}` : ''}`);
     } catch (error) {
       failures.push(`the precedence fixture stopped: ${error.message}`);

@@ -752,6 +752,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
               canvasContact = !['up', 'cancel'].includes(kind);
               return r;
             }
+            if (r.reason) return r; // the host's own why (a contact only UIKit could arbitrate), no contact held
+
           }
           // A held contact needs a touch that stays down across requests;
           // XCTest's public touches each press and lift (LLP 1080.000 D3).
