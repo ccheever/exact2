@@ -9,7 +9,14 @@ fn entry(name: &str, path: &str, filled: bool, view_box: &str, file: &str) -> St
     let j = |s: &str| serde_json::to_string(s).unwrap();
     match (view_box, file) {
         ("", "") => format!("{}:[{},{}]", j(name), j(path), filled as u8),
-        _ => format!("{}:[{},{},{},{}]", j(name), j(path), filled as u8, j(view_box), j(file)),
+        _ => format!(
+            "{}:[{},{},{},{}]",
+            j(name),
+            j(path),
+            filled as u8,
+            j(view_box),
+            j(file)
+        ),
     }
 }
 
@@ -39,7 +46,13 @@ pub(crate) fn table(plan: &Plan, bound: bool) -> String {
         };
         out.push(entry(s(i.name.0), path, true, s(i.view_box.0), file));
         if !s(i.sf.0).is_empty() {
-            out.push(entry(&format!("sf/{}", s(i.sf.0)), path, true, s(i.view_box.0), file));
+            out.push(entry(
+                &format!("sf/{}", s(i.sf.0)),
+                path,
+                true,
+                s(i.view_box.0),
+                file,
+            ));
         }
     }
     if bound {
@@ -55,6 +68,9 @@ pub(crate) fn table(plan: &Plan, bound: bool) -> String {
 /// Every role, which symbols.js loads when a bound source names one the
 /// plan's strings don't (`symbol-roles.js`).
 pub(crate) fn every() -> String {
-    let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES.iter().flat_map(|r| role(r, true)).collect();
+    let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
+        .iter()
+        .flat_map(|r| role(r, true))
+        .collect();
     format!("export default {{{}}};", roles.join(","))
 }

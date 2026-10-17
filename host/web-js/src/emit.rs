@@ -525,7 +525,11 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     // Symbols (symbols.js): a bound source picks its role, or an icon token
     // (LLP 1121 D10), from the plan's own table.
     if em.symbols.0 {
-        let _ = write!(body, "$symbols({});", crate::symbols::table(plan, em.symbols.1));
+        let _ = write!(
+            body,
+            "$symbols({});",
+            crate::symbols::table(plan, em.symbols.1)
+        );
     }
     if paint {
         let painting = em.uses.rt("usePaint");
