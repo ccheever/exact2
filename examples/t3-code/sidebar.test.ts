@@ -10,6 +10,7 @@ import { sidebarSnapshot, terminalProcessCount } from './sidebar-view';
 import { legacySidebarSnapshot } from './legacy-sidebar-view';
 import { threadItems } from './palette';
 import { terminalMetadataEvent } from './terminal-drawer-view';
+import { contractComponent } from './contract-action-fixture';
 import { recordTerminalFocus } from './terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from './sidebar-commands';
 import { localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from './sidebar-state';
@@ -59,6 +60,12 @@ const helpers = { projectIdentity: (name: string) => ({ projectMark: name.slice(
 const strip = (payloads: Obj[]) => payloads.map(({ commandId: _id, ...rest }) => rest);
 
 describe('sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/threadSort)', () => {
+  test('a right press names the row for its context popover and focuses it, as Chromium focuses the reference\'s row', () => {
+    const sidebar = contractComponent('sidebar.contract', 'Sidebar'), state = sidebar.state(), focused: string[] = [];
+    sidebar.call('threadMenu', state, { focus: (id: string) => { focused.push(id); } }, ['fleet:env-2:t1']);
+    expect(state.menuThread).toBe('fleet:env-2:t1');
+    expect(focused).toEqual(['thread-fleet:env-2:t1']);
+  });
   test('status: approval and input outrank work; idle with background tasks waits; usage limits read Limited', () => {
     expect(sidebarStatus(shell('a', { pendingRuntimeRequest: { kind: 'command_approval' } }))).toBe('approval');
     expect(sidebarStatus(shell('a', { pendingRuntimeRequest: { kind: 'user_input' } }))).toBe('input');

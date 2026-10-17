@@ -414,8 +414,13 @@ in the section above.
   button at the point clicked. Not investigated.
 - 'Archive thread' chosen from a flat sidebar row's native menu by typing its name and Return does
   nothing (6 of 6; the server received no command); a click on the item opens 'Archive thread "…"?'
-  (4 of 4). Rename and Group into, chosen the same way from a project row, open their dialogs. Not
-  investigated.
+  (4 of 4). Rename and Group into, chosen the same way from a project row, open their dialogs. The
+  cause is the host's: as `MenuHost.track` ends the right press's hold after `popUp`, the pointer
+  sample reads `subtype` from the current event, Return's key-up, which raises; the rest of `track`,
+  the menu's close and the deferred press, never runs (`MouseChainMac.swift` `pointerSample`). The
+  legacy menus are the module's own and never reach it. The fix is on exact2 branch
+  `daehyeon/fix-menu-key-pick-subtype`, not on main yet; with it the confirm opens (3 of 3, with
+  VoiceOver, 2026-10-17).
 
 **Fixed, not checked** (no build after them):
 
@@ -434,21 +439,29 @@ in the section above.
 - ⇧⌘V (Paste as Text) with files on the pasteboard pastes text only; the reference's
   paste-as-text shortcut still attaches the files, with no inline chip for an image
   (ChatComposer.tsx `onComposerPaste`, `skipImageInlineChip`).
-- A context-menu item that opens Rename project or Project grouping can still let VoiceOver
-  re-read a long draft before the dialog, and the dialog's name is then not heard
-  ([`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md);
-  rows H-9, G-5 and FN6 pass with this difference). The landing (the field or Cancel) is right.
-  Still so on the bundle of `dd7643a86` (legacy sidebar, a long draft focused, a project row's
-  Rename and Group into…, 3 of 3 each): "Closing menu Message, edit text, … The long draft keeps
-  going …", then "agent-edits," (the title field) or "Cancel, button". The reference (the Electron
-  oracle on an isolated home, same steps) says nothing after the pick within 6 s, 4 of 4 each, with
-  the focus on 'Project title' or the 'Project grouping rule' combo box.
-- Archive thread from a flat sidebar row's menu (by a click; confirmation on), with a long draft
-  focused: at the pick VoiceOver re-reads the draft and then says "Cancel, button"; after Confirm the
-  row goes and VoiceOver and the keyboard focus land on the chat header's 'Thread actions for …'
-  button, not the composer (3 of 3). Not measured on the reference: its isolated home has no
-  keychain, so it cannot save a paired lane ("Desktop secure storage is unavailable"), and its own
-  server has no thread to archive.
+- A menu item that opens a dialog (a legacy project header's Rename and Group into…, a flat row's
+  Archive thread with confirmation on), picked with a long draft focused: VoiceOver names the row
+  and then the dialog's first control, where the reference says less. A right press focuses the row
+  or header whose menu it opens, as Chromium focuses the reference's on any press, so VoiceOver, told
+  that the menu closed, reads the row rather than re-reading the draft, and the dialog gives the
+  focus back to the row on Escape, as the reference's does. With the prompt focused instead, the
+  dialog, which waits for the choice to go through the client, takes the focus about 0.13 s after the
+  menu closes, and VoiceOver reads the draft first (the host's side is
+  [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)).
+  The focus then stays on the row, not where a Mac click leaves it (LLP 1115.000 D7.1). A right press
+  on a control inside a flat row (pin, snooze) also focuses the row, and a draft row's menu leaves the
+  focus in the prompt.
+  Measured on the bundle of this change (2026-10-17, VoiceOver): Rename, 3 of 3, "Closing menu
+  shared-notes, expanded, button shared-notes, contents selected, Project title, edit text", then
+  "Rename project, dialog"; Archive by a click (1 of 1) and by Return with the host fix above (3 of
+  3), "Closing menu Background follow-up, background-only, button, Cancel, button", then the dialog's
+  name. The reference's Rename (the Electron oracle, same steps) never re-reads the draft and varies:
+  "Closing menu T3 Code (Nightly), web content" (3 of 4), "Rename project, dialog, with 6 items
+  ref-proj, …, Project title, edit text" (1 of 4), and nothing within 6 s in the day's earlier session
+  (4 of 4). Its Group into… lands on the 'Project grouping rule' combo box, the clone's on Cancel.
+  Archive is not measured on the reference: its isolated home has no keychain, so it cannot save a
+  paired lane ("Desktop secure storage is unavailable"), and its own server has no thread to archive.
+  Where the focus lands after Confirm removes the right-clicked row is not measured with this change.
 
 **Not failures:**
 

@@ -277,8 +277,9 @@ describe('the row\'s tooltips', () => {
     expect(view).toContain('fn legacyTip(label: string, side: string, align: string, at: Geometry, rem: number, testId: string): HoverTip = hoverTipAtFrame("legacy-tip", "tooltip", label');
   });
   test('the row or header the pointer is on closes a legacy tooltip a gone trigger left; Archive\'s press and a right-click close their own', () => {
-    const tips: unknown[][] = [], runs: unknown[][] = [];
-    const host = { performanceNow: () => 0, run: (...args: unknown[]) => { runs.push(args); }, hoverTipAt: (...args: unknown[]) => { tips.push(args); }, legacyTipOff: () => ({ key: 'legacy-tip' }) };
+    const tips: unknown[][] = [], runs: unknown[][] = [], focused: string[] = [];
+    const host = { performanceNow: () => 0, run: (...args: unknown[]) => { runs.push(args); }, hoverTipAt: (...args: unknown[]) => { tips.push(args); }, legacyTipOff: () => ({ key: 'legacy-tip' }),
+      focus: (id: string) => { focused.push(id); } };
     const row = mount('LegacyThread', { reduced: false, page: '', busy: false, legacy: { confirmArchive: false }, t: { id: 't1', running: false, renaming: false, prIcon: '', portLabel: '' } }, host);
     row.act('hover', true);
     row.act('archive');
@@ -288,6 +289,8 @@ describe('the row\'s tooltips', () => {
     header.act('openMenu');
     expect(tips).toEqual(Array.from({ length: 5 }, () => [{ key: 'legacy-tip' }, 'trigger', false]));
     expect(runs).toEqual([['legacy-archive', 't1', ''], ['legacy-thread-menu', 't1', ''], ['legacy-project-menu', 'k', '']]);
+    // A right press focuses its row or header, as Chromium's does in the reference.
+    expect(focused).toEqual(['thread-t1', 'legacy-project-toggle-k']);
     const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
     expect(view.match(/contextmenu=openMenu /g) ?? []).toHaveLength(2);
   });
