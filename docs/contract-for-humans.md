@@ -374,7 +374,8 @@ derive caption = names.join(", ")
 ```
 
 Callbacks can build records. They cannot return view nodes. Use `for` to build
-repeated UI, not `map`. General closures, reducers, sorting, and arbitrary list
+repeated UI, not `map`. `sortBy(people, person => person.name)` orders a list by one
+key, stably. General closures, reducers, comparator sorts, and arbitrary list
 mutation belong in the data module when the supplied operations do not suffice.
 
 ## Views and repeated content

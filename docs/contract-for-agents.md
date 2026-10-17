@@ -48,8 +48,8 @@ This guide is documentation, not an additional policy layer. Documents in
 | Work | Normal home |
 | --- | --- |
 | View structure, UI state, event binding | `.contract` |
-| Derived labels, record copies, bounded list transforms | Contract expressions / `fn` |
-| Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
+| Derived labels, record copies, bounded list transforms, a presentation order by one key (`sortBy`) | Contract expressions / `fn` |
+| Network, authentication, storage, a stored or locale order, domain algorithms | App TypeScript/Rust data module |
 | Device facts | Reserved source with an admitted shape |
 | A system control (button, list, switch, picker, menu, tabs, bars) | Contract's native form ([below](#views-layout-and-interaction)); an app native module only where none exists |
 | What only the platform's own object can do (a gesture recognizer, a bar's look, drawing into a view) | An access hatch: `hatch="word"` on the node, native code handed its view ([reference](reference.md#access-hatches)); `bun exact.mjs hatch <word>` writes the stubs |
@@ -297,7 +297,7 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
 | `toFixed` and the format functions print `""` for a non-finite number | one rule for every format |
 | Names hold hyphens, so subtraction takes spaces (`a - b`) | CSS's names |
 | A binding's list work is bounded (65,536 steps); a row's own binding has its own bound, so a row that searches another table costs rows × items (`lower-row-lookup`) | determinism on every host |
-| Sorting, grouping, joining and aggregates are the data module's; the view names an order it relies on where it reads it (`loadTasksByDueDate()`) | a view computes what it shows |
+| No comparator sort: `sortBy(xs, x => key)` orders by one number or string key, stably (`"desc"` third; a second key is an earlier `sortBy`). Grouping, joining, aggregates and a stored or locale order are the data module's; the view names an order it relies on where it reads it (`loadTasksByDueDate()`) | a view computes what it shows, the same on every host |
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
@@ -313,8 +313,8 @@ what to write. Nothing runs because a value changed (no `useEffect` or watch).
   (recipient chips). A list the
   screen keeps for the session — a selection, open or collapsed ids, per-row
   offsets — is `state` built this way; a list the app keeps across launches, or
-  a server owns, belongs to the data module, and so do sorting, grouping and
-  aggregates:
+  a server owns, belongs to the data module, and so do grouping, aggregates
+  and a stored order (a view orders what it holds with `sortBy`):
 
   ```contract
   state collapsed = []
