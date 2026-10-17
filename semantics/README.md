@@ -787,10 +787,11 @@ refused as unsupported rather than given a meaning: layout is out of
 scope. So are resources reading `exactTransport` and `exactMIDI` (LLP
 1125), which the runner answers from its transport and its MIDI ports and
 answers again as they play; the semantics models neither. `sendMIDI` and
-`requestMIDIAccess` are in, as commands. Routes are in (`Contract/Route.lean`, the `exact_route` crate and the
-runner's plan boundary transcribed): the router slot starts at the launch of
-`/`, as the harness boots the runner, and a commit that leaves it holding an
-invalid router is refused; the host's `navigate` event, which the harness
+`requestMIDIAccess` are in, as commands. Routes are in
+(`Contract/Route.lean`, the `exact_route` crate and the runner's plan
+boundary transcribed): the router slot starts at the launch of `/`, as the
+harness boots the runner, and a commit that leaves it holding an invalid
+router is refused; the host's `navigate` event, which the harness
 does not deliver, is not modelled, nor a router carried across a reload, nor
 the change the runner publishes to a host after a commit. A refused verb
 answers its input, and the runner journals the refusal in its log, which no
