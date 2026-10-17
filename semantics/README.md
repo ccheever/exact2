@@ -13,6 +13,8 @@ tested against it, differentially and at random.
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
 | `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatDay`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
+| `Contract/Sort.lean` | `sortBy`'s order (LLP 1116.016 §5): a key per item (a number with NaN as +0, or a string's UTF-16 code units), core's `List.mergeSort` on the items decorated with their keys, ascending or descending. |
+| `Contract/SortFacts.lean` | That order proved: a strict total order on keys, and the sort's answer a permutation, sorted by key, stable (below). Kept apart from `Sort.lean`, which the VM model imports and the extracted VM builds at another Lean. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
 | `Contract/Tabs.lean` | Navigation tab eligibility and selection, shared by the flat and component interpreters. |
 | `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers (gated by `when` and `key=`), queued sends, events. |
@@ -114,6 +116,29 @@ port's bits; it is not a proof that the port refines libm. JavaScript's
 +0. As with `includes`, the semantics omits the runner's list-budget limit
 (one list step per item), so a program exceeding that limit remains outside
 the comparison's resource-bound model.
+
+`sortBy(xs, x => key, direction)` (LLP 1116.016 §5) is `map`'s callback
+over the items, each key once, then `Contract.sortByKeys`: core's
+`List.mergeSort` on (item, key) pairs, numbers by `F64.key` with NaN read as
++0, strings by `Str.unitsLt`, equal keys kept in input order in both
+directions. The runner and the JS target run a written-out bottom-up merge
+sort instead; `SortFacts` proves what makes every stable sort by this order
+give one answer:
+
+- `sortByKeys_spec`: when `sortByKeys xs ks desc = .ok v`, the keys are
+  `ks.mapM sortKey = some keys` with `xs.length = keys.length`, and
+  `v = .list (ps.map Prod.fst)` for a list `ps` of (item, key) pairs with
+  `ps.Perm (xs.zip keys)` (a permutation), `ps.Pairwise (sortLe desc · ·)`
+  (sorted: no later key below an earlier one ascending, above it
+  descending), and every sublist of `xs.zip keys` whose keys are all equal
+  a sublist of `ps` (stable).
+- `sortByKeys_perm`: `sortByKeys xs ks desc = .ok (.list ys) → ys.Perm xs`.
+- `sortByKeys_ok`: keys of one kind (`OneKind`: all numbers or all strings),
+  one per item, always sort; with type soundness (`sortByKeys_good` in
+  `Soundness`), a well-typed `sortBy` never fails.
+
+Like `map`, the semantics omits the runner's list budget (one step an item,
+taken by the `Map` that computes the keys; the comparisons take none).
 
 `numbers` does the same for number printing.
 
@@ -346,7 +371,8 @@ as `contract/lower` does through `Scope` and emits its instruction choices:
 `match` through `JumpIfNone`/`Unwrap`/`BindLocal`, templates through
 `toString` and `Concat` (one `Str` when every part is literal), records with
 a base bound as a local, a `fn` expanded inline with its arguments as
-locals, `map`/`filter` with the callback inline after the opcode, blocks
+locals, `map`/`filter` with the callback inline after the opcode, `sortBy`
+as the list bound as a local, a `Map` of its key and a `Call sortBy`, blocks
 whose `let`s are dropped where the block ends, and a call of an action as
 the Rust compiler expands it (LLP 1089 D8): each argument bound as the next
 local, the callee's body in a scope of those locals and the component's
@@ -372,7 +398,8 @@ names resolved as the plan did (`lowerFx`), and returns at all exactly when
 compiler's fuel proving, for every construct, that its code takes the VM
 from the state before it to `eval`'s value on top (forward), and that a run
 through it that returns had a value (backward); `map`/`filter` by induction
-on the items through the VM's callback loop.
+on the items through the VM's callback loop, and `sortBy` (`case_sortBy`)
+by that loop over the bound list, then the call.
 
 **Translation validation.** `difftest lowering` checks the real pipeline:
 for each generated program it takes the plan `contract::compile` made, and
@@ -461,7 +488,8 @@ component-level semantics keeps per instance. A disagreement is kept under
 
 - `ExpandSubst.subst_iff`: the expander's substitution commutes with
   evaluation. For an expression of the fragment (`Plain`: no
-  `pending`/`failed`, callbacks of at most two parameters, no binder named
+  `pending`/`failed`, no `sortBy` (not yet carried through these proofs;
+  `difftest expansion` checks it), callbacks of at most two parameters, no binder named
   like a call in its scope), a substitution whose replacements are
   callbacks of at most two parameters and never a callback, and no call
   head replaced: if every free name reads in the source environment what

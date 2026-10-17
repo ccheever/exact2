@@ -6,6 +6,8 @@ import Contract.Number
 import Contract.Format
 import Contract.Value
 import Contract.Route
+import Contract.Sort
+import Contract.SortFacts
 import Contract.Eval
 import Contract.Runtime
 import Contract.Observe

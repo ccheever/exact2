@@ -177,7 +177,7 @@ def infer (p : Program) (G : Scope) : Scope → Expr → Option Ty
     | .some t => Ty.unify ty t
     | .none => .none
 
-/-- A call, given its arguments' types (`ts?`): a `fn`, `map`/`filter`
+/-- A call, given its arguments' types (`ts?`): a `fn`, `map`/`filter`/`sortBy`
 with a callback, `pending`/`failed`/`failure` of a name, or a roster entry. -/
 def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Option (List Ty) → Option Ty
   | Γ, name, [l, .arrow ps body], ts? =>
@@ -202,10 +202,31 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
             | .none => .none
           | _ => .none
         else .none
+      else if name = "sortBy" then
+        if ps.length ≤ 2 then
+          match infer p G Γ l with
+          | .some (.list a) =>
+            match infer p G (bindTy ps a Γ) body with
+            | .some k => if k.sortKey then .some (.list a) else .none
+            | .none => .none
+          | _ => .none
+        else .none
       else
         match ts? with
         | .some ts => boundedTy p (rosterTy name ts)
         | .none => .none
+  | Γ, name, [l, .arrow ps body, d], _ =>
+    match p.fns.find? (·.name == name) with
+    | .some _ => .none
+    | .none =>
+      if name = "sortBy" ∧ ps.length ≤ 2 ∧ (sortDir [d]).toBool = true then
+        match infer p G Γ l with
+        | .some (.list a) =>
+          match infer p G (bindTy ps a Γ) body with
+          | .some k => if k.sortKey then .some (.list a) else .none
+          | .none => .none
+        | _ => .none
+      else .none
   | Γ, name, args, ts? =>
     match p.fns.find? (·.name == name) with
     | .some fd =>
@@ -424,15 +445,18 @@ def checkFailure (p : Program) : Option String := ((checkParts p).find? (!·.2))
 
 /-! ## Soundness of the checker -/
 
-/-- A call whose arguments are not `(list, callback)`: a `fn`, `pending`,
-`failed` or `failure` of a name, or a roster entry. -/
+/-- A call whose arguments are not `(list, callback)` or `(list, callback,
+direction)`: a `fn`, `pending`, `failed` or `failure` of a name, or a roster
+entry. -/
 theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List Expr}
     {ts? : Option (List Ty)} {t : Ty} (hne : ∀ l ps body, args ≠ [l, .arrow ps body])
+    (hne3 : ∀ l ps body d, args ≠ [l, .arrow ps body, d])
     (hts : ∀ ts, ts? = .some ts → ListTy p G Γ args ts) (h : inferCall p G Γ name args ts? = .some t) :
     HasTy p G Γ (.call name args) t := by
   unfold inferCall at h
   split at h
   · next l ps body => exact absurd rfl (hne l ps body)
+  · next l ps body d => exact absurd rfl (hne3 l ps body d)
   · split at h
     · next fd hfd =>
       split at h
@@ -683,12 +707,56 @@ theorem inferCall_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (name : Str
               · simp at h
             · simp at h
           · split at h
-            · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
+            · next hn =>
+              subst hn
+              split at h
+              · next hps =>
+                split at h
+                · next a ha =>
+                  split at h
+                  · next k hk =>
+                    split at h
+                    · next hkk =>
+                      simp at h; subst h
+                      exact .sortBy hfd hps (infer_sound l ha) (infer_sound body hk) hkk (d := false) rfl
+                    · simp at h
+                  · simp at h
+                · simp at h
+              · simp at h
+            · split at h
+              · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
+              · simp at h
+    | _ => exact inferCall_rest (by simp) (by simp) hts h
+  | Γ, name, [l, m, dir], ts?, t, hts, h => by
+    cases m with
+    | arrow ps body =>
+      simp only [inferCall] at h
+      split at h
+      · simp at h
+      · next hfd =>
+        split at h
+        · next hc =>
+          obtain ⟨rfl, hps, hd⟩ := hc
+          obtain ⟨d', hd'⟩ : ∃ d', sortDir [dir] = .ok d' := by
+            cases h' : sortDir [dir] with
+            | ok d' => exact ⟨d', rfl⟩
+            | error e => rw [h'] at hd; simp [Except.toBool] at hd
+          split at h
+          · next a ha =>
+            split at h
+            · next k hk =>
+              split at h
+              · next hkk =>
+                simp at h; subst h
+                exact .sortBy hfd hps (infer_sound l ha) (infer_sound body hk) hkk hd'
+              · simp at h
             · simp at h
-    | _ => exact inferCall_rest (by simp) hts h
-  | Γ, name, [], ts?, t, hts, h => inferCall_rest (by simp) hts h
-  | Γ, name, [_], ts?, t, hts, h => inferCall_rest (by simp) hts h
-  | Γ, name, _ :: _ :: _ :: _, ts?, t, hts, h => inferCall_rest (by simp) hts h
+          · simp at h
+        · simp at h
+    | _ => exact inferCall_rest (by simp) (by simp) hts h
+  | Γ, name, [], ts?, t, hts, h => inferCall_rest (by simp) (by simp) hts h
+  | Γ, name, [_], ts?, t, hts, h => inferCall_rest (by simp) (by simp) hts h
+  | Γ, name, _ :: _ :: _ :: _ :: _, ts?, t, hts, h => inferCall_rest (by simp) (by simp) hts h
 
 theorem inferList_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (es : List Expr) {ts : List Ty},
     inferList p G Γ es = .some ts → ListTy p G Γ es ts

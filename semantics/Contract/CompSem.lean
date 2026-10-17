@@ -146,6 +146,11 @@ def ceval : Nat → CEnv → Frame → Locals → Expr → Result Value
         let xs ← (← ceval fuel ce f ls l).asList
         let ys ← cevalFilter fuel ce f ls ps body xs 0
         .ok (.list ys)
+      | "sortBy", l :: .arrow ps body :: dir => do
+        let xs ← (← ceval fuel ce f ls l).asList
+        let ks ← cevalMap fuel ce f ls ps body xs 0
+        let d ← sortDir dir
+        sortByKeys xs ks d
       | "pending", [.var x] => cpending fuel ce f ls "pending" x
       | "failed", [.var x] => cpending fuel ce f ls "failed" x
       | "failure", [.var x] => cpending fuel ce f ls "failure" x
@@ -194,7 +199,7 @@ def ceval : Nat → CEnv → Frame → Locals → Expr → Result Value
     | .some v => ceval fuel ce f ((x, v) :: ls) a
     | .none => ceval fuel ce f ls b
     | _ => .error (.type "match on a value that is not an option")
-  | .arrow _ _ => .error (.type "an arrow outside `map` or `filter`")
+  | .arrow _ _ => .error (.type "an arrow outside `map`, `filter` or `sortBy`")
   | .letE x v body => do
     let w ← ceval fuel ce f ls v
     ceval fuel ce f ((x, w) :: ls) body

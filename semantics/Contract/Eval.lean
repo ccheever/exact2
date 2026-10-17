@@ -12,6 +12,7 @@ import Contract.Value
 import Contract.Route
 import Contract.Format
 import Contract.Trig
+import Contract.Sort
 
 namespace Contract
 
@@ -247,10 +248,13 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
     match Value.sum xs with
     | .some n => .ok (.num n)
     | .none => .error (.type "`sum` of an item that is not a number")
+  -- LLP 1116.016 §5: the roster's half of `sortBy`, on the items, their keys
+  -- (a `map` of the callback) and whether it is descending.
+  | "sortBy", [.list xs, .list ks, .bool d] => sortByKeys xs ks d
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
-  | "sin", _ | "cos", _ | "sum", _
+  | "sin", _ | "cos", _ | "sum", _ | "sortBy", _
   | "split", _ | "ceil", _ | "round", _ | "parseNumber", _ | "calendarDiff", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
@@ -281,6 +285,13 @@ def binop (op : BinOp) (a b : Value) : Result Value :=
   | .eq => (Value.equal a b).elim (.error (.type "`==` on values of two types")) (.ok ∘ .bool)
   | .ne => (Value.equal a b).elim (.error (.type "`!=` on values of two types")) (fun e => .ok (.bool !e))
   | .and | .or => .error (.type "short-circuit operator evaluated strictly")
+
+/-- `sortBy`'s direction, a literal: ascending unless `"desc"`. -/
+def sortDir : List Expr → Result Bool
+  | [] => .ok false
+  | [.str "asc"] => .ok false
+  | [.str "desc"] => .ok true
+  | _ => .error (.type "a `sortBy` direction that is not \"asc\" or \"desc\"")
 
 /-- Bind a callback's parameters to an item and its index. -/
 def bindParams (ps : List String) (item : Value) (i : Nat) (ls : Locals) : Locals :=
@@ -345,6 +356,12 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
         let xs ← (← eval fuel env inFn ls l).asList
         let ys ← evalFilter fuel env inFn ls ps body xs 0
         .ok (.list ys)
+      -- LLP 1116.016 §5: each key once, by `map`'s callback, then the sort.
+      | "sortBy", l :: .arrow ps body :: dir => do
+        let xs ← (← eval fuel env inFn ls l).asList
+        let ks ← evalMap fuel env inFn ls ps body xs 0
+        let d ← sortDir dir
+        sortByKeys xs ks d
       | "pending", [.var x] =>
         -- Answers here are synchronous: a settled resource is never
         -- pending, and an unsettled one is not known yet.
@@ -406,7 +423,7 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
     | .some v => eval fuel env inFn ((x, v) :: ls) a
     | .none => eval fuel env inFn ls b
     | _ => .error (.type "match on a value that is not an option")
-  | .arrow _ _ => .error (.type "an arrow outside `map` or `filter`")
+  | .arrow _ _ => .error (.type "an arrow outside `map`, `filter` or `sortBy`")
   | .letE x v body => do
     let w ← eval fuel env inFn ls v
     eval fuel env inFn ((x, w) :: ls) body

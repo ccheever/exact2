@@ -386,6 +386,7 @@ impl Gen<'_> {
                 2,
                 2,
                 if **elem == Ty::Str { 2 } else { 0 },
+                3,
             ]) {
                 0 => {
                     let src_ty = self.held(env, false);
@@ -422,10 +423,26 @@ impl Gen<'_> {
                 }
                 // `split` over code units: an empty separator cuts an astral
                 // character into two U+FFFD (LLP 1088 §9.1).
-                _ => {
+                6 => {
                     let s = self.expr(env, &Ty::Str, d, false);
                     let sep = self.expr(env, &Ty::Str, d, false);
                     format!("({s}).split({sep})")
+                }
+                // LLP 1116.016 §5: a stable sort by a number or string key,
+                // in either direction.
+                _ => {
+                    let src = self.expr(env, t, d, false);
+                    let (head, inner) = self.arrow_head(env, elem);
+                    let key_ty = if self.rng.chance(1, 2) {
+                        Ty::Num
+                    } else {
+                        Ty::Str
+                    };
+                    let key = self.expr(&inner, &key_ty, d, false);
+                    let dir = *self
+                        .rng
+                        .pick(&["", "", ", \"asc\"", ", \"desc\"", ", \"desc\""]);
+                    format!("sortBy({src}, {head} {key}{dir})")
                 }
             },
             Ty::Rec(i) => {

@@ -122,12 +122,18 @@ def routerTy (name : String) (ts : List Ty) : Option Ty :=
   else if name = "encodeRouteSegment" then match ts with | [.string] => .some .string | _ => .none
   else unsupportedTy name ts
 
+/-- What a `sortBy` key may be: a number or a string (an enum is a string
+here), or `?`, which no value has (the Rust checker's `infer_sort_by`). -/
+def Ty.sortKey : Ty → Bool
+  | .number | .string | .unknown => true
+  | _ => false
+
 /-- The roster (plan/tables/format.json `stdlib`) as types: the result of a
 call with arguments of these types, or `none` when the call is refused.
 `any` is held to what the runner reads (`roster_accepts`). The entries the
 semantics refuses as unsupported (formats, routes, geometry) are typed as
 the roster spells them: their calls never produce a value here. `map`,
-`filter`, `pending`, `failed`, `failure` and `path` are typed by rules of their own. -/
+`filter`, `sortBy`, `pending`, `failed`, `failure` and `path` are typed by rules of their own. -/
 def rosterTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "performanceNow" then match ts with | [] => .some .number | _ => .none
   else if name = "length" then match ts with | [.string] | [.list _] => .some .number | _ => .none
@@ -289,6 +295,11 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
   | filter : p.fns.find? (·.name == "filter") = .none → ps.length ≤ 2 → HasTy p G Γ l (.list a) →
       HasTy p G (bindTy ps a Γ) body b → b.le .bool = true →
       HasTy p G Γ (.call "filter" [l, .arrow ps body]) (.list a)
+  /-- `sortBy` (LLP 1116.016 §5): a key of a number or a string, a literal
+  direction; the list's own type. -/
+  | sortBy : p.fns.find? (·.name == "sortBy") = .none → ps.length ≤ 2 → HasTy p G Γ l (.list a) →
+      HasTy p G (bindTy ps a Γ) body k → k.sortKey = true → sortDir dir = .ok d →
+      HasTy p G Γ (.call "sortBy" (l :: .arrow ps body :: dir)) (.list a)
   /-- `pending(x)` names a resource or a mutation in scope (the checker's
   `scope.lookup`: no local shadows it, and the component scope has it). -/
   | pending : p.fns.find? (·.name == "pending") = .none → (isResource p x || isMutation p x) = true →
