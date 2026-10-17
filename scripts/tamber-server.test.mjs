@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -686,6 +686,35 @@ test('inspect on the JS page: no tap reaches the app, and each node answers as o
     for (const stop of stops) await stop();
   }
 }, 900_000);
+
+test('the JS loop: its own design server\'s lock is no edit, and an atomic save over the design is a value batch', async () => {
+  // An app of its own, so no other test's fixture moves under it.
+  const dir = mkdtempSync(join(tmpdir(), 'exact-atomic-save-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Atomic save', app: { id: 'com.exact.atomic-save', name: 'Atomic save' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    column background-color="surface.card" min-height=40\n      text "card"\n');
+  const file = join(dir, 'app.tamber'), was = 'tamber atomic\n\ntheme\n  surface.card = light-dark(#f1f3f5, #16181c)\n';
+  writeFileSync(file, was);
+  let loop = null;
+  try {
+    loop = await devLoop([], dir);
+    const { said } = loop;
+    const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 200)); } };
+    // The design server has its lock in .exact/ and the reader is built:
+    // the loop's own start made no edit.
+    await until(() => said().includes('plan ready') && said().includes('design reader ready') && existsSync(join(dir, '.exact', 'tamber.lock')), 900_000);
+    expect(said()).not.toContain('edit →');
+    // An editor's atomic save: a temporary beside the design, renamed over it.
+    writeFileSync(`${file}.tmp`, was.replace('#16181c)', '#101010)'));
+    renameSync(`${file}.tmp`, file);
+    // The batch, then its verifying build's word that it stands.
+    await until(() => said().includes('edit → checked'), 300_000);
+    expect(said()).toMatch(/edit → batch ready/);
+    expect(said()).not.toContain('edit → plan ready');
+  } finally {
+    await loop?.stop().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);
 
 test('the wasm loop\'s HTML, its page, install page and /__dev/open, may be framed only by the design tool\'s origin and its own', async () => {
   const { base, stop } = await devLoop(['--wasm'], 'caltrain');

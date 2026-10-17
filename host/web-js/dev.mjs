@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer, request } from 'node:http';
 import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, watch, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
 import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
@@ -212,6 +212,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // it (not on a filesystem that keeps a coarser one: the debug compiler).
       tool.built = tool.ready && mtimeMs(tool.path) === started.getTime() ? started.getTime() : null;
       if (!tool.ready && !signal) console.log(`the design reader did not build (design edits take the full build):\n${readerFailure(err)}`);
+      if (tool.ready) console.log('design reader ready');
     });
   };
   // Ready, and built from the compiler's sources as they are (a compiler
@@ -284,6 +285,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   let backendSeen = backendOf();
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
+    // A burst a build already took (its timer still armed) is no edit.
+    if (!edited.size) return;
     const at = saved, t = Date.now();
     // A path that existed during the save and is gone by now (an editor's
     // or sed's temporary file) edited nothing; one already gone when its
@@ -389,6 +392,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // its end restores. A released scrub's build goes from it, and ends it.
       if (scrubbed && released) { scrubbed = null; aside = null; released = false; }
       if (scrubbed) aside = committed; else snapshot = committed;
+      // A batch sent before this build: it checked out, and stands.
+      if (fast && !tokens.length) console.log(`edit → checked in ${Date.now() - t} ms · the batch stands`);
       if (tokens.length && !scrubbed) {
         console.log(`edit → batch ready ${Date.now() - at} ms (built in ${Date.now() - t} ms) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
         const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens });
@@ -424,6 +429,16 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
     if (again) { again = false; rebuild(); }
   };
+  // An editor's temporary name for a `.tamber` file beside it: the file's
+  // name with `.tmp` (and a hex or numeric suffix, a pid or a hash), `.swp`,
+  // `.swx`, `~`, JetBrains' or Emacs's marks; anchored, so no other file
+  // named after it (`app.tamber.tmp.png`) is one.
+  const TEMPORARY = /^(?:\.?(.+\.tamber)(?:\.tmp(?:[.-][0-9a-f]+)?|\.sw[px]|~|___jb_(?:tmp|old)___)|#(.+\.tamber)#|\.#(.+\.tamber))$/;
+  const temporaryOfDesign = (path) => {
+    const m = TEMPORARY.exec(basename(path));
+    const design = m && (m[1] ?? m[2] ?? m[3]);
+    return !!design && existsSync(resolve(dirname(path), design));
+  };
   // A build reading a tree (the assets it copies) is reported too on macOS:
   // a path not modified since the last build started is no edit.
   const changed = (base, skip = skipped, fresh = true) => (_, name) => {
@@ -442,6 +457,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     }
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
+    // An editor's temporary for a design beside it (an atomic save writes
+    // `app.tamber.tmp` and renames it over `app.tamber`; its event can come
+    // before or after the rename): never an input, whenever it comes.
+    if (name && temporaryOfDesign(resolve(base, String(name)))) return;
     // A screenshot, film, log or note written into the app folder, outside the input trees and not named by
     // app.json, does not reload a page under a test (authoring bench).
     if (base === app.dir && OUTPUT.test(String(name)) && !INPUT_TREE.test(String(name)) && !JSON.stringify(app.manifest ?? {}).includes(String(name))) return;
@@ -453,7 +472,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (!timer) saved = Date.now();
     const path = resolve(base, String(name ?? ''));
     edited.add(path);
-    if (existsSync(path)) appeared.add(path);
+    // Made since the last build began (a temporary), not an input it had:
+    // only such a file gone again edited nothing.
+    try { if (statSync(path).birthtimeMs >= since) appeared.add(path); } catch { /* gone */ }
     clearTimeout(timer);
     // An editor's save is one burst of events, well inside 5 ms; an event
     // after the build starts builds again (`again`).
