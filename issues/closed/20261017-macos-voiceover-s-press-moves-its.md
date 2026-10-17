@@ -1,6 +1,7 @@
 # macOS: VoiceOver's press moves its cursor to an element that appears during the press
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Not the framework's: measured against a hand-built AppKit window and a Contract repro with real VoiceOver, the host keeps VoiceOver on a pressed element that survives its press, as AppKit does; the T3 Code clone rebuilds its chip accessibility elements on each editor refresh, so the element VoiceOver pressed is destroyed and VoiceOver re-picks. The fix is the clone's.
 **Systems:** host/apple macOS, accessibility, VoiceOver
 **Severity:** P3
 **Author:** Daehyeon Mun
