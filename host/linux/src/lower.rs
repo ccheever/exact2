@@ -22,9 +22,13 @@ use exact_kernel::motion::MotionSync;
 use exact_kernel::svg::Paint;
 use exact_kernel::{Dimension, NodeKey, NodeType};
 #[cfg(target_os = "android")]
-use exact_motion::{Easing, StepPosition, Value};
-use exact_motion::{PlayedCurve, PlayedTransition, Property};
+use exact_motion::{Easing, StepPosition};
+use exact_motion::{PlayedCurve, PlayedTransition, Property, Value};
 use exact_runner::DataSource;
+
+#[cfg(test)]
+#[path = "lower_tests.rs"]
+mod tests;
 
 /// The properties a reader plays.
 pub(crate) const LOWERED: [Property; 8] = [
@@ -162,7 +166,8 @@ impl<D: DataSource> Host<D> {
     /// Hand the reader every transition it can play (opacity, translate,
     /// scale, rotate of a node it can layer): the engine presents their
     /// targets from now on and the reader moves the layer. Before the
-    /// commit's presentation, so the painter draws the target. Ended ones go.
+    /// presentation, so the painter draws the target. Ended or reclaimed
+    /// tracks go.
     pub(super) fn play_transitions(&mut self) {
         if !self.lowering {
             return;
@@ -171,7 +176,9 @@ impl<D: DataSource> Host<D> {
         let mut ended = Vec::new();
         self.played.retain(|node, t| {
             let before = t.len();
-            t.retain(|(_, p)| p.start + played_seconds(p) > now);
+            t.retain(|(property, p)| {
+                self.engine.is_played(*node, *property) && p.start + played_seconds(p) > now
+            });
             if t.len() != before {
                 ended.push(*node);
             }
@@ -218,6 +225,41 @@ impl<D: DataSource> Host<D> {
                 self.lowered_changed.insert(node, self.lowered_epoch);
             }
         }
+    }
+
+    /// Sample the reader's curve before a hold takes it. The painter and
+    /// engine publish the target while the reader plays these values.
+    pub(super) fn played_value(&self, node: u64, property: Property, now: f64) -> Option<Value> {
+        if !self.engine.is_played(node, property) {
+            return None;
+        }
+        let (_, t) = self
+            .played
+            .get(&node)?
+            .iter()
+            .find(|(p, _)| *p == property)?;
+        let duration = played_seconds(t);
+        if now >= t.start + duration {
+            return Some(t.to);
+        }
+        let progress = if duration <= 0.0 {
+            0.0
+        } else {
+            ((now - t.start) / duration).clamp(0.0, 1.0)
+        };
+        Some(match &t.curve {
+            PlayedCurve::Easing { easing, .. } => {
+                let progress = easing.progress(progress);
+                t.from.zip(t.to, |a, b| a + (b - a) * progress)
+            }
+            PlayedCurve::Frames { values, .. } => {
+                let position = progress * values.len().saturating_sub(1) as f64;
+                let i = position as usize;
+                let from = values.get(i)?;
+                let to = values.get(i + 1).unwrap_or(from);
+                from.zip(*to, |a, b| a + (b - a) * position.fract())
+            }
+        })
     }
 
     /// Bumped whenever a lowered node's plays may have changed: the reader's

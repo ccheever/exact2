@@ -1340,8 +1340,6 @@ impl<D: DataSource> Host<D> {
         });
         self.observe_layout();
         paint |= layout.as_ref().copied().unwrap_or(true);
-        // Transitions the reader plays leave the engine before it presents.
-        self.play_transitions();
         // Consume the final sample even when the seek has made motion quiescent.
         paint |= self.present();
         (error.or(layout.err()), paint)
@@ -1399,7 +1397,10 @@ impl<D: DataSource> Host<D> {
 
     /// Every presentation value the engine changed, kept by node.
     fn present(&mut self) -> bool {
-        let mut changed = false;
+        // Holds and commits both reconcile reader tracks before publishing.
+        let epoch = self.lowered_epoch;
+        self.play_transitions();
+        let mut changed = self.lowered_epoch != epoch;
         for p in self.engine.frame() {
             let key = node_key(p.node);
             let Some(view) = self.keys.get(&key).copied() else {
