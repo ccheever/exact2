@@ -479,7 +479,7 @@ component MobileRouteContent
     else if (focused and informationRoute.active) or informationListCovered
       SettingsInformation(data=informationData, route=routeName, query=informationQuery, legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
     else if routeName == "settings"
-      SettingsRoot(data=settingsData.root, navigate=openSetting)
+      SettingsRoot(data=settingsData.root, displayScale=layout.displayScale, navigate=openSetting)
       if focused
         SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
     else if routeName.startsWith("settingsScheduled") or routeName == "settingsUsage" or routeName == "settingsUsageAccount"

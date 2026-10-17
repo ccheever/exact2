@@ -64,25 +64,28 @@ shape SettingsChoicesData
   footer: string
   ready: bool
   options: SettingsChoice[]
+// Pinned RN TextMeasurementRounding.h adds one physical pixel at exact boundaries.
+fn settingsRootTextBoxHeight(lineHeight: number, displayScale: number): number = ceil((lineHeight + 0.001) * displayScale) / displayScale
 component SettingsRoot
   props
     data: SettingsRootData
+    displayScale: number
     navigate: action
   view
     scroll id="settings-scroll" flex=1 min-height=0 background-color=data.colors.sheet
       column gap=14 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=data.bottom font-family="DM Sans" testId="settings-root"
         for section in data.sections key=section.title
           column gap=7
-            SettingsSectionLabel(title=section.title, colors=data.colors, roles=data.roles)
+            text section.title padding-left=7 padding-right=7 min-height=settingsRootTextBoxHeight(data.roles.footnote.line, displayScale) font-size=data.roles.footnote.size line-height=`${data.roles.footnote.line}px` font-weight=500 color=data.colors.muted
             column border-radius=24 overflow="hidden" background-color=data.colors.grouped
               for item in section.rows key=item.target
                 button press=navigate(item.target) disabled=item.disabled padding=0 aria-label=item.label testId=`settings-route-${item.target}`
                   row gap=14 padding=14 align-items="center" opacity=(item.disabled ? 0.45 : 1)
                     t3-symbol symbol-name=item.icon symbol-weight="regular" symbol-tint=data.colors.icon width=22 height=22 flex-shrink=0
-                    text item.label font-size=data.roles.headline.size line-height=`${data.roles.headline.line}px` color=data.colors.foreground flex-shrink=0 line-clamp=1
+                    text item.label min-height=settingsRootTextBoxHeight(data.roles.headline.line, displayScale) font-size=data.roles.headline.size line-height=`${data.roles.headline.line}px` color=data.colors.foreground flex-shrink=0 line-clamp=1
                     column flex=1 min-width=0 align-items="flex-end"
                       if item.value.length > 0
-                        text item.value max-width=180 text-align="right" font-size=data.roles.body.size line-height=`${data.roles.body.line}px` color=data.colors.muted line-clamp=1 text-overflow="ellipsis"
+                        text item.value max-width=180 text-align="right" min-height=settingsRootTextBoxHeight(data.roles.body.line, displayScale) font-size=data.roles.body.size line-height=`${data.roles.body.line}px` color=data.colors.muted line-clamp=1 text-overflow="ellipsis"
                     t3-symbol symbol-name="chevron.right" symbol-weight="semibold" symbol-tint=data.colors.chevron width=16 height=16 flex-shrink=0
 component SettingsSectionLabel
   props
