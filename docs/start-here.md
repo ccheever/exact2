@@ -334,6 +334,7 @@ Start from the nearest pattern, a tested app with what the recipes teach. Open a
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
 |a count 1–99|`contract vocab stepper`|
 |a chat that opens at its newest message|`chat-thread`|
+|a welcome shown at first launch only|`first-launch`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |a view only Swift can draw|`native-views`|

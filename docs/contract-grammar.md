@@ -746,7 +746,7 @@ says. Every roster function has a row and an example, and each example written
 | `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
 | `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
 | `push(router, location)` | Router; same top URL does not add a visit | `depth(push(nav, "/item/7"))` is `2` |
-| `replace(router, location)` | Router | `depth(replace(nav, "/item/7"))` is `1` |
+| `replace(router, location)` | Router; the top visit takes the location and keeps its id. A stack's first visit keeps its root route: a location matching another route is refused and the router is unchanged (a first-launch screen: docs/recipes/first-launch.md) | `top(replace(push(nav, "/item/7"), "/item/8")).url` is `"/item/8"` |
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
 | `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
