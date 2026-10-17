@@ -1093,8 +1093,9 @@ screen, 2026-10-16.)
   the app's files are there.** Cause: without `--storage <name>` every
   `storage.fs` call in the data module throws "storage is unavailable in agent
   mode…", and a module that catches a missing config file falls back silently,
-  as it would on a fresh install (the drive notes a refused write, `note: a data
-  source's write was refused`, once: in the input's reply, else at its end).
+  as it would on a fresh install (the drive says so once, after the first op that
+  met a refusal, a screenshot too: `note: this drive names no --storage, so the
+  app's storage was refused …`).
   The installed app's own files are not the drive's: a named scratch store lives
   apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
   `--storage <name>`, and copy the files the drive needs (a config, a saved

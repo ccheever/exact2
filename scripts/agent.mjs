@@ -20,7 +20,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
+import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -40,7 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot } from './agent-compare.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { driveNotes, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
+import { driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices } from './agent-keys.mjs';
 import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
@@ -1336,8 +1336,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       delete r.epoch; delete r.incarnation; delete r.clock;
       // No scratch store: the input's reply says so, for an `open()` script as for the CLI, on every carrier (LLP 1102 §3.17); the read is bounded, advice only.
       if (storage === undefined && !s.storageSaid && (s.storageProbes = (s.storageProbes ?? 0) + 1) <= 20) {
-        const j = await Promise.race([s.op({ op: 'logs', since: s.storagePeek ?? 0 }).catch(() => null), new Promise((done) => setTimeout(() => done(null), 2000))]), hit = Array.isArray(j?.lines) && (s.storagePeek = j.next, j.lines.some((x) => /storage refused \(agent\)/.test(typeof x === 'string' ? x : JSON.stringify(x))));
-        if (hit) { s.storageSaid = true; r.note = [r.note, 'a data source\'s write was refused: this drive names no scratch store, so writes do nothing; open it with storage: <name> (--storage <name>)'].filter(Boolean).join('; '); }
+        const j = await Promise.race([s.op({ op: 'logs', since: s.storagePeek ?? 0 }).catch(() => null), new Promise((done) => setTimeout(() => done(null), 2000))]), hit = Array.isArray(j?.lines) && (s.storagePeek = j.next, j.lines.some((x) => STORAGE_REFUSED.test(typeof x === 'string' ? x : JSON.stringify(x))));
+        if (hit) { s.storageSaid = true; r.note = [r.note, STORAGE_NOTE].filter(Boolean).join('; '); }
       }
       return s.tagged(r);
     },
@@ -1386,10 +1386,17 @@ export async function main(argv, injected = {}) {
     return 2;
   }
   const served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage); // the app's own server, if it has one (LLP 1116.008 D1)
-  // A named store starts empty on every host unless the drive keeps it (`--keep-storage`): the whole scratch tree —
-  // `app:/` files, the data module's databases, kept state and secrets — or Chrome's profile for it. A native host
-  // empties its tree at the first boot that reads it (picker.rs `empty_fresh_tree`).
-  const s = await (injected.open ?? open)({ host, browser, env: flags.storage !== undefined && !flags.keepStorage ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });
+  // A named store is kept between drives on a native host unless the drive asks it emptied (`--reset-storage`); on the
+  // web, Chrome's profile for it starts empty unless the drive keeps it (`--keep-storage`, LLP 1086 EX4). A native host
+  // empties the whole scratch tree at its first boot (picker.rs `empty_fresh_tree`), refusing one under a link.
+  const fresh = flags.storage !== undefined && (host === 'web' ? !flags.keepStorage : flags.resetStorage);
+  const launch = () => (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });
+  // A native named store is one drive's at a time, on its device: another drive's reset would empty it under this one.
+  const device = host === 'ios' ? (flags.device ? `phone ${flags.phone ?? 'default'}` : `simulator ${process.env.EXACT_SIM ?? 'default'}`)
+    : host === 'android' ? `android ${flags.phone ?? process.env.ANDROID_SERIAL ?? 'default'}` : 'this machine';
+  const s = host !== 'web' && flags.storage !== undefined
+    ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host, device, appId: resolveApp(flags.app).id, storage: flags.storage }, launch)
+    : await launch();
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
   const step = async (line) => {

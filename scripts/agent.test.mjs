@@ -287,18 +287,57 @@ test('compare: the CLI form and the reference are checked before any comparison'
   assert.match(helpText('agent'), /\(a select, date or checkbox: its value\)/);
 });
 
-test('a named store starts empty on every host unless the drive keeps it', async () => {
+test('a native named store is kept unless the drive resets it, under its lock; a web one starts empty unless kept', async () => {
   const quiet = [console.log, console.error];
   console.log = () => {}; console.error = () => {};
   try {
-    for (const [host, flags, fresh] of [['ios', [], true], ['ios', ['--reset-storage'], true], ['ios', ['--keep-storage'], false],
-      ['macos', ['--reset-storage'], true], ['linux', ['--keep-storage'], false], ['web', [], true], ['web', ['--keep-storage'], false]]) {
-      let env = 'unopened';
+    for (const [host, flags, fresh, locked] of [['ios', [], false, true], ['ios', ['--reset-storage'], true, true], ['android', ['--reset-storage'], true, true],
+      ['macos', [], false, true], ['linux', ['--reset-storage'], true, true], ['web', [], true, false], ['web', ['--keep-storage'], false, false]]) {
+      let env = 'unopened', lock = null;
       const fakeOpen = async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; };
-      assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: fakeOpen, driveServer: async () => null }), 0);
+      const exclusiveNativeStore = async (key, launch) => { lock = key; return launch(); };
+      assert.equal(await main([host, '--storage', 's1', ...flags, 'state'], { open: fakeOpen, driveServer: async () => null, exclusiveNativeStore }), 0);
       assert.equal(env?.EXACT_AGENT_STORAGE_FRESH === '1', fresh, `${host} ${flags.join(' ')}`);
+      assert.equal(lock?.storage === 's1', locked, `${host} lock`);
     }
   } finally { [console.log, console.error] = quiet; }
+});
+
+test('a drive with no store says its storage was refused after the first op that met it, a screenshot too, once', async () => {
+  const { driveNotes, STORAGE_NOTE } = await import('./agent-test.mjs');
+  const said = [], quiet = console.error;
+  const lines = ['t=0 query lib: loadLibrary', 't=0 storage failed: readFile app:/data/library.json: Unavailable agent storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)'];
+  const s = { launchFacts: {}, op: async ({ since }) => ({ lines: lines.slice(since ?? 0), next: lines.length }), state: async () => ({}) };
+  console.error = (line) => said.push(line);
+  try {
+    const notes = driveNotes(s, { host: 'ios', storage: undefined });
+    await notes('screenshot'); await notes('tap'); await notes('end');
+    assert.deepEqual(said.filter((l) => l.includes('--storage')), [`note: ${STORAGE_NOTE}`]);
+    said.length = 0;
+    await driveNotes(s, { host: 'ios', storage: 's1' })('screenshot');
+    assert.deepEqual(said, []);
+  } finally { console.error = quiet; }
+});
+
+test('a native store is one drive\'s at a time: a second is refused until the first closes', async () => {
+  const { exclusiveNativeStore } = await import('./agent-launch.mjs');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(resolve(tmpdir(), 'store-lock-test-')), key = { host: 'ios', device: 'simulator X', appId: 'com.example.a', storage: 's1' };
+  try {
+    let closed = 0;
+    const first = await exclusiveNativeStore(key, async () => ({ close: async () => { closed++; } }), root);
+    await assert.rejects(exclusiveNativeStore(key, async () => ({ close: async () => {} }), root), /another drive of this store is open on simulator X/);
+    const other = await exclusiveNativeStore({ ...key, storage: 's2' }, async () => ({ close: async () => {} }), root);
+    await other.close();
+    await first.close();
+    assert.equal(closed, 1);
+    const again = await exclusiveNativeStore(key, async () => ({ close: async () => {} }), root);
+    await again.close();
+    // A launch that fails releases the lock.
+    await assert.rejects(exclusiveNativeStore(key, async () => { throw new Error('no app'); }, root), /no app/);
+    await (await exclusiveNativeStore(key, async () => ({ close: async () => {} }), root)).close();
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('compare on a capture: nodes where the window has them, its safe area not scored, a scaled viewport refused, its notes said', async () => {

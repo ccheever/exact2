@@ -167,6 +167,28 @@ export function netOptions(environment = process.env) {
   return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
 }
 
+/** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
+ * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
+ * the drive names it (`device`: a simulator, a phone, an Android device, or this machine), the app's id and the store,
+ * so a second drive is refused while the first is open. The OS releases the lock if the driver dies. */
+export async function exclusiveNativeStore({ host, device, appId, storage }, launch, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
+  const part = (s) => String(s).replace(/[^\w.-]/g, '_');
+  mkdirSync(root, { recursive: true });
+  let release, acquired;
+  const ready = new Promise((done) => { acquired = done; });
+  const lifetime = new Promise((done) => { release = done; });
+  const holding = filesystemLock(root, `${[host, device, appId, storage].map(part).join('/')}/.lock`, async () => { acquired(); await lifetime; });
+  try { await Promise.race([ready, holding]); }
+  catch (error) { throw new Error(`--storage ${storage}: another drive of this store is open on ${device} (${error.message}); close it, or name another store`); }
+  const unlock = async () => { release(); await holding; };
+  try {
+    const carrier = await launch(), close = carrier.close.bind(carrier);
+    let closed;
+    carrier.close = () => closed ??= (async () => { try { await close(); } finally { await unlock(); } })();
+    return carrier;
+  } catch (error) { await unlock(); throw error; }
+}
+
 /** Own a named Chrome profile before resetting it, including when two drives
  * choose different page ports. The OS releases the lock if the driver dies. */
 export async function exclusiveWebStore(options, launch) {

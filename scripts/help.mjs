@@ -26,8 +26,8 @@ const takesValue = (spec) => spec.includes(' ');
 const DRIVE = [
   ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
   ['--backend <url>', 'web: select the backend origin for this build'],
-  ['--storage <name>', 'a scratch store, empty at the start of each drive'],
-  ['--keep-storage · --reset-storage', 'reopen a named store as the last drive left it · empty it (the default)'],
+  ['--storage <name>', 'a scratch store, kept on native hosts; Chrome\'s starts empty'],
+  ['--keep-storage · --reset-storage', 'Chrome: reopen a named store · empty a named store first, on any host'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
   ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
@@ -146,7 +146,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
     body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes.
-Without --storage, storage is refused; --keep-storage reopens a named store.
+Without --storage, storage is refused; --reset-storage empties a native store, --keep-storage keeps a web one.
 An app's server.ts runs for the drive, its database per --storage.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back

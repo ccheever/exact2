@@ -624,9 +624,11 @@ one in flight: the module's storage queue is full, LLP 1097), else `'failed'`. B
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
 A drive's app storage is a scratch store it names (`--storage <name>`) or none.
-A CLI drive empties the store first, all of it (`app:/` files, SQLite, kept state,
-secrets), unless it is given `--keep-storage` (on the web, Chrome's profile for the
-name and its page's origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
+A native one is kept between drives until a drive passes `--reset-storage`, which
+empties all of it (`app:/` files, SQLite, kept state, secrets) at the app's boot
+and refuses a store reached through a symbolic link; one drive holds a native store
+at a time. On the web it is Chrome's profile for the name and its page's origin,
+empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own); an authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary

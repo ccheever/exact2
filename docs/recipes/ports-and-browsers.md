@@ -15,3 +15,5 @@ keeps its data per port, so drive one store on one port.
   stores, including across repeated suite runs. Backend rows persist: use
   `fresh` with `dev`, or create uniquely keyed fixtures with `serve`.
   Firefox/WebKit use a new profile each drive and do not preserve named stores.
+- **Native stores.** `agent ios --storage s1` (macOS, Linux, Android alike) is kept
+  between drives; `--reset-storage` empties it. One drive holds a store at a time.

@@ -158,8 +158,9 @@ or the red button would (the agent's window is never key, so a typed ⌘W reache
 nothing): the window asks its `beforeunload` first, and the reply says
 `closed: true`, or `closed: false` for a window a handler kept (the web's
 "Leave site?" is answered "Stay"). macOS and the web; iOS and Linux refuse it.
-`--storage <name>` gives a drive a named scratch store, emptied when the drive
-starts unless it is given `--keep-storage`, on macOS, iOS, Linux and web Chrome (a browser profile served on one port per
+`--storage <name>` gives a drive a named scratch store, kept between drives on
+macOS, iOS and Linux until one passes `--reset-storage`, and on web Chrome when the
+next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
 for the drive, including its `reload`). Without it a drive has no
 app storage: an `app:/` file or SQLite request is refused (`storage is unavailable
@@ -528,7 +529,8 @@ component App
   `type-persist-child`; a derive, `syntax-persist-derive`.
 - Each authored test starts from an empty store, and its `reload` reads back what
   it kept. A drive with `--storage <name>` keeps persisted state in that store
-  between drives; a drive without one starts from the declared values and keeps
+  between drives (on the web, the next one passes `--keep-storage`; on a native host
+  `--reset-storage` empties it); a drive without one starts from the declared values and keeps
   nothing past the drive. The recipe:
   [a remembered setting](recipes/persisted-setting.md).
 
