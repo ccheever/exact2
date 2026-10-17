@@ -14,7 +14,7 @@
 // case: {lines} (the observation), {outside} (exact-web-js refused the
 // program: outside the JS target) or {error} (the driver failed).
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -99,8 +99,16 @@ function runtime(dir) {
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
   writeFileSync(resolve(dir, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
   writeFileSync(resolve(dir, 'admission-data.js'), "import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(''),rustGrantSet=createGrantSet('');\n");
+}
+
+/** The bundle's entry for the program just compiled into `dir`: its voice
+ * table installed when the compiler flags one, as host/web-js/build.mjs's
+ * `main.js` does, so a sequence (transport.js) has the table to play into. */
+function entry(dir) {
+  const flag = resolve(dir, 'sounds.flag');
   writeFileSync(resolve(dir, 'entry.js'), [
     "import app from './app.js';",
+    ...(existsSync(flag) ? [`import { install as sounds } from './sounds.js'; sounds(${readFileSync(flag, 'utf8')});`] : []),
     "import names, { types } from './names.js';",
     "import { data, journal, clock, advance, Hosts, inflight, Mutations, Sounds } from './rt.js';",
     'globalThis.__drive = { app, names, types, data, journal, clock, advance, Hosts, inflight, Mutations, Sounds };',
@@ -112,6 +120,7 @@ async function build(compiler, dir, file) {
   for (const f of ['app.js', 'names.js']) rmSync(resolve(dir, f), { force: true });
   const c = spawnSync(compiler, ['js', file, '-o', dir], { encoding: 'utf8' });
   if (c.status !== 0) return { outside: (c.stderr || c.stdout || `exit ${c.status}`).trim() };
+  entry(dir);
   const r = await Bun.build({ entrypoints: [resolve(dir, 'entry.js')], format: 'iife', target: 'browser', define: { 'import.meta.url': '"http://difftest.invalid/app.js"' } });
   if (!r.success) throw new Error(r.logs.map(String).join('\n'));
   return { code: await r.outputs[0].text() };
