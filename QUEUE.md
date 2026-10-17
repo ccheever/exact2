@@ -1446,3 +1446,4 @@ and the Linux headless CPU renderer without claiming display frame timing.
   server-app drive on a page-port bind and the new-app JSON report on exit
   status. Both named tests passed alone on EX9 and plain `416e4c782`;
   investigate contention before treating either observation as a product bug.
+- **The touch runner keeps the bundle id it started with** (2026-10-17, LLP 1122 T2c gate). `host/apple/touches.mjs` reuses a long-lived XCUITest runner per simulator (`exact-touches-<udid>.xctestrun`, `XCUIApplication(bundleIdentifier:)` made from the bundle id it was launched for). After a drive of another app on that simulator, every `--touch platform` tap answers "the app is notRunning, not in the foreground" until the runner is stopped. Restart the runner when the app's bundle id changes, or pass the id with each request.

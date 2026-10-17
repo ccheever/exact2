@@ -1100,7 +1100,7 @@ the iOS simulator and the Mac.
   browser runs it in its own process. The dev loops also answer on `[::1]`.
 - **Known limits:**
   - the server keeps one map, the running generation's, so a build on another plan gets no outline
-    and a read-only selection (T2c needs a map per plan);
+    and a read-only selection (lifted by T2c's maps per plan);
   - a popover's light dismiss happens before inspect can stop it;
   - a gesture already under way isn't cancelled.
 
@@ -1114,3 +1114,48 @@ the iOS simulator and the Mac.
 | Taps don't reach the app while inspect is on | **Met.** |
 
 The JS target's half follows, with the same gate on the clone's JS loop.
+
+### T2c: native inspect, maps per plan (`abc6490e9`, `9d24e4ebc`, `efd03e95a`; optional *1.9* fields, no bump)
+
+T2c went before T2b's JS half (the lead's order, 2026-10-17).
+
+- **One source map per plan digest** (step 1).
+  - The server resolves each build through the map of the plan it says it runs (`planDigest`).
+  - The JS loop's resident producer announces each published plan's map on a pipe (fd 3), and the
+    loop pulls the bytes by their hash. A native on the JS loop therefore has its own plan's map.
+  - A selection on one plan outlines the matching sites on every inspecting build, each from its
+    own map. A build whose plan has no map here gets none, and is said so.
+  - A build the server skips is sent `{clear}` for the outlines it drew for that client.
+- **iOS and the Mac inspect** (steps 2–3). They answer `inspect` and `outline` as the wasm page
+  does, compiled into development builds only: Swift's `EXACT_INSPECT` from the trust policy, plus
+  the runtime gate. `host/apple/inspect-gate.test.mjs` checks the define, the `#if` cover, and a
+  production bake's strings and symbols.
+  - Input: iOS's window takes every touch and press. The Mac's event monitor takes every mouse,
+    wheel, hover, gesture, key and modifier event in every window of the app, and menus close.
+    Each sequence is owned to its end, entering or leaving inspect mode included.
+  - The report is the runner's own `node` op, so its rows are the kernel's. Status and report
+    name one plan digest: the runner's.
+  - The walk goes up from the platform's own hit view to the nearest plan node and stops at a
+    system bar or the title bar. A node the bar hosts is selected: the title, a bar or toolbar
+    item, a tab, title segments, the search field. The bar's own parts select nothing, and the
+    banner says why.
+  - Outlines follow where each copy shows, a native bar's stand-in included, in its own window.
+    The copy just tapped never scrolls (the click token, *1.7*).
+- **Linux answers `inspect` unsupported** (step 4), as do tvOS and a development JS page.
+- **Known limits:**
+  - an AppKit control's tracking loop already running when inspect mode comes on is not cancelled;
+  - a grouped list's cell, a Mac toolbar segment and the collapsed segments menu are not boxed;
+  - two sessions in one build running different plans give one status digest;
+  - no tests send synthesized UIEvents (UIKit has no public way to make one): iOS interception is
+    checked end to end on the simulator. The Mac's tests send constructed NSEvents.
+
+### T2c's gate: met for the simulator and the Mac; the phone pending (2026-10-17; the run is `~/x2theme/t2c-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A tap selects the node the platform hit-tests, with source, rows and token chain | **Met** on iOS and the Mac. "Feeds ✨" gives `home.contract:203`, the same as the wasm page. On the JS loop the native's selection is editable: text colour offers "Edit text". |
+| Every copy is outlined | **Met,** across builds too: a Mac click outlined the tab on the iOS simulator. |
+| Inherited, dynamic, initial and boundary rows are read-only, with their reason | **Met** on both for inherited, dynamic and initial. A boundary row is host-independent: the server's join decides it from the kernel's rows, whichever host reports them. It is met for T2b by the theme fixture's test, and the clone's signed-out screens have no boundary. |
+| Taps don't reach the app while inspect is on | **Met** on both, with real touches on iOS. |
+| A tap on platform chrome selects nothing; a node a bar hosts is selected | **Met by the host tests on real bars** (UINavigationBar's title and Back, UITabBar's items and space, the Mac title bar and close button). The clone draws its own chrome, and its back glyph is correctly selected as the app's view. |
+| A real phone | **Pending:** it needs Charlie's device. |
