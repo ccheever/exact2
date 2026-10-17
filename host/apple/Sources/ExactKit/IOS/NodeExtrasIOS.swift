@@ -17,6 +17,14 @@ struct AimedGradient {
     let gradient: Gradient, stops: ([CGFloat], [CGColor])
 }
 
+/// A paragraph's specs, apart from its view: three `Spec`s inline made every
+/// `NodeView` about 1 KB larger, text or not (2112 bytes, a 2.5 KB block).
+final class TextSpecs {
+    var rasterKey: TextRasterKey?
+    var rasterSpec: Spec?
+    var cached: Spec?
+}
+
 final class NodeExtras {
     var pressContact: PressContact?
     var inlinePressed: UInt32?

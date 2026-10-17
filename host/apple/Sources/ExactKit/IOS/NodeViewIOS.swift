@@ -33,7 +33,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
-    var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
+    /// A paragraph's specs, a third of what a view would otherwise hold
+    /// inline (`TextSpecs`); nil for a node that never had text.
+    private var specs: TextSpecs?
+    var textRasterKey: TextRasterKey? {
+        get { specs?.rasterKey }
+        set {
+            if newValue != nil || specs != nil { (specs ?? makeSpecs()).rasterKey = newValue }
+            textRasterWhole = newValue.map { $0.clip == nil } ?? false
+        }
+    }
     /// The key is set and paints the whole paragraph (not a band of it).
     private(set) var textRasterWhole = false
     var textRaster: CGImage?
@@ -41,11 +50,18 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var textRasterFrame = CGRect.zero
     /// The words and style `textRaster` paints, which the paragraph's may
     /// have left behind since (`invalidateText` keeps the old pixels up).
-    var textRasterSpec: Spec?
+    var textRasterSpec: Spec? {
+        get { specs?.rasterSpec }
+        set { if newValue != nil || specs != nil { (specs ?? makeSpecs()).rasterSpec = newValue } }
+    }
     var textRasterScale: CGFloat = 1
     var textRasterReady = false
     var textRasterFailed = false
-    var cachedTextSpec: Spec?
+    var cachedTextSpec: Spec? {
+        get { specs?.cached }
+        set { if newValue != nil || specs != nil { (specs ?? makeSpecs()).cached = newValue } }
+    }
+    private func makeSpecs() -> TextSpecs { let made = TextSpecs(); specs = made; return made }
     var textLayoutValid = false
     var flowShapes: [TextFlowShape] = []
     var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
