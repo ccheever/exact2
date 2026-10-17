@@ -358,7 +358,7 @@ mod tests {
                     &[Width]
                 }
                 "grouped-switch-size" => &[ControlSize],
-                "grouped-field-align" => &[TextAlign],
+                "grouped-field-align" | "grouped-title-button-align" => &[TextAlign],
                 "grouped-button-appearance" => &[Appearance],
                 "grouped-button-title-grow" => &[FlexGrow],
                 "grouped-button-align" => &[AlignSelf],
