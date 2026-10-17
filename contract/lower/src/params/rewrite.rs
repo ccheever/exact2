@@ -190,6 +190,15 @@ const PLAIN: At = At {
     quoted: false,
 };
 
+/// [`written`] for a text on its own: a design component's param default.
+pub(super) fn plain(
+    text: &str,
+    named: &dyn Fn(&str) -> Option<String>,
+    bad: &mut Vec<String>,
+) -> String {
+    written(text, PLAIN, named, bad)
+}
+
 /// `text` with each `param.<name>` [`found`] in it written by `named`; a name
 /// `named` does not know is pushed to `bad`.
 fn written(

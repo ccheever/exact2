@@ -23,6 +23,7 @@
 // EXACT_FONTS. The painter is the CPU one unless EXACT_PAINTER says
 // otherwise: the GPU painter needs a real GPU's Vulkan (an emulator's
 // SwiftShader crashes it).
+import { writeTamberNames } from './tamber-names.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { createConnection } from 'node:net';
@@ -292,6 +293,8 @@ function buildApk(app, env, profile) {
   // A game's resolved manifest (with its `app` identity) is the one its shells were generated with.
   // A date or time control's picker is Compose Material 3's, linked only for a plan that has one (LLP 1115.001.000 D2).
   const compose = uses.includes('dates') ? ['-Pcompose=1'] : [];
+  // The token names its hatches read (LLP 1121 D12), beside them in the build.
+  if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
   const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
   return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
 }

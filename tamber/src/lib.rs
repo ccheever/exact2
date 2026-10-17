@@ -11,6 +11,7 @@
 
 mod check;
 mod color_fn;
+mod component;
 mod css;
 mod edit;
 pub mod export;
@@ -30,6 +31,7 @@ mod syntax;
 mod typeface;
 
 pub use check::{Checked, MAX_TUPLES};
+pub use component::{Component, Param};
 pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};

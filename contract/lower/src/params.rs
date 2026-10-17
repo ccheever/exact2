@@ -14,7 +14,7 @@ mod rewrite;
 pub use rewrite::{reached, rewrite, unused};
 
 use crate::LowerError;
-use contract_syntax::params::{ComponentParam, ParamValue};
+use contract_syntax::params::{ComponentParam, ParamAttr, ParamValue, ATTRIBUTES};
 use contract_syntax::{File, Span};
 
 /// The prefix every param's token name has, which no design token may.
@@ -55,8 +55,10 @@ pub struct ParamToken {
     pub param: ComponentParam,
 }
 
-/// Every param of `file`'s components, as tokens, in declaration order.
+/// Every param of `file`'s components, as tokens, in declaration order:
+/// its Contract components', then its design's ([`design_tokens`]).
 pub fn tokens(file: &File) -> Vec<ParamToken> {
+    let designed = file.design.as_ref().map(|d| design_tokens(d).0);
     file.components
         .iter()
         .flat_map(|c| {
@@ -68,7 +70,82 @@ pub fn tokens(file: &File) -> Vec<ParamToken> {
                 param: p.clone(),
             })
         })
+        .chain(designed.into_iter().flatten())
         .collect()
+}
+
+/// The params of the design's components that aren't Contract (D15), as
+/// tokens: each named by the design file and its component, its
+/// `in low..high` a `range` and its metadata a Contract param's attributes;
+/// with what is refused in them (an attribute no param admits, a `param.`
+/// name its component does not declare). Its declaration makes each a root.
+/// None when the design does not parse: its check says why.
+pub fn design_tokens(design: &contract_syntax::DesignSource) -> (Vec<ParamToken>, Vec<LowerError>) {
+    let Ok(parsed) = exact_tamber::parse(&design.text) else {
+        return Default::default();
+    };
+    let (mut out, mut errors) = (Vec::new(), Vec::new());
+    for c in &parsed.components {
+        let (component, identity) = (&c.name.value, format!("{}#{}", design.home, c.name.value));
+        let declared: Vec<&str> = c.params.iter().map(|p| p.name.value.as_str()).collect();
+        let named = |n: &str| declared.contains(&n).then(|| token_name(&identity, n));
+        for p in &c.params {
+            let span = |at: &exact_tamber::At<String>| Span {
+                line: at.line,
+                col: at.col,
+                end_col: at.col + at.value.len() as u32,
+                source_id: design.source_id,
+            };
+            let mut bad = Vec::new();
+            let default = rewrite::plain(&p.value.value, &named, &mut bad);
+            for name in bad {
+                errors.push(LowerError {
+                    id: "tamber-param-unknown",
+                    message: format!(
+                        "`param.{name}`: `{component}` declares no param `{name}` (its params: {})",
+                        declared.join(", ")
+                    ),
+                    span: span(&p.value),
+                });
+            }
+            let range = p
+                .range
+                .as_ref()
+                .map(|(low, high)| ("range".to_string(), format!("{low}..{high}")));
+            let mut attrs = Vec::new();
+            // `in low..high` is its range; `range=` is no metadata here.
+            for (i, (name, value)) in range.iter().chain(&p.meta).enumerate() {
+                let written_in = i == 0 && range.is_some();
+                if !ATTRIBUTES.contains(&name.as_str()) || (name == "range" && !written_in) {
+                    errors.push(LowerError {
+                        id: "syntax-param-attribute",
+                        message: format!("param `{}`: `{name}=` is no param attribute here ({}; a range is `in low..high`)", p.name.value, ATTRIBUTES[1..].join(", ")),
+                        span: span(&p.name),
+                    });
+                    continue;
+                }
+                attrs.push(ParamAttr {
+                    name: name.clone(),
+                    value: ParamValue::Str(value.clone()),
+                    span: span(&p.name),
+                });
+            }
+            out.push(ParamToken {
+                token: token_name(&identity, &p.name.value),
+                full: full_name(&identity, &p.name.value),
+                identity: identity.clone(),
+                param: ComponentParam {
+                    name: p.name.value.clone(),
+                    kind: p.kind.clone(),
+                    default,
+                    default_span: span(&p.value),
+                    attrs,
+                    span: span(&p.name),
+                },
+            });
+        }
+    }
+    (out, errors)
 }
 
 /// Every component's identity in `file`, with params or none.

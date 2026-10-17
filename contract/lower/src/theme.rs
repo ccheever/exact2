@@ -256,11 +256,37 @@ impl Lowerer<'_> {
         let mut said = Said::of(file, root, &design);
         // D7's retention, left for the design server before the design is
         // folded, as it does not depend on the fold.
+        let mut words = std::mem::take(&mut said.words);
+        // A component that isn't Contract reads its params outside the views:
+        // its declaration keeps each (D15), with every token its default
+        // reads, through any chain.
+        let designed = file
+            .design
+            .as_ref()
+            .map(|d| crate::params::design_tokens(d).0);
+        let mut kept: Vec<String> = designed.into_iter().flatten().map(|p| p.token).collect();
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(name) = kept.pop() {
+            if !seen.insert(name.clone()) {
+                continue;
+            }
+            for t in design
+                .tokens
+                .iter()
+                .chain(&design.icons)
+                .filter(|t| t.name.value == name)
+            {
+                let read =
+                    std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
+                kept.extend(read.flat_map(|v| scan::words(v)).map(str::to_string));
+            }
+            words.insert(name);
+        }
         let retention = tamber::Retention {
             bindable,
             computed: said.computed,
             computed_measure: said.computed_measure,
-            words: std::mem::take(&mut said.words),
+            words,
         };
         RETENTION.with(|r| *r.borrow_mut() = Some(retention.clone()));
         CANDIDATES.with(|c| {

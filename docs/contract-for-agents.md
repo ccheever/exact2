@@ -3179,18 +3179,29 @@ and `priority` is 1 to 3. A design token may not be named `param.…`.
 `contract tamber ir` and the design server's `describe` list them under
 `components`; `contract tamber check` builds an app with params to admit its
 design (a dial only a param reads is read), counts them apart, and charges a
-refusal or warning on one to its default.
+refusal or warning on one to its default. A view that isn't Contract (a native module's, a Rust canvas
+component) declares its params in the design instead: `component MapCard`, then
+an indented `params` block of lines like a dial's, any kind (`inset: length =
+8px  in 0..24  control=slider  priority=2`). Its identity is the design file
+and the name (`app.tamber#MapCard`); its declaration keeps every param, and
+what its default reads, as the code reads them by name; a `when` is not the
+component's (the app's design sets a param per mode).
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
-`contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
+`contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
 `.exact/tamber/` (never committed): `tamber.ts` and `tamber.css` (each token's
 CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, and
 `Token<Length>`, `Token<Number>`, `Token<Type>` for those kinds, which
 `session.tamber().get(SURFACE_CARD, place)` resolves in a running session), or
 `tamber.swift` (`ExactTamberToken.surfaceCard`, for a native view's
 `ExactTamber(view).color(.surfaceCard)`, `.length(_:)`, `.number(_:)` and
-`.font(_:fallback:)`, a font at the person's text size with Bold Text's step;
-Android's names a token by its name, `color`, `length` and `number`).
+`.font(_:fallback:)`, a font at the person's text size with Bold Text's step),
+or `TamberTokens.kt` (`TamberColor.SURFACE_CARD`, `TamberLength`,
+`TamberNumber`, for `ExactTamber(view).color(…)` in the app's hatches). A
+component's param is named by `<Component>.<param>` there (`mapCardInset`,
+`MAP_CARD_INSET`); two names that map alike are refused, naming both. The Apple
+build writes `tamber.swift` and the Android reader's `TamberTokens.kt` before
+an app's modules compile.
 Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve

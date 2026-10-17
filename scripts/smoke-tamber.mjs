@@ -7,6 +7,8 @@
 const said = async (s, id) => (await s.tree()).nodes.find(n => n.props?.testId === id)?.props?.text ?? '';
 const colour = (text) => text.match(/#[0-9a-f]{8}/)?.[0] ?? null;
 const times = (text) => Number(text.match(/×(\d+)/)?.[1] ?? 0);
+// Stage 7 D: the module's own params (`component Swatch`), said last.
+const ring = (text) => text.match(/ring (#[0-9a-f]{8}) (\d+)/)?.slice(1) ?? [null, null];
 
 export async function tamberSmoke({ host, open, check }) {
   const s = await open({ host });
@@ -21,6 +23,10 @@ export async function tamberSmoke({ host, open, check }) {
     const moded = await at();
     check(colour(moded.window) === '#0a7affff', `${host} tamber: setMode moves the window's swatch: ${moded.window}`);
     check(times(moded.pinned) === times(boot.pinned), `${host} tamber: the pinned swatch's inputs did not move: ${moded.pinned}`);
+    const [bootRing, width] = ring(boot.window);
+    console.log(`${host} tamber: ${boot.window} → ${moded.window} | pinned ${boot.pinned}`);
+    check(bootRing && width === '4', `${host} tamber: a native view's own params draw through its bindings (ring, ring width 4): ${boot.window}`);
+    check(ring(moded.window)[0] !== bootRing && ring(moded.window)[0] === ring(boot.pinned)[0], `${host} tamber: a param follows setMode and the pin, as a token does: ${boot.window} → ${moded.window} | ${boot.pinned}`);
     await s.prefer({ 'prefers-color-scheme': 'dark' }); await settle();
     const dark = await at();
     check(colour(dark.window) === '#64b5f6ff' && colour(dark.pinned) === '#64b5f6ff', `${host} tamber: both follow the scheme: ${dark.window} | ${dark.pinned}`);

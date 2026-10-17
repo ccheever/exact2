@@ -33,6 +33,9 @@ pub struct ThemeDecl {
 pub struct DesignSource {
     /// The file, as the driver found it.
     pub path: String,
+    /// The file as a component's identity names it (LLP 1121 D15):
+    /// relative to the app's directory.
+    pub home: String,
     /// Its text.
     pub text: String,
     /// Its source id, as a span names the file it is in.

@@ -55,6 +55,8 @@ android {
     sourceSets["main"].kotlin.directories.add(if (compose) "src/compose/java" else "src/nocompose/java")
     // The app's Kotlin hatches (LLP 1115.001.000 D4): `class exact.app.Hatches` in its `modules/android`.
     appDir.resolve("modules/android").takeIf { it.isDirectory }?.let { sourceSets["main"].kotlin.directories.add(it.path) }
+    // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).
+    appDir.resolve(".exact/tamber/TamberTokens.kt").takeIf { it.isFile }?.let { sourceSets["main"].kotlin.directories.add(it.parent) }
     if (compose) buildFeatures { this.compose = true }
     // An app's GPU module (-PgpuModule=<file>) is opened by path from the extracted library directory and checked
     // against the digest its bake recorded, so it is extracted and left unstripped.

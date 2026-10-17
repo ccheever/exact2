@@ -178,6 +178,19 @@ pub(crate) fn load(
     // The design, read before scoping: its motion tokens, and the params of
     // those kinds, are written into the views first (`contract_lower::motion`).
     let design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+    // The design's components that aren't Contract, named and checked as
+    // Contract params are (D15).
+    if let Some(d) = &design {
+        let (designed, mut refused) = contract_lower::params::design_tokens(d);
+        let all: Vec<_> = params.iter().chain(&designed).cloned().collect();
+        refused.extend(contract_lower::params::collisions(&all));
+        if !refused.is_empty() {
+            return Err(resolve(
+                &loader.sources,
+                refused.into_iter().map(CompileError::from).collect(),
+            ));
+        }
+    }
     loader.motion =
         contract_lower::motion::tokens(design.as_ref().map(|d| d.text.as_str()), &params);
     match loader.scope() {
@@ -304,8 +317,19 @@ fn design(
     sources.paths.push(path.clone());
     sources.origins.push(Origin::App);
     sources.digests.push(digest(&text));
+    let home = root
+        .parent()
+        .and_then(|dir| path.strip_prefix(dir).ok())
+        .map_or_else(
+            || {
+                path.file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            },
+            |p| p.to_string_lossy().replace('\\', "/"),
+        );
     Ok(Some(contract_syntax::DesignSource {
         path: path.display().to_string(),
+        home,
         text,
         source_id: (sources.paths.len() - 1) as u32,
         bindable: code_beside(root),

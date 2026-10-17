@@ -19,6 +19,8 @@ pub struct Design {
     pub exports: Option<Vec<At<String>>>,
     /// Icon tokens, the `icons` block's (D10).
     pub icons: Vec<Token>,
+    /// Components that aren't Contract, each with its params (D15).
+    pub components: Vec<crate::component::Component>,
 }
 
 /// Something with the place it was written.
@@ -208,12 +210,13 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
                 design.exports = Some(names);
             }
             "icons" => tokens(body, &mut design.icons, &mut errors),
-            "component" => errors.push(Diagnostic::new(
-                "tamber-stage",
-                "component params (D15) arrive in stage 7",
-                head.line,
-                head.col,
-            )),
+            "component" => {
+                if let Some(c) =
+                    crate::component::block(head, body, &design.components, &mut errors)
+                {
+                    design.components.push(c);
+                }
+            }
             _ => errors.push(Diagnostic::new(
                 "tamber-block",
                 format!(
@@ -240,7 +243,7 @@ pub(crate) fn role_spelling(name: &str) -> Option<&str> {
 }
 
 /// A block's lines, one entry each at one indent.
-fn entries(
+pub(crate) fn entries(
     body: &[Line],
     errors: &mut Vec<Diagnostic>,
     mut each: impl FnMut(&Line, &mut Vec<Diagnostic>) -> Option<()>,
@@ -262,7 +265,7 @@ fn entries(
     }
 }
 
-fn syntax(l: &Line, message: impl Into<String>) -> Diagnostic {
+pub(crate) fn syntax(l: &Line, message: impl Into<String>) -> Diagnostic {
     Diagnostic::new("tamber-syntax", message, l.line, l.col)
 }
 
@@ -320,15 +323,8 @@ fn axis(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Axis> {
 
 fn dial(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Dial> {
     let shape = "a dial is `name: color|length|number = value [in low..high] [meta=…]`";
-    let (Some((name, rest)), true) = (l.text.split_once(':'), l.text.contains('=')) else {
-        errors.push(syntax(l, shape));
-        return None;
-    };
-    let Some((kind, value)) = rest.split_once('=') else {
-        errors.push(syntax(l, shape));
-        return None;
-    };
-    let kind = match kind.trim() {
+    let p = ranged(l, errors, shape, "dial")?;
+    let kind = match p.kind.as_str() {
         "color" => DialKind::Color,
         "length" => DialKind::Length,
         "number" => DialKind::Number,
@@ -337,11 +333,36 @@ fn dial(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Dial> {
             return None;
         }
     };
+    Some(Dial {
+        name: p.name,
+        kind,
+        value: p.value,
+        range: p.range,
+        meta: p.meta,
+    })
+}
+
+/// A dial's or a param's line, `name: kind = value [in low..high] [meta=…]`,
+/// its kind as written; `shape` says what one is, `what` names it.
+pub(crate) fn ranged(
+    l: &Line,
+    errors: &mut Vec<Diagnostic>,
+    shape: &str,
+    what: &str,
+) -> Option<crate::component::Param> {
+    let (Some((name, rest)), true) = (l.text.split_once(':'), l.text.contains('=')) else {
+        errors.push(syntax(l, shape));
+        return None;
+    };
+    let Some((kind, value)) = rest.split_once('=') else {
+        errors.push(syntax(l, shape));
+        return None;
+    };
     let name = name.trim();
     if !lex::is_ident(name) {
         errors.push(syntax(
             l,
-            format!("`{name}`: a dial's name is an identifier"),
+            format!("`{name}`: a {what}'s name is an identifier"),
         ));
         return None;
     }
@@ -356,13 +377,13 @@ fn dial(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Dial> {
         errors.push(syntax(l, format!("`{name}` has no value: {shape}")));
         return None;
     };
-    let mut parsed = Dial {
+    let mut parsed = crate::component::Param {
         name: At {
             value: name.to_string(),
             line: l.line,
             col: l.col,
         },
-        kind,
+        kind: kind.trim().to_string(),
         value: value_at(l, start),
         range: None,
         meta: Vec::new(),

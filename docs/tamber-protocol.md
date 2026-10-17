@@ -186,7 +186,7 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
   - `exports`;
   - `icons` (*1.9*), when the design has any: each `{name, sf, material, svg}`, its sources as
     written, null where unwritten (D10).
-  - `components` (*1.10*, LLP 1121 D15), when the app's Contract declares params: each
+  - `components` (*1.10*, LLP 1121 D15), when the app's Contract or its design declares params: each
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
     range, step, control, options, label, help, group, priority}`. `name` is its full name
@@ -196,6 +196,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `options` each with a param named in full, and `values` per
     tuple, folded with the design. `control` defaults to `token`, `priority` to 2. Moving the
     declaring file is a new identity, so an override keyed by the old one no longer applies.
+    A component that isn't Contract, declared in the design (`component MapCard` over
+    `params`, stage 7 D), is listed the same way, its identity the design file and its name
+    (`app.tamber#MapCard`).
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
   `describe` and `resolve` only.

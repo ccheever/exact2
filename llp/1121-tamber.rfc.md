@@ -3165,3 +3165,38 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   components share, whichever has the param or neither (`tamber-param-ambiguous`), naming both. B's
   `set-param` and `resolve` take it. A param's name is a field's, so a reserved word may be one.
 - **No digest moves.** A param is a token in the reference table.
+
+### Stage 7, commit D: components that aren't Contract (draft for theme2)
+
+- **Grammar.** A design may declare `component Name` over one indented `params` block. Each line
+  reads as a dial's, for any kind: `name: kind = value [in low..high] [meta=…]`
+  (`exact_tamber::Component`, `Param`).
+  - Refused (`tamber-component`): a component with no `params`, or anything else under it; a
+    component named twice; a param named twice; a `when` under a param (the app's design sets a
+    param per mode, by name).
+  - `fmt` lays a param line out as a dial's.
+- **Identity.** The design file relative to the app's directory, and the name
+  (`app.tamber#MapCard`). `DesignSource.home` carries the path.
+  - `params::design_tokens` makes each param a `ParamToken`: `in low..high` becomes its `range`,
+    and its metadata become a Contract param's attributes (`range=` is refused here, and so is any
+    other unknown attribute, as `syntax-param-attribute`).
+  - `param.<name>` in a default names the component's own params (`tamber-param-unknown`).
+  - `params::tokens(file)` returns them after the Contract ones, so the checks (`declared`,
+    `folded`), `add_to`, `resolve`, the collision check and the `components` block are A's, unchanged.
+- **Roots.** `unused` never sees them. Retention keeps every one, and what its default reads
+  through any chain of tokens: the code that reads them is outside the views.
+- **Bindings** (`tamber gen`). A param is named from `<Component>.<param>`, never the hash
+  (`swatchRing`, `SWATCH_RING`); its value is the token name, which the runtimes resolve as any
+  token's. Contract params get the same.
+  - Swift members now cover colour, length, number and type tokens, not colour alone.
+  - `gen kotlin` writes `TamberTokens.kt` in package `exact.app`: `TamberColor`, `TamberLength`
+    and `TamberNumber` objects of `const val`s (theme2, 14:17).
+  - A collision across names that map alike is refused, naming both.
+  - The Apple build writes `tamber.swift`, and the Android reader writes `TamberTokens.kt`
+    (compiled beside the hatches), before the app's modules compile (`scripts/tamber-names.mjs`).
+- **The sample.** `apps/tamber-host` declares `component Swatch` (`ring`, `ringWidth`). The Swift
+  module and the Kotlin hatch stroke a ring through `.swatchRing` / `TamberColor.SWATCH_RING`. The
+  smoke reads the ring as it follows `setMode` and the pin, on the Mac and the iOS simulator; the
+  ring also draws on x2-android.
+- **Not yet:** a live `set-param` reaching them waits for B's server folding (the server's own
+  fold adds no params today). Packages' `.tamber` components are QUEUEd.

@@ -520,6 +520,7 @@ fn the_element_lint_finds_nothing_in_any_app() {
                 .ok()
                 .map(|text| contract_syntax::DesignSource {
                     path: design.display().to_string(),
+                    home: "app.tamber".into(),
                     text,
                     source_id: 1,
                     bindable: false,

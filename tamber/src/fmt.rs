@@ -68,6 +68,7 @@ pub fn format(src: &str) -> Result<String, Vec<Diagnostic>> {
             (1, "dials") => dial(l),
             (1, "theme" | "icons") => token(l),
             (2, "theme") => when(l),
+            (2, "component") => dial(l),
             _ => l.text.clone(),
         };
         if let Some(c) = comment {

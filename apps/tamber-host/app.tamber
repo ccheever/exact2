@@ -10,3 +10,11 @@ theme
   swatch.inset = 1rem
   type.label = -exact-body system-ui
   type.code = 14px ui-monospace
+
+// The swatch module's own params (D15, stage 7 D): a view that isn't
+// Contract declares them here and reads them through the bindings,
+// `ExactTamber(view).color(.swatchRing)`.
+component Swatch
+  params
+    ring: color = color-mix(in oklab, swatch.fill 55%, black)  control=color  priority=1  label="Ring"
+    ringWidth: length = 4px  in 0..12  step=1  control=slider  priority=2  label="Ring width"

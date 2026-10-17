@@ -1045,8 +1045,8 @@ async function main(args) {
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
   if (modules.apple.length) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
-  // @ref LLP 1121 D12 — the token names `bun exact.mjs tamber gen swift` wrote (never committed).
-  const tamberNames = resolve(app.dir, '.exact/tamber/tamber.swift');
+  // @ref LLP 1121 D12 — the token names `contract tamber gen swift` writes from the design (never committed).
+  if (modules.apple.length) (await import('../../scripts/tamber-names.mjs')).writeTamberNames(app, 'swift'); const tamberNames = resolve(app.dir, '.exact/tamber/tamber.swift');
   const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(root, 'host/apple/modules/ExactTamber.swift'), ...(existsSync(tamberNames) ? [tamberNames] : []), dataKeys, ...snapshot.copies] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
