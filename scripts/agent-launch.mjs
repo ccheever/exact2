@@ -449,11 +449,12 @@ export function warnStale(what, built, changed, command) {
 }
 export const unchecked = (what, variable) => console.error(`${what} build freshness unchecked: ${variable} names the binary`);
 
-/** Every input Cargo's dep-info beside a binary names ([] without one). */
-export function depInfoInputs(bin, info = `${bin}.d`) {
+/** Every input Cargo's dep-info beside a binary names ([] without one), as absolute paths. Under Cargo's
+ * `build.dep-info-basedir` it writes them relative; `base` is what they are relative to, the workspace Cargo ran in. */
+export function depInfoInputs(bin, info = `${bin}.d`, base = process.cwd()) {
   if (!existsSync(info)) return [];
   const line = readFileSync(info, 'utf8').split('\n')[0];
-  return line.slice(line.indexOf(': ') + 2).split(/(?<!\\) /).filter(Boolean).map(p => p.replace(/\\ /g, ' '));
+  return line.slice(line.indexOf(': ') + 2).split(/(?<!\\) /).filter(Boolean).map(p => resolve(base, p.replace(/\\ /g, ' ')));
 }
 
 // A build script's output (`…/build/<pkg>/out/…`) is rewritten whenever another
@@ -467,7 +468,7 @@ const GENERATED = /\/build\/[^/]+\/out\//;
 // is not a change. A file that is gone is: it was read when the build ran.
 const DIRECTORY_WATCH = /\/[^./]+$/;
 /** Dep-info's inputs modified after `since`, or gone, generated outputs and never-present watched directories aside. */
-export function depInfoNewer(since, bin, info) {
+export function depInfoNewer(since, bin, info, base) {
   const skips = new Map();
   // What no build reads: a build's output, installed packages (their declarations are inputs of their own) and a
   // hidden tree; within an app, also what its other freshness checks pass over (`notBuildInput`, and the names
@@ -483,7 +484,7 @@ export function depInfoNewer(since, bin, info) {
     }
     return skips.get(app);
   };
-  return [...new Set(depInfoInputs(bin, info).filter(p => !GENERATED.test(p)).flatMap(p => {
+  return [...new Set(depInfoInputs(bin, info, base).filter(p => !GENERATED.test(p)).flatMap(p => {
     let stat;
     try { stat = statSync(p); } catch { return DIRECTORY_WATCH.test(p) ? [] : [shown(p)]; }
     if (!stat.isDirectory()) return stat.mtimeMs > since ? [shown(p)] : [];
@@ -719,9 +720,9 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // newer than the build's start by construction. The receipt records its bytes, which are what the bundle captured
   // (captureAppleProduct): those decide, not its time. Every other input keeps the build's start as its bound.
   const products = new Map((build?.products ?? []).map(p => [resolve(p.path), p.sha256]));
-  const inputs = info ? depInfoInputs(null, info).map(p => resolve(p)) : [];
+  const inputs = info ? depInfoInputs(null, info, app.workspace) : [];
   const replaced = inputs.filter(path => products.has(path) && fileDigest(path) !== products.get(path)).map(shown);
-  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
+  const tools = info ? depInfoNewer(since, null, info, app.workspace).filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
   return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...replaced])];
 }
 

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { moduleGraph } from './agent-launch.mjs';
 import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, rebuildCommand, refuseBuild } from './agent-build.mjs';
@@ -160,7 +160,7 @@ test('a source edited while the build ran is stale; a build claimed meanwhile is
 // build itself wrote after it started. Cargo leaves that dep-info as it was when a relink names the same paths, so its
 // time says nothing: the receipt's digest of the product decides, and every other input keeps the build's start.
 test('a product the build wrote and then read is judged by its recorded bytes; any other input by the build start', () => {
-  const previous = process.env.EXACT_APP_DIR, macBin = process.env.EXACT_MAC_BIN, targetDir = process.env.CARGO_TARGET_DIR;
+  const previous = process.env.EXACT_APP_DIR, macBin = process.env.EXACT_MAC_BIN, targetDir = process.env.CARGO_TARGET_DIR, cwd = process.cwd();
   const { dir, write } = scratchApp('gpu-log');
   try {
     process.env.EXACT_APP_DIR = dir;
@@ -197,7 +197,21 @@ test('a product the build wrote and then read is judged by its recorded bytes; a
     assert.deepEqual(changed(), [generated]);
     stamp(generated, -110); stamp(resolve(dir, 'app.contract'), -5);
     assert.deepEqual(changed(), [resolve(dir, 'app.contract')]);
+    stamp(resolve(dir, 'app.contract'), -120);
+    // `build.dep-info-basedir` writes the paths relative to the workspace Cargo ran in, and the drive runs from
+    // elsewhere (here neither this checkout nor the workspace): both rules read them against that workspace.
+    const rel = path => relative(app.workspace, path);
+    writeFileSync(info, `${rel(profile)}/libgpu_log_apple.a: ${rel(resolve(dir, 'app.contract'))} ${rel(generated)} ${rel(dylib)}\n`);
+    stamp(info, -80);
+    process.chdir(dirname(dir));
+    assert.notEqual(realpathSync(process.cwd()), app.workspace);
+    assert.deepEqual(changed(), []);
+    writeFileSync(dylib, 'signed v3'); stamp(dylib, -10);
+    assert.deepEqual(changed(), [dylib]);
+    writeFileSync(dylib, 'signed v2'); stamp(dylib, -10); stamp(generated, -5);
+    assert.deepEqual(changed(), [generated]);
   } finally {
+    process.chdir(cwd);
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
     if (targetDir !== undefined) process.env.CARGO_TARGET_DIR = targetDir;
