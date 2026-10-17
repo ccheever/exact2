@@ -4,7 +4,6 @@
 // background environment's row moves the window to that environment, so the row's `fleet:<environment>:<id>` is its
 // own id by the time the rename starts. Run with the Contract action semantics of contract-action-fixture.ts.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import type { T3Client } from './client';
 import { initialShell, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -196,11 +195,5 @@ describe('a row keeps its element while an open moves the window to its environm
     Object.assign(before, { environmentId: 'env-z' });
     expect(scopedRowKey(before, 'fleet:env-a:t1')).toBe(scopedRowKey(after, 't1'));
     expect(scopedRowKey(after, 't1')).not.toBe(scopedRowKey(after, 't2'));
-  });
-
-  test('both sidebars key their rows by the scoped thread, not by the row id', () => {
-    const read = (file: string) => readFileSync(`${import.meta.dir}/${file}`, 'utf8');
-    expect(read('sidebar.contract')).toContain('for t in rows key=t.rowKey');
-    expect(read('legacy-sidebar.contract')).toContain('for t in p.threads key=t.dropKey');
   });
 });

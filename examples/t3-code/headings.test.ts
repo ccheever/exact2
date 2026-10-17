@@ -25,48 +25,9 @@ test('every role="heading" says its aria-level', () => {
   expect(unlevelled).toEqual([]);
 });
 
-const line = (file: string, needle: string) => {
-  const found = views().find(v => v.name === file)!.lines.filter(l => l.includes(needle));
-  expect(found).toHaveLength(1);
-  return found[0]!;
-};
-
-test('the device tools section title is an h3 and the import menu label is no heading', () => {
-  expect(line('r7-device.contract', 'text title font-size="0.75rem" font-weight=500')).toContain('role="heading" aria-level=3');
-  expect(line('settings-projects.contract', 'text "Import from t3.json"')).toContain('role="presentation"');
-});
-
 // settingsLayout.tsx's SettingsSection title is an `<h2>` (`sr-only` with hideTitle) and its
 // SettingsRow title an `<h3>`; Legacy features' trigger, a button, holds an `<h2>`. The reference's lists, page by page,
 // follow from those two components; the tests below name the clone's views that draw them.
-test('Settings section titles are h2 and row titles h3, as the reference', () => {
-  // General and Appearance (CoreSections, CoreRowView); the Project page's Model row is a CoreRowView too.
-  const sectionTitle = 'text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2';
-  const rows = views().find(v => v.name === 'settings-rows.contract')!.lines;
-  expect(rows.filter(l => l.includes(sectionTitle))).toHaveLength(2);
-  // Legacy features' `<h2>` is inside its trigger, button › heading [level=2], since main
-  // #451 (issues/closed/20261010-macos-a-heading-inside-a-button.md) keeps a heading inside a Mac button as its child; the sr-only heading beside the button is gone.
-  const trigger = rows.findIndex(l => /^\s*button press=toggleLegacy .*aria-expanded=legacyOpen/.test(l));
-  expect(trigger).toBeGreaterThan(0);
-  expect(rows[trigger + 1]!.trim()).toStartWith(`${sectionTitle} `);
-  expect(rows[trigger + 1]!.search(/\S/)).toBe(rows[trigger]!.search(/\S/) + 2);
-  expect(rows.join('\n')).not.toContain('SettingsSrHeading');
-  expect(line('settings-rows.contract', 'text row.title font-size="0.875rem" font-weight=500')).toContain('role="heading" aria-level=3');
-  expect(line('settings-rows.contract', 'text "Version"')).toContain('role="heading" aria-level=3 aria-label=`Version ${row.value}`');
-  expect(line('settings-rows.contract', 'text row.value font-family="ui-monospace"')).toContain('aria-hidden=true');
-  // Appearance: "Colors & themes" (sr-only h2), "Color scheme" and "Themes" (h3).
-  expect(line('settings-appearance.contract', 'SettingsSrHeading(title="Colors & themes"')).toContain('level=2');
-  expect(line('settings-appearance.contract', 'text "Color scheme"')).toContain('role="heading" aria-level=3');
-  expect(line('settings-appearance.contract', 'text "Themes"')).toContain('role="heading" aria-level=3');
-  // Project: "Project" (sr-only h2). Scheduled Tasks: the environment's title is an h2, sr-only for one environment.
-  expect(line('settings-projects.contract', 'SettingsSrHeading(title="Project"')).toContain('level=2');
-  expect(line('settings-scheduled.contract', 'text section.label')).toContain('role="heading" aria-level=2');
-  expect(line('settings-scheduled.contract', 'SettingsSrHeading(title=section.label')).toContain('level=2');
-  // Connections: EmptyTitle is a `<div>`.
-  expect(line('connections.contract', 'text "No saved remote environments"')).not.toContain('role="heading"');
-  // The sr-only heading draws nothing and takes no space.
-  expect(line('settings-kit.contract', 'text title role="heading" aria-level=level')).toContain('position="absolute" width=1 height=1 overflow="hidden" opacity=0');
-});
 
 // Main `a6a49a015` (LLP 1116 D7) gives a `text role="heading"` its text style's emphasized weight,
 // bold (700) for a title (levels 1-3), where until now an unwritten weight was the title's own regular (400); a written

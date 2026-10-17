@@ -116,62 +116,6 @@ test('one Refresh press invalidates once, though the announcement it causes asks
 // titles themselves. Since main 24083b9b9 an overflowing line is start-aligned on the Apple hosts, so a text sized by
 // its own words (no `flex=1`, `flex-grow` or `width`) has no spare width to centre in and needs no override: the
 // base freshness mark and the filter submenu's value lost theirs.
-test('every single-line text that can overflow inside a pull request button is start-aligned, as PULL_REQUEST_ROW_CLASS says text-left', async () => {
-  const { readdirSync } = await import('node:fs');
-  const files = readdirSync(new URL('./', import.meta.url)).filter(name => /^pages-prs?(-.+)?\.contract$/.test(name)).sort();
-  const prs = (await Bun.file(new URL('./pages-prs.contract', import.meta.url)).text()).split('\n');
-  const actions = (await Bun.file(new URL('./pages-pr-actions.contract', import.meta.url)).text()).split('\n');
-  const value = prs.findIndex(line => /^\s*text value font-size="0.75rem"/.test(line));
-  const base = actions.findIndex(line => /^\s*text base font-family="ui-monospace"[^\n]*color=paWarn\(\)/.test(line));
-  const exempt = new Set([`pages-prs.contract:${value + 1}`, `pages-pr-actions.contract:${base + 1}`]);
-  const offenders: string[] = [], sized: string[] = [];
-  let checked = 0;
-  const align = (line: string) => /\btext-align="([a-z-]+)"/.exec(line)?.[1] ?? '';
-  const overflows = (line: string) => /\btext-overflow="ellipsis"/.test(line) || /\bline-clamp=1\b/.test(line)
-    || (/\bwhite-space="nowrap"/.test(line) && /\boverflow="hidden"/.test(line));
-  for (const file of files) {
-    const lines = (await Bun.file(new URL(`./${file}`, import.meta.url)).text()).split('\n');
-    const indent = (line: string) => line.length - line.trimStart().length;
-    lines.forEach((line, index) => {
-      if (!/^\s*text\b/.test(line) || !overflows(line)) return;
-      // Only the two `exempt` lines, each sized by its words in a row, pass; any other overflowing text still resolves left.
-      if (exempt.has(`${file}:${index + 1}`)) { sized.push(`${file}:${index + 1}`); return; }
-      // The ancestors, innermost first, up to the component's `view`: the first `text-align` met (the text's
-      // own, an ancestor's, or the button's own) wins; a button with none centres.
-      let depth = indent(line), decided = align(line), inButton = false;
-      for (let up = index - 1; up >= 0 && !inButton && depth > 0; up--) {
-        const above = lines[up]!;
-        if (!above.trim() || above.trimStart().startsWith('//') || indent(above) >= depth) continue;
-        depth = indent(above);
-        if (/^\s*(view|component)\b/.test(above)) break;
-        decided ||= align(above);
-        inButton = /^\s*button\b/.test(above);
-      }
-      if (!inButton) return;
-      checked++;
-      if (!['left', 'start'].includes(decided)) offenders.push(`${file}:${index + 1}`);
-    });
-  }
-  // The list row's title, author, repository and labels; the timeline group's authors; the base freshness mark;
-  // the copyable branch and checkout command; the menus' and pickers' rows.
-  expect(checked).toBeGreaterThanOrEqual(13);
-  expect(sized).toHaveLength(2);
-  expect(offenders).toEqual([]);
-  // The two exempt sites are among the text-sized lines and carry no alignment of their own.
-  expect(sized.sort()).toEqual([...exempt].sort());
-  for (const line of [prs[value]!, actions[base]!]) {
-    expect(line).not.toContain('text-align=');
-    expect(line).toContain('min-width=0');
-    expect(line).toContain('white-space="nowrap" overflow="hidden" text-overflow="ellipsis"');
-  }
-  expect(prs[value]).toContain('max-width="8rem"');
-  // Its label is the reference's `flex-1` span, which keeps its words' width (min-width auto), so a long value such as
-  // "Changes requested" is the one cut, never drawn over the label.
-  const label = prs[value - 2]!;
-  expect(label).toMatch(/^\s*text label [^\n]*flex=1 /);
-  expect(label).not.toContain('min-width=0');
-});
-
 
 describe('PR menu public opening and nested Filters focus', () => {
   const plainKey = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false };

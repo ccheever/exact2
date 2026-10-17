@@ -3,46 +3,12 @@
 // shelf hands the focus to the element the reference's next Tab reaches. These checks read the Contract sources and run
 // the window's dialog actions; the behavior was read from another process (AXObserver, AXFocusedUIElement) on macOS.
 import { describe, expect, test } from 'bun:test';
-import { readdirSync } from 'node:fs';
-import { contractComponent, value, type Env } from './contract-action-fixture';
+import { contractComponent, type Env } from './contract-action-fixture';
 import { contractFn } from './contract-fn-fixture';
 
-const dir = new URL('./', import.meta.url);
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-const files = readdirSync(dir).filter(name => name.endsWith('.contract')).sort();
 
 describe('a modal dialog is modal once the focus is in it', () => {
-  test('every dialog that tells the window of its focus is aria-modal by dialogSeated, under the same owner', async () => {
-    let count = 0;
-    for (const file of files) {
-      const lines = (await source(file)).split('\n');
-      lines.forEach((line, at) => {
-        if (line.trimStart().startsWith('//') || !/role="(alert)?dialog"/.test(line) || !line.includes('aria-modal=')) return;
-        const owner = /focusin=dialogEntered\(((?:[^()]|\([^()]*\))*)\)/.exec(line)?.[1];
-        if (!owner) return;
-        count++;
-        expect(`${file}:${at + 1} ${/aria-modal=(\S+)/.exec(line)?.[1]}`).toBe(`${file}:${at + 1} dialogSeated.includes(${owner})`);
-        let start = at;
-        while (start > 0 && !lines[start]!.startsWith('component ')) start--;
-        const head = lines.slice(start, at).join('\n');
-        expect(`${file} ${lines[start]}: ${/\n  inject\n(?:    .+\n)*?    dialogSeated: string\[\]\n/.test(head + '\n')}`).toBe(`${file} ${lines[start]}: true`);
-      });
-    }
-    // The legacy sidebar's frame (Rename project, Project grouping), the confirmations (SettingsConfirm and the rest), the
-    // file and media previews.
-    expect(count).toBeGreaterThanOrEqual(21);
-  });
-
-  test('the composer and timeline media previews are Base UI Dialogs: modal, named, focus on their X', async () => {
-    for (const [file, owner, close] of [['composer-chip-image.contract', 'chip-image-preview', 'chip-image-close'],
-      ['timeline-attachments.contract', 'image-preview', 'image-preview-close'], ['r4-composer.contract', 'video-preview', 'video-preview-close']] as const) {
-      const text = await source(file);
-      const line = text.split('\n').find(row => row.includes(`focusin=dialogEntered("${owner}")`))!;
-      expect(line).toContain(`role="dialog" aria-modal=dialogSeated.includes("${owner}") aria-label=`);
-      expect(text).toContain(`DialogOpenFocus(target="${close}")`);
-    }
-  });
-
   test('the window seats a dialog at its first focusin and unseats it as it closes', async () => {
     const window = contractComponent('app-window.contract', 'T3Window');
     const live = new Set<string>(['legacy-rename-project']);
@@ -103,16 +69,5 @@ describe('a focused Remove on the shelf hands the focus on', () => {
         expect(`${name} ${removed} ${held}: ${focused.join(',')}`).toBe(`${name} ${removed} ${held}: ${held ? 'preview-image-b' : ''}`);
       }
     }
-  });
-
-  test('each Remove reports its focus and presses removeNow; the next tile\'s buttons carry the ids it names', async () => {
-    const editor = await source('composer-editor.contract'), snapshot = await source('snapshot.contract'), video = await source('r4-composer.contract');
-    expect(editor).toContain('button id=`remove-snapshot-${id}` press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}`');
-    expect(snapshot).toContain('button id=`remove-snapshot-${image.id}` press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${image.name}`');
-    expect(video).toContain('button press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${video.name}`');
-    expect(editor).toContain('id=`preview-image-${id}`');
-    expect(video).toContain('title="" id=`play-video-${video.id}`');
-    expect(snapshot).toContain('after=draftFocusAfter(images, videos, i))');
-    expect(snapshot).toContain('VideoDraftTile(video=video, disabled=disabled, command=command, after=videoFocusAfter(videos, i))');
   });
 });

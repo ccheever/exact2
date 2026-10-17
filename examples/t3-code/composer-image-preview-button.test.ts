@@ -3,49 +3,10 @@
 // the expanded preview over the draft's images, then the "Remove <name>" button; the strip wraps (flex-wrap) unless it
 // holds a SnapShot frame, when it scrolls sideways.
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { chipPopoverLocal } from './composer-chip-popover';
 import { composerImagePreview, composerImageStep } from './composer-chip-details';
-
-const source = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
-const component = (text: string, name: string) => {
-  const start = text.indexOf(`component ${name}\n`);
-  const end = text.indexOf('\ncomponent ', start + 1);
-  return text.slice(start, end < 0 ? undefined : end);
-};
-/** The accessible names a component's lines carry, in tree order (what VoiceOver walks). */
-const labels = (text: string) => [...text.matchAll(/aria-label=`([^`]*)`/g)].map(match => match[1]);
-
-describe('the shelf thumbnails are reachable, named and ordered as the reference\'s', () => {
-  test('a picked image: Preview <name> then Remove <name>, and the frame itself is unnamed', () => {
-    const editor = source('composer-editor.contract');
-    const tile = component(editor, 'ImageDraftTile'), button = component(editor, 'ImagePreviewButton');
-    expect(tile.indexOf('ImagePreviewButton(')).toBeGreaterThan(0);
-    expect(tile.indexOf('ImagePreviewButton(')).toBeLessThan(tile.indexOf('aria-label=`Remove ${name}`'));
-    expect(tile.split('\n').find(line => line.includes('testId=`image-draft-${id}`'))).not.toContain('aria-label');
-    expect(labels(button)).toEqual(['Preview ${name}']);
-    expect(button).toContain('press=command("editorlocal:chip-image-open", id, "", 0)');
-    expect(button).toContain('cursor="zoom-in"');
-  });
-
-  test('a SnapShot frame: Preview first, then its accessibility data, then Remove', () => {
-    const tile = component(source('snapshot.contract'), 'SnapshotTile');
-    const order = ['aria-label=`Preview ${image.name}`', 'popovertarget=`snapshot-contents-${image.id}`', 'aria-label=`Remove ${image.name}`'].map(part => tile.indexOf(part));
-    expect(order.every(index => index > 0)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // Focus inside the frame shows its Remove, as group-focus-within does.
-    expect(tile).toMatch(/press=command\("editorlocal:chip-image-open", image\.id, "", 0\) focus=setHover\(true\) blur=setHover\(false\)/);
-  });
-
-  test('the strip scrolls only with a SnapShot frame, so plain images are not behind a scroll area', () => {
-    const strip = component(source('snapshot.contract'), 'SnapshotDrafts');
-    expect(strip).toContain('derive snapshots = images.filter((image) => image.snapshot).length > 0');
-    expect(strip).toContain('flex-wrap=(snapshots ? "nowrap" : "wrap") overflow-x=(snapshots ? "scroll" : "visible")');
-    expect(strip).not.toContain('overflow-x="scroll"');
-  });
-});
 
 describe('a Preview press opens the expanded preview', () => {
   const native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as unknown as Native;

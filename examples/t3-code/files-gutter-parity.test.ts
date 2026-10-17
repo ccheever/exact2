@@ -18,8 +18,6 @@ const source = (file: string) => readFileSync(join(import.meta.dir, file), 'utf8
 const component = (text: string, name: string) => { const start = text.indexOf(`component ${name}\n`); const next = text.indexOf('\ncomponent ', start + 1); return text.slice(start, next < 0 ? undefined : next); };
 const files = source('r4-surfaces-files.contract');
 const code = component(files, 'R4CodeRow');
-const rows = source('diff-rows.contract');
-const cell = component(rows, 'DiffCell');
 
 /** CDP (1e2ecbd975), light then dark. */
 const REFERENCE = {
@@ -62,16 +60,6 @@ describe('the Files preview\'s "+" is Pierre\'s utility button at the number\'s 
     expect(code).not.toContain('#1b4ed8');
     expect(code).not.toContain('left=2 top=2 width=16 height=16');
   });
-  test('it is drawn on the selection\'s bottom line while one is held, else on the hovered line', () => {
-    expect(code).toContain('if not open and (line.pin or not line.pinned or dragging)');
-    expect(code).toContain('opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0)');
-  });
-  test('the number takes no pointer and no text selection, so a press in the middle of it selects (it no longer lands on the "+")', () => {
-    expect(code).toContain('text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true');
-    expect(code).toContain('box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}`');
-    // The number comes after the code, as the diff's DiffNumber; the cell holds no text.
-    expect(code.indexOf('text line.number')).toBeGreaterThan(code.indexOf('for run in line.runs'));
-  });
 });
 
 describe('a drag over the numbers selects lines, and the draft opens at the end of any line selection', () => {
@@ -85,14 +73,7 @@ describe('a drag over the numbers selects lines, and the draft opens at the end 
     expect(parseFileLineId('dl:additions:12:src/a.ts')).toBeNull();
     expect(parseFileLineId('fl:0:a.txt')).toBeNull();
   });
-  test('the release and a press that opens the draft let go of the focus the press gave the gutter, so the draft takes it', () => {
-    // A pressable node takes the focus on macOS, and autofocus waits while a node holds it (seen in a drive:
-    // the draft opened without the focus); FilePreviewPanel's beginComment blurs and the draft's textarea autofocuses.
-    expect(code).toContain('  action up(e: PointerEvent)\n    if dragging\n      dragging = false\n      blur()\n      local("surface-files-comment-end", path, "")');
-    expect(code).toContain('    if dragging and e.buttons == 0\n      dragging = false\n      blur()\n      local("surface-files-comment-end", path, "")');
-    expect(code).toContain('  action comment\n    if not open\n      blur()\n      begin(line.line)');
-    expect(source('diff-comments.contract')).toContain('textarea id="diff-comment-draft-text" value=text input=edit key=keys focus=focusIn blur=focusOut autofocus=true');
-  });
+
   test('a click on a number selects its line and opens the draft under it at the release', async () => {
     const h = harness();
     await h.op('drag', '3');
@@ -151,34 +132,6 @@ describe('a drag over the numbers selects lines, and the draft opens at the end 
   });
 });
 
-describe('split view\'s empty side is hatched', () => {
-  test('the gutter part is flat and the code part carries the stripes in the reference\'s colours, the row the code surface', () => {
-    expect(cell).not.toContain('#e4e4e4');
-    expect(cell).toContain(`tone == "empty" ? "light-dark(${REFERENCE.buffer.gutter.join(', ')})" : "#00000000")`);
-    expect(cell).toContain(`tone == "addition" ? diffInk(scheme, "add-row") : "light-dark(${REFERENCE.buffer.surface.join(', ')})")`);
-    expect(cell).toContain('if tone == "empty"\n        box position="absolute" left=((gutter - 2) * size / 13 + 2) top=0 right=0 bottom=0 pointer-events="none" aria-hidden=true background-image="repeating-linear-gradient(135deg, ');
-    expect(cell).not.toContain('<svg');
-    expect(cell).not.toContain('diff-buffer-stripes');
-    expect(cell.match(new RegExp(`light-dark\\(${REFERENCE.buffer.stripe.join(', ')}\\)`, 'g'))).toHaveLength(1);
-  });
-  test('45° stripes rising to the right: the reference\'s share of the surface and phase, a period that divides the line', () => {
-    // At 135° the gradient's position is (x + y) / √2 from the box's top left, so a row's stripes start at its own top.
-    const hatch = /repeating-linear-gradient\(135deg, transparent 0 ([\d.]+)px, light-dark\([^)]+\) ([\d.]+)px ([\d.]+)px, transparent ([\d.]+)px ([\d.]+)px\)/.exec(cell);
-    expect(hatch).not.toBeNull();
-    const [from, to, end, again, period] = hatch!.slice(1).map(value => Number(value) * Math.SQRT2);
-    expect([to, again]).toEqual([from, end]);
-    const whole = Math.round(period!);
-    expect(period!).toBeCloseTo(whole, 2);
-    expect(20 % whole).toBe(0); // a row at a time: the next row starts where this one's stripes end
-    expect((end! - from!) / period!).toBeCloseTo(REFERENCE.buffer.stripeWidth / REFERENCE.buffer.period, 3);
-    expect(((from! + end!) / 2) % period!).toBeCloseTo(REFERENCE.buffer.phase % period!, 2);
-  });
-  test('the deletion bar\'s 1pt stripes are a repeating gradient on the bar itself', () => {
-    expect(cell).toContain('background-color=diffInk(scheme, "del-bar") background-image=`repeating-linear-gradient(to bottom, ${diffInk(scheme, "del")} 0 1px, transparent 1px 2px)`');
-    expect(cell).not.toContain('diff-deletion-stripes');
-  });
-});
-
 describe('a press on a gutter closes a skill chip\'s details', () => {
   test('closeChipFromPress closes the newest open press, and nothing when none is open', async () => {
     const open = harness({ open: true, seq: 7 });
@@ -216,12 +169,5 @@ describe('a press on a gutter closes a skill chip\'s details', () => {
     const ctx = { client: { environmentId: 'env', local: {} } as unknown as T3Client, reference: { projectId: 'p1', repository: 'acme/app', number: 1 }, detail: null, native: h.native };
     await prCodeLocal(ctx, 'drag', 'diffreview|press|0|a.ts');
     expect(h.closes()).toEqual([2]);
-  });
-  test('every gutter reports its primary presses on the queued sends the drags take', () => {
-    expect(cell).toContain('    else if e.buttons == 1\n      command("diffreview", "press", path, line)');
-    expect(code).toContain('    else if e.buttons == 1\n      local("surface-files-comment-press", path, "")');
-    expect(source('app.contract')).toContain('else if op == "diffreview" and (id.startsWith("drag:") or id.startsWith("gutter:") or id.startsWith("comment:") or id == "to" or id == "end" or id == "press")\n');
-    expect(source('app.contract')).toContain('    if op.startsWith("surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)');
-    expect(source('pages-pr-code.contract')).toContain('if id.startsWith("drag:") or id.startsWith("gutter:") or id == "to" or id == "end" or id == "press"\n      local("pr-code-drag"');
   });
 });

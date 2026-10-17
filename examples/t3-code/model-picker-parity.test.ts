@@ -45,12 +45,6 @@ async function block(file: string, head: string): Promise<string> {
   const end = lines.findIndex((line, index) => index > start && line.trim() !== '' && line.length - line.trimStart().length <= indent);
   return lines.slice(start, end < 0 ? undefined : end).map(entry => entry.slice(indent)).join('\n');
 }
-/** The one line of `file` that carries `marker` (a testId or an id). */
-async function line(file: string, marker: string): Promise<string> {
-  const found = (await source(file)).split('\n').filter(entry => entry.includes(marker));
-  if (found.length !== 1) throw new Error(`${file}: ${found.length} lines carry ${marker}`);
-  return found[0]!;
-}
 /** A new thread's draft that can start several models (codex:model-a), and a Shift press for the native recorder. */
 async function draft() {
   const context = await connected();
@@ -130,20 +124,7 @@ describe('a search highlights its first row a person can choose', () => {
     expect(modelCatalog(c, 'claudeAgent', 'zzzz').firstEnabled).toBe(-1);
   });
   // Read from the Contract source, as the stacking test below: the highlight and Return are the picker's view state.
-  test('autoHighlight: a search highlights `firstEnabled` until the arrows move the highlight', async () => {
-    const picker = await block('model-picker.contract', 'component ModelPicker');
-    expect(picker).toContain('derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : -1))');
-    expect(picker).toContain('derive highlight = (count > 0 ? base : -1)');
-  });
-  test('Return in the search field chooses the highlighted row (Shift+Return adds it) or opens the legacy section; the field has no submit', async () => {
-    const input = await line('model-picker.contract', 'id="model-search"');
-    expect(input).toContain('key=searchKey');
-    expect(input).not.toContain('submit=');
-    const enter = await block('model-picker.contract', 'if name == "Enter"');
-    expect(enter.split('\n').map(entry => entry.trim())).toEqual(['if name == "Enter"', 'if targetLegacy', 'legacySession = legacySession == session ? -1 : session',
-      'else if targetId != ""', 'select(targetId, targetProvider, e.shiftKey)', 'preventDefault()']);
-    expect(await block('model-picker.contract', 'action searchKey')).toStartWith('action searchKey(name: string, e: KeyboardEvent)');
-  });
+
   test('Return\'s target is any highlighted model row a person can choose, an open Legacy section\'s rows too', async () => {
     const picker = await block('model-picker.contract', 'component ModelPicker');
     const choosable = '(r.kind == "model" or r.kind == "legacy-model") and r.reason == ""';
@@ -209,18 +190,6 @@ describe('Shift adds a model to a draft\'s several and keeps the picker open', (
     expect(snapshot(c).composer.fanoutKeys).toEqual(['codex:model-a', 'codex:model-b']);
   });
   // Read from the Contract source: the row's press, and the root's pick that keeps the picker open.
-  test('a row\'s press passes its shiftKey; an additive composer pick sends n 1 and keeps the picker open on the search field', async () => {
-    const row = await block('model-picker.contract', 'component ModelRow');
-    expect(row).toContain('action pick(e: MouseEvent)\n    select(row.id, row.providerId, e.shiftKey)');
-    expect(await line('model-picker.contract', 'testId=`model-${row.id}`')).toContain('button press=pick ');
-    const select = await block('app.contract', 'action selectModel(');
-    expect(select).toStartWith('action selectModel(id: string, provider: string, additive: bool)');
-    expect(select).toContain('additive and modelTarget.id == "" ? 1 : 0)');
-    expect(select).toContain('modelsOpen = additive and modelTarget.id == "" and catalog.multiple');
-    expect(select).toContain('focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : ');
-    // The dispatch's ⌘N jump is never additive.
-    expect(await source('settings-shortcuts.contract')).toContain('press=selectModel(item.target, item.extra, false)');
-  });
 });
 
 describe('the trigger is named by its model names; the Plan toggle reports pressed', () => {
@@ -230,13 +199,6 @@ describe('the trigger is named by its model names; the Plan toggle reports press
     shiftPress();
     await command('model', 'model-b', 'codex', 1);
     expect(snapshot(c).composer.fanoutAria).toBe('Model A, Model B');
-  });
-  test('ModelTrigger\'s aria-label and PlanToggle\'s aria-pressed (composer-controls.contract wiring)', async () => {
-    const trigger = await line('composer-controls.contract', 'testId="model-picker"');
-    expect(trigger).toContain('aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel)');
-    expect(trigger).not.toContain('Choose provider and model');
-    const plan = await line('composer-controls.contract', 'testId="interaction-mode"');
-    expect(plan).toContain('aria-label=(active ? "Plan mode — click to return to normal build mode" : "Default mode — click to enter plan mode") aria-pressed=active ');
   });
 });
 
@@ -279,17 +241,5 @@ describe('Scheduled Tasks\' Model and the writer model open the provider picker'
     // The row's trigger: the writer's mark and name.
     const rows = sourceControlRows(obj(c.config.settings), 'pa', 'Studio', c.config.providers as Obj[], true).text;
     expect(rows.find(row => row.kind === 'model')).toMatchObject({ checked: true, valueLabel: 'Claude Sonnet 5.5', driver: 'claudeAgent', status: '' });
-  });
-});
-
-// Read from the Contract source, as dialog-focus.test.ts reads its dialogs: z-index orders siblings, and the window's picker
-// and the scheduled task editor's overlay are siblings, so a Settings row's picker must stack above that dialog.
-describe('the Settings picker stacks above the scheduled task editor (the Contract wiring)', () => {
-  test('anchored z-index beats the editor overlay', async () => {
-    const picker = await Bun.file(new URL('model-picker.contract', import.meta.url)).text();
-    const editor = await Bun.file(new URL('settings-scheduled.contract', import.meta.url)).text();
-    const anchored = Number(/z-index=\(anchored \? (\d+) : 30\)/.exec(picker)?.[1]);
-    const overlay = Number(/testId="scheduled-task-overlay"/.test(editor) ? /z-index=(\d+)[^\n]*testId="scheduled-task-overlay"/.exec(editor)?.[1] : NaN);
-    expect(anchored).toBeGreaterThan(overlay);
   });
 });

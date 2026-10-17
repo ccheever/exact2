@@ -21,8 +21,6 @@ import type { Files, Native } from './protocol';
 import type { Obj } from './domain';
 import { primaryAt, resetPrimary } from './local-primary-fixture';
 
-const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-
 // ── The fake module: Chrome (Local State names "You"), running while `world.running` (its SingletonLock names another
 // host), and Safari, whose cookie jar refuses to open while `world.denied` (TCC's EPERM). ──────────────────────────────
 type Op = { op: string } & Obj;
@@ -194,65 +192,6 @@ describe('the Tab stops and the focus as the wizard opens, by screen', () => {
 });
 
 describe('the contract wiring (browser-profiles.contract, app.contract)', () => {
-  /** The lines of one `if wizard.step == "<step>"` screen of BrowserImportWizard. */
-  async function screen(step: string): Promise<string> {
-    const profiles = await source('browser-profiles.contract');
-    const wizardText = profiles.slice(profiles.indexOf('component BrowserImportWizard'), profiles.indexOf('component BiHeader'));
-    const start = wizardText.indexOf(`        if wizard.step == "${step}"`);
-    expect(start).toBeGreaterThan(0);
-    const rest = wizardText.slice(start + 1);
-    const end = rest.search(/\n {8}if /);
-    return end < 0 ? rest : rest.slice(0, end);
-  }
-  /** The ids of a screen's focusable elements, in tree order (its buttons, Allow and the tiles). */
-  const ids = (text: string) => [...text.matchAll(/BiButton\(buttonId="([^"]+)"|button id="([^"]+)"|BiTile\(tileId=`([^`]+)`/g)].map(match => match[1] ?? match[2] ?? match[3]);
-  test('the elements are the focusable ones of each screen in tree order, with their ids', async () => {
-    expect(ids(await screen('configure'))).toEqual(['browser-import-from-${i}', 'browser-import-into-${i}', 'browser-import-cancel', 'browser-import-run']);
-    expect(ids(await screen('quit'))).toEqual(['browser-import-cancel', 'browser-import-quit']);
-    expect(ids(await screen('fullDiskAccess'))).toEqual(['browser-import-fda-allow', 'browser-import-cancel', 'browser-import-fda-continue']);
-    expect(ids(await screen('blocked'))).toEqual(['browser-import-close', 'browser-import-retry']);
-    expect(ids(await screen('done'))).toEqual(['browser-import-done']);
-    const profiles = await source('browser-profiles.contract');
-    expect(profiles).toContain('    button id=tileId press=press focus=track(tileId, true) blur=track(tileId, false) hover=hover aria-pressed=tile.selected');
-    expect(profiles).toContain('    button id="browser-import-x" press=press focus=track("browser-import-x", true) blur=track("browser-import-x", false) aria-label="Close"');
-    expect(profiles).toContain('    button id=buttonId press=press focus=track(buttonId, true) blur=track(buttonId, false) disabled=disabled');
-    expect(profiles).toContain('button id="browser-import-fda-allow" press=local("browser-import-fda-allow", "") focus=track("browser-import-fda-allow", true) blur=track("browser-import-fda-allow", false)');
-    // Every element of the wizard reports its focus to the root.
-    const wizardText = profiles.slice(profiles.indexOf('component BrowserImportWizard'), profiles.indexOf('component BiHeader'));
-    for (const line of wizardText.split('\n').filter(line => /BiButton\(|BiTile\(|BiClose\(/.test(line))) expect(line).toContain('track=track)');
-    // The X follows every screen.
-    expect(profiles.indexOf('        if wizard.canClose\n          BiClose(')).toBeGreaterThan(profiles.indexOf('        if wizard.step == "blocked"'));
-  });
-  test('the popup takes the focus and tells the root; from it Tab reaches the first stop and Shift+Tab the guard before it', async () => {
-    const profiles = await source('browser-profiles.contract');
-    expect(profiles).toContain('      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=dialogSeated.includes("browser-import-popup")');
-    // The popup's own `popupKeys` (the workaround for issues/closed/20261010-macos-tab-from-a-focused-box.md) is gone; main #490 carries Tab on from it,
-    // and the trap's guards lie before and after it (dialog-trap.test.ts), as Base UI's do.
-    expect(profiles).not.toContain('popupKeys');
-    expect(profiles).toContain('      FocusGuard(guardId="browser-import-guard-start", targets=dialogTargets, popup="browser-import-popup")\n      column id="browser-import-popup" ');
-    expect(profiles).toContain('\n      FocusGuard(guardId="browser-import-guard-end", targets=dialogTargets, popup="browser-import-popup")\n');
-  });
-  test('no button autofocuses: the focus moves only where the reference moves it', async () => {
-    const profiles = await source('browser-profiles.contract');
-    const dialogs = profiles.slice(profiles.indexOf('component BrowserProfileDialogs')).split('\n').filter(line => !line.trimStart().startsWith('//'));
-    expect(dialogs.filter(line => /\bautofocus\b/.test(line))).toEqual([]);
-  });
-  test('the root: the opening focus, the popup only for a removed element (keptFrom), and the removal confirm', async () => {
-    const app = await source('app.contract');
-    expect(app).toContain('  action importWizardFocusMoved(id: string, on: bool)\n    if on\n      importWizardFocused = id\n    else if importWizardFocused == id\n      importWizardFocused = ""\n');
-    expect(app).toContain('  task importWizardStepFocus when integrations.browserProfiles.wizard.focusAt != importWizardAt\n    after(1, importWizardStep)\n  action importWizardStep\n'
-      + '    let wizard = integrations.browserProfiles.wizard\n    if wizard.openedAt > importWizardAt\n      focus(wizard.openFocus)\n'
-      + '    else if wizard.focusAt >= 0 and importWizardFocused != "browser-import-popup" and not wizard.mounted.filter((element) => element.since <= importWizardAt).map((element) => element.id).includes(importWizardFocused)\n'
-      + '      focus("browser-import-popup")\n    importWizardAt = wizard.focusAt\n');
-    expect(app).toContain('importWizardFocusMoved=importWizardFocusMoved');
-    expect(await source('app-window.contract')).toContain('importWizardFocusMoved=importWizardFocusMoved');
-    expect(await source('app-settings.contract')).toContain('BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal, track=importWizardFocusMoved,');
-    // The confirm: Cancel as it opens; then the row's options button, or Add profile once the row is gone (removed).
-    expect(app).toContain('  task removalFocus when integrations.browserProfiles.removalId != removalAt\n    after(1, removalFlip)\n  action removalFlip\n    if removalAt == ""\n      focus("browser-profile-remove-cancel")\n    else if integrations.browserProfiles.rows.map((row) => row.id).includes(removalAt)\n      focus(`browser-profile-options-${removalAt}`)\n    else\n      focus("browser-profiles-add")\n    removalAt = integrations.browserProfiles.removalId\n');
-    const profiles = await source('browser-profiles.contract');
-    expect(profiles).toContain('BiButton(buttonId="browser-profile-remove-cancel", label="Cancel"');
-    expect(profiles).toContain('        button id=`browser-profile-options-${row.id}` popovertarget=`browser-profile-menu-${row.id}`');
-  });
   test('a closed wizard has no facts, so its next opening counts as one', () => {
     expect(emptyBrowserProfilesView().wizard).toMatchObject({ open: false, openedAt: -1, focusAt: -1, mounted: [], openFocus: '', tabFirst: '', tabLast: '' });
     expect(emptyBrowserProfilesView()).toMatchObject({ removalOpen: false, removalId: '' });

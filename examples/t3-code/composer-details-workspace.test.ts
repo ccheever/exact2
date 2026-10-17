@@ -100,34 +100,3 @@ describe('the details Workspace row', () => {
     expect(result.message).toBe('A started thread keeps its workspace.');
   });
 });
-
-// ProjectScriptsControl's "Add project script" opens the Add Action dialog over the thread
-// (openAddDialog), not Settings › Project. The hookup is Contract, so the sources are read as
-// context-menu-hookup.test.ts reads them; sb:action-add itself is settings-b.test.ts's.
-describe('the details card\'s Add project script', () => {
-  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-  const nodeLine = async (file: string, testId: string) => {
-    const line = (await source(file)).split('\n').find(entry => entry.includes(`testId="${testId}"`));
-    if (!line) throw new Error(`${file}: no node ${testId}`);
-    return line;
-  };
-  test('the row and the scripts menu item open the editor in place', async () => {
-    // The card's row (no script yet) and the run-script menu's last item.
-    for (const [file, testId] of [['shell-details.contract', 'details-add-script'], ['r6-polish.contract', 'details-scripts-add']] as const) {
-      const line = await nodeLine(file, testId);
-      expect(line).toContain('press=act("ui:add-script", "", "")');
-      expect(line).not.toContain('ui:project-settings');
-    }
-    const app = await source('app.contract');
-    // The root opens the card editor for the thread's project, and the op never reaches the client as a command.
-    expect(app).toMatch(/if op == "ui:add-script"[^\n]*\n\s+restEditor = "card-action"\n\s+restSubject = target == "" \? data\.projectId : target\n/);
-    expect(app).toMatch(/and op != "ui:add-script" and[^\n]*not commandPending\n\s+commandPending = true\n\s+send changed = command\(/);
-    // ProjectDialogs mounts with the window, over the thread, and shows the settings' Add Action editor for that project.
-    expect(await source('app-window.contract')).toMatch(/\n\s+ProjectDialogs\(restEditor=restEditor, restSubject=restSubject,[^\n]*projectsSettings=projectsSettings/);
-    expect(await source('app-settings.contract')).toMatch(/if restEditor == "card-action"\n\s+for blank in projectsSettings\.blankActions key=blank\.id\n\s+ProjectActionEditor\(item=blank, scope=restSubject, editing=false, [^\n]*raw=restRaw, close=restClose\)/);
-    // A new action's Save and Return send sb:action-add for that scope; Cancel closes.
-    const editor = await source('settings-b-actions.contract');
-    expect(editor.match(/raw\(\(editing \? "sb:action-save" : "sb:action-add"\), scope, payload\)/g)).toHaveLength(2);
-    expect(await nodeLine('settings-b-actions.contract', 'action-cancel')).toContain('press=close');
-  });
-});

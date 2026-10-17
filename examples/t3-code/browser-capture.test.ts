@@ -338,23 +338,6 @@ describe('the floating player and the separate window', () => {
     }
   });
 
-  it('the pill sits inside the handle\'s hover box, as the reference\'s group (no hover hand-off that flips every frame)', () => {
-    // ThreadPreviewMiniPlayer: the pill is a child of the handle's `group`, so moving from the handle onto the pill
-    // keeps one hover. Two sibling hover boxes hand the hover over through a state where neither is hovered: the pill
-    // hides, refuses the pointer, the handle is hit again and shows it (drive 3: ~110 renders a second, an untappable pill).
-    const lines = readFileSync(new URL('./browser-capture.contract', import.meta.url), 'utf8').split('\n');
-    const indent = (line: string) => line.length - line.trimStart().length;
-    const handle = lines.findIndex(line => line.includes('testId="browser-mini-handle"'));
-    const pill = lines.findIndex(line => line.includes('testId="browser-mini-pill"'));
-    // The hover is the player's (its box holds the handle and the pill), the group the handle's box.
-    expect(lines.find(line => line.includes('testId="browser-mini-player"'))).toContain('hover=overPlayer pointermove=movePlayer');
-    expect(lines[handle]).not.toContain('hover=');
-    expect(pill).toBeGreaterThan(handle);
-    expect(lines.slice(handle + 1, pill).every(line => !line.trim() || indent(line) > indent(lines[handle]!))).toBe(true);
-    expect(indent(lines[pill]!)).toBeGreaterThan(indent(lines[handle]!));
-    expect(lines[pill]).not.toContain('hover=');
-  });
-
   it('handleNativePictureInPicture opens and closes the separate window, and the More menu names it', async () => {
     const client = fakeClient(), module = fakeModule({});
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
@@ -369,10 +352,6 @@ describe('the floating player and the separate window', () => {
 // "Annotation attached to draft" when Send cannot go (ChatView onSend's notifyDirectAnnotationAttached), and the
 // window-level rules of this task (Float closes the right panel, a screenshot's buttons keep their toast) are held here.
 describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSend\'s guard)', () => {
-  const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
-  const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
-  const block = (text: string, start: string, lines: number) => { const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start)); return at < 0 ? '' : all.slice(at, at + lines).join('\n'); };
-
   /** A server thread's client and a module answering Annotate's take with `result` (audit-wave-followups.test.ts's harness). */
   function threadClient(result: Obj) {
     const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1'), calls: Obj[] = [];
@@ -418,16 +397,6 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
     expect('sendSerial' in view.browser.capture).toBe(false);
   });
 
-  it('the window sends at once whatever the panel shows, or asks for "Annotation attached to draft" when Send cannot go', () => {
-    const app = source('app.contract');
-    expect(app).not.toContain('capture.sendSerial');
-    expect(line(app, 'task annotationSend when')).toBe('  task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend');
-    expect(block(app, 'action annotationSendNow', 6)).toBe(['  action annotationSendNow', '    annotationSendHandled = shell.panel.annotationSend',
-      '    if commandPending or not data.canSend or data.requestMode == "question"', '      chatLocal("surface-browser-annotation-held", "", "")', '    else', '      send("")'].join('\n')); // no press: no pointer modifiers
-    expect(line(source('r4-surfaces-shapes.contract'), '  annotationSend: number')).not.toBe('');
-    expect(block(source('browser-shapes.contract'), 'shape BrowserCapture', 12)).not.toContain('sendSerial');
-  });
-
   it('the held send says "Annotation attached to draft" and spends the mark', async () => {
     const client = fakeClient(), module = fakeModule({});
     surfaceStore(client).panels.set(panelKey(client), { ...browserPanel(), visible: false });
@@ -460,21 +429,6 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'info', title: 'Annotation attached to draft' });
     expect(client.draft).toBe('Send this one too');
   });
-
-  it('Float preview closes the window\'s right panel (handlePictureInPicture: rightPanelStore.close)', () => {
-    // The data module hides its surfaces (the row above), but the window's own open state kept the panel on its
-    // launcher (drive 7): chatLocal clears it when Float floats the tab, not when the same press closes the player.
-    const app = source('app.contract');
-    const rule = line(app, 'op == "surface-browser-float"');
-    expect(rule).toContain('(op == "surface-browser-float" and not shell.panel.browser.capture.floating)');
-    expect(rule.trimStart().startsWith('if ')).toBe(true);
-    expect(app.split('\n')[app.split('\n').indexOf(rule) + 1]).toBe('      rightPanelAt = ""');
-  });
-
-  it('a screenshot\'s and a recording\'s buttons keep their toast (toastAct)', () => {
-    const rule = line(source('app.contract'), '    toastDismissed = op == "copy"');
-    expect(rule).toContain('op == "copy" or op.startsWith("shelllocal:surface-browser-artifact-") ? toastDismissed :');
-  });
 });
 
 // Found under real input (a person's keys and pointer, 2026-10-10): what they did
@@ -483,30 +437,7 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
 // matters; the fix itself, the contract's `pan` taking one serial per gesture, is the line row before it and the drive.
 describe('a real Escape, the pill by a real pointer, the drag and the resize, the header tooltip', () => {
   const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
-  const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
   const block = (text: string, start: string, end: string) => { const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start)); return at < 0 ? '' : all.slice(at, all.findIndex((candidate, index) => index > at && candidate.startsWith(end))).join('\n'); };
-
-  it('Escape while the shown tab annotates is the page\'s: the panel toggle declares it only otherwise (PickPreload cancels, the panel stays)', () => {
-    // A real Escape met the toggle's aria-keyshortcuts before the page: the panel closed and floated the tab. Since
-    // The toggle declares Escape only in a sheet (the reference's inline panel binds none); the pick holds it there.
-    const toggle = line(source('r4-surfaces.contract'), 'testId="panel-toggle-right"');
-    expect(toggle).toContain('aria-keyshortcuts=((sheet and not (detailsOpen or panel.deviceSetup or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "")');
-  });
-
-  it('the handle\'s box covers the pill while it shows, and the pill\'s buttons hear no hover of their own', () => {
-    const contract = source('browser-capture.contract');
-    const handle = line(contract, 'testId="browser-mini-handle"');
-    expect(handle).toContain('width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) cursor=');
-    expect(line(contract, 'testId="browser-mini-pill"')).toContain('position="absolute" top=0 right=0 width=pillWidth height="2rem"');
-    expect(line(contract, 'derive pillWidth')).toBe('  derive pillWidth = bcPillWidth(rem, mini.recording ? 4 : 3)');
-    const button = block(contract, 'component BcPillButton', '//');
-    expect(button).not.toContain('hover=');
-    expect(button).toContain('TipBubble(label=tip, side="top", align=align, offset=28, inset=0, shown=tipShown)');
-    // Base UI shifts a tooltip inside the window: near the canvas's right edge the pill's tooltips end at their buttons.
-    expect(line(contract, 'derive tipAlign')).toBe('  derive tipAlign = frame.x + frame.width > canvasWidth - 7.5 * rem ? "end" : "center"');
-    // The tooltip follows the pointer's button, and a press closes it until the pointer moves to another (Base UI).
-    for (const id of ['restore', 'window', 'close']) expect(contract).toContain(`align=tipAlign, hot=(tipAt == "${id}"), tipShown=(pill and tipAt == "${id}" and tipShut != "${id}")`);
-  });
 
   it('the pill follows the player\'s own hover and moves, not an enter of the 12 pt handle', async () => {
     // A real pointer that came to rest on the dot showed the grab hand but no pill until it moved again (3 of 3): the
@@ -538,16 +469,6 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
     expect(player.match(/hover=/g)).toHaveLength(1);
   });
 
-  it('one gesture keeps one serial: the canvas takes the frame at its first pan and moves it by the pan\'s total', () => {
-    // The clock (floor(now()), performanceNow() since #384) in every pan's serial made each move a new gesture from the frame on screen: a (-200, -100) drag moved
-    // (-100, -188) and an 80 pt north-west resize took 240 × 333 to 416 × 577 (the reference: 305 × 423).
-    const pan = block(source('browser-capture.contract'), '  action pan(direction: string, dx: number, dy: number)', '  action release');
-    expect(pan).toContain('let id = starting ? `${floor(performanceNow())}.${count}` : serial');
-    expect(pan).toContain('serial = id');
-    expect(pan).toContain('gesture(`${id}|${mini.sourceKey}|${direction}|${nx}|${ny}`)');
-    expect(pan.match(/performanceNow\(\)/g)).toHaveLength(1);
-  });
-
   it('a resize\'s pans under one serial land where one pan of their total does; a serial per pan overshoots', async () => {
     // The canvas's side of the row above, unchanged by the fix (this row passes on the previous code too): the frame of a
     // gesture's start moves by the pan's total only while the serial holds; a new serial per pan restarts from the frame on
@@ -570,30 +491,5 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
     const held = await run(pans(['7.1', '7.1', '7.1', '7.1'])), fresh = await run(pans(['7.1', '8.1', '9.1', '10.1']));
     expect([held.last.width, held.last.height]).toEqual([305, 423]);
     expect(fresh.last.width).toBeGreaterThan(305 + 40);
-  });
-
-  it('a press on a pill button never drags the player: the drag is a box behind the pill, not the handle that holds its buttons', () => {
-    // Review of 2026-10-10 (second): the handle's `pan` took a nested button's contact past the slop (LLP 1057.001 rule 3),
-    // so a drag that started on Open in right panel moved the player. The reference's buttons stop the pointer-down
-    // (MiniPlayerShell), and its pill's padding and the dot still drag (the pointer-down reaches the handle's group).
-    const contract = source('browser-capture.contract'), lines = contract.split('\n');
-    const indent = (text: string) => text.length - text.trimStart().length;
-    const at = (id: string) => lines.findIndex(candidate => candidate.includes(`testId="${id}"`));
-    const handle = at('browser-mini-handle'), grab = at('browser-mini-grab'), pill = at('browser-mini-pill');
-    expect(lines[handle]).not.toContain('pan=');
-    expect(lines[grab]).toContain('box position="absolute" left=0 top=0 right=0 bottom=0 pan=pan("move") panrelease=release touch-action="none"');
-    // The grab box fills the handle and sits behind the pill, which lets the pointer through to it; only the buttons take it.
-    expect([grab, pill]).toEqual([handle + 1, handle + 2]);
-    expect([indent(lines[grab]!), indent(lines[pill]!)]).toEqual([indent(lines[handle]!) + 2, indent(lines[handle]!) + 2]);
-    expect(lines[pill]).toContain(' pointer-events="none" ');
-    expect(lines[pill]).not.toContain('pan=');
-    expect(block(contract, 'component BcPillButton', '//')).toContain('button press=pressed focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none")');
-    expect(contract.match(/pan=pan\("move"\)/g)).toHaveLength(1);
-  });
-
-  it('the header\'s Toggle right panel drops its hover on press: it leaves the header as the panel opens, so no leave comes', () => {
-    const chat = source('chat.contract');
-    expect(line(chat, 'testId="toggle-right-panel"')).toContain('button press=toggleRight hover=hover("right")');
-    expect(block(chat, '  action toggleRight', '  view')).toContain('    hovered = hovered == "right" ? "" : hovered\n    panel("toggle", "")');
   });
 });

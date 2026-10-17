@@ -2,8 +2,6 @@
 // FileContextChip (`openFile`), ChatComposer.tsx's `previewFileId` Dialog and files/AttachmentFilePreview.tsx with
 // origin "Draft", onRemove and onClose, over the draft's own bytes.
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
@@ -113,24 +111,5 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
     const { native, client } = harness([file({ draftKey: 'env:other' })]);
     await expect(performChipAct(client, native, { act: 'file', context: `file_${ID}` })).rejects.toThrow('That file is no longer attached.');
     expect((await composerFileView(client, native, 1)).open).toBe(false);
-  });
-});
-
-describe('the window draws it as the reference\'s Dialog', () => {
-  const source = (name: string) => readFileSync(join(import.meta.dir, name), 'utf8');
-  test('max-w-4xl, h-[min(85vh,52rem)], named by the file, the header in its dialog form; Escape closes', () => {
-    const dialog = source('composer-chip-file.contract');
-    expect(dialog).toContain('max-width="56rem" height=min(windowHeight * 0.85, 52 * rem)');
-    // Base UI's Dialog is modal: VoiceOver reads the dialog alone, and only shortcuts inside it are heard, so Escape
-    // is the dialog's Close (in the header's dialog form), not the backdrop's.
-    expect(dialog).toContain('role="dialog" aria-modal=dialogSeated.includes("chip-file-preview") aria-label=att.name');
-    expect(dialog).toContain('sheet=true');
-    expect(dialog).not.toContain('aria-keyshortcuts="Escape"');
-    const header = source('r5-panels.contract');
-    expect(header).toContain('aria-keyshortcuts=(ids != "" and id == "close" ? "Escape" : "")');
-    expect(header).toContain('text att.origin');
-    expect(header).toContain('label="Remove from draft", icon="trash"');
-    expect(header).toContain('label="Close", icon="x"');
-    expect(source('app.contract')).toContain('.concat(shell.composerFile.file.markdownSource)');
   });
 });

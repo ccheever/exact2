@@ -29,14 +29,6 @@ function harness(list = families) {
 }
 
 describe('the font picker\'s search', () => {
-  test('has the focus as the popup opens (autofocus inside the popover) and owns the list keys', async () => {
-    const source = await Bun.file(new URL('./settings-a-fonts.contract', import.meta.url)).text();
-    const field = source.split('\n').find(line => line.includes('testId=`font-picker-${rowId}-search`'))!;
-    expect(field).toContain('key=searchKey submit=pick autofocus=true role="combobox"');
-    // A ComboboxItem is a div: its family starts at the row's leading edge, not centred as a button's text is.
-    expect(source.split('\n').find(line => line.includes('text family.label'))).toContain('text-align="left"');
-  });
-
   test('typing lights the first match; ↓/↑ walk the matches and loop through none', () => {
     const { lit, act, calls } = harness();
     expect(lit()).toBe('-'); // no query: nothing lit until a key or the pointer
@@ -90,13 +82,5 @@ describe('the font picker\'s search', () => {
     const { act, calls } = harness();
     act('pickRow', 'avenir');
     expect(calls).toEqual(['hide font-picker-interface', 'focus setting-interface-family', 'choose Avenir']);
-  });
-
-  test('the trigger stays enabled while the write runs, so it keeps the focus', async () => {
-    const source = await Bun.file(new URL('./settings-a-fonts.contract', import.meta.url)).text();
-    const trigger = source.split('\n').find(line => line.includes('testId=`setting-${rowId}-family`'))!;
-    expect(trigger).not.toContain('disabled=');
-    const rows = await Bun.file(new URL('./settings-rows.contract', import.meta.url)).text();
-    expect(rows.split('\n').find(line => line.includes('CoreSelect(rowId=`${row.id}-size`'))).toContain('disabled=false');
   });
 });

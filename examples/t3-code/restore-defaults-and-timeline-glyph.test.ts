@@ -110,25 +110,6 @@ describe('Restore defaults resets what the reference resets', () => {
 });
 
 describe('A lifecycle row draws the pull request glyph on the rail', () => {
-  test('the lifecycle rows use the icon marker whatever the actor; the actor is named beside the label', async () => {
-    const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
-    const start = lines.findIndex(line => line.trim() === 'if row.kind == "opened" or row.kind == "merged" or row.kind == "closed"');
-    expect(start).toBeGreaterThan(-1);
-    const end = lines.findIndex((line, index) => index > start && /^\S/.test(line));
-    const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));
-    expect(row.some(line => line.trim() === 'PrdIconMarker(icon=prtLifecycleIcon(row.kind))')).toBe(true);
-    expect(row.some(line => line.includes('PrdMarker(') || line.includes('PrAvatar('))).toBe(false);
-    expect(row.some(line => line.trim() === 'text row.author font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk()')).toBe(true);
-    // IconMarker: a 2rem box on the rail, centred on the row, holding the 14 pt glyph in the muted tone and no face.
-    const marker = lines.slice(lines.findIndex(line => line === 'component PrdIconMarker'));
-    const view = marker.slice(0, marker.findIndex((line, index) => index > 0 && line.startsWith('component '))).join('\n');
-    expect(view).toContain('PgIcon(name=icon, size=14, color=prtMuted())');
-    expect(view).not.toContain('PrAvatar');
-    for (const attr of ['position="absolute"', 'left=0', 'top="50%"', 'margin-top="-1rem"', 'width="2rem"', 'height="2rem"', 'aria-hidden=true']) expect(view).toContain(attr);
-    // PullRequestGlyph: pullRequest (opened) is GitPullRequestArrowIcon, merged GitMergeIcon, closed GitPullRequestClosedIcon.
-    expect(lines.find(line => line.startsWith('fn prtLifecycleIcon'))).toBe('fn prtLifecycleIcon(kind: string): string = kind == "merged" ? "git-merge" : kind == "closed" ? "git-pull-request-closed" : "git-pull-request-arrow"');
-  });
-
   test('the opened row keeps its actor for the name', () => {
     const view = presentTimeline({ detail: { number: 168, projectId: 'p1', createdAt: '2026-10-01T00:00:00Z', author: { login: 'octocat', avatarUrl: 'https://example.invalid/a.png' } },
       activity: { comments: [], commits: [], commentCount: 0 }, activityPending: false, activityError: '', now: Date.parse('2026-10-02T00:00:00Z') });

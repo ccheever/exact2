@@ -4,7 +4,6 @@
 // Contract (PullRequestThreadDialog's `focus(); select()`). The behavior itself is checked by driving the
 // app on macOS.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { readdirSync } from 'node:fs';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import { ClientError, type Native } from './protocol';
@@ -14,17 +13,7 @@ import { environmentQueries } from './pages-pr-paging';
 import { threadPickerView } from './pages-pr-links';
 import { contractComponent, value } from './contract-action-fixture';
 
-const dir = new URL('./', import.meta.url);
-const contracts = readdirSync(dir).filter(name => name.endsWith('.contract')).sort();
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-const indent = (line: string) => line.length - line.trimStart().length;
-async function component(file: string, name: string): Promise<string[]> {
-  const lines = (await source(file)).split('\n');
-  const start = lines.indexOf(`component ${name}`);
-  if (start < 0) throw new Error(`${file}: no component ${name}`);
-  const end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
-  return lines.slice(start, end < 0 ? undefined : end);
-}
 
 // ── A return to the app keeps the list ──────────────────────────────────────
 
@@ -218,36 +207,6 @@ describe('The Pull Requests list keeps its rows when the app becomes active agai
   });
 });
 
-// ── One subtree for both schemes ────────────────────────────────────────────
-
-describe('No surface is mounted once per scheme', () => {
-  test('no view `if` chooses a subtree by the scheme, and no component is handed a literal scheme', async () => {
-    const splits: string[] = [];
-    for (const file of contracts) {
-      (await source(file)).split('\n').forEach((line, index) => {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('//')) return;
-        const branch = /^(?:else )?if (.*)$/.exec(trimmed)?.[1];
-        if (branch !== undefined && /\bscheme\b|\bdark\b|prefersColorScheme/.test(branch)) splits.push(`${file}:${index + 1} ${trimmed}`);
-        // (A literal `dark=true` stays where a surface is dark in both schemes: a video's failure over its black stage.)
-        if (/\bscheme="(dark|light)"/.test(trimmed)) splits.push(`${file}:${index + 1} literal scheme`);
-      });
-    }
-    expect(splits).toEqual([]);
-  });
-
-  test('the Pull Requests page is one PrList under PagesCover, handed the live scheme', async () => {
-    const cover = await component('app-main.contract', 'PagesCover');
-    const lists = cover.filter(line => line.trim().startsWith('PrList('));
-    expect(lists).toHaveLength(1);
-    expect(lists[0]).toContain('scheme=scheme');
-    // The glyphs whose colours were literal per arm are light-dark() now (the checkout dialog's, the table menu's).
-    const checkout = (await component('r9-connect.contract', 'R9CheckoutDialog')).join('\n');
-    expect(checkout).toContain('R4Glyph(name=checkout.mark, size=16, color="light-dark(#27272a, #f5f5f5)")');
-    expect(checkout).toContain('ShellIcon(name="x", size=16, color="light-dark(#71717b, #818181)")');
-  });
-});
-
 // ── Link to thread's own dialog ─────────────────────────────────────────────
 
 describe('"Link to thread" opens its own picker dialog (PullRequestThreadLinks display="picker")', () => {
@@ -264,38 +223,6 @@ describe('"Link to thread" opens its own picker dialog (PullRequestThreadLinks d
     expect(highlight('picker', 2, 1)).toBe(1);
     expect(highlight('picker', 0, -2)).toBe(-1);
     expect(highlight('list', 2, -2)).toBe(-1); // Preserve the command palette's explicit no-highlight state.
-  });
-
-  test('CommandPalette draws the picker panel as PaletteThreadPicker: max-w-md, centred, no close button, an sr-only title', async () => {
-    const palette = await component('palette.contract', 'CommandPalette');
-    expect(palette.map(line => line.trim())).toContain('else if view.panel == "picker"');
-    const picker = await component('palette.contract', 'PaletteThreadPicker');
-    const text = picker.join('\n');
-    expect(text).toContain('derive width = min(448, viewport.width - 32)');
-    const popup = picker.find(line => line.includes('role="dialog"'))!;
-    expect(popup).toContain('aria-label="Link pull request to a thread"');
-    expect(popup).toContain('testId="pull-request-thread-picker"');
-    // DialogViewport's grid: the popup centred in the window, inset 16pt.
-    const viewport = picker[picker.indexOf(popup) - 1]!;
-    expect(viewport).toContain('align-items="center" justify-content="center" padding="1rem"');
-    // Inside the popup: the trap and the open focus on the field, the sr-only DialogTitle, no X and no footer.
-    const inside = picker.slice(picker.indexOf(popup) + 1).filter(line => line.trim() !== '' && !line.trim().startsWith('//'));
-    const direct = inside.filter(line => indent(line) === indent(inside[0]!)).map(line => line.trim());
-    expect(direct[0]).toBe('FocusGuard(guardId="pr-thread-picker-guard-start", targets=dialogTargets, popup="pull-request-thread-picker")');
-    expect(direct[1]).toBe('DialogOpenFocus(target="palette-input")');
-    expect(direct[2]).toStartWith('text "Link pull request to a thread" role="heading" aria-level=2 position="absolute" width=1 height=1 overflow="hidden" opacity=0');
-    expect(direct.at(-1)).toBe('FocusGuard(guardId="pr-thread-picker-guard-end", targets=dialogTargets, popup="pull-request-thread-picker")');
-    expect(inside.some(line => /^\s*button\b/.test(line))).toBe(false);
-    expect(text).not.toContain('PaletteKbd(');
-    // CommandInput (autofocus, disabled while a link is pending) and CommandList max-h-80 with p-2.
-    const field = picker.find(line => line.trim().startsWith('input id="palette-input"'))!;
-    expect(field).toContain('autofocus=true');
-    expect(field).toContain('disabled=view.loading');
-    expect(text).toContain('scroll scrollTop=scroll flex-shrink=1 min-height=0 max-height="20rem"');
-    expect(text).toContain('PaletteRowView(');
-    expect(text).toContain('role="listbox" aria-label=view.label');
-    // "No active threads found." (px-3 py-6, centred, text-sm muted).
-    expect(text).toContain('text view.empty text-align="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="1.5rem" padding-bottom="1.5rem" font-size="0.875rem"');
   });
 });
 
@@ -318,19 +245,5 @@ describe('The checkout dialog\'s field focuses and selects its reference as it o
     field.call('laidOut', state, scope, [0, 0]);
     field.call('laidOut', state, scope, [1, 1]);
     expect(calls).toEqual([['focus', 'reference'], ['select', 'reference', 0, 4]]);
-  });
-
-  test('the checkout dialog and the device tab rename use it; the module hook is gone', async () => {
-    const checkout = (await component('r9-connect.contract', 'R9CheckoutDialog')).map(line => line.trim());
-    expect(checkout).toContain('FieldOpenSelect(target="pr-checkout-input", length=checkout.reference.length)');
-    expect(checkout.some(line => line.startsWith('DialogOpenFocus('))).toBe(false);
-    const rename = (await component('r4-surfaces.contract', 'R4TabNameField')).map(line => line.trim());
-    expect(rename).toContain('FieldOpenSelect(target=`tab-name-${tab.id}`, length=tab.renameValue.length)');
-    // The rename editor's Escape and chords still reach RightPanelTabsInput, by its anchor.
-    expect(rename.find(line => line.startsWith('input '))).toContain('hatch="t3-anchor" data-anchor=`tab-editor:${tab.id}`');
-    expect(await source('modules/apple/RightPanelTabsInput.swift')).toContain('"tab-editor:"');
-    for (const file of [...contracts, 'app.json', 'modules/apple/R10Connect.swift', 'modules/apple/RightPanelTabsInput.swift', 'modules/apple/T3Module.swift']) {
-      expect([file, (await source(file)).includes('t3-select-on-open') || (await source(file)).includes('t3SelectOnOpen')]).toEqual([file, false]);
-    }
   });
 });

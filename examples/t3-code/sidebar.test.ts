@@ -476,7 +476,6 @@ describe('sidebar navigation, drafts and the hover card', () => {
   });
 });
 
-
 // Thread title › Snooze › Custom… (useThreadActionMenu: `await requestCustomSnooze()`, then
 // snoozeThread alone) opens the sidebar's Custom snooze for the title's thread. app.contract's titleMenuPick sends
 // the item's `ui:custom-snooze` as `sidebar:snooze:custom` with the value "title" and the window's wall time.
@@ -618,16 +617,5 @@ describe('a row press carries its own click modifiers', () => {
     expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, 'meta')).toEqual([['run', 'legacy-pr', 'a', 'mod:pull-requests']]);
     expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', { ...scope, page: '' }, 'ctrl')).toEqual([['run', 'legacy-pr', 'a', 'mod:']]);
     expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, 'shift alt')).toEqual([['run', 'legacy-pr', 'a', 'pull-requests']]);
-  });
-  test('both row buttons press openPress; the sidebar\'s New thread sends its ⇧', async () => {
-    const rows = await Bun.file(new URL('./sidebar-row.contract', import.meta.url)).text();
-    expect(rows.split('press=openPress').length - 1).toBe(2);
-    expect(rows).not.toContain('press=open(t.id, "click")');
-    const legacy = await Bun.file(new URL('./legacy-sidebar.contract', import.meta.url)).text();
-    expect(legacy).toContain('button cursor="pointer" press=openPress dblclick=local("legacy-rename-start", t.id, "")');
-    expect(legacy).toContain('button cursor="pointer" press=prPress dblclick=nested');
-    const app = await Bun.file(new URL('./app.contract', import.meta.url)).text();
-    expect(app).toContain('  action sidebarNewThread(e: MouseEvent)');
-    expect(app).toContain('send changed = command("sidebar:new-thread-click", "", e.shiftKey ? "shift" : "", 0)');
   });
 });

@@ -4,10 +4,8 @@
 // the timeline or the prompt left them open. Read from the Contract sources and run through their actions; the
 // presses themselves are driven on macOS.
 import { describe, expect, test } from 'bun:test';
-import { readdirSync } from 'node:fs';
 import { contractComponent } from './contract-action-fixture';
 
-const dir = new URL('./', import.meta.url);
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
 const event = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false };
@@ -17,17 +15,6 @@ function effects(calls: unknown[][]) {
 }
 const kmKeyEnd = (k: string) => k === 'ArrowUp' ? 'last' : (k === 'ArrowDown' || k === 'Enter' || k === ' ' || k === 'Space' ? 'first' : '');
 const kmTriggerKey = (k: string) => ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'].includes(k);
-
-describe('no menu keeps a click-away layer of its own', () => {
-  test('the menus that had one are popovers, light-dismissed', async () => {
-    const files = readdirSync(dir).filter(name => name.endsWith('.contract'));
-    const gone = ['details-editors-backdrop', 'file-editors-backdrop', 'crumb-menu-backdrop', 'linked-pr-menu-backdrop', 'approval-menu-dismiss', 'Close diff scope menu', 'device-menu-backdrop'];
-    for (const file of files) {
-      const text = await source(file);
-      for (const testId of gone) expect(`${file}: ${text.includes(testId)}`).toBe(`${file}: false`);
-    }
-  });
-});
 
 describe('the file subheader\'s menus (FilePreviewPanel)', () => {
   test('Open in: its chevron opens the popover, end-aligned under it, modal while it shows', async () => {

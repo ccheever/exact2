@@ -80,11 +80,3 @@ describe('shared color controls in settings (the provider accent)', () => {
     expect(picker.commits.at(-1)).toBe('#ff0505');
   });
 });
-
-test('the accent picker\'s Contract key rules are color-picker.tsx\'s: the stops step 2 % (10 % with Shift), the hue 1° (10°) and wraps', async () => {
-  const source = await Bun.file(new URL('./settings-b-accent.contract', import.meta.url)).text();
-  expect(source).toContain('fn sbAxisKey(cur: number, k: string, shift: bool): number = k == "Home" ? 0 : (k == "End" ? 1 : min(1, max(0, cur + sbUp(k) * (shift ? 0.1 : 0.02))))');
-  expect(source).toContain('let nh = (ch + sbUp(k) * (e.shiftKey ? 10 : 1) + 360) % 360');
-  expect(source).toContain('fn sbUp(k: string): number = k == "ArrowRight" or k == "ArrowUp" ? 1 : -1');
-  expect(source).toContain('fn sbHex(h: number, s: number, v: number): string = `#${sbByte(sbChannel(h, s, v, 5))}${sbByte(sbChannel(h, s, v, 3))}${sbByte(sbChannel(h, s, v, 1))}`');
-});

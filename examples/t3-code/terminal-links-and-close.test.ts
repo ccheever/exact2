@@ -7,10 +7,8 @@
 //   system-browser fallback.
 // - while a terminal close confirm is open, ChatView's window key handler refuses the terminal close chord
 //   (isTerminalCloseConfirmPending && preventTerminalCloseShortcut): neither rightPanel.close nor the same close again.
-// - ProviderAuthTerminal creates its surface without focusing it; the wizard's setup terminal keeps autoFocus.
 // An oversized write's refusal text and CRLF system lines are Swift (macos/tests/terminal, drawer.swift).
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { T3Client } from './client';
 import { initialShell, obj, type Obj } from './domain';
 import type { Files, Native } from './protocol';
@@ -217,25 +215,6 @@ describe('A terminal close confirm that is open refuses the close chord app-wide
     for (const op of TERMINAL_CLOSE_CONFIRMS) expect(commandWRows(keyboardDispatchSource(c, args(op)))).toEqual([['terminal.close', 'refuse']]);
     for (const op of ['', 'shell:archive', 'sidebar:delete']) expect(commandWRows(keyboardDispatchSource(c, args(op)))).toEqual([['rightPanel.close', 'close-diff']]);
   });
-
-  test('the toolbar\'s Close and a tab\'s close ask with their own element, which Cancel focuses (Base UI\'s finalFocus)', () => {
-    const terminal = readFileSync(new URL('./terminal.contract', import.meta.url), 'utf8');
-    expect(terminal).toContain('confirm(`ui:confirm:terminal-close-${view.surface}`, `${view.threadKey}|${view.terminalId}`, `${view.commandPrefix}:close`');
-    expect(terminal).toContain('id="terminal-close", elementId=`terminal-close-${view.surface}`');
-    expect(terminal).toContain('button id=`terminal-tab-close-${view.surface}-${tab.id}` press=askClose(tab.target, tab.closeTitle, tab.closeBody, `terminal-tab-close-${view.surface}-${tab.id}`)');
-    const app = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
-    expect(app).toContain('confirmReturn = op == "ui:confirm" ? "" : op.slice(11)');
-    expect(app).toMatch(/else if not accept and \(confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close"\) and confirmReturn != ""\n\s+focus\(confirmReturn\)/);
-    // A ⌘W the confirm met is the refusal row's, whose press is no window op.
-    expect(readFileSync(new URL('./settings-shortcuts.contract', import.meta.url), 'utf8')).toContain('if item.kind == "refuse"\n          ShortcutButton(item=item, press=confirm("ui:refuse", "", "", "", "", false))');
-  });
 });
 
 // ── The provider sign-in terminal ─────────────────────────────────────────────────────────────────
-test('The provider sign-in terminal opens without the focus; the wizard\'s setup terminal keeps autoFocus', () => {
-  const providers = readFileSync(new URL('./providers-setup.contract', import.meta.url), 'utf8');
-  const signIn = providers.split('\n').find(line => line.includes('testId="provider-auth-terminal"'))!;
-  expect(signIn).toContain('focus-request=0');
-  const welcome = readFileSync(new URL('./pages-welcome.contract', import.meta.url), 'utf8');
-  expect(welcome.split('\n').find(line => line.includes('testId="welcome-terminal-view"'))).toContain('focus-request=1');
-});

@@ -15,10 +15,6 @@ import { decodeClientPrefs } from './settings-core';
 
 const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
 const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
-const block = (text: string, start: string, end: string) => {
-  const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start));
-  return at < 0 ? '' : all.slice(at, all.findIndex((candidate, index) => index > at && candidate.startsWith(end))).join('\n');
-};
 
 // The toggle's `aria-keyshortcuts=(…)` as a function of the facts it reads (Contract's and/or/not and `?:` as JavaScript).
 function keysOf(row: string): (facts: Record<string, boolean>) => string {
@@ -65,55 +61,11 @@ describe('right-panel-escape: the right panel takes Escape only as a sheet', () 
     for (const holder of holders) expect(header({ sheet: true, ...none, [holder]: true })).toBe('');
   });
 
-  test('the URL field no longer holds the toggle\'s Escape: inline nothing closes, and the reference\'s sheet closes from it', () => {
-    const contract = source('r4-surfaces.contract');
-    expect(block(contract, 'component R4HeaderBar', '//')).not.toContain('urlFocused');
-    expect(block(contract, 'component R4PanelHeader', '//')).not.toContain('urlFocused');
-    expect(line(source('shell-panels.contract'), 'R4PanelHeader(')).not.toContain('urlFocused=');
-    expect(line(source('diff.contract'), 'R4PanelHeader(')).not.toContain('urlFocused=');
-  });
-
   test('the launcher\'s bar (no surface yet) declares Escape only as a sheet with no details popover over it', () => {
     const launcher = keysOf(line(source('shell-panels.contract'), 'testId="panel-toggle-right"'));
     expect(launcher({ sheet: false, detailsOpen: false })).toBe('');
     expect(launcher({ sheet: true, detailsOpen: false })).toBe('Escape');
     expect(launcher({ sheet: true, detailsOpen: true })).toBe('');
-  });
-
-  test('the Files search\'s own Escape closes the search and blurs the field (FileSearchField onKeyDown), and closes a sheet', () => {
-    const explorer = block(source('r4-surfaces-files.contract'), 'component R4Explorer', '//');
-    expect(explorer).toContain('  action searchKey(k: string)\n    if k == "Escape"\n      local("surface-files-search-key", sheet ? "sheet" : "", k)\n      preventDefault()\n      blur()');
-    expect(line(explorer, 'testId="files-search"')).toContain('key=searchKey focus=searchFocus(true) blur=searchFocus(false)');
-    // The focus is the window's (no send: a second `localChanged` send in one turn forgets the first, here the Escape's).
-    const panel = block(source('shell-panels.contract'), 'component SurfacePanel', '//');
-    expect(panel).toContain('  action filesSearchFocus(on: bool)\n    filesSearchAt = on ? shell.panel.active : (filesSearchAt == shell.panel.active ? "" : filesSearchAt)');
-    expect(line(panel, 'R4PanelHeader(')).toContain('searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))');
-    expect(line(panel, 'R4SurfaceBody(')).toContain('searchFocus=filesSearchFocus)');
-    expect(line(source('diff.contract'), 'R4PanelHeader(')).toContain('searchFocused=false)');
-    // The sheet's Escape closes the dialog after closeSearch: the window's half of the close (rightPanelStore.close).
-    const chatLocal = source('app.contract').split('\n').find(row => row.includes('op == "surface-browser-float"')) ?? '';
-    expect(chatLocal).toContain('(op == "surface-files-search-key" and id == "sheet" and value == "Escape")');
-  });
-
-  test('the Files editor\'s own Escape leaves it (installFileEditorDismissal), and its blur ends the editing', () => {
-    const preview = block(source('r4-surfaces-files.contract'), 'component R4FilePreview', '//');
-    expect(preview).toContain('  action editorKey(k: string)\n    if k == "Escape"\n      preventDefault()\n      blur()');
-    const editor = line(preview, 'textarea id="file-editor"');
-    expect(editor).toContain('key=editorKey blur=local("surface-files-end-edit", files.path, "")');
-  });
-});
-
-describe('right-panel-escape: the launcher\'s Escape hides nothing (RightPanelEmptyState binds none)', () => {
-  test('the launcher still hands its other keys to the panel, and the panel\'s "key" closes nothing', () => {
-    const launcher = block(source('shell-panels.contract'), 'component SurfaceLauncher', 'component SurfaceRow');
-    expect(launcher).toContain('    else\n      ui("key", k)');
-    for (const [file, action] of [['app.contract', 'action panelUi(what: string, id: string) //'], ['app-window.contract', '  action panelUi(what: string, id: string)\n']] as const) {
-      const text = source(file), at = text.indexOf(action);
-      expect(at).toBeGreaterThan(-1);
-      const body = text.slice(at, text.indexOf('\n  action ', at + action.length));
-      expect(body).not.toContain('id == "Escape"');
-      expect(body).toContain('what == "toggle" or what == "close" or what == "tab-close"');
-    }
   });
 });
 

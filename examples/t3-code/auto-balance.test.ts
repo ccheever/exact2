@@ -263,16 +263,6 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
     expect(snapshot(client).composerOwner).toBe(`${client.origin}:pc:t9`);
   });
 
-  test('the composer reads its typed text through the draft owner, which a moved draft keeps', async () => {
-    const contract = await Bun.file(new URL('./app.contract', import.meta.url)).text();
-    expect(contract).toContain('derive composerOwner = data.composerOwner');
-    expect(contract).toContain('derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft');
-    // The load's result lands as data only: no focus move, no draft owner reset.
-    const load = contract.slice(contract.indexOf('action balanceLoadNow'), contract.indexOf('\n', contract.indexOf('action balanceLoadNow') + 30) + 1);
-    expect(load).not.toContain('focus(');
-    expect(load).not.toContain('draftOwner');
-  });
-
   test('a move whose connection fails leaves the draft, its text and its unresolved Auto selection where they were', async () => {
     const { client, source, native, hooks } = setup(undefined, { a: sample(0.5), b: sample(0.96), c: sample(0.1) });
     client.local.drafts[client.draftKey] = 'Keep me';

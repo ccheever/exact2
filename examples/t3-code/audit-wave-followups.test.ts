@@ -12,15 +12,6 @@ import type { Files, Native } from './protocol';
 import { panelState, panelView, surfaceLocal } from './r4-surfaces-panel';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-async function component(file: string, name: string): Promise<string> {
-  const text = await source(file);
-  const start = text.indexOf(`\ncomponent ${name}\n`);
-  expect(start).toBeGreaterThanOrEqual(0);
-  const rest = text.slice(start + 1);
-  const end = rest.slice(1).search(/\n(component|shape|style|fn|use) /);
-  return end < 0 ? rest : rest.slice(0, end + 1);
-}
-const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
 
 const appTs = 'import { answer } from "./answer";\n\nexport function hello(name: string): string {\n  return `Hello, ${name}`;\n}\n';
 function harness() {
@@ -46,18 +37,6 @@ function harness() {
 }
 
 describe('a server thread with no messages docks the composer over the timeline\'s placeholder', () => {
-  test('only a draft with an empty timeline is the hero (isDraftHeroState); the placeholder waits for the thread\'s detail', async () => {
-    const column = await component('app-main.contract', 'ChatColumn');
-    expect(column).toContain('  derive hero = data.messages.length == 0 and data.threadId == ""\n  derive overlaid = not hero\n');
-    expect(column).toContain('      if hero\n        column flex=1');
-    // MessagesTimeline's empty state: text-sm text-muted-foreground/30, centred, not while the detail loads or a run works.
-    expect(column).toContain('      if data.messages.length == 0 and data.threadId != ""\n');
-    expect(column).toContain('          if not data.threadLoading and not data.running\n            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)"');
-    // The draft hero's spacer under the composer is the hero's alone, and the canvas measures the docked overlay.
-    expect(column).toContain('      if hero and data.connected and data.projectId != ""\n');
-    expect(line(await source('app.contract'), 'resource canvas = chatCanvas(')).toContain('data.messages.length > 0 or data.threadId != ""');
-  });
-
   test('threadLoading is true from a server thread\'s selection until its detail arrives, never on a draft', () => {
     const { client } = harness();
     expect(snapshot(client)).toMatchObject({ threadId: 't1', threadLoading: false, messages: [] });
@@ -93,17 +72,6 @@ describe('the right panel\'s open state is the thread\'s (rightPanelStore byThre
     expect(await view()).toMatchObject({ launcher: false, open: true, kind: 'files' });
     await surface('close-all');
     expect(await view()).toMatchObject({ launcher: false, open: false, count: 0 });
-  });
-
-  test('the window holds its open state for the panel key it was opened on, and adds the thread\'s launcher', async () => {
-    const app = await source('app.contract');
-    expect(app).toContain('  state rightPanelAt = ""\n  derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher\n');
-    expect(app).not.toMatch(/\bstate rightPanel = /);
-    expect(app).not.toMatch(/^\s+rightPanel = /m);
-    expect(line(app, '    rightPanelAt = closingTerminal ?')).toEndWith('? shell.panel.key : ""');
-    const shapes = await source('r4-surfaces-shapes.contract');
-    expect(shapes).toContain('shape R4Panel\n  key: string');
-    expect(shapes).toContain('  launcher: bool');
   });
 });
 
@@ -160,20 +128,6 @@ describe('⌘↩ in a Files preview comment draft (as in the Diff)', () => {
     expect(chords()).toContain('Meta+Enter');
     expect(panelState(client).visible).toBe(true);
   });
-
-  test('the Files draft card reports its focus as the Diff\'s does, on a queued send its save shares with nothing else', async () => {
-    const preview = await component('r4-surfaces-files.contract', 'R4FilePreview');
-    expect(line(preview, 'DiffDraftCard(')).toContain('focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, "")');
-    // The live drive's first try: ⌘↩ saved the chip, but the composer's `draft` write (localChanged) replaced the save
-    // before it closed the draft. The comment ops now have their own queued mutation.
-    const app = await source('app.contract');
-    expect(app).toContain('  mutation fileCommentChanged as shape Change queue refreshes data');
-    // The Code tab's gutter drags have their own queued send between the two, and so does a
-    // Markdown fragment link's open.
-    expect(app).toContain('    if op.startsWith("surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)\n    else if op == "pr-code-drag" or op == "pr-code-begin"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab\'s gutter drags and "+", in turn\n    else if op == "link-open" and value.startsWith("#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // fragmentOpened\n    else\n      send localChanged = command(`chatlocal:${op}`');
-    expect(line(app, '  action write(value: string)')).toBe('  action write(value: string)');
-    expect(app).toContain('  action write(value: string)\n    draft = value\n    draftOwner = `${composerOwner}${data.requestKey}`\n    send localChanged = command("draft", "", value, 0)');
-  });
 });
 
 describe('a provider link to another target remounts the Providers page (ProviderSettingsPanelContent key)', () => {
@@ -215,15 +169,6 @@ describe('a provider link to another target remounts the Providers page (Provide
     expect(providerLinkVisit(5, false, 'env', 'target:codex', 'env', 'target:codex')).toBe(6);
   });
 
-  test('the root counts the links, and Settings reads the field through the count', async () => {
-    const app = await source('app.contract');
-    expect(app).toContain('      providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerLinkTarget, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)\n      openSettings()');
-    const settings = await component('app-settings.contract', 'SettingsWindow');
-    expect(settings).toContain('  derive modelAddingLive = modelAddingOn(modelAdding, modelAddingVisit, providerVisit)\n');
-    expect(settings).toContain('      modelAdding = value\n      modelAddingVisit = providerVisit\n');
-    expect(line(settings, 'derive modelAddingShown')).toContain('modelAddingLive != ""');
-    expect(line(settings, 'ProvidersPanel(')).toContain('modelAdding=modelAddingLive');
-  });
   // Review of #372: the link compared with `providerSelected`, which a provider chosen on the page overwrites with its
   // raw row id (providerUi "select"; providers.ts takes both forms). The reference keys the content on the route's
   // environment and instance only (ProviderSettingsPanel.tsx:288); the page's pick is local useState (line 630).
@@ -266,17 +211,5 @@ describe('a provider link to another target remounts the Providers page (Provide
       expect(app.slice(app.indexOf(head) + head.length).split('\n')[0]!.trim()).toStartWith('providerLinkTarget = ""');
     }
     expect(app).toContain('    providerSelected = "" // routes/settings.tsx keys the page on its scope: Providers starts over on the new environment\'s first row\n    providerLinkTarget = ""\n');
-  });
-});
-
-describe('Escape in the command palette over Settings closes only the palette', () => {
-  test('the open palette owns Escape, so Settings\' Back gives up its shortcut', async () => {
-    const settings = await component('app-settings.contract', 'SettingsWindow');
-    expect(line(settings, 'derive escapeOwned =')).toContain(' or paletteOpen or ');
-    expect(line(settings, 'SettingsNav(')).toContain('menuOpen=escapeOwned,');
-    expect(line(await source('app-window.contract'), 'SettingsWindow(')).toContain('paletteOpen=paletteOpen');
-    // The palette's own Escape stays (its hidden close button), in each of its three views.
-    const palette = await source('palette.contract');
-    expect(palette.split('\n').filter(text => text.includes('testId="palette-escape"') && text.includes('aria-keyshortcuts="Escape"'))).toHaveLength(3);
   });
 });

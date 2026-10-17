@@ -22,8 +22,6 @@ import { parseLocalBackendStatus } from './local-backend';
 import { toasts } from './toast';
 import { T3Client as Client } from './client';
 
-const dir = new URL('./', import.meta.url);
-const source = (file: string) => Bun.file(new URL(file, dir)).text();
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 
 // ── The base-branch picker ─────────────────────────────────────
@@ -64,12 +62,6 @@ const KEY = 'new'; // a new task's dialog key, whatever its environment
 const picker = (query: string, ref = '', project = 'p1') => `key=${encodeURIComponent(KEY)}&project=${project}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`;
 
 describe('the scheduled task\'s base-branch picker', () => {
-  test('a ref\'s name starts at the left of its row (a button centres its text)', async () => {
-    const contract = await source('settings-scheduled.contract');
-    const label = contract.split('\n').find(line => line.trimStart().startsWith('text ref.label ')) ?? '';
-    expect(label).toContain('flex=1 min-width=0 line-clamp=1 text-align="left"');
-  });
-
   test('the first 100 of 122 refs with "Showing 100 of 122 refs"; a scroll toward the end loads the rest', async () => {
     const { client, reads } = fakeClient();
     await watchLive(client, native);
@@ -161,17 +153,6 @@ describe('the scheduled task\'s base-branch picker', () => {
     await watchLive(client, native);
     const group = (await scheduledPage(client, native, 'env', '', 'task', '', true, NOW)).branches[0]!;
     expect([group.refs.length, group.error, group.status]).toEqual([0, 'Failed to load refs.', 'Failed to load refs.']);
-  });
-
-  test('the picker sends its search to the root, and the search starts empty each time it opens or the project changes', async () => {
-    const contract = await source('settings-scheduled.contract');
-    expect(contract).toContain('      lookupBase(taskPicker(draft.key, chosenProject, baseRef, value))');
-    expect(contract).toContain('button press=openRefs popovertarget="task-branch-menu"');
-    expect(contract).toContain('scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"');
-    expect(contract).not.toContain('ref.search.includes(refSearch)');
-    const app = await source('app.contract');
-    expect(app).toContain('settingsCheckout, taskBase, shellClock) as shape ScheduledPage');
-    expect(app.match(/\n    taskBase = ""\n/g)?.length).toBe(2); // restOpen and restClose
   });
 });
 

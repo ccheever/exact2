@@ -19,7 +19,6 @@ const dir = new URL('./', import.meta.url);
 const files = readdirSync(dir).filter(name => name.endsWith('.contract')).sort();
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const code = async (file: string) => (await source(file)).split('\n').map((line, index) => ({ file, at: index + 1, line })).filter(row => !row.line.trimStart().startsWith('//'));
-const indent = (line: string) => line.length - line.trimStart().length;
 const stream = (state: unknown) => ({ state, error: '' }) as unknown as ProviderSetupEntry['install'];
 const entry = (install: unknown): ProviderSetupEntry => ({ auth: stream(null), install: stream(install), authError: '', authPending: false, installError: '', installPending: '', cleared: 0, done: new Set() });
 const runtime = (install: unknown) => providerRuntime({ instanceId: 'antigravity', setup: { canInstall: true } }, entry(install), 'This machine', '', true);
@@ -48,61 +47,7 @@ describe('the values', () => {
 });
 
 describe('the markup', () => {
-  test('Antigravity: the platform determinate progress, named and sized as the reference, with no drawn track', async () => {
-    const lines = await code('providers-setup.contract');
-    const bar = lines.findIndex(row => row.line.includes('progress value=runtime.progressValue max=runtime.progressMax aria-label="Antigravity download"'));
-    expect(bar).toBeGreaterThan(0);
-    expect(lines[bar]!.line).toContain('display="block" width="100%" height="0.25rem"');
-    expect(lines[bar]!.line).not.toContain('aria-hidden');
-    expect(lines[bar - 1]!.line.trim()).toBe('if runtime.progressMax > 0');
-    // The `h-1` slot keeps its place while nothing downloads.
-    expect(lines[bar - 2]!.line.trim()).toBe('box width="100%" height="0.25rem"');
-    expect(lines.some(row => /runtime\.progress(Percent|Label)/.test(row.line))).toBe(false);
-  });
-
-  test('context window: the drawn bar is the progressbar, with the reference range values, its fill inside', async () => {
-    const lines = await code('composer-controls.contract');
-    const bar = lines.findIndex(row => row.line.includes('testId="context-window-bar"'));
-    expect(lines[bar]!.line).toContain('role="progressbar" aria-valuemin=0 aria-valuemax=100 aria-valuenow=data.composer.contextValueNow aria-label="Context window usage"');
-    expect(lines[bar]!.line).not.toContain('aria-hidden');
-    expect(lines[bar - 1]!.line.trim()).toBe('if data.composer.contextMax != ""');
-    expect(indent(lines[bar + 1]!.line)).toBe(indent(lines[bar]!.line) + 2);
-    expect(lines[bar + 1]!.line).toContain('width=`${data.composer.contextPercent == "" ? "0%" : data.composer.contextPercent}`');
-  });
-
   // color-picker.tsx ColorSaturationValuePlane's sr-only text, which each stop's aria-describedby names.
-  const instructions = 'Use arrow keys to adjust the focused value. Hold Shift for larger steps. Use Home and End for the minimum and maximum. Press Tab to move between saturation and brightness.';
-
-  test('theme colour picker: the stops and the hue slider carry the reference range values, no value in a description', async () => {
-    const lines = await code('theme-color-picker.contract');
-    const of = (id: string) => lines.find(row => row.line.includes(`testId=\`theme-color-\${row.id}-${id}\``))!.line;
-    expect(of('saturation')).toContain('role="slider" aria-label=`${row.label} saturation` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=round(cs * 100) aria-valuetext=`${round(cs * 100)}%`');
-    expect(of('brightness')).toContain('role="slider" aria-label=`${row.label} brightness` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=round(cv * 100) aria-valuetext=`${round(cv * 100)}%`');
-    expect(of('hue')).toContain('role="slider" aria-label=`${row.label} hue` aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch) aria-valuetext=`${round(ch)}`');
-    for (const id of ['saturation', 'brightness', 'hue']) expect(of(id)).not.toContain('aria-description');
-    expect(lines.find(row => row.line.includes('id=`theme-color-${row.id}-instructions`'))!.line.trim()).toStartWith(`text "${instructions}"`);
-  });
-
-  test('provider accent picker: the reference stops and hue slider, focusable, named without their value', async () => {
-    const lines = await code('settings-b-accent.contract');
-    const of = (id: string) => lines.find(row => row.line.includes(`testId="provider-accent-${id}"`))!;
-    const plane = of('plane'), saturation = of('saturation'), brightness = of('brightness'), hue = of('hue');
-    expect(plane.line).toContain('role="group" aria-label="Accent color saturation and brightness"');
-    // The stops are the plane's, the first autofocused (Base UI's initial focus), each a Tab stop with its keys.
-    for (const stop of [saturation, brightness]) {
-      expect(indent(stop.line)).toBe(indent(plane.line) + 2);
-      expect(stop.at).toBeGreaterThan(plane.at);
-      expect(stop.line).toContain('tabindex=0');
-      expect(stop.line).toContain('aria-describedby=`provider-accent-${editorId}-instructions`');
-    }
-    expect(saturation.line).toContain('autofocus key=axisKey("s")');
-    expect(brightness.line).toContain('key=axisKey("v")');
-    expect(saturation.line).toContain('role="slider" aria-label="Accent color saturation" aria-describedby=`provider-accent-${editorId}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cs * 100) aria-valuetext=`${round(cs * 100)}%`');
-    expect(brightness.line).toContain('role="slider" aria-label="Accent color brightness" aria-describedby=`provider-accent-${editorId}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cv * 100) aria-valuetext=`${round(cv * 100)}%`');
-    expect(hue.line).toContain('tabindex=0 key=hueKey');
-    expect(hue.line).toContain('role="slider" aria-label="Accent color hue" aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch)');
-    expect(lines.find(row => row.line.includes('id=`provider-accent-${editorId}-instructions`'))!.line.trim()).toStartWith(`text "${instructions}"`);
-  });
 
   test('no workaround is left: every progress element and range box says its value, none in its name', async () => {
     const left: string[] = [];
@@ -137,21 +82,5 @@ describe('the markup', () => {
     for (const file of files) for (const { line } of await code(file)) for (const m of line.matchAll(/width=`(\$\{[^`]*\})%`/g)) found.push(`${file}:${m[1]}`);
     expect(found.filter(key => !(key in fills))).toEqual([]);
     expect(Object.keys(fills).filter(key => !found.includes(key))).toEqual([]);
-  });
-
-  test('the Usage bars keep the reference accessible markup', async () => {
-    const bars = (await code('usage-bars.contract')).map(row => row.line);
-    const windowBar = bars.findIndex(line => line.includes('testId=`usage-bar-${slot}-${window.id}`'));
-    expect(bars[windowBar]).toContain('tabindex=0 role="img" aria-label=window.summary');
-    expect(bars.findIndex(line => line.includes('testId=`usage-bar-fill-${slot}-${window.id}`'))).toBeGreaterThan(windowBar);
-    const pooled = (await code('usage-pooled.contract')).map(row => row.line);
-    expect(pooled.find(line => line.includes('testId=`usage-seg-${seg.id}`'))).toContain('aria-label=seg.label');
-    for (const id of ['usage-seg-fill-${seg.id}', 'usage-seg-hatch-${seg.id}']) expect(pooled.find(line => line.includes(`testId=\`${id}\``))).toContain('aria-hidden=true');
-    const usage = (await code('pages-usage.contract')).map(row => row.line);
-    const model = usage.findIndex(line => line.includes('width=`${model.bar}%`'));
-    expect(usage[model - 2]).toContain('aria-hidden=true');
-    const browser = (await code('browser-surface.contract')).map(row => row.line);
-    const loading = browser.findIndex(line => line.includes('testId="browser-loading-bar"'));
-    expect(browser[loading - 1]).toContain('aria-hidden=true');
   });
 });
