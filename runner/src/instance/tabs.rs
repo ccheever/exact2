@@ -122,7 +122,7 @@ impl Index {
                         let read = READ.iter().any(|p| *p as u16 == b.id);
                         if let (BindingKind::Prop, true, Some(v)) = (b.kind, read, &n.last[i]) {
                             if let Ok((prop, value)) = bridge::prop_value(b.id, v) {
-                                props.set(prop, value);
+                                props.set(prop, bridge::icon_source(plan, prop, value));
                             }
                         }
                     }

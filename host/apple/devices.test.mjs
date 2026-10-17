@@ -1,11 +1,11 @@
 // LLP 1116.008 D8: a window capture of the app with the software keyboard put in from the simulator's display.
 // A fake `xcrun` stands for `simctl io <udid> screenshot`: it copies a prepared display picture to the path it is given.
 import { test, expect } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { crashReports, crashSummary, crashWatch, withDisplay, phoneBridge } from './devices.mjs';
+import { chooseSimulator, crashReports, crashSummary, crashWatch, simulator, withDisplay, phoneBridge, softwareKeyboard } from './devices.mjs';
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
@@ -39,62 +39,269 @@ test('a refused phone token cannot admit a command carrier; the right token stil
 
 const solid = (width, height, rgba) => encodePng({ width, height, data: Uint8Array.from({ length: width * height * 4 }, (_, i) => rgba[i % 4]) });
 
-function withFakeSimctl(display, body) {
+// `displays`: one picture every read gets, or one per read in turn; `reads(dir)` counts the reads.
+async function withFakeSimctl(displays, body) {
   const dir = mkdtempSync(resolve(tmpdir(), 'devices-test-'));
-  const [path, env] = [resolve(dir, 'display.png'), { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR }];
+  const env = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR };
   try {
-    writeFileSync(path, display);
-    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\ncp '${path}' "$last"\n`);
+    [displays].flat().forEach((display, i) => writeFileSync(resolve(dir, `display-${i}.png`), display));
+    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\nn=$(cat '${dir}/n' 2>/dev/null || echo 0)\nf='${dir}/display-'$n'.png'\n[ -f "$f" ] || f='${dir}/display-0.png'\ncp "$f" "$last"\necho $((n + 1)) > '${dir}/n'\n`);
     chmodSync(resolve(dir, 'xcrun'), 0o755);
     process.env.PATH = `${dir}:${env.PATH}`;
     process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
-    return body(dir);
+    return await body(dir);
   } finally {
     process.env.PATH = env.PATH;
     if (env.DEVELOPER_DIR === undefined) delete process.env.DEVELOPER_DIR;
     rmSync(dir, { recursive: true, force: true });
   }
 }
+const reads = (dir) => { try { return Number(readFileSync(resolve(dir, 'n'), 'utf8')); } catch { return 0; } };
 
-test('the rows from the keyboard\'s top down are the display\'s, the app above them its own', () => {
-  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
-    const shot = resolve(dir, 'app.png');
-    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 }, note: 'old' }, shot, 'UDID');
-    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
-    expect([at(0), at(3)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
-    expect([at(4), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
+test('a simulator is chosen without booting it, and is the drive\'s own only when this call booted it', () => {
+  // A fake `xcrun simctl`: one shut-down iPhone; `boot` succeeds, or fails as when another process booted it first.
+  const bin = mkdtempSync(resolve(tmpdir(), 'devices-sim-bin-'));
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR, SIM_BOOT: process.env.SIM_BOOT }, calls = resolve(bin, 'calls');
+  const list = JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': [{ udid: 'U1', name: 'iPhone 17 Pro', state: 'Shutdown', deviceTypeIdentifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro' }] } });
+  try {
+    writeFileSync(resolve(bin, 'list.json'), list);
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$2" >> '${calls}'\ncase "$2" in\n  list) cat '${resolve(bin, 'list.json')}' ;;\n  boot) [ "$SIM_BOOT" = raced ] && { echo 'Unable to boot device in current state: Booted' >&2; exit 149; } ;;\nesac\nexit 0\n`);
+    chmodSync(resolve(bin, 'xcrun'), 0o755);
+    process.env.PATH = `${bin}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    expect(chooseSimulator(undefined).udid).toBe('U1');
+    expect(readFileSync(calls, 'utf8').trim().split('\n')).toEqual(['list']);
+    process.env.SIM_BOOT = 'ok';
+    expect(simulator(undefined).bootedHere).toBe(true);
+    process.env.SIM_BOOT = 'raced';
+    expect(simulator(undefined).bootedHere).toBeUndefined();
+  } finally {
+    for (const k of ['PATH', 'DEVELOPER_DIR', 'SIM_BOOT']) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('a drive shows the software keyboard on a simulator it booted and puts the setting back, durably; on another it only says so', () => {
+  // A fake `xcrun simctl spawn <udid> defaults <verb> …` over one state file: the key's value, absent when deleted;
+  // a write fails while FAIL_WRITE is set (the simulator shut down under the drive).
+  const bin = mkdtempSync(resolve(tmpdir(), 'devices-kb-bin-')), records = resolve(bin, 'records'), record = resolve(records, 'U1.json');
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR, FAIL_WRITE: process.env.FAIL_WRITE }, calls = resolve(bin, 'calls'), state = resolve(bin, 'state');
+  const verbs = () => readFileSync(calls, 'utf8').trim().split('\n').map((l) => l.split(' ')[4]);
+  const value = () => (existsSync(state) ? readFileSync(state, 'utf8').trim() : null);
+  try {
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$@" >> '${calls}'\ncase "$5" in\n  read) [ -f '${state}' ] && cat '${state}' || { echo 'does not exist' >&2; exit 1; } ;;\n  delete) rm -f '${state}' ;;\n  write) [ -n "$FAIL_WRITE" ] && exit 1; echo 1 > '${state}' ;;\nesac\n`);
+    chmodSync(resolve(bin, 'xcrun'), 0o755);
+    process.env.PATH = `${bin}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    // No key: nothing to do, nothing to say.
+    const fresh = softwareKeyboard('U1', { owned: true, records });
+    expect([fresh.cleared, fresh.note]).toEqual([false, null]);
+    fresh.restore();
+    expect(verbs()).toEqual(['read']);
+    // The key, on a simulator another booted: left, and said.
+    writeFileSync(state, '1\n');
+    const theirs = softwareKeyboard('U1', { records });
+    expect(theirs.cleared).toBe(false);
+    expect(theirs.note).toMatch(/minimizes its software keyboard .* defaults delete com\.apple\.keyboard\.preferences AutomaticMinimizationEnabled/);
+    theirs.restore();
+    expect(value()).toBe('1');
+    // The key, on the drive's own: recorded before it is cleared, put back once, the record gone after.
+    const ours = softwareKeyboard('U1', { owned: true, records });
+    expect([ours.cleared, ours.note, value(), existsSync(record)]).toEqual([true, null, null, true]);
+    ours.restore(); ours.restore();
+    expect([value(), existsSync(record)]).toEqual(['1', false]);
+    expect(verbs()).toEqual(['read', 'read', 'read', 'delete', 'write']);
+    // A write that fails keeps the record, and a later restore tries again.
+    const failing = softwareKeyboard('U1', { owned: true, records });
+    process.env.FAIL_WRITE = '1';
+    failing.restore();
+    expect([value(), existsSync(record)]).toEqual([null, true]);
+    delete process.env.FAIL_WRITE;
+    failing.restore();
+    expect([value(), existsSync(record)]).toEqual(['1', false]);
+    // A drive killed after clearing it (its record left, its process gone): the next drive on that simulator puts it
+    // back first, whoever booted it; a record of a drive still running is left to that drive.
+    writeFileSync(record, JSON.stringify({ pid: 2 ** 22 + 12345, value: 1 })); rmSync(state);
+    const next = softwareKeyboard('U1', { records });
+    expect([value(), existsSync(record), next.note !== null]).toEqual(['1', false, true]);
+    const live = spawn('sleep', ['30']);
+    try {
+      writeFileSync(record, JSON.stringify({ pid: live.pid, value: 1 })); rmSync(state);
+      softwareKeyboard('U1', { records });
+      expect([value(), existsSync(record)]).toEqual([null, true]);
+    } finally { live.kill(); }
+  } finally {
+    for (const k of ['PATH', 'DEVELOPER_DIR', 'FAIL_WRITE']) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+// 8x16 pixels at scale 2: a 4x8-point window. The app drew it red; the display shows the status bar (rows 0-1) green,
+// glass over rows 12-15 blue, and the keyboard, when there is one, from row 8 down. `paint` changes rows of a picture.
+const RED = [255, 0, 0, 255], BLUE = [0, 0, 255, 255], GREEN = [0, 255, 0, 255], GREY = [128, 128, 128, 255];
+const paint = (bands) => encodePng({ width: 8, height: 16, data: Uint8Array.from({ length: 8 * 16 * 4 }, (_, i) => {
+  const y = Math.floor(i / 32), band = bands.find(([from, to]) => y >= from && y < to);
+  return (band ? band[2] : RED)[i % 4];
+}) });
+const APP = paint([]), DISPLAY = paint([[0, 2, GREEN], [12, 16, BLUE]]);
+const rows = (path) => { const png = decodePng(readFileSync(path)); return (y) => [...png.data.subarray(y * png.width * 4, y * png.width * 4 + 4)]; };
+// The app's answer: in front at epoch 3, a plain point at (2, 2) points (pixel 4, 4); the probe after the reads says
+// the same unless told otherwise. `fast` skips the gap before the third read.
+const front = { front: true, epoch: 3, incarnation: 1, clock: 1500, scale: 2, opaque: [[2, 2]] };
+const still = (more = {}) => ({ gap: 0, probe: async () => ({ ...front, ...more }) });
+const keyboard = { visible: true, top: 4, windowTop: 4 };
+// A capture the agent marked (header nodes struck through), which only the app's own picture shows.
+const marked = { unshown: [{ id: 1, testId: null }] };
+const shoot = async (dir, r, appTop, options) => {
+  const shot = resolve(dir, 'app.png');
+  writeFileSync(shot, APP);
+  return [await withDisplay(r, shot, 'UDID', appTop, options), rows(shot)];
+};
+
+// drawHierarchy draws Liquid Glass roughly: a tab bar's glass left the rows under it legible (the euxy port).
+test('a window capture is the display\'s, the status bar too when asked', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, statusBar: 1 }, 0, still());
+    expect([at(0), at(4), at(13)]).toEqual([GREEN, RED, BLUE]);
+    expect([r.statusBar, r.pixels, r.note]).toEqual([true, 'display', undefined]);
+    expect(reads(dir)).toBe(3);
+  });
+});
+
+test('a window capture without its status bar keeps the app\'s rows there', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front }, 1, still());
+    expect([at(0), at(1), at(13)]).toEqual([RED, RED, BLUE]);
+    expect([r.statusBar, r.pixels]).toEqual([undefined, 'display']);
+  });
+});
+
+test('the keyboard is in a window capture, its top known or not', async () => {
+  await withFakeSimctl(paint([[0, 2, GREEN], [8, 16, GREY]]), async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, keyboard: { visible: true, top: 4 }, note: 'old' }, 0, still());
+    expect(at(15)).toEqual(GREY);
     expect(r.keyboard.captured).toBe(true);
     expect(r.note).toContain('in the capture');
   });
 });
 
-test('a display of another size leaves the picture as it was, and says why', () => {
-  withFakeSimctl(solid(6, 8, [0, 0, 255, 255]), (dir) => {
-    const shot = resolve(dir, 'app.png'), app = solid(4, 8, [255, 0, 0, 255]);
-    writeFileSync(shot, app);
-    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 } }, shot, 'UDID');
-    expect(readFileSync(shot).equals(Buffer.from(app))).toBe(true);
+// Another app, a system alert or the home screen in front: none of the display is read, none of it taken.
+test('an app not in front takes nothing of the display, and says why', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, front: 'the app is not active', statusBar: 1, keyboard: { ...keyboard } }, 0, still());
+    expect([at(0), at(15)]).toEqual([RED, RED]);
+    expect([reads(dir), r.pixels, r.pixelsWhy, r.statusBar, r.keyboard.captured]).toEqual([0, 'app', 'the app is not active', false, undefined]);
+  });
+});
+
+test('an app that left the front while the display was read takes none of it', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, statusBar: 1, keyboard: { ...keyboard } }, 0, still({ front: 'the app is not active' }));
+    expect([at(0), at(13)]).toEqual([RED, RED]);
+    expect([r.pixelsWhy, r.statusBar, r.keyboard.captured]).toEqual(['the app is not active', false, undefined]);
+  });
+});
+
+test('an app that changed while the display was read takes none of it', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front }, 1, still({ epoch: 4 }));
+    expect(at(13)).toEqual(RED);
+    expect(r.pixelsWhy).toBe('the app changed while the display was read');
+  });
+});
+
+// A keyboard sliding, a caret blinking: the display is of no one moment. Three reads, so a blink cannot fall in all.
+test('a display that moves by the third read leaves the app\'s picture, and a keyboard band all three agree on', async () => {
+  const kb = paint([[0, 2, GREEN], [6, 7, GREY], [8, 16, BLUE]]);
+  await withFakeSimctl([kb, kb, paint([[0, 2, GREEN], [6, 7, GREEN], [8, 16, BLUE]])], async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, statusBar: 1, keyboard: { ...keyboard } }, 0, still());
+    expect([at(0), at(6), at(13)]).toEqual([GREEN, RED, BLUE]);
+    expect([r.pixels, r.pixelsWhy, r.keyboard.captured]).toEqual(['app', 'the display changed while it was read', true]);
+    expect(reads(dir)).toBe(3);
+  });
+});
+
+test('a keyboard band that moves between the reads is not taken', async () => {
+  await withFakeSimctl([DISPLAY, DISPLAY, paint([[0, 2, GREEN], [12, 16, GREY]])], async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, keyboard: { ...keyboard } }, 1, still());
+    expect(at(13)).toEqual(RED);
     expect(r.keyboard.captured).toBeUndefined();
-    expect(r.note).toContain('the display is 6x8, the capture 4x8');
+    expect(r.note).toContain('not in the capture');
   });
 });
 
-test('the status bar\'s rows are the display\'s', () => {
-  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
-    const shot = resolve(dir, 'app.png');
-    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ scale: 2, statusBar: 1 }, shot, 'UDID');
-    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
-    expect([at(0), at(1), at(2), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255], [255, 0, 0, 255], [255, 0, 0, 255]]);
-    expect(r.statusBar).toBe(true);
-    expect(r.note).toBeUndefined();
+// A notification banner leaves the app active and its window key; the app's own plain points show it.
+test('a display that differs from the app where the app drew itself leaves the app\'s picture', async () => {
+  await withFakeSimctl(paint([[0, 2, GREEN], [2, 7, GREY], [12, 16, BLUE]]), async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, opaque: [[2, 2], [2, 2.5], [2, 3]] }, 1, still());
+    expect([at(4), at(13)]).toEqual([RED, RED]);
+    expect([r.pixels, r.pixelsWhy]).toEqual(['app', 'the display differs from the app\'s drawing at 3 of 3 plain points (a notification banner or another overlay)']);
   });
 });
 
-test('a capture that says no keyboard top is left alone', () => {
-  const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID');
-  expect(r.note).toContain('no keyboard top');
+// A banner's frosted material over a light page was 3 or 4 levels off it; where nothing lies over the app the display
+// matches its drawing exactly.
+test('a banner a few levels off the page is seen, and a 2-level difference is not', async () => {
+  const opaque = [[2, 2], [2, 2.5], [2, 3]];
+  await withFakeSimctl(paint([[0, 2, GREEN], [2, 7, [252, 0, 0, 255]], [12, 16, BLUE]]), async (dir) => {
+    const [r] = await shoot(dir, { ...front, opaque }, 1, still());
+    expect(r.pixels).toBe('app');
+  });
+  await withFakeSimctl(paint([[0, 2, GREEN], [2, 7, [253, 0, 0, 255]], [12, 16, BLUE]]), async (dir) => {
+    const [r] = await shoot(dir, { ...front, opaque }, 1, still());
+    expect(r.pixels).toBe('display');
+  });
+});
+
+test('an app that names no points to check leaves its own picture', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, opaque: [] }, 1, still());
+    expect(at(13)).toEqual(RED);
+    expect(r.pixelsWhy).toBe('the app named no points to check the display against');
+  });
+});
+
+test('UIKit motion still running leaves the app\'s picture', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, moving: true }, 1, still());
+    expect([at(13), reads(dir)]).toEqual([RED, 0]);
+    expect(r.pixelsWhy).toBe('UIKit\'s motion had not settled');
+  });
+});
+
+test('a capture asked for as the app\'s own drawing stays it, silently, reading nothing', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front }, 1, { ...still(), own: true });
+    expect([at(13), reads(dir)]).toEqual([RED, 0]);
+    expect([r.pixels, r.note]).toEqual(['app', undefined]);
+  });
+});
+
+test('a marked capture takes the display\'s rows from the keyboard\'s top down, the app above them its own', async () => {
+  const kb = paint([[0, 2, GREEN], [8, 16, GREY]]);
+  await withFakeSimctl(kb, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, ...marked, keyboard: { ...keyboard }, note: 'old' }, 0, still());
+    expect([at(0), at(7), at(8), at(15)]).toEqual([RED, RED, GREY, GREY]);
+    expect(r.keyboard.captured).toBe(true);
+    expect(r.note).toContain('from keyboard.top down');
+  });
+});
+
+test('a marked capture takes only the status bar\'s rows from the display', async () => {
+  await withFakeSimctl(DISPLAY, async (dir) => {
+    const [r, at] = await shoot(dir, { ...front, ...marked, statusBar: 1 }, 0, still());
+    expect([at(0), at(1), at(2), at(13)]).toEqual([GREEN, GREEN, RED, RED]);
+    expect([r.statusBar, r.pixelsWhy]).toEqual([true, 'header nodes are struck through in it']);
+  });
+});
+
+test('a display of another size leaves the picture as it was, and says why', async () => {
+  await withFakeSimctl(solid(6, 16, BLUE), async (dir) => {
+    const [r] = await shoot(dir, { ...front, keyboard: { ...keyboard } }, 0, still());
+    expect(readFileSync(resolve(dir, 'app.png')).equals(Buffer.from(APP))).toBe(true);
+    expect(r.keyboard.captured).toBeUndefined();
+    expect(r.note).toContain('the display is 6x16, the capture 8x16');
+  });
 });
 
 // The euxy port (friction item 13): every simulator's copy of an app writes `<name>-<time>.ips`, so the name alone

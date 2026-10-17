@@ -296,14 +296,20 @@ mod tests {
             vec![
                 json!({"kind": "pin", "revision": 2, "pin": {"scheme": "dark", "contrast": "more",
                     "mode": {"dark-style": "dim"}, "rootFontSize": 20}}),
+                json!({"kind": "inspect", "on": true, "seq": 1}),
                 json!({"kind": "outline"}),
             ],
         ));
+        // No inspect mode on Linux (LLP 1122 T2c): its commands are said unsupported.
         assert_eq!(
             reports[0],
+            json!({"kind": "unsupported", "what": "inspect", "detail": null})
+        );
+        assert_eq!(
+            reports[1],
             json!({"kind": "unsupported", "what": "outline", "detail": null})
         );
-        let status = &reports[1];
+        let status = &reports[2];
         assert_eq!(status["kind"], "status");
         assert_eq!(status["scheme"], "dark");
         assert_eq!(status["contrast"], "more");

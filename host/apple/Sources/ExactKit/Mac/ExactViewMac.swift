@@ -262,6 +262,10 @@ public final class ExactView: NSView {
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
                 guard let self, self.session.presenter.hosts(event.window) else { return event }
+                #if EXACT_INSPECT
+                // Inspect mode's monitor has every event (InspectMac.swift): none is the app's.
+                if Inspect.on || InspectHost.draining { return event }
+                #endif
                 // A modifier pressed is a keydown on the web (`"Shift"`), and
                 // released a keyup (#140); to AppKit a flags change, which
                 // goes on to it either way.

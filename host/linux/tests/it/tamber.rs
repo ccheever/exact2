@@ -108,3 +108,43 @@ fn a_view_asks_its_colours_by_name() {
     // Nothing moved: the inputs hold.
     assert_eq!(ink(&mut p, outer).1, after_mode);
 }
+
+/// Stage 6 G: Android's `length` and `number` (and the fonts a native view
+/// may read) ask by the same entry, a place's own tuple under a pin.
+#[test]
+fn a_view_asks_its_lengths_and_numbers_by_name() {
+    let dir = std::env::temp_dir().join(format!("exact-linux-tamber-kinds-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  tone = plain | bold\n\ntheme\n  space.row = 12px\n    when tone=bold: 8px\n  opacity.faded: number = 0.5\n  type.sys = 600 1rem system-ui\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column width=200 height=100 padding=\"space.row\" opacity=\"opacity.faded\"\n      text \"a\" testId=\"outer\" font=\"type.sys\"\n      column -exact-mode=\"tone=bold\" padding=\"space.row\"\n        text \"b\" testId=\"inner\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut p, err) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (200., 100.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(err.is_none(), "{err:?}");
+    let (outer, inner) = (id(&p, "outer"), id(&p, "inner"));
+    let request = |view| json!({"view": view, "names": [], "lengths": ["space.row", "no.such"], "numbers": ["opacity.faded"], "fonts": ["type.sys"]});
+    let a = ask(&mut p, request(outer));
+    assert_eq!(a["lengths"]["space.row"], 12.0, "{a}");
+    assert_eq!(a["lengths"]["no.such"], Value::Null);
+    assert_eq!(a["numbers"]["opacity.faded"], 0.5);
+    assert_eq!(a["fonts"]["type.sys"]["weight"], 600);
+    assert_eq!(a["fonts"]["type.sys"]["size"], 16.0);
+    let b = ask(&mut p, request(inner));
+    assert_eq!(b["lengths"]["space.row"], 8.0, "a pin's tuple: {b}");
+}

@@ -50,6 +50,12 @@ final class NavigationHost {
     }
     /// What is shown, read again with no batch: a sheet left, a window came.
     func resync() { sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil), concerned: true) }
+    /// A stack's routes as authored, a route in its sheet's window among
+    /// them. What else has left `node`'s views for a container of its own
+    /// (a `dialog` in its sheet) is no route.
+    func routes(in node: NodeView) -> [NodeView] {
+        presenter.blocks.authored(NavigationTabs.routes(in: node), in: node.container).filter { $0.props["navigationKey"] != nil }
+    }
     /// LLP 1080.001 D3: a modal route's ground is this host's view.
     func inspectionOwns(_ view: NSView) -> Bool { view is ModalGround }
     /// The page's ground changed colour: the grounds are painted again.
@@ -114,10 +120,8 @@ final class NavigationHost {
         for nav in roots {
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let tabs = NavigationTabs.of(nav, presenter)
-            // A stack's routes as authored: one in its sheet's window has left its parent's views.
-            let routes = { [presenter] (node: NodeView) in presenter.blocks.authored(NavigationTabs.routes(in: node), in: node.container) }
             let locate = { (key: String) -> (at: Int?, stacks: [[NodeView]]) in
-                let stacks = tabs.map { $0.panels.map(routes) } ?? [routes(nav)]
+                let stacks = tabs.map { $0.panels.map(self.routes(in:)) } ?? [self.routes(in: nav)]
                 return (stacks.firstIndex { $0.contains { $0.props["navigationKey"] == key } }, stacks)
             }
             var key = nav.props["navigationKey"] ?? ""

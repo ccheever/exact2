@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
 import { createDocument } from './dom.js';
 
@@ -10,7 +10,10 @@ async function renderedPages(source, check, files = {}) {
   try {
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} } }));
     writeFileSync(resolve(dir, 'app.contract'), source);
-    for (const [name, text] of Object.entries(files)) writeFileSync(resolve(dir, name), text);
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(dirname(resolve(dir, name)), { recursive: true });
+      writeFileSync(resolve(dir, name), text);
+    }
     const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'head-render-test', '--out', resolve(dir, 'dist'), '--render', 'js'], {
       cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
     });
@@ -56,7 +59,6 @@ component MediaFacts
 // first settlement, as the runner does; asked of a TypeScript data module,
 // which answers neither, they refused the boot. Two `midimessage` listeners
 // are put in document order as the boot commit stands (midi.js `listeners`).
-// (A render does not run a sequence: its server bundle installs no voice table.)
 test('JavaScript-rendered boot answers the transport and MIDI beside a TypeScript data module', async () => {
   await renderedPages(`routes nav
   home "/" render=build
@@ -87,6 +89,45 @@ component ReservedBoot
 `, page => {
     expect(page('')[0]).toBe('stopped 0 denied 0');
   }, { 'app.ts': "import type { Answer } from './app.contract.d.ts';\nexport const appId = 'test.heads', grants = '';\nexport const answer: Answer = name => { throw new Error(`no source ${name}`); };\n" });
+}, 30000);
+
+test('JavaScript-rendered routes build with stopped and playing sequences and declared sounds', async () => {
+  await renderedPages(`sound "assets/kick.wav"
+
+routes nav
+  home "/" render=build
+  playing "/playing" render=build
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+component SequenceRender
+  sequence groove when top(nav).name == "playing"
+    play([Track(beats=4, loops=0, offset=0, output="", steps=[Step(beat=0, src="assets/kick.wav", gain=1, group="", note=-1, velocity=100, channel=0, duration=0.25, haptic="")])], bpm=120)
+  view
+    main
+      head title=\`\${top(nav).name} sequence\`
+      text "Sequence ready"
+`, (page, html) => {
+    expect(page('')[0]).toBe('home sequence');
+    expect(page('playing')[0]).toBe('playing sequence');
+    expect(html('playing')).toContain('>Sequence ready<');
+  }, { 'assets/kick.wav': readFileSync(new URL('./conformance/transport/assets/kick.wav', import.meta.url)) });
 }, 30000);
 
 test('JavaScript-rendered pages exclude a covered route’s deeper head', async () => {

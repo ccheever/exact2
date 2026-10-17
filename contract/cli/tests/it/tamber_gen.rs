@@ -341,3 +341,37 @@ fn swift_names_each_token_as_a_member() {
     assert!(ok && said.is_empty(), "unchanged, not written: {said}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Stage 6 G: each kind with a binding gets its constant, and outside Exact
+/// a text style is px at the default root size, which the stylesheet says.
+#[test]
+fn every_kind_with_a_binding_is_generated() {
+    let design = "tamber kinds\n\ntheme\n  ink = #111111\n  space.row = 12px\n  size.title = -exact-title1\n  opacity.faded: number = 0.5\n  type.body = -exact-body/1.35 Inter\n  shadow.card: box-shadow = 0 1px 2px #000\n";
+    let dir = app("kinds", design, "component App\n  view\n    column\n");
+    assert!(gen("rust", &dir).0);
+    let rust = std::fs::read_to_string(dir.join(".exact/tamber/tamber.rs")).unwrap();
+    assert!(
+        rust.contains("use exact_runner::tamber::{Color, Length, Number, Type, Token};"),
+        "{rust}"
+    );
+    assert!(
+        rust.contains("pub const SPACE_ROW: Token<Length> = Token::new(\"space.row\");"),
+        "{rust}"
+    );
+    assert!(rust.contains("pub const TYPE_BODY: Token<Type>"), "{rust}");
+    assert!(
+        !rust.contains("SHADOW_CARD"),
+        "a shadow has no binding: {rust}"
+    );
+    assert!(gen("ts", &dir).0);
+    let ts = std::fs::read_to_string(dir.join(".exact/tamber/tamber.ts")).unwrap();
+    assert!(
+        ts.contains("export type LengthToken = \"space.row\" | \"size.title\";"),
+        "{ts}"
+    );
+    let css = std::fs::read_to_string(dir.join(".exact/tamber/tamber.css")).unwrap();
+    assert!(css.contains("px at the default root size"), "{css}");
+    assert!(css.contains("--sizeTitle:27px;"), "{css}");
+    assert!(css.contains("--typeBody:16px/1.35 Inter;"), "{css}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

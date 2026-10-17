@@ -120,7 +120,10 @@ pub use runner::{LiveApplied, LiveRefusal, Place, Tamber};
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {
-    pub use crate::runner::{ColorKind as Color, Kind, Place, Tamber, Token};
+    pub use crate::runner::{
+        ColorKind as Color, Font, Kind, LengthKind as Length, NumberKind as Number, Place, Tamber,
+        Token, TypeKind as Type,
+    };
 }
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};

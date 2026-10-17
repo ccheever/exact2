@@ -106,3 +106,75 @@ pub(super) fn empty_state_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
     }
     out
 }
+
+/// The `SummaryCard` part's props, in its order.
+const SUMMARY_PROPS: [&str; 5] = ["label", "value", "detail", "progress", "symbol"];
+
+/// @ref LLP 1116.021 D7 — `lower-summary-card-in-list`: a `SummaryCard`
+/// written in a grouped list's section that has its card, which draws it as
+/// a grey card inside a white cell, its edge on the cell's (round 19's
+/// expense-tracker, habit-tracker). A card-less first section
+/// (`background-color="transparent"`) is the place the one-screen pattern
+/// gives it. Read as `empty_state_in_list` reads its part.
+pub(super) fn summary_card_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
+    let components = &checked.file.components;
+    let is_part = components.iter().any(|c| {
+        c.name == "SummaryCard" && c.props.iter().map(|p| p.name.as_str()).eq(SUMMARY_PROPS)
+    });
+    let mut out = Vec::new();
+    if !is_part {
+        return out;
+    }
+    #[derive(Clone, Copy, PartialEq)]
+    enum In {
+        Page,
+        Grouped,
+        Card,
+    }
+    for component in components {
+        let mut stack: Vec<(&Node, In)> =
+            component.view.iter().rev().map(|n| (n, In::Page)).collect();
+        while let Some((node, at)) = stack.pop() {
+            if let (Node::Use { name, span, .. }, In::Card) = (node, at) {
+                if name == "SummaryCard" {
+                    out.push(LowerError {
+                        id: "lower-summary-card-in-list",
+                        message: "`SummaryCard` in a grouped list's section is a grey card inside its white cell: put it above the `list`, or in a first `section background-color=\"transparent\"`, which has no card (pattern one-screen)".into(),
+                        span: *span,
+                    });
+                }
+            }
+            let at = match node {
+                Node::Element { tag, attrs, .. } if tag == "list" => {
+                    let grouped = attrs
+                        .iter()
+                        .rev()
+                        .find(|a| a.name == "appearance")
+                        .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"));
+                    if grouped {
+                        In::Grouped
+                    } else {
+                        In::Page
+                    }
+                }
+                Node::Element { tag, attrs, .. } if tag == "section" && at == In::Grouped => {
+                    let cardless = attrs
+                        .iter()
+                        .rev()
+                        .find(|a| a.name == "background-color")
+                        .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "transparent"));
+                    if cardless {
+                        In::Page
+                    } else {
+                        In::Card
+                    }
+                }
+                _ => at,
+            };
+            for arm in arms(node).into_iter().rev() {
+                stack.extend(arm.iter().rev().map(|n| (n, at)));
+            }
+        }
+    }
+    out
+}

@@ -1078,7 +1078,7 @@ impl<D: DataSource> Presenter<D> {
                 let name = &source[7..];
                 let reason = if name == "sf/" {
                     "empty"
-                } else if !name.starts_with("sf/") && exact_kernel::symbol(name).is_none() {
+                } else if !name.starts_with("sf/") && exact_kernel::symbol_path(name).is_none() {
                     "role"
                 } else {
                     "platform"

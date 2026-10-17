@@ -22,7 +22,18 @@ function schedule() {
     try { refresh(); } finally { inflight.n--; }
   });
 }
-const draw = (e, role) => { const [path, filled] = Table[role] ?? [""]; e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); };
+// A role, or an icon token (LLP 1121 D10): by name, by `sf/<name>`, or the build's own form,
+// `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file.
+const draw = (e, name) => {
+  const f = name.startsWith("icon|") ? name.split("|") : null;
+  const [path, filled, box, file] = f ? [f[3], 1, f[2], f[3] ? "" : f[4]] : Table[name] ?? [""];
+  e.toggleAttribute("data-symbol-file", !!file);
+  if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
+  e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
+  // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`).
+  e.toggleAttribute("data-symbol-nonzero", !!box);
+  if (box) e.setAttribute("data-symbol-viewbox", box); else e.removeAttribute("data-symbol-viewbox");
+};
 function everyRole() {
   inflight.n++;
   All = import("./symbol-roles.js").then(m => {
@@ -48,7 +59,7 @@ export function symbols(table) {
     if (e.localName === "img" && v?.startsWith("data:") && v.length > DATA_LIMIT) { journal.push(`t=${clock.now} image refused: a data: source is over ${DATA_LIMIT} bytes`); e.removeAttribute("src"); return true; }
     if (e.localName !== "img" || !v?.startsWith("symbol:")) { template(e, v); return false; }
     template(e, null);
-    if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:sf/")) everyRole();
+    if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:icon|")) everyRole();
     e.setAttribute("data-symbol-source", v); draw(e, v.slice(7));
     // Decorative unless its author named it (`alt`, `aria-label`), as the template writes it.
     if (!e.getAttribute("alt")) e.alt = "";
@@ -66,7 +77,7 @@ export function symbols(table) {
 }
 function unsymbol(e) {
   if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
-  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source"]) e.removeAttribute(a);
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero", "data-symbol-file"]) e.removeAttribute(a);
   e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
   if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
   e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;
@@ -115,7 +126,7 @@ function refresh() {
       }
     }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
-    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.
     const source = el.getAttribute("data-symbol-source");
     if (!path && All === true && !source?.startsWith("symbol:sf/") && el.symbolRefusal !== source) {
@@ -124,8 +135,8 @@ function refresh() {
     if (el.symbolKey !== key) {
       el.symbolKey = key;
       const point = size, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
-      const paint = filled ? 'fill="black" fill-rule="evenodd"' : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
-      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="0 0 24 24"><path d="${path}" ${paint}/></svg>`)}")`;
+      const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;

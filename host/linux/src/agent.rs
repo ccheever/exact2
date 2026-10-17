@@ -653,7 +653,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             _ => {
                 let message = format!("prefer: {name}: {value} is not a page fact this host sets");
                 // A real page fact this host does not set stays a delivery refusal.
-                return if name == "keyboard-navigation" {
+                return if name == "keyboard-navigation" || name == "bold-text" {
                     error(&message)
                 } else {
                     malformed(&message)

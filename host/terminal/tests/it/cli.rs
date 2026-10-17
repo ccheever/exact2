@@ -193,9 +193,13 @@ fn signal_restores_raw_mode_when_output_is_blocked() {
     let _master = unsafe { File::from_raw_fd(master_fd) };
     let slave = unsafe { File::from_raw_fd(slave_fd) };
     assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "cli::blocked_output_child", "--nocapture"])
-        .env("EXACT_TERMINAL_BLOCKED_OUTPUT_TEST", "1")
+    let path = entry("blocked-output");
+    std::fs::write(&path, "component App\n  view\n    text \"Ready\"\n").unwrap();
+    // The test harness writes a banner before running a test, which blocks
+    // on a stopped Linux PTY before the host can enter raw mode.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+        .arg(path)
+        .args(["--size", "200x160", "--fullscreen"])
         .stdin(slave.try_clone().unwrap())
         .stdout(slave.try_clone().unwrap())
         .stderr(slave.try_clone().unwrap())
@@ -294,7 +298,10 @@ fn normal_exit_waits_for_room_to_restore_screen() {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    let filler = [b'X'; 4096];
+    // A running Linux PTY can make room after EAGAIN without a master read.
+    // Stop transmission, then fill even single-byte room in the output queue.
+    assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
+    let filler = b"X";
     loop {
         let n = unsafe { libc::write(slave.as_raw_fd(), filler.as_ptr().cast(), filler.len()) };
         if n < 0 {
@@ -316,6 +323,7 @@ fn normal_exit_waits_for_room_to_restore_screen() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOON) }, 0);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let mut chunk = [0; 4096];
@@ -345,20 +353,6 @@ fn normal_exit_waits_for_room_to_restore_screen() {
             .any(|part| part == b"\x1b[?25h\x1b[?1049l"),
         "leave sequence was truncated"
     );
-}
-
-#[cfg(unix)]
-#[test]
-fn blocked_output_child() {
-    use exact_terminal::host::{Host, Mode};
-
-    if std::env::var_os("EXACT_TERMINAL_BLOCKED_OUTPUT_TEST").is_none() {
-        return;
-    }
-    let source = "component App\n  view\n    text \"Ready\"\n";
-    let plan = contract::compile(source).unwrap();
-    let mut host = Host::boot(plan, (), Mode::Fullscreen, 200, 160).unwrap();
-    exact_terminal::term::run(&mut host).unwrap();
 }
 
 #[cfg(unix)]

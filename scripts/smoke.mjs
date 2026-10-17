@@ -939,7 +939,7 @@ if (caltrainFixture) {
       if (host === 'web') { let g = await f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = await f.gpuMs(); } }
       await sleep(150); // one frame of the surface after its first capture
       const shotPath = resolve(tmp, 'canvas.png');
-      await f.screenshot(shotPath, true);
+      await f.screenshot(shotPath, true, host === 'ios' ? 'app' : undefined); // iOS: the app's drawing, as the reference was, not the display
       const image = decodePng(readFileSync(shotPath));
       const scale = image.width / l.viewport.w;
       // iOS's screen also has a bottom safe area; use its reported viewport

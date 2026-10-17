@@ -228,9 +228,9 @@ function storageOf(grants) {
     if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
     return k;
   });
-  // A refused write is said once in the journal, as on every host (trivia F7).
-  const refusedFor = op => e => (e?.code !== 'agent' || toldAgent ? Promise.resolve() : import('./storage-environment.js').then(({ agentRefusalSaid, agentStorageRefusal }) => {
-    if (!toldAgent && agentRefusalSaid(op)) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${agentStorageRefusal}`); }
+  // The first refused read or write is said once in the journal, as on every host (trivia F7).
+  const refusedFor = op => e => (e?.code !== 'agent' || toldAgent ? Promise.resolve() : import('./storage-environment.js').then(({ agentStorageRefusal }) => {
+    if (!toldAgent) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${agentStorageRefusal}`); }
   })).then(() => coded(e));
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
   // A document the person chose (`doc:/`, LLP 1069.010 D1) is the page's

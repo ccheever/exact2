@@ -283,6 +283,9 @@ const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; 
  * after each op with the op's name, and with `end` when the drive ends. The web reads after each input; a native
  * carrier, whose reads could be slow, at the end; both at a read before the clock first moved. Advice only: bounded,
  * and never fails a drive. */
+/** The journal line every host writes at a drive's first refused read or write of app storage, when the drive names no store. */
+export const STORAGE_REFUSED = /storage refused \(agent\)/;
+export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storage was refused: a data source that reads its files finds none and keeps nothing, so a screen may show an empty store, not the app\'s data; pass --storage <name> (docs/agent-pitfalls.md)';
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
@@ -299,16 +302,19 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     }
     const end = op === 'end', early = READS.includes(op) && !clocked && !said.has('early');
     if (op === 'clock') clocked = true;
-    if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
-    try {
-      // Said once a drive, and not here when an input's reply already said it (`landed`).
-      if (storage === undefined && !said.has('storage') && !s.storageSaid && (end || INPUTS.includes(op)) && ++probes <= 20) {
+    // Said once a drive, after the first op that met it, whatever that op was: a first screenshot of an app whose
+    // sources were refused their storage reads as an app bug (the euxy port). Not here when an input's reply said it.
+    if (storage === undefined && !said.has('storage') && !s.storageSaid && ++probes <= 20) {
+      try {
         const j = await bounded(s.op({ op: 'logs', since: peek }), 3000);
         if (Array.isArray(j?.lines)) {
           peek = j.next;
-          if (j.lines.some((l) => /storage refused \(agent\)/.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', 'a data source\'s write was refused: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
+          if (j.lines.some((l) => STORAGE_REFUSED.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', STORAGE_NOTE);
         }
-      }
+      } catch { /* advice only */ }
+    }
+    if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
+    try {
       const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);
       if (Array.isArray(j?.lines)) replies = j.next;
       for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));

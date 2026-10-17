@@ -754,6 +754,10 @@ extension NavigationHost {
             return
         }
         item.title = shape?.title
+        #if EXACT_INSPECT
+        c.shownHeader = shape?.header
+        c.itemNodes = [:]
+        #endif
         // tvOS has no large titles or back button.
         #if !os(tvOS)
         // @ref LLP 1116.020 D2 — a presented stack's title is inline at any
@@ -1137,6 +1141,14 @@ extension NavigationHost {
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
+        let item = barItemMade(i, c)
+        #if EXACT_INSPECT
+        c.itemNodes[ObjectIdentifier(item)] = i.id // (inspect mode's bar walk, InspectIOS.swift)
+        #endif
+        return item
+    }
+
+    private func barItemMade(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
         if i.readout != nil { return readoutItem(i, c) }
         let press = BarPress(i.id, self)
         c.barPresses.append(press)

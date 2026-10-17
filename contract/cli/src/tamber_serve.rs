@@ -762,6 +762,13 @@ impl Server {
     fn resolve(&self, request: &Value) -> Result<Value, Value> {
         let (snap, folding) = self.design(request)?;
         let name = required(request, "token")?;
+        // An icon (D10): its sources, the same in every tuple.
+        if let Some(icon) = folding.icons.iter().find(|i| i.name == name) {
+            let tuples: Vec<Value> = (0..folding.tuples)
+                .map(|t| json!({"modes": modes_of(&folding.design.axes, t), "kind": "icon", "sf": icon.sf, "material": icon.material, "svg": icon.svg}))
+                .collect();
+            return Ok(json!({"token": name, "tuples": tuples, "files": files_json(&snap)}));
+        }
         let token = folding
             .tokens
             .iter()

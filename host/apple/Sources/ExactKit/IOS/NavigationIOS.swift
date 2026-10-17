@@ -20,6 +20,12 @@ final class RouteController: UIViewController {
     var pushed = false
     weak var lifted: NodeView?
     var barNodes: [NodeView] = []
+    #if EXACT_INSPECT
+    /// The header the bar shows the title of, and the node each bar item
+    /// stands for (inspect mode selects them, InspectIOS.swift).
+    weak var shownHeader: NodeView?
+    var itemNodes: [ObjectIdentifier: UInt32] = [:]
+    #endif
     weak var host: NavigationHost?
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).
@@ -86,32 +92,42 @@ final class RouteController: UIViewController {
 
     /// The backdrop's colours last written, light and dark.
     private var backdropKey: [[Double]?]?
-    /// The controller's view paints what shows behind the route. The sheet
-    /// supplies its surface behind transparent authored corners; dimming
-    /// belongs outside that surface, to UIKit's presentation. Otherwise a
-    /// dynamic colour: the route's backdrop (`backdrop`) resolved for the
-    /// controller's current appearance, re-resolved by UIKit when it changes
-    /// (a route loaded before its window has a trait collection would
-    /// otherwise keep the light colour in dark mode), and written again when
-    /// a batch changes it. A route under no background shows the system
-    /// background, not white.
+    /// The controller's view paints what shows behind the route: a dynamic
+    /// colour resolved for the controller's current appearance, re-resolved
+    /// by UIKit when it changes (a route loaded before its window has a trait
+    /// collection would otherwise keep the light colour in dark mode), and
+    /// written again when a batch changes it. A pushed route shows its
+    /// backdrop (`backdrop`); a route under no background shows the system
+    /// background, not white. A sheet is the route's own background where it
+    /// has one, as a grouped sheet's surface is the grouped background (LLP
+    /// 1116.021 D7, amending LLP 1115 D2), so no white band shows where the
+    /// route stops above a keyboard's bar; else the system's. What is behind
+    /// the sheet is not, and dimming belongs to UIKit's presentation.
     func paintBackdrop() {
         guard isViewLoaded else { return }
         let modal = node.props["navigationPresentation"] == "modal"
-        let key = modal ? nil : [backdrop(dark: false), backdrop(dark: true)]
+        let key = modal
+            ? [ownBackdrop(dark: false), ownBackdrop(dark: true)]
+            : [backdrop(dark: false), backdrop(dark: true)]
         guard view.backgroundColor == nil || key != backdropKey else { return }
         backdropKey = key
         #if os(tvOS)
         // tvOS has no system backgrounds; white stands in, as the viewport's.
         let system = UIColor.white
         #else
-        // A sheet's surface is the platform's (LLP 1115 D2): the route
-        // paints its own background, if any, over it.
+        // Where nothing is painted, the platform's surface (LLP 1115 D2).
         let system = UIColor.platformBackground(in: host?.presenter.root ?? view)
         #endif
-        view.backgroundColor = modal ? system : UIColor { [weak self] traits in
-            self?.backdrop(dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? system
+        view.backgroundColor = UIColor { [weak self] traits in
+            let dark = traits.userInterfaceStyle == .dark
+            let colour = modal ? self?.ownBackdrop(dark: dark) : self?.backdrop(dark: dark)
+            return colour.map { TextEngine.color($0) } ?? system
         }
+    }
+
+    /// The route's own background, if it paints one.
+    private func ownBackdrop(dark: Bool) -> [Double]? {
+        node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
     }
 
     /// What shows behind the route where it paints nothing: its own
@@ -121,7 +137,7 @@ final class RouteController: UIViewController {
     /// `-exact-grouped-background` under every screen).
     func backdrop(dark: Bool) -> [Double]? {
         let painted = { (n: NodeView) in n.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
-        if let own = painted(node) { return own }
+        if let own = ownBackdrop(dark: dark) { return own }
         guard let host, let root = host.container else { return nil }
         var next: UIView? = host.logicalParent(of: node)
         while let v = next {

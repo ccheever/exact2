@@ -1,6 +1,6 @@
 // Storage completions belong to an answer checkpoint, not an arbitrary browser
 // microtask. @ref LLP 1027 D10: host work returns through the data seam.
-import { agentRefusalSaid, agentStorageRefusal, directories, storageKey } from './storage-environment.js';
+import { agentStorageRefusal, directories, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory, toldAgent = false;
 
 export function createStorage(win, admitted, scope, key = storageKey(admitted.appId)) {
@@ -90,8 +90,8 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     if (disposed) { drop(); return win.Promise.reject(unavailable()); }
     if (keyed && key == null) {
       drop();
-      // A refused write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
-      if (!toldAgent && agentRefusalSaid(op)) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
+      // The first refused read or write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
+      if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
       return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
     }
     const cell = reservedCell || track(scope());

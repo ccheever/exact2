@@ -37,32 +37,6 @@ bun exact.mjs pattern      # lists the starters; `pattern <name>` writes one
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
-For shared server data, `bun <exact2>/scripts/exact.mjs new app --snapback
-[--port <n>]` from the backend’s directory writes a guestbook and wires its
-driver, generated operations and device. The origin defaults to 4400.
-`bun exact.mjs snapback` wires an existing app. With an existing schema, the
-untouched greeting becomes a typed query and mutation explorer with `--online`.
-`snapback --port <n>` records an ignored local backend selection.
-At bake, `.exact/backend-origin` overrides `app.ts`'s `origin` constant.
-`EXACT_BACKEND_ORIGIN` or `test web --backend <url>` selects the origin and matching
-grant at bake time without editing authored source or tests. Password sign-in, stored sessions and refresh with Contract time are
-in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
-For a server-only schema, add `--online`; `snapback` and `update` preserve it.
-On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
-grants. A computed origin or grants declaration needs an explicit edit.
-After upgrading Snapback4, run `bun exact.mjs snapback --rebuild`.
-`bun exact.mjs update` also rebuilds a mounted device after updating Exact.
-Custom mounts: add `--artifact-only` to rebuild without rewiring.
-`app.json`'s `typescript.sources` are virtual import mounts: `./backend/api.ts`
-resolves through `backend` to `../snapback/generated/api.ts`, and
-`./snapback4/snapback.ts` resolves through `snapback4` to the selected adapter.
-These directories need not exist inside the app. A healthy `snapback --rebuild`
-prints the resolved mappings and exits successfully.
-The device's embedded `snapback4.engine` section records its identity;
-`assets/snapback4.wasm.json` is derived diagnostic output.
-`snapback`, `contract build`, `test web` and `agent web` refuse a stale device;
-web drives compare it with the running server before opening the page.
-
 Start from the nearest pattern. `exact.mjs` runs from any directory: a file you
 name is found where you are, else in the app, and it says which it took. Your
 shell commands have no such help, so keep one directory.
@@ -73,44 +47,15 @@ shell commands have no such help, so keep one directory.
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
-`verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
+`verify`, `test` and `agent` compile, build and serve their own copy, saying a compile error as `contract build` does: no `contract build` before them, no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 `contract build` refreshes that declaration after a successful compile and reports
 the change on stderr. `contract types --check app.contract` checks freshness without writing.
-Keep scratch files in `.exact/`. Scratch files there and a test-only `seed.json`
-do not make the build stale. The backend selection `.exact/backend-origin` and
-any JSON file imported by `app.ts` remain build inputs.
+Keep scratch files in `.exact/`: they do not make the build stale (a JSON file `app.ts` imports does).
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
-point (`--scale 3`: the device's): no other simulator tool is needed. `--touch platform` makes
-each tap a real touch, which opens UIKit's menus and reaches a native module's own controls: drive
-with it to compare a port's screens with the original's ([recipe](recipes/ios-driving.md)); porting
-a React Native app, read [its pitfalls](agent-pitfalls.md#porting-a-react-native-app) first.
-`--timing platform` gives UIKit its own timing, and `ios --release` builds
-what ships (`--prebuild --release` early: its first build is minutes; `EXACT_UPDATE_TRUST=production
-bun exact.mjs agent ios …` drives it).
-
-**Ports.** `--port <n>` on `web`, `test web` and `agent web`, or `EXACT_PORT=<n>`,
-serves on that port; a held port is refused. Otherwise each picks a free port within `PORT_LO`–`PORT_HI` when both are set, and
-prints its URL. A native client starts a second loop on `n+1`. A storage store
-keeps its data per port, so drive one store on one port.
-
-- **Bun and Chrome.** Launchers prefer `$BUN`, then `~/.bun-1.4.2/bin/bun`,
-  independently of a login shell’s PATH. Generated commands and child scripts
-  inherit that binary. `./exact.mjs` also works when PATH has no Bun. Set `CHROME=/absolute/path/to/chrome` to select Chromium.
-- **Named Chrome stores.** `agent web --storage s1` starts empty each run.
-  Add `--keep-storage` to reopen its saved data and password session, or
-  `--reset-storage` to explicitly reset it. A live drive owns its profile;
-  another drive cannot reset it. Authored tests always isolate their browser
-  stores, including across repeated suite runs. Backend rows persist: use
-  `fresh` with `dev`, or create uniquely keyed fixtures with `serve`.
-  Firefox/WebKit use a new profile each drive and do not preserve named stores.
-
-**Splitting a port among helpers:** commit the seam between the halves first (the shared types,
-the native module's interface), then start each helper in the background from that commit,
-owning its half and stubbing none of another's. Keep test screens off branches you merge, and
-keep working while they run.
+point (`--scale 3`: the device's): no other simulator tool is needed ([ios-driving](recipes/ios-driving.md)).
 
 ## One screen: the view, its data, its test
 
@@ -252,30 +197,6 @@ test "an item is added, a repeat refused, checked off and kept"
 
 Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
 
-A Snapback app needs its backend running before `test web`: the runner checks
-loopback origins in `app.ts`’s `net.fetch` grants and refuses a Snapback run if
-none listens. Start `snapback4 dev` on that origin’s port, seeded if needed;
-`EXACT_PORT` sets the page’s port and never moves the backend.
-
-Each test opens empty app storage; backend rows survive tests and runs unless
-`fresh` at the file’s top (or leading a test) empties `snapback4 dev` before each
-test. This uses `POST /dev/reset` (Snapback4 **0.4.29**, `dev` only).
-`fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
-relative to the test file. A server lacking reset fails the test.
-Each seed row includes a stable 26-character Crockford base32 `id` (digits
-and capital letters except I, L, O and U); the scaffold supplies these ids.
-Tables with `insert <- deny` are commonly role rosters provisioned outside the
-app: bare `fresh` removes them too, so privileged operations will refuse.
-Use `fresh "seed.json"` and seed those roster rows for each test. A `--snapback`
-scaffold writes sample roster rows (or copies the backend's `seed.json`);
-review their persona, role and field values before using them.
-The runner warns when the drive epoch differs from the backend clock by more
-than a day, including an explicitly chosen epoch. `epoch now` follows real time;
-an intentional clock test must arrange both clocks.
-
-Server ids are unique, not ordered. Sort by time; tests can reach rows by text
-or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
-
 Interactive web drives also accept `reload` (keeps storage and fetch faults) and
 `pick <input-id> <path>`. `agent web --help all` lists driver capabilities.
 
@@ -307,8 +228,16 @@ snapshot. The backend’s clock stays its own.
 
 ## Look it up
 
-Start from the nearest pattern, a tested app with what the recipes teach. Open a recipe
-(`recipes/<name>.md`) only when writing what the pattern lacks.
+Start from the nearest pattern, a tested app with what the recipes teach. Look up what it lacks:
+`contract vocab` prints each name's answer in turn, a recipe (`docs/recipes/<name>.md`) whole, so
+one call fetches what a screen needs:
+
+```sh
+bun exact.mjs contract vocab list-rows search swipe            # a list with search and delete
+bun exact.mjs contract vocab grouped-form number-field choice persist   # an entry or settings form
+bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day's log
+bun exact.mjs contract vocab rest-backend fetch-loading-error after-a-write   # a server's data
+```
 
 |Pattern|Already has|
 |---|---|
@@ -318,22 +247,25 @@ Start from the nearest pattern, a tested app with what the recipes teach. Open a
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
 |`rest`|its own server, polled; a signed-in person (`rest-backend`)|
 
-|Not in a pattern|Read|
+|Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
 |a write that may be refused|`after-a-write`|
 |tabular digits: numeric columns or values changing in place|`numeric-readout`|
-|a count 1–99|`contract vocab stepper`|
+|a count 1–99|`stepper`|
 |a chat that opens at its newest message|`chat-thread`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |a view only Swift can draw|`native-views`|
+|a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
+|ports, Bun, Chrome and its stores|`ports-and-browsers`|
+|porting an app, a release build, helpers sharing a port|`porting-and-release`|
 
 The others are named for their topic (`timers`, `money`…).
 
 **A name in question:** `bun exact.mjs contract vocab` prints the card, or read `docs/card.md` (the same
 text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
-data, test. A lookup is for a name the card lacks (`contract vocab <name> …`) or a compile error;
+data, test. A lookup is for a name the card lacks or a compile error;
 `docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.
 
 Consecutive `match` blocks in an action all run in order. Nest a match in the

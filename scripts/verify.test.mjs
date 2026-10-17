@@ -763,3 +763,18 @@ test("fixed type: each fixed font size in the app's Contract, counted; an accept
     assert.equal(r.exit, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// LLP 1116.021 D6: a symbol sized in points beside text, and a word broken inside, are named beside the fixed sizes.
+test('fixed type: a symbol sized in points and a word broken inside are findings too', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      row\n        image "symbol:delete" width=28\n        text "Bananas"\n      text "October 2026" overflow-wrap="anywhere"\n');
+    const fixed = await fixedType(dir, 'ios', []);
+    assert.deepEqual(fixed.lines, [
+      '  fixed    app.contract:5 image width=28: a symbol sized in points stays small as Dynamic Type grows: leave it unsized (it follows its text), or size it with a text style (`font="-exact-title1"`) or a font-size in rem ("1.75rem")',
+      '  breaks   app.contract:7 text overflow-wrap="anywhere": breaks inside words (Octo/ber); wrap between words (the default) or give the row room',
+    ]);
+    const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], fixed, accept: [], shots: [], ms: 1000 });
+    assert.equal(r.lines[1], "fixed type: 2 findings: a size the reader's text size does not move, or a word broken inside");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

@@ -105,15 +105,31 @@ extension Agent {
     /// only once the one under it has finished presenting: a drive's next
     /// `tap`, a few milliseconds later, found the second sheet's route in
     /// the tree and not on screen (the Bluesky clone's prompt over its muted
-    /// words sheet). Platform timing leaves this to `clock settle`. Answers
-    /// whether the hosts left their transitions.
+    /// words sheet). An alert or action sheet is waited for too: a press on
+    /// one of its buttons is dispatched only once UIKit has dismissed it
+    /// (`dismissConfirmation`), and a `clock data` straight after the tap
+    /// found no press. Platform timing leaves this to `clock settle`.
+    /// Answers whether the hosts left their transitions.
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool {
-        let modals = presenter.modals, navigation = presenter.navigation
-        guard modals.inTransition else { return true }
+        let modals = presenter.modals, navigation = presenter.navigation, menus = presenter.menus
+        guard modals.inTransition || menus.inTransition else { return true }
         let deadline = Date(timeIntervalSinceNow: bound)
         // The navigation host's pending sync is the next sheet waiting on
         // the one now presenting or leaving.
-        while modals.inTransition || navigation.inTransition {
+        while modals.inTransition || navigation.inTransition || menus.inTransition {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
+    }
+
+    /// Under platform timing UIKit animates an alert's dismissal, and a
+    /// chosen button's press lands only after it (`dismissConfirmation`):
+    /// the input still returns once it has, bounded at two seconds. Sheets
+    /// and pushes are left to `clock settle` there.
+    @discardableResult func awaitChosenPress(bound: TimeInterval = 2) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: bound)
+        while presenter.menus.choosing {
             if Date() >= deadline { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
@@ -308,6 +324,10 @@ extension Agent {
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
             .merging(LayoutRegions.env(presenter.regions, safe: (i.top, i.right, i.bottom, i.left), round: Agent.r2)) { a, _ in a }
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
+        // A presentation the platform draws scaled (a floating sheet): its
+        // boxes above are the authored frames times `scale`, not the app's doing.
+        let scaled = presenter.modals.drawnScales.map { ["route": $0.route.props["navigationKey"] ?? "", "presentation": $0.kind, "scale": (Double($0.scale) * 1000).rounded() / 1000] as [String: Any] }
+        if !scaled.isEmpty { reply["scaled"] = scaled }
         #if os(iOS)
         // The status bar's style Exact asks for (LLP 1105 D7), and the node that decided it.
         let bar = presenter.statusBar
@@ -1125,9 +1145,11 @@ extension Agent {
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
+        // The simulator driver's check, after it read the display, that the display was still this app's.
+        if req["probe"] as? Bool == true { return ["front": displayFront()] }
         let loading = settleForPicture()
         // UIKit's own motion lands first, unless the picture is a film's frame (LLP 1116.003 D8).
-        if req["film"] as? Bool != true { settleMotion() }
+        let moving = req["film"] as? Bool != true && !settleMotion()
         // A canvas painting its children through its surface (LLP 1014)
         // shows its last capture: what is pending is captured and rendered
         // at the agent's clock first, as `clock` leaves it.
@@ -1203,6 +1225,10 @@ extension Agent {
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if wholeWindow { r["window"] = true }
+        // Whether the simulator driver may take the display's pixels for this picture (devices.mjs `withDisplay`).
+        if wholeWindow { r["front"] = displayFront() }
+        if wholeWindow, let window = vp.window { r["opaque"] = displayOwnPoints(window) }
+        if moving { r["moving"] = true }
         #if os(iOS)
         // The status bar is SpringBoard's, never in the window's picture: its height, for the simulator driver to put it in (devices.mjs `withDisplay`).
         if wholeWindow, let bar = vp.window?.windowScene?.statusBarManager?.statusBarFrame.height, bar > 0, !(vp.window?.windowScene?.statusBarManager?.isStatusBarHidden ?? true) { r["statusBar"] = Agent.r2(bar) }
@@ -1238,6 +1264,59 @@ extension Agent {
             r["note"] = "the software keyboard is up: it is not in the capture, and the app above it may be shortened (state shows keyboard.top)"
         }
         return r
+    }
+
+    /// Whether the display shows this app's window, or why not: an app that
+    /// is not active is behind a system alert, another app or the home
+    /// screen, and a window that is not key is behind another of its scene's.
+    func displayFront() -> Any {
+        if UIApplication.shared.applicationState != .active { return "the app is not active" }
+        if presenter.viewport.window?.windowScene?.activationState != .foregroundActive { return "the app's scene is not in front" }
+        if presenter.viewport.window?.isKeyWindow != true { return "the app's window is not key" }
+        return true
+    }
+
+    /// Points of `window`, in its points, where the display must show what
+    /// `drawHierarchy` drew, for the simulator driver's check that nothing of
+    /// another process lies over the app (a notification banner leaves the
+    /// app active and its window key): a 16-point grid, less the status bar,
+    /// the bottom safe area, the keyboard, and each visible layer that draws
+    /// what is behind it (glass, a blur, a portal) or filters what it draws,
+    /// with 12 points around it for a glass edge's light and shadow.
+    func displayOwnPoints(_ window: UIWindow) -> [[Double]] {
+        var skipped: [CGRect] = []
+        // A blur whose radius is unset or 0 (a navigation bar's between
+        // transitions) changes nothing: there the display matched the app's
+        // drawing exactly (euxy's Patterns bar, light and dark).
+        func changes(_ layer: CALayer, _ path: String) -> Bool {
+            ((layer.value(forKey: path) as? [Any]) ?? []).contains { filter in
+                let name = String(describing: filter)
+                guard name.contains("Blur") else { return true }
+                return ((layer.value(forKeyPath: "\(path).\(name).inputRadius") as? NSNumber)?.doubleValue ?? 0) != 0
+            }
+        }
+        func visit(_ layer: CALayer) {
+            guard !layer.isHidden, layer.opacity > 0 else { return }
+            let kind = String(describing: Swift.type(of: layer))
+            // A backdrop that only captures (a scroll edge effect's source) draws nothing.
+            let backdrop = ["Backdrop", "Portal", "SDF", "Glass"].contains(where: kind.contains)
+                && !(kind.contains("Backdrop") && (layer.value(forKey: "captureOnly") as? Bool) == true)
+            if backdrop || changes(layer, "filters") || changes(layer, "backgroundFilters") {
+                skipped.append(layer.convert(layer.bounds, to: window.layer).insetBy(dx: -12, dy: -12))
+                return
+            }
+            layer.sublayers?.forEach(visit)
+        }
+        visit(window.layer)
+        let top = window.safeAreaInsets.top + 4
+        let bottom = min(window.bounds.height - window.safeAreaInsets.bottom, keyboardTopForCheck() ?? .infinity) - 4
+        var points: [[Double]] = []
+        for y in stride(from: top, through: bottom, by: 16) {
+            for x in stride(from: CGFloat(8), through: window.bounds.width - 8, by: 16) where !skipped.contains(where: { $0.contains(CGPoint(x: x, y: y)) }) {
+                points.append([Agent.r2(x), Agent.r2(y)])
+            }
+        }
+        return points
     }
 
     /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "menu",

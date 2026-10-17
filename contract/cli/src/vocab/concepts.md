@@ -387,7 +387,7 @@ component App
 - Only a number, string or bool, or an option or list of one, up to 16 KB; records are app
   data, kept by a source (docs/recipes/files-and-grants.md). Only the root's state
   persists, keyed by its name. A test's `reload` relaunches on the same store; a drive
-  keeps it across runs with the same `--storage s1`.
+  keeps it across runs with the same `--storage s1` (on the web, with `--keep-storage` too).
 
 More: docs/recipes/persisted-setting.md
 

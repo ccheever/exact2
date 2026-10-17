@@ -27,6 +27,17 @@ export async function tamberSmoke({ host, open, check }) {
     await s.prefer({ 'root-font-size': '22' }); await settle();
     const font = await at();
     check(times(font.window) > times(dark.window) && times(font.pinned) > times(dark.pinned), `${host} tamber: a root font size fires both observations: ${font.window} | ${font.pinned}`);
+    // Stage 6 G: the label's font and the inset follow the text size, the
+    // font Bold Text too (`length(…)`, `font(…)`).
+    const inset = (text) => Number(text.match(/inset (\d+)/)?.[1] ?? 0);
+    const size = (text) => Number(text.match(/font (\d+)/)?.[1] ?? 0);
+    const face = (text) => text.match(/font \d+ (\S+ w\d+)/)?.[1] ?? '';
+    check(inset(font.window) > inset(dark.window) && size(font.window) > size(dark.window), `${host} tamber: a length and a font follow the text size: ${dark.window} → ${font.window}`);
+    check(/ code fixed/.test(font.window), `${host} tamber: a monospaced system stack stays fixed-pitch in a module's font: ${font.window}`);
+    await s.prefer({ 'bold-text': true }); await settle();
+    const bold = await at();
+    check(times(bold.window) > times(font.window) && face(bold.window) !== face(font.window), `${host} tamber: Bold Text fires the observation and weights the font: ${font.window} → ${bold.window}`);
+    await s.prefer({ 'bold-text': false }); await settle();
   } finally {
     await s.close?.();
   }

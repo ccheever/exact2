@@ -494,6 +494,35 @@ fn an_empty_state_inside_a_list_is_named() {
     assert_eq!(warned(&instead), Vec::<u32>::new());
 }
 
+/// LLP 1116.021 D7: a `SummaryCard` in a grouped section's card is named;
+/// one above the list or in a card-less first section is quiet.
+#[test]
+fn a_summary_card_in_a_grouped_section_is_named() {
+    let dir = Dir::new("summary-in-list");
+    let warned = |body: &str| {
+        let src = format!(
+            "use SummaryCard from \"exact:content\"\ncomponent App\n  view\n    column\n{body}"
+        );
+        let path = dir.write("app.contract", &src);
+        let (result, warnings) = contract::compile_path_all_warned(&path, false);
+        assert!(result.is_ok(), "{src}");
+        warnings
+            .into_iter()
+            .filter(|w| w.id == "lower-summary-card-in-list")
+            .map(|w| w.span.line)
+            .collect::<Vec<_>>()
+    };
+    let card = "SummaryCard(label=\"Spent\", value=\"$12\", detail=\"this month\", progress=none, symbol=none)";
+    let list = |first: &str, at: &str| {
+        format!("      list appearance=\"auto\"\n        section{first}\n          row\n            {at}\n        section\n          row\n            text \"Lunch\"\n")
+    };
+    assert_eq!(warned(&list("", card)), [8]);
+    let cardless = list(" background-color=\"transparent\"", card);
+    assert_eq!(warned(&cardless), Vec::<u32>::new());
+    let above = format!("      {card}\n{}", list("", "text \"Total\""));
+    assert_eq!(warned(&above), Vec::<u32>::new());
+}
+
 /// LLP 1116.001 D2: `RingProgress` is a ring around its value, one
 /// progress bar to a reader, and a state is a second colour: short of the
 /// goal the accent, a goal met the system green, done against not done

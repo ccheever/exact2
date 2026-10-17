@@ -198,6 +198,10 @@ extension HeaderShape {
 final class HeaderTitleView: UIControl {
     private weak var host: NavigationHost?
     private var tap: UInt32?
+    #if EXACT_INSPECT
+    /// The heading's group this title is drawn from (inspect mode selects it).
+    private(set) var groupId: UInt32?
+    #endif
     let avatar = UIImageView(), title = UILabel(), subtitle = UILabel()
     private let stack = UIStackView(), texts = UIStackView()
     /// The avatar's box, its face's size: the image's own size is not to be
@@ -290,6 +294,9 @@ final class HeaderTitleView: UIControl {
         // bar out each time (~1 ms a batch, a fling's every frame).
         if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text { return }
         shown = (group, text)
+        #if EXACT_INSPECT
+        groupId = group.id
+        #endif
         tap = group.tap
         avatar.image = group.avatar?.image
         avatar.isHidden = group.avatar == nil

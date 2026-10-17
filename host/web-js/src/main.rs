@@ -29,6 +29,7 @@ mod paint;
 mod paint_tests;
 mod reads;
 mod style;
+mod symbols;
 
 use std::process::ExitCode;
 
@@ -368,19 +369,7 @@ fn main() -> ExitCode {
             }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).
-            let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
-                .iter()
-                .filter_map(|r| exact_kernel::generated::symbol(r).map(|s| (r, s)))
-                .map(|(r, (_, path, filled))| {
-                    format!(
-                        "{}:[{},{}]",
-                        serde_json::to_string(r).unwrap(),
-                        serde_json::to_string(path).unwrap(),
-                        filled as u8
-                    )
-                })
-                .collect();
-            let roles = format!("export default {{{}}};", roles.join(","));
+            let roles = symbols::every();
             if let Err(e) = std::fs::write(dir.join("symbol-roles.js"), roles) {
                 eprintln!("symbol-roles.js: {e}");
                 return ExitCode::from(1);

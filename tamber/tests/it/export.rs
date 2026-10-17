@@ -724,3 +724,275 @@ fn round_four_edges() {
     assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
     exact_tamber::apply_all(src, &import.ops, &vocab()).unwrap();
 }
+
+/// Stage 6 G: every kind is exported as its DTCG type (a length as a
+/// dimension, a text style as px at the default root size marked lossy, a
+/// type as typography with what it leaves unsaid named), re-imported
+/// unedited it proposes nothing, and a changed length or type proposes one
+/// line for the tuples it changed.
+#[test]
+fn every_kind_exports_as_its_type_and_round_trips() {
+    const KINDS: &str = "tamber kinds\n\naxes\n  density = regular | compact\n\ntheme\n  ink = #111111\n  space.row = 12px\n    when density=compact: 8px\n  size.title = -exact-title1\n  size.rem = 1.25rem\n  opacity.faded: number = 0.5\n  family.text = \"Inter\", system-ui\n  type.body = -exact-body/1.35 \"Inter\"\n  type.bold = italic 700 18px/22px Georgia, serif\n  shadow.card: box-shadow = 0 1px 2px #00000033\n  glow: text-shadow = 0 0 2px currentcolor\n  duration.fast = 150ms\n  easing.out = ease-out\n  easing.curve = cubic-bezier(0.2, 0, 0, 1)\n";
+    let (text, doc) = exported(KINDS);
+    let light = tokens(&doc, "density=regular, light");
+    let get = |name: &str| {
+        light
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, t)| t.clone())
+            .unwrap()
+    };
+    assert_eq!(get("space.row")["$type"], "dimension");
+    assert_eq!(
+        get("space.row")["$value"],
+        serde_json::json!({"value": 12.0, "unit": "px"})
+    );
+    assert_eq!(get("size.rem")["$value"]["unit"], "rem");
+    assert_eq!(get("size.title")["$value"]["unit"], "px");
+    assert_eq!(
+        get("size.title")["$extensions"]["exact"]["lossy"],
+        "-exact-title1"
+    );
+    assert_eq!(get("opacity.faded")["$type"], "number");
+    assert_eq!(
+        get("family.text")["$value"],
+        serde_json::json!(["Inter", "system-ui"])
+    );
+    let body = get("type.body");
+    assert_eq!(body["$type"], "typography");
+    assert_eq!(body["$value"]["lineHeight"], 1.35);
+    assert_eq!(
+        body["$extensions"]["exact"]["unsaid"],
+        serde_json::json!(["fontWeight"])
+    );
+    assert_eq!(get("shadow.card")["$type"], "shadow");
+    assert_eq!(get("glow")["$extensions"]["exact"]["kind"], "text-shadow");
+    assert_eq!(
+        get("duration.fast")["$value"],
+        serde_json::json!({"value": 150.0, "unit": "ms"})
+    );
+    assert_eq!(
+        get("easing.out")["$value"],
+        serde_json::json!([0.0, 0.0, 0.58, 1.0])
+    );
+    let import = reimport(&text, std::slice::from_ref(&text), KINDS, &vocab()).unwrap();
+    assert!(import.ops.is_empty(), "{:?}", import.ops);
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    // A length changed in the compact tuple only, both its sides.
+    let mut doc = doc;
+    for c in ["density=compact, light", "density=compact, dark"] {
+        let tree = &mut doc["modifiers"]["mode"]["contexts"][c][0];
+        tree["space"]["row"]["$value"] = serde_json::json!({"value": 6, "unit": "px"});
+        tree["type"]["body"]["$value"]["lineHeight"] = serde_json::json!(1.5);
+    }
+    let names: Vec<String> = doc["modifiers"]["mode"]["contexts"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "density=compact, light"),
+        "{names:?}"
+    );
+    let import = reimport(
+        &doc.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    type Set = (String, Vec<(String, String)>, String);
+    let set: Vec<Set> = import
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetToken {
+                name, when, value, ..
+            } => Some((name.clone(), when.clone(), value.clone())),
+            _ => None,
+        })
+        .collect();
+    let compact = vec![("density".to_string(), "compact".to_string())];
+    assert!(
+        set.contains(&("space.row".into(), compact.clone(), "6px".into())),
+        "{set:?}"
+    );
+    // The style kept, its size unchanged; a family's identifiers bare.
+    assert!(
+        set.contains(&("type.body".into(), compact, "-exact-body/1.5 Inter".into())),
+        "{set:?}"
+    );
+}
+
+/// Review round 1 (stage 6 G): a tool that reprints whole numbers changes
+/// nothing; a weight the export left unsaid, once edited, is said; a shadow
+/// whose colours differ by scheme takes a new blur; a duration in seconds
+/// is read as the design writes it; an accepted edit proposes nothing more.
+#[test]
+fn reprints_unsaid_parts_scheme_shadows_and_units_read_back() {
+    const KINDS: &str = "tamber kinds\n\ntheme\n  size.title = -exact-title1\n  type.body = -exact-body/1.35 Inter\n  shadow.card: box-shadow = 0 1px 2px light-dark(#00000033, #ffffff22)\n  duration.fast = 150ms\n  easing.out = ease-out\n";
+    let (text, doc) = exported(KINDS);
+    // Whole floats as integers, as `JSON.stringify` writes them.
+    fn ints(v: &mut Value) {
+        match v {
+            Value::Number(n)
+                if n.as_f64()
+                    .is_some_and(|f| f.fract() == 0.0 && f.abs() < 1e15) =>
+            {
+                *v = serde_json::json!(n.as_f64().unwrap() as i64)
+            }
+            Value::Array(a) => a.iter_mut().for_each(ints),
+            Value::Object(o) => o.values_mut().for_each(ints),
+            _ => {}
+        }
+    }
+    let mut reprinted = doc.clone();
+    ints(&mut reprinted);
+    let import = reimport(
+        &reprinted.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(
+        import.ops.is_empty() && import.unmapped.is_empty(),
+        "{:?} {:?}",
+        import.ops,
+        import.unmapped
+    );
+    let mut edited = doc.clone();
+    for c in ["light", "dark"] {
+        let tree = &mut edited["modifiers"]["mode"]["contexts"][c][0];
+        tree["type"]["body"]["$value"]["fontWeight"] = serde_json::json!(600);
+        tree["shadow"]["card"]["$value"]["blur"] = serde_json::json!({"value": 6, "unit": "px"});
+        tree["duration"]["fast"]["$value"] = serde_json::json!({"value": 0.2, "unit": "s"});
+    }
+    let import = reimport(
+        &edited.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let values: Vec<(String, String)> = import
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetToken { name, value, .. } => Some((name.clone(), value.clone())),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        values.contains(&("type.body".into(), "600 -exact-body/1.35 Inter".into())),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&("duration.fast".into(), "200ms".into())),
+        "{values:?}"
+    );
+    assert!(
+        values
+            .iter()
+            .any(|(n, v)| n == "shadow.card" && v.contains("6px") && v.contains("light-dark(")),
+        "{values:?}"
+    );
+    let accepted = exact_tamber::apply_all(KINDS, &import.ops, &vocab())
+        .unwrap()
+        .text;
+    let again = reimport(
+        &edited.to_string(),
+        std::slice::from_ref(&text),
+        &accepted,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(again.ops.is_empty(), "{:?}", again.ops);
+}
+
+/// Review round 2 (stage 6 G): a reprinted file with an edit keeps a type's
+/// text style; a line height edited over a unit's placeholder is taken; a
+/// `currentcolor` shadow given a colour takes it; an edit to one side of an
+/// axis under scheme=dark, which a length cannot vary by, is refused rather
+/// than spread to the other side.
+#[test]
+fn reprinted_edits_placeholders_and_dark_axes() {
+    const KINDS: &str = "tamber kinds\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  type.body = -exact-body/1.35 Inter\n  type.code = 14px/1.5rem Inter\n  glow: text-shadow = 1px 1px currentcolor\n  radius = 12px\n";
+    let (text, doc) = exported(KINDS);
+    fn ints(v: &mut Value) {
+        match v {
+            Value::Number(n)
+                if n.as_f64()
+                    .is_some_and(|f| f.fract() == 0.0 && f.abs() < 1e15) =>
+            {
+                *v = serde_json::json!(n.as_f64().unwrap() as i64)
+            }
+            Value::Array(a) => a.iter_mut().for_each(ints),
+            Value::Object(o) => o.values_mut().for_each(ints),
+            _ => {}
+        }
+    }
+    let contexts: Vec<String> = doc["modifiers"]["mode"]["contexts"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    let mut edited = doc.clone();
+    ints(&mut edited);
+    for c in &contexts {
+        let tree = &mut edited["modifiers"]["mode"]["contexts"][c][0];
+        tree["type"]["body"]["$value"]["fontWeight"] = serde_json::json!(600);
+        tree["type"]["code"]["$value"]["lineHeight"] = serde_json::json!(2);
+        tree["glow"]["$value"]["color"] =
+            serde_json::json!({"colorSpace": "srgb", "components": [1, 0, 0], "hex": "#ff0000"});
+    }
+    let import = reimport(
+        &edited.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let values: Vec<(String, String)> = import
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetToken { name, value, .. } => Some((name.clone(), value.clone())),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        values.contains(&("type.body".into(), "600 -exact-body/1.35 Inter".into())),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&("type.code".into(), "14px/2 Inter".into())),
+        "{values:?}"
+    );
+    assert!(
+        values
+            .iter()
+            .any(|(n, v)| n == "glow" && (v.contains("#ff0000") || v.contains("srgb 1 0 0"))),
+        "{values:?}"
+    );
+    // The dim side alone, in both its schemes.
+    let mut dim = doc.clone();
+    for c in contexts.iter().filter(|c| c.contains("dim")) {
+        dim["modifiers"]["mode"]["contexts"][c][0]["radius"]["$value"] =
+            serde_json::json!({"value": 16, "unit": "px"});
+    }
+    let import = reimport(
+        &dim.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.ops.is_empty(), "{:?}", import.ops);
+    assert_eq!(import.unmapped.len(), 1, "{:?}", import.unmapped);
+}

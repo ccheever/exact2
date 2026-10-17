@@ -44,6 +44,10 @@ export const WEB_SIZES = [[390, 844], [1280, 900]];
 const SHOWN = 6, WARNINGS = 4; // the findings and build warnings shown; the count says the rest
 const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for its first loads, in steps
 const FIRST = 'first screen', RELAUNCH = 'relaunch';
+// How long a run takes, said when it starts so a builder waits once rather than polling (LLP 1116.021 D3): the app's
+// last run on that host, else these (a run that must build first takes that build's time too).
+const ESTIMATE = { web: 30_000, ios: 60_000 };
+const lastRuns = (app) => { try { return JSON.parse(readFileSync(resolve(app.dir, '.exact', 'verify', 'last.json'), 'utf8')); } catch { return {}; } };
 let ACCEPT = []; // app.json `verify.accept`: findings the app's design accepts, set by main
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
 const firstLine = (text) => String(text ?? '').split('\n').find((l) => l.trim())?.trim() ?? '';
@@ -498,19 +502,31 @@ export function largeRemedy(f) {
   return WRAP;
 }
 /** LLP 1116.020 D4: each font size the app's own Contract fixes (no-tells.mjs `fixedSizesIn`), which no spill shows (a fixed
- * size never grows to spill): `{ lines, accepted }`, a line each, those app.json's `verify.accept` takes (`fixed-type`, the
- * node's testId) apart. Exact's parts that are fixed on purpose are the library's, not here. */
+ * size never grows to spill), and LLP 1116.021 D6's two like it: a symbol sized in points beside text that grows
+ * (`fixedSymbolsIn`), and text that breaks inside words (`brokenWordsIn`), the remedy builders reached for when a large
+ * text spilled. `{ lines, accepted, fonts }`, a line each, those app.json's `verify.accept` takes (`fixed-type`,
+ * `fixed-symbol` or `broken-words`, the node's testId) apart, and how many lines are font sizes. Exact's parts that are
+ * fixed on purpose are the library's, not here. */
 export async function fixedType(dir, host, accept = ACCEPT) {
-  const { contractFiles, fixedSizesIn } = await import('./no-tells.mjs'), unit = host === 'ios' ? 'pt' : 'px', lines = [], accepted = [];
+  const { contractFiles, fixedSizesIn, fixedSymbolsIn, brokenWordsIn } = await import('./no-tells.mjs'), unit = host === 'ios' ? 'pt' : 'px', lines = [], accepted = [];
+  let fonts = 0;
+  const add = (finding, testId, said) => {
+    const takes = testId != null && accept.find((e) => e.finding === finding && (/^[^*]+\*$/.test(e.node) ? testId.startsWith(e.node.slice(0, -1)) : e.node === testId));
+    if (takes) accepted.push({ line: said, accept: takes }); else { lines.push(said); if (finding === 'fixed-type') fonts++; }
+  };
   for (const file of contractFiles(dir).filter((f) => !f.endsWith('.test.contract'))) {
-    for (const f of fixedSizesIn(readFileSync(file, 'utf8'))) {
+    const source = readFileSync(file, 'utf8'), at = (f) => `${relative(dir, file)}:${f.line}`;
+    for (const f of fixedSizesIn(source)) {
       const rem = Math.round(f.size / 16 * 4) / 4;
-      const said = `  fixed    ${relative(dir, file)}:${f.line} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales`;
-      const takes = f.testId != null && accept.find((e) => e.finding === 'fixed-type' && (/^[^*]+\*$/.test(e.node) ? f.testId.startsWith(e.node.slice(0, -1)) : e.node === f.testId));
-      if (takes) accepted.push({ line: said, accept: takes }); else lines.push(said);
+      add('fixed-type', f.testId, `  fixed    ${at(f)} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales`);
     }
+    for (const f of fixedSymbolsIn(source)) {
+      const rem = Math.round(f.size / 16 * 4) / 4;
+      add('fixed-symbol', f.testId, `  fixed    ${at(f)} image ${f.property}=${f.value}: a symbol sized in points stays small as Dynamic Type grows: leave it unsized (it follows its text), or size it with a text style (\`font="-exact-title1"\`) or a font-size in rem ("${rem}rem")`);
+    }
+    for (const f of brokenWordsIn(source)) add('broken-words', f.testId, `  breaks   ${at(f)} ${f.tag} overflow-wrap=${f.value}: breaks inside words (Octo/ber); wrap between words (the default) or give the row room`);
   }
-  return { lines, accepted };
+  return { lines, accepted, fonts };
 }
 const contentSize = (udid, size) => spawnSync('xcrun', ['simctl', 'ui', udid, 'content_size', ...(size ? [size] : [])], { encoding: 'utf8' });
 
@@ -792,9 +808,12 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
   }
-  // Font sizes the app's Contract fixes (LLP 1116.020 D4): findings, as check's are.
+  // Font and symbol sizes the app's Contract fixes and words it breaks (LLP 1116.020 D4, LLP 1116.021 D6): findings, as
+  // check's are.
   if (fixed.lines.length) {
-    out.push(`fixed type: ${plural(fixed.lines.length, 'font size')} the reader's text size does not move`, ...fixed.lines.slice(0, SHOWN));
+    const said = (fixed.fonts ?? fixed.lines.length) === fixed.lines.length ? `${plural(fixed.lines.length, 'font size')} the reader's text size does not move`
+      : `${plural(fixed.lines.length, 'finding')}: a size the reader's text size does not move, or a word broken inside`;
+    out.push(`fixed type: ${said}`, ...fixed.lines.slice(0, SHOWN));
     if (fixed.lines.length > SHOWN) out.push(`  … and ${fixed.lines.length - SHOWN} more (verify --json lists them all)`);
     findings += fixed.lines.length;
   }
@@ -884,6 +903,8 @@ async function main(argv) {
   // (A test run that holds the port's turn is waited for when the server starts.)
   if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
 
+  const last = lastRuns(app)[host];
+  console.error(`verify ${host}: about ${Math.round((last ?? ESTIMATE[host]) / 1000)} s${last ? ', as its last run took' : ''}; one report when it ends`);
   const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
   if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length); }
@@ -969,6 +990,7 @@ async function main(argv) {
   const large = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
   const fixed = await fixedType(app.dir, host);
   const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
+  writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);

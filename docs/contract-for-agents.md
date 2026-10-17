@@ -159,7 +159,8 @@ nothing): the window asks its `beforeunload` first, and the reply says
 `closed: true`, or `closed: false` for a window a handler kept (the web's
 "Leave site?" is answered "Stay"). macOS and the web; iOS and Linux refuse it.
 `--storage <name>` gives a drive a named scratch store, kept between drives on
-macOS, iOS, Linux and web Chrome (a kept browser profile served on one port per
+macOS, iOS and Linux until one passes `--reset-storage`, and on web Chrome when the
+next drive passes `--keep-storage` (a browser profile served on one port per
 name; a Firefox or WebKit drive starts fresh each time, so a name there lasts
 for the drive, including its `reload`). Without it a drive has no
 app storage: an `app:/` file or SQLite request is refused (`storage is unavailable
@@ -528,7 +529,8 @@ component App
   `type-persist-child`; a derive, `syntax-persist-derive`.
 - Each authored test starts from an empty store, and its `reload` reads back what
   it kept. A drive with `--storage <name>` keeps persisted state in that store
-  between drives; a drive without one starts from the declared values and keeps
+  between drives (on the web, the next one passes `--keep-storage`; on a native host
+  `--reset-storage` empties it); a drive without one starts from the declared values and keeps
   nothing past the drive. The recipe:
   [a remembered setting](recipes/persisted-setting.md).
 
@@ -1327,7 +1329,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | any other `dialog` (a field, Save, Cancel), opened by `showModal(id)` or a button's `command="show-modal"` | a sheet as tall as its content, up to the large detent, its content laid out as written and centred across it (`width="100%" box-sizing="border-box"` fills it); `close(id)`, its `command="close"` button or a swipe down closes it. `closedby="none"` refuses the swipe, `"any"` also takes a tap on the page behind, and a dismissal the person made fires `cancel` (LLP 1115.000 D11.5). A form with a title bar is still a sheet route |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
-| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2) |
+| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2). Keys of your own design: `appearance="none"` on the `radiogroup` keeps its buttons as you paint them; on iOS and the Mac the group keeps one Tab stop (the checked radio) and arrow keys that press the next or previous radio (Left and Right swapped right to left); on tvOS the focus engine moves between them |
 | a route whose first child is a `header` holding one heading (`text role="heading"`; an `aria-level` alone is not one), a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
 | a pushed route with no such `header` | a bar holding the system Back button alone (LLP 1115.000 D5.2) |
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
@@ -2264,6 +2266,16 @@ SVG uses SVG names. Native SVG geometry has incomplete support for `calc()`,
 `min()`, `max()` and `clamp()`, including nested SVG viewports and `<use>`
 placement and sizing. Use numeric lengths or percentages there; CSS layout math
 on the outer SVG element does not imply support inside its scene.
+SVG attribute-only lengths accept user units (unitless), `px`, `in`, `cm`, `mm`,
+`pt`, `pc` and `%`: line/linearGradient `x1`/`y1`/`x2`/`y2`, radialGradient
+`fx`/`fy`/`fr`, marker `markerWidth`/`markerHeight`/`refX`/`refY`, and each item
+of SVG text/tspan `x`/`y`/`dx`/`dy`. Relative units and function text such as
+`calc()`, `env()` and `var()` are refused in literals and literal template parts
+(LLP 1055.000 D4). Literal concatenations are checked together; an incomplete
+fragment that could finish an accepted unit is left to runtime. Literal choices in
+conditionals, matches and inlined derives are checked too. Bound values must use
+the same units. Marker `refX` also accepts `left`/`center`/`right`, and `refY`
+accepts `top`/`center`/`bottom`; native hosts currently place these keywords at 0.
 `foreignObject` compiles and renders on the web; native hosts refuse it at run
 time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
@@ -3094,7 +3106,8 @@ source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else.
 Bold Text (iOS's setting, Android's font weight adjustment) weights the system
 font one step heavier, a written weight included, as a hand-built app's text
 is, and leaves a family the app names alone: write the weight you mean, not one
-you expect the setting to add (LLP 1115.000 D12.3).
+you expect the setting to add (LLP 1115.000 D12.3). A drive turns it on, on
+Apple, with `prefer bold-text true`.
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
@@ -3139,13 +3152,16 @@ is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
 One that varies by a mode goes on the text, not its container
 (`tamber-inherited-axis`); on the JS target it may not vary yet.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
-returns a `ColorToken` (`contract types` declares the design's, so an unknown
-one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
+returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
+`contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
 `.exact/tamber/` (never committed): `tamber.ts` and `tamber.css` (each token's
-CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, which
+CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, and
+`Token<Length>`, `Token<Number>`, `Token<Type>` for those kinds, which
 `session.tamber().get(SURFACE_CARD, place)` resolves in a running session), or
 `tamber.swift` (`ExactTamberToken.surfaceCard`, for a native view's
-`ExactTamber(view).color(.surfaceCard)`; Android's names a token by its name).
+`ExactTamber(view).color(.surfaceCard)`, `.length(_:)`, `.number(_:)` and
+`.font(_:fallback:)`, a font at the person's text size with Bold Text's step;
+Android's names a token by its name, `color`, `length` and `number`).
 Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve

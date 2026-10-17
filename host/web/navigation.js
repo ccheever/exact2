@@ -945,7 +945,7 @@ export function pageReporter(agent, platform = globalThis) {
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
       else if ((name === "online" || name === "can-share" || name === "can-share-files" || name === "can-share-pictures" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
       else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value); else if (name === "display-scale" && Number(value) > 0 && Number.isFinite(Number(value))) { if (Math.abs(displayScale() - Number(value)) > 0.01) throw new Error(`prefer: display-scale: ${value}: the page's is ${displayScale()}, which the browser sets (its own emulation, or the device)`); }
-      else throw Object.assign(new Error(`prefer: ${name}: ${value} is not a page fact this host sets`), name === "keyboard-navigation" ? {} : { malformed: true }); // keyboard-navigation is a real page fact this host does not set: a refusal
+      else throw Object.assign(new Error(`prefer: ${name}: ${value} is not a page fact this host sets`), name === "keyboard-navigation" || name === "bold-text" ? {} : { malformed: true }); // keyboard-navigation and bold-text are real page facts this host does not set: a refusal
     }
     Object.assign(facts, next);
     if (page?.["root-font-size"] !== undefined) { const { style } = platform.document.documentElement; style.fontSize = `${facts["root-font-size"]}px`; style.setProperty("--exact-host-font-size", style.fontSize); } // the size an app's percentage is of

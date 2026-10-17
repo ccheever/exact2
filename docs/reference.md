@@ -623,9 +623,12 @@ the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
 one in flight: the module's storage queue is full, LLP 1097), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
-A drive's app storage is a scratch store it names (`--storage <name>`) or none,
-kept between drives (on the web, Chrome's profile for the name and its page's
-origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
+A drive's app storage is a scratch store it names (`--storage <name>`) or none.
+A native one is kept between drives until a drive passes `--reset-storage`, which
+empties all of it (`app:/` files, SQLite, kept state, secrets) at the app's boot
+and refuses a store reached through a symbolic link; one drive holds a native store
+at a time. On the web it is Chrome's profile for the name and its page's origin,
+empty each drive unless `--keep-storage` (a Firefox or WebKit drive's is its own); an authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
 web profile. Apple native modules receive the same named data, cache and temporary
@@ -635,8 +638,9 @@ in agent mode unless the drive names a scratch store (--storage <name>)`) and ke
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the journal says `storage refused (agent): …` the first time
-a write is refused (a refused read finds what an empty store would: nothing), which
-the driver repeats once as a note. A Rust module's storage request in such a drive is answered
+a read or write is refused (a refused read finds what an empty store would: nothing,
+so a source that catches it falls back silently), which the driver repeats once as a
+note, after the first op that met it. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
 An answer waits for the storage it awaits, and only that (LLP 1097). Storage
@@ -1350,7 +1354,7 @@ the presenter's placement and order for open top-layer content.
 | A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)` | `element(e)`, `elementEnded(e)` |
 | A route, a navigation stack, tabs (iOS; the web's elements) | `route`, `routeEnded`, `navigation`, `tabs`, `tabContainer` | `route`, `routeEnded`, `navigation`, `tabs` |
 | The window toolbar (macOS) | `toolbar(_:)` | none |
-| The app: its facts, by the web's names, and the root node's `data-*` words as `data` | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
+| The app: its facts, by the web's names, and the root node's `data-*` words as `data` (each in `app.json` `data`, which `hatch --app` adds; Swift reads `data-booted` as `app.data[.booted]`) | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
 | The window the session presents into | `window(_:)`, `windowEnded(_:)` | `window(w)`, `windowEnded(w)` |
 
 **Linux, Windows and Android paint their own pixels**, so there is no platform
@@ -1465,7 +1469,8 @@ Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 is absent at build, so `query` answers a placeholder, and in a scripted drive
 that names no scratch store: there `response` is an error, and the source
 answers as if nothing were kept. `--storage <name>` gives a drive a store kept
-between drives; an authored test gets an empty one, and its `reload` restarts
+between native drives (`--reset-storage` empties it); on the web the next drive
+keeps it with `--keep-storage`. An authored test gets an empty one, and its `reload` restarts
 on it. A game's data crate takes these crates from the SDK
 (`exact-data.workspace = true`, `serde_json.workspace = true`).
 

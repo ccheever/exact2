@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "digest": "9b28e826f9440d33",
+  "name": "bluesky",
+  "tuples": 2,
+  "axes": [
+    {"name": "dark-style", "values": ["black", "dim"], "under": "dark"}
+  ],
+  "dials": [
+    {"name": "accent", "kind": "color", "value": "#1083feff", "range": null, "meta": {}}
+  ],
+  "tokens": [
+    {"name": "accent.fill", "kind": "color", "role": null, "values": ["light-dark(#1083feff, #208bfeff)"], "entries": null, "dials": ["accent"], "fallback": ["#1083feff", "#208bfeff"]},
+    {"name": "surface.page", "kind": "color", "role": null, "values": ["light-dark(#ffffffff, #000000ff)", "light-dark(#ffffffff, #161e27ff)"], "entries": [0, 1], "dials": [], "fallback": ["#ffffffff", "#000000ff"]},
+    {"name": "surface.raised", "kind": "color", "role": null, "values": ["light-dark(#f1f3f5ff, #0f1419ff)", "light-dark(#f1f3f5ff, #1e2936ff)"], "entries": [0, 1], "dials": [], "fallback": ["#f1f3f5ff", "#0f1419ff"]},
+    {"name": "text.primary", "kind": "color", "role": null, "values": ["light-dark(#0b0f14ff, #f1f3f5ff)"], "entries": null, "dials": [], "fallback": ["#0b0f14ff", "#f1f3f5ff"]},
+    {"name": "border.hairline", "kind": "color", "role": null, "values": ["light-dark(#d4dbe2ff, #2e4052ff)"], "entries": null, "dials": [], "fallback": ["#d4dbe2ff", "#2e4052ff"]},
+    {"name": "accent.fill-pressed", "kind": "color", "role": null, "values": ["light-dark(oklab(0.5672846108292732 -0.0444723260393319 -0.17635085428853292), oklab(0.6796037747522564 -0.045099853000608585 -0.16508442822949396))"], "entries": null, "dials": ["accent"], "fallback": ["#1574deff", "#4499feff"]},
+    {"name": "accent.fill-faded", "kind": "color", "role": null, "values": ["light-dark(color(srgb 0.5313725490196078 0.7568627450980392 0.9980392156862745), color(srgb 0.06274509803921569 0.2725490196078431 0.4980392156862745))"], "entries": null, "dials": ["accent"], "fallback": ["#88c1feff", "#10467fff"]},
+    {"name": "accent.on-fill", "kind": "color", "role": null, "values": ["#ffffffff"], "entries": null, "dials": [], "fallback": ["#ffffffff", "#ffffffff"]},
+    {"name": "type.body", "kind": "type", "role": null, "values": ["-exact-body/1.35 \"InterVariable\""], "entries": null, "dials": [], "fallback": ["-exact-body/1.35 \"InterVariable\"", "-exact-body/1.35 \"InterVariable\""]},
+    {"name": "radius.md", "kind": "length", "role": null, "values": ["12px"], "entries": null, "dials": [], "fallback": ["12px", "12px"]},
+    {"name": "radius.full", "kind": "length", "role": null, "values": ["999px"], "entries": null, "dials": [], "fallback": ["999px", "999px"]}
+  ],
+  "exports": null,
+  "icons": [
+    {"name": "icon.reply", "sf": "bubble.left", "material": null, "svg": "icons/reply.svg"}
+  ]
+}

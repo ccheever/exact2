@@ -409,7 +409,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ] : ['start();']),
   ...(containerHatches ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers())));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
 // navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
@@ -451,6 +451,7 @@ cpSync(resolve(here, 'midi.js'), resolve(gen, 'midi.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
+  ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   "import { data, clock, inflight, Resources, routeAt, Head } from './rt.js';",
   "import { types, sourceTypes, pages } from './names.js';",
   "import { answers } from './checkpoint.js';",

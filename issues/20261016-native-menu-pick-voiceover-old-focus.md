@@ -1,49 +1,91 @@
-# macOS: a native menu's item that opens a dialog still lets VoiceOver re-read the old focus first
+# macOS: a context-menu pick that removes the focused field lets VoiceOver read that field first
 
 **Status:** Open
 **Systems:** Apple host (MenuHost, NSMenu), VoiceOver
 **Severity:** P3
 **Author:** Claude (Opus 5.5)
 **Date:** 2026-10-17
-**Related:** LLP 1021 (press timing), realinput-1017k H-9, G-5, FN6
+**Related:** LLP 1021 (press timing), #681, #706 (option 2, not merged), #712, realinput-1017k H-9, G-5, FN6
 
 ## Problem
 
-With a long draft focused in the page, right-click a row whose context menu
-(`contextPopover`, an `NSMenu`) has an item that opens a dialog and moves the
-focus into its field. VoiceOver says "Closing menu", then re-reads the old
-focus ("Message, edit text, …") before the dialog's field, and a long read
-can bury the dialog's name, which the host queues at low priority. A
-hand-built AppKit window whose menu action begins a sheet with its field
-focused goes straight to "In dialog …, Project title, edit text" (4 of 4,
-VoiceOver on macOS 26, measured beside a Contract repro of the same shape).
+With a field focused in the page, right-click a row whose context menu
+(`contextPopover`, an `NSMenu`) has an item whose batch removes the invoker or
+the focused field, such as Discard Changes navigating back from a compose
+screen. VoiceOver says "Closing menu", then reads the removed field ("Compose
+message, text", or "no action available, text") before the screen that
+replaced it ("Projects, window, toolbar"): 3 of 6 runs on main.
 
-## What is done
+## Measured
 
-`MenuHost` presses the chosen row as `popUp` returns, in the turn the menu
-closed, not on the next main-queue turn (`ContextMenuMacTests
-testAPickedItemPressesInTheTurnItsMenuClosed`). With it the repro skipped the
-old focus in 2 of 6 runs (0 of 3 before); the name was heard in 5 of 6.
+Real VoiceOver on macOS 26.6.2, read from its caption panel. A Contract repro:
+a long draft focused in a text area, and a row whose `contextPopover` item is
+right-clicked open and clicked with the pointer. Six runs per build per case,
+the builds interleaved. The count is runs that read the old or removed field
+before what the pick opened.
+
+| Pick | main | #706 |
+|---|---|---|
+| Opens a `<dialog>` (a sheet on this host) with its field focused | 0 of 6 | 2 of 6 |
+| Navigates the invoker away (Discard Changes, the compose draft focused) | 3 of 6 | 1 of 6 |
+| Opens an `aria-modal` box drawn in the page | 0 of 6 | 0 of 6 |
+
+The T3 Code clone, measured the same way:
+
+- Its Rename project re-read was the clone's own doing. It pops its own
+  `NSMenu` from its module (`T3Sidebar.swift`), not through `MenuHost`, and
+  its right press moved no focus, so the composer kept the focus through the
+  menu. With the right-pressed row focused, as the reference app does,
+  VoiceOver re-read nothing in 3 of 3 runs. #706 changed nothing here.
+- Archive chosen by type-select and Return did nothing: the host read
+  `NSEvent.subtype` on a key event. Fixed on main by #712.
 
 ## Cause
 
-AppKit sends an item's action inside `popUp`, before it returns; the host
-records the pick there and presses after `popUp` returns, because a press
-whose batch unmounts the invoker must not run under AppKit's tracking of it
-(LLP 1021, "The chooser"). VoiceOver's question for the focus, after the
-menu's AXMenuClosed, is evidently still answered before the press in most
-runs: inside `popUp`'s remaining run-loop work, or before it.
+Since #681, `MenuHost` records a pick in the item's action and presses it as
+`popUp` returns, in the turn the menu closed, so that a press whose batch
+unmounts the invoker never runs while AppKit tracks the menu in it (LLP 1021,
+"The chooser"). VoiceOver asks for the focus after the menu's AXMenuClosed; in
+half the runs it asks before the press, while the field the batch will remove
+still has the focus.
 
-## Options
+## What to change
 
-1. Press inside the item's action when the press cannot unmount the invoker
-   (no navigation, the invoker not in what the batch removes): needs a way to
-   know that before the batch runs, or to defer only the removal.
+The ruling's option 2 was built as #706 and not merged: the press inside the
+item's action, a removed invoker held hidden in the window until `popUp`
+returns, and `close()` leaving a focus the choice moved. It cut the
+navigate-away case to 1 of 6 but made the `<dialog>` case worse (0 to 2 of 6).
+Likely cause: the press now begins the sheet inside `popUp`, and `beginSheet`
+returns only once the sheet is in, running the run loop meanwhile, so the
+menu's close reaches VoiceOver while the sheet is arriving.
+
+The likely next step, from #706's branch:
+
+1. Option 2 as built, with a `<dialog>`'s sheet begun after `popUp` returns.
+2. Hold a list row too. On the Mac a `list` is an `NSTableView`, and
+   `TableFeedMac` takes a removed row out of the window by its own paths
+   (`adopt`, `sendHome`), which bypass the hold, so a row deleted from its own
+   context menu still leaves the window during tracking.
+3. Hold a window toolbar's menu item (`InvokerMenu`), which with option 2
+   presses inside AppKit's action with no hold: a press that changes the bar
+   can remove the item that is sending the action.
+
+## Acceptance
+
+- On the repro above, six runs each: the navigate-away pick reads the removed
+  field in none; the `<dialog>` and page-drawn `aria-modal` cases stay at none.
+- XCTests beside `ContextMenuMacTests`: a list row deleted from its own context
+  menu, and a toolbar menu pick that removes its item, stay in the window,
+  hidden, until `popUp` returns.
+
+## Options (as filed)
+
+1. Press inside the item's action only when the press cannot unmount the
+   invoker.
 2. Hold the invoker (retain it and keep it in the window, hidden) until
    `popUp` returns, and press inside the action as AppKit does.
-3. Accept it and post the dialog's name at a priority that survives a long
-   read (medium), at the cost of cutting off the field's words.
-
+3. Post the dialog's name, which the host queues at low priority, at medium
+   priority, at the cost of cutting off the field's words.
 
 ## Ruling (Charlie, 2026-10-16)
 

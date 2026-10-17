@@ -6,3 +6,9 @@ icons
 component PostButton
   params
     fill: color = "accent.fill"
+
+icons garbage
+  icon.second = icon(sf "star")
+
+icons
+  icon.third = icon(sf "star")
