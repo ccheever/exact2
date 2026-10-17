@@ -493,7 +493,10 @@ fn idiom(name: &str) -> Option<String> {
     contract_syntax::idioms::refusal(name)
 }
 
-/// A name nothing admits: the lookups' hints, and a function one edit away.
+/// A name nothing admits: the lookups' hints, a function one edit away, what
+/// a common name from elsewhere is written as, and the recipes, patterns and
+/// concepts named like it. A builder whose lookup missed read the long guides
+/// instead (LLP 1116.021, round 20).
 fn refused(name: &str) -> String {
     let refusal = vocab::refusal(name);
     let head = format!("`{name}` is not a tag or an attribute");
@@ -506,10 +509,87 @@ fn refused(name: &str) -> String {
         .find(|f| one_edit(name, &f.name))
     {
         out += &format!("; did you mean the function `{}`?", near.name);
-    } else if let Some((near, _)) = recipes::RECIPES.iter().find(|(r, _)| one_edit(name, r)) {
-        out += &format!("; did you mean the recipe `{near}`?");
+    }
+    if let Some((_, means)) = MEANS.iter().find(|(names, _)| names.contains(&name)) {
+        out += &format!("; {means}");
+    }
+    let near = named_like(name);
+    if !near.is_empty() {
+        out += &format!("; try {}", near.join(", "));
     }
     out
+}
+
+/// Names from other platforms that no entry answers to, and what is written.
+const MEANS: &[(&[&str], &str)] = &[
+    (
+        &["checkbox", "check-box", "UISwitch"],
+        "a checkbox is `input type=\"checkbox\" checked=… change=…`, a switch the same with `switch` (`contract vocab input`)",
+    ),
+    (
+        &["switch", "Toggle"],
+        "a switch is `input type=\"checkbox\" switch checked=… change=…` (`contract vocab input`)",
+    ),
+    (
+        &["range", "slider", "Slider", "UISlider"],
+        "a slider is `input type=\"range\" min=… max=… value=… input=…` (`contract vocab input`)",
+    ),
+    (
+        &["strikethrough", "strike", "strike-through", "textDecorationLine"],
+        "struck-through text is `text-decoration=\"line-through\"` (`contract vocab text-decoration`)",
+    ),
+    (
+        &["picker", "Picker", "UIPickerView"],
+        "a menu of values is a `select`, two to five side by side the concept `choice`, a date `input type=\"date\"`",
+    ),
+    (
+        &["tablist", "tabbar", "tab-bar", "UITabBar", "TabView"],
+        "a tab bar is the recipe `tabs`",
+    ),
+    (
+        &["clipboard", "pasteboard", "UIPasteboard"],
+        "copying is the host command `copyText(text)` (`contract vocab copyText`)",
+    ),
+];
+
+/// The recipes, patterns and concepts whose name is one edit from the name or
+/// has it as a word (`random`, `shuffle`: `random-and-shuffle`; `dates`: the
+/// concept `date`); a concept is also found by the names it answers to.
+fn named_like(name: &str) -> Vec<String> {
+    let q = name.to_lowercase();
+    let like = |candidate: &str| {
+        let whole = candidate.to_lowercase();
+        one_edit(&whole, &q)
+            || (q.len() >= 5 && whole.contains(&q))
+            || whole.split(['-', ':']).any(|w| {
+                !matches!(w, "and" | "that" | "the")
+                    && (w == q
+                        || (q.len() >= 5 && one_edit(w, &q))
+                        || (q.len() >= 4 && w.starts_with(&q))
+                        || (w.len() >= 4 && q.len() <= w.len() + 2 && q.starts_with(w)))
+            })
+    };
+    let recipes = recipes::RECIPES.iter().map(|(r, _)| (*r, "a recipe"));
+    let patterns = recipes::PATTERNS.iter().map(|(p, _)| (*p, "a pattern"));
+    let concepts = concepts::concepts()
+        .into_iter()
+        .filter(|c| like(c.name) || c.names.iter().any(|n| like(n)))
+        .map(|c| (c.name, "a concept"));
+    let mut found: Vec<(&str, &str)> = Vec::new();
+    for (name, kind) in recipes
+        .chain(patterns)
+        .filter(|(n, _)| like(n))
+        .chain(concepts)
+    {
+        // `tabs` is a recipe and a pattern, and one lookup prints both.
+        if !found.iter().any(|(n, _)| *n == name) && found.len() < 4 {
+            found.push((name, kind));
+        }
+    }
+    found
+        .into_iter()
+        .map(|(name, kind)| format!("`contract vocab {name}` ({kind})"))
+        .collect()
 }
 
 /// Whether two names differ by one insertion, deletion, substitution or

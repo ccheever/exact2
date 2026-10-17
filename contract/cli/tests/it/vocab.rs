@@ -980,7 +980,40 @@ fn a_recipe_name_prints_the_recipe_in_its_place() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8(output.stderr)
         .unwrap()
-        .contains("did you mean the recipe `tabs`?"));
+        .contains("try `contract vocab tabs` (a recipe)"));
+}
+
+/// LLP 1116.021, round 20: a builder's missed lookup sent them to the long
+/// guides, so a miss names what it is written as and the recipes, patterns and
+/// concepts named like it, and the grammar's `state` and the segmented
+/// control's `segment` answer outright.
+#[test]
+fn a_miss_points_at_what_it_means() {
+    let refused = |name: &str| {
+        let output = vocab(&[name]);
+        assert_eq!(output.status.code(), Some(1), "{name}");
+        String::from_utf8(output.stderr).unwrap()
+    };
+    for name in ["random", "shuffle"] {
+        let err = refused(name);
+        assert!(
+            err.contains("try `contract vocab random-and-shuffle` (a recipe)"),
+            "{err}"
+        );
+    }
+    assert!(refused("dates").contains("`contract vocab date` (a concept)"));
+    assert!(refused("storage").contains("`contract vocab persist` (a concept)"));
+    assert!(refused("checkbox").contains("`input type=\"checkbox\""));
+    assert!(refused("strikethrough").contains("`text-decoration=\"line-through\"`"));
+    assert!(!refused("month").contains("try"));
+    assert!(stdout(&vocab(&["segment"])).contains("choice (a concept)"));
+    assert!(stdout(&vocab(&["state"])).contains("action (a concept)"));
+    // What a miss names is itself an answer.
+    let named = refused("checkbox") + &refused("strikethrough") + &refused("random");
+    for name in ["input", "text-decoration", "random-and-shuffle"] {
+        assert!(named.contains(&format!("contract vocab {name}`")));
+        stdout(&vocab(&[name]));
+    }
 }
 
 /// LLP 1116.021 D3: a symbol the compiler refuses points to `contract vocab

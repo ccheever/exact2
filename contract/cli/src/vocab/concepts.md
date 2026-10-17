@@ -110,7 +110,7 @@ Contract has no `Intl.PluralRules`: a language with more forms gets its strings 
 data module.
 
 ## choice: one value from two to five (a preset, units, a period)
-names: radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl
+names: segment, segments, radiogroup, radio, segmented, segmented-control, segmentedcontrol, UISegmentedControl
 
 A `row role="radiogroup"` of `button role="radio" aria-checked=…`, each pressing its value, is
 the platform's segmented control: UIKit's `UISegmentedControl`, AppKit's segmented control,
@@ -709,7 +709,7 @@ component App
 - A derive is no timer: one that reads `performanceNow()` shows the time of its last recompute.
 
 ## action: what a press, an input or a key does
-names: handler, onClick, onPress, onChange, setState, reducer
+names: state, useState, handler, onClick, onPress, onChange, setState, reducer
 
 `action name(params)` over indented statements: `x = expr` on its own state, `let`, `send`, `refresh`,
 `if`/`else`, `match`, a host command, or a call of another action. No loops, awaits or returns; the
@@ -730,6 +730,7 @@ component App
       text `${n}` testId="n"
 ```
 
+- `state name = value` is what actions write; `persist` keeps it across launches.
 - An action reads the state it started with: bind a value with `let` to read it after writing it.
 
 ## stepper: a count with plus and minus (a number field)
