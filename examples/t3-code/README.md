@@ -415,7 +415,8 @@ framework issues that someone using the app runs into are in the section above.
   still went to the pill (1 of 1), though an accessibility client found the pressed link the
   same, valid element after the press, with the pill shown. Posting a layout change that names
   the link after the press did not keep VoiceOver there either. So the element's survival is not
-  the whole cause, and the record needs reopening on main.
+  the whole cause; #696 reopened the record
+  ([`issues/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/20261017-macos-voiceover-s-press-moves-its.md)).
 - A context-menu item that opens Rename project or Project grouping can still let VoiceOver
   re-read a long draft before the dialog, and the dialog's name is then not heard
   ([`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md);
@@ -597,14 +598,11 @@ approval, a device and turn diffs; and the list above.
 environment, a machines list and an ACP agent stand-in (each has its README). Still missing: a
 tailnet, and a server older than the client for the machines-update popover's busy states.
 
-**Framework issues opened by this app:** open on main is
+**Framework issues opened by this app:** open on main are
 [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)
-(under "Known differences" above). Closed with #688 is
-[`issues/closed/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/closed/20261016-escape-in-recorder-blurs-on-macos.md).
-The VoiceOver press that moves its cursor to the 'Scroll to end' pill
-([`issues/closed/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/closed/20261017-macos-voiceover-s-press-moves-its.md))
-was closed as the clone's (#694); the clone now keeps its chip elements, and VoiceOver still
-moves (the known difference above). The macOS issues opened from 2026-10-13 to 2026-10-16 are closed
+and [`issues/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/20261017-macos-voiceover-s-press-moves-its.md)
+(both under "Known differences" above). Closed with #688 is
+[`issues/closed/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/closed/20261016-escape-in-recorder-blurs-on-macos.md). The macOS issues opened from 2026-10-13 to 2026-10-16 are closed
 on main, the light-dismiss and VoiceOver ones (exact2 PRs #663, #664, #676, #679 and #681)
 included, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to every
 ancestor that hears them, and `stopPropagation()` stops them).
