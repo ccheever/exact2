@@ -590,6 +590,21 @@ fn a_colour_keyframe_takes_the_designs_tokens() {
         get(&from.values, Property::ShadowColor),
         Some([255, 0, 0, 0x80])
     );
+    // An expression over a token folds as a row's does, the inner pair's
+    // halves taken; a word inside a function is no token.
+    let folded = "theme\n  chipDim=\"light-dark(#cfced4, #45454b)\"\n  rgb=\"#ff0000\"\nkeyframes k\n  from background-color=\"light-dark(chipDim, #ffffff)\" color=\"rgb(0, 0, 0)\"\n  to border-color=\"color-mix(in srgb, chipDim 50%, white)\"\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"k 1s\"\n";
+    let r = booted(folded);
+    let (_, row) = animation(&r, "a");
+    let from = &row.0[0].keyframes.0[0];
+    assert_eq!(
+        get(&from.values, Property::BackgroundColor),
+        Some([0xcf, 0xce, 0xd4, 255])
+    );
+    assert_eq!(
+        get(&from.dark, Property::BackgroundColor),
+        Some([255, 255, 255, 255])
+    );
+    assert_eq!(get(&from.values, Property::Color), Some([0, 0, 0, 255]));
     let dir = std::env::temp_dir().join(format!("keyframe-token-axis-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(

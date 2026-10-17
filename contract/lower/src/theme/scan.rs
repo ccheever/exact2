@@ -110,6 +110,10 @@ impl Said {
         for s in &file.styles {
             attrs(&s.attrs);
         }
+        // A colour keyframe folds its tokens as a row does (`keyframes::tokens`).
+        for frame in file.keyframes.iter().flat_map(|k| &k.frames) {
+            attrs(&frame.attrs);
+        }
         let mut stack: Vec<&Node> = root.view.iter().collect();
         while let Some(node) = stack.pop() {
             match node {

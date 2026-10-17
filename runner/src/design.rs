@@ -56,7 +56,7 @@ pub fn structure(plan: &Plan) -> String {
     hex(&plan.structure())
 }
 
-/// The digest of `plan`'s design shape: its axes, and each theme row's name,
+/// The digest of `plan`'s design shape: its axes, its `@keyframes`, and each theme row's name,
 /// role and slice count: which tokens override which role, not with what
 /// (an override's value is a live edit, LLP 1121 stage 5). A batch is for one
 /// shape: the JS target's build and a wasm or native build of the same
@@ -79,6 +79,14 @@ pub fn shape(plan: &Plan) -> String {
         text(&row.slices.len.to_string());
         // A kind is which rows may name the token: a change is structure.
         text(&row.kind.to_string());
+    }
+    // The `@keyframes` rules, which a token named in a colour keyframe is
+    // folded into when the app compiles: an edit to it changes a rule, so it
+    // is a rebuild, never a batch that would leave the rule's old colour.
+    text("");
+    for row in &plan.keyframes {
+        text(plan.str(row.name));
+        text(plan.str(row.css));
     }
     hex(&bytes)
 }
