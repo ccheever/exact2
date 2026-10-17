@@ -1299,7 +1299,7 @@ export function buildBake(app, platform, target, options = {}) {
     }
   for(const {pkg,unit} of selected) {
     // The GPU bake can create the first asset directory (for a typed level).
-    env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
+    env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(','); env.EXACT_BACKEND_SELECTION=existsSync(resolve(app.dir,'.exact/backend-origin')) ? 'present' : 'absent';
     // The app's own web artifact builds std for size; a GPU crate keeps the toolchain's std.
     const sized=platform==='web'&&!gpuPackage(pkg);
     // An Apple app's crate is an rlib to Cargo, so `--workspace` builds type-check it without

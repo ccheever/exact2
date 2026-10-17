@@ -261,7 +261,13 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
                 .as_array()
                 .ok_or("missing shader roots")?
                 .iter()
-                .map(|v| watch::optional_tree(Path::new(v.as_str().unwrap()), &outputs)),
+                .filter_map(|v| {
+                    watch::shader_tree(
+                        Path::new(v.as_str().unwrap()),
+                        &outputs,
+                        declared.as_deref(),
+                    )
+                }),
         );
     let paths = roots.collect::<std::collections::BTreeSet<_>>();
     for path in paths {

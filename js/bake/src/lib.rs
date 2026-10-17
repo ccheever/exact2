@@ -451,10 +451,16 @@ fn build_sources(
         println!("cargo:rerun-if-changed={}", file.display());
     }
     println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join(".exact/backend-origin").display()
-    );
+    // An absent file Cargo watches is a missing input, which reran this bake
+    // on every build. The builder says whether the selection exists
+    // (EXACT_BACKEND_SELECTION, as EXACT_ASSET_ROOTS names the asset roots
+    // that do), so its creation still reruns it; a direct Cargo build, which
+    // does not, keeps the watch.
+    println!("cargo:rerun-if-env-changed=EXACT_BACKEND_SELECTION");
+    let selection = root.join(".exact/backend-origin");
+    if selection.exists() || std::env::var_os("EXACT_BACKEND_SELECTION").is_none() {
+        println!("cargo:rerun-if-changed={}", selection.display());
+    }
     // And the Contract libraries the app uses, wherever they are installed.
     contract::rerun_if_changed(&root.join("app.contract"));
     Ok(())
