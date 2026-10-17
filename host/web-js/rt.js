@@ -696,6 +696,7 @@ export function P(e, name, f) {
     // A URL that navigates is written only if the web host's policy takes it (navigation.js `navigableURL`,
     // `frameURL`): a refused link loses its `href`, an iframe shows about:blank and keeps its source for its sandbox to decide.
     if (name === "src" && e.localName === "iframe") { e.$src = v; if (frame(e, v)) return; if (v != null && !navigable(v, e)) v = "about:blank"; } else if (name === "href" && v != null && (!navigable(v) || v === "")) v = null;
+    if (name === "backgroundMaterial" && v === "none") v = null; // no material, cleared as the runner clears it (bridge.rs `prop_value`)
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
