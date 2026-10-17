@@ -16,7 +16,7 @@ import { diffSource, lazyPatches, loadFilePatches, requestFiles, retryFile, unan
 import { buildDiffReviewComment, diffReviewLines, reviewCommentContextRecord, type ReviewCommentContext } from './shared/diff-comments';
 import { addReviewCommentChip, removeReviewCommentChip, localId } from './shared/composer-editor';
 import { assertReviewComposerOwner, assertReviewOwner, reviewComposerNative, reviewFileAccess, reviewNative, reviewOwner } from './review-owner';
-import { reviewFileRows, reviewPatch, reviewRow, reviewSuppression, type ReviewFile, type ReviewRow } from './review-model';
+import { reviewFileRows, reviewPatch, reviewRow, reviewFileNotice, type ReviewFile, type ReviewRow } from './review-model';
 
 export interface ReviewSection { id: string; title: string; subtitle: string; selected: boolean }
 export interface ReviewSnapshot {
@@ -37,7 +37,7 @@ interface Pick { composerOwner: string; sectionId: string; path: string; anchor:
 interface State {
   owner: string; serial: number; version: number; ui: Presentation | null; sections: Section[]; selected: string; selectedPath: string;
   navigationSerial: number; loading: boolean; error: string; canReadFiles: boolean; checked: boolean;
-  revealed: Set<string>; pick: Pick | null; ranging: boolean; commentOpen: boolean;
+  pick: Pick | null; ranging: boolean; commentOpen: boolean;
   comments: { composerOwner: string; contextId: string; comment: ReviewCommentContext }[];
 }
 const states = new WeakMap<T3Client, State>();
@@ -58,7 +58,7 @@ function stateOf(client: T3Client): State {
   const owner = reviewOwner(client); let state = states.get(client);
   if (!state || state.owner !== owner) {
     state = { owner, serial: 0, version: 0, ui: presentationOf(client), sections: [], selected: '', selectedPath: '', navigationSerial: 0, loading: false, error: '', canReadFiles: false, checked: false,
-      revealed: new Set(), pick: null, ranging: false, commentOpen: false, comments: [] };
+      pick: null, ranging: false, commentOpen: false, comments: [] };
     states.set(client, state);
   }
   return state;
@@ -72,7 +72,6 @@ function patchRequest(section: Section | undefined): string {
   return files.length ? JSON.stringify(files.map(file => file.path)) : '';
 }
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Review unavailable';
-const fileKey = (state: State, path: string) => `${state.selected}\n${path}`;
 function readySections(client: T3Client, previous: Section[]): Section[] {
   // The desktop helper deduplicates by run and includes non-ready checkpoints. Mobile
   // deriveThreadCheckpointSummaries/getReadyReviewCheckpoints retains each ready entity.
@@ -107,7 +106,7 @@ function sectionFiles(section: Section | undefined): { file: ReviewPatchFile; no
   return section.lazy.files.map(stat => {
     const patch = section.lazy!.patches.get(stat.path), parsed = patch?.state === 'loaded' ? reviewPatch(patch.diff, section.id).files : [];
     const file = parsed.find(row => row.path === stat.path) ?? (parsed.length === 1 ? parsed[0] : undefined);
-    return { file: { ...(file ?? { path: stat.path, previous: stat.previousPath ?? '', status: stat.previousPath ? 'renamed' : 'modified', binary: false, hunks: [] }),
+    return { file: { ...(file ?? { path: stat.path, previous: stat.previousPath ?? '', status: stat.previousPath ? 'renamed' : 'modified', binary: false, hunks: [], pureRename: false }),
       id: stat.path, path: stat.path, additions: stat.additions, deletions: stat.deletions }, pending: !patch || patch.state === 'loading', error: patch?.state === 'error',
       notice: !patch || patch.state === 'loading' ? 'Loading diff…' : patch.state === 'error' ? 'Could not load diff. Select the file to retry.'
         : patch.truncated ? 'File preview exceeds the size limit. Counts include all changes.' : file ? '' : 'Could not display file preview.' };
@@ -137,7 +136,7 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
   const composerOwner = mobileComposerTarget(client).owner;
   const comments = state.comments.filter(entry => entry.composerOwner === composerOwner && (mobileComposerTargetText(client, mobileComposerTarget(client)) ?? '').includes(`review-comment/${entry.contextId})`));
   for (const { file, notice, pending, error } of loaded) {
-    const key = fileKey(state, file.path), expanded = expandedIds.has(file.id), viewed = viewedIds.has(file.id);
+    const expanded = expandedIds.has(file.id), viewed = viewedIds.has(file.id);
     files.push({ id: file.id, name: file.path.split('/').at(-1) ?? file.path, path: file.path, previousPath: file.previous,
       additions: file.additions, deletions: file.deletions, expanded, viewed, pending, error, notice });
     rows.push({ ...reviewRow(`file:${file.id}`, 'file'), markerId: file.id, path: file.path, title: file.path, detail: file.previous !== file.path ? file.previous : '',
@@ -145,12 +144,8 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
     if (!expanded) continue;
     if (notice) rows.push({ ...reviewRow(`notice:${file.id}`, 'notice'), path: file.path, detail: notice, action: error ? 'retry' : '' });
     if (pending || error) continue;
-    const suppressed = reviewSuppression(file);
-    if (suppressed === 'non-text' || suppressed === 'large' && !state.revealed.has(key)) {
-      rows.push({ ...reviewRow(`suppressed:${file.id}`, 'suppressed'), path: file.path,
-        title: suppressed === 'non-text' ? 'Non-text file' : 'Large diff', detail: suppressed === 'non-text' ? 'Diff preview is not available for this file format.' : 'Large diffs are not rendered by default.', action: suppressed === 'large' ? 'reveal' : '' });
-      continue;
-    }
+    const fileNotice = notice ? '' : reviewFileNotice(file);
+    if (fileNotice) rows.push({ ...reviewRow(`notice:${file.id}`, 'notice'), path: file.path, detail: fileNotice });
     const pick = state.pick?.composerOwner === composerOwner && state.pick.sectionId === section?.id && state.pick.path === file.path ? state.pick : null;
     for (const row of reviewFileRows(file, dark, pick)) {
       rows.push({ ...row, id: JSON.stringify(['review-row', file.id, row.id]) });
@@ -283,7 +278,7 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
     if (!nativeInput?.available) throw new ClientError('Review is available in the native app.');
     const native = reviewNative(client, letGoAware(mobileNative(nativeInput)), owner);
     const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
-    const state = stateOf(client), section = state.sections.find(row => row.id === state.selected), key = fileKey(state, id);
+    const state = stateOf(client), section = state.sections.find(row => row.id === state.selected);
     if (op === 'section' || op === 'refresh') return { message: '', navigation: '', data: await mobileReviewRead(nativeInput, op === 'section' ? id : state.selected, dark, op === 'refresh', client) };
     if (op === 'file') {
       navigationSerial = ++state.navigationSerial; navigationSection = state.selected;
@@ -367,7 +362,6 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
         }
         state.ui.revision++;
       }
-      else if (op === 'reveal') state.revealed.add(key);
       else if (op === 'line' || op === 'extend' || op === 'range-start') {
         if (state.commentOpen && state.pick?.composerOwner === mobileComposerTarget(client).owner || !Number.isInteger(n) || !diffReviewLines(file.file)[n]) throw new ClientError('That line is unavailable.');
         const composerOwner = mobileComposerTarget(client).owner;

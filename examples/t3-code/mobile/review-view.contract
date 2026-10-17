@@ -78,7 +78,7 @@ component ReviewView
                       text row.detail font-size=12 line-height="16px" color=colors.muted
                       if row.action != "" and row.kind != "comment"
                         button press=action(row.action, row.path, 0) align-self="start" border-radius=20 padding-left=14 padding-right=14 min-height=38.5 background-color=colors.subtle
-                          text (row.action == "reveal" ? "Load diff" : "Try again") font-size=12.25 color=colors.foreground
+                          text "Try again" font-size=12.25 color=colors.foreground
       if data.selectionTitle != ""
         row margin-left=18 margin-right=18 margin-top=10 margin-bottom=18 gap=10
           button press=action("comment", "", 0) disabled=not data.canComment flex=1 min-height=42 border-radius=100 background-color=colors.primary

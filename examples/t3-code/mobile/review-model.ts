@@ -1,7 +1,7 @@
 // T3 Code365aa87982 reviewModel.ts/nativeReviewDiffAdapter.ts, over the existing parser.
 // @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
 import type { DiffFileModel } from './shared/diff';
-import { mobileReviewPatchFiles } from './review-patch';
+import { mobileReviewPatchFiles, type ReviewPatchFile } from './review-patch';
 import { diffReviewLines, type ReviewLine } from './shared/diff-comments';
 import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
 import { inferReviewCommentFenceLanguage } from './shared/diff-comments';
@@ -17,13 +17,12 @@ export interface ReviewFile {
 }
 export const reviewRow = (id: string, kind: string): ReviewRow => ({ id, markerId: '', kind, path: '', filePath: '', text: '', title: '', detail: '', action: '',
   oldNumber: '', newNumber: '', lineIndex: -1, change: '', selected: false, expanded: false, viewed: false, additions: 0, deletions: 0, tokens: [] });
-const nonText = /\.(?:png|jpe?g|gif|webp|avif|ico|bmp|tiff?|heic|mp3|wav|ogg|flac|m4a|mp4|mov|avi|mkv|webm|pdf|zip|gz|tgz|bz2|7z|rar|woff2?|ttf|otf|eot|wasm|exe|dll|so|dylib)$/i;
+const nonText = /\.(?:png|jpe?g|gif|webp|avif|ico|icns|bmp|tiff?|heic|mp3|wav|ogg|flac|m4a|aac|mp4|mov|avi|mkv|webm|pdf|zip|gz|tgz|bz2|7z|rar|woff2?|ttf|otf|eot|wasm|exe|dll|so|dylib)$/i;
 
-export function reviewSuppression(file: DiffFileModel): 'non-text' | 'large' | '' {
-  if (file.binary || nonText.test(file.path)) return 'non-text';
-  const lines = file.hunks.flatMap(hunk => hunk.lines);
-  const headers = file.hunks.map(hunk => `@@ -${hunk.oldStart},${hunk.lines.filter(line => line.kind !== 'addition').length} +${hunk.newStart},${hunk.lines.filter(line => line.kind !== 'deletion').length} @@`);
-  return lines.length > 400 || lines.reduce((count, line) => count + line.text.length, 0) + headers.join('').length > 24_000 ? 'large' : '';
+export function reviewFileNotice(file: ReviewPatchFile): string {
+  if (file.hunks.length > 0) return '';
+  if (nonText.test(file.path)) return 'Unsupported format. Diff contents are not available.';
+  return file.pureRename ? 'This file was renamed without modifications.' : '';
 }
 export function reviewPatch(text: string, sectionId = 'review') {
   const truncated = text.trimEnd().endsWith('[truncated]'), patch = text.trim().replace(/\n*\[truncated\]\s*$/, '').trimEnd();
