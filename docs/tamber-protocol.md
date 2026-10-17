@@ -315,6 +315,10 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     next scrub's end). A build that reloads the builds ends the preview there.
   - It answers `{scrub, class: "live", changed, synthetic, files}`.
   - **A rebuild-class edit has no scrub** (409): it applies on release, as a `transaction`.
+  - **A token the JS target writes inline has no scrub either** (*1.5*): a number a `font-weight`
+    names, or a length or number an SVG attribute row names, has no property the page sets in
+    place, so its edit rebuilds and the JS dev loop refuses its scrub, the refusal naming why (the
+    design entry says `inline`).
 - **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
   the scrub opened with, its reply a transaction's. A file moved since is a conflict naming who
   moved it (`by`): nothing is written, and the builds get the committed design back. While a

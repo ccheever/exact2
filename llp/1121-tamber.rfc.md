@@ -2654,7 +2654,7 @@ variance, per-tuple accent flags, and any value carrying a platform `var`.
 channel (queued).
 
 **Stage 5 is closed.**
-### Stage 6, commit B: length and number tokens (B1 `74b1c8541`, B2 the JS target)
+### Stage 6, commit B: length and number tokens (B1, B2 the JS target, three review rounds)
 
 - **The crate** folds three kinds (`tamber/src/measure.rs`). A length is px, a bare `0`, one `rem`
   or `em`, a named length the kernel reads (a text style, `-exact-hairline`, by the schema's
