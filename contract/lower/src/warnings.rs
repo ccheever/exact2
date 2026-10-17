@@ -17,7 +17,7 @@ use contract_syntax::{
 use contract_types::Checked;
 use exact_kernel::StyleId;
 use exact_plan::Stdlib;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod counts;
 mod launch;
@@ -615,75 +615,114 @@ fn single_tab(tablist: &Node, out: &mut Vec<LowerError>) {
     }
 }
 
+/// What a number may be, as far as the clock goes: a bit set. A value may
+/// be several (a state assigned a reading in one action and a duration in
+/// another).
+type Kinds = u8;
+/// A reading of `performanceNow()`, the milliseconds since this launch, or
+/// a number made from one: a launch-relative time.
+const TIME: Kinds = 1;
+/// One reading less another: a span of time, the same on every launch.
+const SPAN: Kinds = 2;
+/// A number the source writes (a literal, or a call of literals).
+const CONST: Kinds = 4;
+/// A value the compiler cannot see (a source's field, a parameter, a state
+/// nothing assigns a number to): taken, as an anchor, to be on the clock.
+const UNSEEN: Kinds = 8;
+/// The launch's wall-clock origin, `epochAtZero`.
+const EPOCH: Kinds = 16;
+
 /// What the expanded root's names may hold, as far as the clock goes.
 struct Clock<'a> {
     fns: &'a [FnDecl],
-    /// Names whose value may be a reading of `performanceNow()`: the
-    /// milliseconds since this launch, or a number made from one.
-    marks: BTreeSet<String>,
-    /// Names whose value is the launch's wall-clock origin, `epochAtZero`.
-    epochs: BTreeSet<String>,
+    /// Each state's and derive's kinds, from what is assigned to it.
+    names: BTreeMap<String, Kinds>,
 }
 
 impl Clock<'_> {
-    fn epoch(&self, e: &Expr, locals: &[(String, bool)]) -> bool {
-        match e {
-            Expr::Member(_, field, _) => field == "epochAtZero",
-            Expr::Ident(name, _) => {
-                !locals.iter().any(|(n, _)| n == name) && self.epochs.contains(name)
-            }
-            Expr::Typed(inner, _, _) => self.epoch(inner, locals),
-            _ => false,
-        }
+    /// Whether `e` may be a launch-relative time.
+    fn mark(&self, e: &Expr, locals: &[(String, Kinds)], depth: u32) -> bool {
+        self.kinds(e, locals, depth) & TIME != 0
     }
 
-    /// Whether `e` may be a launch-relative time: `performanceNow()`, a name
-    /// or a computation holding one, unless `epochAtZero` is added to it
-    /// (the wall-clock time) or another reading is taken from it (a
-    /// duration). `depth` bounds a `fn`'s expansion.
-    fn mark(&self, e: &Expr, locals: &[(String, bool)], depth: u32) -> bool {
-        let m = |e: &Expr| self.mark(e, locals, depth);
+    /// What `e` may be: `performanceNow()` is a time; `epochAtZero` added to
+    /// a time is the wall-clock time; a time less another time, or less an
+    /// anchor the compiler cannot see, is a span, and less a constant or a
+    /// span it is still a time. `depth` bounds a `fn`'s expansion.
+    fn kinds(&self, e: &Expr, locals: &[(String, Kinds)], depth: u32) -> Kinds {
+        let k = |e: &Expr| self.kinds(e, locals, depth);
+        // A sum, product or quotient: what either side may be, a constant
+        // only when both are.
+        let join = |a: Kinds, b: Kinds| {
+            let joined = (a | b) & !CONST;
+            if joined == 0 {
+                a & b & CONST
+            } else {
+                joined | (a & b & CONST)
+            }
+        };
         match e {
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
+            Expr::Number(..) => CONST,
+            Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => 0,
             Expr::Ident(name, _) => match locals.iter().rev().find(|(n, _)| n == name) {
-                Some(&(_, marked)) => marked,
-                None => self.marks.contains(name),
+                Some(&(_, kinds)) => kinds,
+                None => match self.names.get(name) {
+                    Some(&kinds) if kinds != 0 => kinds,
+                    _ => UNSEEN,
+                },
             },
-            Expr::Member(inner, field, _) => field != "epochAtZero" && m(inner),
+            Expr::Member(_, field, _) if field == "epochAtZero" => EPOCH,
+            Expr::Member(inner, _, _) => UNSEEN | (k(inner) & (TIME | EPOCH)),
             Expr::Call(name, args, _) => {
                 if let Some(f) = self.fns.iter().find(|f| &f.name == name) {
                     if depth == 0 {
-                        return args.iter().any(m);
+                        return args.iter().fold(0, |acc, a| acc | k(a)) | UNSEEN;
                     }
-                    let bound: Vec<(String, bool)> = f
+                    let bound: Vec<(String, Kinds)> = f
                         .params
                         .iter()
                         .zip(args)
-                        .map(|(p, a)| (p.name.clone(), m(a)))
+                        .map(|(p, a)| (p.name.clone(), k(a)))
                         .collect();
-                    return self.mark(&f.body, &bound, depth - 1);
+                    return self.kinds(&f.body, &bound, depth - 1);
                 }
                 match Stdlib::from_name(name) {
-                    Some(Stdlib::PerformanceNow) => true,
+                    Some(Stdlib::PerformanceNow) => TIME,
                     // A count, a position or a truth is no time.
-                    Some(f) if f.returns() == "bool" => false,
-                    Some(Stdlib::Length | Stdlib::IndexOf) => false,
-                    _ => args.iter().any(m),
+                    Some(f) if f.returns() == "bool" => 0,
+                    Some(Stdlib::Length | Stdlib::IndexOf) => 0,
+                    _ => match args.iter().map(k).reduce(join) {
+                        Some(kinds) => kinds,
+                        None => UNSEEN,
+                    },
                 }
             }
-            Expr::Binary(op, a, b, _) => match op {
-                BinOp::Add if self.epoch(a, locals) || self.epoch(b, locals) => false,
-                // A reading less another value the app holds (a mark, a
-                // state, a source's field, a parameter) is a duration: an
-                // anchor the compiler cannot see is taken to be on the same
-                // clock. Less a constant, it is still a time.
-                BinOp::Sub if m(a) && !constant(b) => false,
-                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => m(a) || m(b),
-                _ => false,
-            },
-            Expr::Unary(UnOp::Neg, inner, _) => m(inner),
-            Expr::Unary(..) => false,
-            Expr::Ternary(_, a, b, _) => m(a) || m(b),
+            Expr::Binary(op, a, b, _) => {
+                let (a, b) = (k(a), k(b));
+                match op {
+                    // The wall-clock time: a launch's origin and its reading.
+                    BinOp::Add if (a | b) & EPOCH != 0 && (a | b) & TIME != 0 => UNSEEN,
+                    BinOp::Sub => {
+                        let mut out = join(a & !TIME, b & !TIME);
+                        if a & TIME != 0 {
+                            if b & (TIME | UNSEEN) != 0 {
+                                out |= SPAN;
+                            }
+                            if b & (SPAN | CONST | EPOCH) != 0 || b == 0 {
+                                out |= TIME;
+                            }
+                        } else if b & TIME != 0 {
+                            out |= TIME;
+                        }
+                        out
+                    }
+                    BinOp::Add | BinOp::Mul | BinOp::Div | BinOp::Rem => join(a, b),
+                    _ => 0,
+                }
+            }
+            Expr::Unary(UnOp::Neg, inner, _) => k(inner),
+            Expr::Unary(..) => 0,
+            Expr::Ternary(_, a, b, _) => k(a) | k(b),
             Expr::Match {
                 subject,
                 var,
@@ -692,57 +731,45 @@ impl Clock<'_> {
                 ..
             } => {
                 let mut inner = locals.to_vec();
-                inner.push((var.clone(), m(subject)));
-                self.mark(some, &inner, depth) || m(none)
+                inner.push((var.clone(), k(subject)));
+                self.kinds(some, &inner, depth) | k(none)
             }
             Expr::Let {
                 name, value, body, ..
             } => {
                 let mut inner = locals.to_vec();
-                inner.push((name.clone(), m(value)));
-                self.mark(body, &inner, depth)
+                inner.push((name.clone(), k(value)));
+                self.kinds(body, &inner, depth)
             }
-            Expr::Template(parts, _) => parts.iter().any(|p| match p {
-                TemplatePart::Expr(e) => m(e),
-                TemplatePart::Text(_) => false,
+            Expr::Template(parts, _) => parts.iter().fold(0, |acc, p| match p {
+                TemplatePart::Expr(e) => acc | (k(e) & TIME),
+                TemplatePart::Text(_) => acc,
             }),
-            Expr::List(items, _) => items.iter().any(m),
+            Expr::List(items, _) => items.iter().fold(0, |acc, e| acc | k(e)),
             Expr::Some(inner, _) | Expr::NamedArg(_, inner, _) | Expr::Typed(inner, _, _) => {
-                m(inner)
+                k(inner)
             }
-            Expr::Arrow { body, .. } => m(body),
+            Expr::Arrow { body, .. } => k(body),
         }
     }
 }
 
-/// Whether `e` is made of literal numbers alone: what a time less it stays a time.
-fn constant(e: &Expr) -> bool {
-    match e {
-        Expr::Number(..) => true,
-        Expr::Binary(_, a, b, _) => constant(a) && constant(b),
-        Expr::Unary(_, inner, _) | Expr::Typed(inner, _, _) => constant(inner),
-        _ => false,
-    }
-}
-
-/// Every state a statement list assigns a mark to, with its `let`s.
+/// Each state a statement list assigns, with what it may assign, and its `let`s.
 fn assigned(
     clock: &Clock<'_>,
     body: &[Stmt],
-    locals: &mut Vec<(String, bool)>,
-    out: &mut BTreeSet<String>,
+    locals: &mut Vec<(String, Kinds)>,
+    out: &mut BTreeMap<String, Kinds>,
 ) {
     let scope = locals.len();
     for s in body {
         match s {
             Stmt::Let { name, expr, .. } => {
-                let marked = clock.mark(expr, locals, 4);
-                locals.push((name.clone(), marked));
+                let kinds = clock.kinds(expr, locals, 4);
+                locals.push((name.clone(), kinds));
             }
             Stmt::Assign { target, expr, .. } => {
-                if clock.mark(expr, locals, 4) {
-                    out.insert(target.clone());
-                }
+                *out.entry(target.clone()).or_default() |= clock.kinds(expr, locals, 4);
             }
             Stmt::If {
                 then, otherwise, ..
@@ -756,8 +783,8 @@ fn assigned(
                 none,
                 ..
             } => {
-                let marked = clock.mark(subject, locals, 4);
-                locals.push((some.0.clone(), marked));
+                let kinds = clock.kinds(subject, locals, 4);
+                locals.push((some.0.clone(), kinds));
                 assigned(clock, &some.1, locals, out);
                 locals.pop();
                 assigned(clock, none, locals, out);
@@ -773,15 +800,15 @@ fn assigned(
 fn sent(
     clock: &Clock<'_>,
     body: &[Stmt],
-    locals: &mut Vec<(String, bool)>,
+    locals: &mut Vec<(String, Kinds)>,
     out: &mut Vec<(Span, String)>,
 ) {
     let scope = locals.len();
     for s in body {
         match s {
             Stmt::Let { name, expr, .. } => {
-                let marked = clock.mark(expr, locals, 4);
-                locals.push((name.clone(), marked));
+                let kinds = clock.kinds(expr, locals, 4);
+                locals.push((name.clone(), kinds));
             }
             Stmt::Send { source, args, .. } => {
                 for a in args.iter().filter(|a| clock.mark(a, locals, 4)) {
@@ -800,8 +827,8 @@ fn sent(
                 none,
                 ..
             } => {
-                let marked = clock.mark(subject, locals, 4);
-                locals.push((some.0.clone(), marked));
+                let kinds = clock.kinds(subject, locals, 4);
+                locals.push((some.0.clone(), kinds));
                 sent(clock, &some.1, locals, out);
                 locals.pop();
                 sent(clock, none, locals, out);
@@ -818,37 +845,45 @@ fn sent(
 /// persisted state (LLP 1116 D6, D5).
 /// `performanceNow()` counts from 0 at each launch, so a start mark a
 /// source keeps reads as a time before the next launch began (stopwatch:
-/// laps of `0-5:0-41`). A duration, a reading less another value the app
-/// holds, is kept as it is.
+/// laps of `0-5:0-41`). A span, one reading less another (or less an
+/// anchor the compiler cannot see, euxy's `transport.anchorAt`), is kept as
+/// it is.
 fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut Vec<LowerError>) {
     let mut clock = Clock {
         fns,
-        marks: BTreeSet::new(),
-        epochs: BTreeSet::new(),
+        names: BTreeMap::new(),
     };
-    // Settle which states and derives hold marks. Each round recomputes
-    // them from the last, so a name marked before what it subtracts was
-    // known (a duration, `performanceNow() - start`) is cleared again; the
-    // rounds are bounded by the names.
-    let names = root.states.len() + root.derives.len() + 1;
-    for _ in 0..=names {
-        let mut marks = BTreeSet::new();
-        let mut epochs = BTreeSet::new();
-        for b in root.states.iter().chain(&root.derives) {
-            if clock.mark(&b.expr, &[], 4) {
-                marks.insert(b.name.clone());
-            }
-            if clock.epoch(&b.expr, &[]) {
-                epochs.insert(b.name.clone());
-            }
+    // What each state and derive may hold, grown round by round from what
+    // is assigned to it until nothing more is added. An assigned state's
+    // initial number is its placeholder (`state start = 0`), not a value of
+    // the clock: only a reading there counts; one never assigned is its
+    // initial value. Kinds only grow, so the rounds end, bounded by the
+    // names and the five kinds.
+    let mut targets = BTreeMap::new();
+    for a in &root.actions {
+        assigned(&clock, &a.body, &mut Vec::new(), &mut targets);
+    }
+    let rounds = (root.states.len() + root.derives.len() + 1) * 5;
+    for _ in 0..rounds {
+        let mut names = clock.names.clone();
+        for s in &root.states {
+            let kept = if targets.contains_key(&s.name) {
+                TIME
+            } else {
+                !0
+            };
+            *names.entry(s.name.clone()).or_default() |= clock.kinds(&s.expr, &[], 4) & kept;
+        }
+        for d in &root.derives {
+            *names.entry(d.name.clone()).or_default() |= clock.kinds(&d.expr, &[], 4);
         }
         for a in &root.actions {
-            assigned(&clock, &a.body, &mut Vec::new(), &mut marks);
+            assigned(&clock, &a.body, &mut Vec::new(), &mut names);
         }
-        if marks == clock.marks && epochs == clock.epochs {
+        if names == clock.names {
             break;
         }
-        (clock.marks, clock.epochs) = (marks, epochs);
+        clock.names = names;
     }
     let mut found = Vec::new();
     for a in &root.actions {
@@ -856,7 +891,7 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
     }
     // A persisted state outlives the launch as a source's copy does (D5).
     for s in root.states.iter().filter(|s| root.persists(&s.name)) {
-        if clock.marks.contains(&s.name) {
+        if clock.names.get(&s.name).is_some_and(|k| k & TIME != 0) {
             out.push(LowerError {
                 id: "type-performance-now-persisted",
                 message: format!(
