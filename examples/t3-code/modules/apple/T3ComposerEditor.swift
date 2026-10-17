@@ -90,12 +90,10 @@ final class T3ComposerEditor {
         }
         guard element.hatch == hatch else { return }
         self.element = element
-        let previous = owner
         owner = element.data[.snapshotOwner] ?? ""
         guard let view = element.textView else { return }
         if textView !== view { attach(view) }
         refresh()
-        if owner != previous { styler.press.ownerChanged(to: owner) }
     }
 
     func remove(_ element: ExactElement) {
