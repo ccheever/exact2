@@ -1,9 +1,9 @@
 //! The wire's operations (`tamber/1`, LLP 1121 D13): each `ops` entry read
 //! into the crate's [`Op`], with the file it edits.
 
-use crate::tamber_serve::{optional, required};
 use exact_tamber::Op;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 /// The wire's operations (D13's names, kebab-case; named fields), each with
 /// the file it edits (the design's own when unsaid). A `restore` is no
@@ -254,4 +254,41 @@ pub(crate) fn param_values(
         }
     }
     Ok(())
+}
+
+/// A string field when the request has it; a field of another type is an
+/// error, not absent.
+pub(crate) fn optional(v: &Value, key: &str) -> Result<Option<String>, Value> {
+    match &v[key] {
+        Value::Null => Ok(None),
+        Value::String(s) => Ok(Some(s.clone())),
+        _ => Err(json!({"message": format!("`{key}` is a string")})),
+    }
+}
+
+pub(crate) fn required(v: &Value, key: &str) -> Result<String, Value> {
+    optional(v, key)?.ok_or_else(|| json!({"message": format!("`{key}` is a string, and needed")}))
+}
+
+/// A request's `files` (or `requires`), each path's digest as the client saw it.
+pub(crate) fn seen_files(request: &Value, key: &str) -> Result<HashMap<String, String>, Value> {
+    let bad = || json!({"message": format!("`{key}` is an object of digests")});
+    match &request[key] {
+        Value::Null => Ok(HashMap::new()),
+        Value::Object(m) => m
+            .iter()
+            .map(|(k, v)| Ok((k.clone(), v.as_str().ok_or_else(bad)?.to_string())))
+            .collect(),
+        _ => Err(bad()),
+    }
+}
+
+/// `{path: digest}`.
+pub(crate) fn files_json(files: &[(String, String, String)]) -> Value {
+    Value::Object(
+        files
+            .iter()
+            .map(|(p, _, d)| (p.clone(), json!(d)))
+            .collect(),
+    )
 }

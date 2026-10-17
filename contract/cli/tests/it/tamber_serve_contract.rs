@@ -102,3 +102,47 @@ fn a_set_state_the_app_cannot_build_writes_nothing() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review round 1: a negative literal replaced whole; a row with a comment
+/// after it unset with its block (the comment on the header too); a new
+/// block at a four-space style's own indent; a row's name one name.
+#[test]
+fn set_state_holds_its_edges() {
+    let dir = app("state-edges", DESIGN);
+    let file = dir.join("app.contract");
+    let view = "style Post\n    background-color=\"#ffffff\"\n    :hover // a hover\n        opacity=-0.2 // dimmer\n\ncomponent App\n  view\n    column class=Post\n      text \"Post\"\n";
+    std::fs::write(&file, view).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let write = |s: &mut Serve, op: serde_json::Value| {
+        s.ask(json!({"method": "transaction", "client": "one", "files": {"app.contract": digest(&file)}, "ops": [op]})).0
+    };
+    let set = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Post", "state": "hover", "row": "opacity", "value": 0.5}),
+    );
+    assert!(set["ok"]["inverse"].is_string(), "{set}");
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .contains("opacity=0.5 // dimmer"),
+        "{}",
+        std::fs::read_to_string(&file).unwrap()
+    );
+    let unset = write(
+        &mut s,
+        json!({"op": "unset-state", "style": "Post", "state": "hover", "row": "opacity"}),
+    );
+    assert!(unset["ok"]["inverse"].is_string(), "{unset}");
+    assert!(!std::fs::read_to_string(&file).unwrap().contains(":hover"));
+    let block = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Post", "state": "active", "row": "opacity", "value": 0.9}),
+    );
+    assert!(block["ok"]["inverse"].is_string(), "{block}");
+    let bad = write(
+        &mut s,
+        json!({"op": "set-state", "style": "Post", "state": "active", "row": "opacity=0.5\n  width", "value": "300px"}),
+    );
+    assert!(bad["error"].is_object(), "{bad}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

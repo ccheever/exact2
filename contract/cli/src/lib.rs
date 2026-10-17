@@ -387,6 +387,7 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
         packages: Vec::new(),
@@ -400,7 +401,7 @@ pub fn source_graph(path: &Path) -> SourceGraph {
             related: Box::new([]),
         }],
     };
-    let src = match std::fs::read_to_string(path) {
+    let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
         Err(e) => return refused(format!("{}: {e}", path.display())),
     };

@@ -54,6 +54,7 @@
 //! - **A request** is one JSON object on a line of at most 1 MiB; a field
 //!   of the wrong type is an error, not absent.
 
+use crate::tamber_ops::{files_json, optional, required, seen_files};
 use exact_tamber::Op;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -64,7 +65,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.10";
+pub const PROTOCOL: &str = "tamber/1.11";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -1029,22 +1030,7 @@ impl Server {
             false => None,
         };
         let snap = self.snapshot()?;
-        // Each `.contract` write's file: the one it names, or the one that
-        // declares its style.
-        let texts: Vec<(String, String)> = snap
-            .iter()
-            .map(|(f, t, _)| (f.clone(), t.clone()))
-            .collect();
-        let mut contract_ops = Vec::new();
-        for (named, op) in written {
-            let file = crate::tamber_contract::file_of(named.as_deref(), &op, &texts)?;
-            if !file.ends_with(".contract") || !texts.iter().any(|(f, _)| *f == file) {
-                return Err(
-                    json!({"message": format!("`{file}` is no Contract source of the app's own")}),
-                );
-            }
-            contract_ops.push((file, op));
-        }
+        let contract_ops = crate::tamber_contract::files(written, &snap)?;
         let stale: Vec<&String> = snap
             .iter()
             .filter(|(p, _, d)| {
@@ -1457,43 +1443,6 @@ fn temp_name(name: &str) -> bool {
     name.strip_prefix("tamber-")
         .and_then(|n| n.strip_suffix(".tmp"))
         .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
-}
-
-/// A string field when the request has it; a field of another type is an
-/// error, not absent.
-pub(crate) fn optional(v: &Value, key: &str) -> Result<Option<String>, Value> {
-    match &v[key] {
-        Value::Null => Ok(None),
-        Value::String(s) => Ok(Some(s.clone())),
-        _ => Err(json!({"message": format!("`{key}` is a string")})),
-    }
-}
-
-pub(crate) fn required(v: &Value, key: &str) -> Result<String, Value> {
-    optional(v, key)?.ok_or_else(|| json!({"message": format!("`{key}` is a string, and needed")}))
-}
-
-/// A request's `files` (or `requires`), each path's digest as the client saw it.
-fn seen_files(request: &Value, key: &str) -> Result<HashMap<String, String>, Value> {
-    let bad = || json!({"message": format!("`{key}` is an object of digests")});
-    match &request[key] {
-        Value::Null => Ok(HashMap::new()),
-        Value::Object(m) => m
-            .iter()
-            .map(|(k, v)| Ok((k.clone(), v.as_str().ok_or_else(bad)?.to_string())))
-            .collect(),
-        _ => Err(bad()),
-    }
-}
-
-/// `{path: digest}`.
-fn files_json(files: &[(String, String, String)]) -> Value {
-    Value::Object(
-        files
-            .iter()
-            .map(|(p, _, d)| (p.clone(), json!(d)))
-            .collect(),
-    )
 }
 
 /// Why `explain` or `uses` has no token `name`: an icon (a param's too) is

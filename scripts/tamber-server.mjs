@@ -354,7 +354,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // design's, whatever the first read gave, and any other holding a file.
   // A directory removed and made again is watched again (by its inode).
   const watchAll = paths => {
-    for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...paths.map(path => dirname(resolve(appDir, path)))])) {
+    // Each file's directory and every one between it and the app's, whose
+    // names are holders too: a directory replaced (a checkout) is found by
+    // its parent's event (a Contract source under `src/ui/`).
+    const between = path => {
+      const out = [];
+      for (let dir = dirname(resolve(appDir, path)); dir.startsWith(appDir + sep); dir = dirname(dir)) { out.push(dir); holders.add(basename(dir)); }
+      return out;
+    };
+    for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...paths.flatMap(between)])) {
       let ino = null;
       try { ino = statSync(dir).ino; } catch { /* not there now */ }
       const held = watchers.get(dir);
@@ -695,7 +703,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const held = () => [...proposals].map(([id, p]) => p.shown);
   async function hold(client, ops, files, replaces, review, requires) {
     expire();
-    const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
+    // A state part's write without a `file` is any Contract source's (as a write's `prepare`).
+    const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
+    const designFile = relative(appDir, designPath(appDir) ?? resolve(appDir, design));
+    const touched = new Set((Array.isArray(ops) ? ops : []).flatMap(o => (typeof o?.file === 'string' ? [o.file] : /^(un)?set-state$/.test(o?.op) ? contracts : [designFile])));
     // The digests of files it was planned on but does not edit (a revert's
     // file already as before), and those the client requires, are its
     // preconditions too.

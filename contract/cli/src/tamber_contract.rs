@@ -6,7 +6,7 @@
 //! before anything is written; its inverse is the preimage, restored line
 //! for line and byte for byte, bypassing fmt (LLP 1122 D6).
 
-use crate::tamber_serve::{optional, required};
+use crate::tamber_ops::{optional, required};
 use exact_tamber::Op;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -175,6 +175,10 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
             (state, row)
         }
     };
+    // A row is one property's name: no `=`, space or line of its own.
+    if row.is_empty() || !row.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(format!("`{row}` is no row's name"));
+    }
     let name = contract_syntax::state::state_attr(&format!(":{state}"), row);
     let prefix = format!(":{state} ");
     let found = style.attrs.iter().find(|a| a.name == name);
@@ -198,7 +202,9 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
                 let pad = " ".repeat(indent(&all[at(last)]));
                 all.insert(at(last) + 1, format!("{pad}{row} = {value}"));
             }
-            // The block added after the style's last row.
+            // The block added after the style's last row, at the style's
+            // own indent (its first row's, or its header's and two), its
+            // row as deep below it as another state's are.
             None => {
                 let header = style.span.line;
                 let last = style
@@ -207,8 +213,19 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
                     .map(|a| a.span.line)
                     .max()
                     .unwrap_or(header);
-                let pad = " ".repeat(indent(&all[at(header)]) + 2);
-                all.insert(at(last) + 1, format!("{pad}  {row} = {value}"));
+                let body = (at(header) + 1..at(last) + 1)
+                    .map(|i| &all[i])
+                    .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with("//"))
+                    .map_or(indent(&all[at(header)]) + 2, |l| indent(l));
+                let deeper = style
+                    .attrs
+                    .iter()
+                    .find(|a| contract_syntax::state::state_of(&a.name).is_some())
+                    .map_or(2, |a| {
+                        indent(&all[at(a.span.line)]).saturating_sub(body).max(1)
+                    });
+                let (pad, row_pad) = (" ".repeat(body), " ".repeat(body + deeper));
+                all.insert(at(last) + 1, format!("{row_pad}{row} = {value}"));
                 all.insert(at(last) + 1, format!("{pad}:{state}"));
             }
         },
@@ -216,9 +233,11 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
             let a = found
                 .ok_or_else(|| format!("`style {}` has no `{row}` in `:{state}`", op.style()))?;
             let (line, v) = (a.span.line, a.value.span());
+            // Alone on its line, a comment after it or none.
             let l = &all[at(line)];
+            let after = l.get(v.end_col as usize - 1..).unwrap_or("").trim();
             let alone = l.trim_start().len() == l.len() - (a.span.col as usize - 1)
-                && l.trim_end().len() == v.end_col as usize - 1;
+                && (after.is_empty() || after.starts_with("//"));
             match alone {
                 true => {
                     all.remove(at(line));
@@ -226,7 +245,12 @@ pub(crate) fn edit(text: &str, op: &ContractOp) -> Result<String, String> {
                     if block.len() == 1 {
                         let header = (0..at(line))
                             .rev()
-                            .find(|&i| all[i].trim() == format!(":{state}"))
+                            .find(|&i| {
+                                let rest = all[i].trim().strip_prefix(&format!(":{state}"));
+                                rest.is_some_and(|r| {
+                                    r.trim().is_empty() || r.trim().starts_with("//")
+                                })
+                            })
                             .ok_or("the state's block has no header")?;
                         all.remove(header);
                     }
@@ -374,4 +398,28 @@ pub(crate) fn plan(
     // A state part compiles into rows and looks: the ordinary rebuild (D13).
     planned.class = exact_tamber::Class::Rebuild;
     Ok(())
+}
+
+/// Each write's file over the server's read `snap`: the one it names, or
+/// the one that declares its style; refused where that is no Contract
+/// source of the app's own.
+pub(crate) fn files(
+    written: Vec<(Option<String>, ContractOp)>,
+    snap: &[(String, String, String)],
+) -> Result<Vec<(String, ContractOp)>, Value> {
+    let texts: Vec<(String, String)> = snap
+        .iter()
+        .map(|(f, t, _)| (f.clone(), t.clone()))
+        .collect();
+    let mut out = Vec::new();
+    for (named, op) in written {
+        let file = file_of(named.as_deref(), &op, &texts)?;
+        if !file.ends_with(".contract") || !texts.iter().any(|(f, _)| *f == file) {
+            return Err(
+                json!({"message": format!("`{file}` is no Contract source of the app's own")}),
+            );
+        }
+        out.push((file, op));
+    }
+    Ok(out)
 }

@@ -1111,10 +1111,12 @@ component DesignTool
                   text (p.ok ? p.note : p.error) color=(p.ok ? "-exact-secondary-label" : "-exact-system-red") testId="pin-result"
                 case none
                   text "" display="none"
-            if hello.files.length > 1
+            // Design files only: the server's files hold the app's Contract
+            // sources too (LLP 1121 stage 8 D), whose state parts it writes.
+            if hello.files.filter(f => f.path.indexOf(".contract") < 0).length > 1
               select value=file change=chooseFile aria-label="Design file" testId="file"
                 option "The app's design" value=""
-                for f in hello.files key=f.path
+                for f in hello.files.filter(f => f.path.indexOf(".contract") < 0) key=f.path
                   option f.path value=f.path
             if pending(design) and design.answer == 0
               row gap=8 align-items="center" testId="design-loading"

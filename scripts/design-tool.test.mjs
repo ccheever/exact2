@@ -79,8 +79,8 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.10', app });
-    expect(hello.files.map(f => f.path)).toEqual(['app.tamber']);
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.11', app });
+    expect(hello.files.map(f => f.path)).toEqual(['app.contract', 'app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
     // the design the port serves, and this app's reuses it (its build is

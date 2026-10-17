@@ -3406,7 +3406,7 @@ verifying build (not reproduced in three replays).
 - **The inverse** is a line restore of the preimage (`exact_tamber::Op::Restore`, applied to the raw
   text by `tamber_contract::restore`, bypassing fmt), so an unformatted file comes back byte for
   byte (LLP 1122 D6).
-- **Wire:** under *1.10* for now (the stage 7 window); theme2 to say whether stage 8's opens the next.
+- **Wire:** `tamber/1.11`, the window stage 7's close opened (theme2, 20:30).
 - **Tests:** `contract/cli/tests/it/tamber_serve_contract.rs` (set, replace, undo to the
   unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
   `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`

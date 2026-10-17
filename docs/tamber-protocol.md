@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.10`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.11`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.10"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.11"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -63,6 +63,10 @@ on macOS and Linux.
 - `tamber/1.10` (LLP 1121 stage 7, commit A) added component params: `describe`'s
   `ir.components` (and `contract tamber ir`'s), each component's params by full name. Stage 7's
   later wire changes add under the same version.
+- `tamber/1.11` (LLP 1121 stage 8, commit D) added the app's own Contract sources to the design's
+  files (`hello`, every reply's `files`, the journal, `commit`) and the state part operations
+  `set-state` and `unset-state`. The window's later additive changes (stage 8, real-time scrubs)
+  add under the same version.
 
 ## Where it runs
 
@@ -144,7 +148,7 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 
 - **The design's files** are the app's design (`app.tamber`, or the file `app.json`'s `"tamber"`
   names) and every other `*.tamber` file directly in the app's directory, then the app's own
-  Contract sources (*1.10*, LLP 1121 stage 8 D: each `.contract` file its `app.contract` reads
+  Contract sources (*1.11*, LLP 1121 stage 8 D: each `.contract` file its `app.contract` reads
   from inside the app; a package's are read-only and not among them), whose state parts
   `set-state` writes. Paths are relative to the app's directory. A hand edit of either kind is
   announced, `commit` takes either, and the journal recovers either.
@@ -315,7 +319,7 @@ design.
 | `remove-axis-value` | `axis`, `value` | structure |
 | `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
 | `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
-| `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.10*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
+| `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.11*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
 | `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
