@@ -249,14 +249,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
     surface(e.target);
-    const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
+    // A finger holds the unsaid dim too (index.html): a touch's `:active` is the engine's choice, which Safari makes
+    // only for an element with a touch listener ("Safari Web Content Guide", Handling Events) and Chrome only after a
+    // tap gesture a synthesized touch never makes.
+    const touch = e.pointerType === "touch";
+    const el = e.target.closest?.(touch ? "[data-exact-on~=press],button,a[data-view][href]" : "[data-exact-on~=press],button[data-button-style]");
     if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
     // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
     // `navigator.vibrate` where the browser has it (not desktop, not iOS
     // Safari), with `haptic()`'s two lengths (workout F4).
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
     if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
-    if (!(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]"))) return;
+    if (!(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]") || touch)) return;
     const r = unpressedBox(el);
     press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
     showPress(el, true);

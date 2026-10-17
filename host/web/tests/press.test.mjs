@@ -396,6 +396,16 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     await evaluate(`document.getElementById('custom').focus()`);
     expect([await marked('box', 'data-pressed'), await shown('box')]).toEqual([false, '1']);
     await key('keyUp', 'Space');
+
+    // A finger: a touch's `:active` is the engine's, which a synthesized touch never gets, so this piece marks the
+    // innermost pressable while the finger is down, and lets it go at the lift (the tap the lift makes then holds it
+    // `:active` a moment, the browser's own).
+    await call('Emulation.setTouchEmulationEnabled', { enabled: true });
+    const finger = (type, at) => call('Input.dispatchTouchEvent', { type, touchPoints: at ? [{ x: at[0], y: at[1] }] : [] });
+    await finger('touchStart', await centre('inner'));
+    expect([await shown('inner', 'outer'), await marked('inner', 'data-pressed')]).toEqual(['0.65,1', true]);
+    await finger('touchEnd');
+    expect(await marked('inner', 'data-pressed')).toBe(false);
   } finally {
     await close();
   }

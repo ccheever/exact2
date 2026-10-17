@@ -3,14 +3,15 @@
 // or to the carrier's own contact phases. `agent.mjs` calls it from `tap`.
 import { MalformedOperation } from './agent-keys.mjs';
 import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
-import { layoutArgs } from './agent-inspect.mjs';
+import { layoutArgs, perfOp } from './agent-inspect.mjs';
 
 /** A drag's `during` op is a read or the clock, not a second finger (drums R8).
- * A filmed screenshot (`over … every`) loops on the clock. The test parser
- * checks the same set. */
+ * A filmed screenshot (`over … every`) loops on the clock, a comparison settles
+ * first, and `perf … during` drives ops of its own. The test parser checks the
+ * same set, less `perf`. */
 export function duringAllowed(op) {
   const w = String(op).trim().split(/\s+/);
-  return ['tree', 'layout', 'state', 'logs', 'screenshot', 'clock'].includes(w[0]) && !(w[0] === 'screenshot' && w[2] === 'over');
+  return ['tree', 'layout', 'state', 'logs', 'screenshot', 'clock', 'perf'].includes(w[0]) && !(w[0] === 'screenshot' && ['over', 'compare'].includes(w[2])) && !(w[0] === 'perf' && (w.includes('during') || w.includes('live')));
 }
 
 /** Run one allowed `during` op on the session. The reply is the op's. */
@@ -19,6 +20,7 @@ export async function duringOp(s, op) {
   const args = String(op).trim().split(/\s+/), word = args[0];
   if (word === 'clock') return s.clock(args.slice(1).join(' ') || 'settle');
   if (word === 'logs') return s.logs();
+  if (word === 'perf') return perfOp(s, args.slice(1), String(op));
   if (word === 'tree') return args[1] === '--ax' ? s.tree(args[2], { ax: true }) : s.tree(args[1], args[2] === 'under' ? args[3] : undefined);
   if (word === 'layout') return s.layout(...layoutArgs(args.slice(1)));
   // Mid-gesture, as it stands: no settle (LLP 1116.003 D8 settles a screenshot otherwise).
@@ -174,26 +176,44 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
 }
 
-/** How much longer than its holds a played contact stays down: the time to see the touch begin in the dispatch log
- *  and to end the clock's real run, so the whole hold's clock passes before the lift. */
-export const HELD_LEAD = 250;
+/** How much longer than its steps a played contact stays down: the time to see the touch begin in the dispatch log,
+ *  for it to reach its node (about 150 ms in a scroll view, `touches.mjs`) and to end the clock's real run, so the
+ *  whole hold's clock passes before the lift. Each read inside adds `HELD_READ` (a simulator's screenshot takes about
+ *  100 ms). */
+export const HELD_LEAD = 250, HELD_READ = 150;
 
 /**
  * `tap <target> down` … `tap up` under `--touch platform`: one real touch, so a native view's own recognizers (a
  * `UILongPressGestureRecognizer`) see it held. The runner holds no finger across requests (LLP 1080.000 P3), so the
  * contact is played whole at its lift: `down` books the point (`at`, else the target's middle, a viewport point kept
- * from then on), each `hold` adds its time, `up` presses there, and `cancel` drops it with nothing pressed. Once the
- * touch has begun the app's clock moves the holds' sum on real time (a module's `context.after` and UIKit's
- * recognizers keep their order, as on a device), and the finger lifts after it, `HELD_LEAD` past the holds at most.
- * Under either timing the clock is then the agent's (LLP 1080.000 §12: any landed input takes it). A move is a
- * drag's (`tap <target> drag`).
+ * from then on), each `hold` adds its time, the reads and clock steps between are kept (`heldRead`), `up` presses
+ * there, and `cancel` drops it with nothing pressed. Once the touch has reached its target the steps run in order, a
+ * hold or a `clock +<ms>` moving the app's clock on real time (a module's `context.after` and UIKit's recognizers keep
+ * their order, as on a device), and the finger lifts after them: `HELD_LEAD` past the holds, and `HELD_READ` for
+ * each read. Under either timing the clock is then the agent's (LLP 1080.000 §12: any landed input takes it). A move
+ * is a drag's (`tap <target> drag`).
  */
 export async function heldDown(s, node, at) {
   const b = (await s.layout()).nodes.find((n) => n.id === node.id);
   if (!b) throw new Error(`view ${node.id} has no box on screen`);
   const point = at ? [at.x, at.y] : [b.x + b.w / 2, b.y + b.h / 2];
-  s.contact = { x: point[0], y: point[1], whole: { id: node.id, hold: 0 } };
-  return { contact: node.id, phase: 'down', at: point, delivery: 'platform', note: 'under --touch platform a held contact is one real touch, pressed at tap up for its holds: a read before then sees the screen unpressed; tap <target> drag 0 0 hold <ms> during "<op>" reads inside a press' };
+  s.contact = { x: point[0], y: point[1], whole: { id: node.id, hold: 0, queue: [] } };
+  return { contact: node.id, phase: 'down', at: point, delivery: 'platform', note: 'under --touch platform a held contact is one real touch, played at tap up: the reads and clock steps before then run inside it, pressed, and answer at tap up' };
+}
+
+/** A step written between `tap <target> down` and `tap up` of a played contact (`heldDown`): a read or the clock is
+ *  kept, in order with the holds, to run inside the touch at its lift, and its reply is given then (`s.heldReads`);
+ *  a `clock +<ms>` counts toward the hold. Input is refused by name: the runner's touch is the only finger. False
+ *  for a phase of the contact, or with no played contact down. */
+export function heldRead(s, line) {
+  const whole = s.contact?.whole, w = line.trim().split(/\s+/);
+  if (!whole || (w[0] === 'tap' && ['move', 'hold', 'up', 'cancel'].includes(w[1]))) return false;
+  if (!duringAllowed(line)) throw new Error(`under --touch platform tap <target> down … tap up is one real touch, played at tap up, and only reads and the clock run inside it (tree, layout, state, logs, screenshot, perf, clock): tap up or tap cancel before \`${w[0]}\``);
+  const ms = w[0] === 'clock' && /^\+\d+(\.\d+)?$/.test(w[1] ?? '') && (w.length === 2 || (w.length === 3 && w[2] === 'real')) ? Number(w[1].slice(1)) : 0;
+  if (whole.hold + ms > DRAG_BOUNDS.hold) throw new MalformedOperation(`a held real touch lasts at most ${DRAG_BOUNDS.hold} ms`);
+  whole.hold += ms;
+  whole.queue.push({ line: line.trim(), ms });
+  return true;
 }
 
 export async function heldPhase(s, carrier, phase, opts) {
@@ -202,20 +222,39 @@ export async function heldPhase(s, carrier, phase, opts) {
   if (phase === 'hold') {
     if (whole.hold + opts.ms > DRAG_BOUNDS.hold) throw new MalformedOperation(`tap hold: a held real touch lasts at most ${DRAG_BOUNDS.hold} ms`);
     whole.hold += opts.ms;
+    whole.queue.push({ ms: opts.ms });
     return { phase, at, delivery: 'platform', held: whole.hold };
   }
   s.contact = null;
-  if (phase === 'cancel') return { phase, at, delivery: 'platform', note: 'nothing was pressed' };
+  const reads = s.heldReads = [], kept = whole.queue.filter((q) => q.line);
+  if (phase === 'cancel') {
+    for (const q of kept) reads.push([q.line.split(/\s+/)[0], await duringOp(s, q.line)]);
+    return { phase, at, delivery: 'platform', note: `nothing was pressed${kept.length ? '; the steps written before it ran after it, unpressed' : ''}` };
+  }
   // The point the contact went down at, still on its target: a target that moved since is refused, never followed.
   const b = (await s.layout()).nodes.find((n) => n.id === whole.id);
   if (!b || at[0] < b.x || at[1] < b.y || at[0] > b.x + b.w || at[1] > b.y + b.h) throw new Error(`tap up: view ${whole.id} moved off (${at}), where the contact went down, so nothing was pressed: tap it down again`);
-  // A clock that fails once the touch is delivered is the reply's landError, the receipt kept: a retry would press twice.
-  const hold = whole.hold;
-  let clockError = null;
-  const clock = async () => { try { return await s.clock(`+${hold} real`); } catch (e) { clockError = e; return null; } };
-  const r = await carrier.input(whole.id, 'drag', { at, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: hold ? hold + HELD_LEAD : 0, during: hold ? [clock] : [] } });
+  // A step that fails once the touch is delivered is the reply's landError, the receipt kept: a retry would press twice.
+  let landError = null;
+  const inside = whole.queue.map(({ line, ms }) => async () => {
+    s.held = `tap #${whole.id} down`;
+    try {
+      const r = ms ? await s.clock(`+${ms} real`) : await duringOp(s, line);
+      if (line) reads.push([line.split(/\s+/)[0], r]);
+      return r;
+    } catch (e) {
+      landError ??= `the touch was delivered; ${line ? `\`${line}\`` : `moving the clock ${ms} ms`} while it was down failed: ${e.message ?? e}`;
+      if (line) reads.push(['failed', { op: line, error: e.message ?? String(e) }]);
+      return null;
+    } finally { s.held = null; }
+  });
+  const hold = whole.hold, readCount = kept.filter((q) => !q.ms).length;
+  const press = inside.length ? hold + HELD_LEAD + HELD_READ * readCount : 0;
+  let r;
+  try { r = await carrier.input(whole.id, 'drag', { at, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: press, during: inside } }); }
+  catch (error) { error.message = error.message.replace(/lengthen hold$/, 'the press was delivered; a tap hold <ms> before tap up gives the steps inside it longer'); throw error; }
   const { during, drag, ...reply } = r;
-  return { ...reply, phase, at, hold, ...(clockError ? { landError: `the touch was delivered; moving the clock ${hold} ms while it was down failed: ${clockError.message ?? clockError}` } : {}) };
+  return { ...reply, phase, at, hold, ...(landError ? { landError } : {}) };
 }
 
 /** The most strokes a drag past the viewport is split into, and how long each but the last rests before it lifts. */

@@ -1,7 +1,8 @@
 // `drag`'s reply carries what the host journaled about a reorder during it (LLP 1102 §3.17), and
 // keeps every field of the carrier's reply. `bun test ./scripts/agent-drag.test.mjs`.
 import { test, expect } from 'bun:test';
-import { dragTap, STROKES } from './agent-drag.mjs';
+import { dragTap, heldDown, heldPhase, heldRead, HELD_LEAD, HELD_READ, STROKES } from './agent-drag.mjs';
+import { realTap } from '../host/apple/touches.mjs';
 
 /** A session and carrier whose journal says `lines` during the drag; replies settle a tick later. */
 function drive(lines, { touches = false, notes = {} } = {}) {
@@ -159,4 +160,88 @@ test('drag-to movement depends on layout and fails as a refusal', async () => {
   }
   const error = await dragTap({}, { to: 'b', over: -1 }).catch(e => e);
   expect(error.malformed).toBe(true);
+});
+
+/** A played contact (`--touch platform`) on node 7 and a carrier whose one touch runs the steps inside it, saying
+ *  which ran while its finger was down; `fail` names a screenshot that throws. */
+function heldDrive({ fail } = {}) {
+  const asked = [], ran = [];
+  let down = false;
+  const s = {
+    contact: null, held: null,
+    async layout() { return { nodes: [{ id: 7, x: 10, y: 10, w: 40, h: 20 }] }; },
+    async clock(arg) { ran.push([`clock ${arg}`, down]); return { clock: arg }; },
+    async screenshot(path) { if (path === fail) throw new Error('no picture'); ran.push([`screenshot ${path}`, down, s.held]); return { screenshot: path }; },
+    async state() { ran.push(['state', down]); return { slots: {} }; },
+  };
+  const carrier = {
+    async input(id, phase, opts) {
+      asked.push([id, phase, opts.drag.hold]);
+      down = true;
+      const during = [];
+      for (const op of opts.drag.during) during.push(await op());
+      down = false;
+      return { tapped: id, delivery: 'platform', during, drag: opts.drag };
+    },
+  };
+  return { s, carrier, asked, ran };
+}
+
+// The natural drive: `tap row down` "screenshot held.png" `tap up` shows the press under a real touch (the steps
+// between run inside it, in order with its holds, a `clock +<ms>` counting toward the hold, answered at the lift).
+test('the reads and clock steps between a played contact\'s down and up run inside its touch', async () => {
+  const { s, carrier, asked, ran } = heldDrive();
+  await heldDown(s, { id: 7 });
+  for (const line of ['screenshot held.png', 'clock +250']) expect(heldRead(s, line)).toBe(true);
+  expect(heldRead(s, 'tap hold 100')).toBe(false); // the contact's own phase goes on to `tap`
+  expect(await heldPhase(s, carrier, 'hold', { ms: 100 })).toEqual(expect.objectContaining({ held: 350 }));
+  expect(heldRead(s, 'state')).toBe(true);
+  expect(ran).toEqual([]);
+  const r = await heldPhase(s, carrier, 'up', {});
+  // The whole hold, then the lead and a read's time for each of the two reads.
+  expect(asked).toEqual([[7, 'drag', 350 + HELD_LEAD + 2 * HELD_READ]]);
+  expect(ran).toEqual([['screenshot held.png', true, 'tap #7 down'], ['clock +250 real', true], ['clock +100 real', true], ['state', true]]);
+  expect(s.heldReads.map(([op, reply]) => [op, Object.keys(reply)[0]])).toEqual([['screenshot', 'screenshot'], ['clock', 'clock'], ['state', 'slots']]);
+  expect(r).toEqual(expect.objectContaining({ phase: 'up', hold: 350, tapped: 7, delivery: 'platform' }));
+  expect(r.during).toBeUndefined();
+  expect(s.contact).toBe(null);
+  expect(s.held).toBe(null);
+});
+
+test('a played contact refuses input between, cancels with nothing pressed, and keeps the receipt of a failed read', async () => {
+  const d = heldDrive();
+  await heldDown(d.s, { id: 7 });
+  for (const line of ['tap other', 'type field hi', 'screenshot a.png over 300 every 50', 'perf list during "tap x"']) expect(() => heldRead(d.s, line)).toThrow('tap up or tap cancel');
+  expect(heldRead(d.s, 'screenshot a.png')).toBe(true);
+  expect(await heldPhase(d.s, d.carrier, 'cancel', {})).toEqual(expect.objectContaining({ note: 'nothing was pressed; the steps written before it ran after it, unpressed' }));
+  expect(d.asked).toEqual([]);
+  expect(d.ran).toEqual([['screenshot a.png', false, null]]);
+
+  const f = heldDrive({ fail: 'b.png' });
+  await heldDown(f.s, { id: 7 });
+  heldRead(f.s, 'screenshot b.png');
+  heldRead(f.s, 'state');
+  const r = await heldPhase(f.s, f.carrier, 'up', {});
+  expect(r.landError).toBe('the touch was delivered; `screenshot b.png` while it was down failed: no picture');
+  expect(f.s.heldReads).toEqual([['failed', { op: 'screenshot b.png', error: 'no picture' }], ['state', { slots: {} }]]);
+});
+
+// The ops during a still real touch wait for its node's `touchesBegan` (`reached`), which a scroll view delays.
+test('a still real touch runs its ops once the touch has reached its node', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'NodeView', node: 7, session: 'main', generation: 1 };
+  let reads = 0, after = 0, lift;
+  const ask = async (req) => {
+    if (req.aim) return { aim };
+    // Reached on the third read of the log; ended in the read after the one that follows the ops.
+    reads += 1;
+    if (lift.done) after += 1;
+    return { log: after > 1 ? [began, { ...began, seq: 6, phase: 'ended', t: 2 }] : [began], reached: reads >= 3 ? [1] : [], truncated: false };
+  };
+  const touches = { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : new Promise((done) => { lift = () => { lift.done = true; done({ injected: {} }); }; }); } };
+  const seen = [];
+  const read = async () => { seen.push(reads >= 3); lift(); return 'read'; };
+  const r = await realTap({ ask, touches, id: 7, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: 400, during: [read] } });
+  expect(seen).toEqual([true]);
+  expect(r).toEqual(expect.objectContaining({ during: ['read'], reached: expect.any(Number) }));
 });

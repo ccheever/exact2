@@ -19,6 +19,10 @@ struct AgentPan {
     var path: [HeldNode] = []
     /// What a pressing contact's lift presses, taken where it went down.
     var reach: FingerReach?
+    /// The node a finger shows pressed while it is held (`NodeView.pressed`:
+    /// its `-exact-press-scale`, else the platform's dim), as a touch's
+    /// `touchesBegan` sets it.
+    var shown: HeldNode?
     /// The contact in the viewport's space, and its synthetic time in seconds.
     var at: CGPoint
     var t: Double
@@ -340,10 +344,16 @@ extension Agent {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
                 let touched = seen ?? v
-                let contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
+                var contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
                                        reach: fingerReach(touched, at: p), at: at, t: t, held: Agent.heldPrefix(req))
-                panContact = contact
                 panPointer(contact, .down)
+                if let reach = contact.reach, reach.element == nil, reach.run == nil, reach.href == nil,
+                   let target = reach.action?.live(in: presenter), !target.disabled, !target.inert,
+                   target.handlers.contains("press") || target.defaultLink != nil {
+                    target.pressed = true
+                    contact.shown = HeldNode(target)
+                }
+                panContact = contact
                 return ["contact": Int(v.id), "phase": "down", "at": point(at), "delivery": "recognized"]
             }
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
@@ -449,6 +459,7 @@ extension Agent {
                 contact.t += ms / 1000 / Double(steps)
                 panPointer(contact, .move)
             }
+            if let shown = contact.shown?.live(in: presenter) { shown.pressFollows(inside: box(shown).contains(to)) }
             panContact = contact
             return ["phase": "move", "at": point(to), "delivery": "recognized"]
         case "hold":
@@ -458,6 +469,9 @@ extension Agent {
             return ["phase": "hold", "at": point(contact.at), "delivery": "recognized"]
         case "up", "cancel":
             panContact = nil
+            // Released before the press runs, as `touchesEnded` releases it;
+            // the pool reuses no pressed view, so this is still the one shown.
+            if let node = contact.shown?.node, !node.hasPressContact { node.pressed = false }
             panPointer(contact, .up)
             var reply: [String: Any] = ["phase": phase, "at": point(contact.at), "delivery": "recognized"]
             // The press its lift makes, against what it reached where it went

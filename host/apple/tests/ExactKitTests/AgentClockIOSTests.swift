@@ -149,14 +149,21 @@ final class AgentClockIOSTests: XCTestCase {
         events = []
         XCTAssertEqual(agent.recognizedPan("down", ["id": Int(node.id)])?["delivery"] as? String, "recognized")
         XCTAssertEqual(events, ["down node", "down outer"], "down as it lands")
+        XCTAssertTrue(node.pressed, "held, the target shows its press")
+        XCTAssertFalse(outer.pressed)
         _ = agent.recognizedPan("hold", ["ms": 800.0])
         let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
         XCTAssertEqual(events, ["down node", "down outer", "up node", "press"], "\(up)")
+        XCTAssertFalse(node.pressed, "released at the lift")
         events = []
         _ = agent.recognizedPan("down", ["id": Int(node.id)])
         _ = agent.recognizedPan("move", ["dx": 200.0, "ms": 16.0])
         _ = agent.recognizedPan("up", [:])
         XCTAssertEqual(events, ["down node", "down outer", "up node"], "lifted beside it: no press")
+        XCTAssertFalse(node.pressed)
+        _ = agent.recognizedPan("down", ["id": Int(node.id)])
+        _ = agent.recognizedPan("cancel", [:])
+        XCTAssertFalse(node.pressed, "released at a cancel")
         XCTAssertNil(agent.recognizedPan("down", ["id": Int(node.id), "pan": true]), "a drag's contact is a pan's or none")
     }
 

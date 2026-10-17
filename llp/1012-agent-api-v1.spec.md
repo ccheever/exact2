@@ -775,16 +775,26 @@ deterministic and a smoke against real credentials leaves nothing behind.
   turns on iOS and macOS), so the platform's own motion runs on. A drag's
   `press` and `hold` already were; Linux's always were. Under `--touch
   platform` on iOS the three are one real touch pressed at `tap up`: once it
-  has begun, the clock moves the holds' `<ms>` on real time under either
-  timing (the clock is the agent's then, as after any landed input), and the
-  finger lifts after it (LLP 1080.000 §14).
+  has reached its view, the clock moves the holds' `<ms>` on real time under
+  either timing (the clock is the agent's then, as after any landed input),
+  and the finger lifts after it (LLP 1080.000 §14).
+- **A held target shows pressed** (amended 2026-10-17). Between `tap
+  <target> down` and `tap up` the target shows its press, its
+  `-exact-press-scale` or the platform's dim, on every host, so `tap row
+  down`, `screenshot held.png`, `tap up` pictures the press and then presses
+  once. Under `--touch platform` on iOS the reads and `clock` steps written
+  between run inside the one real touch, in order with its holds (a `clock
+  +<ms>` counts toward the hold), after UIKit has handed the touch to the view,
+  and answer at `tap up`; any other op between is refused, naming `tap up` and
+  `tap cancel`, and a `tap cancel` runs them after it with nothing pressed.
 - **iOS holds a contact.** Off a `pan` node, where no swipe or other drag
   could take it, `tap … down` is a recognized finger (`delivery: recognized`,
   `AgentPanIOS.swift`): its `pointerdown` as
   it lands, `pointermove`s as it moves (nothing scrolls: `tap <scroller>
   drag` does), its `pointerup` (to every node its down reached that is
   still that node, though one disabled itself) and then the press a finger
-  lifted there makes, if it is still on its target. It is no `UITouch`: no
+  lifted there makes, if it is still on its target; meanwhile its target
+  shows pressed while the finger is inside it. It is no `UITouch`: no
   UIKit recognizer sees it, under either timing. A drag's contact still
   asks for a `pan` node's alone. `input` on iOS reports `contact` and `hold`.
   Under `--touch platform` the contact is one real touch instead, played
