@@ -551,7 +551,7 @@ impl Lowerer<'_> {
             }
         }
         if let Some(styles) = &mut self.text_styles {
-            let style = warnings::TextStyle {
+            let mut style = warnings::TextStyle {
                 native: native_font,
                 parent_horizontal_flex: self.parent_horizontal_flex,
                 font: expanded
@@ -582,6 +582,13 @@ impl Lowerer<'_> {
             styles
                 .entry((*span, *instance, tag.clone()))
                 .and_modify(|known| {
+                    // A shared slot can have different parents but the same own style.
+                    if let Some(previous) = known.as_mut() {
+                        if previous.parent_horizontal_flex != style.parent_horizontal_flex {
+                            previous.parent_horizontal_flex = None;
+                            style.parent_horizontal_flex = None;
+                        }
+                    }
                     if known.as_ref() != Some(&style) {
                         *known = None;
                     }

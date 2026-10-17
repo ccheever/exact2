@@ -489,8 +489,10 @@ fn proven_width<'a>(
         (w, m) => w.or(m),
     }?;
     // The automatic minimum cannot exceed a definite maximum or preferred width.
-    if let Some(minimum) = last(rows, "min-width").filter(|a| !literal_word(a, &["auto", "unset"]))
-    {
+    if let Some(minimum) = last(rows, "min-width").filter(|a| {
+        !literal_word(a, &["auto"])
+            && !matches!(&a.value, Expr::Str(s, _) if exact_kernel::style::StyleValue::text_unsets(s, exact_kernel::StyleId::MinWidth))
+    }) {
         let n = fixed_bound(&minimum.value, font)?;
         if n > ceiling.0 {
             ceiling = (n, minimum);

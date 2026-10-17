@@ -45,7 +45,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
 }
 
 /// Effective text sizing and native control boundaries from lowering. A reused
-/// source site whose lowering differs between instances stays unknown. The tag
+/// source site whose own style differs between instances stays unknown. The tag
 /// distinguishes a button from the title synthesized at the same source span.
 pub(crate) type TextStyles = std::collections::BTreeMap<(Span, u32, String), Option<TextStyle>>;
 

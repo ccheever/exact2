@@ -657,12 +657,50 @@ fn text_width_initial_minimum_preserves_a_fixed_ceiling() {
             false,
         ),
     ]);
-    let src = "style Floor\n  min-width=\"3rem\"\ncomponent App\n  view\n    box\n      text \"Mon\" max-width=24 class=Floor min-width=\"unset\"\n      text \"Tue\" max-width=24 class=Floor min-width=\"auto\"\n      text \"Wed\" max-width=24 class=Floor\n";
+    let src = "style Floor\n  min-width=\"3rem\"\ncomponent App\n  view\n    box\n      text \"Mon\" max-width=24 class=Floor min-width=\"unset\"\n      text \"Tue\" max-width=24 class=Floor min-width=\"auto\"\n      text \"Wed\" max-width=24 class=Floor min-width=\"\"\n      text \"Thu\" max-width=24 class=Floor\n";
     assert_eq!(
         warned(src),
         [
             ("lower-text-px-width".into(), 6),
-            ("lower-text-px-width".into(), 7)
+            ("lower-text-px-width".into(), 7),
+            ("lower-text-px-width".into(), 8)
         ]
     );
+    cases(&[
+        ("text \"Mon\" max-width=24 min-width=\"\"", true),
+        ("text \"Mon\" max-width=24 min-width=\"   \"", true),
+        ("text \"Mon\" min-width=\"\"", false),
+    ]);
+}
+
+#[test]
+fn text_width_preserves_shared_slot_styles_when_only_the_parent_axis_differs() {
+    let mut failures = Vec::new();
+    for parents in [
+        &["row", "column"][..],
+        &["column", "row"][..],
+        &["row", "column", "row"][..],
+        &["column", "row", "column"][..],
+    ] {
+        let placements: String = parents
+            .iter()
+            .map(|tag| format!("      {tag}\n        children\n"))
+            .collect();
+        for (attrs, outer_warns) in [
+            ("width=48", true),
+            ("width=48 flex=1", false),
+            ("max-width=48 flex=1", true),
+        ] {
+            let src = format!("component App\n  view\n    Shell()\n      column {attrs}\n        text \"Title\"\n        text \"Body\" width=40\ncomponent Shell\n  slot\n  view\n    box\n{placements}");
+            let got = warned(&src);
+            let mut expected = vec![("lower-text-px-width".into(), 6)];
+            if outer_warns {
+                expected.push(("lower-text-px-width".into(), 4));
+            }
+            if got != expected {
+                failures.push(format!("{src}\nexpected {expected:?}, got {got:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
