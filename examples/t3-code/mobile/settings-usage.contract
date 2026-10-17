@@ -147,7 +147,7 @@ component SettingsUsage
             button press=command("open-link", "", link.url) disabled=link.disabled min-height=44
               row align-items="center" gap=10.5
                 text link.label flex=1 text-align="left" color=colors.link font-size=roles.body.size
-                t3-symbol symbol-name="arrow.up.right" point-size=16 symbol-tint=colors.link width=16 height=16
+                t3-symbol symbol-name="arrow.up.right" symbol-tint=colors.link width=16 height=16
             text link.accounts color=colors.muted font-size=roles.footnote.size
             if link.message.length > 0
               text link.message color=colors.muted font-size=roles.footnote.size

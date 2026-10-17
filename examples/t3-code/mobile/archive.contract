@@ -187,7 +187,6 @@ component Archive
                   line-clamp=1
                 row max-width="42%" min-width=0 align-items="center" gap=3.5
                   t3-symbol symbol-name=item.machineSymbol
-                    point-size=10
                     symbol-weight="regular"
                     symbol-tint=colors.tertiary
                     width=10
@@ -246,7 +245,6 @@ component Archive
                       border-radius=11
                       background-color=colors.subtle
                       t3-symbol symbol-name="archivebox.fill"
-                        point-size=15
                         symbol-weight="regular"
                         symbol-tint=colors.iconSubtle
                         width=15
@@ -267,7 +265,6 @@ component Archive
                           color=colors.tertiary
                       row align-items="center" gap=5.25
                         t3-symbol symbol-name="arrow.triangle.branch"
-                          point-size=10
                           symbol-weight="regular"
                           symbol-tint=colors.iconSubtle
                           width=10
@@ -306,7 +303,6 @@ component ArchiveSwipeAction
           align-items="center"
           justify-content="center"
           t3-symbol symbol-name=symbol
-            point-size=15
             symbol-weight="regular"
             symbol-tint=(kind == "delete" ? colors.dangerForeground : colors.primaryForeground)
             width=15

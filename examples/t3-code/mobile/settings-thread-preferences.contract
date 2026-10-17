@@ -101,7 +101,7 @@ component ThreadPreferenceSwitch
     change(id, value ? "true" : "false")
   view
     row gap=14 padding=14 align-items="center" opacity=(disabled ? 0.45 : 1)
-      t3-symbol symbol-name=icon point-size=22 symbol-tint=colors.icon width=22 height=22 flex-shrink=0
+      t3-symbol symbol-name=icon symbol-tint=colors.icon width=22 height=22 flex-shrink=0
       text label flex=1 min-width=0 font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground
       if mixed
         button press=change(id, "true") disabled=disabled padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 background-color=colors.subtle border-radius=99 aria-label=`Set ${label} on for selected environments`

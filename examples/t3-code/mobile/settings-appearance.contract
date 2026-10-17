@@ -111,7 +111,7 @@ component SettingsAppearance
                         column position="absolute" right=-1.75 bottom=-1.75 width=17.5 height=17.5 box-sizing="border-box"
                           align-items="center" justify-content="center" border-radius=9999 border-width=1 border-style="solid"
                           border-color=data.colors.border background-color=data.colors.card
-                          t3-symbol symbol-name=orb.symbol point-size=12 symbol-weight="medium" symbol-tint=data.colors.icon width=12 height=12
+                          t3-symbol symbol-name=orb.symbol symbol-weight="medium" symbol-tint=data.colors.icon width=12 height=12
                 text card.label padding-left=3.5 padding-right=3.5 font-size=data.roles.headline.size line-height=`${data.roles.headline.line}px` font-weight=500 color=data.colors.foreground line-clamp=1 text-overflow="ellipsis" pointer-events="none"
         column gap=7
           SettingsSectionLabel(title="Text", colors=data.colors, roles=data.roles)
@@ -200,15 +200,15 @@ component SettingsFontSlider
   view
     column gap=3.5 padding=14 opacity=(ready ? 1 : 0.45)
       row gap=14 align-items="center"
-        t3-symbol symbol-name="textformat.size" point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
+        t3-symbol symbol-name="textformat.size" symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
         text label flex=1 font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground
         text valueLabel font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500 color=colors.muted
       row gap=10.5 align-items="center"
-        t3-symbol symbol-name="textformat.size.smaller" point-size=15 symbol-weight="regular" symbol-tint=colors.iconMuted width=15 height=15
+        t3-symbol symbol-name="textformat.size.smaller" symbol-weight="regular" symbol-tint=colors.iconMuted width=15 height=15
         t3-settings-slider minimum=`${low}` maximum=`${high}` increment=`${step}` amount=`${value}` enabled=(ready ? "true" : "false")
           active-color=colors.primary inactive-color=colors.secondaryBorder thumb-color=colors.primaryForeground border-color=colors.border
           slider-label=label aria-label=label change=change(id) flex=1 height=38.5 testId=`settings-slider-${id}`
-        t3-symbol symbol-name="textformat.size.larger" point-size=22 symbol-weight="regular" symbol-tint=colors.iconMuted width=22 height=22
+        t3-symbol symbol-name="textformat.size.larger" symbol-weight="regular" symbol-tint=colors.iconMuted width=22 height=22
 component SettingsPreferenceSwitch
   props
     id: string
@@ -225,7 +225,7 @@ component SettingsPreferenceSwitch
     change(id, value ? onValue : offValue)
   view
     row gap=14 padding=14 align-items="center" opacity=(ready ? 1 : 0.45)
-      t3-symbol symbol-name=icon point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
+      t3-symbol symbol-name=icon symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
       text label flex=1 min-width=0 font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground
       input type="checkbox" switch checked=checked disabled=(not ready) change=toggle aria-label=label testId=`settings-toggle-${id}` accent-color=colors.switchOn background-color=colors.switchOff margin=0
 component SettingsTerminalPreview

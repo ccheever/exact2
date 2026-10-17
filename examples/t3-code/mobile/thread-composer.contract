@@ -73,14 +73,14 @@ component ThreadComposer
           view height=8
         if data.editing
           row align-items="center" gap=7 padding-left=14 padding-right=14 padding-bottom=7
-            t3-symbol symbol-name="pencil" point-size=12 symbol-tint=colors.muted width=12 height=12
+            t3-symbol symbol-name="pencil" symbol-tint=colors.muted width=12 height=12
             text "Editing queued message" flex=1 min-width=0 line-clamp=1 font-size=12 color=colors.muted
             button appearance="none" press=action("queued-edit-cancel", data.contentOwner, "") disabled=(not data.canCancel) min-height=28 padding-left=3.5 padding-right=3.5 aria-label="Cancel editing queued message"
               text "Cancel" font-size=12 font-weight=500 color=colors.primary
         if data.editNotice != ""
           column padding-left=14 padding-right=14 padding-bottom=10.5
             row align-items="start" gap=10.5 border-radius=20 corner-shape="-exact-continuous" background-color=colors.card padding=14
-              t3-symbol symbol-name="exclamationmark.circle" point-size=16 symbol-tint=colors.dangerForeground width=16 height=16
+              t3-symbol symbol-name="exclamationmark.circle" symbol-tint=colors.dangerForeground width=16 height=16
               text data.editNotice aria-live="polite" flex=1 min-width=0 font-size=14 color=colors.foreground
               if data.editNoticeDismissKey != ""
                 ThreadComposerNoticeDismiss(noticeKey=data.editNoticeDismissKey, icon=colors.iconMuted, action=action)
@@ -127,7 +127,7 @@ component ThreadComposer
                     row min-width=0 align-items="center" gap=7 justify-content="flex-end"
                       ProviderIcon(driver=data.providerDriver, size=14, dark=dark, iconUrl=data.providerIconURL)
                       text data.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
-                      t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+                      t3-symbol symbol-name="chevron.down" symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
                   VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
                   ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
             else if not voicePresented
@@ -171,7 +171,7 @@ component ThreadComposerNoticeDismiss
   view
     button press=action("queued-edit-notice-dismiss", noticeKey, "") pointerdown=noticePointerDown pointerup=noticePointerUp
       padding=3.5 retainFocus=true aria-label="Dismiss error" opacity=(pressed ? 0.6 : 1)
-      t3-symbol symbol-name="xmark" point-size=14 symbol-tint=icon width=14 height=14
+      t3-symbol symbol-name="xmark" symbol-tint=icon width=14 height=14
 component ThreadSendButton
   props
     sendLabel: string
@@ -191,7 +191,7 @@ component ThreadSendButton
       column width=44 height=44 align-items="center" justify-content="center"
         column width=30 height=30 border-radius=15 align-items="center" justify-content="center"
           background-color=(showStop ? colors.danger : colors.primary) opacity=(disabled ? 0.15 : 1)
-          t3-symbol symbol-name=(showStop ? "stop.fill" : sendSymbol) point-size=14 symbol-weight="semibold"
+          t3-symbol symbol-name=(showStop ? "stop.fill" : sendSymbol) symbol-weight="semibold"
             symbol-tint=(showStop ? colors.dangerForeground : colors.primaryForeground) width=14 height=14
 
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration

@@ -38,7 +38,7 @@ component MobileKeyboard
         row gap=8.75 align-items="center" font-family="DM Sans"
           column width=21 height=21 border-radius=999 flex-shrink=0 align-items="center" justify-content="center"
             background-color=(data.phase == "success" ? "oklch(72.3% 0.219 149.579)" : colors.danger)
-            t3-symbol symbol-name=(data.phase == "success" ? "checkmark" : "exclamationmark.triangle") point-size=12
+            t3-symbol symbol-name=(data.phase == "success" ? "checkmark" : "exclamationmark.triangle")
               symbol-tint=(data.phase == "success" ? "#ffffff" : colors.dangerForeground) width=12 height=12
           column flex=1 min-width=0 gap=1.75 align-items="stretch"
             text data.label font-size=14 line-height="19px" font-weight=700 color=colors.foreground line-clamp=1

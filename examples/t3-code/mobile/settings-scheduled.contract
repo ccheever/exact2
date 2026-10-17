@@ -125,7 +125,7 @@ component SettingsScheduledTasks
                       if task.error.length > 0
                         text task.error font-size=roles.footnote.size line-clamp=2 color=danger
                   button press=menu(section.id, task.id) width=44 height=44 padding=0 aria-label=`Actions for ${task.title}`
-                    t3-symbol symbol-name="ellipsis" point-size=18 symbol-tint=colors.icon width=18 height=18
+                    t3-symbol symbol-name="ellipsis" symbol-tint=colors.icon width=18 height=18
 component ScheduledSelectRow
   props
     label: string
@@ -140,7 +140,7 @@ component ScheduledSelectRow
         text label font-size=roles.body.size color=colors.foreground
         view flex=1
         text value font-size=roles.body.size color=colors.muted line-clamp=1
-        t3-symbol symbol-name="chevron.up.chevron.down" point-size=12 symbol-tint=colors.chevron width=12 height=12
+        t3-symbol symbol-name="chevron.up.chevron.down" symbol-tint=colors.chevron width=12 height=12
 component ScheduledField
   props
     label: string
@@ -260,7 +260,7 @@ component SettingsScheduledModel
                     text model.label color=colors.foreground font-size=roles.body.size
                     text model.provider color=colors.muted font-size=roles.footnote.size
                   if model.selected
-                    t3-symbol symbol-name="checkmark" point-size=16 symbol-tint=colors.icon width=16 height=16
+                    t3-symbol symbol-name="checkmark" symbol-tint=colors.icon width=16 height=16
           for option in data.options key=option.id
             ScheduledSelectRow(label=option.label, value=(option.boolean ? (option.on ? "On" : "Off") : "Choose"), disabled=data.busy, select=menu(`option:${option.id}`), colors=colors, roles=roles)
           SettingsSectionLabel(title="Permissions", colors=colors, roles=roles)
@@ -272,7 +272,7 @@ component SettingsScheduledModel
                     text mode.label color=colors.foreground font-size=roles.body.size
                     text mode.description color=colors.muted font-size=roles.footnote.size
                   if mode.selected
-                    t3-symbol symbol-name="checkmark" point-size=16 symbol-tint=colors.icon width=16 height=16
+                    t3-symbol symbol-name="checkmark" symbol-tint=colors.icon width=16 height=16
 component SettingsScheduledBranch
   props
     data: ScheduledEditorData
@@ -303,7 +303,7 @@ component SettingsScheduledBranch
                 row align-items="center" gap=10.5
                   text branch.label flex=1 text-align="left" color=colors.foreground font-size=roles.body.size
                   if branch.selected
-                    t3-symbol symbol-name="checkmark" point-size=16 symbol-tint=colors.icon width=16 height=16
+                    t3-symbol symbol-name="checkmark" symbol-tint=colors.icon width=16 height=16
           if data.hasMore
             button appearance="none" press=more() min-height=44
               text "Load more" color=colors.link font-size=roles.body.size

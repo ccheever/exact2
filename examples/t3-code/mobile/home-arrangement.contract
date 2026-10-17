@@ -142,8 +142,7 @@ component HomeArrangementSection
                 aria-label=`Reorder ${item.title}`
                 aria-description="Move up and Move down reorder within this section. Other actions move between sections."
                 testId=`home-arrangement-handle-${item.key}`
-                // Pinned Expo SymbolView uses the 17pt system font; size=22 sets only its bounds.
-                t3-symbol symbol-name="line.3.horizontal" point-size=17 symbol-weight="regular" symbol-tint=colors.muted width=22 height=22 aria-hidden=true
+                t3-symbol symbol-name="line.3.horizontal" symbol-weight="regular" symbol-tint=colors.muted width=22 height=22 aria-hidden=true
             case none
               button press=toggle(section) disabled=(not collapsible)
                 flex=1 align-self="stretch" padding=0

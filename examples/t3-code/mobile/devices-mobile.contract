@@ -56,10 +56,10 @@ component MobileDevices
           button position="absolute" top=0 right=0 bottom=0 left=0 background-color="rgba(0,0,0,0.3)" press=action("controls", "") aria-label="Hide device controls"
         row position="absolute" top=max(safeAreaTop,12) left=10.5 right=10.5 gap=3.5 padding=3.5 border-radius=25 background-color=colors.secondary align-items="center"
           button width=38.5 height=38.5 padding=0 press=close() aria-label="Close device preview"
-            t3-symbol symbol-name="xmark" point-size=18 symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+            t3-symbol symbol-name="xmark" symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
           text data.title flex=1 min-width=0 text-align="center" font-size=14 font-weight=500 color=colors.foreground line-clamp=1
           button width=38.5 height=38.5 padding=0 disabled=(not data.inputConnected) press=action("home", "") aria-label="Home"
-            t3-symbol symbol-name="house" point-size=18 symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+            t3-symbol symbol-name="house" symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
           t3-preview-menu configuration=menuConfiguration change=menuEvent width=38.5 height=38.5
       else
         button position="absolute" top=max(safeAreaTop - 18,4) align-self="center" width=56 height=21 padding=0 press=action("controls", "") aria-label="Show device controls"

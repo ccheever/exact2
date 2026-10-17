@@ -41,14 +41,14 @@ component ThreadToolRow
                 if activity.iconURL.length > 0
                   image activity.iconURL width=14 height=14 object-fit="contain"
                 else
-                  t3-symbol symbol-name=activity.symbol point-size=14 symbol-weight="medium" symbol-tint=colors.iconSubtle width=14 height=14
+                  t3-symbol symbol-name=activity.symbol symbol-weight="medium" symbol-tint=colors.iconSubtle width=14 height=14
               text flex=1 min-width=0 font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
                 text activity.label
                 if activity.answerPreview != ""
                   text `  ${activity.answerPreview}` color=(not activity.expanded and activity.hasAnswer ? colors.foreground : colors.iconSubtle)
               column width=14 height=14 align-items="center" justify-content="center"
                 if activity.expandable
-                  t3-symbol symbol-name=(activity.expanded ? "chevron.up" : "chevron.down") point-size=11 symbol-weight="regular" symbol-tint=colors.iconSubtle width=11 height=11
+                  t3-symbol symbol-name=(activity.expanded ? "chevron.up" : "chevron.down") symbol-weight="regular" symbol-tint=colors.iconSubtle width=11 height=11
         if activity.expanded
           column padding-top=(activity.reasoning ? 3.5 : 1.75) padding-bottom=3.5 margin-left=(activity.reasoning ? 24.5 : 0)
             if activity.answerHistory.length > 0

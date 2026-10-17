@@ -33,9 +33,9 @@ component PendingInputCard
             text "USER INPUT NEEDED" font-size=12 line-height="16px" font-weight=700 letter-spacing=1.1 color=colors.secondary
             text `${data.count} ${data.count == 1 ? "question" : "questions"}` font-size=13 line-height="17px" color=colors.muted
             view flex=1
-            t3-symbol symbol-name="chevron.up" point-size=12 symbol-tint=colors.iconSubtle width=12 height=12
+            t3-symbol symbol-name="chevron.up" symbol-tint=colors.iconSubtle width=12 height=12
         button appearance="none" press=act(data.owner, "stop", "", "") disabled=(not data.canStop) width=31.5 height=31.5 display="flex" border-radius=9999 background-color=colors.danger align-items="center" justify-content="center" aria-label="Stop" testId="pending-input-stop"
-          t3-symbol symbol-name="stop.fill" point-size=14 symbol-tint=colors.dangerForeground width=14 height=14
+          t3-symbol symbol-name="stop.fill" symbol-tint=colors.dangerForeground width=14 height=14
       column position="absolute" left=0 right=0 bottom=0 height=maxHeight overflow="hidden" justify-content="flex-end" pointer-events=(collapsed ? "none" : "auto") aria-hidden=collapsed
         column position="relative" max-height=maxHeight gap=8.75 padding=14 border-radius=20 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
           translate=`0px ${collapsed ? cardHeight : 0}px` transition="translate 220ms ease-out" testId="pending-input-card"
@@ -46,7 +46,7 @@ component PendingInputCard
                 text "USER INPUT NEEDED" font-size=12 line-height="16px" font-weight=700 letter-spacing=1.1 color=colors.secondary
                 text "Fill in the pending answers" font-size=18 line-height="23px" font-weight=700 color=colors.foreground
               column width=28 height=28 align-items="center" justify-content="center" border-radius=9999 background-color=colors.subtleStrong
-                t3-symbol symbol-name="chevron.down" point-size=13 symbol-tint=colors.iconSubtle width=13 height=13
+                t3-symbol symbol-name="chevron.down" symbol-tint=colors.iconSubtle width=13 height=13
           scroll flex=1 min-height=0 testId="pending-input-questions"
             column gap=8.75 padding-bottom=3.5
               if data.reason != ""

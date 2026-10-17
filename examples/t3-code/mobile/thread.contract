@@ -34,7 +34,7 @@ component ThreadFeed
                       background-color=colors.subtle padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
                       aria-label="Load earlier activity" testId="thread-history"
                       row align-items="center" gap=7
-                        t3-symbol symbol-name="chevron.up" point-size=12 symbol-weight="regular" symbol-tint=colors.primary width=12 height=12
+                        t3-symbol symbol-name="chevron.up" symbol-weight="regular" symbol-tint=colors.primary width=12 height=12
                         text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
                   if data.historyError.length > 0
                     text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
@@ -104,7 +104,7 @@ component ThreadMessage
                     if row.forkBusy
                       t3-archive-spinner spinner-tint=colors.iconSubtle width=20 height=20
                     else
-                      t3-symbol symbol-name="arrow.triangle.branch" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+                      t3-symbol symbol-name="arrow.triangle.branch" symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
               ThreadCopy(row=row, action=action, colors=colors)
               text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
       else
@@ -115,7 +115,7 @@ component ThreadMessage
               aria-expanded=row.expanded aria-label=row.title
               row align-items="center" gap=7
                 text row.title flex-shrink=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 font-variant-numeric=(row.kind == "work" ? "tabular-nums" : "normal") color=(row.failed ? colors.dangerForeground : colors.muted)
-                t3-symbol symbol-name=(row.expanded ? "chevron.down" : "chevron.right") point-size=(row.kind == "work" ? 15 : 10) symbol-weight="regular" symbol-tint=colors.iconSubtle width=(row.kind == "work" ? 15 : 10) height=(row.kind == "work" ? 15 : 10)
+                t3-symbol symbol-name=(row.expanded ? "chevron.down" : "chevron.right") symbol-weight="regular" symbol-tint=colors.iconSubtle width=(row.kind == "work" ? 15 : 10) height=(row.kind == "work" ? 15 : 10)
           else if row.title.length > 0
             text row.title min-height=28 padding-left=7 font-size=14 line-height="19px" color=(row.failed ? colors.dangerForeground : colors.muted)
           if row.body.length > 0
@@ -131,7 +131,7 @@ component ThreadCopy
   view
     button press=action("chatlocal:copy", row.id, "") width=28 height=28 padding=0 aria-label="Copy message"
       column width=28 height=28 align-items="center" justify-content="center"
-        t3-symbol symbol-name=(row.copied ? "checkmark" : "doc.on.doc") point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+        t3-symbol symbol-name=(row.copied ? "checkmark" : "doc.on.doc") symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
 
 component ThreadAttachment
   props
@@ -145,7 +145,7 @@ component ThreadAttachment
         image media.url width="100%" aspect-ratio=1.3 object-fit="cover" border-radius=(user ? 14 : 18) aria-label=media.name
       else
         row align-items="center" gap=7 padding=7 border-radius=14 background-color=colors.subtle
-          t3-symbol symbol-name=(media.kind == "video" ? "play.rectangle" : media.kind == "image" ? "photo" : "doc") point-size=18 symbol-weight="regular" symbol-tint=colors.iconSubtle width=18 height=18
+          t3-symbol symbol-name=(media.kind == "video" ? "play.rectangle" : media.kind == "image" ? "photo" : "doc") symbol-weight="regular" symbol-tint=colors.iconSubtle width=18 height=18
           text media.name flex-shrink=1 min-width=0 font-size=14 line-height="19px" color=colors.foreground line-clamp=1 text-overflow="ellipsis"
 
 component ThreadApprovals

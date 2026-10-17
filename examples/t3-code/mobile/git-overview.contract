@@ -130,14 +130,14 @@ component MobileGitFeedback
             t3-archive-spinner spinner-tint=colors.icon width=21 height=21
           if feedback.phase == "success" or feedback.phase == "error"
             column width=21 height=21 flex-shrink=0 border-radius=999 align-items="center" justify-content="center" background-color=(feedback.phase == "success" ? "oklch(72.3% 0.219 149.579)" : colors.danger)
-              t3-symbol symbol-name=(feedback.phase == "success" ? "checkmark" : "exclamationmark.triangle") point-size=12 symbol-tint=(feedback.phase == "success" ? "#ffffff" : colors.dangerForeground) width=12 height=12
+              t3-symbol symbol-name=(feedback.phase == "success" ? "checkmark" : "exclamationmark.triangle") symbol-tint=(feedback.phase == "success" ? "#ffffff" : colors.dangerForeground) width=12 height=12
           column flex=1 min-width=0 gap=1.75
             if feedback.label != ""
               text feedback.label font-size=14 line-height="19px" font-weight=700 color=colors.foreground line-clamp=1
             if feedback.description != ""
               text feedback.description font-size=12 line-height="16px" color=colors.muted line-clamp=1
           if feedback.prUrl != ""
-            t3-symbol symbol-name="arrow.up.right" point-size=13 symbol-tint=colors.icon width=13 height=13
+            t3-symbol symbol-name="arrow.up.right" symbol-tint=colors.icon width=13 height=13
 
 component MobileGitActionButton
   props
@@ -152,7 +152,7 @@ component MobileGitActionButton
       border-width=(primary ? 0 : 1) border-style="solid" border-color=colors.secondaryBorder
       background-color=(primary ? colors.primary : colors.secondaryBackground) text-align="center"
       row align-items="center" justify-content="center" gap=7
-        t3-symbol symbol-name=symbol point-size=16 symbol-weight="regular" symbol-tint=(primary ? colors.primaryForeground : colors.secondaryForeground) width=16 height=16
+        t3-symbol symbol-name=symbol symbol-weight="regular" symbol-tint=(primary ? colors.primaryForeground : colors.secondaryForeground) width=16 height=16
         text label font-size=12 font-weight=700 text-transform="uppercase" letter-spacing="0.9px" color=(primary ? colors.primaryForeground : colors.secondaryForeground)
 
 component MobileGitOverview
@@ -174,12 +174,12 @@ component MobileGitOverview
             button press=action("select", item.id, "") disabled=item.disabled opacity=(item.disabled ? 0.45 : 1) text-align="left" padding-top=10.5 padding-bottom=10.5 padding-left=3.5 padding-right=3.5
               row gap=10.5 align-items="center"
                 column width=31.5 height=31.5 border-radius=100 background-color=colors.subtle align-items="center" justify-content="center"
-                  t3-symbol symbol-name=item.symbol point-size=16 symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+                  t3-symbol symbol-name=item.symbol symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
                 column flex=1 min-width=0 gap=1.75
                   text item.label font-size=16 font-weight=700 color=colors.foreground
                   if item.subtitle != ""
                     text item.subtitle font-size=12 line-height="16.5px" color=colors.muted
-                t3-symbol symbol-name="chevron.right" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+                t3-symbol symbol-name="chevron.right" symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
             if item.id != "branches"
               view margin-left=42 height=1 background-color=colors.border
         if data.groups.length > 0
@@ -189,7 +189,7 @@ component MobileGitOverview
               column border-radius=16 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card padding-left=10.5 padding-right=10.5 padding-top=3.5 padding-bottom=3.5 overflow="hidden"
                 if group.label != ""
                   row align-items="center" gap=7 padding-left=3.5 padding-right=3.5 padding-top=7 padding-bottom=3.5
-                    t3-symbol symbol-name="square.3.layers.3d" point-size=14 symbol-weight="regular" symbol-tint=colors.muted width=14 height=14
+                    t3-symbol symbol-name="square.3.layers.3d" symbol-weight="regular" symbol-tint=colors.muted width=14 height=14
                     text group.label font-size=12 color=colors.muted
                 for link in group.rows key=link.id
                   if link.separator
@@ -197,11 +197,11 @@ component MobileGitOverview
                   button press=action("link", link.id, "") text-align="left" padding-top=10.5 padding-bottom=10.5 padding-left=3.5 padding-right=3.5
                     row gap=10.5 align-items="center"
                       column width=31.5 height=31.5 border-radius=100 background-color=colors.subtle align-items="center" justify-content="center"
-                        t3-symbol symbol-name="arrow.triangle.pull" point-size=16 symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+                        t3-symbol symbol-name="arrow.triangle.pull" symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
                       column flex=1 min-width=0 gap=1.75
                         text link.title font-size=16 font-weight=700 color=colors.foreground
                         text link.subtitle font-size=12 line-height="16.5px" color=colors.muted
-                      t3-symbol symbol-name="chevron.right" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+                      t3-symbol symbol-name="chevron.right" symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
         if data.worktree != ""
           column gap=3.5 border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
             text "WORKTREE" font-size=10.5 font-weight=700 letter-spacing="0.9px" color=colors.secondary

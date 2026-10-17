@@ -70,7 +70,7 @@ component MobileWorkingControl
                   row height="100%" align-items="center" gap=5.25
                     if data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0
                       view width=1 height=14 margin-right=3.5 background-color=colors.border
-                    t3-symbol symbol-name="person.2" point-size=13 symbol-tint=colors.muted width=13 height=13
+                    t3-symbol symbol-name="person.2" symbol-tint=colors.muted width=13 height=13
                     text data.agentsLabel font-variant-numeric="tabular-nums" font-size=13 line-height="17px" font-weight=500 color=colors.foreground line-clamp=1
             if data.queueCount > 0
               row testId="working-queue-segment" height=38.5 align-items="center" flex-shrink=0 resize=queueSized
@@ -78,7 +78,7 @@ component MobileWorkingControl
                   row min-width=0 height="100%" align-items="center" gap=7
                     if data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0 or data.agentsLabel != ""
                       view width=1 height=14 margin-right=3.5 background-color=colors.border flex-shrink=0
-                    t3-symbol symbol-name="list.number" point-size=13 symbol-tint=colors.muted width=13 height=13
+                    t3-symbol symbol-name="list.number" symbol-tint=colors.muted width=13 height=13
                     text `${data.queueCount} queued` font-variant-numeric="tabular-nums" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
 component WorkingStatus
   props
@@ -91,7 +91,7 @@ component WorkingStatus
       else if data.reconnect
         view width=7 height=7 border-radius=999 background-color="#fb2c36" flex-shrink=0
       else if data.statusSymbol != ""
-        t3-symbol symbol-name=data.statusSymbol point-size=13 symbol-tint=colors.foreground width=13 height=13
+        t3-symbol symbol-name=data.statusSymbol symbol-tint=colors.foreground width=13 height=13
       text data.statusLabel font-family=(data.statusKind == "working" ? "system-ui" : "DM Sans") font-variant-numeric=(data.statusKind == "working" ? "tabular-nums" : "normal") min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
 component WorkingPreview
   props
@@ -106,7 +106,7 @@ component WorkingPreview
   view
     button pointer-events="auto" press=open(owner) position="relative" height=38.5 width=(compact ? 38.5 : "auto") padding-left=(compact ? 0 : 14) padding-right=(compact ? 0 : 14) flex-shrink=0 border-radius=999 aria-label=accessibility
       row height="100%" align-items="center" justify-content="center" gap=7
-        t3-symbol symbol-name=symbol point-size=20 symbol-tint=colors.foreground width=20 height=20
+        t3-symbol symbol-name=symbol symbol-tint=colors.foreground width=20 height=20
         if not compact
           text label font-size=13 line-height="17px" font-weight=500 color=colors.foreground
       if compact and count > 1

@@ -338,7 +338,7 @@ component MobileRouteContent
     if routeName == "home" and workspace.emptyWorkspaceDetail
       header id="workspace-home-header"
         button press=openNewTask aria-label="New task"
-          t3-symbol symbol-name="square.and.pencil" point-size=20 symbol-tint=homeLook.foreground width=20 height=20
+          t3-symbol symbol-name="square.and.pencil" symbol-tint=homeLook.foreground width=20 height=20
         text "" role="heading" aria-level=2
     else if routeName == "newTask"
       header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
@@ -541,7 +541,7 @@ component MobileRouteContent
           input value=modelQuery input=editModelQuery(`${routeId}:${modelFilterOwner}`) placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
           for menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
             button popovertarget=`${menuOwner}:filters` aria-label="filter"
-              t3-symbol symbol-name=(modelData.filter != "" or modelLegacy ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease") point-size=20 symbol-tint=composerLook.icon width=20 height=20
+              t3-symbol symbol-name=(modelData.filter != "" or modelLegacy ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease") symbol-tint=composerLook.icon width=20 height=20
             column id=`${menuOwner}:filters` popover="auto" role="menu" aria-label="Model filters" position="absolute" top=0 left=0 min-width=240 padding=7 border-radius=12 background-color=composerLook.groupedCard
               button popovertarget=`${menuOwner}:providers` role="menuitem" padding=10.5 display="flex" gap=10.5 align-items="center" text-align="left"
                 text "Provider" flex=1 font-size=16 line-height="22px" color=composerLook.foreground

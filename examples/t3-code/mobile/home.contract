@@ -327,7 +327,7 @@ component HomeListItem
           row align-items="center" gap=8.75
             text item.title font-size=13 line-height="17px" font-weight=500 color=(item.section == "snoozed" ? colors.secondary : colors.tertiary)
             view flex=1 height=1 background-color=(item.section == "snoozed" ? colors.primary : colors.border) opacity=(item.section == "snoozed" ? 0.2 : 1)
-            t3-symbol symbol-name=(item.expanded ? "chevron.up" : "chevron.down") point-size=10 symbol-weight="regular" symbol-tint=colors.muted width=10 height=10
+            t3-symbol symbol-name=(item.expanded ? "chevron.up" : "chevron.down") symbol-weight="regular" symbol-tint=colors.muted width=10 height=10
       else if item.kind == "more"
         button press=showMore
           position="relative"
@@ -371,7 +371,7 @@ component HomeListItem
               text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.muted
               row align-items="center" gap=3.5
                 if item.kind == "draft"
-                  t3-symbol symbol-name="square.and.pencil" point-size=10 symbol-weight="regular" symbol-tint=colors.draft width=10 height=10
+                  t3-symbol symbol-name="square.and.pencil" symbol-weight="regular" symbol-tint=colors.draft width=10 height=10
                 text item.status font-size=13 line-height="17px" color=(item.kind == "draft" ? colors.draft : colors.muted)
             text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=1 text-overflow="ellipsis"
             if item.branch.length > 0 or item.environmentLabel.length > 0
@@ -382,7 +382,7 @@ component HomeListItem
                     text "  ·  " color=colors.muted
                   text item.environmentLabel color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
                 if item.environmentLabel.length > 0 and item.machineSymbol.length > 0
-                  t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=(surface == "sidebar-list" ? colors.muted : colors.tertiary) width=11 height=11 flex-shrink=0
+                  t3-symbol symbol-name=item.machineSymbol symbol-weight="regular" symbol-tint=(surface == "sidebar-list" ? colors.muted : colors.tertiary) width=11 height=11 flex-shrink=0
           if item.trailingDivider and surface != "sidebar-list"
             view height=1 margin-left=17.5 background-color=colors.borderSubtle
       else
@@ -417,9 +417,9 @@ component HomeListItem
                     text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis"
                       font-size=14 line-height="19px" font-weight=500 color=rowMuted
                     if item.queued
-                      t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
+                      t3-symbol symbol-name="tray.and.arrow.up" symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
                     if item.pinned
-                      t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=idleMuted width=11 height=11
+                      t3-symbol symbol-name="pin" symbol-weight="regular" symbol-tint=idleMuted width=11 height=11
                     text (item.status.length > 0 ? item.status : item.time) font-size=13 line-height="17px" color=rowStatusColor
                   text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=rowForeground line-clamp=2 text-overflow="ellipsis"
                   if item.searchExcerpt.length > 0
@@ -435,7 +435,7 @@ component HomeListItem
                             text "  ·  " color=rowMuted
                           text item.environmentLabel color=rowTertiary
                         if item.environmentLabel.length > 0
-                          t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=rowTertiary width=11 height=11 flex-shrink=0
+                          t3-symbol symbol-name=item.machineSymbol symbol-weight="regular" symbol-tint=rowTertiary width=11 height=11 flex-shrink=0
                     else
                       view flex=1 min-width=0
                     if item.provider.visible
@@ -459,7 +459,7 @@ component HomeListItem
                     if item.searchExcerpt.length > 0
                       text item.searchExcerpt font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
                   if item.queued
-                    t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
+                    t3-symbol symbol-name="tray.and.arrow.up" symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
                   text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? rowMuted : rowTertiary)
 
 
