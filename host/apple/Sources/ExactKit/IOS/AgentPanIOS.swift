@@ -54,27 +54,40 @@ struct HeldNode {
 }
 
 extension Agent {
-    /// The `pan` node a contact on `view` would reach: from it up, stopping at
-    /// rule 3's boundary (a field or a text area; a press node between is
-    /// passed, as a pan takes a drag that starts on a button), as
-    /// `MouseLayoutPan.down` walks. Where another
-    /// drag could take the contact first — a descendant's (rule 3) or a drag
-    /// binding on the pan node (rule 4) — only UIKit's arbitration can say,
-    /// so there is no recognized pan to deliver (nil).
-    static func panNode(from view: UIView) -> NodeView? {
+    /// What a held contact on `view` would reach.
+    enum HeldReach {
+        /// A `pan` node, whose recognized pan the contact delivers.
+        case pan(NodeView)
+        /// A drag only UIKit's arbitration can give the contact or withhold:
+        /// a swipe or another drag recognizer, or a `pan` node with a drag
+        /// binding (rule 4). No recognizer sees a recognized contact, so a
+        /// finger held here could not move what a real one would.
+        case contested
+        /// No drag: a finger, its pointer events and its lift's press.
+        case finger
+    }
+
+    /// What a contact on `view` would reach: from it up, stopping at rule 3's
+    /// boundary (a field or a text area; a press node between is passed, as a
+    /// pan takes a drag that starts on a button), as `MouseLayoutPan.down`
+    /// walks. Where another drag could take the contact first — a
+    /// descendant's (rule 3) or a drag binding on the pan node (rule 4) — only
+    /// UIKit's arbitration can say (`contested`).
+    static func heldReach(from view: UIView) -> HeldReach {
         var at: UIView? = view
         while let current = at {
             if let node = current as? NodeView {
                 if node.handlers.contains("pan") {
+                    guard SwipeInput.allows(node) else { return .finger }
                     let bound = node.reorderPan != nil || node.transformRecognizer != nil || node.heightRecognizer != nil
-                    return SwipeInput.allows(node) && !bound ? node : nil
+                    return bound ? .contested : .pan(node)
                 }
-                if node.field != nil || node.textArea != nil { return nil }
-                if !node.dragRecognizers.isEmpty || node.handlers.contains("swiperight") { return nil }
+                if node.field != nil || node.textArea != nil { return .finger }
+                if !node.dragRecognizers.isEmpty || node.handlers.contains("swiperight") { return .contested }
             }
             at = current.superview
         }
-        return nil
+        return .finger
     }
 
     /// The pointer observer is independent of the pan recognizer, as for a
@@ -266,9 +279,12 @@ extension Agent {
             let at = CGPoint(x: (req["x"] as? Double) ?? b.midX, y: (req["y"] as? Double) ?? b.midY)
             guard at.x.isFinite, at.y.isFinite else { return ["error": "tap down: the point must be finite"] }
             let t = CACurrentMediaTime()
-            guard let node = Agent.panNode(from: v) else {
+            let reach = Agent.heldReach(from: v)
+            guard case .pan(let node) = reach else {
                 // A drag's contact (`pan`) is a pan's or none: a finger held elsewhere moves nothing.
+                // Where a swipe or another drag could take it, a finger is unsupported (LLP 1035.003 D1).
                 if req["pan"] != nil { return nil }
+                if case .contested = reach { return nil }
                 // A finger held still: it lands only where the target is seen, as a tap's does.
                 let p = windowPoint(at), seen = win.hitTest(p, with: nil)
                 if let why = offscreen(v, box: CGRect(origin: at, size: .zero), hit: seen) ?? seen.flatMap({ obscured(v, at: p, hit: $0) }) {

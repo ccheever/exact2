@@ -55,6 +55,34 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertEqual(events, ["down", "up"])
     }
 
+    /// A swipe row inside a panning surface (the smoke's precedence fixture):
+    /// only UIKit's arbitration gives a contact there to the swipe or the pan,
+    /// and no recognizer sees a recognized one, so a contact on the row or on
+    /// its button is unsupported and sends nothing, as on the surface beside
+    /// the row it is the pan's.
+    func testAContactWhereASwipeCouldTakeItIsUnsupported() throws {
+        let session = try booted(), p = session.presenter
+        let make = { (id: UInt32, frame: CGRect, parent: UIView, handlers: Set<String>) -> NodeView in
+            let n = NodeView(id: id, kind: "view", presenter: p)
+            p.views[id] = n
+            n.frame = frame
+            n.handlers = handlers
+            parent.addSubview(n)
+            return n
+        }
+        let surface = make(UInt32.max - 2, CGRect(x: 0, y: 0, width: 400, height: 500), p.viewport, ["pan", "pointerdown"])
+        let row = make(UInt32.max - 1, CGRect(x: 0, y: 0, width: 400, height: 100), surface, ["swiperight", "pointerdown"])
+        let button = make(UInt32.max, CGRect(x: 0, y: 0, width: 80, height: 40), row, ["press", "pointerdown"])
+        let agent = Agent(session: session)
+        var events: [UInt32] = []
+        p.onPointer = { id, _, _ in events.append(id) }
+        XCTAssertNil(agent.recognizedPan("down", ["id": Int(row.id)]), "the row's swipe could take it")
+        XCTAssertNil(agent.recognizedPan("down", ["id": Int(button.id)]), "the row's swipe could take a drag from its button")
+        XCTAssertEqual(events, [], "an unsupported contact sends nothing")
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(surface.id), "y": 300.0])?["contact"] as? Int, Int(surface.id), "beside the row it is the pan's")
+        _ = agent.recognizedPan("cancel", [:])
+    }
+
     /// The agent's tap is what a finger there delivers (LLP 1012 §1): its
     /// `pointerdown` and `pointerup`, bubbled, then the press; a finger held
     /// off any `pan` node is the same with time between, and a lift beside

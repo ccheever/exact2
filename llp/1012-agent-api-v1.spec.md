@@ -774,8 +774,9 @@ deterministic and a smoke against real credentials leaves nothing behind.
   under `--timing platform` `<ms>` of real time passes (the main run loop
   turns on iOS and macOS), so the platform's own motion runs on. A drag's
   `press` and `hold` already were; Linux's always were.
-- **iOS holds a contact.** Off a `pan` node, `tap … down` is a recognized
-  finger (`delivery: recognized`, `AgentPanIOS.swift`): its `pointerdown` as
+- **iOS holds a contact.** Off a `pan` node, where no swipe or other drag
+  could take it, `tap … down` is a recognized finger (`delivery: recognized`,
+  `AgentPanIOS.swift`): its `pointerdown` as
   it lands, `pointermove`s as it moves (nothing scrolls: `tap <scroller>
   drag` does), its `pointerup` (to every node its down reached that is
   still that node, though one disabled itself) and then the press a finger
