@@ -33,7 +33,7 @@ mod typeface;
 
 pub use check::{Checked, MAX_TUPLES};
 pub use component::{Component, Param};
-pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
+pub use edit::{apply, apply_all, apply_all_with, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use icon::Icon;

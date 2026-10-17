@@ -135,3 +135,44 @@ fn a_param_set_is_refused_where_it_cannot_be_written() {
     ))
     .is_err());
 }
+
+#[test]
+fn set_param_finds_a_commented_or_indented_block_and_a_rename_follows_its_values() {
+    // A header with a comment, as fmt writes one, and a four-space block.
+    let commented =
+        format!("{BASE}\nparams  // overrides\n    PostButton.radius = 8px\n    // the row's\n");
+    let next = apply(&commented, &set("Row.gap", &[], "1px"), &vocab()).unwrap();
+    assert_eq!(
+        next.text,
+        format!("{BASE}\nparams  // overrides\n    PostButton.radius = 8px\n    // the row's\n    Row.gap = 1px\n")
+    );
+    assert!(parse(&next.text).is_ok());
+    // Removing the last line leaves no header behind.
+    let one = format!("{BASE}\nparams  // overrides\n  PostButton.radius = 8px\n");
+    let unset = Op::UnsetParam {
+        name: "PostButton.radius".into(),
+        when: Vec::new(),
+    };
+    let gone = apply(&one, &unset, &vocab()).unwrap();
+    assert_eq!(gone.text, BASE);
+    // A token renamed: the values naming it follow; a param's name stays.
+    let named = format!(
+        "{BASE}\nparams\n  PostButton.radius = radius.md\n    when density=compact: radius.md\n"
+    );
+    let renamed = apply(
+        &named,
+        &Op::RenameToken {
+            from: "radius.md".into(),
+            to: "radius.lg".into(),
+        },
+        &vocab(),
+    )
+    .unwrap();
+    assert!(
+        renamed.text.ends_with(
+            "params\n  PostButton.radius = radius.lg\n    when density=compact: radius.lg\n"
+        ),
+        "{}",
+        renamed.text
+    );
+}

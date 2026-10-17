@@ -121,7 +121,7 @@ pub fn run(args: &[String]) -> ExitCode {
     let folded = match params.is_empty() {
         true => exact_tamber::check(&src, &contract_lower::tamber_vocab()),
         false => exact_tamber::parse(&src).and_then(|mut d| {
-            contract_lower::params::add_to(&mut d, params);
+            contract_lower::params::add_to(&mut d, params, &app.identities);
             exact_tamber::check_design(d, &contract_lower::tamber_vocab())
         }),
     };

@@ -181,47 +181,29 @@ pub fn collisions(params: &[ParamToken]) -> Vec<LowerError> {
 /// compiler's synthetic tokens'.
 pub const LINE: u32 = 1 << 29;
 
-/// `design` with each of `params` added as a token of its kind (an icon
-/// param among its icons), on line [`LINE`] + its index.
-pub fn add_to(design: &mut exact_tamber::Design, params: &[ParamToken]) {
-    for (i, p) in params.iter().enumerate() {
-        let at = |value: &str| exact_tamber::At {
-            value: value.to_string(),
-            line: LINE + i as u32,
-            col: 1,
-        };
-        let icon = p.param.kind == "icon";
-        let token = exact_tamber::Token {
-            name: at(&p.token),
-            kind: (!icon).then(|| p.param.kind.clone()),
-            value: at(&p.param.default),
-            whens: Vec::new(),
-            meta: Vec::new(),
-        };
-        match icon {
-            true => design.icons.push(token),
-            false => design.tokens.push(token),
-        }
+/// `params`, and the identity of every component of the app
+/// (`components`), as the design's folds take them.
+pub fn folds(params: &[ParamToken], components: &[String]) -> exact_tamber::params::Params {
+    exact_tamber::params::Params {
+        list: params
+            .iter()
+            .map(|p| exact_tamber::params::Param {
+                token: p.token.clone(),
+                full: p.full.clone(),
+                kind: p.param.kind.clone(),
+                default: p.param.default.clone(),
+            })
+            .collect(),
+        components: components.to_vec(),
     }
-    // An icon param whose default names another icon (a param's, or the
-    // design's) takes that icon's sources: the icons block folds literals.
-    for _ in 0..params.len() {
-        let mut changed = false;
-        for i in 0..design.icons.len() {
-            let name = design.icons[i].value.value.trim().to_string();
-            if name.contains('(') {
-                continue;
-            }
-            if let Some(src) = design.icons.iter().find(|t| t.name.value == name) {
-                let value = src.value.value.clone();
-                design.icons[i].value.value = value;
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
+}
+
+/// `design` laid out with `params` ([`exact_tamber::params::laid`]): each a
+/// token of its kind on line [`LINE`] + its index, the design's `params`
+/// lines in their places, icon aliases resolved. `components`: every
+/// component's identity, for what a short name names.
+pub fn add_to(design: &mut exact_tamber::Design, params: &[ParamToken], components: &[String]) {
+    *design = exact_tamber::params::laid(design, &folds(params, components));
 }
 
 /// `message` with each param's token name written as its full name: what
@@ -425,6 +407,60 @@ pub fn folded(
     errors
 }
 
+/// Each literal value a line of the design's `params` block writes (its
+/// own and each `when` line's) outside its param's range, at that value's
+/// line and column: a `when` value no tuple picks is checked too, as the
+/// author wrote it. A value naming tokens is checked as it folds
+/// ([`folded`]).
+pub fn written_ranges(
+    design: &exact_tamber::Design,
+    params: &[ParamToken],
+    identities: &[String],
+) -> Vec<(u32, u32, LowerError)> {
+    let mut out = Vec::new();
+    for entry in &design.params {
+        let Ok(t) = resolve(params, identities, &entry.name.value) else {
+            continue;
+        };
+        let Some(Ok((low, high))) = range(&t.param) else {
+            continue;
+        };
+        let values = std::iter::once(&entry.value).chain(entry.whens.iter().map(|w| &w.value));
+        for v in values {
+            let text = v.value.trim();
+            let n = match t.param.kind.as_str() {
+                "length" => text
+                    .strip_suffix("px")
+                    .and_then(|n| n.trim().parse::<f64>().ok()),
+                "duration" => text
+                    .strip_suffix("ms")
+                    .and_then(|n| n.trim().parse::<f64>().ok())
+                    .or_else(|| {
+                        text.strip_suffix('s')
+                            .and_then(|n| n.trim().parse::<f64>().ok())
+                            .map(|s| s * 1000.0)
+                    }),
+                _ => text.parse::<f64>().ok(),
+            };
+            if n.is_some_and(|n| n < low || n > high) {
+                out.push((
+                    v.line,
+                    v.col,
+                    LowerError {
+                        id: "tamber-param-range",
+                        message: format!(
+                            "param `{}` is set to {text}, outside its range {low}..{high}",
+                            t.full
+                        ),
+                        span: Span::default(),
+                    },
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// Each line of the design's `params` block that names no param of the
 /// app, as a warning (`tamber-param-unknown`, D15): its declaring file moved
 /// or was renamed, or the param was removed, so the value no longer
@@ -459,75 +495,45 @@ pub fn unknown(
 
 /// The param `name` names among `params`: its full name
 /// (`post.contract#PostButton.radius`), or its short one (`PostButton.radius`)
-/// where one component of that name declares it; where two do, the short
-/// name is refused (`tamber-param-ambiguous`), naming both.
+/// where one component of the app (`identities`, every one's) has that
+/// component name; where two do, whichever has the param or neither, the
+/// short name is refused (`tamber-param-ambiguous`), naming both. The
+/// decision is [`exact_tamber::params::named`]'s, the design server's too.
 pub fn resolve<'a>(
     params: &'a [ParamToken],
     identities: &[String],
     name: &str,
 ) -> Result<&'a ParamToken, LowerError> {
+    use exact_tamber::params::{called, named, Unnamed};
     let refuse = |id: &'static str, message: String| LowerError {
         id,
         message,
         span: Span::default(),
     };
-    if let Some(p) = params.iter().find(|p| p.full == name) {
-        return Ok(p);
-    }
-    // A short name is a component's: two components of that name (two
-    // identities, `identities` every one of the app's) make it ambiguous,
-    // whichever of them has the param, or none.
-    let named = |identity: &str| {
-        identity
-            .rsplit_once('#')
-            .map_or(identity.to_string(), |(_, c)| c.to_string())
-    };
-    let component = |p: &ParamToken| named(&p.identity);
-    let found: Vec<&ParamToken> = params
-        .iter()
-        .filter(|p| format!("{}.{}", component(p), p.param.name) == name)
-        .collect();
-    if let Some(p) = found.first() {
-        let mut owners: Vec<&str> = params
+    let folds = folds(params, identities);
+    match named(&folds, name) {
+        Ok(p) => Ok(params
             .iter()
-            .map(|q| q.identity.as_str())
-            .chain(identities.iter().map(String::as_str))
-            .filter(|q| named(q) == component(p))
-            .collect();
-        owners.dedup();
-        owners.sort_unstable();
-        owners.dedup();
-        if owners.len() > 1 {
-            return Err(refuse(
+            .find(|q| q.token == p.token)
+            .expect("folds are params'")),
+        Err(Unnamed::Unknown) => Err(refuse(
+            "tamber-param-unknown",
+            format!("`{name}` is no component's param"),
+        )),
+        Err(Unnamed::Ambiguous) => {
+            let component = name.rsplit_once('.').map_or(name, |(c, _)| c);
+            Err(refuse(
                 "tamber-param-ambiguous",
                 format!(
-                    "`{name}`: more than one component is called `{}` ({}): name the param in full",
-                    component(p),
-                    owners
+                    "`{name}`: more than one component is called `{component}` ({}): name the param in full",
+                    called(&folds, component)
                         .iter()
                         .map(|o| format!("`{o}`"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
-            ));
+            ))
         }
-    }
-    match found.as_slice() {
-        [one] => Ok(one),
-        [] => Err(refuse(
-            "tamber-param-unknown",
-            format!("`{name}` is no component's param"),
-        )),
-        many => Err(refuse(
-            "tamber-param-ambiguous",
-            format!(
-                "`{name}` is a param of more than one component ({}): name it in full",
-                many.iter()
-                    .map(|p| format!("`{}`", p.full))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        )),
     }
 }
 

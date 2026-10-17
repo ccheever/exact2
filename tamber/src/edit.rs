@@ -408,10 +408,29 @@ pub fn apply_all(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Dia
     if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
         return Err(refuse("a restore is an inverse: undo applies it"));
     }
-    run(src, ops, vocab)
+    run(src, ops, vocab, &crate::params::NONE)
 }
 
-fn run(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diagnostic>> {
+/// [`apply_all`], the result checked laid out with the app's params (LLP
+/// 1121 D15), as the build checks it: a dial only a param reads is read.
+pub fn apply_all_with(
+    src: &str,
+    ops: &[Op],
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<Edited, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    run(src, ops, vocab, params)
+}
+
+fn run(
+    src: &str,
+    ops: &[Op],
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<Edited, Vec<Diagnostic>> {
     let mut text = src.to_string();
     let mut inverse = Vec::new();
     for op in ops {
@@ -419,7 +438,13 @@ fn run(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diagnostic>> 
         text = next;
         inverse.insert(0, undo);
     }
-    crate::check(&text, vocab)?;
+    match params.list.is_empty() {
+        true => drop(crate::check(&text, vocab)?),
+        false => drop(crate::check_design(
+            crate::params::laid(&crate::parse(&text)?, params),
+            vocab,
+        )?),
+    }
     Ok(Edited { text, inverse })
 }
 
@@ -775,7 +800,8 @@ impl Doc {
                         format!("a token `{to}` is declared already"),
                     ));
                 }
-                // A token is named in the theme's values and the exports.
+                // A token is named in the theme's values, the exports, and
+                // the params block's values (D15).
                 let mut block = String::new();
                 for n in 0..self.lines.len() {
                     let raw = self.lines[n].clone();
@@ -784,18 +810,22 @@ impl Doc {
                         block = body.trim().to_string();
                         continue;
                     }
-                    if block != "theme" && block != "exports" {
+                    if block != "theme" && block != "exports" && block != "params" {
                         continue;
                     }
                     // A token line's name and value; a when line's value
-                    // only (its conditions are axes); an export whole.
+                    // only (its conditions are axes); an export whole; a
+                    // params line's value only (its name is a param's).
                     let code = body.trim_start();
                     let keep = match block.as_str() {
-                        "theme"
+                        "theme" | "params"
                             if code.starts_with("when ")
                                 && !code[4..].trim_start().starts_with('=') =>
                         {
                             lex::split_top(body, ':').map_or(body.len(), |(c, _)| c.len() + 1)
+                        }
+                        "params" => {
+                            lex::split_top(body, '=').map_or(body.len(), |(c, _)| c.len() + 1)
                         }
                         _ => 0,
                     };

@@ -620,7 +620,9 @@ impl Server {
                     "explain" => self.explain(&request),
                     _ => self.uses(&request),
                 };
-                vec![reply(answer.map(|v| self.present(v)))]
+                vec![reply(
+                    answer.map(|v| self.present(v)).map_err(|e| self.present(e)),
+                )]
             }
             Some("propose") => vec![reply(self.transaction(&request, false))],
             Some("transaction") => self.commit_reply(&request, reply, false),
@@ -690,20 +692,23 @@ impl Server {
 
     /// The file a read names (`file`, the app's design when unsaid),
     /// checked, from one snapshot that also gives the digests.
-    /// The design folded for a request's `token`: a param (D15), named in
-    /// full or short, folds with the app's params, its `params` line in
-    /// place; any other with the design alone. The name to look up.
+    /// The design folded with the app's params (D15), each in its
+    /// `params` line's place, for a request's `token`, and the name to look
+    /// up: a param's token where it names one in full or short, else the
+    /// name as given (a design token, which may read a param). A short name
+    /// two components share is refused, not read as a design token.
     fn lookup(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding, String), Value> {
         let name = required(request, "token")?;
-        let all = contract::tamber_params::params_of(&self.dir.join("app.contract"));
-        match contract_lower::params::resolve(&all.tokens, &all.identities, &name) {
-            Ok(p) => {
-                let token = p.token.clone();
-                let (snap, folding, _) = self.design_with(request, &all)?;
-                Ok((snap, folding, token))
+        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let token = match contract_lower::params::resolve(&app.tokens, &app.identities, &name) {
+            Ok(p) => p.token.clone(),
+            Err(e) if e.id == "tamber-param-ambiguous" => {
+                return Err(json!({"message": format!("{}: {}", e.id, e.message), "id": e.id}));
             }
-            Err(_) => self.design(request).map(|(s, f)| (s, f, name)),
-        }
+            Err(_) => name,
+        };
+        let (snap, folding, _) = self.design_with(request, &app)?;
+        Ok((snap, folding, token))
     }
 
     /// [`Self::design`], folded with the app's components' params (D15),
@@ -929,7 +934,7 @@ impl Server {
             .iter()
             .zip(&folding.design.tokens)
             .find(|(t, _)| t.name == name)
-            .ok_or_else(|| json!({"message": format!("no token `{name}`")}))?;
+            .ok_or_else(|| no_token(&folding, &name))?;
         let whens: Vec<Value> = declared
             .whens
             .iter()
@@ -951,7 +956,7 @@ impl Server {
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
         let (snap, folding, name) = self.lookup(request)?;
         if !folding.tokens.iter().any(|t| t.name == name) {
-            return Err(json!({"message": format!("no token `{name}`")}));
+            return Err(no_token(&folding, &name));
         }
         // A design file the app does not build has no sites.
         if optional(request, "file")?.is_some_and(|f| f != self.design) {
@@ -1100,7 +1105,7 @@ impl Server {
         // The tokens the plan keeps (D7): an edit to one it does not keep
         // (a plain app's token no view names) leaves the plan as it is.
         let retention = self.synthetic.as_ref().and_then(|(_, _, r)| r.clone());
-        let params = crate::tamber_ops::params(&self.params.1.tokens);
+        let params = crate::tamber_ops::params(&self.params.1);
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
@@ -1108,7 +1113,7 @@ impl Server {
             params: &params,
         };
         let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
-            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})
+            json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &self.params.1)).collect::<Vec<_>>()})
         })?;
         // What the build refuses beyond the crate's check, a write refuses
         // too, so nothing is written that the app cannot build: a role
@@ -1149,14 +1154,16 @@ impl Server {
             }
             // A param's value folds with the params where it lands, inside
             // its range (D15), as the build checks it.
-            if ops.iter().any(|(_, op)| matches!(op, Op::SetParam { .. })) {
+            // Any write: an unset, a token's or an axis's edit can take a
+            // param out of its range or its `when` out of the design too.
+            if !self.params.1.tokens.is_empty() {
                 let set: Vec<(String, String)> = planned
                     .files
                     .iter()
                     .filter(|(p, _, _)| *p == self.design)
                     .map(|(p, t, _)| (p.clone(), t.clone()))
                     .collect();
-                crate::tamber_ops::param_values(&set, &self.params.1.tokens, &self.vocab)?;
+                crate::tamber_ops::param_values(&set, &self.params.1, &self.vocab)?;
             }
         }
         let mut out = json!({
@@ -1439,6 +1446,17 @@ fn files_json(files: &[(String, String, String)]) -> Value {
             .map(|(p, _, d)| (p.clone(), json!(d)))
             .collect(),
     )
+}
+
+/// Why `explain` or `uses` has no token `name`: an icon (a param's too) is
+/// read through `describe` and `resolve` (D10).
+fn no_token(folding: &exact_tamber::Folding, name: &str) -> Value {
+    match folding.icons.iter().any(|i| i.name == name) {
+        true => {
+            json!({"message": format!("`{name}` is an icon: `describe` and `resolve` read an icon's sources; `explain` and `uses` take a token")})
+        }
+        false => json!({"message": format!("no token `{name}`")}),
+    }
 }
 
 fn diagnostic(file: &str, d: &exact_tamber::Diagnostic) -> Value {

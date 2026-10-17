@@ -88,32 +88,17 @@ pub fn located(d: &exact_tamber::Diagnostic, app: &AppParams, design: &Path) -> 
     }
 }
 
-/// `design` with each of `params` a token, and each of its `params` lines in
-/// its param's place, as the build lays them (D15).
+/// `design` laid out with the app's params as the build lays it (D15): each
+/// a token, each of its `params` lines in its param's place.
 pub fn laid(design: &exact_tamber::Design, app: &AppParams) -> exact_tamber::Design {
-    let params = app.tokens.as_slice();
     let mut out = design.clone();
-    params::add_to(&mut out, params);
-    for entry in &design.params {
-        let Ok(p) = params::resolve(params, &app.identities, &entry.name.value) else {
-            continue;
-        };
-        if let Some(t) = out
-            .tokens
-            .iter_mut()
-            .chain(out.icons.iter_mut())
-            .find(|t| t.name.value == p.token)
-        {
-            t.value = entry.value.clone();
-            t.whens = entry.whens.clone();
-        }
-    }
+    params::add_to(&mut out, &app.tokens, &app.identities);
     out
 }
 
-/// `text`, a design, folded with `params`, its `params` lines in their
-/// places, and the design as parsed, without them; a refusal as the fold
-/// gives it ([`relocate`] it).
+/// `text`, a design, folded with the app's params, its `params` lines in
+/// their places, and the design as parsed, without them; a refusal as the
+/// fold gives it ([`relocate`] it).
 pub fn fold_with(
     text: &str,
     app: &AppParams,
@@ -122,6 +107,31 @@ pub fn fold_with(
     let design = exact_tamber::parse(text)?;
     let folding = exact_tamber::check_design(laid(&design, app), vocab)?;
     Ok((folding, design))
+}
+
+/// The names `text` reads that are tokens or icons of `folding`, and every
+/// token those read in turn.
+fn reads(text: &str, folding: Option<&exact_tamber::Folding>) -> Vec<String> {
+    let Some(f) = folding else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = text
+        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
+        .filter(|w| f.tokens.iter().any(|t| t.name == *w) || f.icons.iter().any(|i| i.name == *w))
+        .map(str::to_string)
+        .collect();
+    let mut i = 0;
+    while i < out.len() {
+        if let Some(t) = f.tokens.iter().find(|t| t.name == out[i]) {
+            for n in &t.names {
+                if !out.contains(n) {
+                    out.push(n.clone());
+                }
+            }
+        }
+        i += 1;
+    }
+    out
 }
 
 /// The IR's tokens with every param's left out: a tool reads params by
@@ -178,16 +188,26 @@ pub fn components(
                 // The app's value, its `params` line; a literal there in
                 // place of a default that names tokens no longer follows them
                 // (D15, marked as D14 marks a pinned dial override).
-                let set = design.params.iter().find(|e| params::resolve(all, &app.identities, &e.name.value).is_ok_and(|r| r.token == q.token));
-                let follows: Vec<String> = q
-                    .param
-                    .default
-                    .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-                    .filter(|w| folding.as_ref().is_some_and(|f| f.tokens.iter().any(|t| t.name == *w)))
-                    .map(str::to_string)
-                    .collect();
+                let set = design.params.iter().find(|e| {
+                    params::resolve(all, &app.identities, &e.name.value)
+                        .is_ok_and(|r| r.token == q.token)
+                });
+                // Each token or icon the default names that the set value
+                // and its `when` values no longer read, directly or through
+                // another token.
                 let pinned: Vec<String> = match set {
-                    Some(e) => follows.iter().filter(|w| !e.value.value.contains(w.as_str())).map(|w| params::shown(w, all)).collect(),
+                    Some(e) => {
+                        let mut written = vec![e.value.value.clone()];
+                        written.extend(e.whens.iter().map(|w| w.value.value.clone()));
+                        let kept = reads(&written.join(" "), folding.as_ref());
+                        let mut direct = reads(&q.param.default, folding.as_ref());
+                        direct.retain(|w| q.param.default.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))).any(|d| d == w));
+                        direct
+                            .into_iter()
+                            .filter(|w| !kept.contains(w))
+                            .map(|w| params::shown(&w, all))
+                            .collect()
+                    }
                     None => Vec::new(),
                 };
                 let num = |name: &str| q.param.attr(name).and_then(params::number);

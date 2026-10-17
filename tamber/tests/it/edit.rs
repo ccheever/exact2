@@ -796,7 +796,7 @@ fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
         file: "app.tamber",
         exprs: &exprs,
         retention: None,
-        params: &[],
+        params: &exact_tamber::params::NONE,
     };
     let set = |value: &str| {
         vec![(
@@ -832,7 +832,7 @@ fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
         file: "app.tamber",
         exprs: &strict,
         retention: None,
-        params: &[],
+        params: &exact_tamber::params::NONE,
     };
     let refused = exact_tamber::plan(&host, &set("CanvasText"), &vocab(), false, row).unwrap();
     assert_eq!(refused.class, exact_tamber::Class::Rebuild);
@@ -865,7 +865,7 @@ fn a_length_or_number_edit_is_live_and_a_kind_change_rebuilds() {
         file: "app.tamber",
         exprs: &none,
         retention: None,
-        params: &[],
+        params: &exact_tamber::params::NONE,
     };
     let set = |name: &str, value: &str| {
         vec![(
@@ -915,7 +915,7 @@ fn a_type_value_edit_is_live_and_a_longhand_or_family_change_rebuilds() {
         file: "app.tamber",
         exprs: &none,
         retention: None,
-        params: &[],
+        params: &exact_tamber::params::NONE,
     };
     let set = |name: &str, value: &str| {
         vec![(
@@ -993,7 +993,7 @@ fn the_class_asks_the_plans_retention() {
             file: "app.tamber",
             exprs: &[],
             retention: Some(retention),
-            params: &[],
+            params: &exact_tamber::params::NONE,
         };
         exact_tamber::plan(&files, ops, &vocab(), false, synthetic)
             .unwrap()
@@ -1076,7 +1076,7 @@ fn the_class_asks_the_plans_retention() {
         file: "app.tamber",
         exprs: &[],
         retention: Some(&plain),
-        params: &[],
+        params: &exact_tamber::params::NONE,
     };
     let planned = exact_tamber::plan(&role, &respell, &vocab(), false, synthetic).unwrap();
     assert_eq!(planned.class, Rebuild, "a role override respelled");
@@ -1105,7 +1105,7 @@ fn the_class_asks_the_plans_retention() {
             file: "app.tamber",
             exprs: &[],
             retention: Some(&plain),
-            params: &[],
+            params: &exact_tamber::params::NONE,
         };
         exact_tamber::plan(&files, ops, &vocab(), false, synthetic)
             .unwrap()

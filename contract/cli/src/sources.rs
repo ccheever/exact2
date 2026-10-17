@@ -191,8 +191,16 @@ pub(crate) fn load(
             ));
         }
     }
-    loader.motion =
-        contract_lower::motion::tokens(design.as_ref().map(|d| d.text.as_str()), &params);
+    let identities: Vec<String> = loader
+        .units
+        .iter()
+        .flat_map(|u| contract_lower::params::identities(&u.file))
+        .collect();
+    loader.motion = contract_lower::motion::tokens(
+        design.as_ref().map(|d| d.text.as_str()),
+        &params,
+        &identities,
+    );
     match loader.scope() {
         Ok(mut file) => {
             file.design = design;
@@ -512,7 +520,12 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     let icons: Vec<PathBuf> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
         .and_then(|mut d| {
-            contract_lower::params::add_to(&mut d, &params);
+            let identities: Vec<String> = loader
+                .units
+                .iter()
+                .flat_map(|u| contract_lower::params::identities(&u.file))
+                .collect();
+            contract_lower::params::add_to(&mut d, &params, &identities);
             exact_tamber::check_design(d, &contract_lower::tamber_vocab()).ok()
         })
         .map(|folding| {

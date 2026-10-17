@@ -555,7 +555,7 @@ pub fn run(args: &[String]) -> ExitCode {
         .map_err(|e| vec![e.to_string()])
         .and_then(|src| {
             let checked = exact_tamber::parse(&src).and_then(|mut design| {
-                contract_lower::params::add_to(&mut design, &params.tokens);
+                contract_lower::params::add_to(&mut design, &params.tokens, &params.identities);
                 exact_tamber::check_design(design, &contract_lower::tamber_vocab())
             });
             checked.map_err(|all| {

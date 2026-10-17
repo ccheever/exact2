@@ -60,7 +60,7 @@ pub struct Planned {
 
 /// The app's synthetic tokens (D3): Contract rows' expressions over tokens,
 /// folded with the design file `file`.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Synthetic<'a> {
     /// The design file they fold with.
     pub file: &'a str,
@@ -73,7 +73,18 @@ pub struct Synthetic<'a> {
     pub retention: Option<&'a Retention>,
     /// The app's components' params (D15), which fold with the design file:
     /// each a token, its `params` line in place of its default.
-    pub params: &'a [crate::params::Param],
+    pub params: &'a crate::params::Params,
+}
+
+impl Default for Synthetic<'_> {
+    fn default() -> Self {
+        Synthetic {
+            file: "",
+            exprs: &[],
+            retention: None,
+            params: &crate::params::NONE,
+        }
+    }
 }
 
 /// D7's retention: which of a design's tokens an app's plan keeps. The
@@ -155,6 +166,10 @@ pub fn plan(
         }
         let edited = match undo {
             true => edit::undo(text, &mine, vocab),
+            // The design file the app builds is checked with its params.
+            false if *path == synthetic.file => {
+                edit::apply_all_with(text, &mine, vocab, synthetic.params)
+            }
             false => edit::apply_all(text, &mine, vocab),
         }
         .map_err(|all| {
@@ -165,11 +180,11 @@ pub fn plan(
         if edited.text == *text {
             continue;
         }
-        let (exprs, params): (&[(String, bool)], &[crate::params::Param]) =
+        let (exprs, params): (&[(String, bool)], &crate::params::Params) =
             if *path == synthetic.file {
                 (synthetic.exprs, synthetic.params)
             } else {
-                (&[], &[])
+                (&[], &crate::params::NONE)
             };
         let (before, after, moved_set) = folded(text, &edited.text, (exprs, params), vocab);
         structure |= moved_set;
@@ -263,7 +278,7 @@ pub fn plan(
 fn folded(
     before: &str,
     after: &str,
-    (exprs, params): (&[(String, bool)], &[crate::params::Param]),
+    (exprs, params): (&[(String, bool)], &crate::params::Params),
     vocab: &Vocab,
 ) -> (Option<Folding>, Option<Folding>, bool) {
     let (b, kept_b) = foldable(before, exprs, params, vocab);
@@ -278,7 +293,7 @@ fn folded(
 fn foldable(
     text: &str,
     exprs: &[(String, bool)],
-    params: &[crate::params::Param],
+    params: &crate::params::Params,
     vocab: &Vocab,
 ) -> (Option<Folding>, Vec<usize>) {
     let Ok(design) = crate::parse(text) else {

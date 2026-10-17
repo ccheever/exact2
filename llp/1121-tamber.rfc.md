@@ -3209,11 +3209,17 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   `theme`. Each line is a param's full or short name, `= value`, with `when` lines. `#` and `/`
   are allowed in names there only, and a kind is not written (it is the component's). `tamber fmt`
   lays it out as `theme`'s.
-  - The compiler puts each line in place of its param's default and `when` lines, so every
-    instance shares it, and a range is checked on the folded value at the line.
+  - Each line goes in place of its param's default and `when` lines, so every instance shares it.
+    One layout does it everywhere (`tamber::params::laid`): the compiler, the motion rows written
+    at load, the source graph, the CLI's checks, `plan`, the edits' check, `resolve` and
+    `describe`. An icon naming another icon takes its sources after the lines are laid, so an
+    alias follows the value set. A range is checked on each folded value, at the line, and on each
+    value written, a `when` line's too, at its own line.
   - A line naming no param of the app is a warning, `tamber-param-unknown`: a moved or renamed
     declaring file must not break the build, and the value no longer applies.
-  - A short name two components share is `tamber-param-ambiguous`.
+  - A short name two components share is `tamber-param-ambiguous`, whichever has the param or
+    neither: one rule (`tamber::params::named`), which `contract_lower::params::resolve` delegates
+    to. A second line naming the same param is `tamber-param-twice`.
 - **`set-param` and `unset-param`** (`tamber::edit`, *tamber/1.10*):
   - `set-param` writes the param's line, making the block at the end when there is none, or sets
     one `when` line. A `when` needs the line first.
@@ -3221,15 +3227,25 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   - The inverse is the preimage, as every edit's is, so undoing the first `set-param` restores
     absence.
   - The server refuses a name no param answers, and an ambiguous short name. It writes on the line
-    the design already has, by that line's name. It refuses a value that doesn't fold with the
-    params where it lands, or that is out of range (`tamber_ops::param_values`).
+    the design already has, by that line's name, or by the name an earlier op of the transaction
+    used. After every write to an app with params, not only a `set-param`, it refuses a design
+    whose params do not fold or fall out of range (`tamber_ops::param_values`), each at its line.
+  - The block is found as the parser finds it (a trailing comment allowed), a new line takes the
+    block's indent and goes after its last line, comments included. A token's rename renames the
+    values naming it, a param's name never.
 - **The closure** (`tamber::params`). `plan` folds the design with the app's params, each in its
   `params` line's place (`Synthetic::params`; the server reads the app's params by its Contract
-  sources' key). So a param's value is `live`, and `rebuild` for a duration or easing param. A live
-  one is scrubbed as a token is: the wire's scrub plans with `propose` and the dev loop compiles
-  the texts.
+  sources' key), and checks an edit laid out with them (`apply_all_with`), so a dial only a param
+  reads is read. So a param's value is `live`, and `rebuild` for a duration or easing param, even
+  one no instance uses (the planner does not see where motion rows were written). A live one is
+  scrubbed as a token is: the wire's scrub plans with `propose` and the dev loop compiles the
+  texts.
 - **Reads.** `resolve`, `explain` and `uses` take a param's full or short name and answer by its
-  full name (`uses`: every instance's row). `describe`'s `components` gives `set`, the app's
-  value. It gives `pinned`, the tokens a default reads that a literal value no longer follows: D14's
-  mark, "no longer follows `radius.md`".
+  full name, their errors too, folded with every param (so a design token's `uses` follows it
+  through a param). An ambiguous short name is refused, never read as a design token. `uses` gives
+  every instance's row; a motion param's sites are its source literals, as a motion token's are.
+  An icon param, like an icon, is read by `describe` and `resolve`. `describe`'s `components` gives
+  `set`, the app's value. It gives `pinned`, each token or icon the default names that the set
+  value and its `when` values no longer read, directly or through another token: D14's mark, "no
+  longer follows `radius.md`".
 

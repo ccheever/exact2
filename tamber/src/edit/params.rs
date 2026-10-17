@@ -7,11 +7,12 @@ use super::{line, refuse, refuse_at, same_conds, when_code, Doc};
 use crate::{Design, Diagnostic, Op};
 
 impl Doc {
-    /// The `params` block's line, if the design has one.
+    /// The `params` block's line, if the design has one: found as the
+    /// parser finds it, its trailing comment and spaces aside.
     fn params_header(&self) -> Option<usize> {
         self.lines
             .iter()
-            .position(|l| l.trim_end_matches('\r') == "params")
+            .position(|l| crate::lex::split_comment(l).0.trim_end() == "params")
     }
 
     pub(super) fn set_param(
@@ -28,18 +29,15 @@ impl Doc {
                     "`{name}` has no line in the design's `params` block: set its value before one of its `when` lines"
                 )));
             }
-            let new = self.ended(line(2, &format!("{name} = {}", value.trim()), None));
-            match self.params_header() {
-                // After the block's last line.
-                Some(header) => {
-                    let last = design
-                        .params
-                        .iter()
-                        .map(|p| p.whens.last().map_or(p.name.line, |w| w.line))
-                        .max()
-                        .map_or(header + 1, |l| l as usize);
-                    self.lines.insert(last, new);
-                }
+            // Indented as the block's lines are, two spaces in a new one.
+            let indent = design
+                .params
+                .first()
+                .map_or(2, |p| self.parts(p.name.line).0);
+            let new = self.ended(line(indent, &format!("{name} = {}", value.trim()), None));
+            match self.block_end("params") {
+                // After the block's last line, its comments too.
+                Some(end) => self.lines.insert(end, new),
                 // A new block at the end, a blank line before it.
                 None => {
                     while self.lines.last().is_some_and(|l| l.trim().is_empty()) {

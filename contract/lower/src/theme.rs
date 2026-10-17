@@ -252,36 +252,39 @@ impl Lowerer<'_> {
             .map(|(_, p)| p.clone())
             .collect();
         PARAMS.with(|p| *p.borrow_mut() = kinded.clone());
-        crate::params::add_to(&mut design, &kinded);
         // The app's values of its params, the design's `params` block (D15,
-        // stage 7 B): each replaces its param's default and `when` lines. One
-        // naming no param is a warning (`params::unknown`): a moved or renamed
-        // declaring file leaves it, and it no longer applies.
+        // stage 7 B): `add_to` lays each in place of its param's default and
+        // `when` lines. One naming no param is a warning (`params::unknown`):
+        // a moved or renamed declaring file leaves it, and it no longer
+        // applies. An ambiguous short name, and a second line for one param,
+        // are refused.
+        let identities = crate::params::identities(file);
         let mut overridden: Vec<(String, Span)> = Vec::new();
-        for entry in design.params.clone() {
-            match crate::params::resolve(&kinded, &crate::params::identities(file), &entry.name.value) {
-                Ok(p) => {
-                    let token = design
-                        .tokens
-                        .iter_mut()
-                        .chain(design.icons.iter_mut())
-                        .find(|t| t.name.value == p.token);
-                    if let Some(t) = token {
-                        t.value = entry.value.clone();
-                        t.whens = entry.whens.clone();
-                    }
-                    overridden.push((
-                        p.token.clone(),
-                        self.token_span(&origin, entry.name.line, entry.name.col),
-                    ));
+        for entry in &design.params {
+            let span = self.token_span(&origin, entry.name.line, entry.name.col);
+            match crate::params::resolve(&kinded, &identities, &entry.name.value) {
+                Ok(p) if overridden.iter().any(|(t, _)| *t == p.token) => {
+                    self.push(LowerError {
+                        id: "tamber-param-twice",
+                        message: format!(
+                            "`{}`: the design's `params` block already gives `{}` a value; one line a param (its `when` lines under it)",
+                            entry.name.value, p.full
+                        ),
+                        span,
+                    });
                 }
+                Ok(p) => overridden.push((p.token.clone(), span)),
                 Err(e) if e.id == "tamber-param-ambiguous" => {
-                    let span = self.token_span(&origin, entry.name.line, entry.name.col);
                     self.push(LowerError { span, ..e });
                 }
                 Err(_) => {}
             }
         }
+        for (line, col, e) in crate::params::written_ranges(&design, &kinded, &identities) {
+            let span = self.token_span(&origin, line, col);
+            self.push(LowerError { span, ..e });
+        }
+        crate::params::add_to(&mut design, &kinded, &identities);
         let mut said = Said::of(file, root, &design);
         // D7's retention, left for the design server before the design is
         // folded, as it does not depend on the fold.
@@ -948,7 +951,7 @@ pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope 
         _ => (!params.is_empty()).then(tamber::Design::default),
     };
     let folding = design.and_then(|mut d| {
-        crate::params::add_to(&mut d, &params);
+        crate::params::add_to(&mut d, &params, &crate::params::identities(file));
         stand_in_profiles(&mut d);
         tamber::check_design(d, &vocab()).ok()
     });

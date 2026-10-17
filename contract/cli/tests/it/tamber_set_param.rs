@@ -246,3 +246,168 @@ fn the_build_takes_the_apps_value_and_warns_of_one_no_param_answers() {
         "{warned:?}"
     );
 }
+
+#[test]
+fn a_duration_set_reaches_the_row_and_one_transaction_writes_one_line() {
+    let dir = app("motion");
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{DESIGN}\nparams\n  PostButton.fade = 300ms\n"),
+    )
+    .unwrap();
+    let plan =
+        contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    let strings = format!("{:?}", plan.strings);
+    assert!(
+        strings.contains("300ms") && !strings.contains("150ms"),
+        "{strings}"
+    );
+    // Two names for one param in one transaction: one line, the last value.
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    let mut s = Serve::start(&dir);
+    let out = s.write(
+        &dir,
+        json!([
+            {"op": "set-param", "name": "PostButton.radius", "value": "8px"},
+            {"op": "set-param", "name": "post.contract#PostButton.radius", "value": "16px"}
+        ]),
+    );
+    assert!(out["ok"].is_object(), "{out}");
+    let text = std::fs::read_to_string(dir.join("app.tamber")).unwrap();
+    assert!(
+        text.ends_with("\nparams\n  PostButton.radius = 16px\n"),
+        "{text}"
+    );
+    // A second line for one param, by hand, is refused by the build.
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{DESIGN}\nparams\n  PostButton.radius = 8px\n  post.contract#PostButton.radius = 4px\n"),
+    )
+    .unwrap();
+    let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(e.id, "tamber-param-twice", "{e:?}");
+}
+
+#[test]
+fn every_write_keeps_a_param_in_range_at_the_line_that_breaks_it() {
+    let dir = app("range");
+    // An unset that unmasks a default out of range.
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  radius.md = 80px\n  duration.fast = 150ms\n\nparams\n  PostButton.radius = 8px\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir);
+    let out = s.write(
+        &dir,
+        json!([{"op": "unset-param", "name": "PostButton.radius"}]),
+    );
+    assert_eq!(
+        out["error"]["diagnostics"][0]["id"], "tamber-param-range",
+        "{out}"
+    );
+    // A `when` value out of range, at its line.
+    drop(s);
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    let mut s = Serve::start(&dir);
+    let out = s.write(&dir, json!([
+        {"op": "set-param", "name": "PostButton.radius", "value": "8px"},
+        {"op": "set-param", "name": "PostButton.radius", "when": [{"axis": "density", "value": "compact"}], "value": "80px"}
+    ]));
+    let d = &out["error"]["diagnostics"][0];
+    assert_eq!(d["id"], "tamber-param-range", "{out}");
+    assert_eq!(d["line"], 12, "the `when` line: {out}");
+    // The CLI's check builds the app, so an override out of range fails it.
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{DESIGN}\nparams\n  PostButton.radius = 80px\n"),
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "check"])
+        .arg(&dir)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("tamber-param-range") && err.contains("app.tamber:11:"),
+        "{err}"
+    );
+}
+
+#[test]
+fn reads_by_an_ambiguous_name_are_refused_and_an_icon_alias_follows_its_set() {
+    let dir = std::env::temp_dir().join(format!("exact2-set-param-icons-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("b")).unwrap();
+    let card = |extra: &str| {
+        format!("component Card\n  params\n    inset: length = \"4px\"\n{extra}  view\n    column padding=\"param.inset\"\n      text \"c\"\n")
+    };
+    std::fs::write(dir.join("a.contract"), card("")).unwrap();
+    std::fs::write(dir.join("b/c.contract"), card("")).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        r##"use Card from "./a.contract"
+use Card as Other from "./b/c.contract"
+
+component App
+  params
+    base: icon = "icon(sf \"star\")"
+    shown: icon = "param.base"
+    ink: color = "fg.ink"
+  view
+    column background-color="param.ink"
+      image "symbol:param.shown"
+      Card()
+      Other()
+"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  fg.ink = #111111\n  fg.inky = #ff00aa\n\nparams\n  App.base = icon(sf \"heart\")\n  App.ink = fg.inky\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut s = Serve::start(&dir);
+    let ambiguous = s.ask(json!({"method": "resolve", "token": "Card.inset"}));
+    assert_eq!(
+        ambiguous["error"]["id"], "tamber-param-ambiguous",
+        "{ambiguous}"
+    );
+    let shown = s.ask(json!({"method": "resolve", "token": "App.shown"}));
+    assert!(shown.to_string().contains("heart"), "{shown}");
+    let explained = s.ask(json!({"method": "explain", "token": "App.shown"}));
+    let message = explained["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("is an icon") && !message.contains("param.f"),
+        "{explained}"
+    );
+    let described = s.ask(json!({"method": "describe"}));
+    let ink = described["ok"]["ir"]["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| c["params"].as_array().unwrap().clone())
+        .find(|p| p["param"] == "ink")
+        .unwrap();
+    assert_eq!(
+        ink["pinned"],
+        json!(["fg.ink"]),
+        "`fg.inky` is no `fg.ink`: {ink}"
+    );
+}
+
+#[test]
+fn a_param_may_read_a_dial_only_params_read() {
+    let dir = app("dial");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  density = regular | compact\n\ndials\n  pad: length = 8px  in 0px..32px\n\ntheme\n  radius.md = 12px\n  duration.fast = 150ms\n\nparams\n  PostButton.radius = pad\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir);
+    let out = s.ask(json!({"method": "propose", "ops": [{"op": "set-param", "name": "PostButton.radius", "value": "calc(pad + 1px)"}]}));
+    assert!(out["ok"].is_object(), "{out}");
+}

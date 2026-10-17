@@ -202,7 +202,7 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
   - `resolve`, `explain` and `uses` take a param's full or short name as `token` and answer by its
-    full name (*1.10*).
+    full name (*1.10*); an icon param, like an icon, is read through `describe` and `resolve`.
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
   `describe` and `resolve` only.
@@ -324,13 +324,18 @@ design.
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
 - **A param's value** (*1.10*): `name` is a param's full name (`post.contract#PostButton.radius`)
   or its short one (`PostButton.radius`); a name no param of the app answers, or a short name two
-  components share, is refused (`tamber-param-unknown`, `tamber-param-ambiguous`). The line is
-  written by the name the design's line already has, or the name given; the `params` block is made
-  at the end when there is none, and goes when its last line does. A `when` line needs the param's
-  own line first. The value folds with the app's params and must be inside the param's range
-  (`tamber-param-range`, `tamber-range-unit`). The inverse is the preimage, so undoing the first
-  `set-param` restores absence. It is `live` like a token's value, `rebuild` for a duration or
-  easing param, and a live one can be scrubbed.
+  components share (whichever has the param, or neither), is refused (`tamber-param-unknown`,
+  `tamber-param-ambiguous`). The line is written by the name the design's line already has, or an
+  earlier op of the transaction wrote, or the name given, so a transaction never gives one param
+  two lines; the `params` block is made at the end when there is none, indented as its lines are,
+  and goes when its last line does. A `when` line needs the param's own line first. After any
+  write to an app with params, every param folds with the design and is inside its range, each
+  value written (a `when`'s too) at its own line (`tamber-param-range`, `tamber-range-unit`), so an
+  unset that unmasks a default out of range is refused. The inverse is the preimage, so undoing
+  the first `set-param` restores absence. A param's value is `live` where the plan folds it, as a
+  token's is, `rebuild` for a duration or easing param (a motion param is written into its rows at
+  build, wherever its component is used), and a live one can be scrubbed. A token's rename renames
+  the `params` values naming it.
 - **Not yet built:**
   - state parts (`set-state`; stage 8);
   - `set-row` (LLP 1122 T5);
