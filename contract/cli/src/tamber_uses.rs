@@ -431,17 +431,21 @@ pub fn aliases<'a>(
 /// it, which an expansion writes in: `row` is the row's name, or null for an
 /// argument, whose `argument` is `{component, name}`. A site through a
 /// token naming it (`aliases`) says so (`via: {token}`). `site` is null: the
-/// plan node is the row's, not the name's. None when the app does not load.
-pub fn motion_sites(app: &std::path::Path, token: &str, aliases: &[String]) -> Vec<Value> {
-    let Ok(src) = std::fs::read_to_string(app) else {
-        return Vec::new();
+/// plan node is the row's, not the name's. Err, the first refusal's message,
+/// when the app's sources do not load.
+pub fn motion_sites(
+    app: &std::path::Path,
+    token: &str,
+    aliases: &[String],
+) -> Result<Vec<Value>, String> {
+    let first = |all: Vec<crate::CompileError>| {
+        all.into_iter()
+            .next()
+            .map_or_else(|| "the app does not load".into(), |e| e.message)
     };
-    let Ok(root) = crate::app_root(app) else {
-        return Vec::new();
-    };
-    let Ok((_, sources)) = crate::sources::load(app, &src, &root) else {
-        return Vec::new();
-    };
+    let src = std::fs::read_to_string(app).map_err(|e| format!("{}: {e}", app.display()))?;
+    let root = crate::app_root(app).map_err(first)?;
+    let (_, sources) = crate::sources::load(app, &src, &root).map_err(first)?;
     let dir = app.parent().unwrap_or(app);
     let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     let mut out = Vec::new();
@@ -480,7 +484,7 @@ pub fn motion_sites(app: &std::path::Path, token: &str, aliases: &[String]) -> V
         }
         out.push(v);
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]

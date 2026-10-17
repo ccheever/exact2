@@ -182,7 +182,7 @@ fn uses_finds_a_motion_tokens_sites_from_the_loader() {
     )
     .unwrap();
     let aliases = vec!["duration.quick".to_string()];
-    let sites = contract::tamber_uses::motion_sites(&path, "duration.fast", &aliases);
+    let sites = contract::tamber_uses::motion_sites(&path, "duration.fast", &aliases).unwrap();
     let rows: Vec<String> = sites
         .iter()
         .map(|s| format!("{} {} {}", s["file"], s["row"], s["via"]))
@@ -239,4 +239,31 @@ fn an_exit_animation_a_layout_transition_and_a_keyframes_timing_take_tokens() {
             .any(|s| s.contains("duration.fast") || s.contains("easing.standard")),
         "{strings:?}"
     );
+}
+
+/// Review round 3 (Astra, Grok): an easing token in a timing longhand (its
+/// function's commas are not a list's), a quoted name across a template's
+/// hole, a prop or a `?:` in a template's hole, a concatenation, a keyframe's timing a function
+/// returns; and `uses` says when the app does not load.
+#[test]
+fn an_easing_longhand_a_hole_and_a_folded_keyframe_take_tokens() {
+    let view = "keyframes fade\n  from opacity=0 animation-timing-function=curve()\n  to opacity=1\n\nfn curve(): string = \"easing.standard\"\n\ncomponent App\n  state name = \"fade\"\n  state on = true\n  view\n    column animation=`'${name}' duration.fast`\n      text \"a\" animation-name=\"fade\" animation-timing-function=\"easing.standard\"\n      Card(d=\"duration.fast\")\n      text \"c\" transition=`opacity ${on ? \"duration.fast\" : \"1s\"}`\n      text \"d\" transition=\"opacity \" + \"duration.fast\"\n\ncomponent Card\n  props\n    d: string\n  view\n    text \"b\" transition=`opacity ${d}`\n";
+    let path = app("round3", &[("app.tamber", DESIGN), ("app.contract", view)]);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    assert!(
+        !strings
+            .iter()
+            .any(|s| s.contains("duration.fast") || s.contains("easing.standard")),
+        "{strings:?}"
+    );
+    assert!(
+        strings
+            .iter()
+            .any(|s| s.contains("cubic-bezier(0.2, 0, 0, 1)") && s.contains("fade")),
+        "{strings:?}"
+    );
+    std::fs::write(&path, format!("use Gone from \"./gone.contract\"\n{view}")).unwrap();
+    let e = contract::tamber_uses::motion_sites(&path, "duration.fast", &[]).unwrap_err();
+    assert!(e.contains("gone"), "{e}");
 }

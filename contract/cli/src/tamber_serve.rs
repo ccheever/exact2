@@ -885,8 +885,8 @@ impl Server {
             .into_iter()
             .map(|(e, _)| e)
             .collect();
-        // A motion token is written into its rows: its sites are its words
-        // in the sources (`motion_sites`), not plan nodes.
+        // A motion token is written into its rows: its sites are the source
+        // literals the loader wrote it into (`motion_sites`), not plan nodes.
         let motion = folding.tokens.iter().any(|t| {
             t.name == name
                 && matches!(
@@ -900,7 +900,8 @@ impl Server {
                 &self.dir.join("app.contract"),
                 &name,
                 &aliased,
-            );
+            )
+            .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
             return Ok(
                 json!({"token": name, "plan": null, "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
             );

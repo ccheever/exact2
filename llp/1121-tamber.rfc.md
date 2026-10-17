@@ -2766,7 +2766,8 @@ channel (queued).
   are undotted, so it declares none.
 - **Substituted at build:** the loader writes each duration and easing token a literal of a
   `transition`, `animation`, exit animation, layout transition, timing longhand or keyframe's
-  timing names, as a whole word (not inside quotes, nor touching a template's `${…}`), in as its
+  timing names (a template's text and holes, a `+`'s strings, a keyframe timing a function of literal
+  arguments returns), as a whole word (not inside quotes, nor touching a template's `${…}`), in as its
   value before scoping, the longhands' composing or the row's codec read it
   (`contract_lower::motion`); lowering does it again, before the longhands compose, for a value an
   expansion carried in (a component's prop, to a shorthand or a longhand). So the plan holds the
@@ -2775,7 +2776,9 @@ channel (queued).
   `exact-motion`). A profile's colour in the design is stood in for when the loader folds the
   motion tokens, so it does not stop their substitution. `uses` reports the literals the loader
   wrote a token into, in every source the app loads (a package's too), and the component
-  arguments that name it (a site has no plan node).
+  arguments that name it (a site has no plan node); an app that does not load answers the build's
+  error, not an empty list. A timing longhand's list splits at commas outside parentheses, so an easing
+  function is one item.
 - **An edit rebuilds** (D13): the session classes a change to a motion token, or to what it folds
   from, as `rebuild`, so `propose` says so and a scrub is refused; the plan's structure moves, so the
   dev loops' retained-shape checks see a structure change and rebuild.

@@ -74,10 +74,13 @@ pub fn tokens(design: &str) -> Vec<(String, String)> {
 /// `text` with each motion token it names written as its value, and the
 /// tokens it named; `None` when it names none. `glued`: whether a template's
 /// hole touches its start and its end, so a word there is no whole word.
+/// `quote`: the quote a template's earlier text left open, and this text
+/// leaves open, so a quoted name across a hole (`'${name}'`) stays one.
 fn text(
     text: &str,
     tokens: &[(String, String)],
     glued: (bool, bool),
+    quote: &mut Option<char>,
 ) -> Option<(String, Vec<String>)> {
     fn word(c: char) -> bool {
         c.is_ascii_alphanumeric() || "-_.".contains(c)
@@ -86,12 +89,21 @@ fn text(
     let mut at = 0;
     while at < text.len() {
         let rest = &text[at..];
-        let c = rest.chars().next().expect("not at the end");
         // A quoted name (`animation="'fade.in' 1s"`) is a name.
-        if c == '"' || c == '\'' {
-            let end = rest[1..].find(c).map_or(rest.len(), |e| e + 2);
+        if let Some(q) = *quote {
+            let end = rest.find(q).map_or(rest.len(), |e| {
+                *quote = None;
+                e + 1
+            });
             out.push_str(&rest[..end]);
             at += end;
+            continue;
+        }
+        let c = rest.chars().next().expect("not at the end");
+        if c == '"' || c == '\'' {
+            *quote = Some(c);
+            out.push(c);
+            at += 1;
             continue;
         }
         if !word(c) {
@@ -124,26 +136,32 @@ fn text(
 type Named = Vec<(Span, Vec<String>)>;
 
 /// Rewrite a value's literals in place, through `?:`, `match`, `let` (its
-/// value too, which its body may name) and a template's text; each literal
-/// rewritten is a site, with the tokens it named.
+/// value too, which its body may name), `+`, and a template's text and
+/// holes; each literal rewritten is a site, with the tokens it named.
 fn rewrite(e: &mut Expr, tokens: &[(String, String)], sites: &mut Named) {
     match e {
         Expr::Str(s, span) => {
-            if let Some((next, named)) = text(s, tokens, (false, false)) {
+            if let Some((next, named)) = text(s, tokens, (false, false), &mut None) {
                 *s = next;
                 sites.push((*span, named));
             }
         }
         Expr::Template(parts, span) => {
-            let mut all = Vec::new();
+            let (mut all, mut quote) = (Vec::new(), None);
             let n = parts.len();
             for i in 0..n {
                 let glued = (
                     i > 0 && matches!(parts[i - 1], TemplatePart::Expr(_)),
                     i + 1 < n && matches!(parts[i + 1], TemplatePart::Expr(_)),
                 );
+                // A hole's own value: a prop an expansion made a literal.
+                if let TemplatePart::Expr(e) = &mut parts[i] {
+                    if quote.is_none() {
+                        rewrite(e, tokens, sites);
+                    }
+                }
                 if let TemplatePart::Text(s) = &mut parts[i] {
-                    if let Some((next, named)) = text(s, tokens, glued) {
+                    if let Some((next, named)) = text(s, tokens, glued, &mut quote) {
                         *s = next;
                         all.extend(
                             named
@@ -170,6 +188,11 @@ fn rewrite(e: &mut Expr, tokens: &[(String, String)], sites: &mut Named) {
             rewrite(value, tokens, sites);
             rewrite(body, tokens, sites);
         }
+        // A concatenation's strings (`"opacity " + "duration.fast"`).
+        Expr::Binary(contract_syntax::BinOp::Add, left, right, _) => {
+            rewrite(left, tokens, sites);
+            rewrite(right, tokens, sites);
+        }
         _ => {}
     }
 }
@@ -184,6 +207,16 @@ fn attr(a: &Attr, tokens: &[(String, String)]) -> Option<(Attr, Named)> {
     let mut sites = Vec::new();
     rewrite(&mut out.value, tokens, &mut sites);
     (!sites.is_empty()).then_some((out, sites))
+}
+
+/// A row's value folded to its text (a keyframe's, from a function of
+/// literal arguments), with its motion tokens written in; `None` when it is
+/// no motion row or names none.
+pub(crate) fn folded(name: &str, value: &str, tokens: &[(String, String)]) -> Option<String> {
+    row(name)
+        .then(|| text(value, tokens, (false, false), &mut None))
+        .flatten()
+        .map(|(out, _)| out)
 }
 
 /// `list` with the motion tokens of its motion rows written in; `None` when
@@ -305,7 +338,7 @@ mod tests {
     #[test]
     fn a_dotted_token_is_written_wherever_it_stands() {
         let t = tokens();
-        let got = |s: &str| text(s, &t, (false, false)).map(|(s, _)| s);
+        let got = |s: &str| text(s, &t, (false, false), &mut None).map(|(s, _)| s);
         assert_eq!(
             got("opacity duration.fast easing.standard").as_deref(),
             Some("opacity 150ms cubic-bezier(0.2, 0, 0, 1)")
@@ -327,10 +360,22 @@ mod tests {
     #[test]
     fn a_word_touching_a_hole_is_no_whole_word() {
         let t = tokens();
-        assert_eq!(text("duration.fast 1s", &t, (true, false)), None);
-        assert_eq!(text("opacity duration.fast", &t, (false, true)), None);
+        assert_eq!(text("duration.fast 1s", &t, (true, false), &mut None), None);
         assert_eq!(
-            text(" duration.fast ", &t, (true, true))
+            text("opacity duration.fast", &t, (false, true), &mut None),
+            None
+        );
+        // A quote a hole's text left open closes here: what follows is read.
+        let mut quote = Some('\'');
+        assert_eq!(
+            text("' duration.fast", &t, (true, false), &mut quote)
+                .map(|(s, _)| s)
+                .as_deref(),
+            Some("' 150ms")
+        );
+        assert_eq!(quote, None);
+        assert_eq!(
+            text(" duration.fast ", &t, (true, true), &mut None)
                 .map(|(s, _)| s)
                 .as_deref(),
             Some(" 150ms ")
