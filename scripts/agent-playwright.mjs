@@ -110,7 +110,7 @@ const init = `
 
 async function waitForBoot(page, why = 'the page never booted') {
   try { await page.waitForFunction(() => document.getElementById('exact-root')?.dataset.bootMs != null, null, { timeout: 30000 }); }
-  catch { throw new Error(why); }
+  catch { throw new Error(typeof why === 'function' ? why() : why); }
   await page.evaluate(() => globalThis.exact.ready);
   return Number(await page.locator('#exact-root').getAttribute('data-boot-ms'));
 }
@@ -269,7 +269,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
     if (storage !== undefined) address.searchParams.set('storage', storage);
     await page.goto(address.href, { waitUntil: 'commit' });
-    let boot = await waitForBoot(page, `the page never booted; ${hostLines.join('\n')}`);
+    let boot = await waitForBoot(page, () => `the page never booted; ${hostLines.join('\n')}`); // the page's lines when it gave up
     if (await page.evaluate(() => matchMedia('(prefers-reduced-transparency: reduce)').matches)) throw new Error(`${name} cannot emulate the required prefers-reduced-transparency: no-preference launch fact`);
     if (plan && !hosted.js) {
       const carry = world ? worldFile(world).toString('base64') : null;

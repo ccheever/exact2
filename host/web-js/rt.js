@@ -144,7 +144,7 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 class Failed extends Refusal { constructor(message, code = "error", reason = "") { super(message); this.code = code; this.reason = reason; } } // `code`, `reason`: failure(x)'s (shape.js `failureCode`, `failureReason`)
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Sched = null;
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null, Why = "", Sched = null; // `Why`: the step the last commit was refused in and the exception's own words (a boot refusal's reason, `mount`)
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
 export const useSchedule = s => { Sched = s; }, refused = () => Refused;
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
@@ -165,13 +165,13 @@ function settle() { for (const n of Settle) fresh(n); }
 export function commit(f, what = "commit") {
   if (Writes) return f();
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
-  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Refused = null;
+  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Refused = null; Why = "";
   time();
   const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
-  let ok = true;
+  let ok = true, step = Booting ? "building the view" : `running the ${what}`; // where a refusal stops it (`Why`)
   try {
     untracked(f);
-    tick();
+    step = "landing its writes and sends"; tick();
     for (const [n, v] of Writes) {
       if (n.t && !conforms(v, n.t)) throw new Refusal(`a write does not conform to its slot's type: ${JSON.stringify(v)}`);
       if (n.name && long(v)) throw tooLong(n.name);
@@ -182,10 +182,10 @@ export function commit(f, what = "commit") {
     for (const [n] of Writes) if (n.m && !n.landing && Sends.some(x => x[0] === n.m)) n.m.forget(undo); // an assignment beside a send wins
     for (const r of Refresh) r.force(undo);
     if (!routerValid()) throw new Refusal("invalid router value"); // runner/src/runner/router.rs `change`
-    settle();
+    step = "settling its derives and resources"; settle();
     // A store write re-asks the resources that read the store, until quiet.
     for (let k = 0; Store.dirty && k < 4; k++) { Store.dirty = false; for (const r of Resources) if (r.store) r.revise(undo); settle(); }
-    Sched?.gates(); Sounds.gate?.(); // gated tasks and sequences over the settled state, inside the rollback (LLP 1092 D8, LLP 1125 D2)
+    step = "arming its tasks and sequences"; Sched?.gates(); Sounds.gate?.(); // gated tasks and sequences over the settled state, inside the rollback (LLP 1092 D8, LLP 1125 D2)
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
@@ -193,7 +193,7 @@ export function commit(f, what = "commit") {
     Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
     Store.restore(store);
     for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js)
-    say(`refused ${what}: ${e.message}`);
+    say(`refused ${what}: ${e.message}`); Why = `while ${step}: ${e instanceof Refusal ? e.message : String(e)}`; // `String`: a TypeError's name too
     if (!(e instanceof Refusal)) console.error(e);
     Restoring = true; try { settle(); } catch {} finally { Restoring = false; }
   }
@@ -205,7 +205,7 @@ export function commit(f, what = "commit") {
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
-    try { flush(); openTabs(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = `while updating the tree: ${String(e)}`; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
@@ -1412,12 +1412,12 @@ export function mount(f) {
   const adopted = adopting && built;
   if (!built && adopting) {
     // The document isn't this plan's projection: build afresh (and say so).
-    say(`adoption abandoned: ${journal.at(-1)}`);
+    say(`adoption abandoned ${Why}`);
     root.textContent = "";
     booted = commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
   // A boot whose settlement refused (a derive outside its type) is refused whole, as `Runner::boot` fails: nothing shows.
-  Booting = false; if (!built || booted === false) { root.textContent = ""; throw new Error("boot refused: " + journal.at(-1)); }
+  Booting = false; if (!built || booted === false) { root.textContent = ""; throw new Error(`boot refused ${Why}`, { cause: Refused ?? undefined }); }
   say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
   autofocus(root); // the document's autofocus (LLP 1035.000 D9), then each commit's mounts (`commit`, focus.js)
