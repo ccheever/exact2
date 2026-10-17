@@ -456,3 +456,13 @@ test('inspect mode\'s owners are published as they move: a command, another clie
   channel.inspect('tool', null, { refresh: true });
   expect(told()).toEqual([]);
 });
+
+test('a build says the digest of the plan it runs, on registering and in its statuses', () => {
+  const channel = buildChannel();
+  const a = stream(channel);
+  expect(report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin'], planDigest: 'not hex' }).status).toBe(400);
+  report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin'], planDigest: '1'.repeat(64) });
+  expect(channel.list()[0].planDigest).toBe('1'.repeat(64));
+  report(channel, { nonce: a.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest: '2'.repeat(64) });
+  expect(channel.list()[0].planDigest).toBe('2'.repeat(64));
+});

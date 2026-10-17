@@ -139,7 +139,7 @@ async function fetchGeneration(message, signal, first = false) {
     plan: { bytes: plan.bytes.length, sha256: plan.sha256 },
     ...(rust ? { rust: Object.fromEntries(Object.keys(rust).sort().map(k => [k, { module: {bytes:rust[k].module.bytes,sha256:rust[k].module.sha256}, receipt:{bytes:rust[k].receipt.bytes,sha256:rust[k].receipt.sha256}, ...(k !== "wasm" ? {target:rust[k].target} : {}) }])) } : {}) };
   if (await digest(encoder.encode(JSON.stringify(canonical))) !== identity.generation) throw new Error("the generation digest does not bind its complete manifest");
-  return { ...identity, plan: plan.bytes, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
+  return { ...identity, plan: plan.bytes, planSha256: plan.sha256, assets, module, rust: rustPayload, fetchMs: performance.now() - started };
 }
 
 // Fetches may finish in any order. Only the latest request can enter the
@@ -233,7 +233,7 @@ if (es) {
     // and the design its runner runs (read from it: /__dev/design is 204 when the
     // plan's own is the one to run, so no live answer would say it).
     // An inspect outline drawn on the old generation's boxes goes.
-    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; if (channel.held) command(channel.held); else if (channel.nonce) status(); },
+    applied: (candidate) => { clearTimeout(retry); show(null); generations += 1; outlineNone(); delete globalThis.exact.designDigest; syncDesign(); channel.plan = candidate?.generation ?? channel.plan; knownPlan(candidate?.planSha256); if (channel.held) command(channel.held); else if (channel.nonce) status(); },
     failed: (error, current) => {
       show(String(error)); console.error("exact dev:", String(error));
       clearTimeout(retry);
@@ -357,11 +357,26 @@ if (es) {
   // The facts as they paint: the root's `color-scheme` (the app's
   // `setScheme` over the pin's, over the browser's `light dark`), resolved by
   // the system's scheme, which is a pin's while one is held.
+  // The digest of the plan this page runs, which its source map names
+  // (tamber/1.8): read from the runner once per generation.
+  // (None said is kept too: asked again only with the next generation. A
+  // generation this page verified says its plan's digest itself.)
+  let planDigestOf, planDigestNow = null;
+  function knownPlan(sha256) { if (typeof sha256 === "string") { planDigestNow = sha256; planDigestOf = globalThis.exact.generation ?? null; } }
+  const planDigest = async () => {
+    const x = globalThis.exact;
+    await x.ready;
+    if (planDigestOf !== (x.generation ?? null)) {
+      try { const sites = typeof x.wasm?.exact_agent === "function" ? ask({ op: "sites" }) : null; planDigestNow = typeof sites?.planDigest === "string" ? sites.planDigest : null; } catch { planDigestNow = null; }
+      planDigestOf = x.generation ?? null;
+    }
+    return planDigestNow;
+  };
   const facts = async () => {
     const rootStyle = getComputedStyle(document.documentElement), cs = rootStyle.colorScheme;
     const scheme = /dark/.test(cs) && !/light/.test(cs) ? "dark" : /light/.test(cs) && !/dark/.test(cs) ? "light" : globalThis.exact.systemScheme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const contrast = matchMedia("(prefers-contrast: more)").matches ? "more" : matchMedia("(prefers-contrast: less)").matches ? "less" : "no-preference";
-    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
+    return { kind: "status", scheme, contrast, mode: await modes(), rootFontSize: parseFloat(rootStyle.fontSize), plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow(), revision: channel.revision };
   };
   const status = async () => { const body = await facts(); channel.told = JSON.stringify(body); report(body); };
   // The facts change under the page too, and by the app's own `setScheme`,
@@ -716,7 +731,7 @@ if (es) {
       // Reports wait for this; a refused registration sends none.
       channel.registered = (async () => {
         await globalThis.exact.ready;
-        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect"], plan: channel.plan, design: globalThis.exact.designDigest ?? await designNow() });
+        const answer = await post(nonce, { kind: "register", id: await buildId, host: "web", capabilities: ["pin", "inspect"], plan: channel.plan, planDigest: await planDigest(), design: globalThis.exact.designDigest ?? await designNow() });
         return answer.ok;
       })().catch(() => false);
       status();

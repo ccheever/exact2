@@ -84,6 +84,7 @@ function reportRefused(r) {
     if (!text(r.host, 32) || !r.host || !Array.isArray(r.capabilities) || r.capabilities.length > 32 || !r.capabilities.every(c => text(c, 64))) return 'a registration names its `host` and its `capabilities` (strings)';
   }
   if (!maybe(r.plan, v => text(v, 1024)) || !maybe(r.design, v => text(v, 1024))) return '`plan` and `design` are strings, or null';
+  if (!maybe(r.planDigest, v => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v))) return '`planDigest` is a SHA-256 in hex, or null';
   if (r.kind === 'status') {
     if (!maybe(r.scheme, v => text(v, 32)) || !maybe(r.contrast, v => text(v, 32))) return '`scheme` and `contrast` are strings, or null';
     if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
@@ -122,7 +123,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
     for (const [k] of open.slice(0, Math.max(0, open.length - POLLED + room))) close(k);
   };
   const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
-  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, inspector: inspectors.get(b.id) ?? null, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
+  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, inspector: inspectors.get(b.id) ?? null, plan: b.plan, planDigest: b.planDigest ?? null, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
   // A build is connected while the stream it registered on still names it.
   const connected = b => streams.get(b.nonce)?.build === b.id;
   const listed = () => [...builds.values()].filter(connected).map(shown);
@@ -226,7 +227,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
-        builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
+        builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
         for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
@@ -260,6 +261,8 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         else if (b.unsupported && b.unsupported.revision !== at) b.unsupported = null;
         b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: at };
         if (typeof r.plan === 'string') b.plan = r.plan;
+        // (Said unknown, null, it is unknown: such a build is sent every plan's outline.)
+        if ('planDigest' in r) b.planDigest = r.planDigest ?? null;
         if (typeof r.design === 'string') b.design = r.design;
         send({ event: 'build-status', build: shown(b) });
       } else if (r.kind === 'unsupported') {
@@ -356,11 +359,22 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
      * inspect (`outline {sites, plan}`); a build running another plan
      * leaves it. The outlines are that client's: cleared on a build when it
      * goes (`clear`), unless another client's came since. */
-    outline(client, sites, plan, click = null) {
+    /** `client` outlines on every build that can inspect: `sitesOf(build)`
+     * gives that build its own plan's `{sites, plan}`, or null for none
+     * (its plan has no map here); `sitesOf` null clears. The builds told. */
+    outline(client, sitesOf, click = null) {
       sweep();
-      const to = listed().filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
-      // (`click`: the click's token the outline answers, tamber/1.7.)
-      for (const t of to) { frame(t, sites == null ? { kind: 'outline', clear: true } : { kind: 'outline', sites, plan, ...(click ? { click } : {}) }); outliners.set(t, client); }
+      const to = [];
+      for (const b of listed().filter(b => b.capabilities?.includes('inspect'))) {
+        const mine = sitesOf ? sitesOf(b) : null;
+        // A build this outline cannot reach (its plan has no map, or a stale
+        // one) loses the client's old outline rather than keeping it.
+        if (sitesOf && !mine) { if (outliners.get(b.id) === client) { frame(b.id, { kind: 'outline', clear: true }); outliners.delete(b.id); } continue; }
+        // (`click`: the click's token the outline answers, tamber/1.7.)
+        frame(b.id, mine ? { kind: 'outline', sites: mine.sites, plan: mine.plan, ...(click ? { click } : {}) } : { kind: 'outline', clear: true });
+        outliners.set(b.id, client);
+        to.push(b.id);
+      }
       return to;
     },
     /** A command a host does not speak yet (`hold`):

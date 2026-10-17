@@ -138,6 +138,60 @@ test('hello says live, and a slow write is answered, not timed out', async () =>
   tamber.close();
 });
 
+// LLP 1122 T2c: a map per plan digest. Each build is joined and outlined
+// from its own plan's map; a build on a plan with no map here is sent none.
+test('each build is joined and outlined from its own plan\'s map', async () => {
+  const port = 8806, P1 = '1'.repeat(64), P2 = '2'.repeat(64), P3 = '3'.repeat(64);
+  const mapOf = (digest, line) => ({ digest, sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [{ file: 'exact:app', line, col: 5, end_col: 9, component: 'App', chain: [], bindings: [{ row: 'background_color', origin: 'own' }] }, { file: 'exact:app', line: line + 100, col: 1, end_col: 2, component: 'App', chain: [], bindings: [] }] });
+  const maps = { [P1]: mapOf(P1, 3), [P2]: mapOf(P2, 9) };
+  // The same source span at another site of P1: the same sources, another plan.
+  maps[P1].nodes.push({ file: 'exact:app', line: 109, col: 1, end_col: 2, component: 'App', chain: [], bindings: [] });
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, sourceMap: digest => { const m = digest ? maps[digest] : maps[P1]; return m ? Buffer.from(JSON.stringify(m)) : null; } });
+  const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
+  const post = body => ask(tamber, gate, { path: '/__tamber', method: 'POST', headers, body: JSON.stringify(body) });
+  const open = (id, planDigest) => { const frames = []; const s = tamber.channel.open(f => frames.push(f)); tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'register', id, host: 'ios', capabilities: ['pin', 'inspect'], plan: 'g', planDigest })); tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest })); return { frames, nonce: s.nonce }; };
+  const a = open('web-1', P1), b = open('ios-1', P2), c = open('mac-1', P3);
+  expect((await post({ method: 'hello' })).body.ok.builds.map(x => [x.id, x.planDigest])).toEqual([['web-1', P1], ['ios-1', P2], ['mac-1', P3]]);
+  await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ wait: false, client: 'tool' }) });
+  tamber.channel.inspect('tool', null, { on: true });
+  // A selection on ios-1 joins with P2's map, and is outlined on every
+  // build from its own plan's map: P1 has that span at site 2.
+  const selected = { node: 2, site: 1, instance: [], planDigest: P2, tuple: {}, rows: [] };
+  expect(tamber.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'selected', selected, inspect: b.frames.filter(f => f.kind === 'inspect').at(-1).seq, plan: 'g', revision: 0 })).status).toBe(204);
+  expect(b.frames.at(-1)).toEqual({ kind: 'outline', sites: [1], plan: P2 });
+  expect(a.frames.at(-1)).toEqual({ kind: 'outline', sites: [2], plan: P1 });
+  expect(c.frames.some(f => f.kind === 'outline')).toBe(false);
+  expect((await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events.find(e => e.event === 'selection').source.line).toBe(109);
+  // The tool outlines line 109: each build its own plan's sites; mac-1's
+  // plan has no map here, so it is sent nothing.
+  const outlined = (await post({ method: 'outline', client: 'tool', at: [{ file: 'exact:app', line: 109, col: 1 }] })).body.ok;
+  expect(outlined.builds).toEqual(['web-1', 'ios-1']);
+  expect(a.frames.at(-1)).toEqual({ kind: 'outline', sites: [2], plan: P1 });
+  expect(b.frames.at(-1)).toEqual({ kind: 'outline', sites: [1], plan: P2 });
+  expect(c.frames.some(f => f.kind === 'outline')).toBe(false);
+  // The running generation without a map: builds with their own still outline.
+  const running = maps[P1];
+  delete maps[P1];
+  expect((await post({ method: 'outline', client: 'tool', at: [{ file: 'exact:app', line: 109, col: 1 }] })).body.ok.builds).toEqual(['ios-1']);
+  // web-1, which this client outlined, loses that outline rather than keeping it.
+  expect(a.frames.at(-1)).toEqual({ kind: 'outline', clear: true });
+  maps[P1] = running;
+  // A map that moved under the same plan digest (an edit of locations only): the new one is used.
+  maps[P2] = mapOf(P2, 9);
+  maps[P2].nodes[1].line = 120;
+  await post({ method: 'outline', client: 'tool', at: [{ file: 'exact:app', line: 120, col: 1 }] });
+  expect(b.frames.at(-1)).toEqual({ kind: 'outline', sites: [1], plan: P2 });
+  // A selection from another plan than the build says it runs now: not current, asked again.
+  expect(tamber.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'selected', selected: { ...selected, planDigest: P1 }, inspect: b.frames.filter(f => f.kind === 'inspect').at(-1).seq, plan: 'g', revision: 0 })).status).toBe(409);
+  // A selection that names no plan joins with no map: read-only.
+  expect(tamber.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'selected', selected: { ...selected, planDigest: null }, inspect: b.frames.filter(f => f.kind === 'inspect').at(-1).seq, plan: 'g', revision: 0 })).status).toBe(204);
+  const last = (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events.filter(e => e.event === 'selection').at(-1);
+  expect(last.source).toBe(null);
+  expect(typeof last.readOnly).toBe('string');
+  await tamber.close();
+});
+
 // LLP 1122 D4: the dev loop's builds in `hello`, and a pin a client may
 // set only while it subscribes by name, cleared on every build when it goes.
 test('a pin is its client\'s while it is present, and builds are in hello', async () => {

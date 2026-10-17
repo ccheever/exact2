@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { buildChannel } from './tamber-builds.mjs';
-import { current, editable, join, mapFor, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { current, editable, join, mapCard, mapFor, pullMap, sitesAt, staleMap } from './tamber-inspect.mjs';
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -100,7 +100,7 @@ test('a stale selection is refused and the build asked again; a current one is j
       if (!current(build, report)) { ask({ kind: 'inspect', refresh: true }); return { status: 409, body: { message: 'stale' } }; }
       const s = join(build, report.selected, mapFor(Buffer.from(JSON.stringify(map)), report.selected.planDigest));
       events.push({ event: 'selection', ...s });
-      channel.outline('tool', sitesAt(map, s.source), map.digest);
+      channel.outline('tool', () => ({ sites: sitesAt(map, s.source), plan: map.digest }));
       return null;
     },
   });
@@ -130,4 +130,33 @@ test('a stale selection is refused and the build asked again; a current one is j
   // The outline is its client's: cleared when that client goes.
   channel.clear('tool');
   expect(a.got.filter(f => f.kind === 'outline').at(-1)).toEqual({ kind: 'outline', clear: true });
+});
+
+test('a map pulled from the resident loop is kept only when it matches the card its pipe said, and its plan', async () => {
+  const plan = 'a'.repeat(64);
+  let body = Buffer.from(JSON.stringify({ digest: plan, nodes: [] })), hosts = [];
+  const sha = () => createHash('sha256').update(body).digest('hex');
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+    hosts.push(req.headers.get('host'));
+    // (Any map path answers the body: a card whose hash is not the bytes' must still refuse them.)
+    return new URL(req.url).pathname.startsWith('/__dev/map/') ? new Response(body) : new Response('', { status: 404 });
+  } });
+  const card = () => { const c = mapCard(JSON.stringify({ plan, map: { sha256: sha(), bytes: body.length, url: `/__dev/map/${sha()}` } })); return { plan: c.plan, ...c.map }; };
+  try {
+    expect((await pullMap(server.port, card(), '127.0.0.1:8765'))?.digest).toBe(plan);
+    // Asked as the child's gate answers: the public origin's host.
+    expect(hosts.at(-1)).toBe('127.0.0.1:8765');
+    // Bytes that are not the card's (another process on the port): none.
+    expect(await pullMap(server.port, { ...card(), sha256: 'b'.repeat(64), url: `/__dev/map/${'b'.repeat(64)}` }, '127.0.0.1:8765')).toBe(null);
+    // Any other path, or an absolute URL: not asked at all.
+    const asked = hosts.length;
+    expect(await pullMap(server.port, { ...card(), url: 'http://elsewhere/x' }, '127.0.0.1:8765')).toBe(null);
+    expect(hosts.length).toBe(asked);
+    // A map of another plan: none.
+    body = Buffer.from(JSON.stringify({ digest: 'c'.repeat(64), nodes: [] }));
+    expect(await pullMap(server.port, card(), '127.0.0.1:8765')).toBe(null);
+    // A plan published with no map; a line that is no card.
+    expect(mapCard(JSON.stringify({ plan, map: null }))).toEqual({ plan, map: null });
+    expect(mapCard('source map nope')).toBe(null);
+  } finally { server.stop(true); }
 });

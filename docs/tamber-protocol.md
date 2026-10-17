@@ -51,6 +51,9 @@ on macOS and Linux.
 - `tamber/1.9` (LLP 1121 stage 6, commit E) added motion tokens: the IR's `duration` and `easing`
   kinds, `resolve`'s motion tuples, and `uses`' source-literal sites for one. A motion token's name
   is dotted (`tamber-motion-name`). A transaction or `propose` that changes one is `rebuild`.
+  The 1.9 window also takes LLP 1122 T2c's optional fields, marked *1.9*: a build's `planDigest`
+  (on `register`, `status` and its record), and source maps by plan, each build joined and
+  outlined from its own plan's map.
 
 ## Where it runs
 
@@ -145,9 +148,9 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 **`hello`** answers:
 - `protocol` and `format`;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
-  capabilities, inspector, plan, design, status, pin, pinRevision, unsupported}` (`pinRevision` and
-  `unsupported` *1.3*; `inspector`, the client whose inspect mode it is in or null, *1.6*; see
-  [The build channel](#the-build-channel-llp-1122-d4-12));
+  capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, unsupported}`
+  (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode it is in or
+  null, *1.6*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -687,7 +690,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 - **Registration.** A build's dev stream hello (`/__dev`; the JS target's `/__dev/page`) carries
   a `nonce` when the loop has a design. The build answers with one `POST /__dev/report`:
-  `{nonce, kind: "register", id, host, capabilities, plan, design}`.
+  `{nonce, kind: "register", id, host, capabilities, plan, planDigest?, design}`. `planDigest`
+  (*1.9*) is the SHA-256 of the plan the build runs, the digest its source map names; the server
+  joins and outlines that build from that plan's map.
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
@@ -722,7 +727,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
       restarted, or it went unpolled 5 seconds), and the build says hello again.
 - **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
   - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
-    the facts that paint, the `plan` and `design` digests, and the pin `revision` it applied.
+    the facts that paint, the `plan` and `design` digests (and `planDigest`, *1.9*, as it moves),
+    and the pin `revision` it applied.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn).
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
@@ -758,8 +764,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
     Development pages only.
   - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
-    `{clear: true}`. A build running another plan leaves its outlines as they are: a host never
-    reads a source map, so only the server resolves sites, from the map it has. The outline
+    `{clear: true}`. Each build is sent its own plan's sites, from that plan's map (*1.9*: by the
+    `planDigest` it says; the running generation's for a build that says none); a build whose plan
+    has no map at the server is sent none. A host never reads a source map: only the server
+    resolves sites. A frame for another plan than its own still leaves a build's outlines as they
+    are. The outline
     answering a selection names its `click` (*1.7*) when the report carried one: the host that
     made that click does not scroll to the first copy for it (the copy clicked is under the
     pointer); every other outline scrolls its first copy into view.
@@ -782,13 +791,18 @@ The tool drives no input into an app; a command changes only what `prefer` would
   makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
   likewise (the one the server serves, which the map must name), unless the build runs the
   design the dev loop serves now and the file's bytes are the ones that design was made from (a
-  value edit it took, not a later save it kept the last good design over). Then every build that can inspect is sent `outline` with the sites at the
-  selection's source location.
+  value edit it took, not a later save it kept the last good design over). Then every build that can
+  inspect is sent `outline` with its own plan's sites at the selection's source location (*1.9*: the
+  span from the selection's plan map, resolved through each build's own; a build whose map is
+  missing or stale is sent none, and loses an outline this client drew). A selection that names no
+  plan joins with no map, and is read-only.
 - **`outline`** `{client, at: [{file, line, col}]}` (*1.3*, write scope, a present client;
   journaled; the outlines are its client's, cleared when it stops being present): every build
   that can inspect outlines its views at those source locations (a token's `uses` sites, a
-  changeset entry's), by the dev loop's current map. Answered `{sites, builds}`; refused (409)
-  while a file that map compiled has changed since (a fresh span would land on another node).
+  changeset entry's), each by its own plan's map (*1.9*; the running generation's for a build that
+  says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
+  build whose map is missing, or compiled a file that has changed since (a fresh span would land
+  on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
 - **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds
