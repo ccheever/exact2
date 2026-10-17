@@ -9,6 +9,7 @@
 #include <ibex2_jsi.h>
 #include <jsi/instrumentation.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -71,9 +72,39 @@ struct State {
   size_t capture_limit;
   size_t capture_bytes = 0;
   std::vector<CapturedString> captures;
+  // The heap's counters when the last collection was seen (collect_if_due).
+  int64_t collections = 0;
+  int64_t collected_at = 0;
+  int64_t live = 0;
 };
 
 constexpr size_t kLogLines = 256;
+
+// Hermes' young generation keeps every page it has touched (exact_js_harden),
+// and Hades lets it grow over a session to its whole 4 MB segment: each young
+// collection ends it at a share of the segment that starts at a half and grows
+// by a tenth with every collection under 10 ms. A module that allocates a
+// little per call collects here instead, between calls, once it has allocated
+// as much as it holds live and at least kCollectEvery since the last
+// collection, so its young generation stays near boot's. A full collection's
+// cost follows the live heap, so this is at most one per that much allocation.
+constexpr int64_t kCollectEvery = 512 << 10;
+
+void collect_if_due(State *state) {
+  auto &instrumentation = state->rt->instrumentation();
+  auto info = instrumentation.getHeapInfo(false);
+  int64_t total = info["hermes_totalAllocatedBytes"];
+  int64_t collections = info["hermes_numCollections"];
+  if (collections == state->collections) {
+    if (total - state->collected_at < std::max(kCollectEvery, state->live)) return;
+    instrumentation.collectGarbage("between calls");
+    info = instrumentation.getHeapInfo(false);
+  }
+  // Else one of Hermes' own collections ran since the last check: count from now.
+  state->collections = info["hermes_numCollections"];
+  state->collected_at = info["hermes_totalAllocatedBytes"];
+  state->live = info["hermes_allocatedBytes"];
+}
 
 void clear_captures(State *state) {
   state->captures.clear();
@@ -367,7 +398,9 @@ int exact_js_call(void *h, const char *name, const char *a, const char *b, const
                            : "did not return a string",
                   3);
     }
-    return fail(out, result.getString(rt).utf8(rt), 0);
+    int status = fail(out, result.getString(rt).utf8(rt), 0);
+    collect_if_due(state);
+    return status;
   } catch (const jsi::JSError &e) {
     clear_captures(state);
     return fail(out, e.getMessage(), 1);
