@@ -1,0 +1,27 @@
+// Text areas that grow with their text near the end of a scroll: as lines are
+// typed the caret stays above the keyboard, unless the `input` handler moves
+// the focus or hides the text area (KeyboardFormIOSTests). Compiled by
+// build.mjs --test.
+component CaretReveal
+  state note = ""
+  state other = ""
+  state last = ""
+  state gone = false
+  action setNote(v: string)
+    note = v
+  action jump(v: string)
+    other = v
+    focus("far")
+  action hide(v: string)
+    last = v
+    gone = true
+  view
+    scroll testId="list" width="100%" height="100%"
+      column padding=16 gap=12
+        column height=400
+        textarea value=note input=setNote placeholder="Notes" field-sizing="content" testId="note" padding=12
+        text "The caret stays above the keyboard as the notes grow." font-size=13
+        textarea value=other input=jump placeholder="Jump" field-sizing="content" testId="jumper" padding=12
+        textarea value=last input=hide placeholder="Hide" field-sizing="content" testId="vanisher" padding=12 visibility=(gone ? "hidden" : "visible")
+        column height=600
+        input id="far" placeholder="Far" testId="far" padding=12

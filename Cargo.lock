@@ -1594,6 +1594,7 @@ version = "0.1.0"
 dependencies = [
  "exact-color",
  "exact-kernel",
+ "exact-motion",
  "exact-num",
  "serde_json",
 ]
@@ -4874,6 +4875,16 @@ dependencies = [
  "serde",
  "slotmap",
  "smallvec",
+]
+
+[[package]]
+name = "tamber-host-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "tamber-host-data",
 ]
 
 [[package]]

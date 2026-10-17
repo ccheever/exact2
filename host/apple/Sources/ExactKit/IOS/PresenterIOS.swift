@@ -362,7 +362,7 @@ package final class Presenter {
         reorder?.abandon()
         reorderGroup?.abandon()
         session?.rasters.reset()
-        collections.reset()
+        collections.reset(); elementScrolls.cancelAll()
         autofocusProcessed.removeAll()
         segments.reset()
         accent.release()
@@ -421,7 +421,7 @@ package final class Presenter {
     /// One native focus intent, bound to the actual editor across controller
     /// transitions. Replacing a node with the same HTML id cannot inherit it.
     private var pendingFocus: (node: NodeView, args: [Any], selectText: Bool, reason: String)?
-    private var deliveringFocus = false
+    private var deliveringFocus = false; lazy var elementScrolls = ElementScrolls(self) // held `scrollIntoView` requests (IntoView.swift)
     var pendingFocusObservation: [String: String]? {
         guard let pending = pendingFocus, let name = pending.args.first as? String else { return nil }
         return ["target": name, "reason": pending.reason]
@@ -614,12 +614,12 @@ package final class Presenter {
     var inlineHoverTransition: UInt64 = 0
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
-    package func press(_ id: UInt32, held: String = "") {
+    package func press(_ id: UInt32, held: String = "", bubbled: Bool = false) {
         pressHeld = held; defer { pressHeld = "" }
-        if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
+        if let node = views[id], let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         let original = views[id]
         onPress?(id)
-        if let original, views[id] === original { menus.invoke(original) }
+        if let original, views[id] === original { menus.invoke(original, bubbled: bubbled) }
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
@@ -804,7 +804,7 @@ package final class Presenter {
                 textSelection.batchEnded()
                 #endif
                 if moved { session?.natives.refreshWorldGeometry() }
-                flushPendingFocus()
+                flushPendingFocus(); elementScrolls.flush()
             }
         }
         var beganGeometry = false

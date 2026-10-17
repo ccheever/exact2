@@ -39,10 +39,22 @@ final class PromptField: NSObject, UITextFieldDelegate {
             field.isSecureTextEntry = own.isSecureTextEntry
             field.textContentType = own.textContentType
             field.keyboardType = own.keyboardType
-            field.autocapitalizationType = own.autocapitalizationType
-            field.autocorrectionType = own.autocorrectionType
-            field.spellCheckingType = own.spellCheckingType
-            field.returnKeyType = own.returnKeyType
+            // What the author leaves unsaid stays the alert field's own:
+            // no capitalization, no correction (so no QuickType echo of
+            // its text), and the Return key ↵, not the sentences,
+            // correction and Done an authored field takes. A type that
+            // turns correction off says it.
+            let said = { (name: String) in node.props[name] != nil }
+            let plain = ["email", "url", "password"].contains((node.props["type"] ?? "").lowercased())
+            if said("autocapitalize") || plain { field.autocapitalizationType = own.autocapitalizationType }
+            if said("autocorrect") || plain {
+                // Smart quotes and dashes go with correction (`inputSmartQuotes`).
+                field.autocorrectionType = own.autocorrectionType
+                field.smartQuotesType = own.smartQuotesType
+                field.smartDashesType = own.smartDashesType
+            }
+            if said("spellcheck") { field.spellCheckingType = own.spellCheckingType }
+            if said("enterKeyHint") { field.returnKeyType = own.returnKeyType }
         } else {
             field.placeholder = node.props["placeholder"]
         }

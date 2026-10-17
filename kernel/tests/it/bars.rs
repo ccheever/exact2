@@ -253,6 +253,71 @@ fn a_pressable_around_the_heading_is_the_title_and_a_tablist_its_segments() {
 }
 
 const MORE: &[(PropId, &str)] = &[(PropId::Id, "more"), (PropId::Popover, "auto")];
+const STATUS: &[(PropId, &str)] = &[(PropId::AccessibilityRole, "status")];
+
+/// A readout (`role="status"`, LLP 1075.003 §9.15) is an item on its side of
+/// the heading, in order among the buttons, and no button: nothing presses
+/// it, and what it holds (a dot, a text) is its face, never the subtitle's.
+#[test]
+fn a_readout_is_an_item_that_is_no_button() {
+    let header = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![
+                Node(70, NodeType::Text, STATUS, vec![]),
+                button(41, &[]),
+                text(12, HEADING),
+                button(42, &[]),
+                Node(
+                    71,
+                    NodeType::View,
+                    STATUS,
+                    vec![view(72, vec![]), text(73, &[])],
+                ),
+            ],
+        )],
+    ));
+    let shape = header.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!(shape.leading, vec![70, 41]);
+    assert_eq!(shape.trailing, vec![42, 71], "after the button, as written");
+    assert_eq!(shape.items, vec![41, 42], "nothing presses a readout");
+    // A status around the heading is no readout: its heading is the title.
+    let around = kernel(view(
+        10,
+        vec![Node(
+            11,
+            NodeType::View,
+            HEADER,
+            vec![Node(71, NodeType::View, STATUS, vec![text(12, HEADING)])],
+        )],
+    ));
+    let shape = around.header_shape(10, None, true, &pressed).unwrap();
+    assert_eq!(shape.heading, 12);
+    assert!(shape.trailing.is_empty() && shape.leading.is_empty());
+    // A host's mirror: route > header > [heading, button, status > text].
+    let words = [
+        0,
+        1,
+        fact::HEADER,
+        3,
+        fact::HEADING,
+        0,
+        fact::PRESS,
+        0,
+        fact::STATUS,
+        1,
+        0,
+        0,
+    ];
+    // Two trailing items, the button and the readout; one button.
+    assert_eq!(
+        bars::header_shape_words(&words, 0),
+        Some(vec![1, 2, 2, 0, 0, 0, 0, 2, 1, 3, 4, 3])
+    );
+}
 
 type Props = &'static [(PropId, &'static str)];
 

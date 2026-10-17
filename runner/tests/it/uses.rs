@@ -107,6 +107,8 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     assert_eq!(time, Uses::NONE);
     let date = used("component A\n  view\n    text formatDate(0, 0, \"medium\")\n");
     assert_eq!(date.to_string(), "format");
+    let day = used("component A\n  view\n    text formatDay(0, 0, 0, \"list\")\n");
+    assert_eq!(day.to_string(), "format");
     // In an action's body, a derive, a callback and an inlined `fn` too.
     let action = used(
         "component A\n  state s = \"\"\n  action set\n    s = formatNumber(1250, \"compact\")\n  view\n    button s press=set\n",

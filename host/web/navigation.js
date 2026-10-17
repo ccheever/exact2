@@ -964,6 +964,7 @@ export function appRootFontSize(value, say, platform = globalThis) {
   if (!px && !(share > 0 && Number.isFinite(share))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, a percentage of the host's above 0 ("125%"), or "medium"`);
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
   rule.textContent = px ? `:root{font-size:${value}px!important}` : `:root{font-size:calc(var(--exact-host-font-size, 100%) * ${ratio})!important}`;
+  refitTexts();
 }
 // @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
 // by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
@@ -977,8 +978,9 @@ export function fitText(el) {
   // Layout pixels, through any transform above it (a route sliding in).
   const k = el.getBoundingClientRect().width / el.offsetWidth || 1;
   const inset = px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
-  const content = () => el.getBoundingClientRect().width / k - inset, box = content(), width = el.style.width;
-  el.style.width = "min-content"; const natural = content(); el.style.width = width;
+  const content = () => el.getBoundingClientRect().width / k - inset, box = content(), { width, flexShrink } = el.style;
+  // A flex item that may shrink (`min-width: 0`) would shrink its min-content width back to the room it has.
+  el.style.width = "min-content"; el.style.flexShrink = "0"; const natural = content(); el.style.width = width; el.style.flexShrink = flexShrink;
   // Sized by its text, it has its container's room.
   const up = el.parentElement, ps = up && getComputedStyle(up);
   const room = box + 0.5 < natural || !up ? box : up.clientWidth - px(ps.paddingLeft) - px(ps.paddingRight) - Math.max(0, px(cs.marginLeft)) - Math.max(0, px(cs.marginRight));
@@ -1218,6 +1220,8 @@ const grantFNV = text => {
 const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error })
   .replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
 const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket']);
+// A scheme-wide line (`net.fetch https:`, a CSP scheme source) admits every origin of these schemes.
+const schemeGrants = { 'fetch-scheme': ['http', 'https'], 'websocket-scheme': ['ws', 'wss'] };
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
 const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
 const validGrantName = name => typeof name === 'string' && name.length >= 1 && name.length <= 64
@@ -1246,6 +1250,7 @@ const grantTupleValid = grant => {
     && Number.isInteger(grant[3]) && grant[3] >= 0 && grant[3] <= 65535
     && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
+  if (Object.hasOwn(schemeGrants, grant[0])) return grant.length === 2 && schemeGrants[grant[0]].includes(grant[1]);
   if (pathGrants.has(grant[0])) return grant.length >= 2
     && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
     && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
@@ -1296,6 +1301,11 @@ const sourceTuple = source => {
   }
   if (words.length !== 2) return null;
   const target = words[1];
+  const scheme = (capability === 'net.fetch' || capability === 'net.websocket') && /^[a-z][a-z0-9+.-]*:$/i.test(target) ? target.slice(0, -1).toLowerCase() : null;
+  if (scheme != null) {
+    const kind = capability === 'net.fetch' ? 'fetch-scheme' : 'websocket-scheme';
+    return schemeGrants[kind].includes(scheme) ? [kind, scheme] : null;
+  }
   if (capability === 'net.fetch') return networkTuple(target.includes('://*.') ? 'fetch-subdomains' : 'fetch', target);
   if (capability === 'net.websocket') return target.includes('*') ? null : networkTuple('websocket', target);
   if (capability === 'fs.read') return pathTuple('fs-read', target);
@@ -1385,17 +1395,19 @@ export function unionGrantSets(...sets) {
   return makeGrantSet(entries, error);
 }
 const grantPort = url => Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
-export function admitsNetwork(set, value, operation = 'fetch') {
-  if (grantError(set)) return false;
+// The line that admits a request to `value`, or null: `state.streams` names it.
+export function admittingGrant(set, value, operation = 'fetch') {
+  if (grantError(set)) return null;
   let target;
-  try { target = new URL(value); } catch { return false; }
+  try { target = new URL(value); } catch { return null; }
   const kind = operation === 'websocket' ? 'websocket' : 'fetch';
   const scheme = target.protocol.slice(0, -1).toLowerCase(), host = target.hostname.toLowerCase(), port = grantPort(target);
-  return set.entries.some(([, , grant]) => grant && grant[1] === scheme && grant[3] === port && (
+  return set.entries.find(([, , grant]) => grant && grant[1] === scheme && (grant[0] === kind + '-scheme' || grant[3] === port && (
     grant[0] === kind && grant[2] === host
     || kind === 'fetch' && grant[0] === 'fetch-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
-  ));
+  )))?.[1] ?? null;
 }
+export const admitsNetwork = (set, value, operation) => admittingGrant(set, value, operation) !== null;
 export function admitsSecret(set, name) {
   return !String(name).startsWith('exact.kept.') && !grantError(set)
     && set.entries.some(([, , grant]) => grant?.[0] === 'secret-keep' && grant[1] === String(name));

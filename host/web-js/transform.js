@@ -5,8 +5,8 @@
 // holds. Handles are bound to the one owner target (the first valid, never
 // stolen); a geometry sequence orders the page's observations; stale
 // identities, sequences and tokens are refused before any value is used.
-export function transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight }) {
-  const RUNTIME = '1', handles = new Map(), pairs = new Map();
+export function transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight, say }) {
+  const RUNTIME = '1', handles = new Map(), pairs = new Map(), reportedTargets = new Set();
   let owner = null;
   const stale = () => ({ accepted: false });
   const binding = b => b.target != null && b.target === owner && b.el.$tgeom && b.el.$trelease
@@ -26,6 +26,12 @@ export function transformDrags({ w, views, viewId, api, lower, ops, now, authore
   function pairsValid() {
     const valid = [...handles.values()].filter(b => b.target != null && b.el.$tgeom && b.el.$trelease && eligible(b.el) && eligible(views.get(b.target)) && eligible(views.get(b.clip)));
     if (!valid.some(b => b.target === owner)) owner = valid[0]?.target ?? null;
+    const targets = new Set(valid.map(b => b.target));
+    for (const target of reportedTargets) if (!targets.has(target)) reportedTargets.delete(target);
+    for (const target of targets) if (target !== owner && !reportedTargets.has(target)) {
+      reportedTargets.add(target);
+      say(`transformDragFor: target view #${target} passed over for owner view #${owner}; one owner (first valid, never stolen; LLP 1071)`);
+    }
     const out = [];
     for (const [serial, p] of [...pairs]) {
       const b = handles.get(p.handle);
@@ -114,6 +120,6 @@ export function transformDrags({ w, views, viewId, api, lower, ops, now, authore
       handles.set(id, { el, target: target ? viewId(target) : null, clip: clip ? viewId(clip) : null, geometry: { sequence: 0, dims: null, ready: false }, published: undefined });
       api.attachTransformDrag(el, id, (t, g) => el.addEventListener(t, g));
     },
-    gone(id) { handles.delete(id); },
+    gone(id) { handles.delete(id); reportedTargets.delete(id); },
   };
 }

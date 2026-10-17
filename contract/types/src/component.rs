@@ -600,6 +600,7 @@ fn refine_params_from_view(
                             | "load"
                             | "message"
                             | "contextmenu"
+                            | "delete"
                             | "dblclick"
                             | "pointerdown"
                             | "pointerup"

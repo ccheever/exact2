@@ -161,8 +161,7 @@ def slotTy (p : Program) (x : String) : Ty :=
 
 /-! ## The data seam -/
 
-/-- Bit-for-bit sameness (NaN is itself; records by fields). What two
-calls to a source must share to be one call. -/
+/-- Bit-for-bit sameness (NaN is itself; records by fields). -/
 partial def Value.same : Value → Value → Bool
   | .num a, .num b => a.toBits == b.toBits
   | .bool a, .bool b => a == b
@@ -188,10 +187,20 @@ structure Oracle where
   stored : List (String × Value) := []
   deriving Inhabited
 
+/-- The differential oracle's keys (`difftest/src/oracle.rs`): all NaN
+signs and payloads share an answer, but signed zeros remain distinct.
+The transcript keeps the runner's bits; arithmetic may produce another NaN. -/
+private partial def oracleSame : Value → Value → Bool
+  | .num a, .num b => Number.canonicalBits a == Number.canonicalBits b
+  | .some a, .some b => oracleSame a b
+  | .list xs, .list ys => xs.length == ys.length && (xs.zip ys).all fun (a, b) => oracleSame a b
+  | .record _ xs, .record _ ys => xs.length == ys.length && (xs.zip ys).all fun (a, b) => oracleSame a b
+  | a, b => Value.same a b
+
 def Oracle.ask (o : Oracle) (src : String) (args : List Value) (resource : String := "") :
     Result Value :=
   match o.answers.find? (fun (s, as, _) =>
-      s == src && as.length == args.length && (as.zip args).all fun (a, b) => Value.same a b) with
+      s == src && as.length == args.length && (as.zip args).all fun (a, b) => oracleSame a b) with
   | .some (_, _, v) => .ok v
   | .none =>
     match lookup resource o.facts with

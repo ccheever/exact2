@@ -50,13 +50,18 @@ pub(crate) fn measure(
     if let Some(ratio) = unsized_ratio {
         // @ref LLP 1055.000 D4 — a replaced element with a ratio and no
         // natural size fills the offered width (CSS Sizing's stretch fit, as
-        // Chrome sizes one), else the 300 px default object width.
+        // Chrome sizes one). It contributes no width to a min-content or
+        // max-content size, except that at max-content a percentage width
+        // that cannot resolve takes the 300 px default object width, as in
+        // Chrome.
+        let percent = style.size.width.into_raw().uses_percentage();
         let width = known
             .width
             .or(known.height.map(|h| (h + ph) * ratio - pw))
             .unwrap_or(match space.width {
                 AvailableSpace::Definite(w) => w,
-                _ => 300.0,
+                AvailableSpace::MaxContent if percent => 300.0,
+                _ => 0.0,
             });
         return Some(Size {
             width,

@@ -118,6 +118,9 @@ impl Em<'_> {
         let clock = |s: &str| s.trim_start().starts_with("-exact-clock(");
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
+        let dynamic = |id: StyleId| {
+            binding(id).is_some_and(|b| style::literal(plan, plan.code(b.expr)).is_none())
+        };
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
         let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
         // @ref LLP 1115.002 D6 — a metric the binding may name is its value
@@ -125,6 +128,21 @@ impl Em<'_> {
         let metric = style::metric_map(plan, plan.code(b.expr))
             .map(|m| format!("()=>{}(({f})())", self.uses.share('m', m)));
         let f = metric.as_deref().unwrap_or(f);
+        // @ref LLP 1121 D7 — a length or number token a bound value names is
+        // its CSS, or its property's `var()` where the page declares one.
+        let attribute = exact_web::host::template::attribute_rows(kind)
+            .iter()
+            .any(|(r, _)| *r == id);
+        let measure = crate::measures::row(id)
+            .then(|| crate::measures::map(plan, &crate::modes::properties(plan), id, attribute))
+            .flatten()
+            .map(|m| {
+                let map = self
+                    .uses
+                    .constant(&crate::measures::map_name(id, attribute), || m);
+                format!("()=>{map}(({f})())")
+            });
+        let f = measure.as_deref().unwrap_or(f);
         // A list on a corner is the elliptical radius no row holds, which
         // the browser would draw: refused whole, as the kernel refuses it.
         let corner = (exact_kernel::style::sides::FAMILIES[8].contains(&id)
@@ -295,6 +313,26 @@ impl Em<'_> {
                     ),
                 ]
             }
+            // A bound `font` shorthand: its style's weight and leading with
+            // its size (LLP 1115.000 D12.2), as a literal one's are written.
+            // What the node writes statically it keeps. A bound longhand may
+            // be `none`, which leaves the style's: the style's goes to a
+            // custom property that binding falls back on (below).
+            StyleId::FontSize if parts.props.contains_key("data-fontshorthand") => {
+                let [weight, leading] = &*style::TEXT_STYLE_ROWS;
+                let written = |name: &str| parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")));
+                let mut w = vec![("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string()))];
+                for (row, name, map) in [(StyleId::FontWeight, "font-weight", weight), (StyleId::LineHeight, "line-height", leading)] {
+                    if dynamic(row) {
+                        // `initial` where no style is named: one an ancestor
+                        // declared is not inherited here.
+                        w.push((style::style_fallback(name), String::new(), Some(format!("v=>({map})(v)??\"initial\""))));
+                    } else if binding(row).is_none() && !written(name) {
+                        w.push((name.into(), String::new(), Some(map.clone())));
+                    }
+                }
+                w
+            }
             StyleId::FontSize | StyleId::FontWeight if parts.tag == "img" => {
                 let size = id == StyleId::FontSize;
                 let mut writes = vec![(if size { "font-size" } else { "font-weight" }.into(), if size { "px" } else { "" }.into(), None)];
@@ -361,6 +399,24 @@ impl Em<'_> {
                     (w.name, w.unit, map)
                 })
                 .collect(),
+        };
+        // A longhand bound beside a bound `font` shorthand: where it says
+        // nothing, the shorthand's style's (above), as the kernel has it.
+        let writes = if matches!(id, StyleId::FontWeight | StyleId::LineHeight)
+            && parts.tag != "img"
+            && parts.props.contains_key("data-fontshorthand")
+            && dynamic(StyleId::FontSize)
+        {
+            writes
+                .into_iter()
+                .map(|(name, unit, map)| {
+                    let fallback = format!("var({})", style::style_fallback(&name));
+                    let inner = map.unwrap_or_else(|| "v=>v".into());
+                    (name, unit, Some(format!("v=>({inner})(v)??{fallback:?}")))
+                })
+                .collect()
+        } else {
+            writes
         };
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at

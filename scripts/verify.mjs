@@ -18,8 +18,8 @@
 // the host journaled during the run (`logs`: 'swipeContent … is refused: …') is shown first in the report (LLP 1116.010 D5). One capture of each screen is kept in
 // .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
-// or the relaunch fails; check's findings, the relaunch's and the compiler's warnings (`contract build`'s,
-// whether or not this run built) are counted in the last line but never fail it, since check reads the screen
+// or the relaunch fails; check's findings, the relaunch's, those at the largest text size and the compiler's warnings
+// (`contract build`'s, whether or not this run built) are counted in the last line but never fail it, since check reads the screen
 // by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
 // takes one drive at a time, and runs the tests with UIKit's bars (`--chrome platform`) so their end screens
 // are what a person sees. An app with a server of its own (the `rest` pattern's) has it run by verify, where the
@@ -27,7 +27,8 @@
 // entry that does not read DB is refused before the build, in one line naming it and the fix (LLP 1116.008 D1).
 // Each of those screens is read again at the largest text size (iOS: the simulator's; the web: iOS's body as the root font
 // size, at the phone's width), and what spills there (past the screen's edge, squeezed to no width, overlapping) is reported
-// with a remedy that keeps the text's size, and not counted (LLP 1116.019 D2, `largestText`).
+// with a remedy that keeps the text's size, counted in the last line and never failing the run (LLP 1116.019 D2, LLP
+// 1116.020 D4, `largestText`).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
@@ -480,8 +481,9 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
   return runs;
 }
 
-// LLP 1116.019 D2: each screen verify visits is read again at the largest text size, and what spills is reported, never
-// counted: the layout is the builder's (LLP 1115.000 D12.1), and a failure would invite `overflow: hidden`. iOS sets the
+// LLP 1116.019 D2: each screen verify visits is read again at the largest text size, and what spills is reported, counted
+// and never failing the run (LLP 1116.020 D4: uncounted, half of the builders who saw them stopped at "verify: clean"): the
+// layout is the builder's (LLP 1115.000 D12.1), and a failure would invite `overflow: hidden`. iOS sets the
 // simulator's own size, which UIKit's controls and Exact's text both follow; the web, where a builder iterates, sets the root
 // font size to iOS's body at that size on the phone's width. Only the kinds of finding a larger text makes are kept, each with
 // a remedy that keeps the text's size: a smaller font is the platform tell this pass exists to prevent.
@@ -494,6 +496,21 @@ export function largeRemedy(f) {
     : f.detail?.need ? 'let its box grow with its text: no px width or height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
   if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
   return WRAP;
+}
+/** LLP 1116.020 D4: each font size the app's own Contract fixes (no-tells.mjs `fixedSizesIn`), which no spill shows (a fixed
+ * size never grows to spill): `{ lines, accepted }`, a line each, those app.json's `verify.accept` takes (`fixed-type`, the
+ * node's testId) apart. Exact's parts that are fixed on purpose are the library's, not here. */
+export async function fixedType(dir, host, accept = ACCEPT) {
+  const { contractFiles, fixedSizesIn } = await import('./no-tells.mjs'), unit = host === 'ios' ? 'pt' : 'px', lines = [], accepted = [];
+  for (const file of contractFiles(dir).filter((f) => !f.endsWith('.test.contract'))) {
+    for (const f of fixedSizesIn(readFileSync(file, 'utf8'))) {
+      const rem = Math.round(f.size / 16 * 4) / 4;
+      const said = `  fixed    ${relative(dir, file)}:${f.line} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales`;
+      const takes = f.testId != null && accept.find((e) => e.finding === 'fixed-type' && (/^[^*]+\*$/.test(e.node) ? f.testId.startsWith(e.node.slice(0, -1)) : e.node === f.testId));
+      if (takes) accepted.push({ line: said, accept: takes }); else lines.push(said);
+    }
+  }
+  return { lines, accepted };
 }
 const contentSize = (udid, size) => spawnSync('xcrun', ['simctl', 'ui', udid, 'content_size', ...(size ? [size] : [])], { encoding: 'utf8' });
 
@@ -725,7 +742,7 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], shots, copied, own = [], accept = [], ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, shots, copied, own = [], accept = [], ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
@@ -775,9 +792,16 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
   }
+  // Font sizes the app's Contract fixes (LLP 1116.020 D4): findings, as check's are.
+  if (fixed.lines.length) {
+    out.push(`fixed type: ${plural(fixed.lines.length, 'font size')} the reader's text size does not move`, ...fixed.lines.slice(0, SHOWN));
+    if (fixed.lines.length > SHOWN) out.push(`  … and ${fixed.lines.length - SHOWN} more (verify --json lists them all)`);
+    findings += fixed.lines.length;
+  }
   // What app.json's `verify.accept` names as the app's design: said once each, not counted; an entry that took nothing is named.
-  const accepted = distinctFindings(runs.map((r) => ({ ...r, lines: (r.accepted ?? []).map((f) => f.line) })));
-  const idle = accept.filter((e) => !runs.some((r) => (r.accepted ?? []).some((f) => f.accept?.finding === e.finding && f.accept?.node === e.node)));
+  const accepted = [...distinctFindings(runs.map((r) => ({ ...r, lines: (r.accepted ?? []).map((f) => f.line) }))), ...fixed.accepted.map((f) => f.line)];
+  const took = (e, f) => f.accept?.finding === e.finding && f.accept?.node === e.node;
+  const idle = accept.filter((e) => !runs.some((r) => (r.accepted ?? []).some((f) => took(e, f))) && !fixed.accepted.some((f) => took(e, f)));
   if (accepted.length || idle.length) {
     out.push(`accepted (app.json verify.accept, not counted): ${plural(accepted.length, 'finding')}`, ...accepted.slice(0, SHOWN));
     if (accepted.length > SHOWN) out.push(`  … and ${accepted.length - SHOWN} more (verify --json lists them all)`);
@@ -804,12 +828,15 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
       out.push(NOTE_ADVICE);
     }
   }
-  // The same screens at the largest text size (LLP 1116.019 D2): each finding once, said where unless everywhere; never counted.
+  // The same screens at the largest text size (LLP 1116.019 D2): each finding once, said where unless everywhere; counted
+  // apart from check's, so the last line says where they came from (LLP 1116.020 D4).
+  let largeCount = 0;
   if (large.length) {
     const read = large.filter((l) => !l.error), shown = distinctFindings(read.map((l) => ({ ...l, scheme: 'light' })));
     const root = [...new Set(read.map((l) => l.rootFontSize).filter(Boolean))].join(', ');
     const size = host === 'ios' ? `${LARGEST}${root ? `, body ${root} pt` : ''}` : `root font size ${root || LARGEST_PX} px at ${WEB_SIZES[0].join('x')}, iOS's body at its largest`;
-    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (not counted; keep the text's size and give it room)` : 'nothing spills'}`, ...shown.slice(0, SHOWN));
+    out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...shown.slice(0, SHOWN));
+    largeCount = shown.length;
     if (shown.length > SHOWN) out.push(`  … and ${shown.length - SHOWN} more (verify --json lists them all)`);
     for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
   }
@@ -828,8 +855,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   }
   // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
   if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
-  const problems = failedTests + findings + broken;
-  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding')].filter(Boolean);
+  const problems = failedTests + findings + largeCount + broken;
+  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding'), largeCount && `${largeCount} at the largest text size`].filter(Boolean);
   out.push(problems ? `verify: ${plural(problems, 'problem')} (${why.join(', ')}${failedTests || broken ? '' : '; the tests passed'}) in ${secs(ms)}` : `verify: clean in ${secs(ms)}`);
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0 };
 }
@@ -940,11 +967,12 @@ async function main(argv) {
   const refusedList = [...refused].map(([line, where]) => ({ line, where }));
   const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
   const large = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
+  const fixed = await fixedType(app.dir, host);
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
   return r.exit;
 }

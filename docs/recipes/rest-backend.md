@@ -1,8 +1,7 @@
 # Recipe: your own REST server
 
-A list shared through a Bun server (`pattern rest` writes `server.ts` and this):
-`fetch` with a bearer token, polled. The server listens at app.ts's
-`API` and answers CORS, the `OPTIONS` preflight too (the page is another origin).
+A list shared by a Bun server (`pattern rest` writes `server.ts` and this), with a
+bearer token, polled. The server listens at app.ts's `API` and answers CORS and its preflight.
 
 ```contract
 routes nav
@@ -17,11 +16,17 @@ shape Reply
   ok: bool
   error: string
 
+shape Person
+  token: string
+  name: string
+
 component Shared
-  state persona = "Ada" persist
+  state persona = "ada" persist
+  resource people = loadPeople() as shape Person[] else empty()
   state draft = ""
   resource items = loadItems(persona) as shape Items else empty(ok=true)
   mutation added as shape Reply refreshes items then afterAdd
+  derive me = match first(people.filter(p => p.token == persona)) { case some(p) => p.name, case none => "" }
   derive addError = match added { case some(r) => r.error, case none => "" }
   derive listError = pending(added) ? "" : addError != "" ? addError : items.error
   task poll mount
@@ -39,16 +44,13 @@ component Shared
     if addError == ""
       draft = ""
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
           header display="flex" align-items="center" padding="8px 16px"
-            text "Shared List" role="heading" aria-level=2
-          column padding="0 16px 8px"
-            row role="radiogroup" aria-label="Signed in as"
-              for p in ["Ada", "Grace"] key=p
-                button role="radio" aria-checked=(persona == p) press=signIn(p) testId=`persona-${p}` flex=1
-                  text p
+            text "Shared List" role="heading" aria-level=1 flex=1
+            button popovertarget="who" testId="persona"
+              text me
           list id="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
               row
@@ -59,29 +61,36 @@ component Shared
               for t in items.titles key=t
                 row
                   text t testId=`item-${t}`
+      column id="who" popover="auto" role="menu"
+        for p in people key=p.token
+          button role="menuitemradio" aria-checked=(persona == p.token) press=signIn(p.token)
+            popovertarget="who" popovertargetaction="hide" testId=`persona-${p.token}`
+            text p.name
 ```
 
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
 export const appId = 'com.example.shared';
-export const API = 'http://127.0.0.1:8787'; // the server's one address
+export const API = 'http://127.0.0.1:8787';
 export const grants = `net.fetch ${API}`;
+const PEOPLE = [{ token: 'ada', name: 'Ada Lovelace' }, { token: 'grace', name: 'Grace Hopper' }];
 
-async function call(persona: string, path: string, init: RequestInit = {}): Promise<{ error: string; body: unknown }> {
+async function call(persona: string, path: string, init: RequestInit = {}) {
   try {
     const res = await fetch(`${API}${path}`, { ...init, exactTimeout: 10000,
-      headers: { authorization: `Bearer ${persona.toLowerCase()}`, 'content-type': 'application/json' } });
+      headers: { authorization: `Bearer ${persona}`, 'content-type': 'application/json' } });
     const body = (await res.json().catch(() => ({}))) as { error?: unknown };
     return { error: res.ok ? '' : typeof body.error === 'string' ? body.error : 'The server had a problem. Try again.', body };
   } catch (e) {
-    if ((e as { code?: string }).code === 'bake') throw e; // no server at build
+    if ((e as { code?: string }).code === 'bake') throw e;
     return { error: 'Can’t reach the server. Check that it’s running, then try again.', body: [] };
   }
 }
 
-let last: Result<'loadItems'>['titles'] = []; // a failed poll keeps the list on screen
+let last: Result<'loadItems'>['titles'] = [];
 const sources: Sources = {
+  loadPeople: async () => PEOPLE,
   loadItems: async ([persona]) => {
     const { error, body } = await call(persona, '/items');
     if (!error) last = (body as Array<{ title: string }>).map((i) => i.title);
@@ -96,7 +105,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 ```
 
 ```contract-test
-test "another person's item arrives on the poll; the persona is kept"
+test "a second person's item arrives; the persona is kept"
   type "draft" "Milk"
   type "draft" key "Enter"
   clock data
@@ -105,18 +114,16 @@ test "another person's item arrives on the poll; the persona is kept"
   clock +4000
   clock data
   expect tree has "item-Bread"
-  tap "persona-Grace"
+  tap "persona"
+  tap "persona-grace"
   reload
-  expect state persona == "Grace"
+  expect state persona == "grace"
 ```
 
-- **`test` and `verify` run the server** on an empty database named by `DB`, which server.ts
-  must read (`new Database(process.env.DB ?? 'data.db')`) or they refuse; stop yours first.
-  `agent` starts it too, a database per `--storage`.
-- **A second person is a test line**: `request POST "/items" {...} as grace` sends `Authorization:
-  Bearer grace` (a persona's token is its name); `expect 409` after it tests a refusal; then `clock +4000` (the poll), `clock data`.
-- **A persona switcher is a `radiogroup`** kept with `persist`, never a disabled button,
-  fixed under an inline title (`aria-level=2`; a large one never collapses over it).
-- Every failure is words (the server's `error`, or a sentence for a lost connection), never a
-  status code. The field clears in `then`, on an ok reply ([after-a-write](after-a-write.md)); a
-  failed poll keeps the last list.
+- **`test`, `verify` and `agent` run the server** on the database `DB` names (empty for a
+  test, one per `--storage`; server.ts reads `process.env.DB ?? 'data.db'`); stop yours.
+- **A second person is a test line**: `request POST "/items" {...} as grace` sends `Bearer
+  grace`; `expect 409` after it tests a refusal; then `clock +4000` (the poll), `clock data`.
+- **Who is signed in: a bar button with their name**, not an icon; `persist` keeps it.
+- Every failure is words (the server's `error` or a sentence), never a status code. The field
+  clears in `then` on an ok reply ([after-a-write](after-a-write.md)); a failed poll keeps the list.

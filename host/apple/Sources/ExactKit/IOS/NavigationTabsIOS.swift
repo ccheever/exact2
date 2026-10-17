@@ -269,6 +269,17 @@ extension NavigationHost {
         var view: UIView? = list
         while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
         let source = view as? NodeView
+        // An accent that is the app's tint (`AccentColor`), where the bar
+        // inherits the same tint, is left for the bar to inherit, as a
+        // hand-built app leaves its bar's. Read from a view, the tint behind
+        // an alert or a menu is already dimmed (`tintAdjustmentMode`), and
+        // the bar would dim it a second time.
+        if case .object(let o)? = source?.style["accent_color"], o["sys"]?.string == "@tint", let source, inheritsSameTint(bar, as: source) {
+            guard tabTint != [] else { return }
+            tabTint = []
+            bar.tintColor = nil
+            return
+        }
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
         guard wanted != tabTint else { return }
         tabTint = wanted
@@ -282,6 +293,20 @@ extension NavigationHost {
                     ?? bar?.superview?.tintColor ?? .systemBlue
             }
         }
+    }
+
+    /// Whether the bar inherits the tint `node` does: no ancestor of the
+    /// node sets a colour of its own (`applyAccentTint`), or the bar is
+    /// inside the nearest that does.
+    private func inheritsSameTint(_ bar: UIView, as node: NodeView) -> Bool {
+        var view: UIView? = node
+        while let at = view {
+            if let n = at as? NodeView, n.style["accent_color"]?.namesTint != true, n.channels("accent_color", dark: false) != nil {
+                return bar.isDescendant(of: n)
+            }
+            view = at.superview
+        }
+        return true
     }
 
     /// The bar would select `controller`: press its authored tab.

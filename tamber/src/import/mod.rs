@@ -202,7 +202,7 @@ pub fn unfolded(value: &str) -> Option<String> {
         return known;
     }
     let design = format!("tamber probe\n\ntheme\n  probe = {value}\n");
-    let why = match crate::check(&design, &crate::Vocab { roles: Vec::new() }) {
+    let why = match crate::check(&design, &crate::Vocab::default()) {
         Ok(_) => None,
         Err(all) => Some(
             all.first()

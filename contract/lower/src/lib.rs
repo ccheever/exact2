@@ -35,6 +35,7 @@ mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
+mod headings;
 mod identity;
 mod intersect;
 mod keyframes;
@@ -42,6 +43,7 @@ mod lint;
 mod media;
 mod menus;
 mod metrics;
+pub mod motion;
 mod native;
 mod nodes;
 mod routes;
@@ -52,10 +54,12 @@ mod stmts;
 mod strings;
 pub mod style_names;
 mod svg;
+mod swipe_rows;
 mod symbols;
 pub mod tags;
 mod theme;
 mod timers;
+mod type_tokens;
 mod values;
 pub mod vocab;
 mod warnings;
@@ -69,9 +73,9 @@ pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
-/// What a design is checked against (LLP 1121 D2): the schema's roles.
-pub use theme::synthetic_candidates;
 pub use theme::vocab as tamber_vocab;
+/// What a design is checked against (LLP 1121 D2): the schema's roles.
+pub use theme::{retention, synthetic_candidates};
 pub use warnings::{warnings, MAX_WARNINGS};
 
 use contract_analyze::Analysis;
@@ -163,6 +167,9 @@ pub(crate) struct Lowerer<'a> {
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
+    /// The element whose attributes are lowered has element children, which
+    /// inherit its text rows (stage 6 C: no type token that varies there).
+    pub(crate) element_children: bool,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
     parent_bounded_column: bool,
@@ -289,6 +296,7 @@ fn lower_with_sites(
             .collect(),
         fn_depth: 0,
         svg_depth: 0,
+        element_children: false,
         parent_positioned: true,
         parent_bounded_column: false,
         button_context: None,
@@ -1009,6 +1017,9 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Styles(rows) => {
                 if rows == [StyleId::FontFamily] {
+                    if self.family_token(a, scope, locals, bindings)? {
+                        return Ok(());
+                    }
                     let stacks = self.family_stacks(&a.value)?;
                     let (code, ty) = self.typed_code(&stacks, scope, locals)?;
                     // Literal families are stack numbers, an empty one `none`.
@@ -1036,6 +1047,28 @@ impl<'a> Lowerer<'a> {
                         return Ok(());
                     }
                 }
+                // @ref LLP 1121 D3 — a duration or easing token is written
+                // into its `transition` or `animation` before the codec reads it.
+                // (The loader wrote a literal's in; this is an expansion's.)
+                let motion = rows
+                    .iter()
+                    .any(|r| {
+                        matches!(
+                            r,
+                            StyleId::Transition
+                                | StyleId::Animation
+                                | StyleId::ExitAnimation
+                                | StyleId::LayoutTransition
+                        )
+                    })
+                    .then(|| {
+                        crate::motion::attrs(
+                            std::slice::from_ref(a),
+                            &crate::theme::motion_tokens(),
+                        )
+                    })
+                    .flatten();
+                let a = motion.as_ref().map_or(a, |m| &m[0]);
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {

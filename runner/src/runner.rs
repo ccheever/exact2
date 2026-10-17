@@ -64,6 +64,7 @@ pub use device::{Hold, HoldAnswer};
 pub use device_links::{AuthLinks, DeviceLinks, PickerLinks};
 pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
+mod dated;
 mod fragments;
 mod gates;
 mod into_view;
@@ -300,6 +301,8 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// A stream's: the grant line that admits it (`state.streams`).
+    grant: Option<String>,
     /// A topic its resource watches changed while it was in flight: its
     /// reply lands, then the resource is asked again (LLP 1016.002 D4).
     ask_again: bool,
@@ -694,7 +697,7 @@ impl<D: DataSource> Runner<D> {
         links: RunnerLinks,
         plan: Plan,
         mut data: D,
-        kernel: Kernel,
+        mut kernel: Kernel,
         seed: Seed<'_>,
         snapshot: Vec<(String, Vec<u8>)>,
         delivery: crate::delivery::Delivery,
@@ -822,6 +825,7 @@ impl<D: DataSource> Runner<D> {
         // Its own role overrides (LLP 1121 stage 5): bound while it boots, installed once it has.
         let roles = exact_kernel::style::roles::Roles::new(crate::bridge::role_overrides(&plan));
         let booting = exact_kernel::style::roles::bind(&roles);
+        root_font::bold_text_facts(&mut kernel, &plan, viewport.preferences.bold_text); // LLP 1115.000 D12.3
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
@@ -1410,12 +1414,7 @@ impl<D: DataSource> Runner<D> {
         }
         let change = self.router_change()?;
         self.batch += 1;
-        let language = self.resolved_locale().to_owned();
-        let direction = if self.direction() == "rtl" {
-            exact_kernel::Direction::Rtl
-        } else {
-            exact_kernel::Direction::Ltr
-        };
+        let (language, direction) = self.document_facts();
         let shown = std::mem::take(&mut self.shown);
         let mut receipt =
             match self

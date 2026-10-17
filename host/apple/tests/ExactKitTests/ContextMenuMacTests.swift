@@ -288,6 +288,61 @@ final class ContextMenuMacTests: XCTestCase {
         p.viewport.mouseMoved(with: moved)
         XCTAssertEqual(heard.last, "hover 20 true", "hover follows the pointer once the menu has closed")
     }
+    /// Return's key-up, made the current event as `NSApp.nextEvent` makes it.
+    private func keyUpIsCurrent(in window: NSWindow) -> NSEvent.EventType? {
+        if let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+            isARepeat: false, keyCode: 36) { NSApp.postEvent(up, atStart: true) }
+        _ = NSApp.nextEvent(matching: .keyUp, until: .distantPast, inMode: .eventTracking, dequeue: true)
+        return NSApp.currentEvent?.type
+    }
+    /// A pointer sample taken with a key event current (a press's hold
+    /// ending after a menu chosen with Return) is a mouse's, lifted: the
+    /// key event has no `subtype` to read, and reading it raised.
+    func testAPointerSampleWithAKeyEventCurrentIsAMouses() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(keyUpIsCurrent(in: window), .keyUp)
+        let sample = source.pointerSample(nil, lifted: true)
+        XCTAssertEqual(sample.type, "mouse")
+        XCTAssertEqual(sample.buttons, 0)
+    }
+    /// An item chosen with Return: its key's up is the current event as
+    /// `popUp` returns, where the right press's hold ends with a
+    /// `pointerup`. The menu closes and its pick presses, as a click's.
+    func testAnItemChosenByAKeyPressesAndEndsTheRightPressHold() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        p.views[9]?.handlers = ["pointerdown", "pointerup"]
+        window.orderFrontRegardless()
+        var heard: [String] = []
+        p.onPointer = { id, kind, _ in heard.append("\(id) \(kind)") }
+        p.onPress = { heard.append("pick \($0)") }
+        var ended: NSEvent.EventType?
+        let center = NotificationCenter.default
+        let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, menu.items.first?.title == "Pin" else { return }
+            RunLoop.current.perform(inModes: [.eventTracking]) {
+                menu.performActionForItem(at: 0)
+                menu.cancelTracking()
+            }
+        }
+        let done = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [unowned self] _ in
+            ended = self.keyUpIsCurrent(in: window)
+        }
+        defer { center.removeObserver(began); center.removeObserver(done) }
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: source.convert(NSPoint(x: 10, y: 10), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 1, pressure: 1))
+        source.rightMouseDown(with: down)
+        XCTAssertTrue(p.pointerHolds)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        turn()
+        XCTAssertEqual(ended, .keyUp, "the key's up is the current event as the menu ends")
+        XCTAssertEqual(heard.sorted(), ["9 down", "9 up", "pick 4"])
+        XCTAssertFalse(p.pointerHolds, "the menu took the release; the hold ends with it")
+        XCTAssertNil(p.menus.observation, "the menu's popover closed")
+    }
 
     func testContextMenuHonorsKeyCancellationAndOnlyTheUnmodifiedKeyDown() throws {
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])

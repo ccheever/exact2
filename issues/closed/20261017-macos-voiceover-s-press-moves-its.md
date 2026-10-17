@@ -1,7 +1,7 @@
 # macOS: VoiceOver's press moves its cursor to an element that appears during the press
 
 **Status:** Closed
-**Resolution:** Not the framework's: measured against a hand-built AppKit window and a Contract repro with real VoiceOver, the host keeps VoiceOver on a pressed element that survives its press, as AppKit does; the T3 Code clone rebuilds its chip accessibility elements on each editor refresh, so the element VoiceOver pressed is destroyed and VoiceOver re-picks. The fix is the clone's.
+**Resolution:** The clone's, found 2026-10-17: VoiceOver follows a link it presses to the link's AXLinkedUIElements; the clone's citation link had none, so VoiceOver took the element that appeared within about half a second, the 'Scroll to end' pill. The host posts nothing AppKit does not. The clone's link now leads to itself.
 **Systems:** host/apple macOS, accessibility, VoiceOver
 **Severity:** P3
 **Author:** Daehyeon Mun
@@ -19,3 +19,12 @@ Reproduction: a `button` whose press shows a second `button` elsewhere; VO-Space
 Fix: record an assistive press and, once its commit's commands have run, land VoiceOver as `tellLanding` does: post the layout change naming the pressed element if it is still in the tree, else the focus, so no element that appeared during the press is left as VoiceOver's only choice. Measure a hand-built AppKit window (an `NSButton` whose action unhides another) first, with an `AXObserver` in another process, to post only what AppKit posts.
 
 Acceptance: in the reproduction, after VO-Space VoiceOver stays on the pressed button and the focus does not move to the button that appeared; a pointer press and another client's AXPress behave as today; `AccessibilityClientMacTests` covers the posts.
+
+## Reopened, 2026-10-17
+
+It was closed (#694) as the clone's, and that was wrong. A Contract repro with real VoiceOver does not reproduce it: a pressed button that survives its press keeps VoiceOver, as in a hand-built AppKit window, where AppKit posts only AXValueChanged on the pressed button. The clone was then changed to keep its chip's accessibility elements across refreshes. An accessibility probe shows the pressed link is the same valid element after the press. VoiceOver still moves to 'Scroll to end' (1 of 1), and posting AXLayoutChanged naming the link after the press does not stop it. The cause is not found. What the repro lacks is the clone's shape: the pressed element is an `NSAccessibilityElement` child of a text view, not a NodeView, and the press scrolls a list, which shows the pill. Next: a repro with a custom accessibility element in a text view whose press scrolls a scroller and shows a button.
+
+## Closed, 2026-10-17
+
+Found with an AXObserver in another process and real VoiceOver. VoiceOver treats a press on a link as navigation and moves its cursor to the link's linked elements (`AXLinkedUIElements`). The clone's citation link is an `NSAccessibilityElement` with none, so VoiceOver took the element that appeared within about half a second of the press: the 'Scroll to end' pill, shown as the press scrolled the timeline. AppKit itself then posted the focus change. Nothing names the pill: the host posts no AXCreated, AXLayoutChanged or focus change for it. A hand-built AppKit link with no linked elements misbehaves too (VoiceOver opens its Jump menu); as a button, or a link that leads to itself, VoiceOver stays. The "Likely cause" above, which blamed the host, is wrong. The fix is the clone's: its link reports itself as its linked element (5 of 5 with real VoiceOver).
+

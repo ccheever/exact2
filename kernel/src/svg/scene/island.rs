@@ -104,7 +104,7 @@ impl Resolver<'_, '_> {
             (true, Some(b)) => [b.2, 0.0, 0.0, b.3, b.0, b.1],
             (true, None) => return Some(empty),
         };
-        let inherited = mask.computed_style(StyleMask::INHERITED);
+        let inherited = mask.arena.computed_rows(mask.slot, StyleMask::INHERITED);
         let mut mstyle = mask.style.clone();
         mstyle.copy_rows(&inherited, StyleMask::INHERITED.minus(mask.style.mask));
         // Two elements naming one mask are two instances: salt the keys.
@@ -219,7 +219,9 @@ impl Resolver<'_, '_> {
         let transform = prop(PropId::PatternTransform)
             .and_then(TransformList::parse)
             .map_or(tf::IDENTITY, |t| t.matrix());
-        let inherited = holder.computed_style(StyleMask::INHERITED);
+        let inherited = holder
+            .arena
+            .computed_rows(holder.slot, StyleMask::INHERITED);
         let style = cascade(holder, &inherited);
         let inner = match vb {
             Some(b) => Viewport {

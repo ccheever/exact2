@@ -425,6 +425,10 @@ impl Lowerer<'_> {
                         });
                         continue;
                     };
+                    // @ref LLP 1121 D3 — a motion token the fold returned.
+                    let value =
+                        crate::motion::folded(&a.name, &value, &crate::theme::motion_tokens())
+                            .unwrap_or(value);
                     // @ref LLP 1081 D2 — a keyframe value is checked as an
                     // attribute's is: an old spelling, and a bare role in a
                     // colour, are refused with their new names.
@@ -436,6 +440,30 @@ impl Lowerer<'_> {
                         Property::from_author_name(n)
                             .is_some_and(|p| p.is_color() || p == Property::BoxShadow)
                     });
+                    if a.name == "scale" && value.split_whitespace().nth(1).is_some() {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!("`scale=\"{value}\"` in `keyframes {}`: exact2's `scale` is one factor for both axes, here and on a row; a per-axis scale is not built. A bar can grow by `translate` inside a box that clips (`overflow=\"hidden\"`)", decl.name),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    // A design token is the colour it stands for (LLP 1121 D3).
+                    let value = match colour.then(|| crate::keyframes::tokens(&value, &self.theme))
+                    {
+                        None => value,
+                        Some(Ok(resolved)) => resolved,
+                        Some(Err(why)) => {
+                            ok = false;
+                            errors.push(LowerError {
+                                id: "lower-keyframes",
+                                message: format!("`{}=\"{value}\"` in `keyframes {}`: {why}; animate an opacity layer of each colour instead", a.name, decl.name),
+                                span: a.span,
+                            });
+                            continue;
+                        }
+                    };
                     let hint = crate::style_names::renamed_token(&value, rows)
                         .map(|(old, new)| format!("`{old}` is spelled `{new}` (LLP 1081)"))
                         .or_else(|| {
@@ -752,6 +780,24 @@ impl Lowerer<'_> {
         };
         let short = attrs.iter().find(|a| a.name == "animation");
         let literal = |e: &Expr| matches!(e, Expr::Str(..) | Expr::Number(..));
+        // A list's items: its commas outside parentheses, so an easing
+        // function (`cubic-bezier(0.2, 0, 0, 1)`) is one.
+        let items = |text: &str| -> Vec<String> {
+            let (mut out, mut depth, mut start) = (Vec::new(), 0usize, 0);
+            for (i, c) in text.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth = depth.saturating_sub(1),
+                    ',' if depth == 0 => {
+                        out.push(text[start..i].trim().to_string());
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            out.push(text[start..].trim().to_string());
+            out
+        };
         let text = |e: &Expr| match e {
             Expr::Str(s, _) => s.clone(),
             Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
@@ -779,10 +825,7 @@ impl Lowerer<'_> {
         {
             let mut list = base;
             if let Some(names) = longs.iter().find(|a| a.name == "animation-name") {
-                let names: Vec<String> = text(&names.value)
-                    .split(',')
-                    .map(|n| n.trim().to_string())
-                    .collect();
+                let names: Vec<String> = items(&text(&names.value));
                 list = names
                     .iter()
                     .enumerate()
@@ -794,10 +837,7 @@ impl Lowerer<'_> {
                     .collect();
             }
             for a in longs.iter().filter(|a| a.name != "animation-name") {
-                let items: Vec<String> = text(&a.value)
-                    .split(',')
-                    .map(|v| v.trim().to_string())
-                    .collect();
+                let items: Vec<String> = items(&text(&a.value));
                 for (i, entry) in list.iter_mut().enumerate() {
                     entry
                         .set_longhand(&a.name, &items[i % items.len()])
@@ -816,7 +856,7 @@ impl Lowerer<'_> {
                     parts.push(TemplatePart::Text(" ".into()));
                 }
                 match longs.iter().find(|a| a.name == *name) {
-                    Some(a) if literal(&a.value) && text(&a.value).contains(',') => {
+                    Some(a) if literal(&a.value) && items(&text(&a.value)).len() > 1 => {
                         return Err(bad(a.span, format!("`{}` is a list, and another part is computed: a computed animation is one animation", a.name)))
                     }
                     Some(a) if literal(&a.value) => parts.push(TemplatePart::Text(text(&a.value))),

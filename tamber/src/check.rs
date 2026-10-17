@@ -3,6 +3,7 @@
 //! token for every full app tuple as it goes.
 
 use crate::fold::{self, FoldError, Folded, Half, Named, Names};
+use crate::measure::{self, Kind, Length, Value};
 use crate::syntax::{role_spelling, At, Design, DialKind, Token};
 use crate::{css, Diagnostic, Vocab};
 use exact_color::Rgba8;
@@ -19,8 +20,10 @@ pub struct Checked {
     pub name: String,
     /// The role it overrides, by the schema's name, if it does.
     pub role: Option<String>,
+    /// Its kind (D3): written, or inferred from its value.
+    pub kind: Kind,
     /// Its value for each full app tuple, in tuple order.
-    pub values: Vec<Folded>,
+    pub values: Vec<Value>,
     /// The dials it depends on, in declaration order.
     pub dials: Vec<String>,
     /// The tokens its values name, the default's and every `when` line's,
@@ -54,7 +57,12 @@ struct Checker<'a> {
     axes: HashMap<&'a str, (usize, HashMap<&'a str, usize>)>,
     radix: Vec<usize>,
     /// Folded (token, tuple), or `None` when it refused.
-    memo: HashMap<(usize, usize), Option<Folded>>,
+    memo: HashMap<(usize, usize), Option<Value>>,
+    /// Per token, its kind: written, or inferred from its value.
+    kinds: Vec<Kind>,
+    /// Whether a word is a named length the kernel reads (a text style,
+    /// `-exact-hairline`).
+    named_length: &'a dyn Fn(&str) -> bool,
     used: Vec<BTreeSet<usize>>,
     /// Per token, the tokens its values named as they folded.
     refs: Vec<BTreeSet<usize>>,
@@ -73,6 +81,12 @@ pub(crate) fn check(
     design: &Design,
     vocab: &Vocab,
 ) -> Result<(Vec<Checked>, usize, Vec<DialValue>), Vec<Diagnostic>> {
+    let named_length = |w: &str| {
+        vocab
+            .named_lengths
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(w))
+    };
     let mut c = Checker {
         design,
         errors: Vec::new(),
@@ -82,6 +96,8 @@ pub(crate) fn check(
         axes: HashMap::new(),
         radix: Vec::new(),
         memo: HashMap::new(),
+        kinds: vec![Kind::Color; design.tokens.len()],
+        named_length: &named_length,
         used: vec![BTreeSet::new(); design.tokens.len()],
         refs: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
@@ -101,6 +117,7 @@ pub(crate) fn check(
     let tuples = c.axes();
     c.dials();
     c.declare();
+    c.kinds();
     let Some(tuples) = tuples else {
         return Err(c.finish());
     };
@@ -127,6 +144,7 @@ pub(crate) fn check(
                     .role_key(&t.name.value)
                     .map_or(t.name.value.clone(), |(_, row)| row),
                 role,
+                kind: c.kinds[i],
                 values,
                 dials: Vec::new(),
                 names: Vec::new(),
@@ -179,7 +197,7 @@ impl<'a> Checker<'a> {
     /// whose value differs between the schemes in some tuple (a pair with two
     /// sides, a role or a platform colour, which follow the scheme) and any
     /// other `scheme=` word.
-    fn scheme(&mut self, t: &Token, values: &[Folded]) -> bool {
+    fn scheme(&mut self, t: &Token, values: &[Value]) -> bool {
         let words: Vec<&String> = t
             .meta
             .iter()
@@ -211,7 +229,20 @@ impl<'a> Checker<'a> {
             ));
             return false;
         }
-        let differs = values.iter().any(|v| match v {
+        if values.iter().any(|v| v.color().is_none()) {
+            self.errors.push(Diagnostic::new(
+                "tamber-scheme-fixed",
+                format!(
+                    "`{}` is a {}: `scheme=fixed` marks a colour",
+                    t.name.value,
+                    values[0].kind().name()
+                ),
+                line,
+                col,
+            ));
+            return false;
+        }
+        let differs = values.iter().filter_map(Value::color).any(|v| match v {
             Folded::One(_) => false,
             Folded::Pair(light, dark) => !same(*light, *dark),
             Folded::Host(_) => true,
@@ -240,6 +271,18 @@ impl<'a> Checker<'a> {
             .flat_map(|(_, v)| v.split(','))
             .map(str::trim)
             .collect();
+        if !named.is_empty() && self.kinds[i] != Kind::Color {
+            self.at(
+                &t.name,
+                "tamber-pair",
+                format!(
+                    "`{}` is a {}: `pair=` says what a colour is drawn on",
+                    t.name.value,
+                    self.kinds[i].name()
+                ),
+            );
+            return out;
+        }
         // An empty list, or an empty name in one, names nothing.
         if named.iter().any(|n| n.is_empty()) {
             self.at(&t.name, "tamber-pair", format!("`{}` has an empty `pair=` name: `pair=` names what it is drawn on, `pair=surface.page` or several, comma-separated", t.name.value));
@@ -252,6 +295,18 @@ impl<'a> Checker<'a> {
             let found = match token {
                 Some(j) if j == i => {
                     self.at(&t.name, "tamber-pair", format!("`{}` says it is drawn on itself: `pair=` names what it is drawn on, another token or a role", t.name.value));
+                    continue;
+                }
+                Some(j) if self.kinds[j] != Kind::Color => {
+                    self.at(
+                        &t.name,
+                        "tamber-pair",
+                        format!(
+                            "`pair={name}` names a {}: `pair=` names the colour `{}` is drawn on",
+                            self.kinds[j].name(),
+                            t.name.value
+                        ),
+                    );
                     continue;
                 }
                 Some(j) => {
@@ -530,6 +585,19 @@ impl<'a> Checker<'a> {
             }
             match t.kind.as_deref() {
                 None | Some("color") => {}
+                Some("length" | "number" | "box-shadow" | "text-shadow") if role.is_some() => {
+                    self.at(
+                        &t.name,
+                        "tamber-kind",
+                        format!("`{key}` overrides a colour role, so it is a colour"),
+                    );
+                    continue;
+                }
+                // A motion token is substituted at build: one value (D3).
+                Some("duration" | "easing") if !t.whens.is_empty() => {
+                    self.at(&t.name, "tamber-motion-axis", "a duration or an easing is written into its `transition` or `animation` at build, so it has one value: no `when` (vary the row instead)");
+                    continue;
+                }
                 Some(
                     "length" | "number" | "type" | "family" | "box-shadow" | "text-shadow"
                     | "duration" | "easing",
@@ -542,12 +610,9 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 Some(
-                    "length" | "number" | "type" | "family" | "box-shadow" | "text-shadow"
-                    | "duration" | "easing",
-                ) => {
-                    self.at(&t.name, "tamber-stage", "only colour tokens are built yet; length, number, type, shadow and motion tokens arrive in stage 6");
-                    continue;
-                }
+                    "length" | "number" | "box-shadow" | "text-shadow" | "duration" | "easing"
+                    | "type" | "family",
+                ) => {}
                 Some("icon") => {
                     self.at(
                         &t.name,
@@ -583,6 +648,152 @@ impl<'a> Checker<'a> {
                 self.names.insert(s, i);
             }
         }
+    }
+
+    /// Each token's kind: written, else inferred from its default value
+    /// (§3), a lone name taking the kind of what it names; else a colour.
+    fn kinds(&mut self) {
+        let design = self.design;
+        for i in 0..design.tokens.len() {
+            let mut path = vec![false; design.tokens.len()];
+            self.kinds[i] = self.kind_of(i, &mut path);
+            let t = &design.tokens[i];
+            if !self.refused[i]
+                && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
+                && !t.whens.is_empty()
+            {
+                self.refused[i] = true;
+                self.at(&t.name, "tamber-motion-axis", "a duration or an easing is written into its `transition` or `animation` at build, so it has one value: no `when` (vary the row instead)");
+                continue;
+            }
+            // A row reads a dotted word as the token wherever it stands: no
+            // CSS property, keyframes name or easing keyword has a dot.
+            if !self.refused[i]
+                && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
+                && !t.name.value.contains('.')
+            {
+                self.refused[i] = true;
+                let name = &t.name.value;
+                let group = if self.kinds[i] == Kind::Duration {
+                    "duration"
+                } else {
+                    "easing"
+                };
+                self.at(&t.name, "tamber-motion-name", format!("`{name}`: a duration's or an easing's name is dotted (`{group}.{name}`), so a `transition` or `animation` reads it as the token wherever it stands, never as a property, a keyframes name or a keyword"));
+                continue;
+            }
+            // A shadow's kind is written: two rows read alike values.
+            if !self.refused[i]
+                && self.kinds[i] == Kind::Color
+                && t.kind.is_none()
+                && crate::shadow::looks(&t.value.value, &mut |name| {
+                    let mut path = vec![false; design.tokens.len()];
+                    self.named_kind(name, i, &mut path) == Kind::Length
+                })
+            {
+                self.refused[i] = true;
+                self.at(&t.name, "tamber-kind", format!("`{}` reads as a shadow: write its kind, `{}: box-shadow` or `{}: text-shadow`", t.name.value, t.name.value, t.name.value));
+                continue;
+            }
+            // A role override is a colour, written or inferred.
+            if !self.refused[i]
+                && self.kinds[i] != Kind::Color
+                && self.role_key(&t.name.value).is_some()
+            {
+                self.refused[i] = true;
+                self.at(
+                    &t.name,
+                    "tamber-kind",
+                    format!(
+                        "`{}` overrides a colour role, so it is a colour",
+                        t.name.value
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Token `i`'s kind; `path` holds the names followed to it, so a cycle
+    /// (refused when it folds) ends as a colour.
+    fn kind_of(&self, i: usize, path: &mut [bool]) -> Kind {
+        let t = &self.design.tokens[i];
+        if let Some(k) = t.kind.as_deref().and_then(Kind::parse) {
+            return k;
+        }
+        if std::mem::replace(&mut path[i], true) {
+            return Kind::Color;
+        }
+        if let Some(k) = crate::typeface::inferred(&t.value.value, self.named_length) {
+            path[i] = false;
+            return k;
+        }
+        let Ok(items) = css::parse(&t.value.value) else {
+            path[i] = false;
+            return Kind::Color;
+        };
+        let kind = match items.as_slice() {
+            // A function over numbers is a number, over a length a length:
+            // a dimension, or a name of a length token or dial.
+            [css::Item::Func(f, args, _)]
+                if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") =>
+            {
+                Some(match self.measures(args.iter().flatten(), i, path) {
+                    true => Kind::Length,
+                    false => Kind::Number,
+                })
+            }
+            // A declared token's or dial's name wins over a keyword's
+            // spelling (an easing keyword, a named length).
+            [css::Item::Ident(name)]
+                if self.names.get(name.as_str()).is_some_and(|&j| j != i)
+                    || self.dials.contains_key(name.as_str())
+                    || !(self.named_length)(name)
+                        && !crate::motion::KEYWORDS.contains(&name.as_str()) =>
+            {
+                Some(self.named_kind(name, i, path))
+            }
+            _ => measure::inferred(&items, self.named_length)
+                .or_else(|| crate::motion::inferred(&items)),
+        };
+        path[i] = false;
+        kind.unwrap_or(Kind::Color)
+    }
+
+    /// The kind of what `name` names: a token's (followed), a dial's; a
+    /// colour otherwise.
+    fn named_kind(&self, name: &str, i: usize, path: &mut [bool]) -> Kind {
+        match self.names.get(name) {
+            Some(&j) if j != i => self.kind_of(j, path),
+            _ => match self.dials.get(name) {
+                Some((_, DialValue::Number(_))) => Kind::Number,
+                Some((_, DialValue::Length(_))) => Kind::Length,
+                _ => Kind::Color,
+            },
+        }
+    }
+
+    /// Whether a function's items hold a length: a dimension, or a name of
+    /// a length token or dial, at any depth.
+    fn measures<'i>(
+        &self,
+        items: impl Iterator<Item = &'i css::Item>,
+        i: usize,
+        path: &mut [bool],
+    ) -> bool {
+        for item in items {
+            let length = match item {
+                css::Item::Dim(..) => true,
+                css::Item::Ident(name) => {
+                    (self.named_length)(name) || self.named_kind(name, i, path) == Kind::Length
+                }
+                css::Item::Func(_, args, _) => self.measures(args.iter().flatten(), i, path),
+                _ => false,
+            };
+            if length {
+                return true;
+            }
+        }
+        false
     }
 
     /// A `when` names declared axes and values, each axis once.
@@ -675,7 +886,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Token `i`'s value for `tuple`, folded once; refusals reported.
-    fn value(&mut self, i: usize, tuple: usize) -> Option<Folded> {
+    fn value(&mut self, i: usize, tuple: usize) -> Option<Value> {
         if let Some(v) = self.memo.get(&(i, tuple)) {
             return v.clone();
         }
@@ -703,10 +914,10 @@ impl<'a> Checker<'a> {
             Some(w) if t.whens[w].conds.iter().any(|(a, _)| self.under(a)) => {
                 let base = self.select(t, &digits, true);
                 self.selected[i].insert(base);
-                self.under_value(i, tuple, w, base)
+                self.under_value(i, tuple, w, base).map(Value::Color)
             }
-            Some(w) => self.fold_at(tuple, &t.whens[w].value),
-            None => self.fold_at(tuple, &t.value),
+            Some(w) => self.fold_kind(tuple, &t.whens[w].value, self.kinds[i]),
+            None => self.fold_kind(tuple, &t.value, self.kinds[i]),
         };
         self.stack.pop();
         self.memo.insert((i, tuple), folded.clone());
@@ -740,10 +951,10 @@ impl<'a> Checker<'a> {
                     let _ = self.under_value(i, tuple, w, base);
                 }
                 Some(w) => {
-                    let _ = self.fold_at(tuple, &t.whens[w].value);
+                    let _ = self.fold_kind(tuple, &t.whens[w].value, self.kinds[i]);
                 }
                 None => {
-                    let _ = self.fold_at(tuple, &t.value);
+                    let _ = self.fold_kind(tuple, &t.value, self.kinds[i]);
                 }
             }
             self.stack.pop();
@@ -817,6 +1028,54 @@ impl<'a> Checker<'a> {
         }
         self.memo = baseline;
         self.errors.truncate(errors);
+    }
+
+    /// A token's value at `tuple`, folded as its kind.
+    fn fold_kind(&mut self, tuple: usize, value: &At<String>, kind: Kind) -> Option<Value> {
+        if kind == Kind::Color {
+            return self.fold_at(tuple, value).map(Value::Color);
+        }
+        // A shadow list's commas are its own, and a family's: their folds
+        // split the text.
+        let shadow = matches!(
+            kind,
+            Kind::BoxShadow | Kind::TextShadow | Kind::Type | Kind::Family
+        );
+        let items = match css::parse(&value.value) {
+            Ok(items) => items,
+            Err(_) if shadow => Vec::new(),
+            Err(m) => {
+                self.at(value, "tamber-syntax", m);
+                return None;
+            }
+        };
+        let named_length = self.named_length;
+        let mut scope = Scope {
+            checker: self,
+            tuple,
+        };
+        let folded = match kind {
+            Kind::Length => measure::length(&items, &mut scope, named_length).map(Value::Length),
+            Kind::BoxShadow | Kind::TextShadow => {
+                crate::shadow::fold(&value.value, kind == Kind::TextShadow, &mut scope)
+                    .map(Value::Shadow)
+            }
+            Kind::Duration => crate::motion::duration(&items, &mut scope).map(Value::Duration),
+            Kind::Easing => crate::motion::easing(&items, &mut scope).map(Value::Easing),
+            Kind::Type => {
+                crate::typeface::fold(&value.value, &mut scope, named_length).map(Value::Type)
+            }
+            Kind::Family => crate::typeface::family(&value.value, &mut scope).map(Value::Family),
+            _ => measure::number(&items, &mut scope).map(Value::Number),
+        };
+        match folded {
+            Ok(v) => Some(v),
+            Err(e) if e.id.is_empty() => None,
+            Err(e) => {
+                self.at(value, e.id, e.message);
+                None
+            }
+        }
     }
 
     fn fold_at(&mut self, tuple: usize, value: &At<String>) -> Option<Folded> {
@@ -1005,13 +1264,26 @@ impl Names for Scope<'_, '_> {
             if let Some(&i) = c.stack.last() {
                 c.refs[i].insert(j);
             }
-            return c.value(j, self.tuple).map(Named::Color).ok_or_else(quiet);
+            return c
+                .value(j, self.tuple)
+                .map(|v| match v {
+                    Value::Color(f) => Named::Color(f),
+                    Value::Length(l) => Named::Length(l),
+                    Value::Number(n) => Named::Number(n),
+                    // A shadow token: only a whole shadow value names one.
+                    Value::Shadow(s) => Named::Shadow(s),
+                    Value::Duration(ms) => Named::Duration(ms),
+                    Value::Easing(e) => Named::Easing(e),
+                    Value::Type(t) => Named::Type(t),
+                    Value::Family(f) => Named::Family(f),
+                })
+                .ok_or_else(quiet);
         }
         if let Some((_, value)) = c.dials.get(name) {
             return Ok(match value {
                 DialValue::Color(f) => Named::Color(f.clone()),
                 DialValue::Number(n) => Named::Number(*n),
-                DialValue::Length(_) => Named::Length,
+                DialValue::Length(n) => Named::Length(Length::Px(*n)),
             });
         }
         if c.refused_names.contains(name) || c.refused_names.contains(&lower) {

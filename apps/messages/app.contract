@@ -68,7 +68,11 @@ component Messages
   derive travel = pull > 0 ? 66 * (1 - 1 / (1 + pull / 66)) : 0
   resource viewport = exactViewport() as shape Viewport
   resource wallTime = exactTime() as shape Time
-  resource data = snapshot(query, thread, revision, wallTime.epochAtZero + time, wallTime.utcOffset) as shape Snapshot
+  resource data = snapshot(query, thread, revision) as shape Snapshot
+  // The date is the view's: a snapshot asked with it would have no
+  // first-frame answer, since the bake's date is unknown (LLP 1027.000.000 D2).
+  derive now = wallTime.epochAtZero + time
+  derive receiptId = match data.messages.filter((m) => m.outgoing and (m.status != "" or now - m.at >= 1130)).at(-1) { case some(m) => m.id, case none => "" }
   resource models = catalog(modelQuery, choosing ? 1 : 0) as shape Model[]
   derive maximum = min(viewport.width - 121.333, (viewport.width - 32) * 0.85)
 
@@ -283,7 +287,7 @@ component Messages
                               text t.name font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1 text-align="left"
                               if t.muted
                                 image "symbol:notifications" font-size=12 -exact-tint-color="#8e8e93"
-                              text t.time font-size=14 class=Secondary
+                              text (t.at > 0 ? formatTime(t.at, wallTime.utcOffset, "short") : "") font-size=14 class=Secondary
                               text "›" font-size=19 class=Secondary
                             text t.preview font-size=15 line-height="20px" class=Secondary line-clamp=2 text-align="left"
                         row width=130 height=86.667 flex-shrink=0 scroll-snap-align="start" padding-left=10 padding-right=10 gap=10 box-sizing="border-box" align-items="center"
@@ -310,7 +314,7 @@ component Messages
               scroll id="transcript" testId="transcript" flex=1 min-height=0 overflow-x="hidden" keyboardDismissMode="interactive" scrollFollowEnd=true scrollTop=(endRequest >= 0 ? 1000000 + endRequest : endRequest) pan=drag panrelease=release touch-action="pan-y"
                 column padding-top=15.667 padding-bottom=16
                   for m in data.messages key=m.id
-                    MessageRow(m=m, maximum=maximum, group=(thread == "demo"), travel=travel, dragging=dragging, reduced=viewport.prefersReducedMotion, hidden=(selected == m.id or (flightPhase >= 2 and flightId == m.id and flightThread == thread)), select=select, reply=reply, read=read)
+                    MessageRow(m=m, now=now, offset=wallTime.utcOffset, receiptId=receiptId, maximum=maximum, group=(thread == "demo"), travel=travel, dragging=dragging, reduced=viewport.prefersReducedMotion, hidden=(selected == m.id or (flightPhase >= 2 and flightId == m.id and flightThread == thread)), select=select, reply=reply, read=read)
                   if data.typing
                     Typing(reduced=viewport.prefersReducedMotion)
                   if data.error != ""

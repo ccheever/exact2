@@ -1,6 +1,6 @@
 // Storage completions belong to an answer checkpoint, not an arbitrary browser
 // microtask. @ref LLP 1027 D10: host work returns through the data seam.
-import { agentStorageRefusal, directories, storageKey } from './storage-environment.js';
+import { agentRefusalSaid, agentStorageRefusal, directories, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory, toldAgent = false;
 
 export function createStorage(win, admitted, scope, key = storageKey(admitted.appId)) {
@@ -84,14 +84,14 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       );
     });
   }
-  function enqueue(invoke, convert = clone, discard = () => {}, keyed = true) {
+  function enqueue(invoke, convert = clone, discard = () => {}, keyed = true, op = '') {
     const reservedCell = claim();
     const drop = () => { if (reservedCell) untrack(reservedCell); };
     if (disposed) { drop(); return win.Promise.reject(unavailable()); }
     if (keyed && key == null) {
       drop();
-      // Said once, as on every host (trivia F7): the page's console reaches the driver's logs.
-      if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
+      // A refused write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
+      if (!toldAgent && agentRefusalSaid(op)) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
       return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
     }
     const cell = reservedCell || track(scope());
@@ -107,7 +107,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   }
   function method(raw, name, args, convert, discard) {
     const captured = structuredClone(args);
-    return enqueue(() => raw[name](...captured), convert, discard);
+    return enqueue(() => raw[name](...captured), convert, discard, true, name);
   }
   const closeDiscarded = raw => { void raw.close().catch(() => {}); };
   const statement = raw => Object.freeze({
@@ -137,18 +137,18 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       const captured = structuredClone(args);
       if (captured.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/')))
         return enqueue(async active => { const backend = await documentFiles(); active(); return backend[method](...captured); }, clone, () => {}, false);
-      return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); });
+      return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); }, clone, () => {}, true, method);
     };
   }
   // The prelude hands `compressImage` its options as two numbers (LLP
   // 1069.002 A1); app files only, so never the documents' backend.
   files.compressImage = (from, to, maxDimension, maxBytes) =>
-    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {maxDimension, maxBytes}); });
+    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {maxDimension, maxBytes}); }, clone, () => {}, true, 'compressImage');
   return {
     reserve, abandon,
     capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {
       const backend = await databaseSystem(); active(); return backend.open(path);
-    }, database, closeDiscarded)}),work}),
+    }, database, closeDiscarded, true, 'open')}),work}),
     async deliver(owner) {
       await this.ready(owner);
       this.deliverNow(owner);

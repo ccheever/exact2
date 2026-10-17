@@ -2627,3 +2627,240 @@ D12's runtime side, under every language's generated names.
   iOS simulator.
 - **Observe** doesn't follow Bold Text yet: colours don't depend on it. It comes with stage 6's
   `font` accessor.
+
+### After stage 5's commits: one retention question for `propose` and the dev loops (`8f1445777`, records `2e27c920b`)
+
+`propose` judged its own design shape, which counts every token and ignores `when` lines, so it
+classed every `add-token` as `rebuild` and a first `when` as `live`. The dev loops already decided
+from the compiled plan's structure, which follows retention. There is now one predicate,
+`exact_tamber::Retention::keeps` (D7). The compiler keeps tokens by it, and `propose`'s class
+compares the retained shape: axes, dials, and each kept token's name, kind, role, fixedness,
+variance, per-tuple accent flags, and any value carrying a platform `var`.
+- An app with generated bindings (bindable) rebuilds on `add-token` and on a first `when`.
+- A plain app's unnamed `add-token` is `live`, since nothing changes.
+- `keeps` takes the token's kind: since stage 6 B, a computed length or number row keeps every
+  token of those kinds (`Retention::computed_measure`).
+
+### Stage 5's gate: met (2026-10-17; the run is `~/x2theme/stage5-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A native module in the sample host draws with `ExactTamber(view).color(…)` and follows `setMode`, a pin above it, a Dynamic Type change and the live table | **Met** on the iOS simulator and the Mac, live table included. Kotlin on the `x2-android` emulator follows `setMode`, the pin and the scheme. |
+| Two embedded sessions with different designs answer differently, role overrides included, on one thread, with no journal line | **Met** by tests. |
+| A role-override value edit reaches the clone live on iOS, the Mac and the web, on both loops | **Met**, the JS loop's page included (re-run with the clone's busy-loop fix). |
+| A TypeScript data module returning an unknown token fails `tsc` | **Met.** |
+| A DTCG export re-imported unedited proposes no operations, on theme-fixture and the clone | **Met:** 0 operations on the real clone (72 tokens), and one changed value gives one `set-token`. |
+| Expose, the readers and an app with no design are unchanged | **Met** by plan contents. |
+
+**Known limit:** the Android Canvas host joins no dev loop, so it has no live table and no build
+channel (queued).
+
+**Stage 5 is closed.**
+### Stage 6, commit B: length and number tokens (B1, B2 the JS target, three review rounds)
+
+- **The crate** folds three kinds (`tamber/src/measure.rs`). A length is px, a bare `0`, one `rem`
+  or `em`, a named length the kernel reads (a text style, `-exact-hairline`, by the schema's
+  spellings: `Vocab::named_lengths`), or `calc()`, `min()`, `max()` or `clamp()` over px and numbers
+  folded to px. A number is a number or such a function over numbers. A kind is written or inferred
+  from the value (§3); a lone name takes its token's or dial's kind; a bare `0` infers a number, so
+  a zero length writes `: length`.
+  - Refused: `rem`/`em` inside a function (`tamber-kind`, naming QUEUE's `rem`/`em` item), a
+    percentage, a unit other than px/rem/em, a length and a number mixed, a length times a length,
+    a colour named where a length is wanted and the reverse. `when` lines vary them per tuple; an
+    axis `under scheme=dark` (`tamber-under-kind`), `scheme=fixed`, `pair=` and a role override stay
+    colours'.
+- **The digest break, stage 6's one** (D7):
+  - the plan's `theme` row gains `kind` (0 colour, 1 length, 2 number; later kinds take later
+    codes), so `FORMAT_DIGEST` moves;
+  - the kernel's `SCHEMA_DIGEST` moves with it, since `set_dynamic`'s generator (`kernel/build.rs`, a
+    codec source the digest hashes) now reads a whole-string length or number token name as its
+    slice's value before the row's codec (`style::theme::measured`). A `rem` token is thus the
+    relative side table's entry, and the runner's `ThemeIndex` keeps the row as it keeps a colour's.
+  - Hosts that move: Apple (iOS, macOS), the wasm web host, Linux, Android's reader, the bake's
+    compat record. The JS target recompiles.
+- **The token beside the row is the runner's index**, as for colours (`runner/src/instance/theme.rs`),
+  not a kernel field; D7's "keeps the token beside it" is met there.
+- **Which rows take which kind** is the kernel's one rule (`style::theme::admits`), read at run time
+  and by the compiler: a number in `opacity`, `line-height`, `flex-grow`, `font-weight` and
+  `-exact-press-scale`; a length in no colour row and no number-only row (`line-height` takes
+  both). At run time a name of another kind is not resolved, and the row's codec refuses it.
+- **The compiler** (`contract/lower/src/theme.rs`, `measure_row`):
+  - a literal naming a token a row does not take is `tamber-kind`, naming the row;
+  - every tuple's value is read as the row's codec reads it, not the default's alone (a text style
+    off `font-size` in one app mode is `tamber-kind`, with the kernel's reason);
+  - a varying token in an inherited row is `tamber-inherited-axis` (only colours re-select at a
+    mode boundary);
+  - a computed string may name a number token in a number row when the design has one, and then
+    every number token must suit the row in every app mode (a press scale positive);
+  - at run time an inherited row reads no token that varies (`Entry::varies`), as the compiler
+    refuses a literal naming one, so a computed name of one there is refused as an invalid value.
+  Retention keeps every length and number token when a row of either kind is computed and may be a
+  string.
+- **Live:** a value edit is a live batch; a kind change (written or inferred) is structure, in both
+  the session's shape and the runner's. The kernel lays out for a length: on a 1,000-row list, a
+  `padding` token edit sets 4,000 rows and lays out in 12.9 ms; an `opacity` number edit sets 1,000
+  and only paints, 3.1 ms (debug builds, `contract/cli/tests/it/tamber_measures.rs`).
+- **The JS target** (`host/web-js/src/measures.rs`): a varying length or number token, and in a
+  development build every one, is a custom property whose value per tuple is the literal's CSS (a
+  `rem` stays `rem`, a text style its `rem`, the hairline the sheet's property). It is found by a
+  sentinel the plain projection never writes: px for a length, a fraction in (0, 1) for a number.
+  Every sentinel of a kind is as long as every other, so none is another's substring; a length's
+  bare number is replaced too, since an SVG stroke's CSS is unitless. A number token a
+  `font-weight` names stays inline in a development build, since no fraction is a weight; its
+  design entry says `inline`, so a change to it (or a scrub of it) builds. So does a token an SVG
+  attribute row names (`x`, `width`, `r` …), since an attribute reads no property; one that varies
+  by an app axis there refuses the JS build, naming it. A token-backed `-exact-press-scale` reaches
+  the press animation through the computed property (`input-glue.js`). A bound row's value naming a
+  token maps through a module constant per mix of the kinds the row takes (`$tl`, `$tn`, `$tln`, an
+  SVG attribute's `…a` writing values, never `var()`), so a name of a kind the row does not take
+  stands, as the kernel leaves it. A bound `opacity`'s layer test reads a constant token's value (a
+  varying one may be below 1). A grid track's `var()` of a token passes the target's grid check
+  (each tuple's value was checked at build).
+- **What the JS target does not read:** a varying token's name computed (from state or data) into
+  an SVG attribute row stands there, since no tuple's rule reaches an attribute; and in a
+  development build a token computed into one is written as its value, so a live edit of it waits
+  for the rebuild. A literal name in an SVG attribute row is refused when it varies, and inline
+  otherwise (above). In a static row a release writes a token that does not vary byte for byte as
+  its literal; a plan that keeps no length or number token is byte for byte as before (the clone's
+  `app.js` and `app.css` are identical).
+- **Measured on theme-fixture with the JS loop, by hand:** a length edit arrives in ~0.2 s, a number
+  edit in ~0.05 s, with no reload; a length scrub previews and cancels, with the file untouched.
+- **The wire** (`tamber/1.5`): each IR token's `kind`; `resolve`'s length `{unit, amount}` and number
+  `{amount}`; `uses` over rows of the token's kind. The concrete px of a `rem`, `em` or named
+  length is the build's (`resolve-on`, LLP 1122 T2b).
+
+### Stage 6, commit D: shadow tokens
+
+- **The crate** (`tamber/src/shadow.rs`) folds `box-shadow` and `text-shadow` tokens, each its row's
+  own syntax: a list (at most 8) of `inset`? and two to four lengths with one colour for a box
+  shadow; one shadow of two or three lengths with a colour or none (`currentcolor`) for a text
+  shadow, which has no spread and is never `inset`. A length is px, unitless zero, a length token
+  or dial; `rem`/`em` inside one is refused naming QUEUE's `rem`/`em` item. A colour is a literal, a
+  colour token, a role or a colour expression over tokens, folded per tuple as a colour token is,
+  so a shadow's value per tuple is its row's text with its colours folded. Its kind is always
+  written: a value that reads as a shadow with none is refused, asking for it.
+- **The plan** numbers the kinds 3 and 4; no new break (B's `kind` byte holds them). The kernel
+  reads one only in its own row (`admits`).
+- **A colour token inside a shadow follows its own live edit**: the session refolds every token, so
+  an edit of the colour moves the shadow's value too, and the batch carries both (live; tested at
+  the session). A shadow edit paints: it lays nothing out.
+- **A text shadow is an inherited row**, so a text-shadow token that varies by an app axis is
+  `tamber-inherited-axis` (only colours re-select at a mode boundary), as for lengths and numbers.
+- **The JS target:** a varying shadow token, and in a development build every one, is a property
+  whose value per tuple is the row's CSS as `css.rs` writes the literal's; its sentinel is a shadow
+  whose spread (a text shadow's offset) is a marker length, and the whole declaration holding the
+  marker becomes the `var()`. A bound shadow row maps a name through its own constant (`$tb`,
+  `$tt`).
+- **The wire** (`tamber/1.8`): the kinds, and `resolve`'s shadow tuples.
+
+### Stage 6, commit E: duration and easing tokens
+
+- **The crate** (`tamber/src/motion.rs`) folds a `duration` (a CSS time, in ms, or a duration token)
+  and an `easing` (a keyword, `cubic-bezier()` with its x in [0, 1], `steps()` with a whole count,
+  `linear()`, `-exact-spring()`, or an easing token). A time, an easing keyword and an easing function
+  infer their kinds. A `when` on one, written or inferred, is `tamber-motion-axis`.
+- **Dotted names:** a duration's or an easing's name is dotted (`duration.fast`); another is
+  `tamber-motion-name`. No CSS property, keyframes name or easing keyword has a dot, so a dotted
+  word of a motion row that is a token's name is that token wherever it stands in the shorthand
+  (`transition="1s opacity"` stays as written, whatever tokens exist). An inline `theme`'s names
+  are undotted, so it declares none.
+- **Substituted at build:** the loader writes each duration and easing token a literal of a
+  `transition`, `animation`, exit animation, layout transition, timing longhand or keyframe's
+  timing names (a template's text and holes, a `+`'s strings, a keyframe timing a function of literal
+  arguments returns), as a whole word (not inside quotes, nor touching a template's `${…}`), in as its
+  value before scoping, the longhands' composing or the row's codec read it
+  (`contract_lower::motion`); lowering does it again, before the longhands compose, for a value an
+  expansion carried in (a component's prop, to a shorthand or a longhand). So the plan holds the
+  values and keeps no motion token. Named as a whole row of another kind, one is `tamber-kind`.
+  Its tokens are checked by the motion crate, as the transition reads them (the crate depends on
+  `exact-motion`). A profile's colour in the design is stood in for when the loader folds the
+  motion tokens, so it does not stop their substitution. `uses` reports the literals the loader
+  wrote a token into, in every source the app loads (a package's too), and the component
+  arguments that name it (a site has no plan node); an app that does not load answers the build's
+  error, not an empty list. A timing longhand's list splits at commas outside parentheses, so an easing
+  function is one item.
+- **An edit rebuilds** (D13): the session classes a change to a motion token, or to what it folds
+  from, as `rebuild`, so `propose` says so and a scrub is refused; the plan's structure moves, so the
+  dev loops' retained-shape checks see a structure change and rebuild.
+- **Dials:** D15's duration control (a slider in ms) is a param's (stage 7); a dial stays a colour,
+  a length or a number.
+- **The wire** (`tamber/1.9`): the kinds, and `resolve`'s `{ms}` and easing tuples.
+
+### Stage 6, commit A: the prerequisite, LLP 1115.000 D12.2 and D12.3 (A1 `e3e263603`..`df377a133`, A2 `60ef5581e`..`4a55f98ab`)
+
+Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). For Tamber:
+- **A text style carries its weight and leading** per platform column, measured on the iOS simulator
+  and the Mac: the Mac's headline is Bold with its own leadings, and iOS uses the face's natural
+  line height.
+- **Precedence per longhand** (the lead's ruling):
+  1. written on the node;
+  2. a style named through `font` or a type token;
+  3. inherited;
+  4. a style named by a bare `font-size`;
+  5. CSS's default.
+
+  So the `font` shorthand lowers to only `font-style` and `font-size`. That is what lets C's type
+  tokens write only the longhands they name.
+- **`layout` and inspect** name a row's source `style` or `heading`.
+- **Headings** keep an implied bold through one switch, `HEADING_BOLD`, pending Charlie.
+- **Bold Text** weights the system font by UIKit's measured step (400→600, 600→800, 700 and above
+  →900), and leaves a bundled family alone. iOS and Android read the setting; the Mac and the web
+  have none. Android's toggle is compiled and unit-tested but not observed on the emulator.
+- **A known web-target difference:** a style named by a bare `font-size` fills nothing on the JS
+  target, which keeps no kernel to see an ancestor's weight (queued).
+- **The kernel schema digest moved again** (the `textStyles` columns and prop 270,
+  `fontShorthand`), within stage 6's break window after B's. No host binary shipped between them.
+### Stage 6, commit C: type and family tokens
+
+- **The crate** (`tamber/src/typeface.rs`) folds a `type` token, CSS `font` syntax: `italic` (the
+  kernel's `font-style` holds `normal` and `italic`, so `oblique` is refused), a weight (a whole number from 1 to 1000, or `bold`), a size (px, `rem`, `em`, a text
+  style, or a length token naming one of those), an optional `/line-height` (a number, a length,
+  `normal`, or a number or length token), and an optional family (a stack, or a family token). It
+  names only what it writes, so `normal` is refused (it says nothing). A `family` token is a stack:
+  each member a quoted name or identifiers, joined `, `; or another family token. A value with more
+  than a size (a line height, a family, a style or weight before it) infers `type`; a stack with a
+  quote or a comma infers `family`; otherwise the kind is written. A type token whose size is px in
+  some tuple is warned of, never refused (`tamber-type-fixed`).
+- **Rows name the token; the kernel reads each one's part.** `font="type.body"` lowers to one row a
+  longhand the token writes, each naming the token, and `fontShorthand` (D12.2), so a text style's
+  weight and leading apply where it writes none and the rows it writes are written rows
+  (`contract/lower/src/type_tokens.rs`). The kernel reads each row's part
+  (`kernel/src/style/theme/typeface.rs`). `font-family="family.mono"` is one row naming the token. The
+  plan numbers the kinds 5 and 6, no new break. A type token in another row, or a family token
+  outside `font-family`, is `tamber-kind`. A choice between tokens (`font=(c ? "type.a" : "type.b")`)
+  lowers the same way. Every token and tuple it may be writes the same longhands, else it is
+  `tamber-type-longhands`.
+- **A family is a stack the plan declares**, as a literal `font-family`'s is. The compiler declares
+  one for each tuple's family. A bound table holds its id (`#12`): the compiler's from its own
+  stacks, the runner's from the plan's by their members as the compiler reads them
+  (`typeface::family_key`: a quoted name, a generic one only unquoted, `-apple-system` as
+  `system-ui`). The runner passes a `font-family` string naming a token, dotted or not, to the
+  kernel rather than interning it as a runtime family. A one-word family (`textFace`) names a family
+  token where the design has one. A type token's written style and weight are checked against a
+  family the app ships, as `font-weight` and `font-style` beside `font-family` are (`lower-font-face`).
+- **The axis (theme2's ruling):** a type or family token that varies by an app axis is refused on a
+  node with element children, which would inherit its rows (`tamber-inherited-axis`, "write it on the
+  text, not its container"). On a text with none it is read again per tuple, as a colour is: the
+  kernel lets a varying type or family token reach an inherited row. A name computed at run time
+  is held to the same rule by the runner, which refuses it as an invalid value there (a child is
+  the node's own, or a choice's or a list's under it). A mode can't rescale a whole
+  subtree's type through a container; boundary re-specification is a later stage's, if an app needs
+  it.
+- **Live and rebuild (the lead's ruling):** an edit that changes only a type token's style, weight,
+  size or line height is live, and each row that names it reads it again. One that changes the
+  longhands it writes, its family, or a family token's stack rebuilds: the session's shape carries
+  them.
+- **Bold Text** applies through D12.3's rule: a type token naming a system family is stepped, an
+  authored weight included, and a family the app names is not.
+- **The JS target** writes a type or family token as the kernel resolves each longhand, a literal,
+  never a property (`measures::inline_tokens`); a bound row maps a name to that row's part (`$ty<row>`):
+  a family as its plan stack's CSS (a bundled font's `ExactPlanStack<n>` alias), a text style as its
+  name, which the size's own map turns into its `rem` and the style's weight and leading.
+  So one that varies by an app axis is refused there (`QUEUE.md`); a development build rebuilds on an
+  edit to one.
+- **The wire** (under `tamber/1.9`, the window's one version): the kinds, and `resolve`'s type and
+  family tuples.
+- **Tests:** `contract/cli/tests/it/tamber_type.rs` (only the named longhands, the style's weight,
+  a family token's stack, a tuple's leading under a pin, Bold Text on a system and a named family, a
+  live value edit, and the refusals); `tamber/tests/it/edit.rs` (live versus rebuild);
+  `tamber/tests/it/pair.rs` (`tamber-type-fixed`); the crate's corpus `type`, `refuse-type`.

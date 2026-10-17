@@ -108,7 +108,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
-    fn is_placeholder_row(&self, i: usize) -> bool {
+    pub(super) fn is_placeholder_row(&self, i: usize) -> bool {
         self.plan
             .resources
             .iter()

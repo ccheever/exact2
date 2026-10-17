@@ -51,6 +51,21 @@ pub(crate) fn resolve(
     if let Some(scale) = arena.display_scale_next.take() {
         arena.display_scale = Some(scale);
     }
+    // Bold Text (LLP 1115.000 D12.3): every text is measured and drawn again
+    // at the weight it now means.
+    if let Some(on) = arena
+        .bold_text_next
+        .take()
+        .filter(|on| *on != arena.bold_text)
+    {
+        arena.bold_text = on;
+        let rows = StyleMask::of(StyleId::FontWeight);
+        let slots: Vec<u32> = arena.iter_live().collect();
+        for slot in slots {
+            inherited_changed(arena, layout, slot, rows, receipt);
+            touched.push(arena.key(slot));
+        }
+    }
     if arena.relative_slots.is_empty() {
         return;
     }

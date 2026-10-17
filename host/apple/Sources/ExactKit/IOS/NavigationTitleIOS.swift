@@ -68,6 +68,8 @@ struct HeaderTitle: Equatable {
             guard !node.isParagraph, passive(node) else { return nil }
             var out: [Glyph] = [], symbols = false
             for child in shown(node) {
+                // A readout beside the glyphs is its own item.
+                if apart.contains(where: { $0 === child }) { continue }
                 guard passive(child) else { return nil }
                 if child.kind == "image", child.props["imageSource"]?.hasPrefix("symbol:") == true {
                     // A symbol source counts toward the shape even while its
@@ -85,23 +87,32 @@ struct HeaderTitle: Equatable {
         func control(_ node: NodeView) -> Bool {
             (node.isButton || node.actsAsButton || node.handlers.contains("press")) && !heading.isDescendant(of: node)
         }
+        func take(_ child: NodeView, _ pieces: [Glyph]) {
+            glyphs = pieces
+            placed.append(child)
+            subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
+            // What it says, as the author named it, else its texts.
+            spoken = child.authoredLabel ?? subtitle
+            rtl = child.style["direction"]?.string == "rtl"
+        }
         func walk(_ node: NodeView) {
             for child in shown(node) {
                 if child === heading { passed = true; continue }
-                if control(child) { continue }
+                // A bar item, a readout among them, is not the title's to read.
+                if control(child) || apart.contains(where: { $0 === child }) { continue }
+                // A box holding one is no avatar; a row of glyphs beside a
+                // readout is still the glyph line, without it; else what it
+                // holds is read alone.
+                if apart.contains(where: { $0.isDescendant(of: child) }) {
+                    if passed, subtitle.isEmpty, let pieces = line(child) { take(child, pieces); continue }
+                    if !(passed && child.channels("background_color") != nil) { walk(child) }
+                    continue
+                }
                 if wrapper != nil, !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) {
                     avatar = face; placed.append(child); continue
                 }
                 if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; placed.append(child); continue }
-                if passed, subtitle.isEmpty, let pieces = line(child) {
-                    glyphs = pieces
-                    placed.append(child)
-                    subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
-                    // What it says, as the author named it, else its texts.
-                    spoken = child.authoredLabel ?? subtitle
-                    rtl = child.style["direction"]?.string == "rtl"
-                    continue
-                }
+                if passed, subtitle.isEmpty, let pieces = line(child) { take(child, pieces); continue }
                 // After the heading, a filled box (a pill, a badge) keeps its
                 // own look: nothing in it is the subtitle.
                 if passed, child.channels("background_color") != nil { continue }

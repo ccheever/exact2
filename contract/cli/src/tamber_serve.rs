@@ -64,7 +64,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.4";
+pub const PROTOCOL: &str = "tamber/1.9";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -192,9 +192,13 @@ struct Server {
     /// The client a `hello` named.
     client: Option<String>,
     /// The app's synthetic tokens (LLP 1121 D3), by the digest of the
-    /// Contract sources they were read from.
-    synthetic: Option<(String, Vec<(String, bool)>)>,
+    /// Contract sources they were read from, with the retention its plan
+    /// keeps tokens by (D7), read by the same build.
+    synthetic: Option<Synthetic>,
 }
+
+/// A digest, its synthetic token expressions, and the plan's retention.
+type Synthetic = (String, Vec<(String, bool)>, Option<exact_tamber::Retention>);
 
 /// Open without following a symbolic link at the last component.
 fn no_follow(options: &mut OpenOptions) -> &mut OpenOptions {
@@ -356,6 +360,10 @@ impl Server {
             );
             key.push('\n');
         }
+        // Whether code beside the app can name a token outside its views
+        // (D7's retention: app.ts, a data crate, app.json's modules or
+        // hatches), which none of the sources say.
+        key.push_str(&format!("bindable {}\n", contract::code_beside(&root)));
         // What resolved the imports (package manifests, the paths tried).
         for path in &graph.consulted {
             key.push_str(&path.to_string_lossy());
@@ -373,18 +381,20 @@ impl Server {
                 key.push('\n');
             }
         }
-        if let Some((k, exprs)) = &self.synthetic {
+        if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
                 return Some(exprs.clone());
             }
         }
         let _ = contract_lower::synthetic_candidates();
+        let _ = contract_lower::retention();
         let built = contract::compile_path_all(&root, false);
         let exprs = contract_lower::synthetic_candidates();
+        let retention = contract_lower::retention();
         // A build that stopped before the design says nothing of them.
         let reached = built.is_ok() || !exprs.is_empty();
         reached.then(|| {
-            self.synthetic = Some((key, exprs.clone()));
+            self.synthetic = Some((key, exprs.clone(), retention));
             exprs
         })
     }
@@ -764,6 +774,49 @@ impl Server {
             .enumerate()
             .map(|(tuple, v)| {
                 let modes = modes_of(axes, tuple);
+                let v = match v {
+                    // A length's stored form: px, or the unit or named
+                    // length it keeps, whose px is the build's (its text
+                    // size, `resolve-on`).
+                    exact_tamber::Value::Length(l) => {
+                        let (unit, amount) = match l {
+                            exact_tamber::Length::Px(n) => ("px", json!(n)),
+                            exact_tamber::Length::Rem(n) => ("rem", json!(n)),
+                            exact_tamber::Length::Em(n) => ("em", json!(n)),
+                            exact_tamber::Length::Named(_) => ("named", Value::Null),
+                        };
+                        return json!({"modes": modes, "value": v.css(), "kind": "length", "unit": unit, "amount": amount});
+                    }
+                    exact_tamber::Value::Number(n) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "number", "amount": n});
+                    }
+                    // Each shadow: its lengths in px and its colour's CSS
+                    // (null for a text shadow's currentcolor).
+                    exact_tamber::Value::Shadow(s) => {
+                        let shadows: Vec<Value> = s
+                            .list
+                            .iter()
+                            .map(|one| json!({"inset": one.inset, "lengths": one.lengths, "color": one.color.as_ref().map(|c| c.css())}))
+                            .collect();
+                        return json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
+                    }
+                    // A motion token: a time in ms, or an easing's text.
+                    exact_tamber::Value::Duration(ms) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "duration", "ms": ms});
+                    }
+                    exact_tamber::Value::Easing(_) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "easing"});
+                    }
+                    // A type token's longhands as written (null: unsaid), a
+                    // family's stack (stage 6 C, optional fields under 1.9).
+                    exact_tamber::Value::Type(t) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "type", "style": t.style, "weight": t.weight, "size": t.size.css(), "leading": t.leading, "family": t.family});
+                    }
+                    exact_tamber::Value::Family(f) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "family", "family": f});
+                    }
+                    exact_tamber::Value::Color(c) => c,
+                };
                 match v {
                     // `srgb`: each side's 8-bit sRGB clip, what a contrast
                     // ratio is taken on (`light` and `dark` keep the wide value).
@@ -840,6 +893,27 @@ impl Server {
             .into_iter()
             .map(|(e, _)| e)
             .collect();
+        // A motion token is written into its rows: its sites are the source
+        // literals the loader wrote it into (`motion_sites`), not plan nodes.
+        let motion = folding.tokens.iter().any(|t| {
+            t.name == name
+                && matches!(
+                    t.kind,
+                    exact_tamber::Kind::Duration | exact_tamber::Kind::Easing
+                )
+        });
+        if motion {
+            let aliased: Vec<String> = aliases.iter().cloned().collect();
+            let sites = contract::tamber_uses::motion_sites(
+                &self.dir.join("app.contract"),
+                &name,
+                &aliased,
+            )
+            .map_err(|e| json!({"message": format!("the app does not build: {e}")}))?;
+            return Ok(
+                json!({"token": name, "plan": null, "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
+            );
+        }
         let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
             .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
         let map: Value = serde_json::from_str(&map.json(&plan.encode()))
@@ -940,9 +1014,13 @@ impl Server {
             .collect();
         let known = self.synthetic(snap);
         let exprs = known.clone().unwrap_or_default();
+        // The tokens the plan keeps (D7): an edit to one it does not keep
+        // (a plain app's token no view names) leaves the plan as it is.
+        let retention = self.synthetic.as_ref().and_then(|(_, _, r)| r.clone());
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
+            retention: retention.as_ref(),
         };
         let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})

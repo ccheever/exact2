@@ -1,9 +1,10 @@
-//! A mutation's socket operations (LLP 1016.000 D7). The prelude's handle
-//! checks and copies each `send` and `close` while the mutation's source
-//! runs, then hands the batch through the door (op 14) when the answer is
-//! given now. Each is addressed by the prelude's ticket for the stream's
-//! `fetch`; here it becomes the resource that owns the stream, staged on
-//! the runner's store for the commit to publish.
+//! A mutation's or a mapper call's socket operations (LLP 1016.000 D7).
+//! The prelude's handle checks and copies each `send` and `close` while the
+//! mutation's source or the socket's own mapper runs, then hands the batch
+//! through the door (op 14): a mutation's when its answer is given now, a
+//! mapper call's as it returns. Each is addressed by the prelude's ticket
+//! for the stream's `fetch`; here it becomes the resource that owns the
+//! stream, staged on the runner's store for the commit to publish.
 use super::{Key, Module, Parked};
 use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
@@ -49,9 +50,10 @@ pub(crate) fn snapshot(streams: &[(Key, Parked)], store: &Store) -> Vec<(u64, u6
 }
 
 impl Module {
-    /// Stage the operations a mutation's answer made on `store`, by the
-    /// resource that owns each socket. A ticket that names no open stream
-    /// of a resource is a handle the module kept past its socket's life.
+    /// Stage the operations a mutation's answer or a mapper call made on
+    /// `store`, by the resource that owns each socket. A ticket that names
+    /// no open stream of a resource is a handle the module kept past its
+    /// socket's life.
     pub(crate) fn stage_sockets(
         &self,
         store: &mut Store,

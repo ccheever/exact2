@@ -544,6 +544,19 @@ fn a_value_only_design_edit_writes_no_plan_and_sends_a_batch() {
     // A value, saved in place.
     save(&design, &tamber.replace("#111111", "#222222"), 1);
     let edit = s.poll::<NoData>().expect("a design edit").unwrap();
+    // Dated by the design's save, not the older root's.
+    let design_ms = std::fs::metadata(&design)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as f64;
+    assert!(
+        edit.saved_ms >= design_ms - 1.0,
+        "{} < {design_ms}",
+        edit.saved_ms
+    );
     let live = edit.live.expect("value-only");
     assert_eq!(std::fs::read(&out).unwrap(), edit.bytes, "the file follows");
     assert_ne!(edit.bytes, on_disk);
@@ -578,6 +591,54 @@ fn a_value_only_design_edit_writes_no_plan_and_sends_a_batch() {
     );
     let structural = s.poll::<NoData>().expect("a structure edit").unwrap();
     assert!(structural.live.is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The wasm loop reloads for what the plan keeps (theme2's ruling, LLP
+/// 1121 stage 5, D7's retention): in an app that can name a token outside
+/// its views (a data crate beside it) every token is kept, so an added one
+/// publishes a plan; and a first `when` on a kept token that did not vary
+/// does too, wherever it is (the plan gains its slices). `propose` classes
+/// both `rebuild` by the same retention.
+#[test]
+fn a_kept_token_added_or_starting_to_vary_publishes_a_plan() {
+    let dir = scratch("retained");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let design = dir.join("app.tamber");
+    let tamber = "tamber t\n\naxes\n  tone = warm | cool\n\ntheme\n  ink = #111111\n";
+    std::fs::write(&design, tamber).unwrap();
+    std::fs::write(
+        &src,
+        "component App\n  view\n    text \"one\" color=\"ink\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("data")).unwrap();
+    std::fs::write(
+        dir.join("data/Cargo.toml"),
+        "[package]\nname = \"t-data\"\n",
+    )
+    .unwrap();
+    let mut s = Session::new(&src, &out);
+    assert!(s
+        .poll::<NoData>()
+        .expect("first look builds")
+        .unwrap()
+        .live
+        .is_none());
+    save(&design, &format!("{tamber}  spare = #222222\n"), 1);
+    let added = s.poll::<NoData>().expect("an added token").unwrap();
+    assert!(added.live.is_none(), "kept, so the plan's structure moved");
+    save(
+        &design,
+        &format!("{tamber}  spare = #222222\n").replace(
+            "ink = #111111\n",
+            "ink = #111111\n    when tone=cool: #0a7aff\n",
+        ),
+        2,
+    );
+    let varies = s.poll::<NoData>().expect("a first when").unwrap();
+    assert!(varies.live.is_none(), "the plan gains the token's slices");
     let _ = std::fs::remove_dir_all(dir);
 }
 

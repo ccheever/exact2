@@ -1137,7 +1137,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     builders.push({package:pkg.name,role,cfgs:m.cfgs,environment:orderedBuild(environment),libraries:m.linked_libs,env:m.env.filter(([key])=>!key.startsWith('EXACT_')).map(normalizeEnv)});
   }
   for (const pkg of packages) if(usedPackages.has(pkg.id))add(pkg.manifest_path);
-  add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));
+  add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));add(resolve(app.dir,'.exact/backend-origin'),true); // the bake's backend selection, by bytes or absence
   // Watch absent art without a missing Cargo input that dirties every build.
   if (app.manifest.game) add(resolve(app.dir, 'art'), true);
   if (app.manifest.game?.render && graph.surface) {
@@ -1238,11 +1238,10 @@ export function claimLive(text) {
   let claim;
   try { claim = JSON.parse(text); } catch { return true; } // unreadable: never guess
   if (!Number.isSafeInteger(claim.pid) || claim.pid <= 0) return true;
-  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(claim.pid)], { encoding: 'utf8' });
-  const started = Date.parse(ps.stdout?.trim() ?? '');
-  if (ps.status !== 0 || !Number.isFinite(started)) return false;
-  // `lstart` has whole seconds: the holder started at or before its claim.
-  return started <= Date.parse(claim.started) + 1000;
+  try { process.kill(claim.pid, 0); } catch (error) { if (error.code === 'ESRCH') return false; } // gone (EPERM: alive, another user's)
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(claim.pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }), started = Date.parse(ps.stdout?.trim() ?? '');
+  if (ps.status !== 0 || !Number.isFinite(started)) return true; // running, and `ps` cannot say since when: never guess
+  return !(started > Date.parse(claim.started) + 1000); // `lstart` has whole seconds: a holder started after its claim is a reused pid
 }
 
 /** Cargo library filenames use the selected target name, with hyphens
@@ -1299,7 +1298,7 @@ export function buildBake(app, platform, target, options = {}) {
     }
   for(const {pkg,unit} of selected) {
     // The GPU bake can create the first asset directory (for a typed level).
-    env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
+    env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(','); env.EXACT_BACKEND_SELECTION=existsSync(resolve(app.dir,'.exact/backend-origin')) ? 'present' : 'absent';
     // The app's own web artifact builds std for size; a GPU crate keeps the toolchain's std.
     const sized=platform==='web'&&!gpuPackage(pkg);
     // An Apple app's crate is an rlib to Cargo, so `--workspace` builds type-check it without

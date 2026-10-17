@@ -195,12 +195,8 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 pub fn lint(file: &File) -> Vec<LowerError> {
     // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
     // row's value is one, so each stands for any.
-    let theme = crate::theme::theme_decl(file);
     crate::theme::bind_axes(file);
-    let entries = theme.iter().flat_map(|t| &t.entries);
-    let _theme = exact_kernel::style::theme::declarations(
-        entries.map(|e| (e.name.as_str(), "transparent", false)),
-    );
+    let _theme = crate::theme::lint_scope(file);
     fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
         for n in nodes {
             match n {
@@ -262,6 +258,14 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                                 &Default::default(),
                                             )
                                         })
+                                }
+                                // A type token's longhands are its own (stage 6 C).
+                                Some(tags::AttrTarget::Shorthand)
+                                    if a.name == "font"
+                                        && matches!(&a.value, contract_syntax::Expr::Str(t, _)
+                                            if crate::theme::measure_values(t).is_some()) =>
+                                {
+                                    Ok(())
                                 }
                                 Some(tags::AttrTarget::Shorthand) => {
                                     super::shorthands::component(&a.value, &a.name, 0).map(|_| ())

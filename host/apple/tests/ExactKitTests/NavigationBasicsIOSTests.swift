@@ -251,6 +251,68 @@ final class NavigationBasicsIOSTests: XCTestCase {
         if #available(iOS 26.0, *) { XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading") }
     }
 
+    /// LLP 1075.003 §9.15: a readout (`role="status"`) after the header's
+    /// buttons is a trailing item with a custom view, as a hand-built bar's
+    /// "● Clock" is: its dot and monospaced text drawn as written, read by
+    /// VoiceOver as static text, the bar's and not the page's; it follows
+    /// the Contract in place, the same item and view.
+    func testAReadoutIsATrailingItemWhoseViewFollowsItInPlace() throws {
+        let session = try fixture("basics-readout")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "open-plain")
+        until("Plain pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let plain = try XCTUnwrap(nav.topViewController as? RouteController)
+        let right = plain.navigationItem.rightBarButtonItems ?? []
+        let item = try XCTUnwrap(right.first, "the readout is after Compose: the rightmost item")
+        XCTAssertEqual(item.accessibilityIdentifier, "readout-plain")
+        XCTAssertTrue(right.contains { $0.accessibilityLabel == "Compose" }, "Compose is still an item")
+        let view = try XCTUnwrap(item.customView as? ReadoutView, "a custom view, not a title or an image")
+        XCTAssertNil(item.action, "nothing presses a readout")
+        func labels() -> [UILabel] { view.subviews.flatMap(\.subviews).compactMap { $0 as? UILabel } }
+        let label = try XCTUnwrap(labels().first)
+        XCTAssertEqual(label.text, "0 sent")
+        XCTAssertEqual(label.font.pointSize, 12)
+        XCTAssertTrue(label.font.fontName.lowercased().contains("menlo"), "the author's font: \(label.font.fontName)")
+        let dot = try XCTUnwrap(view.subviews.flatMap(\.subviews).first { !($0 is UILabel) })
+        view.layoutIfNeeded()
+        XCTAssertEqual(dot.bounds.size, CGSize(width: 7, height: 7), "the dot at its authored size")
+        XCTAssertGreaterThan(view.intrinsicContentSize.width, 7 + 6)
+        XCTAssertTrue(view.isAccessibilityElement)
+        XCTAssertTrue(view.accessibilityTraits.contains(.staticText))
+        XCTAssertEqual(view.accessibilityLabel, "0 composed", "its `aria-label`")
+        // The bar's, not the page's: the agent does not call it unshown.
+        let unshown = session.presenter.navigation.unshownByBar()
+        for shown in ["readout-plain", "readout-text"] { XCTAssertNil(unshown[try node(session, shown).id], "\(shown) is the bar's") }
+        // Nor the subtitle's: the first text after the heading still is.
+        if #available(iOS 26.0, *) { XCTAssertEqual(plain.navigationItem.subtitle, "No Back control") }
+        // The agent's tap on it is a person's: it lands, and nothing is pressed.
+        let tap = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertNil(tap["error"], "\(tap)")
+        XCTAssertEqual(tap["native"] as? String, "bar-readout")
+        try tapNode(session, "compose-plain")
+        until("the readout follows the count") { labels().first?.text == "1 sent" }
+        XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.first === item, "the same item")
+        XCTAssertTrue(item.customView === view, "the same view")
+        XCTAssertEqual(view.accessibilityLabel, "1 composed")
+        // `aria-hidden` on the tabpanel, which UIKit holds the route apart
+        // from, takes the readout off the accessibility tree.
+        let panel = try node(session, "panel-home")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityElementsHidden": "true"], "clear": []]]))
+        until("hidden by its logical ancestor") { !view.isAccessibilityElement }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": [:], "clear": ["accessibilityElementsHidden"]]]))
+        until("shown again") { view.isAccessibilityElement }
+        // A sibling button kept authored lifts the header only in part; the
+        // agent's tap on the readout still lands on the bar's.
+        let compose = try node(session, "compose-plain")
+        session.presenter.apply(wireBatch([["op": "style", "id": Int(compose.id), "style": ["appearance": "none", "written": ["appearance"]]]]))
+        spin(0.2)
+        XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.contains { $0.customView === view } == true, "still the bar's")
+        let partial = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertEqual(partial["native"] as? String, "bar-readout", "\(partial)")
+    }
+
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
@@ -691,6 +753,19 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(navigation.routeShowsBar(route, in: sheet))
         XCTAssertTrue(nav.viewControllers.count == 1 && nav.topViewController === start && nav.isNavigationBarHidden,
                       "and the stack beneath is as it was")
+    }
+
+    /// LLP 1116.020 D2: a presented stack's title is inline at any level, as
+    /// UIKit's sheets and Apple's are; a level-1 heading pushed in the stack
+    /// beneath is large.
+    func testASheetsLevelOneTitleIsInline() throws {
+        let (session, _, _) = try bars("bars-titled-sheet")
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-titled")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let route = try XCTUnwrap(navigation.modalNavigation?.topViewController as? RouteController)
+        XCTAssertEqual(route.navigationItem.title, "Titled")
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .never, "a sheet's title is inline")
     }
 
 

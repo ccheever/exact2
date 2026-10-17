@@ -258,11 +258,12 @@ component App
         if e.name == "rename"
           column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              button id="back" press=back testId="cancel"
-                text "Cancel"
+              button id="back" press=back aria-label="Cancel" testId="cancel"
+                image "symbol:close"
               text "Rename" role="heading"
-              button press=save disabled=(draft.trim() == "") testId="save"
-                text "Save"
+              button press=save buttonStyle="bordered-prominent" aria-label="Save"
+                disabled=(draft.trim() == "") testId="save"
+                image "symbol:checkmark"
             input value=draft input=edit aria-label="Name" autofocus=true margin=16 testId="field"
 ```
 
@@ -277,7 +278,7 @@ names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal, 
 A `dialog role="alertdialog"`: its `aria-label` the question, a `text` the message, each action
 a `button` with `press` that also closes it, and one Cancel (a closing button with no
 `press`). It is iOS's alert, the web's modal `dialog`, macOS's alert. Open it from an action
-with `showModal(id)` (a swipe or menu action asks first), or from a button with
+with `showModal(id)` (an action that asks first), or from a button with
 `commandfor=id command="show-modal"`. It takes no `open`: in HTML `open` alone shows a dialog
 non-modally, and a dialog that state holds open is not available yet.
 
@@ -391,11 +392,15 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## swipe: a list row's swipe actions
-names: swipe-actions, swipeActions, swipe-to-delete, swipeleft
+names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft
 
-The row is a horizontal snap `scroll` naming its content (`swipeContent`) and its trailing
-action (`swipeTrailing`, a button's `id`). On iOS that is UIKit's own swipe action (a full
-swipe performs the first); on the web the row scrolls to show it.
+`delete=action` on a list row is its swipe to delete: a red Delete beside the row, which a
+full swipe performs. On iOS it is UIKit's own swipe action; on the web and the Mac the row
+scrolls to show it. `disabled` beside it keeps that row from deleting, and the row still
+opens. The swipe deletes without asking, as iOS does where a deletion is routine or
+recoverable (Mail, Notes, Reminders); an irreversible loss confirms, as a detail screen's
+Delete or a bulk clear does, its action opening an alert (`contract vocab confirm`). In tests, `tap "item-Milk-delete"` presses it (the row's `testId` and
+`-delete`).
 
 ```contract
 component App
@@ -403,21 +408,40 @@ component App
   action remove(item: string)
     items = items.filter(i => i != item)
   view
-    column
-      for i in items key=i
-        scroll swipeContent=`row-${i}` swipeTrailing=`delete-${i}` width="100%"
-          overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-          row width="100%"
-            row id=`row-${i}` width="100%" flex-shrink=0 scroll-snap-align="start" padding="12px 16px"
-              text i
-            button id=`delete-${i}` destructive=true press=remove(i) aria-label=`Delete ${i}` testId=`delete-${i}`
-              flex-shrink=0 scroll-snap-align="start"
-              image "symbol:delete"
+    list appearance="auto" flex=1
+      section
+        for i in items key=i
+          row delete=remove(i) testId=`item-${i}`
+            text i
 ```
 
-- In a grouped list (`list appearance="auto"`), the scroll is a section's row: leave its
-  `width` unsaid and give it `padding-right=0`. To ask first, the action's `press` opens a
-  confirmation (`contract vocab confirm`). In tests, `tap "delete-Milk"` presses it.
+- On a row of a grouped list's `section`, or of a `list` whose rows go down the page;
+  anywhere else it does nothing (warning `lower-delete-row`).
+- Other actions than Delete (Pin, Flag, a leading action) are the long form: a horizontal
+  snap `scroll` naming its content (`swipeContent`) and its actions (`swipeTrailing`,
+  `swipeLeading`: buttons' `id`s, inside the scroll after the content), each button with a
+  `press` and a name. Or put them in the long-press menu (`contract vocab menu`).
+
+```contract
+component App
+  state items = ["Milk", "Eggs"]
+  state pinned = ""
+  action pin(item: string)
+    pinned = item
+  view
+    list appearance="auto" flex=1
+      section
+        for i in items key=i
+          scroll swipeContent="row" swipeTrailing="pin" padding-right=0
+            overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+            row id="row" width="100%" flex-shrink=0 scroll-snap-align="start" padding-right=16
+              box-sizing="border-box"
+              text i
+            button id="pin" press=pin(i) aria-label="Pin" flex-shrink=0
+              scroll-snap-align="start"
+              image "symbol:pin"
+```
+
 - UIKit draws its swipe actions itself (rounded on iOS 26 and later), whatever you paint.
   To keep painted actions (flush 76-point rectangles of your own colours), write
   `appearance="none"` on every control the row names: on iOS the row then swipes by its own
@@ -792,6 +816,85 @@ component App
 
 A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
 taps the item. A row whose `popovertarget` names another menu is its submenu.
+
+## search: the bar's search field, filtering a list or querying a server
+names: searchable, searchbar, search-bar, UISearchBar, UISearchController
+
+An `input type="search"` in a route's `header` is the bar's search field: on iOS UIKit's
+search controller (a magnifier, a clear button, Cancel), on the web a field under the title.
+Each keystroke is its `input`, and the list filters on the query, so there is no Search
+button. No match is an `EmptyState` in the list's place (`pattern list-detail`).
+
+```contract
+routes nav
+  home "/"
+
+component App
+  state query = ""
+  state notes = ["Groceries", "Ideas", "Recipes"]
+  derive shown = notes.filter(n => n.toLowerCase().includes(query.trim().toLowerCase()))
+  action search(v: string)
+    query = v
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="notes" position="absolute" inset=0
+          header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+            text "Notes" role="heading" aria-level=1 flex=1
+            input type="search" value=query input=search placeholder="Search" aria-label="Search Notes"
+              testId="search" width="100%"
+          list id="notes" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            section
+              for n in shown key=n
+                row
+                  text n
+```
+
+- `flex-wrap` and `width="100%"` give the field its own line on the web; iOS places it
+  itself. A field in the content with a Search button beside it is a web form's, a tell.
+- A test types the query: `type "search" "gro"`, and `type "search" ""` to clear it.
+
+The same field queries a server when a `resource` takes the query as its argument: each
+change asks again (`contract vocab resource`), and the list shows the answer. To ask only on
+the keyboard's Search key (Return on the web and the Mac), as for a slow or costly server,
+the field's `submit` copies the query into the state the resource reads:
+
+```contract
+routes nav
+  home "/"
+
+shape Book
+  id: string
+  title: string
+
+component App
+  state query = ""
+  state asked = ""
+  resource found = searchBooks(asked) as shape Book[] else empty()
+  action search(v: string)
+    query = v
+  action ask
+    asked = query.trim()
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="books" position="absolute" inset=0
+          header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+            text "Books" role="heading" aria-level=1 flex=1
+            input type="search" value=query input=search submit=ask placeholder="Search"
+              aria-label="Search Books" testId="search" width="100%"
+          list id="books" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            section
+              for b in found key=b.id
+                row
+                  text b.title
+```
+
+- Live, as you type: `resource found = searchBooks(query)`, with no `submit`. A test types
+  the query, then `clock data` before it reads the answer; on the Search key, `type "search"
+  key "Enter"`.
+
+More: docs/recipes/list-rows.md
 
 ## menubar: adding commands to the Mac menu bar
 names: -exact-menu, -exact-menu-remove

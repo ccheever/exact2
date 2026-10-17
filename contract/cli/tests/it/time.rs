@@ -133,6 +133,210 @@ fn a_place_known_at_launch_is_read_from_the_first_frame() {
     assert_eq!(text(&boot(None)), "en-US/UTC/0");
 }
 
+/// Euxy's library: a store-reading source passed the date after `with`,
+/// whose answer stamps it. The bake's date is unknown (zero), so its answer
+/// is left out of the plan (LLP 1027.000.000 D2): a fresh install's first
+/// frame shows the placeholder, never patterns stamped at 1970, and the
+/// device's source is asked with the launch's date once it is ready. A
+/// resource that reads the date through a derive, or by its offset, is left
+/// out too; one that reads none of it is compiled as before.
+#[test]
+fn the_bake_compiles_no_answer_asked_at_its_unknown_date() {
+    const LIBRARY: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\nshape Library\n  loaded: bool\n  stamp: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + performanceNow()\n  resource lib = loadLibrary() with time.epochAtZero as shape Library else empty(loaded=false)\n  resource dated = loadLibrary(date) as shape Library\n  resource zoned = loadLibrary(time.utcOffset) as shape Library\n  resource chips = loadLibrary(1) as shape Library\n  view\n    text `${lib.loaded}/${lib.stamp}|${dated.stamp}|${chips.stamp}` testId=\"date\"\n";
+    struct Library(std::rc::Rc<std::cell::Cell<bool>>);
+    impl DataSource for Library {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let stamp = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => -1.0,
+            };
+            Ok(Value::record(vec![Value::Bool(true), Value::Number(stamp)]))
+        }
+        fn ready(&self) -> bool {
+            self.0.get()
+        }
+    }
+    let ready = || std::rc::Rc::new(std::cell::Cell::new(true));
+    let plan = contract::bake(contract::compile(LIBRARY).unwrap(), Library(ready())).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .any(|r| plan.str(r.name) == name && r.initial.len > 0)
+    };
+    assert!(!compiled("lib") && !compiled("dated") && !compiled("zoned"));
+    assert!(compiled("chips"));
+
+    // A module loaded after the first pixel, on a host that knows the date.
+    let loaded = std::rc::Rc::new(std::cell::Cell::new(false));
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: 60.0,
+    };
+    let mut r = exact_runner::time::launching(Some(at), || {
+        Runner::boot(
+            plan.clone(),
+            Library(loaded.clone()),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+    })
+    .unwrap();
+    let shown = |r: &Runner<Library>| {
+        let key = r.kernel().find_by_test_id("date")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    assert_eq!(shown(&r), "false/0|0|1");
+    loaded.set(true);
+    r.data_ready().unwrap();
+    assert_eq!(shown(&r), "true/1790000000000|1790000000000|1");
+    assert_eq!(
+        r.resource("zoned"),
+        Some(&Value::record(vec![Value::Bool(true), Value::Number(60.0)]))
+    );
+}
+
+/// The date reaches a resource's arguments by more than a derive: through
+/// another resource asked with it (and a field of its answer), a state an
+/// action assigns it (directly or through a `let`), and a state copied
+/// from another dated state, and a state the date only decides: written in
+/// either arm of a branch on it, or from a conditional expression on it.
+/// None of those answers is compiled. States that copy each other without
+/// the date terminate the analysis and keep theirs, as does a write after
+/// the dated branch has joined.
+#[test]
+fn the_bake_follows_the_date_through_resources_and_states() {
+    const APP: &str = r#"shape Time
+  epochAtZero: number
+shape Stamp
+  at: number
+component App
+  resource time = exactTime() as shape Time
+  resource stamp = stampOf(time.epochAtZero) as shape Stamp
+  resource viaResource = answer() with stamp.at as shape number
+  state at = 0
+  state held = 0
+  state copied = 0
+  state a = 0
+  state b = 0
+  state flag = 0
+  state other = 0
+  state after = 0
+  state pick = 0
+  action decide
+    if time.epochAtZero > 0
+      flag = 1
+    else
+      other = 1
+    after = 2
+  action choose
+    pick = time.epochAtZero > 0 ? 2 : 1
+  action prime
+    at = time.epochAtZero
+    let t = time.epochAtZero + 1
+    held = t
+  action copy
+    copied = at
+  action swap
+    a = b
+    b = a
+  task boot mount
+    after(1, prime)
+  resource viaAction = answer() with at as shape number
+  resource viaLet = answer(held) as shape number
+  resource viaCopy = answer(copied) as shape number
+  resource cycle = answer(a + b) as shape number
+  resource decided = answer(flag) as shape number
+  resource otherwise = answer(other) as shape number
+  resource joined = answer(after) as shape number
+  resource picked = answer(pick) as shape number
+  resource plain = answer(1) as shape number
+  view
+    text "{viaResource}{viaAction}{viaLet}{viaCopy}{cycle}{decided}{otherwise}{joined}{picked}{plain}"
+"#;
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            let n = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => 7.0,
+            };
+            Ok(match source {
+                "stampOf" => Value::record(vec![Value::Number(n)]),
+                _ => Value::Number(n),
+            })
+        }
+    }
+    let plan = contract::bake(contract::compile(APP).unwrap(), Source).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .find(|r| plan.str(r.name) == name)
+            .unwrap_or_else(|| panic!("no resource {name}"))
+            .initial
+            .len
+            > 0
+    };
+    for dated in [
+        "stamp",
+        "viaResource",
+        "viaAction",
+        "viaLet",
+        "viaCopy",
+        "decided",
+        "otherwise",
+        "picked",
+    ] {
+        assert!(
+            !compiled(dated),
+            "{dated} is asked at the bake's date: not compiled"
+        );
+    }
+    assert!(compiled("cycle") && compiled("joined") && compiled("plain"));
+}
+
+/// The runner says which resources read the date in one pass over the
+/// plan, which the bake asks once: here a chain of 300 resources, each
+/// asked with the one before, from the date, beside 300 that are not.
+#[test]
+fn the_resources_reading_the_date_are_found_in_one_pass() {
+    let mut src = String::from(
+        "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  resource d0 = answer(time.epochAtZero) as shape number\n  resource p0 = answer(0) as shape number\n",
+    );
+    for i in 1..300 {
+        src.push_str(&format!(
+            "  resource d{i} = answer(d{}) as shape number\n  resource p{i} = answer(p{}) as shape number\n",
+            i - 1,
+            i - 1
+        ));
+    }
+    src.push_str("  view\n    text \"{d299}{p299}\"\n");
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(args.first().cloned().unwrap_or(Value::Number(0.0)))
+        }
+    }
+    let plan = contract::compile(&src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let dated = r.resources_reading_clock();
+    for (i, row) in r.plan().resources.iter().enumerate() {
+        let name = r.plan().str(row.name);
+        assert_eq!(dated[i], name.starts_with('d'), "{name}");
+    }
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]

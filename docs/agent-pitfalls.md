@@ -457,9 +457,15 @@ What the original's style objects say is not always what its iOS screen shows. P
 what the screenshot shows. (euxy port against its Expo original, judged screen by
 screen, 2026-10-16.)
 
-- **Rows with a `minHeight` come out taller.** `padding="13px 16px" min-height=24` made
+- **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
+  ref/x.png"` names each differing region's node and source line, a box's size measured in
+  both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).
+
+- **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
+  `padding="13px 16px" min-height=24` made
   every settings row 50 points where the original's were about 46, and the sections drifted
-  down. Cause: React Native's boxes are all `border-box`, so its `minHeight: 24` counted
+  down; `height=40 padding-top=4 padding-bottom=4` made euxy's note pads 48. Cause: React
+  Native's boxes are all `border-box`, so its `minHeight: 24` counted
   the padding and did nothing; a Contract box is `content-box`, as CSS's is. Fix: drop a
   `minHeight` or `height` that the padding already passes, or write
   `box-sizing="border-box"` on that box.
@@ -501,6 +507,36 @@ screen, 2026-10-16.)
   an `@expo/ui` slider did not bound the SwiftUI slider it hosts, which took about 32
   points; `height=28` on a ported `input type="range"` is 28. Fix: write the height the
   original's screenshot shows (UIKit's own slider, left unsaid, is taller than either).
+- **A bar pinned above the tab bar casts its shadow onto the tab bar's strip.** Cause: an
+  Expo `NativeTabs` screen draws under the tab bar, and the original's dock sat at the
+  screen's bottom edge with the bottom inset (which includes the bar) as its padding: its
+  background ran under the bar and the downward half of its shadow fell off-screen. An
+  Exact tab's content ends at the bar's top (LLP 1123 C11), so that half shows. Fix: clip
+  the shadow below the box, whose height you know:
+  `clip-path="path('M -100 -60 L 4000 -60 L 4000 77 L -100 77 Z')"` on a 77-point dock.
+- **Values beside an SF Symbol sit a few points further out.** Cause: expo-symbols'
+  `SymbolView` with `size: 16` is a 16 × 16 box with the glyph fitted inside, so a narrow
+  `chevron.right` had room on each side; `image "symbol:sf/…" font-size=16` is the glyph's
+  own width. Fix: `width=16 height=16 object-fit="contain"` on the image.
+- **The space between two texts in a row is gone.** `text "F2 · 53"` then
+  `text " · usually kick"` showed `53· usually`. Cause: each text is a flex item, and CSS
+  removes white space at the start and end of a line; React Native's `Text` keeps it.
+  Fix: a `margin-left` on the second text the width of a space, or `gap` on the row.
+- **An alert's caret takes the tab bar's colour.** euxy's rename prompt drew a black caret
+  where the original's is blue. Cause: `tintColor` on `NativeTabs` tints the tab bar and
+  the tab controller's view (react-native-screens sets both), so what is inside the tabs
+  takes it and an alert, presented outside them, keeps the app's blue; the port put that
+  black in the theme's `AccentColor`, which is the app's tint as an `AccentColor` asset
+  is, so alerts took it too. Fix: match the original's scope: `accent-color` on the
+  `tablist` and on each tab screen's root, not on the document's root (a root's
+  `accent-color` is the window's tint, which alerts take), and `color` on a header's
+  buttons. (`hintTextColor` on `Stack.SearchBar` is Android's only; react-native-screens'
+  iOS search bar ignores it.)
+- **A sheet's form stops 34 points short of the original's at its end.** Cause: React
+  Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
+  row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
+  sheet's outer one, to UIKit's `always`, so it rests above the indicator as a hand-built
+  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it.
 
 ## Actions
 
@@ -699,8 +735,9 @@ screen, 2026-10-16.)
 
 - **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
   `panrelease` and `translate` reveals its Delete button, but by hand on every host.
-  Cause: `swiperight` is the reply gesture (a message bubble), not a direction pair;
-  the row whose leading or trailing actions a swipe reveals is a horizontal `scroll`
+  Fix: `delete=remove(item.id)` on the list's row (`contract vocab swipe`). Cause:
+  `swiperight` is the reply gesture (a message bubble), not a direction pair; for
+  actions other than Delete the row a swipe reveals them on is a horizontal `scroll`
   with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions: UIKit's shape
@@ -1051,9 +1088,9 @@ screen, 2026-10-16.)
 - **An agent drive shows the app's defaults (a mock, an empty store) though
   the app's files are there.** Cause: without `--storage <name>` every
   `storage.fs` call in the data module throws "storage is unavailable in agent
-  mode…", and a module that catches a missing config file falls back silently
-  (the drive says so once on stderr, `note: a data source was refused storage`, on
-  every carrier: beside the op on the web, at the drive's end on a native one).
+  mode…", and a module that catches a missing config file falls back silently,
+  as it would on a fresh install (the drive notes a refused write, `note: a data
+  source's write was refused`, once: in the input's reply, else at its end).
   The installed app's own files are not the drive's: a named scratch store lives
   apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
   `--storage <name>`, and copy the files the drive needs (a config, a saved
@@ -1372,3 +1409,14 @@ screen, 2026-10-16.)
   the interactive command. `type @attachment a.png b.png` deliberately names
   two files; authored-test `pick` and the interactive alias preserve one quoted
   path through both web and native delivery. (EX8, 2026-10-16.)
+
+## `transformDragFor` has one owner at a time
+
+The first valid target keeps ownership until it has no valid binding (LLP 1071).
+Several handles may name that target, but another target cannot take over while
+it remains valid. In a gallery, mount the handle for the current page; do not
+leave a binding on every page or list row. Keep `transformDragFor` literal on the
+JS target: computed target strings are not resolved. The runtime journal names
+each passed-over target view and the owner once, then reports it again only after
+its valid bindings disappear and return. Read it with
+`bun scripts/agent.mjs web logs` (or the native host).

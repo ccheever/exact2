@@ -287,6 +287,8 @@ component App
           button "Log a glass" press=go testId="first"
       column testId="bare"
         EmptyState(symbol="symbol:calendar", title="Bare", message="No action.")
+      column testId="space" height=600
+        EmptyState(symbol="symbol:calendar", title="Centred", message="In the space it is given.")
       column testId="rows"
         RowText(title="Monday", detail="Oct 5", value=some("1,800 ml"))
         RowText(title="Tuesday", detail="", value=none)
@@ -388,6 +390,15 @@ component App
         Some("heading")
     );
     assert_eq!(count("bare", NodeType::Pressable), 0);
+    // LLP 1116.020 D5: it fills the space it is given and centres in it, as
+    // UIKit's content-unavailable view does in place of a list.
+    let space = under(k, at(k, "space"));
+    let title = find("space", "Centred").frame;
+    assert!(
+        (space[1].frame.height - 600.0).abs() < 0.5 && title.y > 150.0,
+        "{:?} {title:?}",
+        space[1].frame
+    );
     // A row's detail and trailing value show only when given.
     find("rows", "Oct 5");
     find("rows", "1,800 ml");
@@ -396,6 +407,91 @@ component App
         4,
         "Monday, Oct 5, 1,800 ml, Tuesday"
     );
+}
+
+/// LLP 1116.020 D5: `RowText` straight in a grouped section is the row: its
+/// value at the far edge (round 18's workout-log drew it mid-row) and the
+/// row as tall as the same part in a `row`.
+#[test]
+fn row_text_straight_in_a_section_is_the_row_with_its_value_trailing() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("row-text-section");
+    let root = dir.write(
+        "app.contract",
+        r#"use RowText from "exact:content"
+component App
+  view
+    list appearance="auto" listStyle="inset-grouped" testId="root" width=400 height=800
+      section testId="straight"
+        RowText(title="Row", detail="Heaviest lift", value=some("50 kg"))
+      section testId="wrapped"
+        row
+          RowText(title="Row", detail="Heaviest lift", value=some("50 kg"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let top = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(top, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    // The value and the box that holds it, under a section.
+    let value = |t: &str| {
+        let all = under(k, k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id);
+        let v = all
+            .iter()
+            .find(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text) == Some("50 kg"))
+            .copied()
+            .unwrap();
+        let row = all
+            .iter()
+            .find(|n| n.children().contains(&v.id))
+            .copied()
+            .unwrap();
+        (v.frame, row.frame)
+    };
+    let (v, row) = value("straight");
+    assert!(
+        v.width < row.width / 4.0 && row.width - (v.x + v.width) <= 17.0,
+        "the value trails: {v:?} in {row:?}"
+    );
+    let (_, wrapped) = value("wrapped");
+    assert!(
+        (row.height - wrapped.height).abs() <= 1.5,
+        "{row:?} {wrapped:?}"
+    );
+}
+
+/// LLP 1116.020 D5: an `EmptyState` in a list is one of its rows; the
+/// warning names it at the call, and one in place of the list is quiet.
+#[test]
+fn an_empty_state_inside_a_list_is_named() {
+    let dir = Dir::new("empty-in-list");
+    let app = |body: &str| {
+        format!("use EmptyState from \"exact:content\"\ncomponent App\n  state items = [\"a\"]\n  view\n    column\n{body}")
+    };
+    let warned = |src: &str| {
+        let path = dir.write("app.contract", src);
+        let (result, warnings) = contract::compile_path_all_warned(&path, false);
+        assert!(result.is_ok(), "{src}");
+        warnings
+            .into_iter()
+            .filter(|w| w.id == "lower-empty-state-in-list")
+            .map(|w| w.span.line)
+            .collect::<Vec<_>>()
+    };
+    let inside = app("      list appearance=\"auto\" listStyle=\"inset-grouped\"\n        section\n          if items.length == 0\n            EmptyState(symbol=\"symbol:star\", title=\"None\", message=\"Add one.\")\n          for i in items key=i\n            row\n              text i\n");
+    assert_eq!(warned(&inside), [9]);
+    let instead = app("      if items.length == 0\n        EmptyState(symbol=\"symbol:star\", title=\"None\", message=\"Add one.\")\n      else\n        list appearance=\"auto\" listStyle=\"inset-grouped\"\n          section\n            for i in items key=i\n              row\n                text i\n");
+    assert_eq!(warned(&instead), Vec::<u32>::new());
 }
 
 /// LLP 1116.001 D2: `RingProgress` is a ring around its value, one

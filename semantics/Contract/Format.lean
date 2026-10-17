@@ -1,7 +1,7 @@
 /-
 The roster's formatting and localization, as the runner computes them.
 
-`formatTime` is `runner/src/stdlib.rs`'s, `formatDate`, `formatNumber`,
+`formatTime` is `runner/src/stdlib.rs`'s, `formatDate`, `formatDay`, `formatNumber`,
 `toFixed` and `formatDecimal` the linked `format` capability's (`runner/src/format.rs`), `t` the
 strings tables' (`exact_plan::strings`: `Plan::localized` and `fill`).
 Each is transcribed: `en-US` at the fixed UTC offset the call names, the
@@ -221,6 +221,35 @@ def formatIsoDate (epoch offset : F64) : String :=
     let (year, month, day) := civil (floorInt (wall / 86400000))
     let pad (n w : Nat) : String := let s := toString n; String.ofList (zeros (w - s.length)) ++ s
     pad year.toNat 4 ++ "-" ++ pad month 2 ++ "-" ++ pad day 2
+
+def weekdays : List String :=
+  ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+/-- `formatDay(thenMs, nowMs, utcOffset, mode)` (LLP 1116.020 D8): `t`'s day
+counted from `n`'s in the offset's calendar days. `day` is `Today`,
+`Yesterday`, `Tomorrow` or the medium date; `day-time` adds ` at ` and the
+short time; `list` (any other mode: `Eval.formatting` passes only the three)
+is the short time today, `Yesterday`, the weekday two to six days back,
+else `M/D/YY`. `""` when either instant is invalid. -/
+def formatDay (t n offset : F64) (mode : String) : String :=
+  match wallMs t offset, wallMs n offset with
+  | .some wall, .some now =>
+    let days := floorInt (wall / 86400000)
+    let apart := days - floorInt (now / 86400000)
+    if mode == "list" then
+      if apart == 0 then formatTime t offset
+      else if apart == -1 then "Yesterday"
+      else if -6 ≤ apart && apart ≤ -2 then weekdays.getD (Int.emod (days + 4) 7).toNat ""
+      else
+        let (year, month, day) := civil days
+        let yy := (Int.emod year 100).toNat
+        toString month ++ "/" ++ toString day ++ "/" ++ toString (yy / 10) ++ toString (yy % 10)
+    else
+      let label :=
+        if apart == 0 then "Today" else if apart == -1 then "Yesterday"
+        else if apart == 1 then "Tomorrow" else formatDate t offset false
+      if mode == "day-time" then label ++ " at " ++ formatTime t offset else label
+  | _, _ => ""
 
 /-! ## Fixed decimals (LLP 1102 §3.2, decided (c)) -/
 

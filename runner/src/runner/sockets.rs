@@ -1,11 +1,12 @@
 //! A resource's two-way socket (LLP 1016.000 D7). A mutation's source
-//! stages operations on a socket handle it kept from a resource's mapper;
-//! the runner addresses them to the stream ticket of the resource that
-//! owns the socket now, and hands them to the host only once the
-//! mutation's commit stands. A refused commit takes them back with
-//! everything else (`commit.rs`'s checkpoint).
+//! stages operations on a socket handle it kept from a resource's mapper,
+//! and the mapper itself may stage replies on its own socket as it answers
+//! the socket's `open` or a `message`. The runner addresses them to the
+//! stream ticket of the resource that owns the socket now, and hands them
+//! to the host only once the commit that staged them stands. A refused
+//! commit takes them back with everything else (`commit.rs`'s checkpoint).
 use super::*;
-use crate::request::{SocketOp, SocketSend};
+use crate::request::{SocketOp, SocketOrigin, SocketSend};
 
 /// The host's live count of the bytes a socket's transport buffers, by the
 /// socket's stream ticket; `None` for a ticket it holds no socket for.
@@ -86,14 +87,44 @@ impl<D: DataSource> Runner<D> {
             ops.push((p.ticket, self.target_name(p.target), op));
         }
         let mutation = self.plan.str(self.plan.mutations[m].name).to_string();
-        self.sockets.push(SocketSend { mutation, ops });
+        let origin = SocketOrigin::Mutation(mutation);
+        self.sockets.push(SocketSend { origin, ops });
+        Ok(())
+    }
+
+    /// Address the replies the mapper of `p`, a resource's open socket,
+    /// staged as it answered one frame: they go to that socket alone, in
+    /// the order the mapper made them, once this frame's commit stands. A
+    /// reply on any other socket refuses the frame and leaves them staged,
+    /// for the caller to journal.
+    pub(super) fn stage_replies(&mut self, p: &PendingReq) -> Result<(), String> {
+        let staged = self.store.staged_sockets();
+        if staged.is_empty() {
+            return Ok(());
+        }
+        let own = match p.target {
+            Target::Resource(i) => Some(i),
+            Target::Mutation(_) => None,
+        };
+        if staged.iter().any(|(i, _)| Some(*i) != own) {
+            return Err("a mapper sends only on its own socket".into());
+        }
+        if !(p.stream.and_then(|s| s.socket)).is_some_and(|s| s.ready_state == 1) {
+            return Err("InvalidStateError: the socket is not open".into());
+        }
+        let name = self.target_name(p.target);
+        let ops = (self.store.take_sockets().into_iter())
+            .map(|(_, op)| (p.ticket, name.clone(), op))
+            .collect();
+        let origin = SocketOrigin::Mapper(name);
+        self.sockets.push(SocketSend { origin, ops });
         Ok(())
     }
 
     /// The socket operations of the commits that stood since the last
-    /// take, one batch per mutation, in commit order. A host takes them
-    /// after it has let go of the tickets the runner no longer holds, so a
-    /// socket the same commit released refuses its batch.
+    /// take, one batch per mutation or mapper call, in commit order. A host
+    /// takes them after it has let go of the tickets the runner no longer
+    /// holds, so a socket the same commit released refuses its batch.
     pub fn take_socket_sends(&mut self) -> Vec<SocketSend> {
         std::mem::take(&mut self.sockets)
     }
@@ -122,14 +153,7 @@ impl<D: DataSource> Runner<D> {
     ) {
         let sockets = match result {
             Ok(sockets) => sockets,
-            Err(why) => {
-                let line = exact_num::text!(
-                    "send {} failed: {}; socket frames were refused",
-                    batch.mutation,
-                    why
-                );
-                return self.log(line);
-            }
+            Err(why) => return self.log(refused(&batch.origin, &why)),
         };
         for (_, name, op) in &batch.ops {
             self.log(exact_num::text!(
@@ -151,6 +175,17 @@ impl<D: DataSource> Runner<D> {
             }
         }
     }
+}
+
+/// The journal's line for a batch that will not be sent, and why.
+pub(super) fn refused(origin: &SocketOrigin, why: &str) -> String {
+    let (verb, name) = origin.words();
+    exact_num::text!(
+        "{} {} failed: {}; socket frames were refused",
+        verb,
+        name,
+        why
+    )
 }
 
 /// A stream's count for a request: a two-way socket's state too.

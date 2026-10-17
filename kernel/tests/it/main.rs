@@ -54,6 +54,7 @@ mod style_dynamic;
 mod svg;
 mod svg_scene;
 mod text_measurement_cache;
+mod text_style_move;
 mod timeline;
 mod timeline_scope;
 mod transform_binding;

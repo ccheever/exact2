@@ -14,6 +14,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The kernel's id; a parked view takes a new row's and a new incarnation (`NodePool`, LLP 1068 §4.9).
     package var id: UInt32
     var incarnation = NodePool.issue()
+    /// A captured bubbled press cannot survive detachment and reattachment.
+    var pressMoves: UInt64 = 0
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
     var paintLifted = false
@@ -655,9 +657,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     package override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if window != nil { presenter?.flushPendingFocus() }
+        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
     }
 
     /// Glass content participates in UIKit's interactive effect. Other
@@ -714,6 +717,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
         guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
         presenter?.collections.animationEnded(id, dragging: true)
@@ -992,7 +996,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
         if materialKind != (supported ? kind : nil) {
             let children = container.subviews.compactMap { $0 as? NodeView }
-            materialView?.removeFromSuperview()
+            let old = materialView
             materialView = nil
             materialKind = nil
             if supported {
@@ -1004,7 +1008,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 materialView = effect
                 materialKind = kind
             }
-            for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
+            // The children move before the old effect goes, so they never
+            // leave the window: UIKit cancels the touches of a view that
+            // does, and a press held inside would end at the swap (euxy's
+            // dice, whose charge turned the capsule's glass off).
+            GlassGroups.moving(in: self) {
+                for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
+                old?.removeFromSuperview()
+            }
             presenter?.flats.containerChanged(id)
         }
         guard let materialView else { rehomeMaterialChildren(); return }
@@ -1136,8 +1147,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
     }
 
+    /// Inside `GlassGroups.moving`: a container comes or goes under the
+    /// same authored parent, which is no reparenting.
+    static var containerMoves = 0
     package override func didMoveToSuperview() {
-        cancelPressContact(reparenting: true)
+        if Self.containerMoves == 0 { pressMoves &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
@@ -1190,8 +1204,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             sv.delegate = self
             sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             GlassGroups.moving(in: self) {
-                for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
+                // In the window first, as `syncClipBox` says.
+                let children = subviews.filter { $0 is NodeView }
                 addSubview(sv)
+                for child in children { sv.addSubview(child) }
             }
             scroll = sv
             scrollWritten = nil
@@ -1202,7 +1218,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if groupedOwner { retainScrollPosition(from: sv) }
             // Neither axis scrolls any more: the children come back out.
             GlassGroups.moving(in: self) {
-                for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+                for child in sv.subviews where child is NodeView { addSubview(child) }
                 sv.removeFromSuperview()
             }
             scroll = nil

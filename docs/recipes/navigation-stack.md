@@ -1,8 +1,7 @@
 # Recipe: a navigation stack
 
 A list that pushes a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
-A second screen is a route (`if` over state gets no Back, links or split). Each route block
-fills its `if`.
+A second screen is a route (`if` over state gets no Back, links or split).
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
 `aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route without
@@ -100,18 +99,17 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-which the swipe down presses. Its last child, the `scroll`, runs to the bottom edge (a
-footer under it stops it short).
+which the swipe down presses.
 
 <!-- check: route add -->
 ```contract
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
   header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-    button id="back" press=back
-      text "Cancel"
+    button id="back" press=back aria-label="Cancel"
+      image "symbol:close"
     text "New Note" role="heading"
-    button press=save buttonStyle="filled" testId="add-save"
-      text "Save"
+    button press=save buttonStyle="bordered-prominent" aria-label="Save" testId="add-save"
+      image "symbol:checkmark"
   list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
       row
@@ -136,13 +134,14 @@ test "add, open, delete after asking"
   expect state lib == []
 ```
 
-- An alert's `aria-label` is its title. It has text, buttons and one Cancel. Escape/Back
-  chooses Cancel; only written `closedby="any"` dismisses outside. Linux centres it and
-  scrolls content to its actions; another modal is a sheet, closed on ok
+- An alert's `aria-label` is its title. Escape/Back chooses Cancel; only written
+  `closedby="any"` dismisses outside. Another modal is a sheet, closed on ok
   ([after-a-write](after-a-write.md)).
 - Routes stay mounted: use unique `testId`s. `clock settle` follows a push, sheet or alert;
   `clock data` precedes reading a save.
 - At 900 px up, pushed rows split list and detail; `follow` replaces it and
   `navigationSplit="none"` keeps it pushed.
+- A run (a study session, a workout, a quiz) has one exit, which ends it or asks: not two
+  exits, nor a pushed page whose Back leaves it running.
 - An unmatched location keeps its URL and offers home (or uses `notfound`); a missing detail
   says so.

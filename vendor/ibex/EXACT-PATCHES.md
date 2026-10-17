@@ -218,6 +218,59 @@ existing behaviour changes. To go upstream to expo/ibex; replay it on a
 refresh until it is there. Consumer: `host/apple/src/executor_socket.rs`
 (`Core::socket`) and its scripted test.
 
+## Local patch, Exact's grammar: scheme-wide network grants
+
+A `net.fetch` or `net.websocket` line may name a whole scheme as a CSP scheme
+source writes it (`net.fetch http:`, `net.fetch https:`, `net.websocket ws:`,
+`net.websocket wss:`), admitting every host and port of that scheme; any other
+scheme in that form is refused. `crates/ibex2/src/grant.rs` gains
+`Grant::FetchScheme` and `Grant::WebSocketScheme`, their parse
+(`is_scheme_source`) and their admission, with a test; `stdlib/websocket.rs`'s
+admission test opens a socket under one and is refused under the other scheme.
+Exact's own grammar (`grants/src/lib.rs`) has the same change, and the shared
+corpus (`host/web/tests/fixtures/grants.json`, `grants/tests/parity.rs`) holds
+the two grammars and the web matcher to the same answers. Replay it on a
+refresh until upstream has it. Consumers: every native executor's
+`GrantSet::parse` (Apple, Linux, Windows, the render server) and the bake's
+check of a TypeScript module's grants (`js/src/lib.rs`, `Module::inspect`).
+
+## Local patch, upstream-bound: fewer allocations per descriptor read
+
+Hermes keeps every young-generation page a runtime has touched, so what
+hardening allocates between two collections stays in the app's footprint.
+The reachability guard and the intrinsic snapshot read a descriptor for
+every property of the objects they reach. Besides each record, the guard
+made a string and a second record per field it read
+(`getOwnPropertyDescriptor` on the record), and the snapshot a property name
+per field. In Exact's runtime (898 objects, 2,604 properties) the guard
+allocated 795 KB and each of the two snapshots 66 KB, nearly all of it
+garbage.
+
+`bindings/install.cc` changes only how a record's fields are read. Every
+walk still enumerates with its captured `getOwnPropertyNames` and
+`getOwnPropertySymbols` and reads every property through its captured
+`getOwnPropertyDescriptor`, so a Proxy is read through its traps as before
+and no getter or `get` trap runs (JSI and the pinned Hermes have no native
+descriptor read). The guard tests a record's own `value` with
+`Object.prototype.hasOwnProperty`, captured with its other readers when
+`install_with` builds `Reachability`, instead of making a second record,
+then reads that field, or `get` and `set`, from the record: an ordinary
+object whose fields are own data properties (FromPropertyDescriptor), so the
+read runs nothing. The guard makes its `value` key and the guard's and
+snapshot's `value`, `get` and `set` property names once, not per read.
+`bindings/harden.js` is upstream's.
+
+The guard still visits 898 objects over 3,503 edges, and `harden.js` 898
+objects, 2,488 properties past the global object, 89 of them accessors. The
+guard now allocates 449 KB and a snapshot about 40 KB. `js/src/lib.rs`
+`bootstrap_tests` holds what a bootstrap could hide: abort hooks behind a
+Proxy whose `get` trap answers undefined still refuse hardening; a payload
+behind such a Proxy, and one published under a symbol after
+`Reflect.ownKeys` was made to list only names, end frozen with everything
+else descriptors reach, by readers the fixture took before bootstrap
+(`js/tests/fixtures/harden-probe.js`). To go upstream to expo/ibex; replay it
+on a refresh until it is there.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

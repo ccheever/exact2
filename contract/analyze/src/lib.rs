@@ -355,7 +355,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 68] = [
+pub const HANDLERS: [&str; 69] = [
     "press",
     "change",
     "input",
@@ -378,6 +378,9 @@ pub const HANDLERS: [&str; 68] = [
     "load",
     "message",
     "contextmenu",
+    // A list row's swipe to delete (LLP 1116.020 D1): lowering expands it
+    // to the row's swipe and its Delete button's `press`.
+    "delete",
     "dblclick",
     // A touch or button went down on the node, and came up or was cancelled
     // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3); the

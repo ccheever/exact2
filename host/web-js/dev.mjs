@@ -20,6 +20,7 @@ import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/ag
 import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
+import { mapCard, pullMap } from '../../scripts/tamber-inspect.mjs';
 import { serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { fresh, freshCompiler, webCompiler } from './module.mjs';
 
@@ -207,8 +208,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   });
   // The design's shape and the plan's structure (a profile colour's value
   // is in it) as a kept build requires, and each token's accent.
+  // A token the page writes inline (`inline`: no property sets it in place,
+  // LLP 1121 stage 6) builds when its value moves.
   const sameShape = (from, next) => from && next && from.shape === next.shape && from.structure === next.structure && from.tokens.length === next.tokens.length
-    && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent));
+    && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent) && (!t.inline || same(t, from.tokens[i])));
   // A fast batch is checked by the full build after it (`verifying`): the
   // design's module inputs and its compile; a value-only edit during that
   // build is sent at once and checked again after (`fastSeq`).
@@ -280,7 +283,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const seqAtStart = fastSeq, hadError = error;
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
-      && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
+      && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
     built = await build(app, dist, keep, compiler);
     verifying = false;
     // A value-only edit was sent while this built: what it built is behind
@@ -437,6 +440,9 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     const from = scrubbed ?? design;
     if (!from || from.shape !== next.shape || from.tokens.length !== next.tokens.length
       || next.tokens.some((t, i) => t.name !== from.tokens[i].name || String(t.accent) !== String(from.tokens[i].accent))) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+    // A token the page writes inline has no property to preview through.
+    const inline = next.tokens.find((t, i) => t.inline && !same(t, from.tokens[i]));
+    if (inline) return { error: `\`${inline.name}\` is written inline on this page (${inline.writer ?? 'a font weight, an SVG attribute'}): a rebuild applies on release` };
     if (!scrubbed) aside = snapshot;
     // A new preview is no released scrub's.
     scrubbed = next;
@@ -471,7 +477,31 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
   // The design server's wire (LLP 1121 D13), when the app has a design.
   // `page`: this loop's own origin, which the design tool frames (LLP 1122 T2).
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
+  // The source maps of the plans the resident loop serves the natives
+  // (LLP 1122 T2c), by plan digest. The child says each plan it publishes,
+  // and its map's card, on a pipe this loop gave it for that alone (fd 3:
+  // nothing a request makes is written there); this loop fetches the bytes
+  // from the child and keeps them only when they match that card. No
+  // request path takes a map in, and a process that took the child's port
+  // could not make bytes match a card it did not write. The plan said last
+  // is the running one; a pull overtaken by a later card of its plan is
+  // dropped; the 8 plans said last are kept.
+  const residentMaps = new Map(), saidAt = new Map();
+  let residentPlan = null, said = 0;
+  const residentMap = async (internal, card) => {
+    const n = ++said;
+    residentPlan = card.plan;
+    saidAt.delete(card.plan); saidAt.set(card.plan, n);
+    for (const plan of [...saidAt.keys()].slice(0, Math.max(0, saidAt.size - 8))) { saidAt.delete(plan); residentMaps.delete(plan); }
+    if (!card.map) { residentMaps.delete(card.plan); return; }
+    // (A card can come before the child listens: asked again, a while, while it is still the latest.)
+    for (let tries = 0; tries < 20 && saidAt.get(card.plan) === n; tries++) {
+      const got = await pullMap(internal, { plan: card.plan, ...card.map }, `127.0.0.1:${port}`);
+      if (got) { if (saidAt.get(card.plan) === n) residentMaps.set(got.digest, got.bytes); return; }
+      await new Promise((ok) => setTimeout(ok, 250));
+    }
+  };
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => residentMaps.get(digest ?? residentPlan) ?? null, scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; } } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
@@ -584,7 +614,13 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
         residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
-          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident'), EXACT_LAUNCHER_PID: String(process.pid) }, stdio: ['ignore', 'pipe', 'inherit'] });
+          { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident'), EXACT_LAUNCHER_PID: String(process.pid), EXACT_MAP_FD: '3' }, stdio: ['ignore', 'pipe', 'inherit', 'pipe'] });
+        // Its plans and their maps' cards, on the pipe given for that alone.
+        let cards = '';
+        residentChild.stdio[3].on('data', (d) => {
+          cards += d; const lines = cards.split('\n'); cards = lines.pop();
+          for (const l of lines) { const card = mapCard(l); if (card) void residentMap(internal, card); }
+        });
         let buf = '';
         residentChild.stdout.on('data', (d) => {
           buf += d; const lines = buf.split('\n'); buf = lines.pop();

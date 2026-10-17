@@ -1,7 +1,7 @@
 // Simulators, phones, signing identities and provisioning profiles: the
 // device side of host/apple/build.mjs, shared with scripts/agent.mjs and the
 // smokes, which launch the same bundles.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
@@ -28,14 +28,21 @@ export function useXcode() {
 }
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
-/** A window capture the app drew (`path`, in `r`'s scale) with the software keyboard put in from the simulator's own
- *  screenshot: UIKit draws the keyboard in a process of its own, so no capture of the app's window has it (round 9:
- *  "blank keyboard region"). Only the rows from the keyboard's top (`r.keyboard.windowTop`) are taken, so the picture
- *  stays the app's; what could not be done is said in `note`, and the picture is left as it was. Returns `r`. */
-export function withKeyboard(r, path, udid) {
-  const top = r.keyboard?.windowTop, scale = r.scale;
-  const fail = (why) => { r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`; return r; };
-  if (!(top >= 0) || !(scale > 0)) return fail('no keyboard top');
+/** A window capture the app drew (`path`, in `r`'s scale) with what other processes draw on the display put in from
+ *  the simulator's own screenshot: the software keyboard, from its top (`r.keyboard.windowTop`) down (round 9: "blank
+ *  keyboard region"), and the status bar, its top `r.statusBar` points (the euxy port, FRICTION 5: a window capture
+ *  then compares with a `simctl io` reference, as the device shows it — `xcrun simctl status_bar <udid> override
+ *  --time 9:41` sets what it shows). Only those rows are taken, so the picture stays the app's; what could not be
+ *  done is said in `note`, and the picture is left as it was. Returns `r`. */
+export function withDisplay(r, path, udid) {
+  const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
+  const fail = (why) => {
+    if (bar > 0) r.statusBar = false;
+    r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)` : `the status bar is not in the capture (${why})`;
+    return r;
+  };
+  if (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0)) return fail('no keyboard top');
+  if (!(scale > 0)) return fail('no scale');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
   try {
     const shot = resolve(dir, 'display.png');
@@ -43,11 +50,14 @@ export function withKeyboard(r, path, udid) {
     if (taken.status !== 0 || !existsSync(shot)) return fail(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
     const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
     if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
-    const y = Math.max(0, Math.min(app.height, Math.round(top * scale)));
-    app.data.set(display.data.subarray(y * app.width * 4), y * app.width * 4);
+    const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
+    if (bar > 0) { app.data.set(display.data.subarray(0, row(bar)), 0); r.statusBar = true; }
+    if (keyboard) app.data.set(display.data.subarray(row(top)), row(top));
     writeFileSync(path, encodePng(app));
-    r.keyboard.captured = true;
-    r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
+    if (keyboard) {
+      r.keyboard.captured = true;
+      r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
+    }
     return r;
   } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }
   finally { rmSync(dir, { recursive: true, force: true }); }
@@ -88,10 +98,10 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
   }
   dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
-  if (dev.state !== 'Booted') {
-    const b = read('xcrun', ['simctl', 'boot', dev.udid]);
-    if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
-  }
+  // Booted is a boot finished (Booting is its own state): only another waits, which costs a booted one 0.2–0.5 s.
+  if (dev.state === 'Booted') return dev;
+  const b = read('xcrun', ['simctl', 'boot', dev.udid]);
+  if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
   if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
   return dev;
@@ -105,8 +115,24 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
  *  arguments never reach a Device Hub that is already running, and its main
  *  window shows whichever device was last picked in its list). */
 export function showSimulator(dev, background = false) {
-  const g = background ? ['-g'] : [];
-  if (spawnSync('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).status !== 0) spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
+  const g = background ? ['-g'] : [], fallback = () => spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
+  // In the background nothing waits on the window: `open` takes up to a second, a drive's whole launch about two.
+  if (background) { spawn('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).on('exit', (code) => { if (code !== 0) fallback(); }).unref(); return; }
+  if (spawnSync('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).status !== 0) fallback();
+}
+
+/** Whether the simulator's installed `id` is the bundle at `bundle` as built: its executable, receipt and signature
+ *  the same size and time (simctl install keeps both). A drive then skips the install, 0.3–0.5 s of each launch. */
+export function installedAlready(udid, id, bundle, executable) {
+  const r = read('xcrun', ['simctl', 'get_app_container', udid, id, 'app']);
+  if (r.status !== 0) return false;
+  const installed = r.stdout.trim();
+  try {
+    return [executable, 'receipt.json', '_CodeSignature/CodeResources'].every((file) => {
+      const a = statSync(resolve(installed, file)), b = statSync(resolve(bundle, file));
+      return a.size === b.size && a.mtimeMs === b.mtimeMs;
+    });
+  } catch { return false; }
 }
 
 /** Crash reports macOS wrote since `since` (ms) for an executable named

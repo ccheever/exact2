@@ -225,13 +225,13 @@ function storageOf(grants) {
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
     const k = source.appId ? storageKey(source.appId) : null;
-    if (k == null) {
-      // Said once in the journal, as on every host (trivia F7).
-      if (!toldAgent) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${agentStorageRefusal}`); }
-      throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
-    }
+    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
     return k;
   });
+  // A refused write is said once in the journal, as on every host (trivia F7).
+  const refusedFor = op => e => (e?.code !== 'agent' || toldAgent ? Promise.resolve() : import('./storage-environment.js').then(({ agentRefusalSaid, agentStorageRefusal }) => {
+    if (!toldAgent && agentRefusalSaid(op)) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${agentStorageRefusal}`); }
+  })).then(() => coded(e));
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
   // A document the person chose (`doc:/`, LLP 1069.010 D1) is the page's
   // handle, not app storage: no store key, so a drive without a scratch
@@ -268,7 +268,7 @@ function storageOf(grants) {
     if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
     if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
     const limits = { maxDimension: d, maxBytes: b };
-    return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(coded);
+    return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(refusedFor('compressImage'));
   };
   // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends
   // on a document the person chose; the page's FileSystemObserver announces
@@ -291,9 +291,9 @@ function storageOf(grants) {
         if (expecting(m, args) && !isDocument(args)) return Promise.reject(new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`));
         const captured = structuredClone(args);
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
-        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
+        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(refusedFor(m));
       }])) }),
-    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(coded); } }),
+    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(refusedFor('open')); } }),
     work: promise => Promise.resolve(promise),
   });
 }

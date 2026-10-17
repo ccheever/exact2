@@ -144,15 +144,15 @@ pub fn project(
             let row = plan.binding(b);
             let code = plan.code(row.expr);
             match (row.kind, literal(plan, code)) {
-                (BindingKind::Prop, Some(v)) => {
-                    let (prop, value) =
-                        bridge::prop_value(row.id, &v).map_err(|e| format!("node {i}: {e:?}"))?;
-                    ops.push(Op::SetProp {
+                (BindingKind::Prop, Some(v)) => match bridge::prop_value(row.id, &v) {
+                    Ok((prop, value)) => ops.push(Op::SetProp {
                         id: view(i),
                         prop,
                         value,
-                    });
-                }
+                    }),
+                    Err(bridge::BridgeError::Unset(_)) => {}
+                    Err(e) => return Err(format!("node {i}: {e:?}")),
+                },
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
                     if decides_tag(plan, node, prop) {
@@ -607,6 +607,39 @@ pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
         pairs.join(",")
     )
 });
+
+/// A bound `font` shorthand's text style (LLP 1115.000 D12.2), the weight
+/// and the leading the web's column gives it, as the template writes a
+/// literal one's: `[weight, line-height]` maps, `null` for any other value.
+pub static TEXT_STYLE_ROWS: std::sync::LazyLock<[String; 2]> = std::sync::LazyLock::new(|| {
+    use exact_kernel::style::metrics::Column;
+    use exact_kernel::style::relative::{text_style_leading, text_style_weight};
+    let (mut weights, mut leadings) = (Vec::new(), Vec::new());
+    for (i, s) in exact_kernel::TEXT_STYLES.iter().enumerate() {
+        let weight = text_style_weight(i as u8, Column::Web).to_string();
+        let leading = text_style_leading(i as u8, Column::Web).css();
+        for name in [format!("-exact-{}", s.name), s.alias.to_string()] {
+            if !name.is_empty() {
+                weights.push(format!("{name:?}:{weight:?}"));
+                leadings.push(format!("{name:?}:{leading:?}"));
+            }
+        }
+    }
+    let map = |pairs: &[String]| {
+        format!(
+            r#"(M=>v=>typeof v==="string"?M[v.trim().toLowerCase()]??null:null)({{{}}})"#,
+            pairs.join(",")
+        )
+    };
+    [map(&weights), map(&leadings)]
+});
+
+/// The custom property a bound `font` shorthand writes its style's
+/// `font-weight` or `line-height` to when that longhand is bound as well
+/// (LLP 1115.000 D12.2): the longhand's binding falls back on it.
+pub fn style_fallback(name: &str) -> String {
+    format!("--exact-style-{name}")
+}
 
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
 /// css.rs writes no declaration for the row's empty value.

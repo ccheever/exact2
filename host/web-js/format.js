@@ -1,4 +1,4 @@
-// `formatTime`, `formatDate`, `formatNumber`, `toFixed` and `formatDecimal` on the JS target: the runner's
+// `formatTime`, `formatDate`, `formatDay`, `formatNumber`, `toFixed` and `formatDecimal` on the JS target: the runner's
 // `en-US` strings (runner/src/stdlib.rs `format_time`, runner/src/format.rs),
 // checked against the same Intl oracle rows (runner/tests/it/format.rs).
 /** `wall_ms` (runner/src/stdlib.rs): the instant clipped, then shifted by the
@@ -16,20 +16,46 @@ export function x_formatTime(ms, off) {
   const m = Math.floor((((w % 864e5) + 864e5) % 864e5) / 6e4), h = m / 60 | 0;
   return `${h % 12 || 12}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
-// `formatDate` and `formatNumber`, runner/src/format.rs's `en-US` strings.
+// `formatDate`, `formatDay` and `formatNumber`, runner/src/format.rs's `en-US` strings.
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-/** `Sep 26, 2026` ("medium"), `September 2026` ("month-year") or `2026-09-26` ("iso"): Hinnant's `civil_from_days`. */
-export function x_formatDate(ms, off, style) {
-  const w = wall(ms, off);
-  if (w === null) return "";
-  const z = Math.floor(w / 864e5) + 719468, era = Math.floor(z / 146097), doe = z - era * 146097;
+/** [year, month, day] of a day count since 1970-01-01: Hinnant's `civil_from_days`. */
+function civil(days) {
+  const z = days + 719468, era = Math.floor(z / 146097), doe = z - era * 146097;
   const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
   const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100)), mp = Math.floor((5 * doy + 2) / 153);
-  const day = doy - Math.floor((153 * mp + 2) / 5) + 1, month = mp < 10 ? mp + 3 : mp - 9, year = yoe + era * 400 + (month <= 2 ? 1 : 0);
-  const name = MONTHS[month - 1], pad = (n, w) => String(n).padStart(w, "0");
+  const month = mp < 10 ? mp + 3 : mp - 9;
+  return [yoe + era * 400 + (month <= 2 ? 1 : 0), month, doy - Math.floor((153 * mp + 2) / 5) + 1];
+}
+const pad = (n, w) => String(n).padStart(w, "0");
+/** `formatDate` of a valid wall time. */
+function date(w, style) {
+  const [year, month, day] = civil(Math.floor(w / 864e5)), name = MONTHS[month - 1];
   // "iso" (LLP 1102 §3.4): the date part of `toISOString`; `wall` admits years 1–9999 only, so four digits.
   if (style === "iso") return `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}`;
   return style === "month-year" ? `${name} ${year}` : `${name.slice(0, 3)} ${day}, ${year}`;
+}
+/** `Sep 26, 2026` ("medium"), `September 2026` ("month-year") or `2026-09-26` ("iso"). */
+export function x_formatDate(ms, off, style) {
+  const w = wall(ms, off);
+  return w === null ? "" : date(w, style);
+}
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** `formatDay` (LLP 1116.020 D8, runner/src/format.rs `day_label`): `then`'s day counted from `now`'s at the offset.
+ * "day" is Today, Yesterday, Tomorrow or the medium date, "day-time" adds ` at ` and the short time, "list" is the
+ * short time today, Yesterday, the weekday two to six days back, else `M/D/YY`. */
+export function x_formatDay(then, now, off, mode) {
+  const w = wall(then, off), n = wall(now, off);
+  if (w === null || n === null) return "";
+  const days = Math.floor(w / 864e5), apart = days - Math.floor(n / 864e5);
+  if (mode === "list") {
+    if (apart === 0) return x_formatTime(then, off);
+    if (apart === -1) return "Yesterday";
+    if (apart >= -6 && apart <= -2) return WEEKDAYS[(((days + 4) % 7) + 7) % 7];
+    const [year, month, day] = civil(days);
+    return `${month}/${day}/${pad(year % 100, 2)}`;
+  }
+  const label = apart === 0 ? "Today" : apart === -1 ? "Yesterday" : apart === 1 ? "Tomorrow" : date(w, "medium");
+  return mode === "day-time" ? `${label} at ${x_formatTime(then, off)}` : label;
 }
 /** A non-negative number's shortest round-trip digits, never exponential (Rust's `{}`). */
 export function plain(x) {

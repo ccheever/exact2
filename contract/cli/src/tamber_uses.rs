@@ -320,6 +320,18 @@ pub fn sites(
             break;
         }
     }
+    // The kinds of the token and of the tokens naming it, as the plan keeps
+    // them (a colour where it keeps none): a length inside a shadow is read
+    // by the shadow's row too.
+    let kind_of = |name: &str| {
+        plan.theme
+            .iter()
+            .find(|t| plan.str(t.name) == name)
+            .map_or(0, |t| t.kind)
+    };
+    let kinds: Vec<u8> = std::iter::once(kind_of(token))
+        .chain(aliases.iter().map(|a| kind_of(a)))
+        .collect();
     let mut out = Vec::new();
     for (i, node) in plan.nodes.iter().enumerate() {
         let site = &map["nodes"][i];
@@ -329,10 +341,17 @@ pub fn sites(
             if b.kind != BindingKind::Style {
                 continue;
             }
-            // A token is a colour (LLP 1121 until stage 6): only a row that
-            // takes one reads it (`text-align: center` names no token).
-            let Some(row) = exact_kernel::StyleId::from_bit(b.id as u32).filter(|r| colours(*r))
-            else {
+            // A row of the token's kind reads it (LLP 1121 D3): a colour
+            // only a row that takes one (`text-align: center` names none),
+            // another kind the rows the kernel admits it in (a shadow its own).
+            let Some(row) = exact_kernel::StyleId::from_bit(b.id as u32).filter(|r| {
+                kinds
+                    .iter()
+                    .any(|kind| match exact_kernel::style::theme::Kind::of(*kind) {
+                        Some(exact_kernel::style::theme::Kind::Color) | None => colours(*r),
+                        Some(k) => exact_kernel::style::theme::admits(k, *r),
+                    })
+            }) else {
                 continue;
             };
             let rd = reads(plan, plan.code(b.expr));
@@ -403,6 +422,69 @@ pub fn aliases<'a>(
         }
     }
     found
+}
+
+/// The sites a duration or easing token is read at (LLP 1121 D3): the build
+/// writes it into its rows, so the plan holds no name to find. They are the
+/// literals the loader wrote it into, in every source the app at `app`
+/// loads (a package's too), and the component arguments whose literals name
+/// it, which an expansion writes in: `row` is the row's name, or null for an
+/// argument, whose `argument` is `{component, name}`. A site through a
+/// token naming it (`aliases`) says so (`via: {token}`). `site` is null: the
+/// plan node is the row's, not the name's. Err, the first refusal's message,
+/// when the app's sources do not load.
+pub fn motion_sites(
+    app: &std::path::Path,
+    token: &str,
+    aliases: &[String],
+) -> Result<Vec<Value>, String> {
+    let first = |all: Vec<crate::CompileError>| {
+        all.into_iter()
+            .next()
+            .map_or_else(|| "the app does not load".into(), |e| e.message)
+    };
+    let src = std::fs::read_to_string(app).map_err(|e| format!("{}: {e}", app.display()))?;
+    let root = crate::app_root(app).map_err(first)?;
+    let (_, sources) = crate::sources::load(app, &src, &root).map_err(first)?;
+    let dir = app.parent().unwrap_or(app);
+    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let mut out = Vec::new();
+    for site in &sources.motion {
+        let via = if site.tokens.iter().any(|t| t == token) {
+            None
+        } else {
+            match site.tokens.iter().find(|t| aliases.contains(t)) {
+                Some(alias) => Some(json!({"token": alias})),
+                None => continue,
+            }
+        };
+        let path = sources.path(site.span);
+        let shown = path
+            .strip_prefix(dir)
+            .or_else(|_| path.strip_prefix(&canonical))
+            .unwrap_or(path)
+            .display()
+            .to_string();
+        let mut v = json!({
+            "site": Value::Null,
+            "row": match site.component {
+                None => Value::from(site.attr.replace('-', "_")),
+                Some(_) => Value::Null,
+            },
+            "file": shown,
+            "line": site.span.line,
+            "col": site.span.col,
+            "end_col": site.span.end_col,
+        });
+        if let Some(component) = &site.component {
+            v["argument"] = json!({"component": component, "name": site.attr});
+        }
+        if let Some(via) = via {
+            v["via"] = via;
+        }
+        out.push(v);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

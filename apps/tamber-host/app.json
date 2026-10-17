@@ -12,6 +12,7 @@
     "name": "Tamber Host"
   },
   "modules": ["exact-swatch"],
+  "hatches": { "swatch": ["android"] },
   "host": {
     "ios": {
       "minimumOS": "17.0",

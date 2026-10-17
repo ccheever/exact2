@@ -51,19 +51,25 @@ final class BarFaceIOSTests: XCTestCase {
     }
 
     /// Bold Text weights the system font, an authored weight included (LLP
-    /// 1115.000 D12.3), as UIKit's titles beside the face; the face's source
-    /// says so, so the bar draws it again when the setting changes.
-    func testBoldTextWeightsTheSystemFont() throws {
+    /// 1115.000 D12.3): the kernel's weights say it, so the face draws the
+    /// weight its rows give (600 where Bold Text took a 400), and adds no
+    /// step of its own; its source says the setting, so the bar draws it
+    /// again when the setting changes.
+    func testBoldTextIsTheWeightTheRowsGive() throws {
         let engine = TextEngine(resolve: { _ in nil })
         let (p, node) = button([dot, label(["written": ["font_size"]])])
         let plain = try XCTUnwrap(ChipFace(node, engine: engine))
         node.traitOverrides.legibilityWeight = .bold
         node.updateTraitsIfNeeded()
         let bold = try XCTUnwrap(ChipFace(node, engine: engine))
-        withExtendedLifetime(p) {}
-        guard case .text(_, let regular, _) = plain.parts[1], case .text(_, let heavier, _) = bold.parts[1] else { return XCTFail() }
+        let (q, heavy) = button([dot, label(["written": ["font_size"], "font_weight": 600])])
+        let rows = try XCTUnwrap(ChipFace(heavy, engine: engine))
+        withExtendedLifetime((p, q)) {}
+        guard case .text(_, let regular, _) = plain.parts[1], case .text(_, let same, _) = bold.parts[1],
+              case .text(_, let heavier, _) = rows.parts[1] else { return XCTFail() }
         func width(_ f: UIFont) -> CGFloat { ("Clock" as NSString).size(withAttributes: [.font: f]).width }
-        XCTAssertGreaterThan(width(heavier), width(regular), "a heavier face sets wider")
+        XCTAssertEqual(width(same), width(regular), "no step of the face's own")
+        XCTAssertGreaterThan(width(heavier), width(regular), "the rows' heavier weight sets wider")
         XCTAssertNotEqual(plain.source, bold.source, "the bar draws it again")
     }
 

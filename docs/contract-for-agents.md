@@ -24,6 +24,7 @@ This guide is documentation, not an additional policy layer. Documents in
 - [Composition and lifetime](#composition-and-lifetime)
 - [Data requests and side effects](#data-requests-and-side-effects)
 - [Views, layout, and interaction](#views-layout-and-interaction)
+  - [Tabular numbers](#tabular-numbers)
 - [Routes and web documents](#routes-and-web-documents)
 - [Tabs and stacks](#tabs-and-stacks)
 - [Time, motion, graphics, and platform facts](#time-motion-graphics-and-platform-facts)
@@ -385,6 +386,8 @@ component Cart
 - Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
   "years")` (or `"months"`) is the whole periods between two such dates as an
   `option<number>`, counted as an age is (a Feb 29 birthday has its year on Mar 1).
+  `formatDay(then, now, offset, "day")` names a day from `now` (`Today`, `Yesterday`, else
+  the date; `"day-time"` adds the time, `"list"` is a list row's, as Mail's).
 - There is no general list append: add an item to
   resource-backed data in its source and answer the updated list (a mutation that
   `refreshes` the list's resource, or its own answer).
@@ -677,6 +680,58 @@ Imports resolve local `.contract` declarations, with cycle and app-boundary
 checks. Paths begin with `./` and cannot contain `..` segments. They do not load app logic or expand the available built-in function
 roster. Compiler-owned router names exist only with a `routes` declaration.
 
+### Tabular numbers
+
+Use `font-variant-numeric="tabular-nums"` for **numeric columns** and **values that
+change in place**: prices in a ledger, timetable times, timers, scores, counters,
+progress percentages and recalculated totals.
+
+Use default spacing for prose, ordinary labels, static standalone statistics,
+and fields merely accepting numbers. Choose by how the value is used, regardless
+of its size or currency symbol: static columns need alignment, and updating
+headlines need stable digits.
+
+```contract
+component App
+  state balance = "$1,234.50"
+  view
+    text balance font-variant-numeric="tabular-nums"
+```
+
+Apply it to numeric text, keeping the platform font. It makes digits equal-width
+without monospacing letters. Font support is required; unsupported fonts remain
+unchanged. The property inherits. `normal` restores the font's default, which may
+already be tabular; Exact does not accept `proportional-nums`.
+
+Equal-width digits do not fix the whole value's width: `99` → `100`, signs,
+precision, separators and units can still move content. Reserve space for the
+formatted range when layout must stay still. Align numeric columns to a common
+edge (usually right for left-to-right numbers), with consistent units and precision
+where appropriate. Digits alone do not align decimals; do not pad with spaces or
+misleading zeroes.
+
+Supported for ordinary text on macOS, iOS, tvOS, Linux, Windows, Android and both
+web targets, including prerendered pages. Exceptions:
+
+- **Terminal:** ordinary digits already occupy equal-width cells. Explicit
+  `font-variant-numeric` settings are currently rejected.
+- **Android editable fields:** unsupported on native `input` and `textarea`;
+  they keep their font's default digits.
+- **Native buttons:** unsupported. Keep their typography; use separate `text`
+  for a readout. This property also does not style Canvas/GPU drawing or native hatches.
+- **Text wrapping around shapes on web:** a paragraph using `tabular-nums` skips
+  Exact's wrapping along image or shape outlines and uses ordinary browser layout.
+  Keep readouts separate from prose that needs this wrapping.
+
+`exact:content` components set their own typography: `SummaryCard` uses tabular
+digits for `value` and `detail`. Use `text` for a static statistic needing default
+spacing.
+
+Check the actual font, locale and host, including fallback digits, `11` → `88`,
+`99` → `100` and large accessibility text. Widths can differ across hosts. Keep
+locale-aware formatting and accessible labels. See
+[numeric-readout](recipes/numeric-readout.md) for sizing.
+
 ### Content components: `exact:content`
 
 The platform answers the controls and the chrome; the app's own content is the
@@ -860,10 +915,12 @@ A bidirectional WebSocket uses a resource's TypeScript
 `fetch(url, { exactStream(event, socket) { … } })` (LLP 1016.000 D7).
 Keep the handle in module state by resource identity; after its `open` event,
 a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
-reason)`. The mapper only reads frames and returns snapshots. Sends run after
-the mutation's commit stands, in order, and have bounded admission. The
-source must send and answer synchronously, and a mutation that sends cannot
-also `fetch` (whichever comes second refuses it). Refreshing or removing the
+reason)`. The mapper may also send and close on its own socket while it
+answers `open` or a `message` (a subscribe, an Ack per frame), with no
+`fetch`. Sends run after the commit that settles the mutation or the frame
+stands, in order, and have bounded admission. The source must send and
+answer synchronously, and a mutation that sends cannot also `fetch`
+(whichever comes second refuses it). Refreshing or removing the
 resource invalidates the old handle. **TypeScript on the web JS target,
 macOS, iOS and Linux**; the wasm target and Rust sources remain
 receive-only. See
@@ -972,7 +1029,9 @@ makes the folders above it too), or the write fails with `ENOENT`.
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
-`net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too; on iOS
+`net.fetch` takes an `http` or `https` origin, `http://127.0.0.1:8080` too, or a
+whole scheme, `net.fetch https:` (any host and port, for a server the person names
+at run time; `net.websocket` takes `wss:` or `ws:` the same way); on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.ios.localNetworking` set; an `iframe` of `http://` from a named host needs
 `host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
@@ -998,7 +1057,13 @@ A bake runs initial data work and packages first-frame values. A first-frame
 value is not the answer: every host asks the TypeScript module again at launch,
 natively once it loads after first pixel, even a source with no arguments
 (`logs`: `<resource> shows its build-time answer until its source answers`, then
-`<resource> answered: …`). A `send` an action makes before the module loads (a
+`<resource> answered: …`). A resource with an argument (one after `with` too) made
+from `exactTime()`, through a derive, another resource or a state an action
+assigns it (or writes under a condition on the date), gets no first-frame value, since the bake's date is unknown: it shows
+its placeholder until the module answers with the launch's date, so a task waiting
+on `lib.loaded` never adopts an answer stamped at 1970. Don't pass the clock into a
+source whose answer doesn't depend on it, or its first frame waits for the module:
+format times in Contract (`formatTime(at, time.utcOffset, "short")`). A `send` an action makes before the module loads (a
 document opened at launch) waits for it, `pending` meanwhile (`logs`: `send <name>:
 waits until the data source is ready`). Live requests run after that under host scheduling. Do not assume a secret store, disk database,
 or authenticated network session is available while baking. See
@@ -1250,6 +1315,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
+| `delete=remove(id)` on either list's row (`disabled` beside it: no delete) | the cell's swipe action Delete, which a full swipe performs (`contract vocab swipe`) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
 | `input type="range"` (as wide as what holds it; in a `row`, `flex=1 min-width=0` beside its label) | `UISlider` |
@@ -1331,16 +1397,11 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
     button press=compose
       text "New Message"
   // Pull to refresh: a `refresh` handler on the scroller; `refreshing` holds the
-  // spinner until the reload settles.
-  scroll id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
+  // spinner until the reload settles. A row's `delete=` is its swipe to delete.
+  list id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
     for m in items key=m.id
-      // Swipe actions: a horizontal snap scroll naming its content and actions.
-      scroll swipeContent=`item-${m.id}` swipeTrailing=`delete-${m.id}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-        row width="100%"
-          button id=`item-${m.id}` press=open(m.id) width="100%" flex-shrink=0 scroll-snap-align="start" text-align="start"
-            text m.title
-          button id=`delete-${m.id}` destructive=true press=remove(m.id) aria-label="Delete" flex-shrink=0 scroll-snap-align="start"
-            image "symbol:delete"
+      button press=open(m.id) delete=remove(m.id)
+        text m.title
 
 // A subtitle: the first text after the heading (UIKit's own on iOS 26).
 column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
@@ -1369,7 +1430,9 @@ A segmented control in the content chooses a value or switches panels: a value
 from two to five (a preset, units, a period, a filter) is a `row role="radiogroup"` of
 `button role="radio" aria-checked=…`, each pressing its value (the web gives it the
 arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
-outside the header. iOS needs a swipe row's content exactly the scroll's size
+outside the header. A list row's `delete=action` is its swipe to delete, UIKit's on
+iOS (`contract vocab swipe`). Other swipe actions are a hand-written swipe row, whose
+content iOS needs exactly the scroll's size
 ([pitfalls](agent-pitfalls.md), "There is no `swipeleft`"). Its swipe actions
 are UIKit's, drawn by UIKit (rounded on iOS 26 and later) whatever the buttons
 paint; when every control the row names says `appearance="none"`, the paint is
@@ -1796,10 +1859,29 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   item's image inside the bar's capsule (a "● Clock" chip in 12-point monospace).
   A filled box holding a text or symbol (an avatar, a badge) is drawn without the
   capsule. Leave the font unsaid for an ordinary Edit or Done.
+- A readout nothing presses (a "● Clock" or "Saved" beside the title) is
+  `role="status"` in the header, beside the buttons; not a disabled button, which
+  is no item. It is an item on its side of the heading, a custom view in the bar's
+  glass drawn as written (its fonts, colours, a dot's size and corners, the gap) that
+  follows the state in place, read by VoiceOver as static text (its `aria-label`, else
+  its words). Its texts are never the subtitle. The web, the Mac and the agent's own
+  chrome draw it where it stands in the header (LLP 1075.003 §9.15):
+
+  ```
+  header display="flex" align-items="center"
+    button id="back" press=back
+      text "Settings"
+    text "Activity Log" role="heading" aria-level=2
+    row role="status" aria-label=(live ? "Clock, receiving" : "Clock") display="flex" align-items="center" gap=6
+      column width=7 height=7 border-radius=3.5 background-color=(live ? "c.cyan" : "c.dim")
+      text "Clock" font-family="Menlo" font-size=12 color=(live ? "c.cyan" : "c.dim")
+  ```
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
-  again pops it to its root.
+  again pops it to its root. A sheet is a route of the tab's stack, rendered in the
+  panel's `for e in t.stack` like the others, and is presented over the tabs; with
+  tabs the root's own children are no routes, and one with a `navigationKey` is refused.
 - On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
   is its bar item, a filled box holding a text is the item's badge, and the
   tablist's `accent-color` (inherited, as in CSS) tints the selected item; `tap tab-…`
@@ -2992,16 +3074,27 @@ browser's 16). A `text role="heading"` with no `font-size` or `font-weight` of
 its own is the platform's text style for its `aria-level` (LLP 1115 D3): 1
 `title1`, 2 (the default) `title2`, 3 `title3`, 4 and on `headline`, sized for
 the reader's Dynamic Type by Apple's own ramp (iOS at the default size:
-28/22/20/17 pt, the titles regular and `headline` semibold; the Mac: 22/17/15/13;
-the web reads the ramp at its 16 px root: 27/21/19/16, in `rem`). So omit
-`font-size` on headings; a written `font-size` or `font-weight` on the heading
-wins, an inherited one does not. Other text takes a style by name with `font`,
-as WebKit's `font: -apple-system-headline`: `font="-exact-footnote"` (or
-`"-apple-system-footnote"`) sets the style's size and weight, `normal` style and
-line height. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title2`,
+28/22/20/17 pt, the titles bold as a heading's emphasized style, `headline`
+semibold; the Mac: 22/17/15/13, `headline` bold; the web reads the ramp at its
+16 px root: 27/21/19/16, in `rem`). So omit `font-size` on headings; a written
+`font-size` or `font-weight` on the heading wins, an inherited one does not.
+Other text takes a style by name with `font`, as WebKit's
+`font: -apple-system-headline`: `font="-exact-footnote"` (or
+`"-apple-system-footnote"`) sets the style's size and a `normal` font style, and
+the style's weight and leading as each platform draws it (LLP 1115.000 D12.2:
+the Mac's `headline` bold and its styles' own leading, 13/16 for body; iOS's the
+face's own), beating an inherited weight or line height as CSS's shorthand
+resets them. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title2`,
 `-exact-title3`, `-exact-headline`, `-exact-body`, `-exact-callout`,
 `-exact-subheadline`, `-exact-footnote`, `-exact-caption1`, `-exact-caption2`;
-`font-size="-exact-caption1"` alone sets only the size. `font` takes nothing else.
+`font-size="-exact-caption1"` alone sets the size and keeps an inherited weight
+and line height, the style filling only what nothing above says. A weight or
+line height written on the node wins either way, and `layout` names each one's
+source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else.
+Bold Text (iOS's setting, Android's font weight adjustment) weights the system
+font one step heavier, a written weight included, as a hand-built app's text
+is, and leaves a family the app names alone: write the weight you mean, not one
+you expect the setting to add (LLP 1115.000 D12.3).
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
@@ -3038,6 +3131,13 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+A type token is CSS `font` syntax (`type.body = -exact-body/1.35 "InterVariable"`):
+`font="type.body"` writes only the longhands it names, so the text style's own
+weight applies where it names none, and a size in px is warned of
+(`tamber-type-fixed`: it does not follow the person's text size). A family token
+is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
+One that varies by a mode goes on the text, not its container
+(`tamber-inherited-axis`); on the JS target it may not vary yet.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (`contract types` declares the design's, so an unknown
 one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into

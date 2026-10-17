@@ -22,45 +22,53 @@ function request(input, init, redirect) {
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
   return { method: methodOf(input, init), url: request ? request.url : String(input), headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576 };
 }
+// A turn's operations, sent once its commit stands. The whole batch is
+// checked again before any frame: an earlier batch in the same commit may
+// have filled the browser's buffer or closed the socket.
+const publish = operations => () => {
+  const totals = new Map();
+  for (const x of operations) {
+    if (x.owner.signal.aborted || x.owner.active?.() === false) throw new DOMException('the socket is not open', 'InvalidStateError');
+    totals.set(x.transport, (totals.get(x.transport) ?? 0) + x.size);
+  }
+  for (const [socket, count] of totals) socket.check(count);
+  for (const x of operations) {
+    x.transport[x.op](x.data, x.reason);
+    journal.push(`t=${clock.now} socket ${x.op}: ${x.size} bytes (${x.owner.streamName})`);
+  }
+};
 // The module never sees the browser socket. Operations belong to the current
-// mutation's answer, and rt.js publishes them only after its commit stands.
+// mutation's answer, or to the socket's own mapper while it answers `open` or
+// a `message` (`answering.mapper`); rt.js publishes them only after the
+// commit that settles that turn stands.
 function handle(transport, owner) {
   const encoder = new TextEncoder();
   answering.sockets = true;
+  const turn = () => answering.mapper?.owner === owner ? answering.mapper : answering.call;
   const stage = (op, data, reason, size = 0) => {
-    const call = answering.call;
-    if (!call?.mutation) throw new Error(`socket.${op} is only available in a mutation's synchronous source`);
+    const call = turn(), mapper = !!call && call === answering.mapper;
+    if (!mapper && !call?.mutation) throw new Error(`socket.${op} is only available in a mutation's synchronous source or its socket's own mapper`);
     if (owner.signal.aborted || owner.active?.() === false) throw new DOMException('the socket is not open', 'InvalidStateError');
-    if (call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
+    if (!mapper && call.fetched) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
+    // Overload fails a mapper's snapshot, caught or not.
+    const over = e => { if (mapper && e.name === 'QuotaExceededError') call.overload = e; return e; };
+    const kind = mapper ? 'mapper call' : 'mutation';
     const operations = call.socketOps ??= [];
-    if (operations.length >= 256) throw new DOMException('socket mutation exceeds 256 operations', 'QuotaExceededError');
+    if (operations.length >= 256) throw over(new DOMException(`socket ${kind} exceeds 256 operations`, 'QuotaExceededError'));
     if (operations.some(x => x.transport === transport && x.op === 'close')) throw new DOMException('the socket is not open', 'InvalidStateError');
-    // The mutation's payload is bounded as a whole; each socket's buffer
-    // with what the mutation stages on it.
-    if (operations.reduce((n, x) => n + x.size, 0) + size > 1048576) throw new DOMException('socket mutation exceeds 1 MiB', 'QuotaExceededError');
-    transport.check(operations.reduce((n, x) => x.transport === transport ? n + x.size : n, 0) + size);
-    if (!operations.length) (call.effects ??= []).push(() => {
-      // Recheck the whole batch before sending any frame: a previous mutation
-      // in the same commit may have filled the browser's buffer or closed it.
-      const totals = new Map();
-      for (const x of operations) {
-        if (x.owner.signal.aborted || x.owner.active?.() === false) throw new DOMException('the socket is not open', 'InvalidStateError');
-        totals.set(x.transport, (totals.get(x.transport) ?? 0) + x.size);
-      }
-      for (const [socket, count] of totals) socket.check(count);
-      for (const x of operations) {
-        x.transport[x.op](x.data, x.reason);
-        journal.push(`t=${clock.now} socket ${x.op}: ${x.size} bytes (${x.owner.streamName})`);
-      }
-    });
+    // The turn's payload is bounded as a whole; each socket's buffer with
+    // what the turn stages on it.
+    if (operations.reduce((n, x) => n + x.size, 0) + size > 1048576) throw over(new DOMException(`socket ${kind} exceeds 1 MiB`, 'QuotaExceededError'));
+    try { transport.check(operations.reduce((n, x) => x.transport === transport ? n + x.size : n, 0) + size); } catch (e) { throw over(e); }
+    if (!mapper && !operations.length) (call.effects ??= []).push(publish(operations));
     operations.push({ transport, owner, op, data, reason, size });
   };
   return Object.freeze({
     get readyState() { return owner.signal.aborted ? 3 : transport.readyState; },
     // The browser's count (WHATWG: as of the task's start, plus its sends)
-    // and what this mutation has staged on the socket.
+    // and what this turn has staged on the socket.
     get bufferedAmount() {
-      const staged = answering.call?.socketOps ?? [];
+      const staged = turn()?.socketOps ?? [];
       return transport.bufferedAmount + staged.reduce((n, x) => x.transport === transport ? n + x.size : n, 0);
     },
     send(data) {
@@ -90,15 +98,28 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
   const map = init.exactStream;
   let socket;
   const protocol = /^wss?:/i.test(req.url) ? { socket: transport => { socket = handle(transport, controller); controller.socket = transport; } } : undefined;
-  const value = event => {
+  // A mapper call's replies are refused with the frame: the journal says so.
+  const refused = why => journal.push(`t=${clock.now} mapper ${controller.streamName} failed: ${why}; socket frames were refused`);
+  // `frame`: the socket's `open` or a `message`, which its mapper may answer
+  // with replies on it (D7). They ride the frame's answer as effects
+  // (rt.js `reply`), sent once its commit stands.
+  const value = (event, frame) => {
     if (controller.active?.() === false) return { error: 'the stream was let go', code: 'error' };
+    const turn = socket && frame ? answering.mapper = { owner: controller, socketOps: null, overload: null } : null;
     try {
       const v = map(event, socket);
       if (v && typeof v.then === 'function') throw new Error('exactStream answers each event now; it cannot await');
-      return { v: conv(v) };
-    } catch (e) { return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }; }
+      if (turn?.overload) throw turn.overload;
+      // A socket no resource owns (a mutation's stream) takes none, as natively.
+      if (turn?.socketOps?.length && !controller.resource) throw new DOMException('the socket is not open', 'InvalidStateError');
+      const ops = turn?.socketOps;
+      return ops?.length ? { v: conv(v), effects: [Object.assign(() => { try { publish(ops)(); } catch (e) { refused(e?.message ?? e); } }, { refused })] } : { v: conv(v) };
+    } catch (e) {
+      if (turn?.socketOps?.length) refused(e?.message ?? e);
+      return { error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) };
+    } finally { if (turn) answering.mapper = null; }
   };
-  return streamed(req, grantSet, m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }), coalesced: m.coalesced }), controller, readBodyFile, protocol)
+  return streamed(req, grantSet, m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }, true), coalesced: m.coalesced }), controller, readBodyFile, protocol)
     .then(o => {
       if (o.close) journal.push(`t=${clock.now} socket close: ${o.close.code} ${o.close.reason} (${controller.streamName})`);
       return value(o.close ? { type: 'close', data: '', lastEventId: '', coalesced: 0, ...o.close } : o.kind

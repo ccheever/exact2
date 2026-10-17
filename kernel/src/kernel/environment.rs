@@ -2,6 +2,31 @@
 use super::*;
 
 impl Kernel {
+    /// Say which font stacks, by id, are the system's (LLP 1115.000 D12.3):
+    /// those whose first member is a generic family. Bold Text weights
+    /// them; unsaid, the eight generic stacks are.
+    pub fn set_system_stacks(&mut self, system: Vec<bool>) {
+        self.arena.system_stacks = system;
+    }
+
+    /// How many stacks [`Self::set_system_stacks`] has said: a runner says
+    /// a runtime stack's too once it interns one.
+    pub fn system_stack_count(&self) -> usize {
+        self.arena.system_stacks.len()
+    }
+
+    /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
+    /// accessibility setting, which weights the system font, an authored
+    /// weight included, and leaves a family the app ships alone. The next
+    /// commit applies it. Whether it changed.
+    pub fn set_bold_text(&mut self, on: bool) -> bool {
+        if self.arena.bold_text_next.unwrap_or(self.arena.bold_text) == on {
+            return false;
+        }
+        self.arena.bold_text_next = Some(on);
+        true
+    }
+
     /// The page's environment: what `env(safe-area-inset-*)`,
     /// `env(viewport-segment-*)` and the layout regions'
     /// `env(-exact-<region>-inset-*)` lengths resolve to (LLP 1001 §2; LLP

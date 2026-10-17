@@ -5,18 +5,17 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-extension Agent {
+extension NavigationHost {
     /// Under `--chrome platform`, the navigation bar a header button's item
-    /// sits in and the item's box in it (r5 weather's Cities, r5 mood
-    /// journal's sheet Save). Nil for any other node; a refusal for an item
-    /// UIKit has not placed.
+    /// sits in and the item's box in it: where a finger aims, and where its
+    /// pull-down opens. Nil for any other node; a refusal for an item UIKit
+    /// has not placed.
     func barItem(_ node: NodeView) -> Result<(bar: UIView, item: CGRect), BarItemMissing>? {
         #if os(iOS)
         guard !ExactEnv.authoredChrome else { return nil }
-        let nav = presenter.navigation
         let testId = node.props["testId"]
-        for c in nav.controllers.values {
-            guard let controller = c.navigationController, controller.topViewController === c, nav.barShows(controller),
+        for c in controllers.values {
+            guard let controller = c.navigationController, controller.topViewController === c, barShows(controller),
                   c.viewIfLoaded?.window != nil else { continue }
             let items = (c.navigationItem.leftBarButtonItems ?? []) + (c.navigationItem.rightBarButtonItems ?? [])
             // A pull-down's item has no target: its test id names it.
@@ -28,6 +27,16 @@ extension Agent {
         }
         #endif
         return nil
+    }
+}
+
+extension Agent {
+    /// Under `--chrome platform`, the navigation bar a header button's item
+    /// sits in and the item's box in it (r5 weather's Cities, r5 mood
+    /// journal's sheet Save). Nil for any other node; a refusal for an item
+    /// UIKit has not placed.
+    func barItem(_ node: NodeView) -> Result<(bar: UIView, item: CGRect), BarItemMissing>? {
+        presenter.navigation.barItem(node)
     }
 
     /// Under `--chrome platform`, the control UIKit shows for the item

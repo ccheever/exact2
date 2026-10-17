@@ -495,7 +495,8 @@ open class ExactActivity : Activity() {
         intent.getStringExtra("kinds")?.let { android.system.Os.setenv("BENCH_KINDS", it, true) }
     }
 
-    /** The APK's `app/` assets (the plan names `assets/…` under it), copied once per install: exact2 reads files. */
+    /** The APK's `app/` assets (the plan names `assets/…` under it, a GPU module's shaders `shaders/`), copied once
+     * per install, replacing the last install's: exact2 reads files. */
     private fun installAssets(to: File) {
         val stamp = packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString()
         val done = File(to, ".done")
@@ -510,6 +511,9 @@ open class ExactActivity : Activity() {
             dir.mkdirs()
             for (n in names) copy("$from/$n", File(dir, n))
         }
+        // A new install's tree replaces the old, an empty one included: a file the APK no longer has (a shader a
+        // module no longer names, which the host would register and the module refuse) does not linger.
+        to.deleteRecursively()
         if (assets.list("app").isNullOrEmpty()) return
         copy("app", to)
         done.writeText(stamp)

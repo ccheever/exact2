@@ -400,6 +400,7 @@ fn copy_confined(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     /// A fresh tree: `data`, `cache`, `tmp`, an outside file, and the copy's place.
@@ -421,6 +422,7 @@ mod tests {
 
     const GRANTS: &str = "fs.read app:/data\n";
 
+    #[cfg(unix)]
     #[test]
     fn a_share_copies_only_a_granted_regular_file_and_follows_no_link() {
         let (base, roots) = tree("links");
@@ -469,6 +471,7 @@ mod tests {
     /// The roots are the handles storage pinned: a data root swapped later
     /// for a link to another tree (or any directory) changes nothing a share
     /// reads, and a root that is a link when pinned is refused.
+    #[cfg(unix)]
     #[test]
     fn a_root_swapped_after_pinning_is_not_followed() {
         let (base, roots) = tree("swap");

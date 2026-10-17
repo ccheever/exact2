@@ -1,6 +1,7 @@
 package dev.exact.canvas
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.RenderNode
 import android.graphics.Typeface
@@ -11,6 +12,7 @@ import android.text.TextWatcher
 import android.util.Log
 import android.util.TypedValue
 import android.view.Choreographer
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -34,7 +36,7 @@ import kotlin.math.roundToInt
  * The framework's own [EditText], as a hosted field uses it (LLP 1115.001 D8): nothing of it is replaced, and it
  * says when its selection moves, which no listener of the class tells.
  */
-internal class FieldText(context: Context) : EditText(context) {
+internal class FieldText(context: Context) : EditText(unadjusted(context)) {
     var selected: ((Int, Int) -> Unit)? = null
     /** `x_log_fields=1`: what the keyboard asks of the field's input connection, to the log. Its composition is
      * between it and the field, and shows nowhere else. */
@@ -51,6 +53,12 @@ internal class FieldText(context: Context) : EditText(context) {
     override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
         stand?.place(info)
+    }
+
+    /** Bold Text's step is in the weight the field is given ([unadjusted]): a change of the device's font weight
+     * adjustment reaches the kernel, never the field's own typeface. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(Configuration(newConfig).apply { fontWeightAdjustment = 0 })
     }
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
@@ -860,7 +868,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
             val context = context ?: return -1L
             // A host booting on a thread of exact2's own: a view wants a looper to be made on.
             if (Looper.myLooper() == null) Looper.prepare()
-            val v = measurer.get() ?: bare(EditText(context)).also {
+            val v = measurer.get() ?: bare(EditText(unadjusted(context))).also {
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
                 measurer.set(it)
             }
@@ -878,4 +886,11 @@ internal class Fields(context: Context) : FrameLayout(context) {
                 (v.baseline.coerceIn(0, most).toLong() shl 42)
         }
     }
+}
+
+/** [context] with no font weight adjustment, for a field's [EditText]: Bold Text's step is in the weight the kernel
+ * gives it (LLP 1115.000 D12.3, UIKit's step, which light weights take too), and a `TextView` would otherwise add the
+ * device's adjustment to every typeface it is set in, the one it measures in included. */
+internal fun unadjusted(context: Context): Context = ContextThemeWrapper(context, context.theme).apply {
+    applyOverrideConfiguration(Configuration().apply { fontWeightAdjustment = 0 })
 }

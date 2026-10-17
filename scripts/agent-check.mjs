@@ -51,13 +51,14 @@ function backdrop(png, scale, it) {
 
 /** The contrast a text needs (WCAG 1.4.3, and LLP 1115's platform answers): 4.5:1; 3:1 for large text (24 px, or 18.66 px bold), for a
  *  control's label on its own fill (D3's ink rule), for ink the platform chose (a tab bar's item) and for text in a platform colour (the
- *  secondary label, system red: the platform's palette, as a hand-built app draws it). The platform's tertiary and quaternary labels and its placeholders are its own and not judged,
+ *  secondary label, system red: the platform's palette, as a hand-built app draws it), and for text on an accent fill (LLP 1116.020 D7: a sent
+ *  bubble's white is a filled button's label; a pale accent still fails). The platform's tertiary and quaternary labels and its placeholders are its own and not judged,
  *  nor is a disabled control's label (WCAG's inactive component). */
 function floor(it, scheme, column) {
   if (it.inactive) return null;
   const r = role(it.fgRole) ?? drawnRole(it.fg, scheme, column);
   if (r && /^(tertiary|quaternary)-label$|^placeholder$|^GrayText$/.test(r)) return null;
-  if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^ButtonText$/.test(r))) return 3;
+  if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || it.onAccentFill || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^ButtonText$/.test(r))) return 3;
   return 4.5;
 }
 /** The platform role an ink is, by its value in this scheme and the host's column: UIKit's own labels carry no name, nor
@@ -115,7 +116,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
       if (bg) {
         const ink = over(it.fg, bg), got = ratio(ink, bg);
         if (got < need - 0.005) add('contrast', it, { got: Math.floor(got * 10) / 10, need, fg: hex(ink), bg: hex(bg), ...(it.bg ? { on: it.on ?? 'page' } : {}) },
-          it.onAccent ? 'the platform draws a filled button\'s label white on the accent: leave the accent unsaid (the platform\'s blue; a brand is an `app.tamber`)'
+          it.onAccent || it.onAccentFill ? 'the platform draws a filled button\'s label white on the accent: leave the accent unsaid (the platform\'s blue; a brand is an `app.tamber`)'
             : it.label ? 'name a `color` for the label, or a fill it reads on in this scheme' : role(it.fgRole) ? `-exact-${role(it.fgRole)} is too light for text on this: use -exact-label or -exact-secondary-label, or keep the colour for a fill or a symbol` : 'use a role (`-exact-label`, `-exact-secondary-label`) or a colour that changes with the scheme');
       }
     }

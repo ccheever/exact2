@@ -323,7 +323,7 @@ fn scaling_font(
         return default;
     };
     let value = if attr.name == "font" {
-        crate::shorthands::component(&attr.value, "font", 2).ok()?
+        crate::shorthands::component(&attr.value, "font", 1).ok()?
     } else {
         attr.value.clone()
     };
@@ -377,7 +377,7 @@ fn fixed_bound(value: &Expr, font: Option<&Attr>) -> Option<f64> {
         Some((Unit::Em, n)) => {
             let font = font?;
             let size = if font.name == "font" {
-                crate::shorthands::component(&font.value, "font", 2).ok()?
+                crate::shorthands::component(&font.value, "font", 1).ok()?
             } else {
                 font.value.clone()
             };

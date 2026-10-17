@@ -10,7 +10,7 @@ tested against it, differentially and at random.
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
 | `Contract/Number.lean` | `max`/`min` as JavaScript's `Math.max`/`Math.min` (NaN and signed zero included), and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
-| `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
+| `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatDay`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
 | `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers (gated by `when` and `key=`), queued sends, events. |
@@ -664,7 +664,7 @@ the host presents no frames (the harness never does): due at
 
 ## Formatting and localized text
 
-`formatTime`, `formatDate` and `formatNumber` (`Contract/Format.lean`) are
+`formatTime`, `formatDate`, `formatDay` and `formatNumber` (`Contract/Format.lean`) are
 the runner's (`runner/src/stdlib.rs`, `runner/src/format.rs`) transcribed:
 `en-US` at the fixed UTC offset the call names, the wall time truncated
 then shifted and held to years 1–9999 (else `""`), the calendar by

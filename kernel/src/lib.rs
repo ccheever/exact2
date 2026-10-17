@@ -66,6 +66,7 @@ pub mod transform;
 pub mod txn;
 pub mod wire;
 
+pub use arena::text_style::bolder;
 pub use bars::{Bar, HeaderShape, RootTabs};
 pub use control::{Choice, ControlKind, PressFace, Progress, Range};
 pub use control_measurement::{

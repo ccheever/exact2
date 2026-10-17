@@ -143,6 +143,18 @@ pub enum Ids {
     Any,
 }
 
+/// The kernel's document writer for whose runtime adopts the page: the
+/// JavaScript runtime's writes no bare text style's rows, as its template
+/// writes none (LLP 1115.000 D12.2).
+fn project_for<D: DataSource>(
+    ids: Ids,
+) -> fn(&Runner<D>) -> Result<Document, exact_web::document::DocumentError> {
+    match ids {
+        Ids::Runtime => project,
+        Ids::Any => exact_web::document::project_for_js,
+    }
+}
+
 /// Whether the tree a runner settles to projects as the tree one booted from
 /// its checkpoint builds, view ids apart. Regions, rows and bindings follow
 /// state; what could differ is only state fixed where a slot is first made:
@@ -309,7 +321,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
         }
     } else if ids == Ids::Any && projects_as_booted(plan) {
         Some((
-            project(&page.runner).map_err(|e| e.to_string())?,
+            project_for(ids)(&page.runner).map_err(|e| e.to_string())?,
             page.runner.handlers(),
         ))
     } else {
@@ -343,7 +355,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
                 .build_every_tab()
                 .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
             (
-                project(&booted).map_err(|e| e.to_string())?,
+                project_for(ids)(&booted).map_err(|e| e.to_string())?,
                 booted.handlers(),
             )
         }

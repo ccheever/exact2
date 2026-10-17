@@ -129,7 +129,7 @@ def roster : List String :=
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
    "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split",
    "elementFromPoint", "parseNumber", "ceil", "round", "calendarDiff",
-   "toFixed", "formatDecimal"]
+   "toFixed", "formatDecimal", "formatDay"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
@@ -138,7 +138,7 @@ def rosterTy (f : String) (args : List STy) : STy :=
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
     ∨ f = "replaceAll" ∨ f = "toLowerCase" ∨ f = "formatTime" ∨ f = "formatDate" ∨ f = "formatNumber"
-    ∨ f = "t" ∨ f = "toFixed" ∨ f = "formatDecimal" then .string
+    ∨ f = "t" ∨ f = "toFixed" ∨ f = "formatDecimal" ∨ f = "formatDay" then .string
   -- Text's, or a list's own type (LLP 1088 §9.1).
   else if f = "slice" then
     match args with

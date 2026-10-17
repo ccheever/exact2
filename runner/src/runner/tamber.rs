@@ -113,9 +113,12 @@ impl<D: DataSource> Tamber<'_, D> {
     /// that spelling or the name the design wrote (`link`); else `name`.
     fn row_name(&self, name: &str) -> Option<String> {
         let plan = &self.runner.plan;
+        // A colour binding names a colour token (a length's binding is
+        // stage 6's commit G).
         let row = plan
             .theme
             .iter()
+            .filter(|t| t.kind == 0)
             .find(|t| plan.str(t.name) == name)
             .or_else(|| {
                 plan.theme

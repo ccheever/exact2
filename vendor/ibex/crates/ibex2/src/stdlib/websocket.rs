@@ -780,6 +780,15 @@ mod tests {
             opened("net.websocket ws://127.0.0.1:4350", "ws://127.0.0.1:4351/x"),
             "denied: net.websocket"
         );
+        // A scheme-wide line admits any host and port of its scheme alone.
+        assert_eq!(
+            opened("net.websocket ws:", "ws://127.0.0.1:4351/x"),
+            "reached the transport"
+        );
+        assert_eq!(
+            opened("net.websocket wss:", "ws://127.0.0.1:4351/x"),
+            "denied: net.websocket"
+        );
         assert!(opened(socket, "https://jetstream2.us-east.bsky.network/").contains("ws: or wss:"));
         assert!(opened(socket, "wss://jetstream2.us-east.bsky.network/#x").contains("fragment"));
     }

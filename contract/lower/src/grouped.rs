@@ -21,7 +21,7 @@ mod messages;
 
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 
-use crate::{err, LowerError};
+use crate::{err, swipe_rows, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span};
 
 /// `listStyle`'s names (D2), UIKit's three list appearances.
@@ -113,7 +113,7 @@ pub(crate) fn style(tag: &str, attrs: &[Attr]) -> Result<Option<&'static str>, L
 /// A sheet row's name mark: the lowering takes marked rows out before an
 /// element's classes and puts them under them (`split`), so a class, like an
 /// attribute, replaces the sheet. No authored name can carry it.
-const MARK: &str = "ua:";
+pub(crate) const MARK: &str = "ua:";
 const BUTTON_CONTEXT: &str = "ua:button-context";
 
 /// Rows and their detail accessories belong to the grouped list's press
@@ -596,18 +596,18 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     if let Some(corner) = corner.filter(|_| !cardless) {
         group.push(m("border-radius", corner, span));
     }
-    // Every row draws the separator under it and overlaps the next by its
-    // width; the group clips the last one away (`row`). Where a platform's
-    // separator stands between two rows and takes no height from either
-    // (the Mac's), the rows are that far apart and the separator is drawn
-    // in the gap; no row elsewhere.
+    // Every row draws the separator under it and overlaps the next by its width; the group
+    // clips the last one away (`row`). Where a platform's separator stands between two rows
+    // and takes no height from either (the Mac's), the rows are that far apart and the
+    // separator is drawn in the gap; no row elsewhere.
     if !cardless {
         group.push(m("row-gap", "separator-gap", span));
     }
     group.push(s("overflow", "hidden", span));
+    let mut styled = |n: &Node| Ok(swipe_rows::grouped(n, &|n| row(n, !cardless)));
     let body = rows
         .iter()
-        .map(|r| over(r, &mut |node| Ok(row(node, !cardless))))
+        .map(|r| over(r, &mut styled))
         .collect::<Result<Vec<_>, _>>()?;
     let mut out: Vec<Node> = children[..head].iter().map(|h| label(h, false)).collect();
     out.push(Node::Element {
@@ -1230,8 +1230,8 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         // fields of a section line up and the label, the author's `flex=1`
         // one too, keeps the rest; 8rem and a short label fit on one line up
         // to the largest size before the accessibility ones, and past it the
-        // row wraps the field under the label. A date or time keeps its own
-        // width. Under the label either is as narrow as the line.
+        // row wraps the field under the label. A date, time or menu keeps its
+        // own width. Under the label either is as narrow as the line.
         ("input", _) if texts.low() >= 1 && text_field(child) => with(
             child,
             vec![
@@ -1242,12 +1242,12 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 n("min-width", 0.0, at),
             ],
         ),
-        ("input", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Date) => {
+        ("input" | "select", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Picker) => {
             with(child, vec![n("min-width", 0.0, at)])
         }
         ("column", _) if stack => subtitle(child),
         _ if !stack && stacks(child) => {
-            let margins = if lines {
+            let mut margins = if lines {
                 vec![
                     m("margin-top", "lines-padding-block", at),
                     m("margin-bottom", "lines-padding-block", at),
@@ -1255,6 +1255,13 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             } else {
                 Vec::new()
             };
+            // LLP 1116.020 D5: a stack before any text is the title, and
+            // grows as a title does, so a text after it is the value at the
+            // far edge (`RowText` straight in a section drew it mid-row).
+            if matches!(texts, Count::Known(0)) {
+                margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
+                *texts = Count::Known(1);
+            }
             // A control's lines are its label, in its own colour.
             match tag.as_str() {
                 "button" | "link" => with(child, margins),

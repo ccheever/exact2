@@ -2,8 +2,9 @@
 //! its checker (D3–D5) and the build's one evaluator (D7), which folds a
 //! design to the IR every generator and the editor read (D2).
 //!
-//! Stage 2 builds colour tokens and app axes; every other kind is parsed
-//! where the grammar has it and refused with the stage that brings it.
+//! Stage 2 builds colour tokens and app axes, stage 6 length and number
+//! tokens; every other kind is parsed where the grammar has it and refused
+//! with the stage that brings it.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -19,16 +20,23 @@ pub mod history;
 pub mod import;
 mod ir;
 mod lex;
+mod measure;
+mod motion;
 mod session;
+mod shadow;
 mod syntax;
+mod typeface;
 
 pub use check::{Checked, MAX_TUPLES};
 pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use ir::FORMAT;
-pub use session::{plan, Class, Planned, Refused, Synthetic};
+pub use measure::{Kind, Length, Value};
+pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
+pub use shadow::{Shadow, Shadows};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
+pub use typeface::Type;
 
 /// A refusal, at a line and column of the source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +86,9 @@ pub struct Role {
     pub system: bool,
     /// The light and dark pair every host shows until it reports its own.
     pub fallback: [String; 2],
+    /// The web draws it in the nearest accent (`--exact-accent`): a token
+    /// whose value is it is written so on the JS target.
+    pub accent: bool,
 }
 
 /// What a design is checked against: the schema's vocabulary, which the
@@ -86,6 +97,33 @@ pub struct Role {
 pub struct Vocab {
     /// The colour roles, in the schema's order.
     pub roles: Vec<Role>,
+    /// The named lengths the kernel reads, as a row writes them (a text
+    /// style, `-exact-body` or its WebKit alias; `-exact-hairline`); matched
+    /// without case, as CSS matches keywords.
+    pub named_lengths: Vec<String>,
+}
+
+impl Vocab {
+    /// [`Vocab::named_lengths`] from the schema's text styles (each name and
+    /// its WebKit alias, `title-1` for `title1` too, as the kernel reads
+    /// them) and its named lengths (`hairline`), each `-exact-<name>`.
+    pub fn named_lengths<'a>(
+        text_styles: impl IntoIterator<Item = (&'a str, &'a str)>,
+        lengths: impl IntoIterator<Item = &'a str>,
+    ) -> Vec<String> {
+        let mut out = Vec::new();
+        for (name, alias) in text_styles {
+            out.push(format!("-exact-{name}"));
+            if let Some(d) = name.chars().last().filter(char::is_ascii_digit) {
+                out.push(format!("-exact-{}-{d}", &name[..name.len() - 1]));
+            }
+            if !alias.is_empty() {
+                out.push(alias.to_string());
+            }
+        }
+        out.extend(lengths.into_iter().map(|n| format!("-exact-{n}")));
+        out
+    }
 }
 
 /// A checked, folded design.
@@ -98,7 +136,8 @@ pub struct Folding {
     /// How many full app tuples its axes make.
     pub tuples: usize,
     /// What the author should know and the build does not refuse: a pair
-    /// below WCAG's text contrast (`tamber-contrast`, D3).
+    /// below WCAG's text contrast (`tamber-contrast`, D3); a type token in
+    /// px (`tamber-type-fixed`, D6).
     pub warnings: Vec<Diagnostic>,
     fallbacks: Vec<Option<[String; 2]>>,
     dials: Vec<String>,
@@ -115,9 +154,13 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
     let (tokens, tuples, dials) = check::check(&design, vocab)?;
     let fallbacks = tokens
         .iter()
-        .map(|t| fallback(t.values.first()?, vocab))
+        .map(|t| match t.values.first()? {
+            Value::Color(f) => fallback(f, vocab),
+            other => Some([other.css(), other.css()]),
+        })
         .collect();
-    let warnings = contrast(&design, &tokens, tuples, vocab);
+    let mut warnings = contrast(&design, &tokens, tuples, vocab);
+    warnings.extend(type_fixed(&design, &tokens));
     Ok(Folding {
         design,
         tokens,
@@ -126,6 +169,29 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
         fallbacks,
         dials: dials.iter().map(ir::dial_text).collect(),
     })
+}
+
+/// Each type token whose size is px in some tuple (`tamber-type-fixed`,
+/// D6): the author's choice not to scale with the person's text size,
+/// which the build does not refuse.
+fn type_fixed(design: &Design, tokens: &[Checked]) -> Vec<Diagnostic> {
+    tokens
+        .iter()
+        .zip(&design.tokens)
+        .filter(|(t, _)| {
+            t.values
+                .iter()
+                .any(|v| matches!(v, Value::Type(t) if matches!(t.size, Length::Px(_))))
+        })
+        .map(|(t, declared)| {
+            Diagnostic::new(
+                "tamber-type-fixed",
+                format!("`{}`'s size is px, so it does not follow the person's text size (Dynamic Type, the browser's setting): a text style or `rem` does", t.name),
+                declared.name.line,
+                declared.name.col,
+            )
+        })
+        .collect()
 }
 
 /// WCAG 2's text ratio, below which a declared pair is warned of.
@@ -151,11 +217,12 @@ fn contrast(design: &Design, tokens: &[Checked], tuples: usize, vocab: &Vocab) -
             let role = Folded::Host(Host::Role(pair.clone()));
             let mut lowest: Option<(f64, usize, usize, bool)> = None;
             for tuple in 0..tuples {
-                let Some((fg, a)) = t.values.get(tuple).and_then(sides) else {
+                let Some((fg, a)) = t.values.get(tuple).and_then(Value::color).and_then(sides)
+                else {
                     continue;
                 };
                 let bg = match under {
-                    Some(u) => u.values.get(tuple).and_then(sides),
+                    Some(u) => u.values.get(tuple).and_then(Value::color).and_then(sides),
                     None => sides(&role),
                 };
                 let Some((bg, b)) = bg else { continue };
@@ -299,7 +366,7 @@ impl Folding {
     }
 
     /// A token's value for one tuple, by name.
-    pub fn value(&self, name: &str, tuple: usize) -> Option<&Folded> {
+    pub fn value(&self, name: &str, tuple: usize) -> Option<&Value> {
         self.tokens
             .iter()
             .find(|t| t.name == name)

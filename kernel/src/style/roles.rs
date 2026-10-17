@@ -194,7 +194,7 @@ pub fn follows_accent(id: u8, macos: bool) -> bool {
 /// tinted in its accent). Each reads the nearest `accent-color`
 /// (`--exact-accent`, LLP 1116.001 D2), else the browser's accent. CSS's
 /// `ButtonText` is the tint on iOS and the browser's own keyword here.
-fn web_accent(r: &ColorRole) -> bool {
+pub fn web_accent(r: &ColorRole) -> bool {
     matches!(r.name, "AccentColor" | "LinkText") || (!is_css_system(r) && r.ios == "@tint")
 }
 

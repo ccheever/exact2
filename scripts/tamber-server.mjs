@@ -81,7 +81,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { buildChannel } from './tamber-builds.mjs';
 import { scrubSessions } from './tamber-scrub.mjs';
-import { current, join, mapFor, sitesAt, staleMap } from './tamber-inspect.mjs';
+import { current, join, sitesAt, staleMap } from './tamber-inspect.mjs';
 import { designSession } from './tamber-commit.mjs';
 import { designCommit, designLog } from './tamber-history.mjs';
 
@@ -156,9 +156,11 @@ function spawnContract(appDir) {
  * resolves once it has let go of the design's lock. `scrub`, from a dev
  * loop, previews a scrub on its builds; `scopeOf(req)` is a request's scope
  * (LLP 1122 D6's ladder): the one token is the local tool's, which writes,
- * and paired clients' scoped tokens name theirs. `sourceMap()` is the dev
- * loop's current source map (`app.plan.map.json` bytes, or null), which an
- * inspected selection is joined to (LLP 1122 D5); `designServed()` the
+ * and paired clients' scoped tokens name theirs. `sourceMap(digest)` is the
+ * source map of the plan with that digest (`app.plan.map.json` bytes, or
+ * null), or with none the running generation's, which an inspected
+ * selection is joined to and outlines are drawn from (LLP 1122 D5, T2c);
+ * `designServed()` the
  * design it serves now (a live edit's) as `{digest, source}`, `source` the
  * SHA-256 of the design file it was made from, or null for the plan's own. */
 export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null }) {
@@ -187,22 +189,50 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // A selection (LLP 1122 D5) joined to source: refused and asked again
   // when it is from before the build's latest status; else published as a
   // `selection`, and every copy of its node outlined.
+  // Source maps by plan digest (LLP 1122 T2c): each build's own plan's, as
+  // the dev loop gives it now (`sourceMap(digest)`; with none, the running
+  // generation's). A map can change under one plan digest (an edit that
+  // moves only source locations), so the dev loop is asked each time; its
+  // bytes are parsed once.
+  const parsed = new WeakMap();
+  const mapOf = (digest) => {
+    let raw = null, map = null;
+    try { raw = sourceMap(digest); } catch { raw = null; }
+    if (!raw || typeof raw !== 'object') return null;
+    if (parsed.has(raw)) map = parsed.get(raw);
+    else { try { map = JSON.parse(Buffer.from(raw).toString('utf8')); } catch { map = null; } parsed.set(raw, map); }
+    return map?.nodes && typeof map.digest === 'string' && (!digest || map.digest === digest) ? map : null;
+  };
   const channel = buildChannel({
     send: e => send({ ...e, seq: ++seq, epoch }), log,
     selected: (build, report, ask) => {
       if (!current(build, report)) {
         // Asked again once per status: its status first (one lost on the way
         // would leave every selection stale), then the selection.
-        const at = JSON.stringify([build.plan, build.design, build.status?.revision]);
+        const at = JSON.stringify([build.plan, build.planDigest ?? null, build.design, build.status?.revision]);
         if (refreshed.get(build.id) !== at) { refreshed.set(build.id, at); ask({ kind: 'inspect', refresh: true, status: true }); }
         return { status: 409, body: { message: 'a selection from before the build\'s latest status (a batch or a pin since): asked again' } };
       }
       refreshed.delete(build.id);
-      const map = mapFor(sourceMap(), report.selected.planDigest);
+      // (A selection that does not name its plan joins with no map: read-only.)
+      const map = report.selected.planDigest ? mapOf(report.selected.planDigest) : null;
       const selection = join(build, report.selected, map, { served: designServed(), design: designPath(appDir) });
       send({ event: 'selection', seq: ++seq, epoch, ...selection });
-      // Outlined as the client that owns inspect mode on that build.
-      if (selection.source) channel.outline(channel.inspector(build.id) ?? 'inspect', sitesAt(map, selection.source), map.digest);
+      // Outlined as the client that owns inspect mode on that build, naming
+      // the click it answers (its page does not scroll for it).
+      // Every copy on every build (D5): the selection's source span, from its
+      // own plan's map, resolved through each build's own plan's map (the
+      // running generation's for a build that says no plan); a build whose
+      // map is missing or stale is sent none.
+      if (selection.source) {
+        const at = new Map();
+        channel.outline(channel.inspector(build.id) ?? 'inspect', b => {
+          const m = b.planDigest ? mapOf(b.planDigest) : mapOf();
+          if (!m) return null;
+          if (!at.has(m.digest)) at.set(m.digest, staleMap(m) ? null : sitesAt(m, selection.source));
+          return at.get(m.digest) ? { sites: at.get(m.digest), plan: m.digest } : null;
+        }, report.click ?? null);
+      }
       return null;
     },
   });
@@ -535,16 +565,18 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!present(request.client)) return { status: 409, error: { message: `outline: \`${request.client}\` is not present` } };
     if (!Array.isArray(request.at) || request.at.length > 4096 || !request.at.every(a => a && typeof a.file === 'string' && Number.isInteger(a.line) && Number.isInteger(a.col))) return { status: 400, error: { message: 'outline names `at`: up to 4096 source locations `{file, line, col}`' } };
     // Nothing to outline: the outlines are cleared, map or none.
-    if (!request.at.length) return { ok: { sites: [], builds: channel.outline(request.client, null, null) } };
-    const raw = sourceMap();
-    let map = null;
-    try { map = raw ? JSON.parse(Buffer.from(raw).toString('utf8')) : null; } catch { map = null; }
-    if (!map?.nodes) return { status: 503, error: { message: 'no source map for the running plan yet' } };
-    const stale = staleMap(map);
-    if (stale) return { status: 409, error: { message: stale } };
-    const sites = [...new Set(request.at.flatMap(a => sitesAt(map, a)))];
-    log(`tamber: ${request.client} outlined ${request.at.length} location(s), ${sites.length} site(s)`);
-    return { ok: { sites, builds: channel.outline(request.client, sites, map.digest) } };
+    if (!request.at.length) return { ok: { sites: [], builds: channel.outline(request.client, null) } };
+    // Each build its own plan's sites, from its plan's map (the running
+    // one's for a build that does not say its plan); none from a plan with
+    // no map here, or one whose sources have moved since.
+    const map = mapOf(), at = new Map(), why = new Set();
+    let mapless = 0;
+    const sitesOf = (m) => { if (!at.has(m.digest)) { const stale = staleMap(m); if (stale) why.add(stale); at.set(m.digest, stale ? null : [...new Set(request.at.flatMap(a => sitesAt(m, a)))]); } return at.get(m.digest); };
+    const builds = channel.outline(request.client, b => { const m = b.planDigest ? mapOf(b.planDigest) : map; if (!m) mapless += 1; const s = m && sitesOf(m); return s ? { sites: s, plan: m.digest } : null; });
+    if (!builds.length && (why.size || mapless || !map)) return why.size ? { status: 409, error: { message: [...why].join('; ') } } : { status: 503, error: { message: 'no source map here for the plans the builds run (yet)' } };
+    const sites = (map && sitesOf(map)) ?? [];
+    log(`tamber: ${request.client} outlined ${request.at.length} location(s) on ${builds.length} build(s)`);
+    return { ok: { sites, builds } };
   }
 
   /** A pin on one build or every build (LLP 1122 D4), its client's while

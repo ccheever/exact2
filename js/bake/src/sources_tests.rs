@@ -276,3 +276,24 @@ fn native_resource_trees_are_not_captured_as_typescript_or_assets() {
     assert_eq!(captured.len(), 1);
     assert!(captured.contains_key(std::path::Path::new("app.json")));
 }
+
+/// A Cargo bake reruns on each package's installed paths and on each
+/// captured file where it was read: a package reached through a file link
+/// has no installed path, and its files are still watched.
+#[test]
+fn cargo_watches_captured_package_files_and_installed_paths() {
+    let stage = Scratch::new(&std::env::temp_dir()).unwrap();
+    std::fs::write(
+        stage.0.join("__exact_packages.json"),
+        r#"{"packages":[["a@1.0.0","/real/a",["/app/node_modules/a"]],["b@1.0.0","/real/b",[]]],"files":[["b@1.0.0","extra.js","/real/b/extra.js","x"]],"edges":[],"digests":{"a@1.0.0":"d"}}"#,
+    )
+    .unwrap();
+    let code = super::package_code(&stage.0).unwrap();
+    for path in ["/app/node_modules/a", "/real/b/extra.js"] {
+        assert!(
+            code.watched.contains(&std::path::PathBuf::from(path)),
+            "{path}"
+        );
+    }
+    assert_eq!(code.packages["a@1.0.0"], "d");
+}

@@ -5,6 +5,39 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+/// Every node a press traversed, with the inertness rule from that side of
+/// the first presentation crossing. Held identities survive no pool reuse.
+struct PressPath {
+    private var nodes: [(held: HeldNode, crossed: Bool, moves: UInt64, inWindow: Bool)] = []
+    private var openings: [() -> Bool] = []
+    private let reachedTarget: Bool
+    let bubbled: Bool
+    var presentationsOpen: Bool { openings.allSatisfy { $0() } }
+
+    init(from source: UIView, to target: UIView, presenter: Presenter) {
+        var at: UIView? = source, crossed = false
+        while let view = at {
+            if let node = view as? NodeView { nodes.append((HeldNode(node), crossed, node.pressMoves, node.window != nil)) }
+            if view === target { break }
+            if let open = presenter.menus.pressLifetime(of: view) { openings.append(open) }
+            let parent = presenter.listenerParent(of: view)
+            crossed = crossed || parent !== view.superview
+            at = parent
+        }
+        reachedTarget = at === target
+        bubbled = crossed
+    }
+
+    func isLive(in presenter: Presenter) -> Bool {
+        reachedTarget && presentationsOpen && nodes.allSatisfy { entry in
+            guard let node = entry.held.live(in: presenter) else { return false }
+            // A node in a window when captured must still be in one.
+            return node.superview != nil && (node.window != nil || !entry.inWindow) && node.pressMoves == entry.moves
+                && !node.disabled && !(entry.crossed ? node.authoredInert : node.inert)
+        }
+    }
+}
+
 extension Presenter {
     /// Whether `view` is mounted in this session: in its viewport, or in a
     /// presentation beside it.
@@ -37,40 +70,44 @@ extension Presenter {
         modals.mountRoots.reduce(viewport.endEditing(true)) { $1.endEditing(true) || $0 }
     }
 
-    /// What a touch reaches after `view`, as UIKit gives a touch to the
-    /// views it falls in: the superview, but past a presented route, out of
-    /// its sheet's mount, its logical parent (`MountRelay`, the press's
-    /// `pressResponder`). The walks that say what a touch would reach
-    /// (an agent's tap, VoiceOver's activation, a text's menu source) take
-    /// it, so they reach what a finger does.
-    func touchParent(of view: UIView) -> UIView? {
+    /// The next view reached by a touch or its listeners: the superview,
+    /// except that a presented route, a dialog's sheet and a lifted popover
+    /// bubble to their authored parent outside the presentation. The agent
+    /// and accessibility activation take the same steps as a real touch.
+    func listenerParent(of view: UIView) -> UIView? {
+        if let node = view as? NodeView, let parent = menus.sheets.authoredParent(of: node) { return parent }
+        if let parent = menus.logicalParent(of: view) { return parent }
         if let node = view as? NodeView, navigation.controllers[node.id]?.node === node, modals.mounts(node) {
             return eventParent(of: node)
         }
         return view.superview
     }
 
-    /// What a touch's listeners (a pointer observer, a long press, a double
-    /// tap) are reached through after `view`: `touchParent`, and out of a
-    /// dialog's sheet or a lifted popover to its authored parent, as their
-    /// `MountRelay`s reach them. A press keeps to `touchParent`.
-    func listenerParent(of view: UIView) -> UIView? {
-        (view as? NodeView).flatMap { menus.sheets.authoredParent(of: $0) } ?? menus.logicalParent(of: view) ?? touchParent(of: view)
-    }
-
-    /// The view a press on `target`, reached from `start` (`touchParent`),
-    /// must land in: the target, or, when the walk left a sheet's mount for a
+    /// The view a press on `target`, reached from `start` (`listenerParent`),
+    /// must land in: the target, or, when the walk left a presentation for a
     /// logical ancestor in another mount, whose own box is not under the
     /// finger (LLP 1123 D2), the content UIKit hit-tested the touch to,
     /// `start`, as a node judges its own press.
     func pressBox(of target: UIView, from start: UIView) -> UIView {
         var at: UIView? = start, crossed = false
         while let cur = at, cur !== target {
-            let up = touchParent(of: cur)
+            let up = listenerParent(of: cur)
             crossed = crossed || up !== cur.superview
             at = up
         }
         return at != nil && crossed ? start : target
+    }
+
+    /// The openings a press crosses before reaching `target`, or through
+    /// the whole listener ancestry when no target is given. Capture before
+    /// callbacks: closing and reopening the same view ends the old press.
+    func pressLifetimes(from start: UIView, to target: UIView? = nil) -> [() -> Bool] {
+        var lifetimes: [() -> Bool] = [], at: UIView? = start
+        while let view = at, view !== target {
+            if let open = menus.pressLifetime(of: view) { lifetimes.append(open) }
+            at = listenerParent(of: view)
+        }
+        return lifetimes
     }
 
     /// The port `view` is mounted in: its presentation's mount, or the
@@ -98,7 +135,7 @@ extension Presenter {
     #endif
 
     /// The editor being edited.
-    private var editor: NodeView? { editing ?? views.values.first { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true } }
+    var editor: NodeView? { editing ?? views.values.first { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true } }
 
     /// Reveals the editor of a presentation's route while the keys are up.
     func revealSheetEditor() {

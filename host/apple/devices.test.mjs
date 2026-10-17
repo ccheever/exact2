@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, wr
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { crashReports, crashSummary, crashWatch, withKeyboard, phoneBridge } from './devices.mjs';
+import { crashReports, crashSummary, crashWatch, withDisplay, phoneBridge } from './devices.mjs';
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
@@ -60,7 +60,7 @@ test('the rows from the keyboard\'s top down are the display\'s, the app above t
   withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
     const shot = resolve(dir, 'app.png');
     writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withKeyboard({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 }, note: 'old' }, shot, 'UDID');
+    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 }, note: 'old' }, shot, 'UDID');
     const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
     expect([at(0), at(3)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
     expect([at(4), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
@@ -73,15 +73,27 @@ test('a display of another size leaves the picture as it was, and says why', () 
   withFakeSimctl(solid(6, 8, [0, 0, 255, 255]), (dir) => {
     const shot = resolve(dir, 'app.png'), app = solid(4, 8, [255, 0, 0, 255]);
     writeFileSync(shot, app);
-    const r = withKeyboard({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 } }, shot, 'UDID');
+    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 } }, shot, 'UDID');
     expect(readFileSync(shot).equals(Buffer.from(app))).toBe(true);
     expect(r.keyboard.captured).toBeUndefined();
     expect(r.note).toContain('the display is 6x8, the capture 4x8');
   });
 });
 
+test('the status bar\'s rows are the display\'s', () => {
+  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
+    const r = withDisplay({ scale: 2, statusBar: 1 }, shot, 'UDID');
+    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
+    expect([at(0), at(1), at(2), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255], [255, 0, 0, 255], [255, 0, 0, 255]]);
+    expect(r.statusBar).toBe(true);
+    expect(r.note).toBeUndefined();
+  });
+});
+
 test('a capture that says no keyboard top is left alone', () => {
-  const r = withKeyboard({ scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID');
+  const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID');
   expect(r.note).toContain('no keyboard top');
 });
 

@@ -310,6 +310,9 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(field.text, "Untitled")
         XCTAssertEqual(field.placeholder, "Name")
         XCTAssertEqual(field.accessibilityIdentifier, "name")
+        XCTAssertEqual(field.returnKeyType, .default, "an unsaid enterkeyhint keeps the alert field's Return key")
+        XCTAssertEqual(field.autocorrectionType, .no, "unsaid, the alert field's own: no correction")
+        XCTAssertEqual(field.autocapitalizationType, .none, "unsaid, the alert field's own: no capitalization")
         XCTAssertNil(alert.preferredAction, "no action drawn bold, as a hand-built prompt's")
 
         field.text = "Kick"
@@ -326,6 +329,25 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         settle { events.contains("press 4") }
         XCTAssertEqual(events, ["input 20 Kick", "change 20 Kick", "press 4"])
         XCTAssertNil(try XCTUnwrap(p.views[20]).headerField, "the authored field is its own again")
+    }
+
+    /// An email prompt keeps its text as typed, as the page's field does: no
+    /// capitalization, correction, smart quotes or smart dashes.
+    func testAnEmailPromptKeepsItsTextAsTyped() throws {
+        let (p, controller, _) = confirmation(label: "Invite", texts: [], actions: ["Delete", "Send"], cancel: true)
+        defer { dismiss(p, controller) }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["input"],
+                            "props": ["value": "", "type": "email", "testId": "email"], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [20, 3, 4, 9]]]))
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let field = try XCTUnwrap(alert.textFields?.first)
+        XCTAssertEqual(field.keyboardType, .emailAddress)
+        XCTAssertEqual(field.autocapitalizationType, .none)
+        XCTAssertEqual(field.autocorrectionType, .no)
+        XCTAssertEqual(field.smartQuotesType, .no)
+        XCTAssertEqual(field.smartDashesType, .no)
     }
 
     private final class PromptKey: UIKey {

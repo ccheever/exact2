@@ -16,7 +16,7 @@ component Toolbar
         image (starred ? "symbol:star-fill" : "symbol:star")
       button aria-label="Share" testId="share"
         image "symbol:share"
-      image "symbol:sf/cloud.sun.rain" aria-label="Showers later" width=28 height=28
+      image "symbol:sf/cloud.sun.rain" aria-label="Showers later" font="-exact-title1"
       row gap=6 align-items="center"
         image "symbol:calendar" aria-hidden=true
         text "Tomorrow"
@@ -47,4 +47,5 @@ the role, with a warning that names it (`lower-symbol-alias`).
   A `color` written on the symbol is its colour, as `currentcolor` paints an icon on the
   web; a row's trailing `forward-chevron` is already the platform's grey.
   Emoji aren't icons: they ignore the tint, the weight and the theme.
-- `width` and `height` size a symbol that stands alone.
+- A symbol takes its text's size. To size one, give it a text style (`-exact-title1`), as
+  UIKit configures a symbol: it grows with the reader's text size; a `width` does not.

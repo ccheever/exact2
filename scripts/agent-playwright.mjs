@@ -110,7 +110,7 @@ const init = `
 
 async function waitForBoot(page, why = 'the page never booted') {
   try { await page.waitForFunction(() => document.getElementById('exact-root')?.dataset.bootMs != null, null, { timeout: 30000 }); }
-  catch { throw new Error(why); }
+  catch { throw new Error(typeof why === 'function' ? why() : why); }
   await page.evaluate(() => globalThis.exact.ready);
   return Number(await page.locator('#exact-root').getAttribute('data-boot-ms'));
 }
@@ -224,6 +224,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   let browserServer, browser, context, page, poolKey;
   // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
   const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
+  // Why a page never booted: its last 20 lines when the wait gave up, as a hangup's report (agent-wire.mjs).
+  const neverBooted = what => () => `${what}; ${hostLines.slice(-20).join('\n')}`;
   const closeFiles = () => {
     hosted.server.close();
     if (hosted.planBuild) rmSync(hosted.planBuild, { recursive: true, force: true });
@@ -269,7 +271,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     for (const [key, value] of Object.entries(facts)) address.searchParams.set(key, value);
     if (storage !== undefined) address.searchParams.set('storage', storage);
     await page.goto(address.href, { waitUntil: 'commit' });
-    let boot = await waitForBoot(page, `the page never booted; ${hostLines.join('\n')}`);
+    let boot = await waitForBoot(page, neverBooted('the page never booted'));
     if (await page.evaluate(() => matchMedia('(prefers-reduced-transparency: reduce)').matches)) throw new Error(`${name} cannot emulate the required prefers-reduced-transparency: no-preference launch fact`);
     if (plan && !hosted.js) {
       const carry = world ? worldFile(world).toString('base64') : null;
@@ -352,7 +354,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         heldKeys.clear();
         await page.evaluate(async (keep) => { sessionStorage.clear(); if (keep) return; localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); }, keep);
         if (!keep) await context.clearCookies();
-        hostLines.length = 0; await page.goto(withEpoch(withFaults(keep ? page.url() : address.href, failFetch), epoch), { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
+        hostLines.length = 0; await page.goto(withEpoch(withFaults(keep ? page.url() : address.href, failFetch), epoch), { waitUntil: 'commit' }); this.boot = await waitForBoot(page, neverBooted('the reused page never booted'));
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },

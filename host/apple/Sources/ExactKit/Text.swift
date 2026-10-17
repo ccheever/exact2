@@ -1361,7 +1361,9 @@ package final class TextEngine {
         var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
-        if request.markup != 0, let source = runs.first { runs = MarkdownLink.installed?.expand(source.text, base: source, color: nil) ?? runs }
+        if request.markup != 0, let source = runs.first {
+            runs = MarkdownLink.installed?.expand(source.text, base: source, color: nil, boldText: boldTextSteps(source.family)) ?? runs
+        }
         // Metric-only keys match the geometry used by the colored presenter.
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)

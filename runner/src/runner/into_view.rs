@@ -179,12 +179,7 @@ impl<D: DataSource> Runner<D> {
         }
         let change = self.router_change()?;
         self.batch += 1;
-        let language = self.resolved_locale().to_owned();
-        let direction = if self.direction() == "rtl" {
-            exact_kernel::Direction::Rtl
-        } else {
-            exact_kernel::Direction::Ltr
-        };
+        let (language, direction) = self.document_facts();
         self.kernel
             .begin_document_commit(0, self.batch, &ops, Some((&language, direction)))?;
         let mut effects = CommitReceipt::default();

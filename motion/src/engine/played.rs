@@ -43,6 +43,12 @@ pub enum PlayedCurve {
 }
 
 impl Engine {
+    /// Whether the host plays the transition on `property` of `node`: handed
+    /// over, and since neither ended, retargeted, cancelled nor held.
+    pub fn is_played(&self, node: u64, property: Property) -> bool {
+        self.played.contains(&(node, property))
+    }
+
     /// The transitions running now, which a host may play instead.
     pub fn running_transitions(&self) -> impl Iterator<Item = (u64, Property)> + '_ {
         self.running.iter().copied()
@@ -111,9 +117,10 @@ impl Engine {
     }
 
     /// Played transitions that would have ended by `now` are dropped: their
-    /// slots settle at the target they already present.
+    /// slots settle at the target they already present, and are presented
+    /// again, so that an animation the transition covered shows.
     pub(super) fn retire_played(&mut self, now: f64) {
-        let slots = &mut self.slots;
+        let (slots, dirty) = (&mut self.slots, &mut self.dirty);
         self.played.retain(|key| {
             let Some(slot) = slots.get_mut(key) else {
                 return false;
@@ -121,6 +128,7 @@ impl Engine {
             let done = slot.running().is_none_or(|r| r.sample(now).done);
             if done {
                 slot.set_running(None);
+                dirty.insert(*key);
             }
             !done
         });

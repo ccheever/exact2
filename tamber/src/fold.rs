@@ -59,10 +59,20 @@ pub(crate) fn fail<T>(id: &'static str, message: impl Into<String>) -> Result<T,
 pub(crate) enum Named {
     /// A token or colour dial's value.
     Color(Folded),
-    /// A number dial's value.
+    /// A number dial's or number token's value.
     Number(f64),
-    /// A length dial, which no colour takes.
-    Length,
+    /// A length dial's or length token's value, which no colour takes.
+    Length(crate::measure::Length),
+    /// A duration token's milliseconds.
+    Duration(f64),
+    /// An easing token's text.
+    Easing(String),
+    /// A shadow token's value, which only a whole shadow value names.
+    Shadow(crate::shadow::Shadows),
+    /// A type token's value, which only a whole type value names.
+    Type(crate::typeface::Type),
+    /// A family token's stack.
+    Family(String),
     /// A colour role no token overrides.
     Role(String),
     /// Nothing the design declares.
@@ -204,8 +214,8 @@ pub(crate) fn color(items: &[Item], names: &mut dyn Names) -> Result<Folded, Fol
 
 pub(crate) fn not_color_kind<T>() -> Result<T, FoldError> {
     fail(
-        "tamber-stage",
-        "only colour tokens are built yet; length, number, type, shadow and motion tokens arrive in stage 6",
+        "tamber-kind",
+        "not a colour: a type token is CSS `font` syntax with a size (`-exact-body/1.35 Inter`), a family a stack (`\"Inter\", system-ui`); write its kind (`: type`, `: family`) where it is not inferred",
     )
 }
 
@@ -226,15 +236,33 @@ fn ident(name: &str, names: &mut dyn Names) -> Result<Folded, FoldError> {
     match names.named(name)? {
         Named::Color(f) => return Ok(f),
         Named::Number(_) => {
+            return fail("tamber-kind", format!("`{name}` is a number, not a colour"))
+        }
+        Named::Length(_) => {
+            return fail("tamber-kind", format!("`{name}` is a length, not a colour"))
+        }
+        Named::Shadow(_) => {
             return fail(
                 "tamber-kind",
-                format!("`{name}` is a number dial, not a colour"),
+                format!("`{name}` is a shadow token, not a colour"),
             )
         }
-        Named::Length => {
+        Named::Duration(_) | Named::Easing(_) => {
             return fail(
                 "tamber-kind",
-                format!("`{name}` is a length dial, not a colour"),
+                format!("`{name}` is a motion token, not a colour"),
+            )
+        }
+        Named::Type(_) => {
+            return fail(
+                "tamber-kind",
+                format!("`{name}` is a type token, not a colour"),
+            )
+        }
+        Named::Family(_) => {
+            return fail(
+                "tamber-kind",
+                format!("`{name}` is a family token, not a colour"),
             )
         }
         Named::Role(r) => return Ok(Folded::Host(Host::Role(r))),

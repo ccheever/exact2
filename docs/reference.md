@@ -224,6 +224,7 @@ terminal entry as a compiled plan. Rebuild after editing the entry or an
 import; launching the binary needs no Contract source or compiler work.
 `exact-terminal <entry.contract>` remains the source-driven development
 host. All three accept the headless operations and `--size COLSxROWS`.
+Interactive terminal I/O runs on Unix only; Windows supports headless operations.
 
 The harness's inline transcript is transferred to scrollback in bounded
 batches, retiring each only after the terminal prints it. A large burst
@@ -517,6 +518,19 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
+A `net.fetch` line names one origin (`https://api.example.com`), every host
+under one domain (`https://*.example.com`), or a whole scheme, written as CSP
+writes a scheme source: `net.fetch https:` or `net.fetch http:` admits any host
+at any port of that scheme, for a server the person names at run time (a URL
+they type, a local server on a port chosen at launch). `net.websocket` takes an
+origin or `wss:`/`ws:` the same way. A scheme no line names is refused (`wss:`
+does not admit `ws:`). The platform's own refusals still apply: App Transport
+Security refuses cleartext beyond the local network, and a browser refuses
+`ws:` from an `https:` page except to loopback. A render-server page's
+`connect-src` carries the scheme source as written. The render server itself
+doesn't hold a scheme-wide `net.fetch` line: a source that needs one keeps its
+placeholder in the rendered page, and the client fetches it after adoption.
+
 For `fetch` with the default `redirect: "follow"`, native hosts check each
 redirect target against the source's `net.fetch` grants before contacting it.
 The web lets the browser follow and checks only the final response URL. On
@@ -620,8 +634,9 @@ alone are cleared on each launch. A drive with no `--storage` refuses app storag
 in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
-store}`), and the web's journal says `storage refused (agent): …` the first time
-a refusal lands. A Rust module's storage request in such a drive is answered
+store}`), and the journal says `storage refused (agent): …` the first time
+a write is refused (a refused read finds what an empty store would: nothing), which
+the driver repeats once as a note. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
 An answer waits for the storage it awaits, and only that (LLP 1097). Storage
@@ -709,7 +724,7 @@ A caller's abort signal maps an `error` with kind `Aborted` while the resource
 is still held. New arguments, `refresh` or the resource leaving the view close
 the stream without further mapper calls;
 `state.pending` lists it until its first message, `state.streams` while it is
-open. The same holds on Hermes, the web's wasm host and the web build (the JS
+open, with `grant`, the grant line that admitted it. The same holds on Hermes, the web's wasm host and the web build (the JS
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
@@ -719,7 +734,8 @@ receive `(event, socket)` for a WebSocket (LLP 1016.000 D7). Keep the handle by 
 module state. Its events are `open`, ordered `message` (string or ArrayBuffer
 `data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
 Every protocol frame reaches the mapper; `coalesced` is zero. The mapper must
-return a shaped snapshot synchronously. Sending belongs to a mutation:
+return a shaped snapshot synchronously. A mutation sends on a kept handle, and
+the mapper may answer its own socket's frames (below):
 
 ```ts
 import type { StreamSocket } from './app.contract.d.ts';
@@ -743,8 +759,8 @@ export function answer(source: string, [id, url, text]: [string, string, string]
 Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
 `send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
 the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
-reason of at most 123 UTF-8 bytes. Both methods are allowed only during the
-mutation source's synchronous call. A source that stages socket operations
+reason of at most 123 UTF-8 bytes. In a mutation, both methods are allowed
+only during its source's synchronous call. A source that stages socket operations
 must answer now with a value: not a promise, not a stream answer, and with
 no `fetch` in the same mutation. Whichever of a socket operation and a
 `fetch` comes second throws `a mutation cannot both send on a socket and
@@ -756,8 +772,30 @@ module began, plus what this mutation has staged on the socket, so a turn
 that sends nothing still sees a buffer that has drained. It cannot extend
 the resource's lifetime.
 
-A mutation stages at most 256 operations and 1 MiB, including bytes already
-buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
+The mapper may also `send` and `close` on the socket it was handed while it
+answers `open` or a `message`: a subscribe on `open`, an `Ack` or `Pong` for
+each frame, as a browser client answers in its handlers (LLP 1016.000 D7,
+amended 2026-10-16):
+
+```ts
+exactStream(event, socket) {
+  if (event.type === "open") socket.send('{"_tag":"Subscribe"}');
+  if (event.type === "message") socket.send(JSON.stringify({ _tag: "Ack", id: JSON.parse(event.data).id }));
+  return { status: event.type, text: typeof event.data === "string" ? event.data : "" };
+},
+```
+
+What a mapper call stages is sent once the commit that settles that frame's
+snapshot stands, in arrival order and ahead of later mutations' frames. A
+throw, a wrong-shaped snapshot or a refused commit sends none of it, and
+`logs` say `mapper <resource> failed: …; socket frames were refused`. Each
+call has a mutation's bounds below; overload throws `QuotaExceededError` and
+fails that frame's snapshot even if the mapper catches it. On `close` and
+`error` the handle is already closed and refuses; so do another socket's
+handle, a continuation the mapper schedules, and a `fetch` in the call.
+
+A mutation or mapper call stages at most 256 operations and 1 MiB, including
+bytes already buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
 not-yet-open handle throws `InvalidStateError` (also after close, a deliberate
 difference from the browser's silent discard). A change before publication
 can still refuse transport admission, reported in `logs`: acceptance is not
@@ -1157,11 +1195,16 @@ Hermes bytecode with the compiler from the verified install-once bundle:
 cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
 ```
 
-The app exports `appId`, `grants`, and an `Answer`-typed `answer`. The producer
+The app exports `appId`, `grants`, and an `Answer`-typed `answer`; `appId` and
+`grants` are constants the build reads from the source without running it (a
+string, a template or `+` of constants, an array of them `.join('\n')`, or a
+top-level `const` holding one). The producer
 captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
-never overwrites an existing generation. npm dependencies are not captured yet.
+never overwrites an existing generation. An installed package's code is captured
+file by file as the bundle reaches it; the receipt's `packages` names each
+`name@version` with a digest of what was taken (LLP 1027 D5, "Package code").
 `EXACT_TSC` and `EXACT_ROLLDOWN` override producer tools. `hermesc` is always
 the compiler paired with the selected `hermes-lean-sys` bundle.
 A module's placement (LLP 1027.002) is the manifest's: `typescript.placement`
@@ -1247,7 +1290,7 @@ Browser navigation, both Apple cold/warm handlers and malformed-link refusals ar
 tested. The page cannot detect installation, and does not trigger signing/builds.
 
 **Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
-there); `app.ts` can't import npm packages' code, only their types (`import type`); signed delivery of TypeScript and Rust
+there); `app.ts` imports pure-JavaScript packages only (Node's modules, the DOM, code from a string and native addons are refused). That check keeps a module portable between Hermes and the page; it is no security boundary: on the web the module runs in the page's realm, and a package is code the author chose, trusted as their own; signed delivery of TypeScript and Rust
 modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
 was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
 and git.

@@ -583,3 +583,31 @@ component Editor
     let dev = crate::emit::emit(&plan, false, true).unwrap().js;
     assert!(dev.contains(r#"$devSig("draft#1"+"@"+e"#), "{dev}");
 }
+
+/// The boot's settlement asks `exactMIDI` and `exactTransport`, so their
+/// readers are installed before the first resource; a sequence is armed
+/// after mount, as the runner's boot arms it.
+#[test]
+fn transport_and_midi_readers_precede_the_resources_and_sequences_follow_mount() {
+    let plan = contract::compile(
+        r#"shape Transport
+  state: string
+shape MIDI
+  state: string
+component App
+  state on = false
+  resource transport = exactTransport() as shape Transport
+  resource midi = exactMIDI() as shape MIDI
+  sequence groove when on
+    play([], bpm=120)
+  view
+    text `${transport.state} ${midi.state}`
+"#,
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = |s: &str| js.find(s).unwrap_or_else(|| panic!("no {s} in {js}"));
+    assert!(at("$midi(") < at("const r_0="), "{js}");
+    assert!(at("$transport(") < at("const r_0="), "{js}");
+    assert!(at("mount(") < at("$sequence("), "{js}");
+}

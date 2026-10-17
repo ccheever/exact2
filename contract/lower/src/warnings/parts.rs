@@ -13,6 +13,12 @@
 //! label is judged; a label the app computes is the benefit of the doubt. The
 //! warning advises and the author decides: the part keeps its shape, and a
 //! screen's main action of more words is the prominent `button`.
+//!
+//! `lower-empty-state-in-list` (LLP 1116.020 D5): an `EmptyState` inside a
+//! `list`, which draws it as a row, a card among the sections, where UIKit's
+//! content-unavailable view takes the screen's place. Five of round 18's
+//! apps showed their empty state so. Read the same way: a part wrapped in a
+//! component of the author's own is the benefit of the doubt.
 
 use super::miswiring::arms;
 use crate::LowerError;
@@ -60,6 +66,41 @@ pub(super) fn round_button_label(checked: &Checked<'_>) -> Vec<LowerError> {
             }
             for arm in arms(node).into_iter().rev() {
                 stack.extend(arm.iter().rev());
+            }
+        }
+    }
+    out
+}
+
+/// The `EmptyState` part's props, in its order.
+const EMPTY_PROPS: [&str; 3] = ["symbol", "title", "message"];
+
+/// Every `EmptyState` call written inside a `list` of the same component.
+pub(super) fn empty_state_in_list(checked: &Checked<'_>) -> Vec<LowerError> {
+    let components = &checked.file.components;
+    let is_part = components
+        .iter()
+        .any(|c| c.name == "EmptyState" && c.props.iter().map(|p| p.name.as_str()).eq(EMPTY_PROPS));
+    let mut out = Vec::new();
+    if !is_part {
+        return out;
+    }
+    for component in components {
+        let mut stack: Vec<(&Node, bool)> =
+            component.view.iter().rev().map(|n| (n, false)).collect();
+        while let Some((node, in_list)) = stack.pop() {
+            if let (Node::Use { name, span, .. }, true) = (node, in_list) {
+                if name == "EmptyState" {
+                    out.push(LowerError {
+                        id: "lower-empty-state-in-list",
+                        message: "`EmptyState` inside a `list` is drawn as one of its rows; it centres in the screen in place of the list: `if items.length == 0 and not pending(items)`, the `EmptyState`, `else` the `list` (pattern list-detail)".into(),
+                        span: *span,
+                    });
+                }
+            }
+            let in_list = in_list || matches!(node, Node::Element { tag, .. } if tag == "list");
+            for arm in arms(node).into_iter().rev() {
+                stack.extend(arm.iter().rev().map(|n| (n, in_list)));
             }
         }
     }

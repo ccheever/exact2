@@ -296,12 +296,16 @@ int exact_js_harden(void *h, const uint8_t *harden, size_t harden_len, char **ou
     state->adapter->capture_intrinsics();
     // Hermes' young generation is one heap segment that keeps every page it
     // has touched, so its footprint is the furthest point allocation reaches
-    // between two collections. The freeze below allocates about 1.3 MB,
-    // nearly all of it garbage; collecting what the runtime and prelude
-    // allocated first (0.65 MB, half of it live) lets it reuse their pages.
+    // between two collections. The runtime and prelude allocate about
+    // 0.5 MB, the guarded freeze 0.9 MB, nearly all of it garbage, and an
+    // app's first screens often as much again: collecting before and after
+    // the freeze lets each reuse the pages of the one before, so boot
+    // touches about as much young generation as its largest step. A
+    // collection takes 0.15 to 0.3 ms here (iPhone simulator).
     state->rt->instrumentation().collectGarbage("bootstrap");
     ibex2::jsi_adapter::CompiledScript script{"harden", harden, harden_len};
     state->adapter->harden(script);
+    state->rt->instrumentation().collectGarbage("hardened");
     return 0;
   } catch (const jsi::JSError &e) {
     return fail(out, e.getMessage(), 1);

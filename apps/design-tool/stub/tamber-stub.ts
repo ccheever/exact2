@@ -102,6 +102,14 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'inspect') {
         if (!present.has(request.client)) return send({ error: { message: `inspect: \`${request.client}\` is not present` } }, 409);
         const can = BUILDS.filter(b => (b.capabilities ?? []).includes('inspect')).map(b => b.id);
+        // Its owners move, said as the server says them (tamber/1.5).
+        const was = new Map(BUILDS.map(b => [b.id, b.inspector ?? null]));
+        BUILDS = BUILDS.map(b => request.on ? (can.includes(b.id) ? { ...b, inspector: request.client } : b) : (b.inspector === request.client ? { ...b, inspector: null } : b));
+        const lost = new Map<string, string[]>(), took: string[] = [];
+        for (const b of BUILDS) { const before = was.get(b.id); if (before !== (b.inspector ?? null)) { if (before) lost.set(before, [...(lost.get(before) ?? []), b.id]); if (b.inspector) took.push(b.id); } }
+        for (const [owner, builds] of lost) log.push({ event: 'inspect', epoch: EPOCH, client: owner, on: false, builds, to: request.on ? request.client : null, seq: seq() + 1 });
+        if (took.length) log.push({ event: 'inspect', epoch: EPOCH, client: request.client, on: true, builds: took, seq: seq() + 1 });
+        save();
         return send({ ok: { builds: can, unsupported: BUILDS.map(b => b.id).filter(id => !can.includes(id)) } });
       }
       if (request.method === 'uses') return send({ ok: { token: request.token, plan: 'p1', sites: request.token === 'surface.card' ? [
