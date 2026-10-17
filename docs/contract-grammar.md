@@ -1040,6 +1040,30 @@ action still happens: only `preventDefault()` stops a key's typing or a
 wheel's scroll, and a stopped `pointerdown` or `pointerup` leaves the click's
 `press` alone.
 
+`press` is DOM's `click` stopped at its handler: a press goes to the nearest
+node from the one pressed up that takes a press (a `press` handler or a
+link), and to no node above it. Content in an open popover or a modal
+`dialog` presses the popover's or dialog's authored ancestors, as a click
+bubbles out of the top layer, never a node only under it: a modal dialog's
+ancestors take that press though the dialog makes them inert, while an
+authored `inert` still silences them. That ancestor's own box is seldom
+under the pointer, so the press lands as the content it went down on judges
+its own: a pointer that leaves that content before it lifts presses nothing.
+A press that reaches an invoker (`commandfor`, `popovertarget`) behind a
+modal dialog runs its `press` handler, and opens or closes its target only
+where the target is inside the modal's subtree; a target the modal makes
+inert stays as it is, as a `contextPopover` on an ancestor behind the modal
+opens no menu.
+
+A text field, a checkbox or another form control takes a tap or a click
+itself, so an ancestor's `press` does not fire, in the page or in a dialog.
+That is the platform's rule on macOS and iOS (a hand-built screen's control
+consumes its touch, [LLP 1115](../llp/1115-write-the-web-ship-the-platform.principle.md));
+on the web the click bubbles from the control to the ancestor. A `press`
+written on the control itself gives the same result on every host. A
+`button` with no `press` of its own presses the nearest ancestor's on every
+host.
+
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
 | A string, then optionally an `InputEvent` | `change`, `input` on a text field, textarea, `select`, date or time input, and `type="radio"` (the radio's `value`); an action taking one more parameter also hears the [target](#form-controls-radio-inputevent-setselectionrange) |
@@ -1211,8 +1235,8 @@ bindings are required as a pair. See
 touch or a button going down (any: `buttons` says which, 2 for a right-click)
 is the `pointerdown` of every enabled node from the one under it up that
 declares it, innermost first, as `key` and `wheel` bubble, before any gesture
-decides; a press inside a popover reaches the popover's ancestors, never a
-node only under it. When the pointer lifts or is cancelled (a cancel is an
+decides; a press inside a popover or a modal dialog reaches its authored
+ancestors, never a node only under it. When the pointer lifts or is cancelled (a cancel is an
 up), each node the down passed that declares `pointerup` hears it, innermost
 first, wherever the pointer is, before the click's `press`. The innermost
 enabled node that hears any of the three holds the pointer: its
@@ -1250,7 +1274,10 @@ A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
 and in a browser on one it comes on the button's down, after its `pointerdown`.
 A Control-click there is a secondary click too: where a `contextmenu` or
 `contextPopover` answers it, it holds the primary button and Control, and
-nothing presses.
+nothing presses. A secondary click in a modal dialog reaches an ancestor's
+`contextmenu` behind it, but that ancestor's `contextPopover` stays shut,
+since the modal makes it inert; a press bubbling to an invoker behind the
+modal follows the same rule ([Events](#events)).
 On macOS, the unmodified `ContextMenu` key opens it at the focused node's
 visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
 A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
