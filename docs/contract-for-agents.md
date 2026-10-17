@@ -3151,13 +3151,16 @@ is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
 One that varies by a mode goes on the text, not its container
 (`tamber-inherited-axis`); on the JS target it may not vary yet.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
-returns a `ColorToken` (`contract types` declares the design's, so an unknown
-one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
+returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
+`contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
 `.exact/tamber/` (never committed): `tamber.ts` and `tamber.css` (each token's
-CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, which
+CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, and
+`Token<Length>`, `Token<Number>`, `Token<Type>` for those kinds, which
 `session.tamber().get(SURFACE_CARD, place)` resolves in a running session), or
 `tamber.swift` (`ExactTamberToken.surfaceCard`, for a native view's
-`ExactTamber(view).color(.surfaceCard)`; Android's names a token by its name).
+`ExactTamber(view).color(.surfaceCard)`, `.length(_:)`, `.number(_:)` and
+`.font(_:fallback:)`, a font at the person's text size with Bold Text's step;
+Android's names a token by its name, `color`, `length` and `number`).
 Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve

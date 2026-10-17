@@ -30,6 +30,11 @@ class ExactTamber(private val view: View) {
     private var id = -1
     private val names = LinkedHashSet<String>()
     private var colors: Map<String, Int?> = emptyMap()
+    /** The lengths and numbers asked (stage 6 G), and their answers. */
+    private val lengthNames = LinkedHashSet<String>()
+    private val numberNames = LinkedHashSet<String>()
+    private var lengths: Map<String, Float?> = emptyMap()
+    private var numbers: Map<String, Double?> = emptyMap()
     private var inputs: String? = null
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
@@ -46,7 +51,33 @@ class ExactTamber(private val view: View) {
         synchronized(lock) { return colors[name] ?: fallback }
     }
 
-    /** Call [listener] on the main thread whenever what this view's colours read moves; closing the result stops it. */
+    /** Length token [name] at this view's place, in points (dp: a `rem` by the person's text size, a text style at
+     * it); [fallback] for a name the design lacks (stage 6 G). A value: read it again in [observe]. */
+    @JvmOverloads
+    fun length(name: String, fallback: Float = 0f): Float {
+        val at = place()
+        synchronized(lock) {
+            if (at == id && lengths.containsKey(name)) return lengths[name] ?: fallback
+            lengthNames.add(name)
+        }
+        ask(at)
+        synchronized(lock) { return lengths[name] ?: fallback }
+    }
+
+    /** Number token [name] at this view's place; [fallback] for a name the design lacks (stage 6 G). */
+    @JvmOverloads
+    fun number(name: String, fallback: Double = 0.0): Double {
+        val at = place()
+        synchronized(lock) {
+            if (at == id && numbers.containsKey(name)) return numbers[name] ?: fallback
+            numberNames.add(name)
+        }
+        ask(at)
+        synchronized(lock) { return numbers[name] ?: fallback }
+    }
+
+    /** Call [listener] on the main thread whenever what this view's tokens read moves (a mode, a pin, a live batch,
+     * the scheme, the person's text size, Bold Text); closing the result stops it. */
     fun observe(listener: () -> Unit): AutoCloseable {
         listeners.add(listener)
         val known = synchronized(lock) { inputs != null }
@@ -69,7 +100,7 @@ class ExactTamber(private val view: View) {
     private fun ask(at: Int) {
         Tambers.watch(this)
         val asked = synchronized(lock) { names.toList() }
-        take(at, asked, JSONObject(Exact.tamber(request(at, asked))))
+        take(at, asked, JSONObject(Exact.tamber(request(at, asked, true))))
     }
 
     /** exact2's thread, after a turn: whether the place's inputs moved; if so its names are asked again and the
@@ -83,7 +114,7 @@ class ExactTamber(private val view: View) {
             val now = JSONObject(Native.tamber(request(at, emptyList()))).optString("inputs")
             if (now.isEmpty() || now == was) return
             val asked = synchronized(lock) { names.toList() }
-            take(at, asked, JSONObject(Native.tamber(request(at, asked))))
+            take(at, asked, JSONObject(Native.tamber(request(at, asked, true))))
         } catch (e: UnsatisfiedLinkError) { return }
         // Its view drawn again, so an `onDraw` reading [color] takes the new answer.
         if (was != null) Tambers.main.post { view.invalidate(); for (l in listeners) l() }
@@ -99,7 +130,13 @@ class ExactTamber(private val view: View) {
         for (l in listeners) l()
     }
 
-    private fun request(at: Int, asked: List<String>) = JSONObject().put("view", at).put("names", JSONArray(asked)).toString()
+    private fun request(at: Int, asked: List<String>, measures: Boolean = false): String {
+        val r = JSONObject().put("view", at).put("names", JSONArray(asked))
+        if (measures) synchronized(lock) {
+            r.put("lengths", JSONArray(lengthNames.toList())).put("numbers", JSONArray(numberNames.toList()))
+        }
+        return r.toString()
+    }
 
     /** [answer] for [asked] at [at], kept. A refused place (an element gone) answers every name with its fallback until
      * the view's place or its inputs move. */
@@ -107,9 +144,19 @@ class ExactTamber(private val view: View) {
         val c = answer.optJSONObject("colors")
         val read = HashMap<String, Int?>()
         for (n in asked) read[n] = if (c == null || c.isNull(n)) null else c.getInt(n)
+        val l = answer.optJSONObject("lengths")
+        val n = answer.optJSONObject("numbers")
+        val readLengths = HashMap<String, Float?>()
+        val readNumbers = HashMap<String, Double?>()
+        synchronized(lock) {
+            for (k in lengthNames) readLengths[k] = if (l == null || l.isNull(k)) null else l.getDouble(k).toFloat()
+            for (k in numberNames) readNumbers[k] = if (n == null || n.isNull(k)) null else n.getDouble(k)
+        }
         synchronized(lock) {
             id = at
             colors = read
+            lengths = readLengths
+            numbers = readNumbers
             inputs = if (answer.has("error")) null else answer.optString("inputs")
         }
     }

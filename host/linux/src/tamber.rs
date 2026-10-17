@@ -13,7 +13,9 @@ use exact_runner::{DataSource, Place};
 
 impl<D: DataSource> Host<D> {
     /// Answer `{"view": id, "names": [..]}` (`view` 0 or none: the session's
-    /// root): `{"inputs": "<u64>", "colors": {name: ARGB}}`, each colour as
+    /// root; since stage 6 G optional `"lengths"`, `"numbers"` and `"fonts"`
+    /// lists too, answered as [`exact_runner::Tamber::measures_json`]):
+    /// `{"inputs": "<u64>", "colors": {name: ARGB}}`, each colour as
     /// the painter resolves it at that view (its scheme, the nearest
     /// `color-scheme` else the window's; a role as the theme or the platform
     /// gives it) as a signed 32-bit ARGB int, Android's `Color`; `null` for a
@@ -79,7 +81,10 @@ impl<D: DataSource> Host<D> {
                 None => out.push_str("null"),
             }
         }
-        out.push_str("}}");
+        out.push('}');
+        // Stage 6 G: lengths in points, numbers, fonts.
+        out.push_str(&tamber.measures_json(&request, place));
+        out.push('}');
         out
     }
 }

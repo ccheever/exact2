@@ -131,6 +131,7 @@ mod svg;
 mod symbols;
 mod tamber;
 mod tamber_binding;
+mod tamber_binding_kinds;
 mod tamber_cli;
 mod tamber_gen;
 mod tamber_icons;
