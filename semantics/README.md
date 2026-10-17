@@ -784,7 +784,10 @@ and the compiler's: the semantics takes decoded values and any type.
 
 Geometry reads (`frame(id)`, `measure(id)`: where layout put a node) are
 refused as unsupported rather than given a meaning: layout is out of
-scope. Routes are in (`Contract/Route.lean`, the `exact_route` crate and the
+scope. So are resources reading `exactTransport` and `exactMIDI` (LLP
+1125), which the runner answers from its transport and its MIDI ports and
+answers again as they play; the semantics models neither. `sendMIDI` and
+`requestMIDIAccess` are in, as commands. Routes are in (`Contract/Route.lean`, the `exact_route` crate and the
 runner's plan boundary transcribed): the router slot starts at the launch of
 `/`, as the harness boots the runner, and a commit that leaves it holding an
 invalid router is refused; the host's `navigate` event, which the harness

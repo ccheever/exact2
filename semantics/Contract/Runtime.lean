@@ -205,7 +205,10 @@ def Oracle.ask (o : Oracle) (src : String) (args : List Value) (resource : Strin
   | .none =>
     match lookup resource o.facts with
     | .some v => .ok v
-    | .none => .error (.refused s!"the oracle has no answer for {src}")
+    | .none =>
+      if src = "exactTransport" ∨ src = "exactMIDI" then
+        .error (.unsupported s!"`{src}`: the runner answers it from its transport or its MIDI ports, which change as they play (LLP 1125)")
+      else .error (.refused s!"the oracle has no answer for {src}")
 
 /-! ## Settlement -/
 
