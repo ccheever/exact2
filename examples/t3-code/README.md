@@ -403,39 +403,67 @@ As of 2026-10-17, after merging main's macOS fixes (exact2 PRs #636 to #640, #64
 #655, #663, #664, #676, #679 and #681, then #687, hover following the pointer once a context menu
 closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view loop's first stop
 and a placeholder change keeping a field's focus, failure 2), a session with real keys on the terminal, the
-real-input and VoiceOver sessions G to K, and an agent drive and real-input session on the bundle
-of `94cc6831c` with the fixtures below. Each item says what is wrong or missing; the open
-framework issues that someone using the app runs into are in the section above.
+real-input and VoiceOver sessions G to K, an agent drive and real-input session on the bundle
+of `94cc6831c`, and another on the bundle of `dd7643a86`, both with the fixtures below. Each item
+says what is wrong or missing; the open framework issues that someone using the app runs into are
+in the section above.
 
-**Failures** (2026-10-17, bundle of `94cc6831c`):
+**Failures** (2026-10-17, bundle of `dd7643a86`):
 
-- The settings search jump from another page opens the target page at its top, not at the row:
-  from a scrolled Appearance page, "time format" and then "legacy" (Return) each opened General
-  at its top, with neither 'Time format' nor 'Sidebar (legacy)' on screen (agent drive, 2 of 2).
-  Session L's real-input jumps that landed started on General itself. Possibly the page's new
-  scroller, keyed on the route, mounts after the jump has scrolled; not investigated.
-- ⌘V with an image or a file on the pasteboard attaches nothing to the composer. The reference
-  attaches the pasted files (ChatComposer.tsx:6011-6029 `onComposerPaste`); the clone's editor
-  pastes text only and takes files only from a drop (T3ComposerEditor.swift:376). Found while
-  preparing the image preview row, which did not run for want of an image chip.
-- The first file attached through Attach files to an empty draft (Background follow-up on Lane
-  Second) was drawn as 'Unavailable context, sample.py', dashed, and a press on it opened nothing;
-  attaching the same file again gave a resolved 'sample.py 1 KB' chip beside it (1 of 1). The
-  styler found no context record for the first chip (`T3ComposerStyler.chipMissing`); not
+- On a pull request's Code tab a real click on a file header's chevron ('Expand diff', 'Collapse
+  diff', `pull-request-code-fold-<path>`) does nothing (4 of 4); a click on the file name beside it
+  folds the file, and so does the agent's press on the chevron. AX hit-testing finds the chevron
+  button at the point clicked. Not investigated.
+- 'Archive thread' chosen from a flat sidebar row's native menu by typing its name and Return does
+  nothing (6 of 6; the server received no command); a click on the item opens 'Archive thread "…"?'
+  (4 of 4). Rename and Group into, chosen the same way from a project row, open their dialogs. Not
   investigated.
-- Tab into a new binding's recorder records the Tab itself: the field reads 'tab' (1 of 1). The
-  reference's recorder hears only keys pressed while it has the focus. Escape then clears it and
-  keeps the focus and the row (F-2, below).
+
+**Fixed, not checked** (no build after them):
+
+- ⌘V with only an image on the pasteboard (a screenshot copied to the clipboard) attached nothing
+  in the session on the bundle of `dd7643a86`: AppKit enables Paste only for a pasteboard the text
+  view can read, and the plain-text composer read no image types, so `paste:` never came. The
+  composer now reads PNG and TIFF too (`1683137cd`, `macos/tests/composer/paste.swift`). A copied
+  file, an image file included, attached by ⌘V in that session.
+- The settings search jump to a legacy row by Return ("legacy", Return from Appearance) left
+  "Legacy features" closed and scrolled General to an arbitrary place: `SettingsWindow` tested the
+  result's id for "legacy-" where it is "search-result-legacy-…" (`188ae6a05`,
+  `settings-page-scroll.test.ts`). A press on the result opened the section already.
 
 **Known differences:**
 
+- ⇧⌘V (Paste as Text) with files on the pasteboard pastes text only; the reference's
+  paste-as-text shortcut still attaches the files, with no inline chip for an image
+  (ChatComposer.tsx `onComposerPaste`, `skipImageInlineChip`).
 - A context-menu item that opens Rename project or Project grouping can still let VoiceOver
   re-read a long draft before the dialog, and the dialog's name is then not heard
   ([`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md);
   rows H-9, G-5 and FN6 pass with this difference). The landing (the field or Cancel) is right.
+  Still so on the bundle of `dd7643a86` (legacy sidebar, a long draft focused, a project row's
+  Rename and Group into…, 3 of 3 each): "Closing menu Message, edit text, … The long draft keeps
+  going …", then "agent-edits," (the title field) or "Cancel, button". The reference (the Electron
+  oracle on an isolated home, same steps) says nothing after the pick within 6 s, 4 of 4 each, with
+  the focus on 'Project title' or the 'Project grouping rule' combo box.
+- Archive thread from a flat sidebar row's menu (by a click; confirmation on), with a long draft
+  focused: at the pick VoiceOver re-reads the draft and then says "Cancel, button"; after Confirm the
+  row goes and VoiceOver and the keyboard focus land on the chat header's 'Thread actions for …'
+  button, not the composer (3 of 3). Not measured on the reference: its isolated home has no
+  keychain, so it cannot save a paired lane ("Desktop secure storage is unavailable"), and its own
+  server has no thread to archive.
 
 **Not failures:**
 
+- Tab into a new binding's recorder records nothing (2 of 2 by real keys on the bundle of
+  `dd7643a86`; with Keyboard Navigation off the first Tab from the window goes to 'Search settings'
+  and the second into the recorder, 'Press shortcut'). A Tab pressed while it records is recorded,
+  'tab', as the reference's captureKeybinding records Tab while recording
+  (KeybindingsSettings.tsx:770-779); the earlier session's helper pressed Tab until the recorder had
+  the focus, and the 'tab' it reported came from such a press.
+- The settings search jump from another page lands on the row (agent drive, 'Time format' from a
+  scrolled Appearance). It runs once its page is ready and laid out, one millisecond on the agent's
+  clock (`clock +1`); the earlier drive's failure was a jump that waited for a one-second poll its
+  clock never reached.
 - Opening a thread marked unread does not clear it when the thread opened in between had
   nothing new (session K's FN4), as in the reference. ChatView's visit effect dedupes on
   `${routeThreadKey}:${updatedAt}` (ChatView.tsx:2866-2868) and returns early, without touching
@@ -493,11 +521,11 @@ framework issues that someone using the app runs into are in the section above.
   reference's does.
 - Session K did not run some rows, for want of fixture data or because the task left them out;
   none is a failure. Since checked (below): H-2's reset-credit confirm, the diff Turn submenu, the
-  approval menu (FN5) and a diff comment (FN7). Still not run: FN8's Usage part (the confirm covers
+  approval menu (FN5), a diff comment (FN7), and the linked pull request's actions menu and Reply.
+  Still not run: FN8's Usage part (the confirm covers
   'Toggle main sidebar'; the driver does not read `inert`), FN17 (no real-input path makes a
   focused control disabled), G-5's Remove project (a native menu choice, real input only; the
-  fixture now has `empty-project`), the linked pull request's actions menu and Reply (the fixture
-  now has them; the drive stopped first), the project scope search, and realinput-1015c row 24.
+  fixture now has `empty-project`), the project scope search, and realinput-1015c row 24.
   J9, J11, J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran on the
   T3 lane instead of PR #676's test app (58 of 58 outside presses closed the popovers), and J19's
   NSPopover path does not exist in the clone.
@@ -523,6 +551,24 @@ buttons; the Snoozed header and Wake; and Tab through the legacy Rename project 
 reads 'Keybinding for Chat: New Press shortcut, edit text', and VO-F3 'Keybinding for Chat: New,
 edit text, is in the VoiceOver cursor' (2 of 2; before, 'scroll area'). The clone needed no change.
 
+**Checked by agent drive and real input** (2026-10-17, bundle of `dd7643a86`, the fixtures below; a
+lane copy for real input): a file attached with Attach files to an empty draft draws as
+'sample.py 1 KB' (agent), and by real input a file pasted into an emptied draft does too and a press
+on it opens its preview (the fix keeps the files attached while the editor's empty state was in
+flight; `composer-editor-paste.test.ts`). ⌘V of a copied file attaches it as a chip and pastes no
+text (agent and real input), of an image file adds the image's chip and its shelf tile. A press on
+the Files preview's gutter closes an open skill chip's details (`chip.open` true, then false). A
+press on the floating theme editor's swatch, and on Inspect, closes the Appearance sample's chip
+details (1 of 1 each); the picker's plane and hue slider cannot be pressed with the details open,
+since the press that opens them closes the picker, and armed, Inspect's overlay takes every press.
+The linked pull request's actions menu opens (16 items) and a press outside it closes it; Reply
+opens a focused 'Reply to this conversation' field and Escape closes it. The machines popover,
+with Lane Third behind the older-server stand-in: 'Ready to update to 0.0.46-nightly.20261004.1',
+then after Update all 'Downloading…' (2 s) and 'Restarting…' (16 s), and after the restart the
+banner is gone. The image preview: with Keyboard Navigation off it opens on 'Close image preview'
+and Tab and Shift-Tab go to the zoomable image and stay there (3 of 3 each); with it on they cycle
+Close and the image (6 of 6 each).
+
 **Checked by agent drive** (2026-10-17, bundle of `94cc6831c`, the fixtures below): on Usage ›
 Limits, a press on a segment pins its popover, a press in its card keeps it and a press elsewhere
 on the page closes it; the popover's Use reset opens 'Use a reset credit?' with Cancel focused,
@@ -535,8 +581,8 @@ opens its draft focused (FN7).
 
 **Checked with real keys and pointer** (2026-10-17, bundle of `94cc6831c`, a lane copy launched
 normally): F-2 by Tab: Settings › Keybindings, Add keybinding, Tab into the new recorder, Escape:
-the field keeps the focus, its value goes back to Unassigned and the row stays (1 of 1; see the
-failure above for the 'tab' it first records). The composer's file preview (sample.py): with
+the field keeps the focus, its value goes back to Unassigned and the row stays (1 of 1; the 'tab' it
+showed first came from a Tab pressed while recording, under "Not failures" above). The composer's file preview (sample.py): with
 Keyboard Navigation off, Tab and Shift-Tab stay on 'Disable word wrap' (3 of 3 each), as AppKit's
 loop does without it; with it on, Tab goes Disable word wrap → Copy contents → Save file → Remove
 from draft → Close and back to the first, and Shift-Tab from the first goes to Close and back
@@ -611,35 +657,24 @@ menu, not TISSelectInputSource, before they judge IME rows.
 the context popover and progress bars under VoiceOver (the ACP stand-in's threads now have a
 context meter), the branch's PR glyph, and bold and italic font faces. Also:
 
-- The image preview's Tab and Shift-Tab with Keyboard Navigation off and on: no image chip could be
-  attached (pasting one attaches nothing, the failure above, and the input tool's runtime closed
-  on the Open panel's Go to folder sheet). In an HTML preview a `target="_blank"` link opens the
-  default browser, a `_top` link does nothing and a link to the page's own section scrolls the
-  frame; the image preview refitting after a window resize.
+- In an HTML preview a `target="_blank"` link opens the default browser, a `_top` link does nothing
+  and a link to the page's own section scrolls the frame; the image preview refitting after a window
+  resize.
 - Escape on a git dialog or the Merge confirmation over the thread-details popover in a narrow
   window.
 - VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf and the
   citation chip pass), and on a thread chip in particular: it is a link too, and a press that
   changes the screen within about half a second might move VoiceOver as the citation chip's did.
-- Outside presses with a chip's details open, which the agent drive did not reach (it stopped on
-  `surface-files`, which is not the name of the new-surface menu's Files item): a press on the Files
-  preview's gutter (`notes/outline.ts` in `agent-edits`), and presses in the floating theme editor
-  (its swatch, its picker's plane and hue slider, Inspect and the inspector) with the Appearance
-  sample's chip details open.
-- The linked pull request's actions menu (`pull-request-more`, FN5) and Reply on its review thread
-  (FN7): the `gh` stand-in gives "Notes branch thread" PR #7 with both.
-- The machines popover's busy states: the older-server stand-in shows Lane Third as outdated
-  ('Update for Lane Third server' and 'Update all' in Settings › Connections, seen in the
-  real-input session), but no drive pressed Update.
+- The two fixes above that no build has carried yet: ⌘V of a copied image alone, and the legacy
+  search jump by Return.
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** the image preview's keys once an image chip can be attached; the
-Files gutter and theme editor presses, the linked pull request's menu and Reply, and the machines
-popover's busy states, by an agent drive or by hand; G-5's Remove project by its native menu; and
-the list above.
+**Next real-input session:** ⌘V of a copied image alone and the legacy search jump by Return (the
+fixes above); VO-Space on a thread chip; G-5's Remove project by its native menu; and the list
+above.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
@@ -716,7 +751,7 @@ module facade, the app's generated data keys, every file in `modules/apple/` (th
 `composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
-directory's sources; `composer` also needs Exact's `host/apple/modules/ExactTamber.swift`.
+directory's sources, and every one Exact's `host/apple/modules/ExactTamber.swift`.
 `EXACT_ASSETS` must be an absolute path: the module looks up `assets/` only under one, and three of
 the composer's icon tests fail without it. Run from the repository root:
 
@@ -728,7 +763,7 @@ for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
   M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|r5-panels) M=$(echo "$M" | grep -v /T3Module);; esac
-  T=""; [ $n = composer ] && T=host/apple/modules/ExactTamber.swift
+  T=host/apple/modules/ExactTamber.swift
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift $T "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
