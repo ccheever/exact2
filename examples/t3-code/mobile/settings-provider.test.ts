@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { mobileClient } from './client';
-import { obj, type Obj } from './shared/domain';
+import { obj, str, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
 import { mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField, mobileProviderProjection, settingsProviderEvents, settingsProviderNative } from './settings-provider';
 const provider: Obj = { instanceId: 'test-provider', driver: 'acpRegistry', displayName: 'Test provider', enabled: true, installed: true, setup: { canAuthenticate: true }, auth: { status: 'unknown' } };
@@ -29,7 +29,7 @@ test('email is masked until revealed and ordinary write errors allow retry', () 
   expect(mobileProviderProjection(source, signed, { phase: 'idle' }, { key: 'test', error: 'Write failed' }).actions[0]!.disabled).toBe(false);
   expect(mobileProviderProjection(source, signed, { phase: 'idle' }, { key: 'test', queryError: 'Read failed' }).actions[0]!.disabled).toBe(true);
 });
-const original = { origin: mobileClient.origin, environmentId: mobileClient.environmentId, connection: mobileClient.connection, config: mobileClient.config, generation: mobileClient.generation };
+const original = { origin: mobileClient.origin, environmentId: mobileClient.environmentId, connection: mobileClient.connection, config: mobileClient.config, generation: mobileClient.generation, revision: mobileClient.revision };
 afterEach(() => Object.assign(mobileClient, original));
 test('observer forwards one shared read, ignores stale stream events, resets prompt drafts and releases by key', async () => {
   const origin = 'http://provider.test', requests: Obj[] = [];
@@ -91,3 +91,178 @@ test('closing before catalog preparation finishes prevents a late subscription',
   expect((await opening).ready).toBe(false);
   expect(requests.some(request => request.op === 'subscribe')).toBe(false);
 });
+
+const emailMask = '••••••@••••••';
+const signedProvider = (email = 'a@example.test', instanceId = 'test-provider'): Obj => ({ ...provider, instanceId,
+  auth: { status: 'authenticated', email, canLogout: true } });
+type EmailRow = ReturnType<typeof mobileProviderProjection>;
+type EmailPress = { key: string; value: string };
+interface EmailFixture {
+  requests: Obj[];
+  native: Native;
+  providers(providers: Obj[]): void;
+  prepare(): ReturnType<typeof mobileProviderAccounts>;
+  row(instanceId?: string): EmailRow;
+  emit(instanceId: string, ...states: Obj[]): Promise<void>;
+  press(captured: EmailPress): ReturnType<typeof mobileProviderCommand>;
+}
+const emailPress = (row: EmailRow): EmailPress => ({ key: row.key, value: str(obj(row).emailToken) });
+async function withEmailAccounts(run: (fixture: EmailFixture) => Promise<void>) {
+  const saved = { origin: mobileClient.origin, environmentId: mobileClient.environmentId, connection: mobileClient.connection,
+    config: mobileClient.config, generation: mobileClient.generation, revision: mobileClient.revision };
+  const origin = 'http://email-provider.test', environmentId = 'email-provider-test', requests: Obj[] = [], unexpected: Obj[] = [];
+  const keys = new Map<string, string>();
+  let sequence = 0, events: Obj[] = [];
+  Object.assign(mobileClient, { origin, environmentId, connection: 'connected', generation: 381,
+    config: { providers: [signedProvider()], settings: {}, environment: { label: 'Email workstation' } } });
+  const raw: Native = { available: true, watch(topic) {
+    if (!['t3.status', 't3.fleet'].includes(topic)) { unexpected.push({ watch: topic }); throw new Error(`Unexpected provider watch ${topic}`); }
+  }, async later(input) {
+    const request = obj(input); requests.push(request);
+    let value: unknown;
+    if (request.op === 'environments') value = { saved: [{ origin, environmentId }] };
+    else if (request.op === 'http' && request.path === '/api/auth/session' && (request.method === undefined || request.method === 'GET')) value = { authenticated: true, permissions: ['providers:manage'] };
+    else if (request.op === 'subscribe' && request.method === 'provider.auth.subscribe') {
+      keys.set(str(obj(request.payload).instanceId), str(request.key));
+      value = { id: `email-subscription:${mobileClient.generation}:${str(request.key)}` };
+    } else if (request.op === 'events') { value = { events }; events = []; }
+    else if (request.op === 'unsubscribe' && [...keys.values()].includes(str(request.key))) value = {};
+    else { unexpected.push(request); throw new Error(`Unexpected provider operation ${str(request.op)}`); }
+    return { ok: true, generation: mobileClient.generation, value };
+  } };
+  const native = settingsProviderNative(raw), scope = JSON.stringify([environmentId]);
+  const fixture: EmailFixture = { requests, native,
+    providers(providers) { mobileClient.config = { ...mobileClient.config, providers }; },
+    async prepare() {
+      const data = await mobileProviderAccounts(scope, true, native, true);
+      expect(data.error).toBe(''); expect(data.ready).toBe(true);
+      return data;
+    },
+    row(instanceId = 'test-provider') {
+      return mobileProviderAccountsSnapshot(scope, true).sections.flatMap(section => section.accounts).find(row => row.key === keys.get(instanceId))!;
+    },
+    async emit(instanceId, ...states) {
+      const key = keys.get(instanceId)!;
+      events = states.map(value => ({ key, seq: ++sequence, generation: mobileClient.generation,
+        subscriptionId: `email-subscription:${mobileClient.generation}:${key}`, value }));
+      await native.later({ op: 'events', after: 0 });
+    },
+    press: captured => mobileProviderCommand('reveal', captured.key, captured.value, native),
+  };
+  try { await run(fixture); }
+  finally {
+    try { await mobileProviderAccounts('[]', false, native); }
+    finally { Object.assign(mobileClient, saved); }
+    expect(unexpected).toEqual([]);
+  }
+}
+
+test('email reveal stays local and survives a continuously displayed raw email', async () => withEmailAccounts(async f => {
+  await f.prepare();
+  const initial = f.row(), captured = emailPress(initial);
+  expect(initial.email).toBe(emailMask); expect(initial.emailAction).toBe('Reveal account email');
+  const before = f.requests.length;
+  await f.press(captured);
+  expect(f.row().email).toBe('a@example.test'); expect(f.row().emailAction).toBe('Hide account email');
+  expect(f.requests.length).toBe(before);
+  await f.prepare();
+  expect(f.row().email).toBe('a@example.test'); expect(emailPress(f.row())).toEqual(captured);
+  const refreshed = f.requests.length;
+  await f.press(captured);
+  expect(f.row().email).toBe(emailMask); expect(f.requests.length).toBe(refreshed);
+  expect(captured.value.length).toBeGreaterThan(0);
+}));
+
+for (const phase of ['starting', 'waiting', 'verifying']) test(`email remasks after its ${phase} row is hidden and restored`, async () => withEmailAccounts(async f => {
+  await f.prepare(); const captured = emailPress(f.row()); await f.press(captured);
+  await f.emit('test-provider', { phase, flowId: 'flow' });
+  expect(f.row().email).toBe(''); expect(str(obj(f.row()).emailToken)).toBe('');
+  await f.emit('test-provider', { phase: 'cancelled', message: 'Cancelled' });
+  const restored = f.row();
+  expect(restored.email).toBe(emailMask); expect(emailPress(restored).value).not.toBe(captured.value);
+}));
+
+test('email changes and A to B to A each create a masked row', async () => withEmailAccounts(async f => {
+  await f.prepare(); const a = emailPress(f.row()); await f.press(a);
+  f.providers([signedProvider('b@example.test')]); await f.prepare();
+  const b = emailPress(f.row()); expect(f.row().email).toBe(emailMask);
+  await f.press(b); expect(f.row().email).toBe('b@example.test');
+  f.providers([signedProvider()]); await f.prepare();
+  expect(f.row().email).toBe(emailMask);
+  expect(emailPress(f.row()).value).not.toBe(a.value); expect(b.value).not.toBe(a.value);
+}));
+
+for (const replace of ['email', 'hidden'] as const) test(`a captured ${replace} row cannot reveal its successor`, async () => withEmailAccounts(async f => {
+  await f.prepare(); const captured = emailPress(f.row());
+  if (replace === 'email') { f.providers([signedProvider('b@example.test')]); await f.prepare(); }
+  else {
+    await f.emit('test-provider', { phase: 'waiting', flowId: 'flow' }); expect(f.row().email).toBe('');
+    await f.emit('test-provider', { phase: 'idle' });
+  }
+  const successor = emailPress(f.row()), before = f.requests.length, revision = mobileClient.revision;
+  const result = await f.press(captured);
+  expect(f.row().email).toBe(emailMask); expect(result.revision).toBe(revision);
+  expect(mobileClient.revision).toBe(revision); expect(f.requests.length).toBe(before);
+  expect(successor.value).not.toBe(captured.value);
+}));
+
+test('batched auth states preserve reveal when no hidden row is projected', async () => withEmailAccounts(async f => {
+  await f.prepare(); const captured = emailPress(f.row()); await f.press(captured);
+  await f.emit('test-provider', { phase: 'waiting', flowId: 'flow' }, { phase: 'idle' });
+  expect(f.row().email).toBe('a@example.test'); expect(emailPress(f.row())).toEqual(captured);
+}));
+
+test('raw email whitespace controls identity and display while blank email has no row', async () => withEmailAccounts(async f => {
+  f.providers([signedProvider(' a@example.test ')]); await f.prepare();
+  const raw = emailPress(f.row()); await f.press(raw);
+  expect(f.row().email).toBe(' a@example.test ');
+  f.providers([signedProvider()]); await f.prepare();
+  expect(f.row().email).toBe(emailMask); expect(emailPress(f.row()).value).not.toBe(raw.value);
+  const trimmed = emailPress(f.row());
+  f.providers([signedProvider(' \t\n ')]); await f.prepare();
+  expect(f.row().email).toBe(''); expect(str(obj(f.row()).emailToken)).toBe('');
+  f.providers([signedProvider()]); await f.prepare();
+  expect(f.row().email).toBe(emailMask); expect(emailPress(f.row()).value).not.toBe(trimmed.value);
+}));
+
+for (const [name, scope, active] of [['inactive', '["email-provider-test"]', false], ['invalid', '{}', true], ['mismatched', '["other-environment"]', true]] as const) {
+  test(`${name} projection ends the displayed email lifetime`, async () => withEmailAccounts(async f => {
+    await f.prepare(); const captured = emailPress(f.row()); await f.press(captured);
+    const before = f.requests.length;
+    expect(mobileProviderAccountsSnapshot(scope, active).ready).toBe(false);
+    expect(f.requests.length).toBe(before);
+    expect(f.row().email).toBe(emailMask); expect(emailPress(f.row()).value).not.toBe(captured.value);
+    const revision = mobileClient.revision; await f.press(captured);
+    expect(f.row().email).toBe(emailMask); expect(mobileClient.revision).toBe(revision);
+  }));
+}
+
+test('a generation replacement rejects an earlier email press', async () => withEmailAccounts(async f => {
+  await f.prepare(); const captured = emailPress(f.row());
+  mobileClient.generation++; await f.prepare();
+  const replacement = emailPress(f.row()), before = f.requests.length, revision = mobileClient.revision;
+  await f.press(captured);
+  expect(f.row().email).toBe(emailMask); expect(mobileClient.revision).toBe(revision);
+  expect(f.requests.length).toBe(before); expect(replacement.value).not.toBe(captured.value);
+}));
+
+test('provider email tokens isolate rows and replacement or removal resets only its owner', async () => withEmailAccounts(async f => {
+  f.providers([signedProvider(), signedProvider('other@example.test', 'other-provider')]); await f.prepare();
+  const a = emailPress(f.row()), other = emailPress(f.row('other-provider'));
+  const before = f.requests.length, revision = mobileClient.revision;
+  await f.press({ key: other.key, value: a.value });
+  expect(f.row('other-provider').email).toBe(emailMask); expect(mobileClient.revision).toBe(revision);
+  expect(f.requests.length).toBe(before); expect(a.value).not.toBe(other.value);
+  await f.press(a); await f.press(other);
+  f.providers([signedProvider('b@example.test'), signedProvider('other@example.test', 'other-provider')]); await f.prepare();
+  expect(f.row().email).toBe(emailMask); expect(f.row('other-provider').email).toBe('other@example.test');
+  expect(emailPress(f.row('other-provider'))).toEqual(other);
+  const b = emailPress(f.row()); await f.press(b);
+  f.providers([signedProvider('other@example.test', 'other-provider')]); await f.prepare();
+  expect(f.row()).toBeUndefined(); expect(f.row('other-provider').email).toBe('other@example.test');
+  f.providers([signedProvider('b@example.test'), signedProvider('other@example.test', 'other-provider')]); await f.prepare();
+  expect(f.row().email).toBe(emailMask); expect(emailPress(f.row()).value).not.toBe(b.value);
+  expect(f.row('other-provider').email).toBe('other@example.test'); expect(emailPress(f.row('other-provider'))).toEqual(other);
+  const returnedRevision = mobileClient.revision; await f.press(b);
+  expect(f.row().email).toBe(emailMask); expect(mobileClient.revision).toBe(returnedRevision);
+}));
