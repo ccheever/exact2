@@ -388,10 +388,6 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     fileprivate func keepsClick(_ hit: NSView, in cell: TableRowCell, at point: NSPoint) -> Bool {
         guard let row = cell.row, let mounted = self.row(of: row) else { return false }
         guard let pressing = pressing(mounted), !pressing.disabled, !pressing.inert else { return true }
-        // A row node that writes its own pressed look is pressed as any node
-        // is, showing it (LLP 1061 D7), and the table's highlight yields to
-        // it (LLP 1115.000 D6).
-        if pressing.authorsPress, hit === pressing || hit.isDescendant(of: pressing) { return true }
         var view: NSView? = hit
         while let current = view, current !== cell {
             if let node = current as? NodeView {

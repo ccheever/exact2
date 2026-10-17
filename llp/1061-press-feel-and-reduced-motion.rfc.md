@@ -247,9 +247,12 @@ and the node's presented opacity); the change cross-fades (`CATransition`, the s
 colour goes to the descendants that write none of their own and hold the
 pressed node's. A release takes back what the press showed even when the
 style dropped the look while held; the Mac's window resigning key ends a
-press, as AppKit then delivers its up to no view, and a native list row
-that writes a pressed look takes its own click, so it shows it, where the
-table's highlight yields. A cleared row crosses as no row.
+press, as AppKit then delivers its up to no view. A cleared row crosses as
+no row. **Gap:** a row of a native Mac list (`NSTableView`, LLP 1115.000
+D16) shows the table's own selection on a press, not the row's pressed
+paint: the table tracks the row's click (its selection, first responder,
+double-click), and driving the row's press from that tracking is owed
+(`QUEUE.md`).
 **Web**, both targets: custom properties on the element's own style, which
 the input glue shows by D3's rule, released also when the window, the tab
 or the page goes and when a move says the button is up, a key's press too.
@@ -258,9 +261,11 @@ the properties read live and from what the glue animates: the press's
 progress and the node's look beneath, which the glue reads with the paint
 off whenever the press turns, the node's style or class changes or the
 scheme flips, so the release eases back to the node's look as it is then.
-For that read alone (one task) the painted properties take no transition,
-since a transition is above every declaration in the cascade; the node's
-own list is untouched otherwise. A property cleared while held stops
+The node's transitions are left alone, and a transition is above every
+declaration in the cascade: one the node has running on a painted property
+at the press shows above the paint until it ends, and one it has on a
+painted property times the paint's move to a look that changed while held
+(a re-read is a style change like any other). A property cleared while held stops
 showing, and the shell's dim, when it then applies, is the press alone; the
 cell row's wash yields to them. **Linux** (and Android and Windows,
 which paint through its presenter): a press eases one progress, from which

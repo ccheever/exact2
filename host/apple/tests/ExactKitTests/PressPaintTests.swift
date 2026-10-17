@@ -126,7 +126,7 @@ final class PressPaintTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": white, "text_color": white]]]))
         XCTAssertFalse(v.authorsPress)
         XCTAssertEqual(v.style["background_color"], ink(white), "the engine's")
-        XCTAssertEqual((fade(v)?.toValue as? Float) ?? 0, 0, "no dim")
+        XCTAssertNil(fade(v), "no dim")
         v.pressed = false
         XCTAssertEqual(v.style["background_color"], ink(white))
         XCTAssertEqual(v.press.to, 1, "and the scale")
@@ -163,7 +163,7 @@ final class PressPaintTests: XCTestCase {
         p.apply(wireBatch([["op": "present", "id": 1, "property": "opacity", "x": 0.5]]))
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.1, accuracy: 1e-6)
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": blue, "text_color": white]]]))
-        XCTAssertEqual((fade(v)?.toValue as? Float) ?? 0, 0, accuracy: 1e-6, "eased away, or gone")
+        XCTAssertNil(fade(v), "gone at once, before the platform's press can answer")
     }
 
     /// A press colour changed in the same style as the node's own colour

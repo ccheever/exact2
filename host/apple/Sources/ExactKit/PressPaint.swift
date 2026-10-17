@@ -195,7 +195,8 @@ extension NodeView {
 
     /// The opacity's share again while held: the node's own opacity, or its
     /// pressed share (`share`, the row's value; none is no dim), changed. The
-    /// fade goes on from what shows over the rest of its time.
+    /// fade goes on from what shows over the rest of its time; a dim no longer
+    /// written goes at once.
     func refreshPressOpacity(_ share: BatchValue?? = nil) {
         guard pressPaint.down, let layer = paintLayer else { return }
         let key = "pressOpacity"
@@ -206,7 +207,8 @@ extension NodeView {
         let from = -pressPaint.depth * Float(pressPaint.ease.factor(at: now))
         pressPaint.depth = depth
         let left = ExactEnv.agentFreezes ? 0 : max(0, pressPaint.ease.start + PressFeedback.duration - now)
-        guard depth != 0 || left > 0 else { layer.removeAnimation(forKey: key); return }
+        // None any more goes at once: the platform's press may answer next.
+        guard depth != 0 else { layer.removeAnimation(forKey: key); return }
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.isAdditive = true
         fade.fromValue = left > 0 ? from : -depth

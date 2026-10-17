@@ -227,27 +227,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const paints = new Map();
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
   // Start the ease toward `state.to` from where it shows, over `duration`,
-  // on the node's look read now with the paint off. A transition is above
-  // every declaration in the cascade, so for that read, and for the paint
-  // coming back, the painted properties take none (the node's own list,
-  // then each at 0s, which wins over an earlier entry or `all`: CSS
-  // Transitions 1 §2): the read starts no transition. The list is the
-  // node's own again before anything else runs.
+  // on the node's look read now with the paint off: at the press, as it
+  // shows; later (the release, a change of the node's style or class, the
+  // scheme), a style change like any other, so a transition the node has on
+  // a painted property times the paint's move to a look that changed.
   const paint = (el, state, duration) => {
-    const now = getComputedStyle(el);
-    const from = Number(now.getPropertyValue("--exact-press-paint")) || 0;
-    el.style.setProperty("--exact-press-transition", [now.transition, "opacity 0s", "background-color 0s", "color 0s"].filter(Boolean).join(", "));
-    el.setAttribute("data-exact-press-read", "");
+    const from = Number(getComputedStyle(el).getPropertyValue("--exact-press-paint")) || 0;
     el.removeAttribute("data-exact-painting");
     const beneath = getComputedStyle(el);
     const base = { "--exact-press-base-opacity": beneath.opacity, "--exact-press-base-background": beneath.backgroundColor, "--exact-press-base-color": beneath.color };
     state.animation?.cancel();
     const animation = state.animation = el.animate([{ ...base, "--exact-press-paint": from }, { ...base, "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
     el.setAttribute("data-exact-painting", "");
-    void getComputedStyle(el).opacity;
-    el.removeAttribute("data-exact-press-read");
-    el.style.removeProperty("--exact-press-transition");
-    state.observer.takeRecords();
     // A finish already queued when a re-press replaced the ease ends nothing.
     if (state.to === 0) animation.onfinish = () => { if (state.animation === animation) endPaint(el, state); };
     if (agentMode) animation.finish();

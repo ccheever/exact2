@@ -485,15 +485,19 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     expect(await look('painted')).toBe(rest);
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     expect(await evaluate(`document.getElementById('painted').hasAttribute('data-exact-painting')`)).toBe(false);
-    // An authored transition of the same properties, running at the press,
-    // does not hide the paint; released, the node shows its own again.
+    // An authored transition of the same properties running at the press is
+    // left to run, above the paint (a transition is above every declaration
+    // in the cascade); the paint shows as it ends, and released, the node
+    // shows its own look again.
     await evaluate(`{ const el = document.getElementById('painted'); el.style.transition = 'background-color 1s linear, opacity 1s linear'; el.style.backgroundColor = 'rgb(255, 255, 0)'; el.style.opacity = '0.6'; getComputedStyle(el).opacity; }`);
     expect(await evaluate(`document.getElementById('painted').getAnimations().filter(a => a instanceof CSSTransition).length`)).toBe(2);
     await mouse('mousePressed', painted);
     await evaluate(`document.getAnimations().filter(a => !(a instanceof CSSTransition)).forEach(a => a.finish())`);
-    const fading = (await look('painted')).split(' ');
-    expect(fading.slice(1).join(' ')).toBe('rgb(0, 0, 255) rgb(255, 0, 0)');
-    expect(parseFloat(fading[0])).toBeLessThan(0.45);
+    expect(await evaluate(`document.getElementById('painted').getAnimations().filter(a => a instanceof CSSTransition).length`)).toBe(2);
+    await settle();
+    const faded = (await look('painted')).split(' ');
+    expect(faded.slice(1).join(' ')).toBe('rgb(0, 0, 255) rgb(255, 0, 0)');
+    expect(parseFloat(faded[0])).toBeLessThan(0.45);
     await mouse('mouseReleased', painted);
     await settle();
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
