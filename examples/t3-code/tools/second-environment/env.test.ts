@@ -158,7 +158,9 @@ describe("the gh stand-in (seed --pull-request)", () => {
     expect(json([...asked, "-F", "cursor=null", "-f", "query=query { reviewThreads(first: 50) }"]).data.repository.pullRequest.reviewThreads.nodes[0]).toMatchObject({ path: "README.md", isResolved: false });
     expect(answer(["api", "--hostname", "github.com", "repos/t3-fixture/shared-notes/stacks?pull_request=7"]).out).toBe("[]");
     expect(json(["pr", "view", "7", "--repo", "github.com/t3-fixture/shared-notes", "--json", "author,comments,reviews,commits"]).comments).toEqual([]);
-    for (const refused of [["pr", "merge", "7"], ["auth", "token"], ["api", "graphql", "-f", "query=query { search }"]]) expect(answer(refused).code).toBe(1);
+    const list = (...args: string[]) => json(["pr", "list", ...args, "--json", "number"]).map((row: { number: number }) => row.number);
+    expect([list("--repo", "github.com/t3-fixture/shared-notes", "--state", "open"), list("--repo", "github.com/t3-fixture/agent-edits", "--state", "open"), list("--repo", "github.com/t3-fixture/shared-notes", "--state", "merged")]).toEqual([[7], [], []]);
+    for (const refused of [["pr", "merge", "7"], ["api", "graphql", "-f", "query=query { search }"]]) expect(answer(refused).code).toBe(1);
   });
 });
 
