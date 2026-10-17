@@ -1,12 +1,14 @@
 //! GPU frustum culling: per-view compacted slot lists and indirect draws.
 //! @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
 //!
-//! Transforms live on the GPU, so the test runs there too: one compute pass after
-//! skinning tests every opaque item's interpolation-swept sphere against the camera
-//! and each sun cascade, then writes each view's visible slots, in retained order,
-//! into its own 256-byte-aligned region. Draws read their region through the scene
-//! group's dynamic `slots` offset and take counts from `draw_indexed_indirect` with
-//! a zero first instance, so WebGPU's optional `indirect-first-instance` is unused.
+//! Transforms live on the GPU, so the test runs there too: three compute passes after
+//! skinning test every opaque item's interpolation-swept sphere against the camera
+//! and each sun cascade, then write each view's visible slots, in retained order,
+//! into its own 256-byte-aligned region. Draws take counts from
+//! `draw_indexed_indirect`. Where the device has `INDIRECT_FIRST_INSTANCE`, each
+//! draw's first instance is its region, so the scene group binds all the lists
+//! once per pass; otherwise it is zero and the scene group's dynamic `slots`
+//! offset selects the region, which costs a bind per draw.
 use crate::buffers::{bytes, Buffer};
 use exact_gpu::wgpu;
 use glam::Mat4;
@@ -30,6 +32,7 @@ pub(crate) const SORTED_CHUNKS: u32 = 16;
 pub(crate) const UNSORTED: u32 = u32::MAX;
 pub(crate) const CAPSULE: u32 = 64;
 pub(crate) const PLAIN: u32 = 128;
+pub(crate) const OUTLINE: u32 = 256;
 /// Group flag: never occluded (a view model, drawn in its own depth range).
 pub(crate) const EXEMPT: u32 = 32;
 const CHUNK: u32 = 64;
@@ -85,6 +88,8 @@ pub(crate) struct Cull {
     /// execution (the iOS simulator's Metal): draw every group directly.
     pub direct: bool,
     pub indirect_execution: bool,
+    /// Indirect draws start at their region (`INDIRECT_FIRST_INSTANCE`).
+    pub first_instance: bool,
     // Regions start on the device's dynamic storage offset alignment, in words.
     align: u32,
     limit: u64,
@@ -104,7 +109,7 @@ struct Counts {
 }
 
 impl Cull {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device, cache: Option<&wgpu::PipelineCache>) -> Self {
         let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -178,7 +183,7 @@ impl Cull {
                 module: &module,
                 entry_point: Some(entry),
                 compilation_options: Default::default(),
-                cache: None,
+                cache,
             })
         };
         let storage = |label| Buffer::new(device, 256, wgpu::BufferUsages::STORAGE, label);
@@ -247,6 +252,10 @@ impl Cull {
             sorted: 0,
             direct: !indirect_execution,
             indirect_execution,
+            first_instance: indirect_execution
+                && device
+                    .features()
+                    .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE),
             align: (device.limits().min_storage_buffer_offset_alignment / 4).max(1),
             limit: device
                 .limits()
@@ -419,7 +428,7 @@ impl Cull {
             .max(1)
                 * 4,
             (u64::from(VIEWS) * u64::from(self.stride) + u64::from(window)) * 4,
-            (u64::from(VIEWS) * self.groups.len() as u64 * 20).max(20),
+            ((u64::from(VIEWS) + 1) * self.groups.len() as u64 * 20).max(20),
         ];
         // Per-slot list storage is below the 64-byte attachment arena behind
         // max_slots(); only region padding can exceed a tiny limit. Then draw directly.
@@ -457,6 +466,22 @@ impl Cull {
             (u64::from(view) * self.groups.len() as u64 + index as u64) * 20,
         )
     }
+    /// Byte offset of the indirect arguments for group `index`'s hull: the
+    /// camera's draw with a zero base vertex, as hull streams start at zero.
+    pub fn hull_draw(&self, index: usize) -> u64 {
+        (u64::from(VIEWS) * self.groups.len() as u64 + index as u64) * 20
+    }
+    /// Group `index`'s draw in view `view`: the scene group's dynamic `slots`
+    /// offset and the byte offset of its indirect arguments.
+    pub fn draw(&self, view: u32, index: usize) -> (u32, u64) {
+        let (region, draw) = self.offsets(view, index);
+        (if self.first_instance { 0 } else { region }, draw)
+    }
+    /// The size of the scene group's `slots` binding over the lists: all of them
+    /// when draws start at their region, else the largest region.
+    pub fn binding(&self) -> Option<u64> {
+        (!self.first_instance).then_some(self.window)
+    }
 
     /// Per-frame view planes and counts; `items` is the slot-list length, and
     /// `occluding` whether the bound pyramid is this frame's.
@@ -492,6 +517,7 @@ impl Cull {
             items + self.chunks * 6,
         ]);
         data[tail + 12] = u32::from(occluding);
+        data[tail + 13] = u32::from(self.first_instance);
         queue.write_buffer(&self.uniform, 0, bytes(&data));
     }
 
@@ -582,7 +608,7 @@ impl Cull {
             self.list_bind = Some((bind, key));
         }
     }
-    /// Encode the three dispatches. Nothing is encoded without a group.
+    /// Each dependent dispatch has its own pass. Nothing is encoded without a group.
     pub fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -592,25 +618,40 @@ impl Cull {
         if self.groups.is_empty() || self.direct {
             return false;
         }
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("game cull"),
-            timestamp_writes: timestamps.map(|query_set| wgpu::ComputePassTimestampWrites {
-                query_set,
-                beginning_of_pass_write_index: Some(crate::timing::CULL * 2),
-                end_of_pass_write_index: Some(crate::timing::CULL * 2 + 1),
-            }),
-        });
         let grid = |n: u32| (n.min(65535), n.div_ceil(65535));
         let (chunks, groups) = (grid(self.chunks), grid(self.groups.len() as u32));
-        pass.set_pipeline(&self.test);
-        pass.set_bind_group(0, &self.test_binds.as_ref().unwrap().0[current], &[]);
-        pass.dispatch_workgroups(chunks.0, chunks.1, 1);
         let lists = &self.list_bind.as_ref().unwrap().0;
-        pass.set_bind_group(0, lists, &[]);
-        pass.set_pipeline(&self.scan);
-        pass.dispatch_workgroups(groups.0, groups.1, 1);
-        pass.set_pipeline(&self.scatter);
-        pass.dispatch_workgroups(chunks.0, chunks.1, 1);
+        // The Adreno 620 corrupts compacted model slots when these dependent
+        // stages share a pass. Pass boundaries preserve the storage handoffs;
+        // the GPU readback regression checks every slot, not just draw counts.
+        for (stage, (pipeline, bind, size)) in [
+            (
+                &self.test,
+                &self.test_binds.as_ref().unwrap().0[current],
+                chunks,
+            ),
+            (&self.scan, lists, groups),
+            (&self.scatter, lists, chunks),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("game cull"),
+                timestamp_writes: timestamps
+                    .map(|query_set| wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: (stage == 0)
+                            .then_some(crate::timing::CULL * 2),
+                        end_of_pass_write_index: (stage == 2)
+                            .then_some(crate::timing::CULL * 2 + 1),
+                    })
+                    .filter(|_| stage != 1),
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, bind, &[]);
+            pass.dispatch_workgroups(size.0, size.1, 1);
+        }
         true
     }
 }

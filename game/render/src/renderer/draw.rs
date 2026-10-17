@@ -7,19 +7,24 @@ pub(super) struct Resolved {
     pub size: (u32, u32),
     pub needs: crate::Needs,
     pub scene_copy: bool,
-    pub retained: bool,
-    /// Forward variant: shadowed + 2 × fogged.
+    /// Something after the forward pass reads its depth this frame (a scene
+    /// copy, final depth, SSAO, soft particles): the pass stores it.
+    pub depth_read: bool,
+    /// Shared forward bits: shadowed, fogged and PCF-soft.
     pub variant: usize,
     /// Primitive forward bits beyond `variant` (pipeline.rs `LEAN`, `EARLY`, `DIRECT`,
     /// `UNIFORM`).
     pub primitive: usize,
-    /// Nothing reads the HDR image after the opaque pass: it draws tonemapped,
-    /// resolving into the target, and no tone pass follows.
+    /// The frame needs no HDR image (`direct_frame`): it draws tonemapped into
+    /// the target (resolving into it at 4x), and no tone pass follows.
     pub direct: bool,
+    pub bilinear: bool,
     /// CPU stage times: prepare, compute, opaque, background, surface, post.
     pub times: [Option<f64>; 6],
     /// Engine draws beyond the retained per-batch count.
     pub draws: u32,
+    pub hull_instances: u64,
+    pub hull_triangles: u64,
 }
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
@@ -59,7 +64,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
 
     /// After the encoded frame's submit: map what it copied for reading.
     pub(crate) fn submitted(&mut self) {
+        if let Some(cache) = self.shadows.as_mut().and_then(|s| s.cached.as_mut()) {
+            if cache.encoded.replace(false) {
+                cache.valid = true;
+            }
+        }
+        self.pipelines.reap_specializations();
         self.cull.map_counts();
+        if self.pipelines.cache.handle.is_some() {
+            let work = self.residency_work().pipeline_creations;
+            self.pipelines.cache.save(work);
+        }
     }
 
     // Order: skinning → hook compute → culling → shadows → forward (opaque, hook
@@ -96,7 +111,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             capacity,
             color_format: wgpu::TextureFormat::Rgba16Float,
             depth_format: wgpu::TextureFormat::Depth32Float,
-            sample_count: 4,
+            sample_count: self.pipelines.samples,
             poses,
         };
         let mut times = [None; 6];
@@ -128,6 +143,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
         }
+        self.prepass_active = self.pipelines.depth_prepass && hooks.materials().is_empty();
         // This frame's quads and translucent order first: the split below
         // follows the soft particles actually drawn.
         self.quads
@@ -141,11 +157,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         // never recreates the targets (and drops bloom and SSAO).
         let soft = self.quads.soft_drawn() && !needs.contains(crate::Needs::SCENE_COPY);
         self.soft_retained |= soft;
-        let (scene_copy, retained) = self.prepare_targets(
-            size,
-            needs,
-            frame.ambient_occlusion.is_some() || self.soft_retained,
-        );
+        let direct = self.direct_frame::<H>(frame, soft);
+        // A direct frame leaves the HDR attachments as they are, unused.
+        let scene_copy = if direct {
+            false
+        } else {
+            self.prepare_targets(
+                size,
+                needs,
+                frame.ambient_occlusion.is_some() || self.soft_retained,
+            )
+        };
         self.quads.soft_pass(
             &self.device,
             &self.queue,
@@ -176,6 +198,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         {
             self.rebind();
         }
+        self.prepare_batch_coverage();
         // A visible sky map draws once resident; the procedural sky until then.
         self.sky_ready = frame.environment_map.is_some_and(|m| {
             m.visible
@@ -197,57 +220,59 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         uniform[31] *= self.environment.ambient_scale();
         self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials(), size);
-        // Direct: no hook, bloom, SSAO, scene copy, retained depth, quad, translucent
-        // or model draws, so nothing needs the HDR colour after the opaque pass. A
-        // tiling GPU then keeps half the bytes per MSAA sample and skips a full-screen
-        // read and write (on an Adreno 620, 6 ms of a 32,000-cube frame).
-        let direct = self.allow_direct
-            && !H::ENABLED
-            && !scene_copy
-            && !retained
-            && self.bloom.is_none()
-            && frame.ambient_occlusion.is_none()
-            && self.quads.draws.is_empty()
-            && self
-                .cull
-                .groups
-                .iter()
-                .all(|g| self.model_material(g.batch).is_none());
+        self.prepare_shadow_cache(cascades.as_ref(), frame, hooks.materials());
         if direct {
-            let format = target.texture().format();
-            let extent = target.texture().size();
-            if self
-                .direct_targets
-                .as_ref()
-                .is_none_or(|t| t.format != format || t.size != extent)
-            {
-                self.direct_targets = Some(crate::buffers::DirectTargets::new(
-                    &self.device,
-                    format,
-                    extent,
-                ));
-                self.texture_creations += 2;
-            }
+            self.prepare_direct(target.texture().size());
         }
         let lean = self.lights.info[0] == 0. && frame.fill.is_none() && self.grids == 0;
-        let early = self.pipelines.early && !self.lights.fading;
+        let early = self.pipelines.early;
         let e = &frame.environment;
         let uniform =
             frame.environment_map.is_none() && e.zenith == e.horizon && e.horizon == e.ground;
+        let bilinear = frame
+            .sun
+            .and_then(|s| s.shadows)
+            .is_some_and(|s| matches!(s.filter, crate::ShadowFilter::Bilinear { .. }));
         let mut state = Resolved {
+            bilinear,
             size,
             needs,
             scene_copy,
-            retained,
+            depth_read: scene_copy
+                || needs.contains(crate::Needs::FINAL_DEPTH)
+                || frame.ambient_occlusion.is_some()
+                || soft,
             variant: usize::from(self.shadows.is_some())
-                + 2 * usize::from(frame.environment.fog.is_some()),
-            primitive: if lean { crate::pipeline::LEAN } else { 0 }
+                + 2 * usize::from(frame.environment.fog.is_some())
+                + crate::pipeline::PCF_SOFT
+                    * usize::from(
+                        self.shadows.is_some()
+                            && frame.sun.and_then(|s| s.shadows).is_some_and(|s| {
+                                matches!(
+                                    s.filter,
+                                    crate::ShadowFilter::PcfSoft { .. }
+                                        | crate::ShadowFilter::Bilinear { .. }
+                                )
+                            }),
+                    ),
+            primitive: if bilinear {
+                crate::pipeline::BILINEAR
+            } else {
+                0
+            } | if lean { crate::pipeline::LEAN } else { 0 }
                 | if early { crate::pipeline::EARLY } else { 0 }
                 | if direct { crate::pipeline::DIRECT } else { 0 }
-                | if uniform { crate::pipeline::UNIFORM } else { 0 },
+                | if uniform { crate::pipeline::UNIFORM } else { 0 }
+                | if self.shadows.as_ref().is_some_and(|s| s.count == 1) {
+                    crate::pipeline::SINGLE_CASCADE
+                } else {
+                    0
+                },
             direct,
             times,
             draws: 0,
+            hull_instances: 0,
+            hull_triangles: 0,
         };
         if self.environment.encode(encoder, frame.timestamps) {
             self.mark(timing::ENVIRONMENT);
@@ -284,6 +309,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.encode_local_culls(encoder);
         state.draws += self.encode_shadows(encoder, frame, hooks.materials());
         state.draws += self.encode_local_shadows(encoder, hooks.materials(), frame.timestamps);
+        state.draws += self.encode_depth_prepass(encoder, frame, state.size, state.direct);
         self.encode_forward(encoder, target, &mut state, frame, hooks, &view)?;
         if self.quads.soft_active() {
             self.encode_translucent(encoder, &mut state, frame);
@@ -324,6 +350,51 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         self.cull.copy_counts(&self.device, encoder);
         Ok(self.finish_stats(hooks, &state))
+    }
+
+    /// Whether this frame draws straight into the target, with no HDR image (README
+    /// "Direct frames"): nothing after the forward pass reads one (no hook, bloom,
+    /// SSAO or soft particle), and whatever blends, blends as it would into one. A
+    /// blend is linear in its inputs, so it commutes with exposure, all the tone
+    /// curve `ToneMapping::None` applies, and an sRGB target blends in linear
+    /// light; under ACES, or into a target the shader encodes, it would mix other
+    /// values than the tone pass's. A tiling GPU then stores no HDR image and skips
+    /// the full-screen tone pass's read and write: at 4x, with MSAA in the target's
+    /// format, half the bytes a sample too (on an Adreno 620, 6 ms of a
+    /// 32,000-cube frame).
+    fn direct_frame<H: crate::Hooks>(&self, frame: &FrameInput<'_>, soft: bool) -> bool {
+        let blends = self.quads.draws.iter().any(|d| !self.quads.opaque(d));
+        self.allow_direct
+            && !H::ENABLED
+            && frame.environment.bloom.is_none()
+            && frame.ambient_occlusion.is_none()
+            && !soft
+            && (!blends
+                || (frame.environment.tone_mapping == exact_game::ToneMapping::None
+                    && self.pipelines.format().is_srgb()))
+    }
+
+    /// A direct frame's attachments at the target's size, and its quad pipelines.
+    fn prepare_direct(&mut self, extent: wgpu::Extent3d) {
+        let format = self.pipelines.format();
+        let retained = false;
+        if self
+            .direct_targets
+            .as_ref()
+            .is_none_or(|t| t.format != format || t.size != extent || t.retained != retained)
+        {
+            let targets = crate::buffers::DirectTargets::new(
+                &self.device,
+                format,
+                extent,
+                self.pipelines.samples,
+                retained,
+            );
+            self.texture_creations += targets.textures();
+            self.direct_targets = Some(targets);
+        }
+        self.quads.prepare_direct(&self.device);
+        self.direct_frames += 1;
     }
 
     fn upload_overrides(&mut self, frame: &FrameInput<'_>) {
@@ -407,6 +478,24 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         custom: &[crate::hooks::CustomMaterial],
     ) -> Result<(), RenderError> {
         for custom in custom {
+            for (name, model) in &self.models.loaded {
+                for (index, node) in model.nodes.iter().enumerate() {
+                    if node.1 == custom.material && self.meshes[node.0 .0].outline.is_some() {
+                        return Err(RenderError::scene(format!(
+                            "{name}: mesh {} (node {:?}): outline with custom material is unsupported",
+                            node.0.0, model.names[index]
+                        )));
+                    }
+                }
+            }
+            if let Some(record) = self.models.records.iter().find(|r| {
+                r.material == custom.material && self.meshes[r.geometry.0].outline.is_some()
+            }) {
+                return Err(RenderError::scene(format!(
+                    "mesh {}: outline with custom material is unsupported",
+                    record.geometry.0
+                )));
+            }
             if self
                 .models
                 .materials
@@ -427,15 +516,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     // Attachments grow in 64-pixel buckets; hook services add retained targets.
-    fn prepare_targets(
-        &mut self,
-        size: (u32, u32),
-        needs: crate::Needs,
-        occlusion: bool,
-    ) -> (bool, bool) {
+    // Whether the frame copies its scene for a hook.
+    fn prepare_targets(&mut self, size: (u32, u32), needs: crate::Needs, occlusion: bool) -> bool {
         let scene_copy = needs.contains(crate::Needs::SCENE_COPY);
         // Occlusion reads the forward pass's depth too.
-        let retained = scene_copy || occlusion || needs.contains(crate::Needs::FINAL_DEPTH);
+        let retained = self.pipelines.depth_prepass
+            || scene_copy
+            || occlusion
+            || needs.contains(crate::Needs::FINAL_DEPTH);
         let replace_targets = size.0 > self.targets.size.0
             || size.1 > self.targets.size.1
             || retained != self.targets.retained;
@@ -453,8 +541,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 &self.pipelines.tone_layout,
                 &self.uniform,
                 retained,
+                self.pipelines.samples,
             );
-            self.texture_creations += 3;
+            self.texture_creations += if self.pipelines.samples == 1 { 2 } else { 3 };
         }
         if needs.attachments() == crate::Needs::NONE {
             if self.hook_targets.take().is_some() {
@@ -482,7 +571,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.hook_targets = Some(targets);
             self.bloom = None;
         }
-        (scene_copy, retained)
+        scene_copy
     }
 
     // Shadow maps and bloom follow the frame's effects; disabled effects release them.
@@ -493,11 +582,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .and_then(|s| s.shadows)
             .map(|s| Cascades::new(frame, s));
         if let Some(c) = &cascades {
-            if self.shadows.as_ref().is_none_or(|s| s.count != c.count) {
+            if self.shadows.as_ref().is_none_or(|s| {
+                s.count != c.count
+                    || s.resolution != c.resolution
+                    || s.cache_enabled != c.cache_enabled
+            }) {
                 self.texture_creations += 1;
                 self.shadows = Some(ShadowMaps::new(
                     &self.device,
                     c.count,
+                    c.resolution,
+                    c.cache_enabled,
                     &self.pipelines.camera_layout,
                 ));
                 self.shadow_sample_stale = true;
@@ -607,8 +702,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     fn finish_stats<H: crate::Hooks>(&mut self, hooks: &H, state: &Resolved) -> Stats {
         let mut stats = self.counts;
         stats.draws += state.draws;
-        stats.instances += self.quads.instances();
-        stats.triangles += 2 * self.quads.instances();
+        stats.instances += self.quads.instances() + state.hull_instances;
+        stats.triangles += 2 * self.quads.instances() + state.hull_triangles;
         if ASSETS {
             stats.draws -= self
                 .model_batches
@@ -618,6 +713,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 .count() as u32;
         }
         stats.texture_creations = self.texture_creations;
+        stats.direct_frames = self.direct_frames;
         if H::ENABLED {
             let needs = state.needs;
             let metrics = self.hook_metrics.as_mut().unwrap();
@@ -632,8 +728,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 } else {
                     0
                 };
-            metrics.attachment_bytes =
-                u64::from(self.targets.size.0) * u64::from(self.targets.size.1) * (56 + extra);
+            metrics.attachment_bytes = u64::from(self.targets.size.0)
+                * u64::from(self.targets.size.1)
+                * (if self.pipelines.samples == 1 { 12 } else { 56 } + extra);
             metrics.record(
                 state.times,
                 hooks.work(),
@@ -641,5 +738,89 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             );
         }
         stats
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use exact_game::*;
+    use exact_gpu::{fixture, wgpu};
+
+    #[test]
+    fn single_sample_town_settings_draw_direct_or_keep_one_hdr_attachment() {
+        let Some(gpu) = crate::test_device::device_or_skip(fixture::device()) else {
+            return;
+        };
+        let mut world = World::new(60, 1);
+        world.spawn((Transform::default(), Mesh::cube(1.)));
+        let mut renderer = crate::Renderer::with_samples(
+            &gpu.device,
+            &gpu.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            SceneSamples::One,
+        );
+        crate::Feed::default().feed(&world, &mut renderer).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("town attachment audit"),
+            size: wgpu::Extent3d {
+                width: 1080,
+                height: 2340,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let frame = crate::FrameInput {
+            environment: Environment {
+                background: Some([0.5; 3]),
+                fog: Some(Fog::linear(18., 60.)),
+                bloom: None,
+                tone_mapping: ToneMapping::None,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let draw = |renderer: &mut crate::Renderer| {
+            let stats = renderer.draw(
+                &texture.create_view(&Default::default()),
+                (1080, 2340),
+                &frame,
+            );
+            assert_eq!(
+                stats.draws, 5,
+                "three shadow draws, opaque draw, output transfer"
+            );
+            assert!(renderer.hook_targets.is_none());
+            assert!(renderer.bloom.is_none());
+            assert!(renderer.ssao.is_none());
+            assert!(!renderer.quads.soft_active());
+            assert!(!renderer.occluding);
+            assert_eq!(renderer.shadows.as_ref().unwrap().count, 3);
+            stats.direct_frames
+        };
+        // Direct: one transient depth at the target's size, and the HDR
+        // attachments as they were made, one 64-pixel bucket.
+        for frames in 1..=2 {
+            assert_eq!(draw(&mut renderer), frames);
+            assert_eq!(renderer.targets.size, (64, 64));
+            let direct = renderer.direct_targets.as_ref().unwrap();
+            assert!(direct.color.is_none() && !direct.retained);
+            assert_eq!((direct.size.width, direct.size.height), (1080, 2340));
+        }
+        renderer.set_direct(false);
+        for _ in 0..2 {
+            assert_eq!(draw(&mut renderer), 2);
+            assert_eq!(renderer.targets.size, (1088, 2368));
+            assert_eq!(renderer.targets.samples, 1);
+            assert_eq!(renderer.targets.color, renderer.targets.resolved);
+            assert!(!renderer.targets.retained);
+        }
+        gpu.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
     }
 }

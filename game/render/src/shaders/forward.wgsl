@@ -1,16 +1,28 @@
 override FOG: bool = false;
+// Equal must not admit a fragment at the unwritten clear depth.
+override DEPTH_PREPASS: bool = false;
+@fragment fn fs_depth(input: Surface) {
+    if faded(input.slot, input.clip.xy) { discard; }
+}
+// The camera depth prepass of a primitive batch without fading: position only.
+@vertex fn vs_depth(@location(0) position: vec3<f32>, @location(2) cap: vec2<f32>,
+    @builtin(instance_index) instance: u32) -> @builtin(position) @invariant vec4<f32> {
+    let slot = slots[instance];
+    return frame.view_proj * vec4(primitive_world(slot, pose(slot), position, cap), 1.0);
+}
 // The fill and local lights, and the grid. A frame with none compiles without
 // them: their registers, unused, still cost a mobile GPU much of its occupancy.
 override LIGHTS: bool = true;
 override GRID: bool = true;
-// Tonemapped in place for an LDR target: a direct frame (`Renderer::direct`).
+// Tonemapped in place for an LDR target: a direct frame (`Renderer::set_direct`).
+// Alpha passes through, so a blended model blends what the tone pass would show.
 override DIRECT: bool = false;
 // Some slot may be fading (`faded`); false where none is, as early depth requires.
 override FADES: bool = true;
 // Transform's varyings and the slot's material, read once per vertex: a storage
 // read per fragment is the costlier on a mobile GPU.
 struct Surface {
-    @builtin(position) clip: vec4<f32>,
+    @builtin(position) @invariant clip: vec4<f32>,
     @location(0) world: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) @interpolate(flat) slot: u32,
@@ -35,11 +47,12 @@ struct Surface {
     return finish(shade(input, sun_visibility(input.world, normalize(input.normal))));
 }
 fn finish(color: vec4<f32>) -> vec4<f32> {
-    if DIRECT { return tonemap(color.rgb); }
+    if DIRECT { return vec4(tonemap(color.rgb).rgb, color.a); }
     return color;
 }
 @diagnostic(off, derivative_uniformity)
 fn shade(input: Surface, visibility: f32) -> vec4<f32> {
+    if DEPTH_PREPASS && input.clip.z >= 1.0 { discard; }
     if FADES && faded(input.slot, input.clip.xy) { discard; }
     var base = input.albedo;
     // Opaque materials reuse alpha as a negative grid-spacing flag: no wider uploads.
@@ -67,19 +80,24 @@ fn shade(input: Surface, visibility: f32) -> vec4<f32> {
     let emissive = input.emissive;
     let n = normalize(input.normal);
     let v = normalize(frame.camera_alpha.xyz - input.world);
-    var color = ambient(n, v, base, metallic, roughness) + emissive;
+    // The colour in `shading` (frame.wgsl): f16 where the device has it.
+    let albedo = vec3<shading>(base);
+    var color = ambient(n, v, albedo, metallic, roughness) + vec3<shading>(emissive);
     if frame.sun_direction_illuminance.w > 0.0 {
         let l = -frame.sun_direction_illuminance.xyz;
-        color += brdf(n, v, l, base, metallic, roughness) * frame.sun_color_count.xyz * frame.sun_direction_illuminance.w * visibility;
+        color += brdf(n, v, l, albedo, metallic, roughness) * vec3<shading>(frame.sun_color_count.xyz)
+            * shading(frame.sun_direction_illuminance.w) * shading(visibility);
     }
     if LIGHTS {
         if frame.fill_direction_illuminance.w > 0.0 {
-            color += fill_light(n, v, base, metallic, roughness);
+            color += fill_light(n, v, albedo, metallic, roughness);
         }
-        add_local_lights(&color, input.clip.xy, input.world, n, v, base, metallic, roughness, false);
+        add_local_lights(&color, input.clip.xy, input.world, n, v, albedo, metallic, roughness, false);
     }
     if FOG {
-        color = height_fog(color, input.world);
+        color = shaded_fog(color, input.world);
     }
-    return vec4(color, 1.0);
+    return vec4(vec3<f32>(color), 1.0);
 }
+
+@fragment fn camera_depth_empty() {}

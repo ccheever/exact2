@@ -57,10 +57,11 @@ pub struct Present<'w> {
     world: &'w mut World,
 }
 
-impl<'w> Present<'w> {
-    pub(crate) fn new(world: &'w mut World) -> Self {
-        Self { world }
-    }
+/// Read-only simulation view supplied to bulk presentation closures.
+pub struct PresentRead<'w> {
+    pub(crate) world: &'w World,
+}
+impl PresentRead<'_> {
     /// Read one component by entity or name.
     #[track_caller]
     pub fn get<C: Component>(&self, target: impl Target) -> Option<Ref<'_, C>> {
@@ -123,6 +124,74 @@ impl<'w> Present<'w> {
     pub fn rng(&self, salt: u64) -> Rng {
         self.world.presentation_rng(salt)
     }
+}
+impl<'w> Present<'w> {
+    /// Read one component by entity or name.
+    #[track_caller]
+    pub fn get<C: Component>(&self, target: impl Target) -> Option<Ref<'_, C>> {
+        self.world.get(target)
+    }
+    /// Read one component, panicking with both names when it is absent.
+    #[track_caller]
+    pub fn require<C: Component>(&self, target: impl Target) -> Ref<'_, C> {
+        self.world.require(target)
+    }
+    /// Whether a living entity has this component.
+    pub fn has<C: Component>(&self, e: Entity) -> bool {
+        self.world.has::<C>(e)
+    }
+    /// Visit one component column in stable entity order, read-only.
+    #[track_caller]
+    pub fn for_each<C: Component>(&self, mut visit: impl FnMut(Entity, &C)) {
+        for (e, value) in self.world.query::<&C>().iter() {
+            visit(e, value);
+        }
+    }
+    /// Resolve a named entity.
+    pub fn named(&self, name: &str) -> Option<Entity> {
+        self.world.named(name)
+    }
+    /// An optional resource, read-only.
+    pub fn resource<R: Resource>(&self) -> Option<Ref<'_, R>> {
+        self.world.try_resource::<R>()
+    }
+    /// The entity's global pose at this boundary, parents included.
+    pub fn global(&self, e: Entity) -> Option<Affine3A> {
+        self.world.current_global(e)
+    }
+    /// Whether the entity is drawn at all: its `Visible` and its Parent chain's.
+    pub fn is_visible(&self, e: Entity) -> bool {
+        self.world.is_visible(e)
+    }
+    /// The last value published under `key`.
+    pub fn published(&self, key: &str) -> Option<Value> {
+        self.world.published(key)
+    }
+    /// The completed tick this present shows.
+    pub fn tick(&self) -> u64 {
+        self.world.tick()
+    }
+    /// Simulation ticks per second.
+    pub fn hz(&self) -> u32 {
+        self.world.hz()
+    }
+    /// Simulation seconds at this boundary.
+    pub fn seconds(&self) -> f64 {
+        self.world.seconds()
+    }
+    /// The world seed.
+    pub fn seed(&self) -> u64 {
+        self.world.seed()
+    }
+    /// A presentation random stream from the seed, this tick and `salt`: the
+    /// same draws every time this boundary is presented, never the world's.
+    pub fn rng(&self, salt: u64) -> Rng {
+        self.world.presentation_rng(salt)
+    }
+
+    pub(crate) fn new(world: &'w mut World) -> Self {
+        Self { world }
+    }
     /// Insert or replace a presentation component on a living entity; false if
     /// the entity is gone.
     pub fn insert<C: PresentationComponent>(&mut self, e: Entity, value: C) -> bool {
@@ -130,6 +199,16 @@ impl<'w> Present<'w> {
         // simulation component does not compile here.
         const { assert!(C::PRESENTATION, "only #[derive(Presentation)] components") };
         self.world.insert(e, value)
+    }
+    /// Derive presentation rows from a simulation column in entity order.
+    /// The closure holds no query guard and may read other simulation columns.
+    pub fn insert_each<C: Component, P: PresentationComponent>(
+        &mut self,
+        mut derive: impl FnMut(&PresentRead<'_>, Entity, &C) -> Option<P>,
+    ) {
+        const { assert!(P::PRESENTATION, "only #[derive(Presentation)] components") };
+        assert!(!C::PRESENTATION, "insert_each reads simulation components");
+        self.world.present_each::<C, P>(&mut derive);
     }
     /// Change a presentation component written earlier in this present.
     #[track_caller]

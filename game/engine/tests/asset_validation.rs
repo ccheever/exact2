@@ -93,3 +93,110 @@ fn joints_and_weights_are_paired_and_mesh_bounds_are_ordered() {
     bounds.meshes[0].bounds[0] = 100.;
     assert!(bounds.validate().is_err());
 }
+
+#[test]
+fn triangle_indices_cannot_leave_a_trailing_partial_face() {
+    let model: Model =
+        exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+            .unwrap();
+    model.validate().unwrap();
+    for trailing in [1, 2] {
+        let mut bad = model.clone();
+        bad.meshes[0].indices.extend(vec![0; trailing]);
+        assert_eq!(
+            bad.validate().unwrap_err(),
+            "model: invalid mesh upload range"
+        );
+    }
+}
+
+#[test]
+fn clip_scale_preserves_rest_winding_through_keys_and_cubic_overshoot() {
+    use exact_game::{Mat4, Vec3};
+    for mirrored in [false, true] {
+        let sign = if mirrored { -1. } else { 1. };
+        let mut model = Model {
+            nodes: vec![
+                Node {
+                    name: "ancestor".into(),
+                    transform: Mat4::from_scale(Vec3::new(sign, 1., 1.)).to_cols_array(),
+                    ..Default::default()
+                },
+                Node {
+                    name: "joint".into(),
+                    parent: Some(0),
+                    posable: true,
+                    ..Default::default()
+                },
+            ],
+            clips: vec![Clip {
+                name: "scale-flip".into(),
+                tracks: vec![Track {
+                    node: 0,
+                    path: TrackPath::Scale,
+                    times: vec![0., 1.],
+                    values: vec![sign, 1., 1., sign * 2., 1., 1.],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        for mode in [
+            Interpolation::Linear,
+            Interpolation::Step,
+            Interpolation::CubicSpline,
+        ] {
+            let track = &mut model.clips[0].tracks[0];
+            track.interpolation = mode;
+            track.values = if matches!(mode, Interpolation::CubicSpline) {
+                vec![
+                    0.,
+                    0.,
+                    0.,
+                    sign,
+                    1.,
+                    1.,
+                    0.,
+                    0.,
+                    0.,
+                    0.,
+                    0.,
+                    0.,
+                    sign * 2.,
+                    1.,
+                    1.,
+                    0.,
+                    0.,
+                    0.,
+                ]
+            } else {
+                vec![sign, 1., 1., sign * 2., 1., 1.]
+            };
+            model.validate().unwrap();
+            let original = model.clips[0].tracks[0].values.clone();
+            let at = if matches!(mode, Interpolation::CubicSpline) {
+                12
+            } else {
+                3
+            };
+            for value in [0., -sign] {
+                model.clips[0].tracks[0].values[at] = value;
+                let error = model.validate().unwrap_err();
+                assert!(
+                    error.contains("scale-flip")
+                        && error.contains("ancestor")
+                        && error.contains("rest-axis sign"),
+                    "{error}"
+                );
+            }
+            model.clips[0].tracks[0].values = original;
+            if matches!(mode, Interpolation::CubicSpline) {
+                // Positive endpoint values do not exclude a negative interior.
+                model.clips[0].tracks[0].values[6] = -12. * sign;
+                model.clips[0].tracks[0].values[9] = 12. * sign;
+                assert!(model.validate().unwrap_err().contains("scale-flip"));
+            }
+        }
+    }
+}

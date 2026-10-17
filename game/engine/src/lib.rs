@@ -17,9 +17,11 @@ mod environment;
 mod input;
 pub mod math;
 pub mod motion;
+mod node_offsets;
 mod particle_look;
 mod placed;
 mod present;
+pub use node_offsets::{NodeName, NodeOffset, NodeOffsets};
 pub mod rig;
 mod rng;
 pub mod scene;
@@ -38,7 +40,10 @@ pub use args::{Args, ArgumentKind};
 pub use asset::pose::Pose;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
-pub use environment::{AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog};
+pub use environment::{
+    AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog, SceneSamples, ShadowBox,
+    ShadowFilter, Shadows, ToneMapping,
+};
 pub use exact_game_derive::{Args, Component, Data, Presentation, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
@@ -48,7 +53,7 @@ pub use input::{
 };
 pub use particle_look::ParticleLook;
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
-pub use present::{Present, PresentationComponent};
+pub use present::{Present, PresentRead, PresentationComponent};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Paranoid, Sim};

@@ -25,7 +25,9 @@ mod local_shadows;
 mod lod;
 mod model_pipeline;
 mod models;
+mod node_poses;
 mod occlusion;
+mod outline;
 mod perf;
 mod pipeline;
 mod placed;
@@ -209,27 +211,7 @@ impl Default for Sun {
     }
 }
 
-/// Sun shadow quality and reach. Up to three 2048² depth layers.
-#[derive(Debug, Clone, Copy)]
-pub struct Shadows {
-    /// Camera view depth reached by shadows, in metres (default 60).
-    pub distance: f32,
-    /// Number of cascades, clamped to 1–3 (default 3).
-    pub cascades: u32,
-    /// 3×3 PCF radius in shadow texels (default 1.5).
-    pub softness: f32,
-}
-impl Default for Shadows {
-    fn default() -> Self {
-        Self {
-            distance: 60.0,
-            cascades: 3,
-            softness: 1.5,
-        }
-    }
-}
-
-pub use exact_game::{Bloom, Environment, Fog};
+pub use exact_game::{Bloom, Environment, Fog, ShadowBox, ShadowFilter, Shadows};
 
 /// An equirectangular environment texture ([`FrameInput::environment_map`]).
 #[derive(Debug, Clone, Copy)]
@@ -337,6 +319,8 @@ pub struct FrameInput<'a> {
     /// How far above SDR white the tone curve reaches (LLP 1100 D12b); 1 for
     /// an SDR target.
     pub headroom: f32,
+    /// CSS viewport height for outline pixel floors; None uses the target pixel height.
+    pub viewport_css_height: Option<f32>,
 }
 
 impl Default for FrameInput<'_> {
@@ -363,6 +347,7 @@ impl Default for FrameInput<'_> {
             ambient_occlusion: None,
             timestamps: None,
             headroom: 1.0,
+            viewport_css_height: None,
         }
     }
 }
@@ -379,6 +364,9 @@ pub struct Stats {
     pub triangles: u64,
     /// Cumulative attachment textures created by this renderer, including bloom/shadows.
     pub texture_creations: u64,
+    /// Cumulative frames drawn straight into the target, with no HDR image or
+    /// tone pass (`Renderer::set_direct`).
+    pub direct_frames: u64,
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -398,18 +386,106 @@ mod tests {
         }
     }
 
+    /// The half-precision forward modules validate with the capability and
+    /// translate to Metal and SPIR-V without 16-bit buffer or interface data.
+    #[test]
+    fn half_precision_forward_modules_validate_and_translate() {
+        use exact_gpu::wgpu::naga;
+        for early in [false, true] {
+            for source in [
+                super::pipeline::primitive_forward_source(early),
+                super::pipeline::model_sources(false, early),
+            ] {
+                let source = super::pipeline::half_precision(&source);
+                let module = naga::front::wgsl::parse_str(&source)
+                    .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+                let info = naga::valid::Validator::new(
+                    naga::valid::ValidationFlags::all(),
+                    naga::valid::Capabilities::SHADER_FLOAT16
+                        | naga::valid::Capabilities::EARLY_DEPTH_TEST,
+                )
+                .validate(&module)
+                .unwrap();
+                let (module, info) = naga::back::pipeline_constants::process_overrides(
+                    &module,
+                    &info,
+                    None,
+                    &Default::default(),
+                )
+                .unwrap();
+                fn has_half(module: &naga::Module, ty: naga::Handle<naga::Type>) -> bool {
+                    use naga::TypeInner as T;
+                    match &module.types[ty].inner {
+                        T::Scalar(s)
+                        | T::Vector { scalar: s, .. }
+                        | T::Matrix { scalar: s, .. } => s.width == 2,
+                        T::Array { base, .. } => has_half(module, *base),
+                        T::Struct { members, .. } => members.iter().any(|m| has_half(module, m.ty)),
+                        _ => false,
+                    }
+                }
+                for (_, var) in module.global_variables.iter() {
+                    assert!(
+                        !has_half(&module, var.ty),
+                        "buffer {} contains f16",
+                        var.name.as_deref().unwrap_or("?")
+                    );
+                }
+                for entry in &module.entry_points {
+                    for arg in &entry.function.arguments {
+                        assert!(!has_half(&module, arg.ty));
+                    }
+                    if let Some(result) = &entry.function.result {
+                        assert!(!has_half(&module, result.ty));
+                    }
+                }
+                let spv = naga::back::spv::write_vec(
+                    &module,
+                    &info,
+                    &naga::back::spv::Options {
+                        use_storage_input_output_16: false,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap();
+                let mut at = 5;
+                let mut caps = Vec::new();
+                while at < spv.len() {
+                    if spv[at] & 0xffff == 17 {
+                        caps.push(spv[at + 1]);
+                    }
+                    at += (spv[at] >> 16) as usize;
+                }
+                eprintln!("forward early={early} SPIR-V capabilities: {caps:?}");
+                assert!(caps.contains(&(naga::back::spv::Capability::Float16 as u32)));
+                assert!(!caps.contains(&(naga::back::spv::Capability::StorageInputOutput16 as u32)));
+                let options = naga::back::msl::Options {
+                    lang_version: (2, 4),
+                    ..Default::default()
+                };
+                naga::back::msl::write_string(&module, &info, &options, &Default::default())
+                    .unwrap();
+            }
+        }
+    }
+
     #[test]
     fn the_early_forward_entry_points_validate_with_the_capability() {
         use exact_gpu::wgpu::naga;
-        let source = super::pipeline::early_forward_source();
-        let module = naga::front::wgsl::parse_str(&source)
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
-        naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::EARLY_DEPTH_TEST,
-        )
-        .validate(&module)
-        .unwrap();
+        for source in [
+            super::pipeline::early_forward_source(),
+            super::pipeline::model_sources(false, true),
+        ] {
+            let module = naga::front::wgsl::parse_str(&source)
+                .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::EARLY_DEPTH_TEST,
+            )
+            .validate(&module)
+            .unwrap();
+        }
     }
 }
 

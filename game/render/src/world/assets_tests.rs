@@ -42,6 +42,7 @@ impl Writes for Recording {
             merged: &self.nodes,
             members: &self.members,
             starts: &self.starts,
+            parts: &[],
             materials: &self.materials,
             custom: &self.custom,
         })
@@ -101,7 +102,9 @@ fn compare(assets: &mut Assets, w: &World, r: &mut Recording, resolves: bool) {
     );
     assert_eq!(assets.entities, fresh.entities);
     assert_eq!(assets.part_bases, fresh.part_bases);
-    let bits = |rows: &[[f32; 8]]| rows.iter().map(|r| r.map(f32::to_bits)).collect::<Vec<_>>();
+    let bits = |rows: &[crate::models::PartLook]| {
+        rows.iter().map(|r| r.map(f32::to_bits)).collect::<Vec<_>>()
+    };
     assert_eq!(bits(&assets.part_looks), bits(&fresh.part_looks));
     assert_eq!(assets.levels, fresh.levels);
     assert_eq!(assets.lods, fresh.lods);

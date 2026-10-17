@@ -122,23 +122,17 @@ pub(crate) struct Targets {
     pub resolved: wgpu::TextureView,
     pub tone_bind: wgpu::BindGroup,
     pub retained: bool,
+    pub samples: u32,
 }
 
 impl Targets {
-    pub fn new(
-        device: &wgpu::Device,
-        size: (u32, u32),
-        layout: &wgpu::BindGroupLayout,
-        uniform: &wgpu::Buffer,
-    ) -> Self {
-        Self::with_retention(device, size, layout, uniform, false)
-    }
     pub fn with_retention(
         device: &wgpu::Device,
         size: (u32, u32),
         layout: &wgpu::BindGroupLayout,
         uniform: &wgpu::Buffer,
         retained: bool,
+        samples: u32,
     ) -> Self {
         let texture = |format, sample_count, usage| {
             device
@@ -158,19 +152,9 @@ impl Targets {
                 })
                 .create_view(&Default::default())
         };
-        let color = texture(
-            wgpu::TextureFormat::Rgba16Float,
-            4,
-            wgpu::TextureUsages::RENDER_ATTACHMENT
-                | if retained {
-                    wgpu::TextureUsages::empty()
-                } else {
-                    wgpu::TextureUsages::TRANSIENT_ATTACHMENT
-                },
-        );
         let depth = texture(
             wgpu::TextureFormat::Depth32Float,
-            4,
+            samples,
             wgpu::TextureUsages::RENDER_ATTACHMENT
                 | if retained {
                     wgpu::TextureUsages::TEXTURE_BINDING
@@ -181,8 +165,24 @@ impl Targets {
         let resolved = texture(
             wgpu::TextureFormat::Rgba16Float,
             1,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
         );
+        let color = if samples == 1 {
+            resolved.clone()
+        } else {
+            texture(
+                wgpu::TextureFormat::Rgba16Float,
+                samples,
+                wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | if retained {
+                        wgpu::TextureUsages::empty()
+                    } else {
+                        wgpu::TextureUsages::TRANSIENT_ATTACHMENT
+                    },
+            )
+        };
         let tone_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game tonemap"),
             layout,
@@ -200,6 +200,7 @@ impl Targets {
         Self {
             size,
             retained,
+            samples,
             color,
             depth,
             resolved,
@@ -208,29 +209,41 @@ impl Targets {
     }
 }
 
-/// A direct frame's 4x MSAA colour (the target's format) and depth, at the
-/// target's own size: the forward pass resolves into the target itself. Both are
-/// transient: neither is stored past the pass.
+/// A direct frame's attachments at its target's own size: at 4x, MSAA colour in
+/// the target's format, which the forward pass resolves into the target; at 1x
+/// none, as the pass draws into the target. Depth is transient unless the depth
+/// prepass writes it for the forward pass to load (`retained`).
 pub(crate) struct DirectTargets {
     pub format: wgpu::TextureFormat,
     pub size: wgpu::Extent3d,
-    pub color: wgpu::TextureView,
+    pub retained: bool,
+    pub color: Option<wgpu::TextureView>,
     pub depth: wgpu::TextureView,
 }
 
 impl DirectTargets {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: wgpu::Extent3d) -> Self {
-        let texture = |format| {
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        size: wgpu::Extent3d,
+        samples: u32,
+        retained: bool,
+    ) -> Self {
+        let texture = |format, transient| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("game direct"),
                     size,
                     mip_level_count: 1,
-                    sample_count: 4,
+                    sample_count: samples,
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TRANSIENT_ATTACHMENT,
+                        | if transient {
+                            wgpu::TextureUsages::TRANSIENT_ATTACHMENT
+                        } else {
+                            wgpu::TextureUsages::empty()
+                        },
                     view_formats: &[],
                 })
                 .create_view(&Default::default())
@@ -238,8 +251,13 @@ impl DirectTargets {
         Self {
             format,
             size,
-            color: texture(format),
-            depth: texture(wgpu::TextureFormat::Depth32Float),
+            retained,
+            color: (samples > 1).then(|| texture(format, true)),
+            depth: texture(wgpu::TextureFormat::Depth32Float, !retained),
         }
+    }
+    /// The textures it made, for `Stats::texture_creations`.
+    pub fn textures(&self) -> u64 {
+        1 + u64::from(self.color.is_some())
     }
 }
