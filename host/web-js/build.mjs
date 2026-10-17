@@ -19,7 +19,6 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createContext, runInContext } from 'node:vm';
 import { transformSync, parseSync } from 'rolldown/utils';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withoutDev } from './module.mjs';
@@ -218,10 +217,9 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // builds is one every host builds, refused with the same diagnostics (calc
 // F2, calendar F9/F11). The type check runs while the page bundles; the
 // build waits for it at the end. The capture is the module's one graph: its
-// bundle answers appId, grants and the exports, run in a realm of its own
-// (`moduleFacts`), and the page and server bundles replay it
-// (`replayCaptured`); nothing of the app or its packages is imported into
-// this process. Under `--data` (a conformance fixture's synthetic plan over
+// syntax answers appId, grants and the exports (`staticFacts`), and the page
+// and server bundles replay its resolutions (`replayCaptured`): no app or
+// package code runs in this process. Under `--data` (a conformance fixture's synthetic plan over
 // another app's sources) it is captured but not checked: against the
 // fixture's declarations every source that app answers is unknown.
 const captured = ts ? await typecheck(!opt('--data')).catch((error) => {
@@ -229,7 +227,7 @@ const captured = ts ? await typecheck(!opt('--data')).catch((error) => {
   process.exit(1);
 }) : null;
 async function typecheck(checking) {
-  const { configure, check, capturedSources } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, capturedSources, staticFacts } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
@@ -277,7 +275,7 @@ async function typecheck(checking) {
   // An overlay shows writes over the resources they change (js/bake's entry does the same).
   const overlay = /export\s+(const|function|let)\s+overlay\b|export\s*\{[^}]*\boverlay\b/.test(readFileSync(resolve(stage, 'app.ts'), 'utf8'))
     ? "import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n" : '';
-  writeFileSync(resolve(stage, '__exact_entry.ts'), "import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\nexport const exported: string[] = Object.keys(app);\n" + overlay);
+  writeFileSync(resolve(stage, '__exact_entry.ts'), "import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n" + overlay);
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   writeFileSync(resolve(stage,'__exact_backend_source.json'), JSON.stringify(readFileSync(resolve(stage,'app.ts'),'utf8')));
   const real = realpathSync(stage);
@@ -304,11 +302,11 @@ async function typecheck(checking) {
   const why = [];
   const { rolldown } = await import('rolldown');
   const typed = checking ? check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error) : Promise.resolve(null);
-  let code, failed;
+  let failed;
   try {
     const bundle = await rolldown({ ...bundleOptions, cwd: real, input: resolve(real, '__exact_entry.ts'), tsconfig: resolve(real, '__exact_tsconfig.json'),
       logLevel: 'silent', plugins: [capturedSources(real, why)] });
-    try { code = (await bundle.generate({ format: 'iife', name: 'exact' })).output[0].code; } finally { await bundle.close(); }
+    try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
   } catch (error) { failed = error; }
   if (failed || why.length) {
     const errors = [failed, ...why.map(line => new Error(line)), await typed].filter(Boolean);
@@ -325,60 +323,7 @@ async function typecheck(checking) {
     sources.shallow = [...(sources.shallow ?? []), ...packages.flatMap(([, , installed]) => installed.map(path => [dirname(path), basename(path)]))];
     writeFileSync(listed, JSON.stringify(sources));
   }
-  // A module that does not load says why, after what the check found.
-  try { return { facts: moduleFacts(code), typed }; } catch (error) {
-    throw new Error([await typed, error].filter(Boolean).map(e => e.message ?? String(e)).join('\n'));
-  }
-}
-/** appId, grants and the export names of the captured bundle `code`, run as
- * Hermes runs it: in a realm of its own (no Node, Bun or page object in it:
- * everything below is made inside it), after the executor's prelude, under
- * a deadline. Of the web APIs Ibex gives Hermes natively, the realm makes
- * the text coders a module builds as it loads; the rest are absent here. */
-function moduleRealm() { return `delete globalThis.console;
-globalThis.console = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
-globalThis.__exact_host = function () {};
-globalThis.crypto = { getRandomValues() { throw new Error('crypto.getRandomValues() is unavailable while the build reads appId and grants'); } };
-globalThis.TextEncoder = class TextEncoder {
-  get encoding() { return 'utf-8'; }
-  encode(text = '') {
-    const out = [];
-    for (const ch of String(text)) {
-      let c = ch.codePointAt(0);
-      if (c >= 0xd800 && c <= 0xdfff) c = 0xfffd;
-      if (c < 0x80) out.push(c);
-      else if (c < 0x800) out.push(0xc0 | c >> 6, 0x80 | c & 63);
-      else if (c < 0x10000) out.push(0xe0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63);
-      else out.push(0xf0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63);
-    }
-    return new Uint8Array(out);
-  }
-};
-globalThis.TextDecoder = class TextDecoder {
-  constructor(label = 'utf-8', options = {}) { this.fatal = !!options.fatal; }
-  get encoding() { return 'utf-8'; }
-  decode(input = new Uint8Array()) {
-    const b = input instanceof Uint8Array ? input : new Uint8Array(input.buffer ?? input);
-    let text = '';
-    for (let i = 0; i < b.length;) {
-      const n = b[i] < 0x80 ? 1 : b[i] >> 5 === 6 ? 2 : b[i] >> 4 === 14 ? 3 : b[i] >> 3 === 30 ? 4 : 0;
-      let c = n === 1 ? b[i] : n ? b[i] & (0xff >> (n + 1)) : -1;
-      for (let k = 1; k < n; k++) c = (b[i + k] >> 6) === 2 ? c << 6 | b[i + k] & 63 : -1;
-      if (c < 0 || i + n > b.length) { if (this.fatal) throw new TypeError('The encoded data was not valid utf-8'); text += '\\ufffd'; i++; continue; }
-      text += String.fromCodePoint(c); i += n;
-    }
-    return text;
-  }
-};`; }
-function moduleFacts(code) {
-  const realm = createContext({});
-  runInContext(moduleRealm(), realm);
-  runInContext(readFileSync(resolve(root, 'js/src/prelude.js'), 'utf8'), realm, { timeout: 10_000 });
-  try {
-    return JSON.parse(runInContext(`${code}\n;JSON.stringify({ appId: exact.appId, grants: exact.grants, exported: exact.exported })`, realm, { timeout: 10_000 }));
-  } catch (error) {
-    throw new Error(`app.ts does not load where the build reads its appId and grants (the language, the executor's prelude, TextEncoder and TextDecoder): ${error?.message ?? error}`);
-  }
+  return { facts: staticFacts(readFileSync(resolve(real, 'app.ts'), 'utf8'), parseSync), typed };
 }
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
@@ -565,16 +510,16 @@ const scopedModule = (code, id) => {
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
     'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto'];
   // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
-  const absent = ['window', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage', 'indexedDB', 'HTMLElement', 'Element',
-    'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
+  const absent = ['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
+    'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
   const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
     ...Object.fromEntries(absent.map(name => [name, [resolve(gen, 'ts-fetch.js'), 'absent']])),
-    ...Object.fromEntries(['globalThis', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
+    globalThis: [resolve(gen, 'ts-fetch.js'), 'appGlobal'] } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
   return result.code;
 };
 // Both bundles take app.ts and its packages from the checked capture alone.
-const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).replayCaptured(tsStage) : null;
+const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).replayCaptured(tsStage, [resolve(gen, 'ts-fetch.js'), resolve(realpathSync(gen), 'ts-fetch.js')]) : null;
 const bundle = async (options) => {
   const r = await Bun.build({ ...options, plugins: [...(replay ? [{ name: 'captured-replay', setup: replay.bun }] : []), { name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });

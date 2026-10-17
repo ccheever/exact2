@@ -1157,7 +1157,10 @@ Hermes bytecode with the compiler from the verified install-once bundle:
 cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
 ```
 
-The app exports `appId`, `grants`, and an `Answer`-typed `answer`. The producer
+The app exports `appId`, `grants`, and an `Answer`-typed `answer`; `appId` and
+`grants` are constants the build reads from the source without running it (a
+string, a template or `+` of constants, an array of them `.join('\n')`, or a
+top-level `const` holding one). The producer
 captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
@@ -1249,7 +1252,7 @@ Browser navigation, both Apple cold/warm handlers and malformed-link refusals ar
 tested. The page cannot detect installation, and does not trigger signing/builds.
 
 **Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
-there); `app.ts` imports pure-JavaScript packages only (Node's modules, the DOM and native addons are refused); signed delivery of TypeScript and Rust
+there); `app.ts` imports pure-JavaScript packages only (Node's modules, the DOM, code from a string and native addons are refused). That check keeps a module portable between Hermes and the page; it is no security boundary: on the web the module runs in the page's realm, and a package is code the author chose, trusted as their own; signed delivery of TypeScript and Rust
 modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
 was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
 and git.

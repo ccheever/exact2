@@ -58,7 +58,8 @@ fn web_build(app: &Path) -> Result<(), String> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let built = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg(root.join("host/web-js/build.mjs"))
-        .args(["logic", "--render", "none", "--out"])
+        // `js` builds the server bundle too, which replays the capture under Bun.
+        .args(["logic", "--render", "js", "--out"])
         .arg(&out)
         .env("EXACT_APP_DIR", app)
         .current_dir(&root)
@@ -84,12 +85,13 @@ fn every(app: &App) -> Vec<Result<(), String>> {
 
 fn message(app: &App) -> Value {
     let baked = bake(&app.0, &Tools::default()).unwrap();
+    let receipt: Json = serde_json::from_str(&baked.receipt).unwrap();
     let paired = Paired::decode(
         &baked.receipt,
         &baked.plan,
         baked.bytecode.clone(),
         "test.exact.logic",
-        "",
+        receipt["grants"].as_str().unwrap(),
     )
     .unwrap();
     let runner = Runner::boot(
@@ -383,6 +385,23 @@ fn package_code_no_executor_runs_is_refused_by_package_and_file() {
             "module.exports = () => globalThis.localStorage.getItem('k');\n",
             "bad@3.1.0 (index.js:2:24) uses the DOM's 'localStorage'",
         ),
+        // The page's other names for itself, and code from a string.
+        (
+            "module.exports = () => globalThis.top.document.cookie;\n",
+            "bad@3.1.0 (index.js:2:24) uses the DOM's 'top'",
+        ),
+        (
+            "module.exports = Function('return 1');\n",
+            "bad@3.1.0 (index.js:2:18) loads code from a string ('Function')",
+        ),
+        (
+            "module.exports = (0, eval)('1');\n",
+            "bad@3.1.0 (index.js:2:22) loads code from a string ('eval')",
+        ),
+        (
+            "module.exports = (name) => import(name);\n",
+            "bad@3.1.0 (index.js:2:28) loads code from a string ('import()')",
+        ),
     ];
     app.put(
         "node_modules/bad/package.json",
@@ -477,4 +496,89 @@ fn an_aliased_dom_global_is_absent_where_the_module_runs() {
         result.unwrap();
     }
     assert_eq!(message(&app), Value::str("undefined0"));
+}
+
+/// No build runs app or package code to learn `appId` and `grants`: they are
+/// read from app.ts's syntax, and one the build cannot read so is refused by
+/// every producer, naming the fix. A `paths` alias that looks like a package
+/// resolves in the capture and in both of the web's later bundles.
+#[test]
+fn app_facts_are_read_without_running_the_module_and_aliases_replay() {
+    let app = App::new("facts");
+    app.put("src/helper.ts", "export const helper = 'aliased';\n");
+    app.put(
+        "tsconfig.json",
+        r#"{"compilerOptions":{"paths":{"@app/*":["./src/*"]}}}"#,
+    );
+    app.put(
+        "app.ts",
+        "import type { Sources, Answer } from './app.contract.d.ts';\nimport { helper } from '@app/helper';\nconst origin = 'http://127.0.0.1:4400';\nexport const appId = 'test.exact.logic';\nexport const grants = [`net.fetch ${origin}`, 'secret.keep logic.key'].join('\\n');\nconst sources: Sources = { message: ([count]) => helper + count };\nexport const answer: Answer = (source, args, store, storage) => sources[source](args, store, storage);\n",
+    );
+    for result in every(&app) {
+        result.unwrap();
+    }
+    if exact_js::ENGINE_LINKED {
+        assert_eq!(message(&app), Value::str("aliased0"));
+    }
+    let code = std::fs::read_to_string(app.0.join("app.ts")).unwrap();
+    app.put(
+        "app.ts",
+        &code.replace(
+            "export const grants = [",
+            "const made = () => 'x';\nexport const grants = made() + [",
+        ),
+    );
+    for result in every(&app) {
+        let error = result.expect_err("computed grants");
+        assert!(
+            error.contains("grants must be a constant the build reads without running the module"),
+            "{error}"
+        );
+    }
+}
+
+/// The web's later bundles resolve only what the capture recorded: a
+/// recorded import (an absolute one too) to its captured file, the host's
+/// injected module as itself, and anything else is refused.
+#[test]
+fn replay_resolves_recorded_imports_and_refuses_the_rest() {
+    let app = App::new("replay");
+    let stage = app.0.join("stage");
+    std::fs::create_dir_all(stage.join("node_modules/.packages/p@1.0.0")).unwrap();
+    std::fs::write(stage.join("app.ts"), "").unwrap();
+    std::fs::write(stage.join("node_modules/.packages/p@1.0.0/index.js"), "").unwrap();
+    std::fs::write(
+        stage.join("__exact_packages.json"),
+        r#"{"packages":[],"files":[],"digests":{},"edges":[["app.ts","/abs/p/index.js","import","node_modules/.packages/p@1.0.0/index.js"],["app.ts","./local","import","app.ts"]]}"#,
+    )
+    .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let checked = exact_bake::bun()
+        .args([
+            "-e",
+            r#"
+import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [config, stage] = process.argv.slice(1);
+const { replayCaptured } = await import(config);
+const real = realpathSync(stage), app = resolve(real, 'app.ts');
+const { rolldown } = replayCaptured(stage, ['/host/ts-fetch.js']);
+assert.equal(rolldown.resolveId('/abs/p/index.js', app, { kind: 'import-statement' }), resolve(real, 'node_modules/.packages/p@1.0.0/index.js'));
+assert.equal(rolldown.resolveId('./local', app, { kind: 'import-statement' }), app);
+assert.equal(rolldown.resolveId('/host/ts-fetch.js', app, { kind: 'import-statement' }), null);
+assert.equal(rolldown.resolveId('./elsewhere.js', '/outside/file.js', {}), null);
+for (const source of ['/abs/other.js', './unrecorded', 'pkg'])
+  assert.throws(() => rolldown.resolveId(source, app, { kind: 'import-statement' }), /which the checked capture did not resolve/, source);
+"#,
+        ])
+        .arg(root.join("js/bake/src/typescript.mjs"))
+        .arg(&stage)
+        .output()
+        .unwrap();
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
 }

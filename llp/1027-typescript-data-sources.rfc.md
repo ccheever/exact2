@@ -1036,20 +1036,28 @@ A data module imports pure-JavaScript packages installed in `node_modules`
   files and the resolutions that reached it, so a retargeted or swapped link
   is another capture; the receipt's `packages` carries the digests (absent
   with none). A Cargo bake prints `rerun-if-changed` for each installed path,
-  which Cargo walks with the link's own time; the JS dev loop watches each
+  which Cargo walks with the link's own time, and for each captured file
+  where it was read (a package reached through a file link has no installed
+  path); the JS dev loop watches each
   package tree and each installed entry, as it does declarations. Two
   installs of one `name@version` are refused (`install one`): a place in the
   stage, which a bundle's output names, is the same on every machine.
 - **One graph.** Every bundle of the module resolves as a browser bundle
   does (`platform: 'browser'`), so the page and Hermes run the same file of a
   package; `process.env.NODE_ENV` is `"production"`. A bundle of the existing
-  apps is byte-identical to the `neutral` platform's. The web build no longer
-  imports `app.ts` into Bun, whose resolver takes a package's Node entry: it
-  reads `appId`, `grants` and the export names by running the capture's own
-  bundle in a fresh `node:vm` realm holding the language, the executor's
-  prelude and text coders made inside it, under a deadline. Its page and
-  server bundles take `app.ts` from the capture and replay its resolutions
-  (`replayCaptured`); an import the check did not resolve is refused there.
+  apps is byte-identical to the `neutral` platform's. No build runs app or
+  package code to learn about the module: `appId`, `grants` and the export
+  names are read from app.ts's syntax (`staticFacts`), so each of `appId`
+  and `grants` is a constant (a string, a template or `+` of constants, an
+  array of them `.join(…)`, or a top-level `const` holding one), and every
+  producer refuses another by name and place. (The web build had imported
+  `app.ts` into Bun, whose resolver takes a package's Node entry; a `node:vm`
+  realm is no boundary either: on Bun 1.4.2 its global's constructor reaches
+  `process`, and promise jobs outlive its timeout.) Every import from a
+  captured file is recorded, a `paths` alias's too, and the web's page and
+  server bundles take `app.ts` from the capture and replay those
+  resolutions (`replayCaptured`): any other import, absolute or relative, is
+  refused there, save the host module the build injects.
 - **Refused, by package, version and file,** in every producer: an import of
   a Node built-in a `browser` field does not replace; a `.node` file or a
   package with `binding.gyp`/`gypfile`; an import that is not installed, the
@@ -1058,17 +1066,27 @@ A data module imports pure-JavaScript packages installed in `node_modules`
   (`process` but `process.env.NODE_ENV`, `Buffer`, `global`, `__dirname`,
   `__filename`) or a computed `require`, bare or as a member of `globalThis`
   or `self`, that no enclosing scope binds and no dominating `typeof` test
-  guards (its `&&`, `?:` or `if`, or an earlier `if (typeof x …) return`). A
-  `try` guards nothing. A package's use of the clock is the executor's to
+  guards (its `&&`, `?:` or `if`, or an earlier `if (typeof x …) return`); a
+  member of the global object's other names (`window`, `frames`, `parent`,
+  `top`, `opener`); and code from a string (`Function`, `eval` direct or
+  indirect, `import()` of a computed name). A `try` guards nothing. A package's use of the clock is the executor's to
   refuse when it runs (a date library's `isToday` is not refused for being
   bundled); the app's own code keeps the build-time refusal.
-- **Absent alike.** Hermes's realm has no DOM or Node globals; the web's
-  module bindings now hide the page's (`ts-fetch.js`: bare names bind to
-  `undefined`, `globalThis.document` reads `undefined`, `in` says no), so a
-  feature test answers the same on both and a use the static check cannot
-  see (an alias) fails on both. They are absent, not throwing getters: a
-  getter would make `typeof document` throw and break the feature tests
-  packages are written with.
+- **Absent alike.** Hermes's realm has no DOM or Node globals and no other
+  name for its global object; the web's module bindings hide the page's
+  (`ts-fetch.js`: bare names bind to `undefined`; the module's `globalThis`
+  is a proxy over a target of its own, whose reads, `in`, own descriptors and
+  keys leave out `window`, `self`, `frames`, `parent`, `top`, `opener` and the
+  DOM and Node names), so a feature test answers the same on both. They are
+  absent, not throwing getters: a getter would make `typeof document` throw
+  and break the feature tests packages are written with.
+- **A portability boundary, not a security one.** These checks keep a
+  module that runs on Hermes from quietly depending on the page. They do
+  not contain hostile code: on the web the module runs in the page's realm,
+  as the app's own code always has, and a language-level path to the page
+  (a function's `constructor`) stays open. An npm package is code the author
+  chose, trusted as their own; no capability boundary is attempted on the
+  web.
 - **Types.** The app's `.js` files are typed from their code (`allowJs`, not
   checked; the refusals above check them); its `.d.ts` files are in the check
   as in an editor's project, so an untyped package takes a `declare module`.
@@ -1078,12 +1096,19 @@ and the one-shot producers: ESM and CommonJS packages, a nested dependency, a
 `browser` condition and field, `.mjs`/`.cjs`/JSON and an app `.js` file bake,
 boot and draw from the `browser` file, the unselected Node entry with a side
 effect never runs, recorded digests are the files' bytes and the receipt's
-are the record's, and a second bake is identical; a retargeted and a swapped
+are the record's, and a second bake is identical; the web build there makes
+its server bundle too, so both replays run; a retargeted and a swapped
 install link change the capture; each refusal above (an unrelated `typeof`, a
-shadowing parameter elsewhere, a `try`, `globalThis.localStorage`, a missing
-direct dependency, the app's own `Buffer`, a traversing version) is refused
-in all three with the package's code never run; an aliased `document` is
-absent on Hermes. The euxy port with its hand-bundled `src/qrcode.ts`
+shadowing parameter elsewhere, a `try`, `globalThis.localStorage`,
+`globalThis.top`, `Function`, an indirect `eval`, a computed `import()`, a
+missing direct dependency, the app's own `Buffer`, a traversing version) is
+refused in all three with the package's code never run; an aliased
+`document` is absent on Hermes; computed `grants` are refused by every
+producer and a constant one built of a template and `.join` is read; a
+package-shaped `paths` alias bakes and replays; replay resolves a recorded
+absolute import to its captured file and refuses an unrecorded absolute,
+relative or package import; and Cargo's watched paths include a captured
+file reached through a file link. The euxy port with its hand-bundled `src/qrcode.ts`
 replaced by `import { create } from 'qrcode/lib/core/qrcode'` (and a `declare
 module`) bakes `qrcode@1.5.4` and `dijkstrajs@1.0.3` into the receipt and, on
 an iOS 27 simulator, answers the share card byte for byte as before (URL,

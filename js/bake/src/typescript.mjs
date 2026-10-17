@@ -299,15 +299,23 @@ export function capturedSources(stage, refusals=null) {
     name:'captured-sources',
     async resolveId(source, importer, options) {
       if (!importer || importer.startsWith('\0')) return null;
-      const from=files.get(importer), name=packageName(source);
-      if (!from && !name && !builtin(source)) return null;
+      const from=files.get(importer), name=packageName(source), kind=kindOf(options);
+      const record=(id)=>edges.set([slash(relative(stage,importer)),source,kind].join('\0'),[slash(relative(stage,importer)),source,kind,id ? slash(relative(stage,id)) : '']);
+      // The app's own imports (a relative or absolute path) resolve as they
+      // would, and are recorded, so a later bundle replays every one.
+      if (!from && !name && !builtin(source)) {
+        if (!within(importer,stage)) return null;
+        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        if (resolved && !resolved.external && !resolved.id.startsWith('\0')) record(resolved.id);
+        return resolved;
+      }
       if (!from && name) {
         // `rows/../../helper.ts` names no file of a package: it leaves it, to a
         // place that differs between the stage and the app's own directory.
         if (source.split(/[\\/]/).some(part => part === '.' || part === '..')) throw new Error('module outside captured app: '+source);
         // A path mapping into the capture.
         const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
-        if (resolved && !resolved.external && within(resolved.id,stage) && !staged(resolved.id)) return resolved;
+        if (resolved && !resolved.external && within(resolved.id,stage) && !staged(resolved.id)) { record(resolved.id); return resolved; }
       }
       // Where the import leads from the importer's own place.
       const [at,origin]=capturedOrigins(stage).find(([at])=>within(importer,at)) ?? [stage,stage];
@@ -318,11 +326,10 @@ export function capturedSources(stage, refusals=null) {
         if (builtin(source)) throw new Error(`${who} imports Node's built-in '${source}': a data module runs on Hermes and in the browser, which have no Node modules; import a part of the package that needs none, or another package`);
         throw new Error(`${who} imports '${source}', which is not installed`);
       }
-      const edge=[slash(relative(stage,importer)),source,kindOf(options)];
       // A `browser` field's `false`: Rolldown's empty module.
-      if (real.id.startsWith('\0')) { edges.set(edge.join('\0'),[...edge,'']); return real; }
+      if (real.id.startsWith('\0')) { record(null); return real; }
       const id=capture(real.id, who, name && installedAt(name, dirname(place)));
-      edges.set(edge.join('\0'),[...edge,slash(relative(stage,id))]);
+      record(id);
       return { ...real, id };
     },
     load(id) {
@@ -356,23 +363,23 @@ export function capturedSources(stage, refusals=null) {
   };
 }
 /** A later bundle of the checked capture (the web page's and its server
- * render's): every import `capturedSources` resolved resolves to what it
- * did, and one it did not is refused, so no package file is read again from
- * where it is installed. `rolldown` is a Rolldown plugin; `bun` a Bun.build
- * plugin's setup. Imports outside the stage are left alone. */
-export function replayCaptured(stage) {
+ * render's): every import from a captured file resolves to what
+ * `capturedSources` resolved it to, and any other is refused, so nothing is
+ * read again from the app's directory or where a package is installed. The
+ * one exception is `allowed`: the host runtime's own module the web build
+ * injects into the app's code. `rolldown` is a Rolldown plugin; `bun` a
+ * Bun.build plugin's setup. Imports from outside the stage are left alone. */
+export function replayCaptured(stage, allowed=[]) {
   stage=realpathSync.native(stage);
   const record=JSON.parse(readFileSync(resolve(stage,RECORD),'utf8'));
   const edges=new Map(record.edges.map(([importer,source,kind,target])=>[[resolve(stage,importer),source,kind].join('\0'),target && resolve(stage,target)]));
-  const area=join(stage,'node_modules','.packages');
+  const host=new Set(allowed);
   const lookup=(source,importer,kind)=>{
-    // The host runtime's own (an injected absolute import) is not the capture's.
-    if (!importer || !within(importer,stage) || isAbsolute(source)) return undefined;
+    if (!importer || !within(importer,stage)) return undefined;
     const key=[importer,source,kind].join('\0');
     if (edges.has(key)) return edges.get(key);
-    if (within(importer,area) || packageName(source) || builtin(source))
-      throw new Error(`${slash(relative(stage,importer))} imports '${source}', which the checked capture did not resolve; build again`);
-    return undefined;
+    if (host.has(source)) return undefined;
+    throw new Error(`${slash(relative(stage,importer))} imports '${source}', which the checked capture did not resolve; build again`);
   };
   const EMPTY='module.exports = {};';
   return {
@@ -389,11 +396,17 @@ export function replayCaptured(stage) {
   };
 }
 // What package code, and the app's own JavaScript, may not use: the DOM,
-// which no data module has, and Node's globals. Both executors lack them
-// alike (js/src/prelude.js defines none; host/web-js/ts-fetch.js hides the
-// page's), so a test of one (`typeof window`) answers the same everywhere;
-// a use that test does not guard is refused here, by name.
-const DOM=['window','document','navigator','location','history','localStorage','sessionStorage','indexedDB','HTMLElement','Element','getComputedStyle','customElements','alert'];
+// which no data module has, Node's globals, and code made from a string.
+// Both executors lack the first two alike (js/src/prelude.js defines none;
+// host/web-js/ts-fetch.js hides the page's), so a test of one (`typeof
+// window`) answers the same everywhere; a use that test does not guard is
+// refused here, by name. This keeps a module portable; it is no security
+// boundary (LLP 1027 D5): on the web the module runs in the page's realm.
+const DOM=['window','frames','parent','top','opener','document','navigator','location','history','localStorage','sessionStorage','indexedDB','HTMLElement','Element','getComputedStyle','customElements','alert'];
+// The global object's names for itself, through which a member reaches the page.
+const HOSTS=['globalThis','self','window','frames','parent','top','opener'];
+// Code from a string: the bundle cannot capture it, and on the page it runs outside the module's bindings.
+const CODE=['Function','eval'];
 const NODE=['process','Buffer','global','__dirname','__filename','require'];
 const SCOPES=['Program','BlockStatement','StaticBlock','SwitchStatement','ForStatement','ForInStatement','ForOfStatement','CatchClause','ClassExpression'];
 const NOT_REFERENCES={MemberExpression:'property',Property:'key',MethodDefinition:'key',PropertyDefinition:'key',LabeledStatement:'label',BreakStatement:'label',ContinueStatement:'label',ImportSpecifier:'imported',ExportSpecifier:'exported',MetaProperty:'property'};
@@ -470,7 +483,9 @@ export function packageRefusals(code, label, parse) {
   });
   const refuse=(name,node)=>{
     const where=label(':'+at(node.start));
-    if (DOM.includes(name)) found.push(where+` uses the DOM's '${name}': a data module has no DOM`);
+    if (CODE.includes(name) || name==='import()') found.push(where+` loads code from a string ('${name}'), which a bundle cannot capture`);
+    else if (HOSTS.includes(name) && !DOM.includes(name)) found.push(where+` uses the page's '${name}' through the global object: a data module has no page`);
+    else if (DOM.includes(name)) found.push(where+` uses the DOM's '${name}': a data module has no DOM`);
     else if (name==='require') found.push(where+' loads a module by a computed name, which a bundle cannot capture');
     else found.push(where+` uses Node's '${name}': a data module runs on Hermes and in the browser, which have no Node APIs`);
   };
@@ -488,12 +503,16 @@ export function packageRefusals(code, label, parse) {
       const literal=name==='require' && parent?.type==='CallExpression' && key==='callee'
         && ['Literal','TemplateLiteral'].includes(parent.arguments[0]?.type) && !parent.arguments[0].expressions?.length;
       if ((DOM.includes(name) || NODE.includes(name)) && !constant && !literal && !guarded(name,path)) refuse(name,node);
+      // `Function`, and `eval` direct or not, however reached as a name.
+      else if (CODE.includes(name)) refuse(name,node);
     }
     if (node.type==='MemberExpression') {
       const object=bare(node.object), name=propertyName(node);
-      if (object?.type==='Identifier' && ['globalThis','self'].includes(object.name) && free(object.name)
-        && (DOM.includes(name) || NODE.includes(name)) && !guarded(name,path)) refuse(name,node);
+      if (object?.type==='Identifier' && HOSTS.includes(object.name) && free(object.name)
+        && (DOM.includes(name) || NODE.includes(name) || HOSTS.includes(name) || CODE.includes(name)) && !guarded(name,path)) refuse(name,node);
     }
+    // `import(x)` of a computed name, like a computed `require`.
+    if (node.type==='ImportExpression' && !(['Literal','TemplateLiteral'].includes(node.source?.type) && !node.source.expressions?.length)) refuse('import()',node);
     for (const k in node) if (k!=='parent' && node[k] && typeof node[k]==='object') {
       if (!Array.isArray(node[k])) path.push([node,k]);
       walk(node[k],node,k);
@@ -674,6 +693,46 @@ export function snapbackMutationTypes(declarations) {
     "export type Result<S extends Source> = S extends MutationSource ? SnapbackMutationSuccess<SourceMap[S]['result']> : SourceMap[S]['result'];");
 }
 
+/** `appId`, `grants` and the export names of the module `code` (app.ts),
+ * read from its syntax: no build runs app or package code to learn them. Each
+ * of `appId` and `grants` is a constant: a string, a template, `+` or an
+ * array's `.join(…)` of constants, or a top-level `const` holding one; any
+ * other is refused by name and place. An absent one is `undefined`. */
+export function staticFacts(code, parse) {
+  const parsed=parse('app.ts',code);
+  if (parsed.errors?.length) return { appId: undefined, grants: undefined, exported: [] };
+  const body=parsed.program.body, at=lineColumn(code), consts=new Map(), exported=new Map();
+  for (const statement of body) {
+    const s=['ExportNamedDeclaration','ExportDefaultDeclaration'].includes(statement.type) ? statement.declaration ?? statement : statement;
+    if (s.type==='VariableDeclaration') for (const d of s.declarations) {
+      if (d.id.type!=='Identifier') continue;
+      if (s.kind==='const') consts.set(d.id.name,d.init);
+      if (statement.type==='ExportNamedDeclaration') exported.set(d.id.name,d.id.name);
+    }
+    if (statement.type==='ExportNamedDeclaration' && s.id?.name) exported.set(s.id.name,s.id.name);
+    if (statement.type==='ExportNamedDeclaration' && !statement.source) for (const x of statement.specifiers ?? []) exported.set(x.exported.name ?? x.exported.value,x.local.name ?? x.local.value);
+    if (statement.type==='ExportDefaultDeclaration') exported.set('default','default');
+  }
+  const value=(name)=>{
+    if (!exported.has(name)) return undefined;
+    const seen=new Set();
+    const constant=(node)=>{
+      node=bare(node);
+      const refuse=()=>{ throw new Error(`app.ts:${at(node?.start ?? 0)}: ${name} must be a constant the build reads without running the module: a string, a template or + of constants, an array of them .join('\\n'), or a top-level const holding one`); };
+      if (!node) refuse();
+      if (node.type==='Literal' && ['string','number'].includes(typeof node.value)) return String(node.value);
+      if (node.type==='TemplateLiteral') return node.quasis.map((q,i)=>q.value.cooked+(i<node.expressions.length ? constant(node.expressions[i]) : '')).join('');
+      if (node.type==='BinaryExpression' && node.operator==='+') return constant(node.left)+constant(node.right);
+      if (node.type==='Identifier' && consts.has(node.name) && !seen.has(node.name)) { seen.add(node.name); const v=constant(consts.get(node.name)); seen.delete(node.name); return v; }
+      if (node.type==='CallExpression' && node.arguments.length<=1 && propertyName(bare(node.callee))==='join' && bare(bare(node.callee).object)?.type==='ArrayExpression')
+        return bare(bare(node.callee).object).elements.map(constant).join(node.arguments.length ? constant(node.arguments[0]) : ',');
+      return refuse();
+    };
+    return constant(consts.get(exported.get(name)) ?? null);
+  };
+  return { appId: value('appId'), grants: value('grants'), exported: [...exported.keys()] };
+}
+
 export function configure(stage, incremental=false, parse) {
   const app=capturedOrigins(stage).at(-1)[1], modulePath=resolve(stage,'app.ts');
   if (existsSync(modulePath)) {
@@ -681,6 +740,8 @@ export function configure(stage, incremental=false, parse) {
     const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
     const after=injectBackendOrigin(authored,backendOrigin(app),parse);
     if (before!==after) writeFileSync(modulePath,after);
+    // Every producer refuses alike what the web build cannot read without running it.
+    if (parse) staticFacts(after,parse);
   }
   const inside = (path) => {
     if (path !== stage && !path.startsWith(stage+sep)) throw new Error('tsconfig: path outside captured app: '+path);

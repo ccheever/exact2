@@ -447,10 +447,7 @@ fn build_sources(
     // checks the app again (LLP 1027 D5, "Type-only package imports").
     // And the package code the bundle captured ("Package code").
     let code = package_code(&stage.0)?;
-    for file in package_declarations(&stage.0)?
-        .iter()
-        .chain(&code.installed)
-    {
+    for file in package_declarations(&stage.0)?.iter().chain(&code.watched) {
         println!("cargo:rerun-if-changed={}", file.display());
     }
     println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
@@ -480,33 +477,39 @@ fn package_declarations(stage: &Path) -> Result<Vec<PathBuf>, String> {
 
 /// The package code a bake captured (`__exact_packages.json`, written by
 /// `capturedSources`): each package's installed paths, which Cargo walks
-/// (the link itself included, so a retargeted install is a change), and its
-/// digest of the files and resolutions captured, for the receipt.
+/// (the link itself included, so a retargeted install is a change), each
+/// captured file where it was read (one reached through a file link has no
+/// installed path), and each package's digest of the files and resolutions
+/// captured, for the receipt.
 struct PackageCode {
-    installed: Vec<PathBuf>,
+    watched: Vec<PathBuf>,
     packages: serde_json::Map<String, serde_json::Value>,
 }
 
 fn package_code(stage: &Path) -> Result<PackageCode, String> {
     let Ok(bytes) = std::fs::read(stage.join("__exact_packages.json")) else {
         return Ok(PackageCode {
-            installed: Vec::new(),
+            watched: Vec::new(),
             packages: serde_json::Map::new(),
         });
     };
     let record: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    let installed = record["packages"]
+    let watched = record["packages"]
         .as_array()
         .into_iter()
         .flatten()
         .flat_map(|p| p[2].as_array().into_iter().flatten())
+        .chain(
+            record["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|file| &file[2]),
+        )
         .filter_map(|path| path.as_str().map(PathBuf::from))
         .collect();
     let packages = record["digests"].as_object().cloned().unwrap_or_default();
-    Ok(PackageCode {
-        installed,
-        packages,
-    })
+    Ok(PackageCode { watched, packages })
 }
 
 /// The tools on the producer machine, not on a client.
