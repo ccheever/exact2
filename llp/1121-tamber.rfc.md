@@ -2660,7 +2660,12 @@ variance, per-tuple accent flags, and any value carrying a platform `var`.
 | Expose, the readers and an app with no design are unchanged | **Met** by plan contents. |
 
 **Known limit:** the Android Canvas host joins no dev loop, so it has no live table and no build
-channel (queued).
+channel (queued). *Lifted 2026-10-17:* the reader polls a dev loop's URL (`x_dev_plan`, a drive's
+`--url`) on its turns and wakes, as the Linux display does, registers as `android`, and takes the
+live batches, pins and `prefer`s; a plan the loop compiles replaces the running one, and a Rust
+change needs a new APK (`host/android/README.md`). Checked on the x2-android emulator with
+tamber-host: the Kotlin swatch follows a live batch (about 1.5 s from save to pixels) and a pin
+sent to that build only, and a contrast pin is applied.
 
 **Stage 5 is closed.**
 ### Stage 6, commit B: length and number tokens (B1, B2 the JS target, three review rounds)

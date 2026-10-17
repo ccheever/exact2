@@ -104,13 +104,13 @@ fn a_woken_host_is_told_the_development_polls_turn_and_woken_by_its_answer() {
         "it polls after the first pixel"
     );
     assert!(
-        p.dev.as_ref().unwrap().waker.is_some(),
+        p.dev.as_ref().unwrap().waker.lock().unwrap().is_some(),
         "the executor's waker"
     );
     // Each answer wakes the host (a counting waker stands in for the fd's).
     let woken = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = woken.clone();
-    p.dev.as_mut().unwrap().waker = Some(std::sync::Arc::new(move || {
+    *p.dev.as_mut().unwrap().waker.lock().unwrap() = Some(std::sync::Arc::new(move || {
         count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }));
     p.painted = true;

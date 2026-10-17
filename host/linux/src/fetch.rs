@@ -129,11 +129,21 @@ pub(crate) struct Poller {
     pub held_since: Option<std::time::Instant>,
     /// Woken when a worker's answer lands (the executor's waker), for a
     /// host that turns only when woken (the Android reader's canvas host).
-    pub waker: Option<Waker>,
+    /// Shared with the workers, so one in flight when a reload brings a new
+    /// executor wakes that one.
+    pub waker: std::sync::Arc<std::sync::Mutex<Option<Waker>>>,
 }
 
 /// What a worker calls when its answer is in.
 pub(crate) type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
+
+/// Wake the host through the waker the poller has now.
+fn wake(slot: &std::sync::Mutex<Option<Waker>>) {
+    let waker = slot.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(wake) = waker {
+        wake();
+    }
+}
 
 type Tick = (FetchOutcome, Option<Option<String>>);
 
@@ -159,7 +169,7 @@ impl Poller {
             link,
             channel: None,
             channel_due: now,
-            waker: None,
+            waker: Default::default(),
         }
     }
 
@@ -213,7 +223,7 @@ impl Poller {
             let waker = self.waker.clone();
             std::thread::spawn(move || {
                 let _ = send.send(exchange.run(&url));
-                waker.inspect(|wake| wake());
+                wake(&waker);
             });
         }
     }
@@ -258,7 +268,7 @@ impl Poller {
                 let changed = fetch_changed(&url, &compat, previous.as_deref());
                 let design = design.then(|| fetch_design(&url)).flatten();
                 let _ = send.send((changed, design));
-                waker.inspect(|wake| wake());
+                wake(&waker);
             });
         }
         Ok(None)

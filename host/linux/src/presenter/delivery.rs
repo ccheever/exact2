@@ -26,7 +26,7 @@ impl<D: DataSource> Presenter<D> {
         // woken (the Android reader's canvas host) takes them at once.
         let waker = self.executor.waker();
         if let Some(dev) = self.dev.as_mut() {
-            dev.waker = Some(waker);
+            *dev.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
         }
         // What the build channel's registration names (LLP 1122 D4).
         if let Some(link) = self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
@@ -102,7 +102,7 @@ impl<D: DataSource> Presenter<D> {
                     dev.identity = Some(generation.identity);
                     // A new executor, so its waker (and a new wake
                     // descriptor, which the Android reader watches again).
-                    dev.waker = Some(waker);
+                    *dev.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
                     // The generation runs the design it was built with; one
                     // applied live while it downloaded is newer. The next
                     // tick's snapshot (or 204, the plan's own) converges.
