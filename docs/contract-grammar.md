@@ -479,8 +479,9 @@ expression, `??`, `?.`, or `===`.
 A call on a value, `e.f(args)`, is the roster function `f` with `e` as its first
 argument, for the functions the table below writes that way: the web's string
 and array methods of that name and meaning (`s.trim()`, `xs.filter(x => …)`,
-`n.toFixed(2)`). `e.length` is the count of a list or text, so a shape field
-cannot be named `length` (`syntax-length-field`). The free spelling (`trim(s)`,
+`n.toFixed(2)`). `e.length` is the count of a list or text, or, when `e` is a
+record whose shape declares a field named `length`, that field, as in
+TypeScript; on a record without one it is refused. The free spelling (`trim(s)`,
 `length(xs)`) is refused with the edit (`syntax-method-form`), and so is any
 other method (`xs.reduce(…)`: `syntax-method-call`); the rest of the roster is
 called as a function (`first(xs)`, `round(n)`).

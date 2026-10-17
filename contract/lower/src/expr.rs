@@ -379,6 +379,21 @@ pub(crate) fn compile(
                     *span,
                 );
             };
+            // `x.length` of a record reads its `length` field, as the checker
+            // resolved it (contract_types `infer_length`).
+            if let (Stdlib::Length, [obj]) = (f, args.as_slice()) {
+                let t = compile(l, asm, obj, scope, locals)?;
+                if let Ty::Record(shape) = &t {
+                    let Some((index, ty)) = l.types.shapes.field(shape, "length") else {
+                        return err("lower-unknown-field", format!("`{shape}` has no field `length`"), *span);
+                    };
+                    let ty = ty.clone();
+                    asm.field(index as u16);
+                    return Ok(ty);
+                }
+                asm.call(f);
+                return Ok(Ty::Number);
+            }
             let mut given = Vec::with_capacity(args.len());
             for a in args {
                 given.push(compile(l, asm, a, scope, locals)?);

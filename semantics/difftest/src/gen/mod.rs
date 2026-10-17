@@ -205,8 +205,11 @@ pub(crate) struct Gen<'s> {
     pub(crate) persist: Rng,
 }
 
+/// `length` among them: a record's field `x.length` reads, beside a list's
+/// count (LLP 1116.015 D2, amended 2026-10-17).
 const FIELDS: &[&str] = &[
     "id", "name", "n", "flag", "tag", "items", "sub", "score", "label", "note", "on", "at",
+    "length",
 ];
 
 impl<'s> Gen<'s> {

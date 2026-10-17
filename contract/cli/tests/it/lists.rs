@@ -634,6 +634,78 @@ component A
     }
 }
 
+/// A shape may declare a field named `length` (LLP 1116.015 D2, amended
+/// 2026-10-17): `x.length` reads it on such a record, built and copied with
+/// it as any field, and still counts a list or text; on a record without one
+/// it is refused, saying what `.length` counts.
+#[test]
+fn a_field_named_length_is_read_and_written_and_lists_still_count() {
+    let src = r#"shape Lane
+  name: string
+  length: number
+fn steps(l: Lane): number = l.length
+component A
+  state lane = Lane(name="kick", length=16)
+  state lanes = [Lane(name="a", length=8), Lane(name="bb", length=12)]
+  action grow
+    lane = Lane(lane, length=lane.length + 1)
+  view
+    column
+      text `${lane.length} ${steps(lane)} ${lane.name.length}` testId="lane"
+      text `${lanes.length} ${lanes.filter(l => l.length > 10).length} ${sum(lanes.map(l => l.length))}` testId="lanes"
+"#;
+    struct Nothing;
+    impl DataSource for Nothing {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(Vec::new()))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Nothing,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<Nothing>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text(&r, "lane"), "16 16 4");
+    assert_eq!(text(&r, "lanes"), "2 1 20");
+    r.act("grow", vec![]).unwrap();
+    assert_eq!(text(&r, "lane"), "17 17 4");
+    // The Lean embedding reads the field as a field, and a list's count as a call.
+    let lean = contract::lean::lean(src, "lengths").unwrap();
+    assert!(
+        lean.contains("(.member (.var \"lane\") \"length\")"),
+        "{lean}"
+    );
+    assert!(
+        lean.contains("(.call \"length\" [(.var \"lanes\")])"),
+        "{lean}"
+    );
+    let e = contract::compile(
+        "shape Item\n  name: string\ncomponent A\n  state it = Item(name=\"a\")\n  view\n    text `${it.length}`\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-unknown-field", "{e}");
+    assert!(
+        e.message.contains("`.length` counts a list or text, and `Item` is a record: `Item` has no field `length`; available fields: `name`"),
+        "{e}"
+    );
+}
+
 /// A callback's parameters are binders: a prop passed in that mentions the
 /// same name is not captured by them; a `fn` that reaches itself through a
 /// callback is recursive; a call repeated inside a callback is bound inside

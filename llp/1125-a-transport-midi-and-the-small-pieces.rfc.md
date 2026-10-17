@@ -639,7 +639,8 @@ otherwise.
   fixtures name the new ids.
 - **Deviation: `length` is two names.** Contract refuses a field named
   `length` (`syntax-length-field`: `.length` is a list's), so a track's
-  `length` is `beats` and a step's `length` is `duration`. Everything else
+  `length` is `beats` and a step's `length` is `duration` (since 2026-10-17 a
+  field may be named `length`, LLP 1116.016 §5; the names stay). Everything else
   is D2's, in D2's order (the rulings' nine fields, then optionally
   `playbackRate` and `pan`).
 - **Runner** (`runner/src/transport.rs`, `runner/src/runner/transport.rs`).

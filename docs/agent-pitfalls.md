@@ -563,9 +563,9 @@ screen, 2026-10-16.)
 
 - **A name refused as reserved.** `none`, `some`, `true`, `false` and the expression
   words (`if`, `for`, `match`, `and`, …) cannot name a state, a parameter or a `let`
-  (`syntax-expected-name`); a shape field cannot be `length` (`.length` is the
-  built-in), nor a function or action in a file that reads `.length`
-  (`syntax-method-shadowed`). Fix: another
+  (`syntax-expected-name`); nor can `length` name a function or action in a file
+  that reads `.length` (`syntax-method-shadowed`; a shape's field may be
+  `length`). Fix: another
   word (`count`, `steps`, `empty`). (euxy port, 2026-10-15.)
 
 - **`nav` read after it is assigned in the same action is the old value.** State

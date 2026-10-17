@@ -682,13 +682,6 @@ impl Parser {
         self.newline()?;
         let fields = self.block(|p| {
             let (name, span) = p.field_name()?;
-            // @ref LLP 1116.015 D2 — `x.length` is the length of a list or text.
-            if name == "length" {
-                return p.err(
-                    "syntax-length-field",
-                    "a field cannot be named `length`: `.length` is a list's or text's length; choose another name (`count`, `size`)",
-                );
-            }
             p.expect_punct(":")?;
             let ty = p.type_expr()?;
             p.newline()?;

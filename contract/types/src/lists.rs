@@ -4,11 +4,94 @@
 //! (LLP 1088 §9.1), whose types follow their first argument's: a list's
 //! item type, or text for all but `concat`, the web's same-named methods;
 //! and `range` (LLP 1017.003 §Refused, 2026-10-17), whose literal count is
-//! checked where it is written, and `flat`, a list of lists' items.
+//! checked where it is written, and `flat`, a list of lists' items; and
+//! `x.length`, which reads a record's field of that name.
 
 use crate::{checks, err, infer, Ref, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span, UnOp};
 use exact_plan::Stdlib;
+use std::collections::BTreeSet;
+
+/// How each `x.length` resolved, by its span (@ref LLP 1116.015 D2, as
+/// amended 2026-10-17): the parser writes `length(x)` for it, and the checker
+/// reads a record's `length` field instead when the receiver is a record whose
+/// shape has one. What writes the expression out again without types (the
+/// Lean embedding, `contract lean`) asks [`Shapes::reads_length_field`];
+/// lowering decides by the type it compiles.
+#[derive(Debug, Default)]
+pub(crate) struct LengthReads {
+    fields: BTreeSet<Span>,
+    counts: BTreeSet<Span>,
+}
+
+impl Shapes {
+    /// Whether the `x.length` written at `span` reads a record's field.
+    pub fn reads_length_field(&self, span: Span) -> bool {
+        self.lengths
+            .lock()
+            .is_ok_and(|reads| reads.fields.contains(&span))
+    }
+}
+
+/// `x.length`: a list's or text's count, or the `length` field of a record
+/// whose shape declares one. A site read both ways (no program whose names
+/// all have declared types writes one) is refused rather than written out
+/// one way for both.
+fn infer_length(
+    args: &[Expr],
+    span: Span,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    let [x] = args else {
+        return err(
+            "type-arity",
+            checks::call_arity("length", args.len(), ["string | list"]),
+            span,
+        );
+    };
+    let t = infer(x, scope, shapes)?;
+    let (field, ty) = match &t {
+        Ty::String | Ty::Enum(_) | Ty::List(_) => (false, Ty::Number),
+        Ty::Record(shape) => match shapes.field(shape, "length") {
+            Some((_, ty)) => (true, ty.clone()),
+            None => {
+                let mut e = shapes.unknown_field(shape, "length", x.span());
+                e.message = format!(
+                    "`.length` counts a list or text, and `{shape}` is a record: {}",
+                    e.message
+                );
+                return Err(e);
+            }
+        },
+        other => {
+            return err(
+                "type-argument",
+                format!(
+                    "{} expects `string | list`, given `{other}`",
+                    contract_syntax::idioms::argument("length", 0)
+                ),
+                x.span(),
+            )
+        }
+    };
+    if let Ok(mut guard) = shapes.lengths.lock() {
+        let reads = &mut *guard;
+        let (mine, other) = match field {
+            true => (&mut reads.fields, &reads.counts),
+            false => (&mut reads.counts, &reads.fields),
+        };
+        if other.contains(&span) {
+            return err(
+                "type-argument",
+                "`.length` here reads a record's `length` field in one use and counts a list or text in another: declare the prop's type",
+                span,
+            );
+        }
+        mine.insert(span);
+    }
+    Ok(ty)
+}
 
 /// Whether `f` is one of them.
 pub(crate) fn is_list_op(f: Stdlib) -> bool {
@@ -24,6 +107,7 @@ pub(crate) fn is_list_op(f: Stdlib) -> bool {
             | Stdlib::IndexOf
             | Stdlib::Range
             | Stdlib::Flat
+            | Stdlib::Length
     )
 }
 
@@ -211,6 +295,9 @@ pub(crate) fn infer_call(
     }
     if f == Stdlib::Flat {
         return infer_flat(args, span, scope, shapes);
+    }
+    if f == Stdlib::Length {
+        return infer_length(args, span, scope, shapes);
     }
     let name = f.name();
     if f == Stdlib::SortBy {

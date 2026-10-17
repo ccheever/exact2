@@ -653,6 +653,12 @@ impl Emitter<'_> {
                 };
                 format!("(.call {} [{}])", string(name), self.expr(x)?)
             }
+            // `x.length` that the checker read as a record's field.
+            Expr::Call(name, args, span)
+                if name == "length" && shapes.reads_length_field(*span) =>
+            {
+                format!("(.member {} {})", self.expr(&args[0])?, string(name))
+            }
             Expr::Call(name, args, _) => {
                 let mut parts = args
                     .iter()

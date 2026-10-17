@@ -1313,14 +1313,6 @@ component A
   view
     text "a"
 ---
-== syntax-length-field
-# LLP 1116.015 D2: `.length` is a list's or text's length, so no field takes the name.
-shape S
-  length: number
-component A
-  view
-    text "a"
----
 == syntax-map-view
 # The JSX habit: children repeat with `for`.
 component A
