@@ -44,3 +44,26 @@ runs: inside `popUp`'s remaining run-loop work, or before it.
 3. Accept it and post the dialog's name at a priority that survives a long
    read (medium), at the cost of cutting off the field's words.
 
+
+## Ruling (Charlie, 2026-10-16)
+
+Option 2, "for now": press inside the item's action, as AppKit does, for every native
+menu that defers its pick today (`MenusMac.pick` and `ChooserMac.choose`).
+
+- Validate the pick, then press, in the action; the once-token stays.
+- A batch that removes the invoker or an ancestor while `nativeTracking > 0` leaves that
+  view in the window, hidden and out of the accessibility tree with its subtree, until
+  `popUp` returns, then removes it, as `leaving` does for a popover AppKit is still taking
+  away (`PopoversMac.swift`). Removal by a children batch or a root replacement is the
+  same case as destruction.
+- `close()` neither schedules the landing on the trigger nor gives the focus back when
+  the choice already moved the focus (`MenusMac.swift`, the landing at about 398 and
+  `makeFirstResponder(previous)` at about 412). A sheet's field is in its own window, so
+  the page window's first responder still looks unmoved, and without this VoiceOver is
+  sent back to the old field whatever the press timing.
+- Measure against a like presentation: the low-priority name above means the repro's
+  dialog was drawn in the page, while the hand-built one was a sheet, which AppKit names
+  itself. Repeat the six runs with a `<dialog>`, which this host presents as a sheet
+  (LLP 1115.002 D7.2), and with a pick that navigates the invoker away; update
+  `testAPickedItemPressesInTheTurnItsMenuClosed` to the new order. iOS is unchanged.
+- Option 3 is refused: a louder name cuts off the field's words.

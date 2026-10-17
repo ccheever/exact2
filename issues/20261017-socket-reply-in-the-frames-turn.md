@@ -25,3 +25,25 @@ Recommendation: 1; the reply is part of receiving the frame, not an action the v
 ## Acceptance
 
 An echo server that requires an `Ack` per frame before sending the next gets one per frame from a data module, sent in the frame's commit, on every host D7 covers; a refused snapshot sends none.
+
+## Ruling (Charlie, 2026-10-16)
+
+Option 1; LLP 1016.000 D7 is amended before it is built.
+
+- The mapper may `send` and `close` on the socket it was handed, during `open` and
+  `message` only. T3's subscribe on `open` is the same need as its `Ack`. On `error` and
+  `close` the handle is already CLOSED (`js/src/prelude.js:1402`) and refuses as now; a
+  resource, an overlay, an async continuation and another socket's handle still refuse.
+- What a mapper call stages is sent once the commit that settles that frame's snapshot
+  stands, in arrival order and ahead of later mutations' frames. Snapshots may coalesce;
+  staged operations never do: a commit that settles N frames sends all N frames'
+  operations, and its refusal sends none of them.
+- A throw, a malformed snapshot or a refused commit sends nothing, and the journal says
+  so as it does for a mutation (`runner/src/runner/sockets.rs`). D7's bounds apply per
+  mapper call (256 operations, 1 MiB, the transport's buffered bytes); overload fails
+  that snapshot. The call makes no `fetch`.
+- Not a guard flip: no path collects a mapper's staged operations today.
+  `Module::message` never reads the host's socket operations (`js/src/lib.rs:1202-1257`)
+  and the next `answer()` clears them; on the web JS target a stream message lands
+  through `land` (`host/web-js/rt.js`), which has no effects hook. Each needs one, and
+  `SocketSend` and the journal's wording, which name a mutation, need its origin.

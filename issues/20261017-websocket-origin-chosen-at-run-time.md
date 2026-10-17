@@ -27,3 +27,33 @@ Recommendation: 1. It is the only form that covers origins the person names, and
 ## Acceptance
 
 A data module opens and sends on a socket to an origin no build-time line names, after the run-time step chosen; an origin outside it is refused on every host, the web JS target included; `state` lists what was admitted and how.
+
+## Ruling (Charlie, 2026-10-16)
+
+No run-time step: "don't mobile operating systems already implement some kind of security
+around this? i'm not sure i see the need to lock it down more at this time." The platforms
+gate kinds of connection, not hosts: App Transport Security refuses plaintext to the
+internet, the Local Network prompt asks before an app reaches the LAN (iOS 14, macOS 15),
+Android refuses cleartext by default from API 28, and a page's `connect-src` is its
+author's. One exact origin per line is already stricter than each of them, and a prompt
+after the person typed the address is one no hand-built app shows.
+
+So a build-time line may admit every origin of a scheme, written as CSP writes a scheme
+source: `net.websocket ws:`, `net.websocket wss:`, `net.fetch http:`, `net.fetch https:`.
+Both families take it, since T3 fetches its socket ticket from the same server it then
+opens (`T3Transport.swift` `openSocket`, `/api/auth/websocket-ticket`). The served
+`connect-src` copies the line as a scheme source. The embedded server's port and the
+person's typed servers are both covered, so no native module grants an origin and no
+option above is built. The platform's own refusals still apply: a browser refuses `ws:`
+from an `https:` page except to loopback, and ATS refuses plaintext beyond the local
+network.
+
+The parsers move together: `GrantSet::parse` (`grants/src/lib.rs:369-381`), its vendored
+copy (`vendor/ibex/crates/ibex2/src/grant.rs:369-372`), the web host's
+(`host/web/navigation.js:1300`), and `csp()` (`host/render/src/serve.rs:1448`), which
+copies a target verbatim today.
+
+Acceptance, replacing the above: under a scheme-wide line, a data module fetches from and
+opens a socket to an origin no exact line names, on every host, the web JS target
+included; a scheme no line names is refused; `state.streams` names the line that admitted
+the socket.
