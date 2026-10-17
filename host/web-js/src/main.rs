@@ -37,7 +37,7 @@ mod symbols;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>\n       exact-web-js inspect-table <app.plan> <out.json>";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>\n       exact-web-js design-serve <app.contract>\n       exact-web-js inspect-table <app.plan> <out.json>";
 
 /// `inspect-table <app.plan> <out.json>` (LLP 1122 T2b, the JS target): the
 /// plan's inspect table (inspect.rs), made when the dev loop is first asked
@@ -91,11 +91,114 @@ fn scrub_design(input: &std::path::Path, text: &str) -> ExitCode {
     }
 }
 
+/// `design-serve <app.contract>` (LLP 1121 D13): a scrub's frames, resident.
+/// One JSON request a line on stdin, `{id, key, patch: [[name, [css…]]…]}`:
+/// the app compiled once with its design file as it is on disk (again when
+/// `key`, the design digest the dev loop runs, is not the one it holds),
+/// each patched row's value set per full app tuple on that plan, answered
+/// `{id, digest, tokens}`: the patched design's digest and the rows of the
+/// tokens it patched, as `design` gives them.
+/// `{id, fallback}` when it cannot patch the frame (the plan it compiled is
+/// not `key`'s, or a row would gain or lose its slices), `{id, error}` when
+/// the app does not compile. Nothing is written.
+fn design_serve(input: &std::path::Path) -> ExitCode {
+    use std::io::{BufRead, Write};
+    exact_web::link(exact_web_capabilities::ALL);
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    let _every = modes::every(true);
+    let mut held: Option<(String, exact_plan::Plan, modes::Declared)> = None;
+    let mut out = std::io::stdout();
+    for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
+        let id = request["id"].clone();
+        let key = request["key"].as_str().unwrap_or_default().to_string();
+        if held.as_ref().is_none_or(|(k, ..)| *k != key) {
+            held = None;
+            match contract::compile_path_all(input, false) {
+                Ok((plan, _)) => {
+                    let digest = exact_runner::design::digest(&exact_runner::design::tokens(&plan));
+                    let declared = modes::Declared::of(&plan);
+                    held = Some((digest, plan, declared));
+                }
+                Err(errors) => {
+                    let message: Vec<String> = errors.iter().map(ToString::to_string).collect();
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        serde_json::json!({"id": id, "error": message.join("\n")})
+                    );
+                    continue;
+                }
+            }
+        }
+        let reply = match &held {
+            Some((digest, plan, declared)) if *digest == key => {
+                let values: Vec<(String, Vec<String>)> =
+                    serde_json::from_value(request["patch"].clone()).unwrap_or_default();
+                let names: Vec<String> = values.iter().map(|(n, _)| n.clone()).collect();
+                patched(plan, &values).map_or_else(
+                    || serde_json::json!({"id": id, "fallback": true}),
+                    |plan| {
+                        // The runner's theme-table cache knows a plan by its
+                        // buffers, which a patched copy may reuse: started over.
+                        let _ = exact_runner::bridge::role_overrides(&plan);
+                        let tokens = exact_runner::design::tokens(&plan);
+                        serde_json::json!({"id": id, "digest": exact_runner::design::digest(&tokens), "tokens": modes::rows(&plan, declared, Some(&names))})
+                    },
+                )
+            }
+            _ => serde_json::json!({"id": id, "fallback": true}),
+        };
+        let _ = writeln!(out, "{reply}");
+        let _ = out.flush();
+    }
+    ExitCode::SUCCESS
+}
+
+/// `plan` with each row of `values` set per full app tuple (the first its
+/// value), or none when a row would gain or lose its slices. A name with no
+/// row changes nothing.
+fn patched(plan: &exact_plan::Plan, values: &[(String, Vec<String>)]) -> Option<exact_plan::Plan> {
+    let mut plan = plan.clone();
+    for (name, css) in values {
+        let Some(i) = plan.theme.iter().position(|r| plan.str(r.name) == name) else {
+            continue;
+        };
+        let first = css.first()?;
+        let (start, len) = (
+            plan.theme[i].slices.start as usize,
+            plan.theme[i].slices.len as usize,
+        );
+        let varies = css.iter().any(|c| c != first);
+        if varies != (len > 0) || varies && css.len() != len {
+            return None;
+        }
+        let mut intern = |text: &str| {
+            plan.strings.push(text.to_string());
+            exact_plan::StrId(plan.strings.len() as u32 - 1)
+        };
+        let value = intern(first);
+        let slices: Vec<exact_plan::StrId> = if varies {
+            css.iter().map(|c| intern(c)).collect()
+        } else {
+            Vec::new()
+        };
+        plan.theme[i].value = value;
+        for (k, s) in slices.into_iter().enumerate() {
+            plan.theme_slices[start + k].value = s;
+        }
+    }
+    Some(plan)
+}
+
 fn main() -> ExitCode {
     // `--sites` (a development build): each element names its plan node, and
     // a Contract compiled here leaves its source map beside the plan.
     let all: Vec<String> = std::env::args().skip(1).collect();
     if let [cmd, file] = all.as_slice() {
+        if cmd == "design-serve" {
+            return design_serve(std::path::Path::new(file));
+        }
         if cmd == "normalize-grants" {
             return match std::fs::read_to_string(file) {
                 Ok(spec) => {

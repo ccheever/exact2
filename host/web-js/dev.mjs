@@ -582,6 +582,58 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
+  // A scrub's frames patched (tamber-scrub.mjs `patch`), by the optimised
+  // reader resident (`exact-web-js design-serve`): the app compiled once per
+  // committed design, each frame's folded rows set on that plan, compiling
+  // nothing. Started at a scrub's first frame, again after the reader
+  // builds again; a frame it cannot patch is compiled whole instead.
+  const patcher = { child: null, built: null, asks: new Map(), n: 0 };
+  const patcherAsk = (request) => new Promise((done) => {
+    if (!toolFresh()) return done({ fallback: true });
+    if (!patcher.child || patcher.built !== tool.built) {
+      stopGroup(patcher.child);
+      const child = patcher.child = spawn(tool.path, ['design-serve', resolve(app.dir, 'app.contract')], { cwd: root, stdio: ['pipe', 'pipe', 'ignore'], detached: true });
+      patcher.built = tool.built;
+      let buffered = '';
+      child.stdin.on('error', () => {});
+      child.stdout.on('data', (d) => {
+        buffered += d;
+        const lines = buffered.split('\n');
+        buffered = lines.pop();
+        for (const line of lines) { try { const r = JSON.parse(line); patcher.asks.get(r.id)?.(r); patcher.asks.delete(r.id); } catch { /* not a reply */ } }
+      });
+      child.on('exit', () => {
+        if (patcher.child === child) patcher.child = null;
+        for (const answer of patcher.asks.values()) answer({ fallback: true });
+        patcher.asks.clear();
+      });
+    }
+    const id = ++patcher.n;
+    patcher.asks.set(id, done);
+    patcher.child.stdin.write(`${JSON.stringify({ id, ...request })}\n`);
+  });
+  /** A scrub's frame patched: `{fallback}` when it must be compiled instead. */
+  async function scrubPatch(values) {
+    if (!design) return { fallback: true };
+    const base = design, next = await patcherAsk({ key: base.digest, patch: values.map(({ name, css }) => [name, css]) });
+    if (!next.tokens || design !== base) return { fallback: true };
+    // The committed design's rows, those it patched set again.
+    const rows = new Map(next.tokens.map((t) => [t.name, t]));
+    return scrubShow({ ...base, digest: next.digest, tokens: base.tokens.map((t) => rows.get(t.name) ?? t) });
+  }
+  /** The patched frame shown, against its texts compiled whole: `{mismatch}`
+   * naming the first token that differs. */
+  async function scrubVerify(texts) {
+    const file = relative(app.dir, designPath(app.dir)), shown = scrubbed;
+    if (!(file in texts) || !shown) return {};
+    const next = await scrubDesign(texts[file]);
+    if (next.error || scrubbed !== shown) return {};
+    const i = next.tokens.findIndex((t, i) => JSON.stringify(t) !== JSON.stringify(shown.tokens[i]));
+    const mismatch = i >= 0 ? `\`${next.tokens[i].name}\`: compiled ${JSON.stringify(next.tokens[i])}, patched ${JSON.stringify(shown.tokens[i])}`
+      : next.tokens.length !== shown.tokens.length || next.digest !== shown.digest ? 'the designs differ' : null;
+    if (mismatch) console.log(`scrub: the patched frame is not its compile (${mismatch}); the pages get the committed design back`);
+    return mismatch ? { mismatch } : {};
+  }
   /** Preview a scrub's texts: a batch from the design the pages run, as a
    * value-only edit sends one, and its snapshot for a page that asks. */
   async function scrubPreview(texts) {
@@ -590,6 +642,10 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     if (!(file in texts)) { scrubRestore(); return {}; }
     const next = await scrubDesign(texts[file]);
     if (next.error) return next;
+    return scrubShow(next);
+  }
+  /** Show a scrub's design `next` on the pages. */
+  function scrubShow(next) {
     const from = scrubbed ?? design;
     if (!from || from.shape !== next.shape || from.tokens.length !== next.tokens.length
       || next.tokens.some((t, i) => t.name !== from.tokens[i].name || String(t.accent) !== String(from.tokens[i].accent))) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
@@ -669,7 +725,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
       await new Promise((ok) => setTimeout(ok, 250));
     }
   };
-  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; }, inline: inlineWhy } }) : null;
+  tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir, live: true, page: `http://127.0.0.1:${port}`, sourceMap: (digest) => (digest ? residentMaps.get(digest) ?? pageMaps.get(digest) : residentMaps.get(residentPlan)) ?? null, designServed: () => (scrubbed ? null : served), scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: () => { released = scrubbed != null; }, inline: inlineWhy } }) : null;
   // A polled stream (Linux, the resident loop's relay) is told the design to run.
   tamber?.channel.greet(() => snapshot && notice(snapshot));
   const server = createServer(async (req, res) => {
@@ -827,7 +883,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   };
   const stop = async () => {
     stopping = true;
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); residentChild?.kill('SIGTERM'); server.close();
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); stopGroup(tool.child); stopGroup(tool.reading); stopGroup(tool.cleaner); stopGroup(patcher.child); residentChild?.kill('SIGTERM'); server.close();
     // The design server lets go of its lock before this exits.
     await tamber?.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.

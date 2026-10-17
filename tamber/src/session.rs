@@ -56,6 +56,11 @@ pub struct Planned {
     /// The app's synthetic tokens whose values change, each its expression
     /// and its new value per full app tuple.
     pub synthetic: Vec<(String, Vec<crate::Folded>)>,
+    /// Each token of the design file whose folded value changes, named as
+    /// the plan's theme row names it (the declared spelling; a synthetic
+    /// token by its expression), with its CSS text per full app tuple: a
+    /// scrub's frame patches the running design's rows from these.
+    pub values: Vec<(String, Vec<String>)>,
 }
 
 /// The app's synthetic tokens (D3): Contract rows' expressions over tokens,
@@ -153,6 +158,7 @@ pub fn plan(
     let mut out = Vec::new();
     let mut changed = Vec::new();
     let mut moved = Vec::new();
+    let mut values = Vec::new();
     let mut structure = false;
     let mut diff = String::new();
     for (path, text) in files {
@@ -216,6 +222,24 @@ pub fn plan(
         structure |= tokens
             .iter()
             .any(|t| motion(&before, t) || motion(&after, t));
+        if *path == synthetic.file {
+            if let Some(f) = &after {
+                for (c, declared) in f.tokens.iter().zip(&f.design.tokens) {
+                    if !tokens.contains(&c.name) {
+                        continue;
+                    }
+                    let name = match c
+                        .name
+                        .strip_prefix('~')
+                        .and_then(|i| i.parse::<usize>().ok())
+                    {
+                        Some(i) => exprs[i].0.clone(),
+                        None => declared.name.value.clone(),
+                    };
+                    values.push((name, c.values.iter().map(|v| v.css()).collect()));
+                }
+            }
+        }
         for t in tokens {
             match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
                 Some(i) => {
@@ -268,6 +292,7 @@ pub fn plan(
         },
         diff,
         synthetic: moved,
+        values,
     })
 }
 

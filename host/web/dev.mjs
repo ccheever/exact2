@@ -47,6 +47,7 @@ import { guardFlags } from '../../scripts/help.mjs';
 import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
+import { designDigest, patchDesign } from '../../scripts/tamber-patch.mjs';
 import { relayChannel, serveCommands, serveReport } from '../../scripts/tamber-builds.mjs';
 import { captureAssets, assetCards, alsoOnIPv6Loopback, freeOnIPv6Loopback, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
@@ -334,6 +335,44 @@ async function scrubPreview(texts) {
     return {};
   });
 }
+/** A scrub's frame patched (tamber-scrub.mjs `patch`): its folded rows set
+ * on the committed design, compiling nothing; `{fallback}` when this frame
+ * must be compiled instead. */
+async function scrubPatch(values) {
+  previewing = true;
+  if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
+  if (typescript) {
+    const next = moduleDesign && patchDesign(moduleDesign, values);
+    const live = next && scrubBatch(moduleScrubbed ?? moduleDesign, next);
+    if (!live) return { fallback: true };
+    moduleScrubbed = next;
+    moduleReleased = false;
+    if (live.batch.tokens.length) pushDesign(live); else designSnapshot = live.snapshot;
+    return {};
+  }
+  return scrubAsk((id) => `patch ${id} ${JSON.stringify(values.map(({ name, css }) => [name, css]))}`, (reply) => {
+    if (reply.error) return { error: reply.error };
+    if (reply.fallback) return { fallback: true };
+    if (reply.batch) pushDesign(reply); else designSnapshot = reply.snapshot;
+    return {};
+  });
+}
+/** The patched frame shown, against its texts compiled in full (tamber-scrub.mjs
+ * `verify`): `{mismatch}` naming the first row that differs. */
+async function scrubVerify(texts) {
+  const file = relative(app.dir, designPath(app.dir));
+  if (!(file in texts)) return {};
+  const answer = (mismatch) => { if (mismatch) console.log(`scrub: the patched frame is not its compile (${mismatch}); the builds get the committed design back`); return mismatch ? { mismatch } : {}; };
+  if (typescript) {
+    const shown = moduleScrubbed;
+    return scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }), (reply) => {
+      if (!reply.ok || !shown || moduleScrubbed !== shown) return {};
+      const i = reply.design.tokens.findIndex((t, i) => designDigest([t]) !== designDigest([shown.tokens[i] ?? { name: '', value: '', slices: [] }]));
+      return answer(i >= 0 ? `\`${reply.design.tokens[i].name}\`: compiled ${JSON.stringify(reply.design.tokens[i])}, patched ${JSON.stringify(shown.tokens[i])}` : reply.design.tokens.length !== shown.tokens.length ? 'the rows differ' : null);
+    });
+  }
+  return scrubAsk((id) => `verify ${id} ${JSON.stringify(texts[file])}`, (reply) => answer(reply.mismatch ?? null));
+}
 /** A scrub ended without its write: every build back on the committed design. */
 /** A scrub being written: the build of what it writes goes from it. */
 async function scrubReleased() {
@@ -387,7 +426,7 @@ function announcePlan(plan, bytes) {
   const sha = bytes && createHash('sha256').update(bytes).digest('hex');
   try { writeSync(mapFd, JSON.stringify({ plan, map: bytes ? { sha256: sha, bytes: bytes.length, url: `/__dev/map/${sha}` } : null }) + '\n'); } catch { /* the parent went */ }
 }
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
 // The resident compiler's map beside the plan it wrote (a generation from a
 // Rust producer carries none); the server checks its digest.
 function readMap() { try { return readFileSync(resolve(dist, 'app.plan.map.json')); } catch { return null; } }

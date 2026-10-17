@@ -63,7 +63,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
-
+#[path = "tamber_scrub.rs"]
+mod scrub;
 /// The protocol this server speaks (D13: minor versions only add).
 pub const PROTOCOL: &str = "tamber/1.11";
 
@@ -201,6 +202,8 @@ struct Server {
     /// The app's own Contract sources at the last read that loaded them
     /// all: a root that stops parsing for a moment keeps its imports.
     contract: std::cell::RefCell<Vec<String>>,
+    /// What an open scrub's frames fold over (`tamber_scrub.rs`).
+    scrub: Option<scrub::Base>,
 }
 
 /// A digest, its synthetic token expressions, and the plan's retention.
@@ -334,6 +337,7 @@ impl Server {
             synthetic: None,
             params: Default::default(),
             contract: Default::default(),
+            scrub: None,
         };
         server.same_state()?;
         server.recover()?;
@@ -635,6 +639,7 @@ impl Server {
                 )]
             }
             Some("propose") => vec![reply(self.transaction(&request, false))],
+            Some("scrub-fold") => vec![reply(self.scrub_fold(&request))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
             // The wire's own, for `history`, `revert` and `import`.

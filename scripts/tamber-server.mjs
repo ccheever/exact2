@@ -237,10 +237,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     },
   });
   // Scrub sessions (tamber-scrub.mjs): previewed by the dev loop (`scrub`:
-  // `{preview(texts), restore()}`), one at a time, each end told.
+  // `{patch(values, frame)?, verify(texts)?, preview(texts), restore()}`),
+  // one at a time, each end told.
   const scrubs = scrubSessions({
     ask: r => ask(r),
     write: r => write(r),
+    patch: scrub?.patch ? (values, frame) => scrub.patch(values, frame) : null,
+    verify: scrub?.verify ? texts => scrub.verify(texts) : null,
     preview: texts => scrub.preview(texts),
     restore: () => scrub?.restore(),
     released: () => scrub?.released?.(),

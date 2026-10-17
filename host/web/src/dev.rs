@@ -67,6 +67,9 @@ pub struct Session {
     /// The published plan's structure digest and the design the builds run
     /// (the plan's, or the last batch's).
     design: Option<(String, Vec<exact_runner::design::Token>)>,
+    /// The published plan's design shape, which a patched frame's batch is
+    /// for.
+    shape: String,
     /// An open scrub's last preview (LLP 1121 stage 4, commit 6): its
     /// design shape and the design the builds run while it lasts.
     scrub: Option<(String, Vec<exact_runner::design::Token>)>,
@@ -138,6 +141,7 @@ impl Session {
             failed: false,
             source_map: true,
             design: None,
+            shape: String::new(),
             scrub: None,
             released: false,
         }
@@ -293,6 +297,7 @@ impl Session {
         // stream publishes only its batch.
         write_atomic(&self.out, &bytes)?;
         self.design = Some((structure, tokens));
+        self.shape = shape;
         Ok(Built {
             bytes,
             saved_ms,
@@ -311,7 +316,70 @@ impl Session {
     /// they read) and its snapshot. A structure change is refused: a
     /// rebuild has no scrub.
     pub fn scrub<D: DataSource + Default>(&mut self, text: String) -> Result<Scrubbed, String> {
-        let (published, committed) = self.design.as_ref().ok_or("no plan is built yet")?;
+        let (shape, tokens) = self.compile_design::<D>(text)?;
+        Ok(self.show(shape, tokens))
+    }
+
+    /// A scrub's frame patched (LLP 1121 D13): each folded row
+    /// (`scrub-fold`'s `values`, a name and its CSS text per full app
+    /// tuple) set on the committed design, compiling nothing; the batch from
+    /// the design the builds run and the snapshot, as [`Session::scrub`]
+    /// answers. `Ok(None)` when it cannot patch the frame (a row would gain
+    /// or lose its slices, which is a structure change): the caller compiles
+    /// it instead. A name the plan keeps no row for changes nothing the
+    /// builds read.
+    pub fn patch(&mut self, values: &[(String, Vec<String>)]) -> Result<Option<Scrubbed>, String> {
+        let (_, committed) = self.design.as_ref().ok_or("no plan is built yet")?;
+        let mut tokens = committed.clone();
+        for (name, css) in values {
+            let Some(t) = tokens.iter_mut().find(|t| t.name == *name) else {
+                continue;
+            };
+            let Some(first) = css.first() else {
+                return Ok(None);
+            };
+            let varies = css.iter().any(|c| c != first);
+            if varies != !t.slices.is_empty() || varies && css.len() != t.slices.len() {
+                return Ok(None);
+            }
+            t.value.clone_from(first);
+            if varies {
+                t.slices.clone_from(css);
+            }
+        }
+        Ok(Some(self.show(self.shape.clone(), tokens)))
+    }
+
+    /// The scrub's frame shown, checked against its design `text` compiled
+    /// in full: `Some` naming the first row that differs.
+    pub fn verify<D: DataSource + Default>(
+        &mut self,
+        text: String,
+    ) -> Result<Option<String>, String> {
+        let (_, compiled) = self.compile_design::<D>(text)?;
+        let Some((_, shown)) = &self.scrub else {
+            return Ok(None);
+        };
+        Ok(compiled
+            .iter()
+            .zip(shown)
+            .find(|(a, b)| a != b)
+            .map(|(a, b)| {
+                format!(
+                    "`{}`: compiled {:?} {:?}, patched {:?} {:?}",
+                    a.name, a.value, a.slices, b.value, b.slices
+                )
+            })
+            .or_else(|| (compiled.len() != shown.len()).then(|| "the rows differ".to_string())))
+    }
+
+    /// The design `text` compiled in place of the file's and baked, written
+    /// nowhere: its shape and tokens. A structure change is refused.
+    fn compile_design<D: DataSource + Default>(
+        &self,
+        text: String,
+    ) -> Result<(String, Vec<exact_runner::design::Token>), String> {
+        let (published, _) = self.design.as_ref().ok_or("no plan is built yet")?;
         let path = contract::design_path(&self.source).ok_or("the app has no design")?;
         let src = self.last.clone().ok_or("no plan is built yet")?;
         let (plan, _) = contract::with_design_text(&path, text, || {
@@ -330,16 +398,25 @@ impl Session {
                 "the scrub changes the plan's structure: a rebuild applies on release".into(),
             );
         }
-        let shape = exact_runner::design::shape(&baked);
-        let tokens = exact_runner::design::tokens(&baked);
-        let from = self.scrub.as_ref().map_or(committed, |(_, t)| t);
-        let batch =
-            exact_runner::design::batch(&shape, from, &tokens).filter(|b| !b.tokens.is_empty());
+        Ok((
+            exact_runner::design::shape(&baked),
+            exact_runner::design::tokens(&baked),
+        ))
+    }
+
+    /// Show the design `tokens` while a scrub lasts: the batch from the one
+    /// the builds run (none when nothing they read moved) and its snapshot.
+    fn show(&mut self, shape: String, tokens: Vec<exact_runner::design::Token>) -> Scrubbed {
+        let committed = self.design.as_ref().map(|(_, t)| t);
+        let from = self.scrub.as_ref().map(|(_, t)| t).or(committed);
+        let batch = from
+            .and_then(|from| exact_runner::design::batch(&shape, from, &tokens))
+            .filter(|b| !b.tokens.is_empty());
         let snapshot = exact_runner::design::snapshot(&shape, &tokens);
         // A new preview is no released scrub's.
         self.scrub = Some((shape, tokens));
         self.released = false;
-        Ok((batch, snapshot))
+        (batch, snapshot)
     }
 
     /// A scrub being written: the build of what it writes goes from it.
@@ -451,8 +528,10 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
             }
         }
     });
+    // A command that woke the wait, answered before the next poll.
+    let mut pending: Option<String> = None;
     loop {
-        while let Ok(line) = commands.try_recv() {
+        while let Some(line) = pending.take().or_else(|| commands.try_recv().ok()) {
             let mut parts = line.splitn(3, ' ');
             let (verb, id, rest) = (parts.next(), parts.next().unwrap_or(""), parts.next());
             let answer = match (verb, rest) {
@@ -460,6 +539,31 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
                     .map_err(|e| format!("scrub: {e}"))
                     .and_then(|text| session.scrub::<D>(text))
                     .map(|(b, s)| (b, Some(s))),
+                (Some("patch"), Some(values)) => {
+                    match serde_json::from_str::<Vec<(String, Vec<String>)>>(values)
+                        .map_err(|e| format!("patch: {e}"))
+                        .and_then(|values| session.patch(&values))
+                    {
+                        Ok(Some((b, s))) => Ok((b, Some(s))),
+                        Ok(None) => {
+                            let _ = writeln!(stdout, "scrubbed {id} {{\"fallback\":true}}");
+                            continue;
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                (Some("verify"), Some(text)) => {
+                    let checked = serde_json::from_str::<String>(text)
+                        .map_err(|e| format!("verify: {e}"))
+                        .and_then(|text| session.verify::<D>(text));
+                    let reply = match checked {
+                        Ok(Some(m)) => format!("{{\"mismatch\":{}}}", json_string(&m)),
+                        Ok(None) => "{}".into(),
+                        Err(e) => format!("{{\"error\":{}}}", json_string(&e)),
+                    };
+                    let _ = writeln!(stdout, "scrubbed {id} {reply}");
+                    continue;
+                }
                 (Some("restore"), _) => Ok(session
                     .restore()
                     .map_or((None, None), |(b, s)| (b, Some(s)))),
@@ -518,6 +622,12 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
             None => {}
         }
         let _ = stdout.flush();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // The next poll in 10 ms; a command wakes it at once.
+        let tick = std::time::Duration::from_millis(10);
+        match commands.recv_timeout(tick) {
+            Ok(line) => pending = Some(line),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(tick),
+        }
     }
 }
