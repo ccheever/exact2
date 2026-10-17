@@ -314,6 +314,22 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
 ];
 
+/// Why a literal `n` written as `name` is no value of the press family's
+/// numeric rows, if it is not.
+pub(crate) fn press_refusal(rows: &[StyleId], n: f64, name: &str) -> Option<String> {
+    // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
+    // typo, not a feel.
+    if rows.contains(&StyleId::PressScale) && n <= 0.0 {
+        return Some(format!(
+            "`{name}` takes a positive scale (0.97 is a button's, 1 is none)"
+        ));
+    }
+    // @ref LLP 1061 D7 — a share of the node's own opacity.
+    (rows.contains(&StyleId::PressOpacity) && !(0.0..=1.0).contains(&n)).then(|| {
+        format!("`{name}` takes a share of the node's own opacity, from 0 to 1 (0.65 is iOS's dim, 1 is none)")
+    })
+}
+
 /// The target of a style attribute, if `name` is one.
 pub fn lookup(name: &str) -> Option<AttrTarget> {
     STYLE_NAMES

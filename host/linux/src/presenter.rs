@@ -109,8 +109,6 @@ mod events_tests;
 #[cfg(test)]
 mod kept_rows_tests;
 #[cfg(test)]
-mod press_paint_tests;
-#[cfg(test)]
 mod spacing_tests;
 #[cfg(test)]
 mod swipe_tests;

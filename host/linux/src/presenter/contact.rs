@@ -1034,3 +1034,7 @@ impl<D: DataSource> Presenter<D> {
 #[cfg(test)]
 #[path = "precedence_tests.rs"]
 mod precedence_tests;
+
+#[cfg(test)]
+#[path = "press_paint_tests.rs"]
+mod press_paint_tests;

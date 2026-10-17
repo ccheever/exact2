@@ -1397,42 +1397,26 @@ mod flow_tests {
         }
     }
 
-    /// LLP 1061 D2: the press scale is the presenter's to show, so it crosses
-    /// as a number, where the engine's own `scale` never does.
+    /// LLP 1061 D2, D7: the press scale and paint are the presenter's to
+    /// show, so they cross (a number, colours as any colour row's), where
+    /// the engine's own `scale` never does.
     #[test]
-    fn press_scale_crosses_and_the_motion_scale_does_not() {
+    fn the_press_rows_cross_and_the_motion_scale_does_not() {
         let mut s = StyleProps::default();
-        s.set_dynamic(StyleId::PressScale, &StyleValue::Number(0.97))
-            .unwrap();
-        s.set_dynamic(StyleId::Scale, &StyleValue::Number(2.0))
-            .unwrap();
-        assert_eq!(
-            style_json(&s, &Env::default()),
-            (r#"{"press_scale":0.97}"#.into(), vec![])
-        );
-    }
-
-    /// LLP 1061 D7: the pressed paint is the presenter's to show too: the
-    /// opacity a number, the colours as any colour row's (`PressPaint.swift`).
-    #[test]
-    fn the_pressed_paint_crosses_as_rows() {
-        let mut s = StyleProps::default();
-        s.set_dynamic(StyleId::PressOpacity, &StyleValue::Number(0.5))
-            .unwrap();
-        s.set_dynamic(StyleId::PressColor, &StyleValue::Text("#ff0000".into()))
-            .unwrap();
-        s.set_dynamic(
-            StyleId::PressBackgroundColor,
-            &StyleValue::Text("light-dark(#ffffff, #000000)".into()),
-        )
-        .unwrap();
-        assert_eq!(
-            style_json(&s, &Env::default()),
+        for (row, value) in [
+            (StyleId::PressScale, StyleValue::Number(0.97)),
+            (StyleId::Scale, StyleValue::Number(2.0)),
+            (StyleId::PressOpacity, StyleValue::Number(0.5)),
             (
-                r#"{"press_opacity":0.5,"press_background_color":[[255,255,255,255],[0,0,0,255]],"press_color":[255,0,0,255]}"#.into(),
-                vec![]
-            )
-        );
+                StyleId::PressBackgroundColor,
+                StyleValue::Text("light-dark(#fff, #000)".into()),
+            ),
+            (StyleId::PressColor, StyleValue::Text("#ff0000".into())),
+        ] {
+            s.set_dynamic(row, &value).unwrap();
+        }
+        let json = r#"{"press_scale":0.97,"press_opacity":0.5,"press_background_color":[[255,255,255,255],[0,0,0,255]],"press_color":[255,0,0,255]}"#;
+        assert_eq!(style_json(&s, &Env::default()), (json.into(), vec![]));
     }
 
     /// LLP 1066: a gradient crosses as its shape and ready-to-mix stops; a

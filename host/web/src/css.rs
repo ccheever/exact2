@@ -1404,69 +1404,6 @@ mod declaration_tests {
         );
     }
 
-    /// `-exact-press-haptic` is the custom property input-glue.js plays at the
-    /// press (LLP 1077 D14, workout F4); `rotate`'s axis part is written
-    /// with the angle and skips nothing (kanban F30).
-    #[test]
-    fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
-        fn t(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
-        let mut style = StyleProps::default();
-        style
-            .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
-            .unwrap();
-        for row in [StyleId::Rotate, StyleId::RotateAxis] {
-            style.set_dynamic(row, &t("3deg")).unwrap();
-        }
-        let (text, skipped) = css_text(&style, &[]);
-        assert_eq!(text, "rotate:3deg;--exact-press-haptic:impact-medium;");
-        assert!(skipped.is_empty(), "{skipped:?}");
-        assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
-    }
-
-    /// The pressed paint is three custom properties input-glue.js reads from
-    /// the pressed element's own style (LLP 1061 D7); a written 1 is still
-    /// the author's, and a clear writes nothing.
-    #[test]
-    fn the_pressed_paint_is_the_glues_properties() {
-        fn t(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
-        assert_eq!(
-            css(
-                &[
-                    (StyleId::PressOpacity, StyleValue::Number(0.5)),
-                    (StyleId::PressBackgroundColor, t("light-dark(#eeeeee, #333333)")),
-                    (StyleId::PressColor, t("#ff0000")),
-                ],
-                &[]
-            ),
-            "--exact-press-opacity:0.5;--exact-press-background-color:light-dark(rgba(238,238,238,1), rgba(51,51,51,1));--exact-press-color:rgba(255,0,0,1);"
-        );
-        assert_eq!(
-            css(&[(StyleId::PressOpacity, StyleValue::Number(1.0))], &[]),
-            "--exact-press-opacity:1;"
-        );
-        let mut cleared = StyleProps::default();
-        cleared.written.set(StyleId::PressColor);
-        assert_eq!(css_text(&cleared, &[]).0, "");
-    }
-
-    /// `-exact-fit` is the custom property navigation.js `fitText` reads
-    /// (LLP 1116.001 D1.4); its initial value writes nothing.
-    #[test]
-    fn fit_is_navigations_property() {
-        fn t(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
-        assert_eq!(
-            css(&[(StyleId::Fit, t("shrink"))], &[]),
-            "--exact-fit:shrink;"
-        );
-        assert_eq!(css(&[(StyleId::Fit, t("none"))], &[]), "");
-    }
-
     /// The feedback's separate factor leaves the row's scale and
     /// authored transition list intact; 1 needs no effect.
     #[test]

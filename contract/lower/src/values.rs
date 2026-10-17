@@ -1,6 +1,7 @@
 //! Attribute values checked against what they set, at compile time: a
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
+use crate::style_names::press_refusal;
 use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
@@ -710,30 +711,8 @@ fn style_value(
                 span,
             );
         }
-        // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
-        // typo, not a feel.
-        if rows.contains(&StyleId::PressScale) && numeric_literal(value).is_some_and(|n| n <= 0.0) {
-            return err(
-                "lower-attr-value",
-                format!(
-                    "`{}` takes a positive scale (0.97 is a button's, 1 is none)",
-                    a.name
-                ),
-                span,
-            );
-        }
-        // @ref LLP 1061 D7 — a fraction of the node's own opacity.
-        if rows.contains(&StyleId::PressOpacity)
-            && numeric_literal(value).is_some_and(|n| !(0.0..=1.0).contains(&n))
-        {
-            return err(
-                "lower-attr-value",
-                format!(
-                    "`{}` takes a fraction of the node's own opacity, from 0 to 1 (0.65 is iOS's dim, 1 is none)",
-                    a.name
-                ),
-                span,
-            );
+        if let Some(why) = numeric_literal(value).and_then(|n| press_refusal(rows, n, &a.name)) {
+            return err("lower-attr-value", why, span);
         }
         // @ref LLP 1064 D1 — a shadow is text; a number is no shadow.
         if rows.contains(&StyleId::BoxShadow)
