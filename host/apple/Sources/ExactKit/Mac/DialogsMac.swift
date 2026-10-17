@@ -142,18 +142,36 @@ final class DialogHost {
         presenter.mouseDrags.transform.cancel(); presenter.mouseDrags.reorder.cancel()
         presenter.mouseLayoutPan.abandon(); presenter.selection.clear()
         presenter.session?.canvases.cancelMovedControls()
-        refreshInputGates()
-        presenter.syncKeyViewLoop()
-        syncDefaultButton()
-        presenter.syncAccessibility()
-        presenter.shortcuts.sync()
-        // The focus is in the sheet before it shows: it arrives with it.
-        enterFocus()
-        // AppKit brings the sheet in before `begin` returns, and the main
-        // queue turns meanwhile: the dialog may have closed in it. A default
-        // button arrives without its key equivalent (`DefaultButtonSheetMacTests`
-        // holds that it has one), so it is given again.
-        if entry.sheet != nil, begin(entry) { syncDefaultButton() }
+        let arrive = { [weak self, weak entry] (deferred: Bool) in
+            guard let self, let presenter = self.presenter, let entry, self.entries.contains(where: { $0 === entry }) else { return }
+            self.refreshInputGates()
+            presenter.syncKeyViewLoop()
+            self.syncDefaultButton()
+            presenter.syncAccessibility()
+            presenter.shortcuts.sync()
+            // The focus is in the sheet before it shows: it arrives with it.
+            // Deferred, one an action's `focus()` put in the dialog stays.
+            let held = entry.dialog.window.flatMap(self.focusOwner).map { $0.isDescendant(of: entry.dialog) } ?? false
+            if !deferred || !held { self.enterFocus() }
+            // AppKit brings the sheet in before `begin` returns, and the main
+            // queue turns meanwhile: the dialog may have closed in it. A
+            // default button arrives without its key equivalent
+            // (`DefaultButtonSheetMacTests` holds that it has one), so it is
+            // given again.
+            if entry.sheet != nil, self.begin(entry) { self.syncDefaultButton() }
+        }
+        // Opened by a menu's pick, which presses while AppKit still tracks
+        // the menu (`MenuHost.pick`), the dialog is the modal at once, and
+        // its focus, the page's inertness and its sheet come once `popUp` has
+        // returned (`MenuHost.afterPopUp`), as when the press ran after it:
+        // the page keeps its focus while the menu closes. `beginSheet`
+        // returns only once the sheet is in, running the run loop meanwhile,
+        // and begun inside `popUp` the menu's close reached VoiceOver while
+        // the sheet arrived. The page's field made inert inside `popUp` (or
+        // giving the session's one field editor up to the dialog's) left the
+        // app no focus as the menu closed, and VoiceOver read that field
+        // again (2 of 6 runs each).
+        if entry.sheet == nil || !presenter.menus.afterPopUp({ arrive(true) }) { arrive(false) }
     }
     func close(_ dialog: NodeView, restoreFocus: Bool = true, notify: Bool = true) {
         if presenter?.alerts.close(dialog) == true { return }

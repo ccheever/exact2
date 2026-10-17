@@ -120,11 +120,14 @@ final class TableRowCell: NSTableCellView {
         if lead.frame != said { lead.frame = said; superview?.needsLayout = true }
     }
     /// Give the row back to the list's document, where the presenter has
-    /// its siblings; a row that was destroyed in the cell simply goes.
+    /// its siblings; a row that was destroyed in the cell simply goes,
+    /// unless a menu AppKit is tracking in it holds it (`MenuHost.holds`):
+    /// that one waits in the document, hidden, for the menu's `popUp` to
+    /// return, as the table may let its cell go first.
     func sendHome() {
         defer { row = nil }
         guard let row, row.superview === self else { return }
-        guard let feed, let home = feed.home, feed.holds(row) else { row.removeFromSuperview(); return }
+        guard let feed, let home = feed.home, feed.holds(row) || feed.menuHolds(row) else { row.removeFromSuperview(); return }
         home.addSubview(row)
         row.frame = kernel
         feed.moved()
@@ -356,6 +359,8 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// What the list shows of that: its port.
     private var port: NSRect { list?.scroll?.contentView.bounds ?? home?.bounds ?? .zero }
     func holds(_ node: NodeView) -> Bool { presenter?.views[node.id] === node && held.contains(node.id) }
+    /// A row the feed no longer has that a menu still holds (`TableRowCell.sendHome`).
+    fileprivate func menuHolds(_ node: NodeView) -> Bool { presenter?.menus.holds(node) ?? false }
     fileprivate func moved() { moves += 1 }
     /// The table's row views now (the tests, the measures).
     var rowViews: Int {
@@ -506,6 +511,12 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         }
         rows = next
         held = Set(next.map(\.node.id))
+        // A row a pick in its own context menu removed leaves its cell now,
+        // before the table may let that cell's row view go with it.
+        table.enumerateAvailableRowViews { view, _ in
+            guard let cell = view.view(atColumn: 0) as? TableRowCell, let row = cell.row, row.superview === cell, !self.holds(row), self.menuHolds(row) else { return }
+            cell.sendHome()
+        }
         // The list's name is the table's, for VoiceOver: "Notes, table".
         let name = list.authoredLabel
         if table.accessibilityLabel() != name { table.setAccessibilityLabel(name) }

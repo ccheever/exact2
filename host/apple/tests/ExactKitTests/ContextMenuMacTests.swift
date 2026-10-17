@@ -5,7 +5,7 @@ import XCTest
 
 /// LLP 1021 §5.1 on AppKit: a context menu is its popover's menu rows as an
 /// NSMenu (a Mac's has no preview, so the `contextPreview` row is no item),
-/// and a picked item presses its row once the menu has closed, as a button menu's.
+/// and a picked item presses its row inside the item's action, as a button menu's.
 final class ContextMenuMacTests: XCTestCase {
     private var windows: [NSWindow] = []
     private var sessions: [ExactSession] = []
@@ -97,14 +97,9 @@ final class ContextMenuMacTests: XCTestCase {
         let menu = p.menus.menu(of: pop)
         XCTAssertEqual(menu.items.map { $0.isSeparatorItem ? "—" : $0.title }, ["Pin", "—", "Delete"])
         var pressed: [UInt32] = []
-        let picked = expectation(description: "the picked row is pressed")
-        p.onPress = { pressed.append($0); picked.fulfill() }
+        p.onPress = { pressed.append($0) }
         NSApp.sendAction(try XCTUnwrap(menu.items[2].action), to: menu.items[2].target, from: menu.items[2])
-        XCTAssertEqual(pressed, [], "on the next turn")
-        // That turn, however late a loaded machine runs it: a fixed 50 ms
-        // spin of the run loop could return before the main queue's turn.
-        wait(for: [picked], timeout: 10)
-        XCTAssertEqual(pressed, [5])
+        XCTAssertEqual(pressed, [5], "inside the item's action")
     }
 
     func testDisablingAnInvokerBeforeTrackingCancelsItsMenu() throws {
@@ -213,13 +208,13 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [80, 35])
     }
 
-    /// A picked item presses its row in the turn its menu closed, as AppKit
-    /// sends a menu item's action before `popUp` returns: nothing the run
-    /// loop serves comes between. VoiceOver, asking where the focus was as
-    /// the menu closed, was answered before a press that opened a dialog:
-    /// it re-read the page's long draft and never named the dialog
-    /// (realinput-1017k H-9).
-    func testAPickedItemPressesInTheTurnItsMenuClosed() throws {
+    /// A picked item presses its row inside the item's action, as AppKit
+    /// sends a menu item's action before `popUp` returns: before the action
+    /// returns, and so before anything the run loop serves. Pressed after,
+    /// VoiceOver was told the menu closed and asked where the focus was
+    /// before a press that opened a dialog: it re-read the page's long draft
+    /// first (realinput-1017k H-9).
+    func testAPickedItemPressesInsideItsAction() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
         window.orderFrontRegardless()
@@ -230,6 +225,7 @@ final class ContextMenuMacTests: XCTestCase {
             guard let menu = note.object as? NSMenu, menu.items.first?.title == "Pin" else { return }
             RunLoop.current.perform(inModes: [.eventTracking]) {
                 menu.performActionForItem(at: 0)
+                heard.append("action returned")
                 // Served by the run loop once tracking has ended, as a request from another process is.
                 RunLoop.main.perform(inModes: [.default]) { heard.append("next turn") }
                 menu.cancelTracking()
@@ -238,8 +234,301 @@ final class ContextMenuMacTests: XCTestCase {
         defer { center.removeObserver(observer) }
         p.menus.context(source, at: NSPoint(x: 30, y: 30))
         let deadline = Date(timeIntervalSinceNow: 5)
-        while heard.count < 2 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
-        XCTAssertEqual(heard, ["pick 4", "next turn"])
+        while heard.count < 3 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(heard, ["pick 4", "action returned", "next turn"])
+    }
+
+    /// A pick whose batch takes the invoker out of the window while AppKit
+    /// still tracks the menu in it (destroyed, its ancestor dropped by a
+    /// children batch, its root replaced) leaves the view that went in the
+    /// window, hidden and out of the accessibility tree with its subtree,
+    /// until `popUp` returns; then it is gone, and nothing of it is drawn,
+    /// sized or read.
+    func testAPickThatUnmountsTheInvokerHoldsItUntilPopUpReturns() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        let cases: [(String, gone: UInt32, [[String: Any]])] = [
+            ("destroyed", 1, [["op": "destroy", "id": 1]]),
+            ("ancestor dropped", 30, [["op": "children", "id": 9, "ids": [2]]]),
+            ("root replaced", 9, [["op": "create", "id": 40, "kind": "view", "style": ["background_color": [51, 102, 153, 255]]],
+                                  ["op": "frame", "id": 40, "x": 0, "y": 0, "w": 300, "h": 200], ["op": "roots", "ids": [40]]]),
+        ]
+        for (name, goneId, batch) in cases {
+            let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+            // The invoker in a box of its own (30), for the ancestor a children batch drops.
+            p.apply(wireBatch([["op": "create", "id": 30, "kind": "view"], ["op": "frame", "id": 30, "x": 0, "y": 0, "w": 500, "h": 100],
+                               ["op": "children", "id": 30, "ids": [1]], ["op": "children", "id": 9, "ids": [30, 2]]]))
+            let gone = try XCTUnwrap(p.views[goneId]), parent = try XCTUnwrap(gone.superview)
+            window.orderFrontRegardless()
+            var duringPress: [String] = [], atTrackingEnd: [String] = []
+            func state() -> [String] {
+                [gone.window != nil ? "in the window" : "out", gone.isHidden ? "hidden" : "shown",
+                 gone.accessibilityHiddenWritten ? "out of the tree" : "in the tree", source.window != nil ? "invoker in the window" : "invoker out",
+                 accessible(p.viewport).contains { $0 === source } ? "invoker read" : "invoker not read"]
+            }
+            p.onPress = { _ in p.apply(wireBatch(batch)); duringPress = state() }
+            var seen: NSMenu?
+            let center = NotificationCenter.default
+            let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu, menu.items.first?.title == "Pin" else { return }
+                seen = menu
+                RunLoop.current.perform(inModes: [.eventTracking]) { menu.performActionForItem(at: 0); menu.cancelTracking() }
+            }
+            // Posted inside `popUp`, before it returns.
+            let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { note in
+                if note.object as? NSMenu === seen { atTrackingEnd = state() }
+            }
+            defer { center.removeObserver(begin); center.removeObserver(end) }
+            p.menus.context(source, at: NSPoint(x: 30, y: 30))
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while gone.superview != nil && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            let held = ["in the window", "hidden", "out of the tree", "invoker in the window", "invoker not read"]
+            XCTAssertEqual(duringPress, held, name)
+            XCTAssertEqual(atTrackingEnd, held, name)
+            XCTAssertNil(gone.superview, "\(name): gone as popUp returned")
+            XCTAssertNil(source.window, name)
+            XCTAssertFalse(parent.subviews.contains { $0 === gone }, name)
+            if goneId == 9 {
+                XCTAssertEqual(p.root.subviews.map { ($0 as? NodeView)?.id }, [40], "the root that replaced it")
+                XCTAssertEqual(p.viewport.backgroundColor.usingColorSpace(.sRGB)?.blueComponent ?? 0, 0.6, accuracy: 0.01,
+                               "the page's ground is the new root's, not the held one's")
+            }
+        }
+    }
+
+    /// A choice that moved the focus into a sheet's field leaves it there as
+    /// its menu closes: VoiceOver is not sent back to the trigger, and the
+    /// page's focus is not given back. The field is the first responder of
+    /// the sheet's window, and the page window's still looks unmoved. A
+    /// choice that moved nothing still sends VoiceOver back to the trigger,
+    /// as from an `NSMenu`.
+    func testAChoiceThatMovedTheFocusIntoASheetKeepsItThere() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        for moves in [true, false] {
+            let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1]), pop = try XCTUnwrap(p.views[2])
+            p.apply(wireBatch([["op": "create", "id": 7, "kind": "input", "props": ["value": "a long draft"]],
+                               ["op": "frame", "id": 7, "x": 20, "y": 100, "w": 200, "h": 30], ["op": "children", "id": 9, "ids": [1, 2, 7]]]))
+            window.orderFrontRegardless()
+            let draft = try XCTUnwrap(p.views[7]?.field)
+            XCTAssertTrue(window.makeFirstResponder(draft))
+            let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+            sheet.isReleasedWhenClosed = false
+            let field = NSTextField(frame: NSRect(x: 10, y: 20, width: 180, height: 24))
+            sheet.contentView?.addSubview(field)
+            defer { window.endSheet(sheet); sheet.orderOut(nil); p.menus.reset() }
+            p.onPress = { _ in
+                guard moves else { return }
+                window.beginSheet(sheet)
+                sheet.makeFirstResponder(field)
+            }
+            p.menus.show(pop, from: source)
+            let item = try XCTUnwrap(p.menus.entries.last?.menu?.items.first { $0.title == "Pin" })
+            NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+            XCTAssertFalse(p.menus.isOpen(pop), "moves \(moves): the row's hide closed it")
+            XCTAssertTrue(p.menus.focusOwner(window) === draft, "moves \(moves): the page's focus stays")
+            if moves {
+                XCTAssertNil(p.landing.invoker, "VoiceOver stays in the sheet")
+                XCTAssertTrue(p.menus.focusOwner(sheet) === field)
+            } else {
+                XCTAssertTrue(p.landing.invoker === source, "VoiceOver goes back to the trigger")
+            }
+        }
+    }
+
+    /// A pick whose press opens a `<dialog>` makes it the modal inside the
+    /// item's action, its field focused in its sheet's window, while the
+    /// page keeps its focus; the page goes inert and the sheet begins once
+    /// `popUp` has returned, as an alert-shaped one's `NSAlert` does.
+    /// `beginSheet` returns only once the sheet is in, running the run loop
+    /// meanwhile: begun inside `popUp`, the menu's close reached VoiceOver
+    /// while the sheet arrived, and a page made inert inside it left the app
+    /// no focus as the menu closed (2 of 6 runs each read the page's draft
+    /// first). VoiceOver's landing waits for `popUp` too: told inside it, it
+    /// named a modal whose sheet had not begun.
+    func testAPickThatOpensADialogBeginsItsSheetAsPopUpReturns() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        for alert in [false, true] {
+            let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+            p.dialogs.painted = false
+            defer { p.dialogs.reset() }
+            // Pin (4) opens a dialog (20): a field (21), or an alert's text (22), Delete (23) and Cancel (24).
+            let closing = ["commandfor": "form", "command": "close"]
+            let rows: [[String: Any]] = alert
+                ? [["op": "create", "id": 22, "kind": "text", "props": ["text": "This can't be undone."]],
+                   ["op": "create", "id": 23, "kind": "button", "handlers": ["press"], "props": closing], ["op": "create", "id": 230, "kind": "text", "props": ["text": "Delete"]],
+                   ["op": "create", "id": 24, "kind": "button", "props": closing], ["op": "create", "id": 240, "kind": "text", "props": ["text": "Cancel"]],
+                   ["op": "children", "id": 23, "ids": [230]], ["op": "children", "id": 24, "ids": [240]], ["op": "children", "id": 20, "ids": [22, 23, 24]]]
+                : [["op": "create", "id": 21, "kind": "input", "props": ["value": "", "autofocus": "true"]],
+                   ["op": "frame", "id": 21, "x": 10, "y": 10, "w": 200, "h": 30], ["op": "children", "id": 20, "ids": [21]]]
+            let props = ["semanticTag": "dialog", "id": "form"].merging(alert ? ["accessibilityRole": "alertdialog", "accessibilityLabel": "Delete?"] : [:]) { $1 }
+            // A draft (7) in the page has the focus.
+            p.apply(wireBatch([["op": "create", "id": 20, "kind": "view", "props": props]] + rows
+                              + [["op": "create", "id": 7, "kind": "input", "props": ["value": "a long draft"]], ["op": "frame", "id": 7, "x": 20, "y": 100, "w": 200, "h": 30],
+                                 ["op": "children", "id": 9, "ids": [1, 2, 7, 20]], ["op": "frame", "id": 20, "x": 0, "y": 0, "w": 240, "h": 120],
+                                 ["op": "props", "id": 4, "set": ["commandfor": "form", "command": "show-modal"]]]))
+            let dialog = try XCTUnwrap(p.views[20]), draft = try XCTUnwrap(p.views[7]?.field), note = alert ? "alert" : "dialog"
+            window.orderFrontRegardless()
+            XCTAssertTrue(window.makeFirstResponder(draft))
+            func sheet() -> String { window.attachedSheet == nil ? "no sheet" : "sheet in" }
+            func modal() -> String { (alert ? p.alerts.isOpen(dialog) : p.dialogs.active === dialog) ? "modal" : "no modal" }
+            var heard: [String] = [], seen: NSMenu?
+            let center = NotificationCenter.default
+            let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu, menu.items.first?.title == "Pin" else { return }
+                seen = menu
+                RunLoop.current.perform(inModes: [.eventTracking]) {
+                    menu.performActionForItem(at: 0)
+                    heard.append("pressed: \(modal()), \(sheet()), the page's focus \(p.menus.focusOwner(window) === draft ? "kept" : "gone")")
+                    // The main queue turns while AppKit tracks the menu.
+                    RunLoop.current.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.05))
+                    heard.append(p.landing.scheduled ? "landing waits" : "landing told")
+                    menu.cancelTracking()
+                }
+            }
+            // Posted inside `popUp`, before it returns.
+            let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { note in
+                if note.object as? NSMenu === seen { heard.append("tracking ended: \(sheet())") }
+            }
+            let sheets = center.addObserver(forName: NSWindow.willBeginSheetNotification, object: window, queue: nil) { _ in heard.append("sheet begins") }
+            defer { [begin, end, sheets].forEach(center.removeObserver) }
+            p.menus.context(source, at: NSPoint(x: 30, y: 30))
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while window.attachedSheet == nil && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertEqual(heard, ["pressed: modal, no sheet, the page's focus kept", "landing waits", "tracking ended: no sheet", "sheet begins"], note)
+            while p.landing.scheduled && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertFalse(p.landing.scheduled, "\(note): told once popUp returned")
+            let sheetWindow = try XCTUnwrap(window.attachedSheet, note)
+            if alert {
+                XCTAssertTrue(sheetWindow === p.alerts.sheet, "the alert's sheet")
+            } else {
+                XCTAssertTrue(dialog.window === sheetWindow, "the dialog is in its sheet")
+                XCTAssertTrue(p.menus.focusOwner(sheetWindow) === p.views[21]?.field, "its field focused")
+                XCTAssertFalse(p.menus.focusOwner(window) === draft, "the page, inert, gave its focus up")
+            }
+        }
+    }
+
+    /// A list's row deleted from its own context menu (a `list` is an
+    /// `NSTableView` here, which takes a row's cell away by its own paths)
+    /// stays in the window, hidden and unread, until `popUp` returns, in a
+    /// list the runner windows and in one it does not.
+    func testAListRowDeletedFromItsOwnContextMenuStaysUntilPopUpReturns() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        for windowed in [true, false] {
+            let f = try TableFixture(count: 0, source: """
+            component Rows
+              state items = [1, 2, 3]
+              action remove(n: number)
+                items = items.filter(x => x != n)
+              view
+                column width="100%" height="100%"
+                  list \(windowed ? "virtualized=true estimated-item-height=32" : "") flex=1 min-height=0 width="100%" testId="rows"
+                    for n in items key=`k${n}`
+                      row contextPopover="menu" testId=`row-${n}` padding=8 width="100%"
+                        text `Row ${n}`
+                  column id="menu" popover="auto" role="menu"
+                    button press=remove(2) popovertarget="menu" popovertargetaction="hide" testId="menu-delete"
+                      text "Delete"
+
+            """)
+            defer { f.close() }
+            let p = f.presenter, row = try f.node("row-2"), note = windowed ? "windowed" : "not windowed"
+            // The table's row for it: the runner's wrapper in a list it windows, the row itself in any other.
+            let cellRow = try XCTUnwrap(f.cells.values.compactMap(\.row).first { $0 === row || row.isDescendant(of: $0) }, note)
+            f.window.orderFrontRegardless()
+            func state() -> [String] {
+                [cellRow.window != nil ? "in the window" : "out", row.window != nil ? "invoker in the window" : "invoker out",
+                 row.isHiddenOrHasHiddenAncestor ? "hidden" : "shown", accessible(p.viewport).contains { $0 === row } ? "read" : "not read"]
+            }
+            var duringPress: [String] = [], atTrackingEnd: [String] = []
+            let press = p.onPress
+            p.onPress = { id in press?(id); duringPress = state() }
+            var seen: NSMenu?
+            let center = NotificationCenter.default
+            let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu, menu.items.first?.title == "Delete" else { return }
+                seen = menu
+                RunLoop.current.perform(inModes: [.eventTracking]) { menu.performActionForItem(at: 0); menu.cancelTracking() }
+            }
+            let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { note in
+                if note.object as? NSMenu === seen { atTrackingEnd = state() }
+            }
+            defer { center.removeObserver(begin); center.removeObserver(end) }
+            p.menus.context(row, at: row.convert(NSPoint(x: 20, y: 10), to: nil))
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while cellRow.superview != nil && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            let held = ["in the window", "invoker in the window", "hidden", "not read"]
+            XCTAssertEqual(duringPress, held, note)
+            XCTAssertEqual(atTrackingEnd, held, note)
+            XCTAssertNil(cellRow.superview, "\(note): gone as popUp returned")
+            XCTAssertNil(row.window, note)
+            XCTAssertEqual(f.table.numberOfRows, 2, note)
+        }
+    }
+
+    /// A window toolbar's menu item is AppKit's to pop up, from the item, and
+    /// its chosen row presses inside AppKit's own tracking. A press that
+    /// takes the item's button away leaves the item in the bar, hidden, and
+    /// its button in the window, until AppKit has returned; the bar is then
+    /// synced and the item goes.
+    func testAToolbarMenuPickThatRemovesItsItemKeepsItUntilPopUpReturns() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        _ = NSApplication.shared
+        let p = Presenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        windows.append(window)
+        func view(_ id: Int, _ kind: String = "view", _ props: [String: String] = [:], press: Bool = false) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": kind, "props": props, "handlers": press ? ["press"] : []], ["op": "frame", "id": id, "x": 0, "y": 0, "w": 60, "h": 30]]
+        }
+        func children(_ id: Int, _ ids: [Int]) -> [String: Any] { ["op": "children", "id": id, "ids": ids] }
+        // A route (2) whose header (10) has a heading (12) and More (16),
+        // which opens a menu (40) whose row (41) removes More.
+        p.apply(wireBatch(view(1, "view", ["navigationBack": "back", "navigationKey": "a"]) + view(2, "view", ["navigationKey": "a"])
+            + view(10, "view", ["semanticTag": "header"]) + view(12, "text", ["text": "Library", "accessibilityRole": "heading", "accessibilityHeadingLevel": "1"])
+            + view(16, "button", ["accessibilityLabel": "More", "popovertarget": "more"], press: true) + view(160, "image", ["symbolName": "ellipsis.circle"])
+            + view(40, "view", ["popover": "auto", "id": "more", "accessibilityRole": "menu"])
+            + view(41, "button", ["popovertarget": "more", "popovertargetaction": "hide"], press: true) + view(411, "text", ["text": "Remove More"]) + view(15)
+            + [children(16, [160]), children(41, [411]), children(40, [41]), children(10, [12, 16]), children(2, [10, 15, 40]), children(1, [2]),
+               ["op": "roots", "ids": [1]]]))
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        defer { p.toolbar.detach() }
+        window.orderFrontRegardless()
+        let more = try XCTUnwrap(p.views[16]), item = try XCTUnwrap(p.toolbar.items[16] as? NSMenuToolbarItem)
+        func state() -> [String] {
+            var hidden = "hidden"
+            if #available(macOS 15.0, *) { hidden = item.isHidden ? "hidden" : "shown" }
+            return [window.toolbar?.items.contains { $0 === item } == true ? "item in the bar" : "item gone", hidden,
+                    more.window != nil ? "button in the window" : "button out"]
+        }
+        var duringPress: [String] = [], atTrackingEnd: [String] = []
+        p.onPress = { id in
+            guard id == 41 else { return }
+            p.apply(wireBatch([children(10, [12]), ["op": "destroy", "id": 160], ["op": "destroy", "id": 16]]))
+            duringPress = state()
+        }
+        let center = NotificationCenter.default
+        let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: item.menu, queue: nil) { _ in
+            RunLoop.current.perform(inModes: [.eventTracking]) { item.menu.performActionForItem(at: 0); item.menu.cancelTracking() }
+        }
+        let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: item.menu, queue: nil) { _ in atTrackingEnd = state() }
+        defer { center.removeObserver(begin); center.removeObserver(end) }
+        // As AppKit pops the item's menu up: filled as it opens (`menuNeedsUpdate`).
+        item.menu.popUp(positioning: nil, at: .zero, in: window.contentView)
+        let held = ["item in the bar", "hidden", "button in the window"]
+        XCTAssertEqual(duringPress, held)
+        XCTAssertEqual(atTrackingEnd, held)
+        XCTAssertEqual(state(), held, "as AppKit's popUp returns")
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while window.toolbar?.items.contains(where: { $0 === item }) == true && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(state().first, "item gone", "on the next turn")
+        XCTAssertNil(more.window)
+    }
+
+    /// `view`'s accessibility descendants, as a client walks them.
+    private func accessible(_ element: Any) -> [AnyObject] {
+        let children: [Any] = (element as? NSView)?.accessibilityChildren() ?? (element as? NSAccessibilityElement)?.accessibilityChildren() ?? []
+        return children.map { $0 as AnyObject } + children.flatMap(accessible)
     }
 
     /// The menu a right press opens takes the button's release: the view
@@ -986,8 +1275,8 @@ final class ContextMenuMacTests: XCTestCase {
 
     /// A row whose `popovertarget` names another menu is a submenu item,
     /// beside its menu or authored inside it; check marks keep working in
-    /// it; and choosing a nested item presses its row on the next turn, once
-    /// for the whole menu.
+    /// it; and choosing a nested item presses its row inside the action,
+    /// once for the whole menu.
     func testARowThatOpensAMenuIsASubmenu() throws {
         for inside in [false, true] {
             let p = submenuPresenter(inside: inside)
@@ -1003,15 +1292,13 @@ final class ContextMenuMacTests: XCTestCase {
             p.onPress = { pressed.append($0) }
             try choose(sub.items[0])
             try choose(menu.items[1])
-            XCTAssertEqual(pressed, [], "on the next turn")
-            turn()
             XCTAssertEqual(pressed, [10], "inside \(inside): Copy path, and only it")
         }
     }
 
-    /// A batch before the nested item's turn that points its opener at
-    /// another popover, disables or hides the opener, or presents the menu
-    /// again, cancels the choice; untouched, it presses.
+    /// A batch before the nested item is chosen that points its opener at
+    /// another popover, disables or hides the opener leaves the choice
+    /// nothing to press; untouched, it presses.
     func testANestedChoiceDiesWithItsOpener() throws {
         let changes: [(String, (Presenter) -> Void)] = [
             ("untouched", { _ in }),
@@ -1025,9 +1312,8 @@ final class ContextMenuMacTests: XCTestCase {
             var pressed: [UInt32] = []
             p.onPress = { pressed.append($0) }
             let copy = try XCTUnwrap(menu.items.first { $0.title == "Copy" }?.submenu)
-            try choose(copy.items[1])
             change(p)
-            turn()
+            try choose(copy.items[1])
             XCTAssertEqual(pressed, name == "untouched" ? [11] : [], name)
         }
     }

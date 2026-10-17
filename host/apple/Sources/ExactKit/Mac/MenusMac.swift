@@ -2,10 +2,11 @@
 // alertdialog popover of the chooser's shape ("The chooser": actions, at most
 // one hide-only cancel, text rows as its message), popped up against its
 // invoker by its `position-area` (ChooserMac.swift); a picked item presses
-// once, as the menu closes. One in the alert shape (text, a cancel, at most
-// three buttons) is `NSAlert` instead, under the agent too (LLP 1115.000 D7.6,
-// AlertsMac.swift). Any other popover is an `NSPopover` holding its actual
-// subtree, native editors included (LLP 1115.002 D7.3, PopoversMac.swift).
+// once, inside its action, as AppKit sends it. One in the alert shape (text,
+// a cancel, at most three buttons) is `NSAlert` instead, under the agent too
+// (LLP 1115.000 D7.6, AlertsMac.swift). Any other popover is an `NSPopover`
+// holding its actual subtree, native editors included (LLP 1115.002 D7.3,
+// PopoversMac.swift).
 // The driver's own chrome paints it in the session's top layer instead, as
 // it was, and paints a menu's shape there under either chrome.
 #if os(macOS)
@@ -42,6 +43,9 @@ final class MenuHost: NSObject {
         var hasFallbacks: Bool
         var focusedItem: NSMenuItem?
         var tracking = false
+        /// An item of its menu was chosen and pressed: the press may have
+        /// moved the focus, which its close then leaves alone.
+        var chose = false
         /// An alertdialog presented as a menu: what each action showed.
         var confirmation: Confirmation?
         init(_ popover: NodeView, source: NodeView?, previous: NSView?, run: UInt32?, bubbled: Bool = false) {
@@ -63,28 +67,23 @@ final class MenuHost: NSObject {
     var leaving: [NativePopover] = []
     /// The click with which AppKit closed an invoker's own popover.
     var dismissedByClick: (source: ObjectIdentifier, click: Int)?
-    /// Confirmations whose chosen item awaits its turn (ChooserMac.swift),
-    /// and picked button-menu items: each batch revalidates them, and one
-    /// that stops showing what is there is cancelled for good.
-    var choosing: [Confirmation] = []
-    private var picking: [Pick] = []
-    private var nativeTracking = 0
+    /// The views AppKit tracks a menu in (`popUp`'s view, a toolbar menu
+    /// item's button), innermost last.
+    private var trackedIn: [NodeView] = []
+    /// What a batch took out of the window while AppKit tracked a menu in it
+    /// or under it, and whether it was hidden and out of the accessibility
+    /// tree before (`holds`).
+    private struct Held { let view: NodeView, hidden: Bool, accessibilityHidden: Bool }
+    private var held: [Held] = []
+    /// What waits for the menu's `popUp` to return (`afterPopUp`).
     private var afterTracking: [() -> Void] = []
-    /// Main-queue work continues during native tracking; only the chosen
-    /// item's action waits until popUp has unwound and the menu's popover
-    /// has closed (`closed`), then runs in that same turn, as AppKit sends a
-    /// menu item's action before `popUp` returns. A next turn let VoiceOver
-    /// ask where the focus was between the menu's close and the action: it
-    /// re-read the page's focused field, at length, and never named the
-    /// dialog the action opened (realinput-1017k H-9).
-    func afterNativeTracking(_ work: @escaping () -> Void) {
-        if nativeTracking > 0 { afterTracking.append(work) }
-        else { DispatchQueue.main.async(execute: work) }
-    }
+    /// The toolbar menu item's menu whose chosen row has pressed while
+    /// AppKit may still be tracking it (`pick`).
+    private weak var barMenu: InvokerMenu?
     private func track(_ menu: NSMenu, positioning item: NSMenuItem? = nil, at point: NSPoint, in source: NodeView, closed: () -> Void) {
-        nativeTracking += 1
+        trackedIn.append(source)
         menu.popUp(positioning: item, at: point, in: source)
-        nativeTracking -= 1
+        let work = untrack(source)
         // A menu that opens while the button that opened it is down takes
         // that button's release (a right press's context menu; a click's
         // button menu): the view it went down on never hears its up. The
@@ -93,10 +92,61 @@ final class MenuHost: NSObject {
         // standing kept hover from following the pointer until a left click.
         if let presenter, presenter.pointerHolds, NSEvent.pressedMouseButtons == 0 { source.pointerReleased(nil) }
         closed()
-        if nativeTracking == 0 {
-            let work = afterTracking; afterTracking.removeAll()
-            for action in work { action() }
-        }
+        work.forEach { $0() }
+    }
+    /// AppKit no longer tracks a menu in `source`. Past the outermost menu
+    /// what was held leaves, and what waited for it is returned to run.
+    private func untrack(_ source: NodeView) -> [() -> Void] {
+        if let index = trackedIn.lastIndex(where: { $0 === source }) { trackedIn.remove(at: index) }
+        guard trackedIn.isEmpty else { return [] }
+        let gone = held, work = afterTracking
+        held.removeAll(); afterTracking.removeAll()
+        for hold in gone { hold.view.removeFromSuperview(); restore(hold) }
+        return work
+    }
+    /// `work` runs as the menu AppKit is tracking returns from `popUp`, in
+    /// that turn, after the menu's close; false, and nothing kept, when no
+    /// menu is tracked. A sheet a pick opens begins there (`DialogHost.present`):
+    /// `beginSheet` returns only once the sheet is in, running the run loop
+    /// meanwhile, so begun inside `popUp` the menu's close reached VoiceOver
+    /// while the sheet arrived, and it read the page's old field first.
+    func afterPopUp(_ work: @escaping () -> Void) -> Bool {
+        guard !trackedIn.isEmpty else { return false }
+        afterTracking.append(work)
+        return true
+    }
+    /// Whether `item` is the toolbar menu item whose menu AppKit may still
+    /// be tracking after its chosen row pressed (ToolbarMac.swift keeps it).
+    func tracks(_ item: NSToolbarItem) -> Bool { barMenu != nil && (item as? NSMenuToolbarItem)?.menu === barMenu }
+    /// A batch takes `view` out of the window (a destroy, a children batch,
+    /// a root replacement) while AppKit tracks a menu in it or under it: it
+    /// stays where it is, hidden and out of the accessibility tree with its
+    /// subtree, and leaves as `popUp` returns, as `leaving` keeps a popover
+    /// AppKit is still taking away (PopoversMac.swift). A chosen item
+    /// presses inside its action (`pick`, `choose`), and its batch may
+    /// unmount the invoker (Messages' Discard Changes navigates back).
+    func holds(_ view: NodeView) -> Bool {
+        guard !trackedIn.isEmpty, view.window != nil,
+              trackedIn.contains(where: { $0 === view || $0.isDescendant(of: view) }) else { return false }
+        if held.contains(where: { $0.view === view }) { return true }
+        // As taking it out of the window would: the focus in it is given up.
+        if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { view.window?.makeFirstResponder(nil) }
+        // The host's own bit: `isHidden` also reads CSS's `display: none` (review B1).
+        held.append(Held(view: view, hidden: view.hiddenByHost, accessibilityHidden: view.accessibilityHiddenWritten))
+        view.isHidden = true
+        view.setAccessibilityHidden(true)
+        return true
+    }
+    /// A held view the batch mounts again is shown as it was; true if it was held.
+    @discardableResult func rejoin(_ view: NodeView) -> Bool {
+        guard let index = held.firstIndex(where: { $0.view === view }) else { return false }
+        restore(held.remove(at: index))
+        return true
+    }
+    func isHeld(_ view: NSView) -> Bool { held.contains { $0.view === view } }
+    private func restore(_ hold: Held) {
+        hold.view.isHidden = hold.hidden
+        hold.view.setAccessibilityHidden(hold.accessibilityHidden)
     }
     /// Each popover's presentation count: a choice made in one presentation
     /// never dispatches once the popover has been presented again.
@@ -187,8 +237,17 @@ final class MenuHost: NSObject {
             $0.isHidden || ($0 as? NodeView)?.style["display"]?.string == "none"
         }
     }
-    func focusOwner(_ window: NSWindow) -> NSView? {
-        guard let view = window.firstResponder as? NSView else { return nil }
+    func focusOwner(_ window: NSWindow) -> NSView? { owner(of: window.firstResponder) }
+    /// This session's focus: in a window of its own in front of the page (a
+    /// sheet's, an alert's, a popover's) when one holds it, else in the page's.
+    private func sessionFocus() -> NSView? {
+        guard let page = presenter?.viewport.window else { return nil }
+        let front = windowed.compactMap(\.window) + (presenter?.sheets(on: page) ?? [])
+        return front.reversed().lazy.compactMap(focusOwner).first ?? focusOwner(page)
+    }
+    /// The view a responder stands for: a field editor's field.
+    private func owner(of responder: NSResponder?) -> NSView? {
+        guard let view = responder as? NSView else { return nil }
         return (view as? NSTextView).flatMap { $0.isFieldEditor ? $0.delegate as? NSView : nil } ?? view
     }
     func refresh() {
@@ -252,15 +311,6 @@ final class MenuHost: NSObject {
             && !(bubbled ? source.authoredInert : source.inert) && (!bubbled || !pop.inert)
             && (!requiringTarget || opens(source, pop)) && (!hidden(source) || presenter.toolbar.contains(source))
     }
-    /// A choice awaiting its turn is checked as each batch lands and as a
-    /// popover is presented again: one a change has invalidated is
-    /// cancelled for good, even if a later batch undoes the change.
-    private func revalidate() {
-        for owner in choosing where !valid(owner) { owner.cancel() }
-        choosing.removeAll { $0.chosen == nil }
-        for pick in picking where !valid(pick) { pick.cancelled = true }
-        picking.removeAll { $0.cancelled }
-    }
     func action(_ name: String, _ args: [Any]) {
         guard let presenter, let id = args.first as? String,
               let pop = presenter.carrying("popover").first(where: { $0.props["id"] == id }) else {
@@ -299,7 +349,6 @@ final class MenuHost: NSObject {
         if isConfirmation(pop), presenter.alerts.isOpen(pop) || presenter.alerts.present(pop, from: source, popover: true) { return }
         let entry = Entry(pop, source: source, previous: focusOwner(window), run: run, bubbled: bubbled)
         presentations[pop.id, default: 0] += 1
-        revalidate()
         if !ExactEnv.agentMode, let source {
             if isConfirmation(pop) {
                 // A shape the menu cannot present is said, and stays painted.
@@ -319,9 +368,8 @@ final class MenuHost: NSObject {
                       !entry.bubbled || !entry.popover.inert, entry.confirmation.map(self.valid) ?? true
                 else { self.close(entry.popover); return }
                 entry.tracking = true
-                // Escape or a click outside chose nothing. A chosen item has
-                // only been recorded: it presses once AppKit's tracking of
-                // `source` has unwound and the menu has closed.
+                // Escape or a click outside chose nothing; a chosen item has
+                // pressed inside its action.
                 self.track(menu, positioning: entry.focusedItem, at: self.popUpPoint(menu, entry.popover, in: source), in: source) {
                     entry.tracking = false
                     self.close(entry.popover, cancelling: false)
@@ -362,7 +410,6 @@ final class MenuHost: NSObject {
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
             self.presentations[pop.id, default: 0] += 1
-            self.revalidate()
             let menu = self.menu(of: pop)
             let entry = Entry(pop, source: source, previous: source.window.flatMap(self.focusOwner), run: run)
             entry.menu = menu; entry.tracking = true
@@ -401,11 +448,16 @@ final class MenuHost: NSObject {
         // window under it kept its first responder: nothing to give back.
         let entry = entries[index], window = entry.native == nil ? presenter?.viewport.window : nil
         let hadFocus = window.flatMap(focusOwner).map { contains(pop, $0) } ?? false
+        // A choice that moved the focus leaves it where it went: no landing
+        // on the trigger and no focus given back. A sheet's field is the
+        // first responder of the sheet's window, and the page window's still
+        // looks unmoved.
+        let moved = entry.chose && sessionFocus() !== entry.previous
         // Opened by VO-Space, which moves no focus, and closed with the focus
         // where it was: VoiceOver goes back to the trigger it pressed, as
         // from an `NSMenu` (`tellLanding`). AppKit's popover gives its own
         // window's focus back by itself.
-        if !hadFocus, let window, let source = entry.source, let presenter, focusOwner(window) === entry.previous {
+        if !hadFocus, !moved, let window, let source = entry.source, let presenter, focusOwner(window) === entry.previous {
             presenter.landing.invoker = source
             presenter.landing.invokerFocus = entry.previous
             presenter.scheduleLanding()
@@ -419,7 +471,7 @@ final class MenuHost: NSObject {
         // The focus is given back to the trigger, never left on the window
         // the hidden popover leaves; VoiceOver is sent to it after
         // (`tellLanding`, Accessibility.swift).
-        if hadFocus, let window {
+        if hadFocus, !moved, let window {
             if restoreFocus, let previous = entry.previous, previous.window === window,
                !previous.isHiddenOrHasHiddenAncestor, presenter?.dialogs.blocks(previous) != true,
                !((previous as? NodeView)?.inert ?? false) {
@@ -438,8 +490,6 @@ final class MenuHost: NSObject {
     func reset() {
         while let last = entries.last { close(last.popover, restoreFocus: false) }
         for old in leaving { old.finish() }
-        choosing.forEach { $0.cancel() }; choosing.removeAll()
-        picking.forEach { $0.cancelled = true }; picking.removeAll()
         popovers.removeAll(); presentations.removeAll()
         pointerDown = nil; escapeHeld = false
     }
@@ -472,7 +522,6 @@ final class MenuHost: NSObject {
             else { close(entry.popover); continue }
             syncPresentation(entry)
         }
-        revalidate()
         var changed = false
         let current = presenter.carrying("popover")
         for pop in popovers.values where live(pop) && pop.props["popover"] == nil {
@@ -681,7 +730,7 @@ final class MenuHost: NSObject {
     /// A toolbar item's menu, filled as it opens: the button's own `press`
     /// first, as a click on it in the page runs before its menu shows (it
     /// may make the rows), then the popover's rows now. A chosen row presses
-    /// on the next turn, once, as a button menu's does (`pick`).
+    /// inside its action, once, as a button menu's does (`pick`).
     func fill(_ menu: InvokerMenu) {
         menu.removeAllItems()
         guard let presenter, let source = menu.source, live(source), !source.inert, !source.disabled,
@@ -705,7 +754,6 @@ final class MenuHost: NSObject {
         // An open auto popover closes for it, as for any other shown.
         for entry in entries.reversed() where entry.value != "manual" { close(entry.popover, restoreFocus: false) }
         presentations[pop.id, default: 0] += 1
-        revalidate()
         let built = self.menu(of: pop, from: source)
         for item in built.items {
             built.removeItem(item)
@@ -774,7 +822,6 @@ final class MenuHost: NSObject {
         let presentation: Int
         let title: String
         let once: Picked
-        var cancelled = false
         init(_ row: NodeView, in pop: NodeView, path: [Step], from source: NodeView?, presentation: Int, title: String, once: Picked, bubbled: Bool) {
             self.row = row; self.pop = pop; self.path = path; self.source = source; invoked = source != nil
             self.bubbled = bubbled
@@ -787,7 +834,7 @@ final class MenuHost: NSObject {
     /// the invoker still opening the presented popover, which has not been
     /// presented again since.
     private func valid(_ pick: Pick) -> Bool {
-        guard !pick.cancelled, let row = pick.row, let pop = pick.pop, live(row), live(pop),
+        guard let row = pick.row, let pop = pick.pop, live(row), live(pop),
               row.isDescendant(of: pop), row.isButton, !row.disabled, !row.inert,
               title(of: row) == pick.title else { return false }
         var popovers: [NodeView] = []
@@ -804,21 +851,38 @@ final class MenuHost: NSObject {
         guard pick.invoked else { return true }
         return pick.source.map { invokes($0, root, bubbled: pick.bubbled) } ?? false
     }
-    /// An item picked: recorded now, its row pressed once `popUp` has
-    /// returned and the menu closed, once, as a chooser's is (ChooserMac.swift):
-    /// AppKit sends the action inside `popUp`, still tracking the menu in the
-    /// invoker, and the press's batch may unmount that invoker.
+    /// An item picked: its row pressed now, inside the item's action, as
+    /// AppKit sends a menu item's action before `popUp` returns, once per
+    /// menu, if it is still the row the menu showed; a chooser's choice is
+    /// pressed the same way (ChooserMac.swift). Pressed after `popUp` had
+    /// returned, VoiceOver was told the menu closed and asked where the focus
+    /// was before the press opened a dialog: it re-read the page's long draft
+    /// first (realinput-1017k H-9). What the press's batch takes out of the
+    /// window under the menu stays until `popUp` returns (`holds`).
     @objc private func pick(_ sender: NSMenuItem) {
         guard let pick = sender.representedObject as? Pick, !pick.once.taken else { return }
         pick.once.taken = true
-        picking.append(pick)
-        afterNativeTracking { [weak self, pick] in
-            guard let self else { return }
-            self.picking.removeAll { $0 === pick }
-            guard self.valid(pick), let row = pick.row else { return }
-            pick.cancelled = true
-            self.presenter?.press(row.id, fromNativeMenu: true)
+        guard valid(pick), let row = pick.row else { return }
+        let root = pick.path.first?.parent ?? pick.pop
+        entries.last { $0.menu != nil && $0.popover === root }?.chose = true
+        // A toolbar menu item's menu is AppKit's to pop up, from the item
+        // (`fill`), and this runs inside that tracking, which no `track`
+        // here brackets: what the press takes out of the window, and the
+        // item itself (ToolbarMac.swift), stay until it has returned, which
+        // is when the run loop is next in its default mode.
+        let menu = sequence(first: sender.menu, next: { $0?.supermenu }).compactMap { $0 }.last
+        if trackedIn.isEmpty, let bar = menu as? InvokerMenu, let source = bar.source {
+            trackedIn.append(source)
+            barMenu = bar
+            RunLoop.main.perform(inModes: [.default]) { [weak self, source] in
+                guard let self else { return }
+                let work = self.untrack(source)
+                self.barMenu = nil
+                self.presenter?.toolbar.sync()
+                work.forEach { $0() }
+            }
         }
+        presenter?.press(row.id, fromNativeMenu: true)
     }
     /// Not hidden by the page — `node`'s or an ancestor's `display: none`
     /// or hiding — though `pop` is hidden in place while a menu presents it.

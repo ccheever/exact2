@@ -897,14 +897,9 @@ final class PopoverMacTests: XCTestCase {
         let item = try XCTUnwrap(p.menus.menu(of: pop, from: p.views[2]!).items.last)
         NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
         NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
-        XCTAssertEqual(pressed, [], "not inside the menu's action")
-        // Retire the deferred popUp (it would track during the turn); the pick stands.
-        p.menus.close(pop)
-        turn()
-        XCTAssertEqual(pressed, [7], "a native menu row still invokes the app action, once")
+        XCTAssertEqual(pressed, [7], "a native menu row still invokes the app action, inside the item's action, once")
     }
-    /// A picked item presses on the next main-queue turn: let every turn
-    /// queued so far run (the main queue is FIFO).
+    /// Let every main-queue turn queued so far run (the main queue is FIFO).
     private func turn() {
         let turned = expectation(description: "the next turn")
         DispatchQueue.main.async { turned.fulfill() }
@@ -923,10 +918,10 @@ final class PopoverMacTests: XCTestCase {
         ]))
         return (p, p.menus.menu(of: p.views[3]!))
     }
-    /// A picked row presses once, a turn later, only if it is still the row
-    /// the menu showed; a reset before the turn, a hidden or retitled row,
-    /// or an id reused by another node presses nothing.
-    func testAPickedMenuRowPressesOnceOnTheNextTurnWhileItIsStillThatRow() throws {
+    /// A picked row presses once, inside the item's action, only if it is
+    /// still the row the menu showed: a hidden or retitled row, or an id
+    /// reused by another node, presses nothing.
+    func testAPickedMenuRowPressesOnceWhileItIsStillThatRow() throws {
         let changes: [[[String: Any]]?] = [
             nil,
             [["op": "style", "id": 11, "style": ["display": "none"]]],
@@ -941,24 +936,16 @@ final class PopoverMacTests: XCTestCase {
             p.onPress = { pressed.append($0) }
             let share = menu.items[1]
             XCTAssertEqual(share.title, "Share")
+            if let change { p.apply(wireBatch(change)) }
             NSApp.sendAction(try XCTUnwrap(share.action), to: share.target, from: share)
             NSApp.sendAction(try XCTUnwrap(menu.items[0].action), to: menu.items[0].target, from: menu.items[0])
-            if let change { p.apply(wireBatch(change)) }
-            turn()
             XCTAssertEqual(pressed, change == nil ? [11] : [], "\(change ?? [])")
         }
-        let (p, menu) = menuFixture()
-        var pressed: [UInt32] = []
-        p.onPress = { pressed.append($0) }
-        NSApp.sendAction(try XCTUnwrap(menu.items[0].action), to: menu.items[0].target, from: menu.items[0])
-        p.menus.reset()
-        turn()
-        XCTAssertEqual(pressed, [], "reset before its turn")
     }
-    /// A pick belongs to its invoker and its presentation: a batch before its
-    /// turn that unmounts, hides or disables the invoker — the shared
-    /// popover still mounted — cancels it, as does a retitle undone by a
-    /// later batch and the popover presented again. Untouched, it presses.
+    /// A pick belongs to its invoker and its presentation: a batch before it
+    /// that unmounts, hides or disables the invoker — the shared popover
+    /// still mounted — leaves it nothing to press, as does the popover
+    /// presented again. Untouched, it presses.
     func testAPickDiesWithItsInvokerOrItsPresentation() throws {
         let changes: [(String, (Presenter) -> Void)] = [
             ("untouched", { _ in }),
@@ -966,9 +953,6 @@ final class PopoverMacTests: XCTestCase {
                 p.apply(wireBatch([["op": "children", "id": 1, "ids": [6, 3]], ["op": "destroy", "id": 2]])) }),
             ("invoker hidden", { p in p.apply(wireBatch([["op": "style", "id": 2, "style": ["display": "none"]]])) }),
             ("invoker disabled", { p in p.apply(wireBatch([["op": "props", "id": 2, "set": ["disabled": "true"]]])) }),
-            ("retitled, then restored", { p in
-                p.apply(wireBatch([["op": "props", "id": 13, "set": ["text": "Print"]]]))
-                p.apply(wireBatch([["op": "props", "id": 13, "set": ["text": "Share"]]])) }),
             ("presented again", { p in p.menus.show(p.views[3]!, from: p.views[2]!); p.menus.close(p.views[3]!) }),
         ]
         for (name, change) in changes {
@@ -980,9 +964,8 @@ final class PopoverMacTests: XCTestCase {
             var pressed: [UInt32] = []
             p.onPress = { pressed.append($0) }
             let share = menu.items[1]
-            NSApp.sendAction(try XCTUnwrap(share.action), to: share.target, from: share)
             change(p)
-            turn()
+            NSApp.sendAction(try XCTUnwrap(share.action), to: share.target, from: share)
             XCTAssertEqual(pressed, name == "untouched" ? [11] : [], name)
             p.menus.reset()
         }
@@ -1028,7 +1011,7 @@ final class PopoverMacTests: XCTestCase {
                 seen = menu; tracked = true; tracking = true
                 RunLoop.current.perform(inModes: [.eventTracking, .default]) {
                     menu.performActionForItem(at: 1)
-                    XCTAssertEqual(pressed, [], "the pick waits for tracking to end")
+                    XCTAssertEqual(pressed, [11], "the pick presses inside its action")
                     menu.cancelTracking()
                 }
             }
@@ -1045,7 +1028,7 @@ final class PopoverMacTests: XCTestCase {
             turn()
             XCTAssertTrue(tracked, chooser ? "chooser tracks" : "button menu tracks")
             XCTAssertEqual(pressed, [11], "the bubbled invoker's Share pick runs once")
-            XCTAssertEqual(trackingAtPress, false)
+            XCTAssertEqual(trackingAtPress, true)
             XCTAssertFalse(p.menus.isOpen(pop))
             XCTAssertTrue(p.dialogs.active === dialog)
         }
@@ -1074,11 +1057,10 @@ final class PopoverMacTests: XCTestCase {
                 if let owner = entry.confirmation { XCTAssertTrue(p.menus.valid(owner)) }
                 var pressed: [UInt32] = []
                 p.onPress = { pressed.append($0) }
-                menu.performActionForItem(at: 1)
-                p.menus.close(pop, cancelling: false)
                 if invalidate == "source" { source.props["inert"] = "true" }
                 if invalidate == "target" { pop.props["inert"] = "true" }
-                turn()
+                menu.performActionForItem(at: 1)
+                p.menus.close(pop, cancelling: false)
                 XCTAssertEqual(pressed, invalidate == "neither" ? [11] : [], "chooser=\(chooser), invalidated=\(invalidate)")
             }
         }
@@ -1086,18 +1068,21 @@ final class PopoverMacTests: XCTestCase {
 
     /// The real popUp: a row picked inside AppKit's tracking whose press's
     /// batch unmounts the invoker the menu was popped up in. It presses
-    /// once, after the tracking has ended.
-    func testAPickThatUnmountsTheInvokerPressesOnceAfterTheMenuEnds() throws {
+    /// once, inside the action; the invoker stays in the window, hidden,
+    /// until `popUp` returns.
+    func testAPickThatUnmountsTheInvokerPressesOnceInsideTheTracking() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let (p, _) = menuFixture()
         try XCTUnwrap(windows.last).orderFrontRegardless()
         var pressed: [UInt32] = []
-        var tracking = false, trackingAtPress: Bool?
+        var tracking = false, trackingAtPress: Bool?, invokerAfterBatch: [Bool] = []
+        let invoker = try XCTUnwrap(p.views[2])
         p.onPress = { id in
             pressed.append(id)
             trackingAtPress = tracking
             p.apply(wireBatch([["op": "children", "id": 1, "ids": []]]
                               + [2, 3, 4, 5, 6, 10, 11, 12, 13].map { ["op": "destroy", "id": $0] }))
+            invokerAfterBatch = [invoker.window != nil, invoker.isHidden]
         }
         var seen: NSMenu?
         let center = NotificationCenter.default
@@ -1107,7 +1092,7 @@ final class PopoverMacTests: XCTestCase {
             tracking = true
             RunLoop.current.perform(inModes: [.eventTracking, .default]) {
                 menu.performActionForItem(at: 1)
-                XCTAssertEqual(pressed, [], "nothing presses inside the tracking")
+                XCTAssertEqual(pressed, [11], "pressed inside the item's action")
                 menu.cancelTracking()
             }
         }
@@ -1121,8 +1106,10 @@ final class PopoverMacTests: XCTestCase {
         turn()
         XCTAssertNotNil(seen, "the menu tracked")
         XCTAssertEqual(pressed, [11], "Share, once")
-        XCTAssertEqual(trackingAtPress, false, "pressed after the menu's tracking ended")
+        XCTAssertEqual(trackingAtPress, true, "pressed while AppKit tracked the menu")
+        XCTAssertEqual(invokerAfterBatch, [true, true], "held in the window, hidden, under the menu")
         XCTAssertNil(p.views[2], "the invoker is unmounted")
+        XCTAssertNil(invoker.superview, "and gone once popUp returned")
     }
     func testNativeContextAndButtonMenusKeepTheMainQueueRunningWhileTracking() throws {
         try XCTSkipIf(ExactEnv.agentMode, "agent menus are painted")

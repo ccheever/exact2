@@ -189,12 +189,18 @@ final class AlertHost {
         if source == nil { menus.reset() }
         presented = owner
         presenter.popoverEvents.changed(pop, open: true)
-        owner.alert.beginSheetModal(for: window) { [weak self, owner] response in
-            // Off the window now, before the press's batch (Apple's own
-            // advice for work in this handler).
-            owner.alert.window.orderOut(nil)
-            self?.ended(owner, response)
+        // Opened by a menu's pick, the sheet begins once the menu's `popUp`
+        // has returned, as a dialog's does (`MenuHost.afterPopUp`).
+        let begin = { [weak self, owner] in
+            guard let self, self.presented === owner, !owner.withdrawn else { return }
+            owner.alert.beginSheetModal(for: window) { [weak self, owner] response in
+                // Off the window now, before the press's batch (Apple's own
+                // advice for work in this handler).
+                owner.alert.window.orderOut(nil)
+                self?.ended(owner, response)
+            }
         }
+        if !presenter.menus.afterPopUp(begin) { begin() }
         presenter.shortcuts.sync()
         return true
     }

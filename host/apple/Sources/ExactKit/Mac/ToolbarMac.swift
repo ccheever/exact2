@@ -541,7 +541,12 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // hiding the tab bar on a screen takes the two away with the
         // sidebar; the toolbar stays, as it stays for a stack.
         let sidebar = presenter.sidebar.installed(in: window), sidebarItems = sidebar && presenter.sidebar.inToolbar(of: window)
-        guard declared != nil || header != nil || beside != nil || held || sidebar else { reset(); return }
+        // The menu item whose menu AppKit may still be tracking after its
+        // chosen row pressed (`MenuHost.tracks`) stays in the bar, hidden if
+        // the press took its button away, and the bar gains and moves
+        // nothing, until that has returned and the bar is synced again.
+        let pinned = window.toolbar === toolbar ? toolbar?.items.first(where: presenter.menus.tracks) : nil
+        guard declared != nil || header != nil || beside != nil || held || sidebar || pinned != nil else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }
         if declared == nil, header == nil, beside == nil { items.removeAll(); symbols.removeAll() }
@@ -583,6 +588,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             let item = items[node.id] ?? (menu ? NSMenuToolbarItem(itemIdentifier: .init("exact.menu.\(node.id)")) : NSToolbarItem(itemIdentifier: .init("exact.command.\(node.id)")))
             items[node.id] = item
             item.tag = Int(node.id)
+            if #available(macOS 15.0, *), item.isHidden, item !== pinned { item.isHidden = false }
             if let item = item as? NSMenuToolbarItem {
                 if (item.menu as? InvokerMenu)?.source !== node { item.menu = presenter.menus.toolbarMenu(for: node) }
                 item.showsIndicator = true
@@ -639,19 +645,23 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             }
         order = (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
             + nextOrder + appItems.map(\.itemIdentifier)
+        if let pinned, !order.contains(pinned.itemIdentifier) {
+            order.append(pinned.itemIdentifier)
+            if #available(macOS 15.0, *) { pinned.isHidden = true }
+        }
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
-            if !order.contains(toolbar.items[index].itemIdentifier) { toolbar.removeItem(at: index) }
+            if toolbar.items[index] !== pinned, !order.contains(toolbar.items[index].itemIdentifier) { toolbar.removeItem(at: index) }
         }
         // Each place in turn: an item of that identifier further along
         // moves here, never one already placed (a bar can hold two
         // flexible spaces); what is left past the last place goes.
-        for (index, identifier) in order.enumerated() {
+        for (index, identifier) in order.enumerated() where pinned == nil {
             if index < toolbar.items.count && toolbar.items[index].itemIdentifier == identifier { continue }
             if let old = toolbar.items.indices.dropFirst(index).first(where: { toolbar.items[$0].itemIdentifier == identifier }) { toolbar.removeItem(at: old) }
             toolbar.insertItem(withItemIdentifier: identifier, at: index)
         }
-        while toolbar.items.count > order.count { toolbar.removeItem(at: toolbar.items.count - 1) }
+        while pinned == nil, toolbar.items.count > order.count { toolbar.removeItem(at: toolbar.items.count - 1) }
         // Shown as it will answer, without waiting for AppKit's next validation.
         if back, backItem.isEnabled != navigation.canGoBack { backItem.isEnabled = navigation.canGoBack }
         appliedTitle = title(over: savedTitle)

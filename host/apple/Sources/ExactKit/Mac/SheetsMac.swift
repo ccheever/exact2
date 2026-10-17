@@ -220,9 +220,9 @@ extension DialogHost {
     }
 
     /// Attach the sheet. AppKit returns when it has arrived; false when the
-    /// dialog closed meanwhile.
+    /// dialog closed before or meanwhile.
     func begin(_ entry: Entry) -> Bool {
-        guard let sheet = entry.sheet, let over = sheet.over, !sheet.begun else { return false }
+        guard let sheet = entry.sheet, let over = sheet.over, !sheet.begun, entries.contains(where: { $0 === entry }) else { return false }
         sheet.begun = true
         // The focus this host chose is the window's first, or AppKit picks
         // its own first key view as the sheet comes in.

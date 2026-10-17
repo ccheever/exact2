@@ -542,6 +542,41 @@ to 16 points. Under the agent (D4) every popover stays painted, so the
 agent's taps need no host activation here. `ChooserMacTests` is the
 evidence; `<dialog>` stays the session's modal top layer on macOS.
 
+*Amended 2026-10-18 (`issues/20261016-native-menu-pick-voiceover-old-focus.md`):*
+a chosen item, a chooser's or a button menu's, is pressed inside the item's
+action, as AppKit sends it, before `popUp` returns, not after the menu ends.
+The checks above run there, then the press; the item is still taken once per
+menu. Pressed as `popUp` returned, VoiceOver had been told the menu closed
+and had asked where the focus was before the press moved it: it read the
+page's old field first (realinput-1017k H-9). While AppKit tracks a menu, a
+batch that removes the invoker or an ancestor (a destroy, a children batch,
+a root replacement; Messages' Discard Changes navigates back) leaves that
+view in the window, hidden and out of the accessibility tree with its
+subtree, until `popUp` returns, and then removes it, as a popover AppKit is
+still taking away is kept (PopoversMac.swift). A list's row is held the
+same way: a `list` here is an `NSTableView`, which may let a row's cell go
+as it reloads, so a held row waits in the list's document instead of its
+cell. A window toolbar's menu item is AppKit's to pop up, from the item, and
+its chosen row presses inside AppKit's tracking, which no `popUp` here
+brackets: there the hold lasts until the run loop is next in its default
+mode, and meanwhile the bar keeps the item, hidden if the press took its
+button away, and gains and moves nothing. A `<dialog>` the press opens is
+the modal inside the action; its focus, the page's inertness and its sheet
+come once `popUp` has returned, so the page keeps its focus while the menu
+closes, and an alert-shaped one's `NSAlert` (a confirmation popover's too)
+begins then. `beginSheet` returns only once the sheet is in, running the
+run loop meanwhile: a sheet begun inside `popUp` let the menu's close reach
+VoiceOver while it arrived, and a page field made inert there (or giving
+the session's one field editor up to the dialog's) left the app no focus
+as the menu closed, so VoiceOver read that field again. VoiceOver's landing
+on what the press opened (LLP 1080.003 D3) is told then too: told inside
+`popUp`, it named a modal whose sheet had not begun. Closing the menu neither
+sends VoiceOver to the trigger nor gives the focus back when the choice has
+moved the focus: a sheet's field is the first responder of the sheet's
+window, and the page window's still looks unmoved. With no choice left
+awaiting a turn, what the text above says of one (a reset before it, a batch
+or a new presentation cancelling it) no longer arises. iOS is unchanged.
+
 **Flip fallbacks (Charlie, 2026-10-08; implementation slice: Codex,
 2026-10-13).** This amends D2's unconditional clamp and §5's no-flip scope.
 Invoker popovers may name ordered CSS `position-try-fallbacks`: try the base
@@ -1059,11 +1094,10 @@ column id="copy-menu" popover="auto" role="menu" position-area="right span-botto
 
 **macOS.** `menu(of:)` builds each submenu into its item's `submenu`, for a
 button menu and a context menu alike. A nested item is picked as one at the
-top ("The chooser on macOS", D2): recorded, pressed by view id on the next
-turn, once for the whole menu, and cancelled for good by a batch that
-changes what the menu showed: the row, as before, and each opener on its
-path, which must still be live, enabled, shown, in its menu and opening the
-same submenu. AppKit places a submenu and opens it on hover.
+top ("The chooser on macOS", D2, as amended): pressed by view id inside the
+item's action, once for the whole menu, and only while the menu still shows
+what is there: the row, as before, and each opener on its path, which must
+still be live, enabled, shown, in its menu and opening the same submenu. AppKit places a submenu and opens it on hover.
 
 **iOS.** `items(of:)` nests a `UIMenu` titled by the row, for the pull-down
 and the context menu. A chosen nested action presses its row by view id, as

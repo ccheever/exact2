@@ -414,10 +414,7 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(item.menu.items.map(\.isEnabled), [true, false])
         let rename = item.menu.items[0]
         XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(rename.action), to: rename.target, from: rename))
-        // Pressed on the next turn, once the menu's tracking has unwound.
-        let limit = Date().addingTimeInterval(5)
-        while pressed.count < 2, Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
-        XCTAssertEqual(pressed, [16, 41])
+        XCTAssertEqual(pressed, [16, 41], "pressed inside the item's action")
         // Opened again it is read again.
         p.apply(wireBatch([["op": "props", "id": 411, "set": ["text": "Rename…"]]]))
         item.menu.delegate?.menuNeedsUpdate?(item.menu)

@@ -889,16 +889,13 @@ class DialogMacTests: XCTestCase {
             _ = p.menus.perform(item.action, with: item)
         }
         pick()
-        turn()
         XCTAssertEqual(pressed, [21])
-        pick()
         p.press(2)
-        turn()
-        XCTAssertEqual(pressed, [21], "a modal blocks a queued background menu selection")
+        pick()
+        XCTAssertEqual(pressed, [21], "a modal blocks a background menu's selection")
         p.dialogs.close(p.views[3]!)
     }
-    /// A picked menu item presses on the next main-queue turn: let every
-    /// turn queued so far run (the main queue is FIFO).
+    /// Let every main-queue turn queued so far run (the main queue is FIFO).
     private func turn() {
         let turned = expectation(description: "the next turn")
         DispatchQueue.main.async { turned.fulfill() }

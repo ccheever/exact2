@@ -11,12 +11,12 @@
 // `aria-label` as a section header, the menu's own titling on macOS; a
 // confirmation's text rows head it instead, as disabled lines. The cancel has
 // no item: Escape and a click outside cancel a menu, and dispatch nothing.
-// A chosen item presses its row by view id once, on the turn after the menu
-// has ended (AppKit is still tracking the invoker when it sends the item's
-// action, and the press's batch may unmount it), and only while the menu
-// still shows what is there: owner live, every action live, in its popover,
-// closing it, shown, its title and enablement as presented. Under the agent every popover
-// stays painted (D4), so its drives tap the painted rows.
+// A chosen item presses its row by view id once, inside the item's action as
+// AppKit sends it, and only while the menu still shows what is there: owner
+// live, every action live, in its popover, closing it, shown, its title and
+// enablement as presented. An invoker the press's batch unmounts stays in
+// the window, hidden, until `popUp` returns (`MenuHost.holds`). Under the
+// agent every popover stays painted (D4), so its drives tap the painted rows.
 #if os(macOS)
 import AppKit
 
@@ -40,9 +40,7 @@ extension MenuHost {
         let message: [String]
         /// Chosen, cancelled or ended: no item is taken after.
         var finished = false
-        /// The action chosen, pressed once the menu has closed unless cancelled first.
-        var chosen: Int?
-        func cancel() { finished = true; chosen = nil }
+        func cancel() { finished = true }
         init(source: NodeView, invoked: Bool, bubbled: Bool, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
             self.source = source; self.popover = popover; self.presentation = presentation; self.actions = actions
             self.invoked = invoked
@@ -150,28 +148,19 @@ extension MenuHost {
         return item
     }
 
-    /// An item chosen: recorded now, pressed once `popUp` has returned and
-    /// the menu closed (`afterNativeTracking`).
-    /// AppKit sends the action inside `popUp`, while it still tracks the
-    /// menu in the invoker; a press whose batch unmounts the invoker (a
-    /// confirmation that navigates back) must not run under that stack.
+    /// An item chosen: its action pressed now, inside the item's action, as
+    /// a button menu's pick is (`MenuHost.pick`), once, if the menu still
+    /// showed what is there. A confirmation that navigates back unmounts the
+    /// invoker AppKit still tracks the menu in: it stays until `popUp`
+    /// returns (`holds`).
     @objc private func choose(_ sender: NSMenuItem) {
         guard let choice = sender.representedObject as? Choice, !choice.owner.finished,
               choice.owner.actions.indices.contains(choice.index) else { return }
-        let owner = choice.owner
+        let owner = choice.owner, entry = owner.actions[choice.index]
         owner.finished = true
-        owner.chosen = choice.index
-        choosing.append(owner)
-        afterNativeTracking { [weak self, owner] in self?.dispatch(owner) }
-    }
-    /// The recorded choice, once, if the menu still showed what is there.
-    private func dispatch(_ owner: Confirmation) {
-        choosing.removeAll { $0 === owner }
-        guard let index = owner.chosen else { return }
-        owner.chosen = nil
-        let entry = owner.actions[index]
         guard valid(owner), entry.enabled, let node = entry.node, let pop = owner.popover,
               choosable(node, in: pop) else { return }
+        entries.last { $0.confirmation === owner }?.chose = true
         presenter?.press(node.id, fromNativeMenu: true)
     }
 
