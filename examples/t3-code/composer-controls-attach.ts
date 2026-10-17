@@ -36,11 +36,13 @@ export async function attachFiles(client: T3Client, native: Native): Promise<str
 /**
  * onComposerPaste's addComposerAttachments: the files a paste took from the pasteboard (T3ComposerEditor.swift's
  * `pastedFiles`), staged as Attach stages picked ones and added the same way. `key`: the draft the editor reported
- * them for; once another draft is open they are let go.
+ * them for; once another draft is open they are let go. Files Paste as Text took (`asText`) give their images no
+ * inline chip (`skipImageInlineChip`); a take holding both kinds of paste follows Paste as Text.
  */
 export async function takePastedFiles(client: T3Client, native: Native, key = client.draftKey): Promise<void> {
-  const imageChips = imagesGetChips(client);
+  const prose = imagesGetChips(client);
   const files = arr(obj(await client.restAccess(native).call({ op: 'composerPasteTake', fileLimit: attachStagingLimit(client) })).files);
+  const imageChips = prose && !files.some(file => file.asText === true);
   if (!files.length) return;
   if (key !== client.draftKey || !client.projectId) {
     for (const file of files) {

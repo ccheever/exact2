@@ -161,7 +161,7 @@ final class T3Composer {
 
     struct Routed { let event: NSEvent? }
 
-    /// ⇧⌘V pastes inline; a printable key or ⌘V with nothing editable
+    /// ⇧⌘V is Paste as Text (T3ComposerPasteHook); a printable key or ⌘V with nothing editable
     /// focused goes to the composer, which takes focus. Nil leaves the event to
     /// the others; `Routed` holds what goes on (nil: the key is taken).
     func editorKey(_ event: NSEvent) -> Routed? {
@@ -178,9 +178,7 @@ final class T3Composer {
             return Routed(event: nil)
         }
         if flags == [.command, .shift], key == "v", window.firstResponder === view {
-            editor.pastingAsText = true
             view.pasteAsPlainText(nil)
-            editor.pastingAsText = false
             return Routed(event: nil)
         }
         // A launcher letter goes on to Exact's key route (never type-to-focus), where its
