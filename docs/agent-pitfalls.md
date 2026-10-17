@@ -518,13 +518,16 @@ screen, 2026-10-16.)
   `text " · usually kick"` showed `53· usually`. Cause: each text is a flex item, and CSS
   removes white space at the start and end of a line; React Native's `Text` keeps it.
   Fix: a `margin-left` on the second text the width of a space, or `gap` on the row.
-- **An alert's caret, and every other tinted thing, takes the tab bar's colour.** euxy's
-  rename prompt drew a black caret where the original's is blue. Cause: the original set
-  `tintColor` on `NativeTabs` and on its headers, each that one component's; the port put
-  that black in the theme's `AccentColor`, which is the app's tint as an `AccentColor`
-  asset is, so every caret and alert field took it. Fix: port each where it is:
-  `accent-color` on the `tablist`, `color` on a header's buttons. (`hintTextColor` on
-  `Stack.SearchBar` is Android's only; react-native-screens' iOS search bar ignores it.)
+- **An alert's caret takes the tab bar's colour.** euxy's rename prompt drew a black caret
+  where the original's is blue. Cause: `tintColor` on `NativeTabs` tints the tab bar and
+  the tab controller's view (react-native-screens sets both), so what is inside the tabs
+  takes it and an alert, presented outside them, keeps the app's blue; the port put that
+  black in the theme's `AccentColor`, which is the app's tint as an `AccentColor` asset
+  is, so alerts took it too. Fix: match the original's scope: `accent-color` on the
+  `tablist` and on each tab screen's root, not on the document's root (a root's
+  `accent-color` is the window's tint, which alerts take), and `color` on a header's
+  buttons. (`hintTextColor` on `Stack.SearchBar` is Android's only; react-native-screens'
+  iOS search bar ignores it.)
 - **A sheet's form stops 34 points short of the original's at its end.** Cause: React
   Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
   row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
