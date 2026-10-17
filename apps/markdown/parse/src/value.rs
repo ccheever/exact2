@@ -154,8 +154,6 @@ pub fn blocks(doc: &Document) -> Value {
 /// retaining both full forms.
 pub fn into_blocks_with_tables(doc: Document) -> Value {
     let mut values = Values::new();
-    // An in-place IntoIter collect can keep the much larger Vec<Block>
-    // allocation as the Value list's spare capacity. Allocate it apart.
     let mut blocks = Vec::with_capacity(doc.blocks.len());
     let mut rows: Vec<Block> = Vec::new();
     for block in doc.blocks {
