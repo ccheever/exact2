@@ -40,18 +40,12 @@
     : function (d) { return "value" in d; };
   const DATA_LOCK = { __proto__: null, writable: false, configurable: false };
   const ACCESSOR_LOCK = { __proto__: null, configurable: false };
-  // One array of names and symbols per object where bootstrap has left
-  // Reflect.ownKeys, read as getOwnPropertyNames and getOwnPropertySymbols are,
-  // here: two arrays and a copy per object were a third of the walk's garbage.
-  const R = typeof Reflect === "object" && Reflect !== null ? Reflect : undefined;
-  const keysOf = R !== undefined && typeof R.ownKeys === "function"
-    ? R.ownKeys
-    : function (o) {
-      const out = names(o);
-      const syms = symbols(o);
-      for (let i = 0; i < syms.length; i++) out[out.length] = syms[i];
-      return out;
-    };
+  const keysOf = function (o) {
+    const out = names(o);
+    const syms = symbols(o);
+    for (let i = 0; i < syms.length; i++) out[out.length] = syms[i];
+    return out;
+  };
   const seen = new Set();
   const queue = [];
 

@@ -1,16 +1,22 @@
 // Appended to the prelude for `bootstrap_tests` (js/build.rs): bootstrap hides
-// a payload behind a Proxy whose `get` trap answers undefined, and plants a
+// a payload behind a Proxy whose `get` trap answers undefined, publishes one
+// under a symbol after making Reflect.ownKeys list only names, and plants a
 // property on Object.prototype, which hardening then freezes. The probe runs
-// after hardening and reports what the freeze left open.
+// after hardening, with readers it took before any of that, and reports what
+// the freeze left open.
 (function () {
   "use strict";
-  var payload = { inner: {} };
+  var getOwn = Object.getOwnPropertyDescriptor, ownKeys = Reflect.ownKeys;
+  var protoOf = Object.getPrototypeOf, isFrozen = Object.isFrozen;
+  var payload = { inner: {} }, symbolic = { inner: {} };
   Object.prototype.en = "planted";
   globalThis.__exact_hidden_box = new Proxy({ payload: payload }, {
     get: function () { return undefined; },
   });
-  var getOwn = Object.getOwnPropertyDescriptor, ownKeys = Reflect.ownKeys;
-  var protoOf = Object.getPrototypeOf, isFrozen = Object.isFrozen;
+  Reflect.ownKeys = Object.getOwnPropertyNames;
+  var box = {};
+  box[Symbol.for("payload")] = symbolic;
+  globalThis.__exact_symbol_box = box;
   globalThis.__exact_probe = function () {
     // Every object reachable by descriptor from the bindings hardening locked
     // (a binding still configurable was added after it), as harden.js walks.
@@ -40,6 +46,7 @@
       objects: objects,
       open: open,
       payload: isFrozen(payload) && isFrozen(payload.inner),
+      symbolic: isFrozen(symbolic) && isFrozen(symbolic.inner),
       firstDay: new Intl.Locale("en").getWeekInfo().firstDay,
     });
   };

@@ -1325,7 +1325,8 @@ mod bootstrap_tests {
     }
 
     // What the freeze leaves open after a bootstrap that hides a payload
-    // behind a Proxy's `get` trap and plants a property on Object.prototype
+    // behind a Proxy's `get` trap, another behind a symbol it makes
+    // Reflect.ownKeys skip, and plants a property on Object.prototype
     // (js/tests/fixtures/harden-probe.js).
     #[test]
     fn hardening_freezes_what_descriptors_reach() {
@@ -1345,6 +1346,9 @@ mod bootstrap_tests {
         assert_eq!(report["open"], 0, "{report}");
         assert!(report["objects"].as_u64().unwrap() > 800, "{report}");
         assert_eq!(report["payload"], true, "{report}");
+        // Published under a symbol after bootstrap made Reflect.ownKeys list
+        // only names.
+        assert_eq!(report["symbolic"], true, "{report}");
         // The week tables, built after hardening, take a name planted on the
         // frozen Object.prototype.
         assert_eq!(report["firstDay"], 7, "{report}");

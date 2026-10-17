@@ -238,42 +238,38 @@ check of a TypeScript module's grants (`js/src/lib.rs`, `Module::inspect`).
 
 Hermes keeps every young-generation page a runtime has touched, so what
 hardening allocates between two collections stays in the app's footprint.
-Three walks read a descriptor for every property of the objects they reach.
-Besides each record, the reachability guard made a string and a second
-record per field it read (`getOwnPropertyDescriptor` on the record), the
-intrinsic snapshot a property name per field, and each walk two key arrays
-and a copy per object. In Exact's runtime (898 objects, 2,604 properties)
-the guard allocated 795 KB, `harden.js` 470 KB and each of the two
-snapshots 66 KB, nearly all of it garbage.
+The reachability guard and the intrinsic snapshot read a descriptor for
+every property of the objects they reach. Besides each record, the guard
+made a string and a second record per field it read
+(`getOwnPropertyDescriptor` on the record), and the snapshot a property name
+per field. In Exact's runtime (898 objects, 2,604 properties) the guard
+allocated 795 KB and each of the two snapshots 66 KB, nearly all of it
+garbage.
 
-Every walk still reads every property through its captured
-`Object.getOwnPropertyDescriptor`, so a Proxy is read through its
-`getOwnPropertyDescriptor` trap and no getter or `get` trap runs. JSI and
-the pinned Hermes have no native descriptor read. What changed, in
-`bindings/install.cc` and `bindings/harden.js`:
+`bindings/install.cc` changes only how a record's fields are read. Every
+walk still enumerates with its captured `getOwnPropertyNames` and
+`getOwnPropertySymbols` and reads every property through its captured
+`getOwnPropertyDescriptor`, so a Proxy is read through its traps as before
+and no getter or `get` trap runs (JSI and the pinned Hermes have no native
+descriptor read). The guard tests a record's own `value` with
+`Object.prototype.hasOwnProperty`, captured with its other readers when
+`install_with` builds `Reachability`, instead of making a second record,
+then reads that field, or `get` and `set`, from the record: an ordinary
+object whose fields are own data properties (FromPropertyDescriptor), so the
+read runs nothing. The guard makes its `value` key and the guard's and
+snapshot's `value`, `get` and `set` property names once, not per read.
+`bindings/harden.js` is upstream's.
 
-- Keys come from `Reflect.ownKeys`, names and symbols in one array, one
-  `ownKeys` trap call where a Proxy had two. The guard's is captured with its
-  other readers when `install_with` builds `Reachability`, before bootstrap;
-  the snapshot's and `harden.js`'s are read when they start, as their
-  `getOwnPropertyNames` was, and `harden.js` falls back to names and symbols
-  where bootstrap has removed `Reflect`.
-- The guard tests a record's own `value` with `Object.prototype.hasOwnProperty`
-  (captured with `Reachability`) instead of a second record, then reads that
-  field, or `get` and `set`, from the record: an ordinary object whose fields
-  are own data properties (FromPropertyDescriptor), so the read runs nothing.
-- The guard makes its `value` key and the guard's and snapshot's `value`,
-  `get` and `set` property names once, not per read.
-
-The walks visit what they did: the guard and `harden.js` each visit 898
-objects, `harden.js` 2,488 properties past the global object (89 of them
-accessors), the guard 3,503 edges. After the patch the guard allocates
-374 KB, `harden.js` 396 KB and a snapshot 37–39 KB. `js/src/lib.rs`
-`bootstrap_tests` holds the cases a Proxy could hide: abort hooks behind a
-`get` trap that answers undefined still refuse hardening, and a payload
-behind one ends frozen with everything else descriptors reach
-(`js/tests/fixtures/harden-probe.js`). To go upstream to expo/ibex; replay
-it on a refresh until it is there.
+The guard still visits 898 objects over 3,503 edges, and `harden.js` 898
+objects, 2,488 properties past the global object, 89 of them accessors. The
+guard now allocates 449 KB and a snapshot about 40 KB. `js/src/lib.rs`
+`bootstrap_tests` holds what a bootstrap could hide: abort hooks behind a
+Proxy whose `get` trap answers undefined still refuse hardening; a payload
+behind such a Proxy, and one published under a symbol after
+`Reflect.ownKeys` was made to list only names, end frozen with everything
+else descriptors reach, by readers the fixture took before bootstrap
+(`js/tests/fixtures/harden-probe.js`). To go upstream to expo/ibex; replay it
+on a refresh until it is there.
 
 ## Qualification boundaries
 

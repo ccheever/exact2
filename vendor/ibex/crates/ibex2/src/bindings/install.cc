@@ -269,7 +269,7 @@ struct Integrity {
   };
   std::vector<std::pair<std::string, jsi::Value>> globals;
   std::vector<Intrinsic> intrinsics;
-  jsi::Function descriptor, own_keys, prototype, frozen, same;
+  jsi::Function descriptor, names, symbols, prototype, frozen, same;
   // Made once: a PropNameID made from text is a heap allocation, and every
   // descriptor read takes three.
   jsi::PropNameID value_name, get_name, set_name;
@@ -277,7 +277,8 @@ struct Integrity {
 
   explicit Integrity(jsi::Runtime& rt)
       : descriptor(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertyDescriptor")),
-        own_keys(rt.global().getPropertyAsObject(rt, "Reflect").getPropertyAsFunction(rt, "ownKeys")),
+        names(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertyNames")),
+        symbols(rt.global().getPropertyAsObject(rt, "Object").getPropertyAsFunction(rt, "getOwnPropertySymbols")),
         value_name(jsi::PropNameID::forAscii(rt, "value")),
         get_name(jsi::PropNameID::forAscii(rt, "get")),
         set_name(jsi::PropNameID::forAscii(rt, "set")),
@@ -299,13 +300,12 @@ struct Integrity {
     }
   }
 
-  // Names and symbols, in one array.
   std::vector<jsi::Value> keys(jsi::Runtime& rt, const jsi::Object& object) {
     std::vector<jsi::Value> result;
-    auto array = own_keys.call(rt, object).getObject(rt).getArray(rt);
-    const size_t count = array.size(rt);
-    result.reserve(count);
-    for (size_t i = 0; i < count; ++i) result.push_back(array.getValueAtIndex(rt, i));
+    for (const auto* function : {&names, &symbols}) {
+      auto array = function->call(rt, object).getObject(rt).getArray(rt);
+      for (size_t i = 0; i < array.size(rt); ++i) result.push_back(array.getValueAtIndex(rt, i));
+    }
     return result;
   }
 
@@ -386,11 +386,12 @@ struct Integrity {
 // The reflective intrinsics the trusted-bootstrap reachability walk uses,
 // captured when install_with publishes an object -- before the embedder's
 // bootstrap runs between install and harden -- so that bootstrap cannot change
-// what the walk sees by replacing Reflect.ownKeys or Set.prototype.
+// what the walk sees by replacing Object.getOwnPropertyNames or Set.prototype.
 struct Reachability {
-  jsi::Function own_keys, descriptor, has_own, prototype, set, has, add;
+  jsi::Function names, symbols, descriptor, has_own, prototype, set, has, add;
   explicit Reachability(jsi::Runtime& rt)
-      : own_keys(rt.global().getPropertyAsObject(rt, "Reflect").getPropertyAsFunction(rt, "ownKeys")),
+      : names(object_function(rt, "getOwnPropertyNames")),
+        symbols(object_function(rt, "getOwnPropertySymbols")),
         descriptor(object_function(rt, "getOwnPropertyDescriptor")),
         has_own(rt.global().getPropertyAsObject(rt, "Object")
                     .getPropertyAsObject(rt, "prototype")
@@ -1257,29 +1258,31 @@ void require_unreachable(
     const auto get_name = jsi::PropNameID::forAscii(rt, "get");
     const auto set_name = jsi::PropNameID::forAscii(rt, "set");
     auto expand = [&](const jsi::Object& object) {
-      auto keys = walk.own_keys.call(rt, object).getObject(rt).getArray(rt);
-      const size_t count = keys.size(rt);
-      for (size_t i = 0; i < count; ++i) {
-        if (edges >= max_edges)
-          throw std::runtime_error(
-              "refusing to harden: the global object graph has too many "
-              "edges to prove trusted-bootstrap outputs unreachable");
-        ++edges;
-        auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
-        if (!raw.isObject()) continue;
-        auto descriptor = raw.getObject(rt);
-        // Classify by the descriptor record's OWN fields, tested with the
-        // captured hasOwnProperty. `hasProperty` would consult
-        // Object.prototype, where bootstrap can plant a `value` that hides an
-        // accessor's getter. The record is the ordinary object
-        // FromPropertyDescriptor made, whose fields are own data properties
-        // (a data record's `value`, an accessor record's `get` and `set`), so
-        // reading a field the test found runs nothing.
-        if (walk.has_own.callWithThis(rt, descriptor, value_key).getBool()) {
-          pending.push_back(descriptor.getProperty(rt, value_name));
-        } else {
-          pending.push_back(descriptor.getProperty(rt, get_name));
-          pending.push_back(descriptor.getProperty(rt, set_name));
+      for (const auto* list : {&walk.names, &walk.symbols}) {
+        auto keys = list->call(rt, object).getObject(rt).getArray(rt);
+        const size_t count = keys.size(rt);
+        for (size_t i = 0; i < count; ++i) {
+          if (edges >= max_edges)
+            throw std::runtime_error(
+                "refusing to harden: the global object graph has too many "
+                "edges to prove trusted-bootstrap outputs unreachable");
+          ++edges;
+          auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
+          if (!raw.isObject()) continue;
+          auto descriptor = raw.getObject(rt);
+          // Classify by the descriptor record's OWN fields, tested with the
+          // captured hasOwnProperty. `hasProperty` would consult
+          // Object.prototype, where bootstrap can plant a `value` that hides an
+          // accessor's getter. The record is the ordinary object
+          // FromPropertyDescriptor made, whose fields are own data properties
+          // (a data record's `value`, an accessor record's `get` and `set`), so
+          // reading a field the test found runs nothing.
+          if (walk.has_own.callWithThis(rt, descriptor, value_key).getBool()) {
+            pending.push_back(descriptor.getProperty(rt, value_name));
+          } else {
+            pending.push_back(descriptor.getProperty(rt, get_name));
+            pending.push_back(descriptor.getProperty(rt, set_name));
+          }
         }
       }
       if (edges >= max_edges)
