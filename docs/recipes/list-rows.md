@@ -55,9 +55,11 @@ test "search, swipe to delete, delete from the menu"
 ```
 
 - `delete=` on a row is its swipe to delete: a red Delete (on iOS UIKit's own; a full swipe
-  runs it). `disabled` beside it keeps that row from deleting; the row still opens. The
-  gesture runs the action: to ask first, the action opens a confirm. A test taps
-  `"<row testId>-delete"`. Other actions than Delete: `contract vocab swipe`.
+  runs it). `disabled` beside it keeps that row from deleting; the row still opens. A test
+  taps `"<row testId>-delete"`. Other actions than Delete: `contract vocab swipe`.
+- The swipe deletes without asking, as iOS does where a deletion is routine or recoverable
+  (Mail, Notes, Reminders). An irreversible loss confirms, as a detail screen's Delete or a
+  bulk clear does: its action opens an alert (`contract vocab confirm`).
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list
   ([persisted-setting](persisted-setting.md)).
 - One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`

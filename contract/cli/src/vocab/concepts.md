@@ -278,7 +278,7 @@ names: confirmation, alert, alertdialog, delete-confirmation, Alert, showModal, 
 A `dialog role="alertdialog"`: its `aria-label` the question, a `text` the message, each action
 a `button` with `press` that also closes it, and one Cancel (a closing button with no
 `press`). It is iOS's alert, the web's modal `dialog`, macOS's alert. Open it from an action
-with `showModal(id)` (a swipe or menu action asks first), or from a button with
+with `showModal(id)` (an action that asks first), or from a button with
 `commandfor=id command="show-modal"`. It takes no `open`: in HTML `open` alone shows a dialog
 non-modally, and a dialog that state holds open is not available yet.
 
@@ -397,8 +397,9 @@ names: delete, swipe-actions, swipeActions, swipe-to-delete, swipeleft
 `delete=action` on a list row is its swipe to delete: a red Delete beside the row, which a
 full swipe performs. On iOS it is UIKit's own swipe action; on the web and the Mac the row
 scrolls to show it. `disabled` beside it keeps that row from deleting, and the row still
-opens. The gesture runs the action: to ask first, the action opens a confirmation (`contract
-vocab confirm`). In tests, `tap "item-Milk-delete"` presses it (the row's `testId` and
+opens. The swipe deletes without asking, as iOS does where a deletion is routine or
+recoverable (Mail, Notes, Reminders); an irreversible loss confirms, as a detail screen's
+Delete or a bulk clear does, its action opening an alert (`contract vocab confirm`). In tests, `tap "item-Milk-delete"` presses it (the row's `testId` and
 `-delete`).
 
 ```contract

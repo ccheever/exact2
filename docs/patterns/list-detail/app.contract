@@ -2,8 +2,9 @@
 // The items are app.ts's (app:/data/items.json). A phone pushes the detail; a wide window
 // shows the list beside it by itself, because a row draws the disclosure chevron
 // (`contract vocab navigationSplit`). A row deletes by swipe and opens a menu on a long press
-// (`contract vocab swipe`, `menu`). A smaller app deletes what it doesn't need: the delete
-// (`askRemove`, `remove`, the dialog, the row's `delete=`, the menu's Delete), the
+// (`contract vocab swipe`, `menu`): a swipe or the menu's Delete deletes at once, as Mail and
+// Notes do, and the detail's Delete asks first. A smaller app deletes what it doesn't need: the
+// delete (`askRemove`, `remove`, the dialog, the row's `delete=`, the menu's Delete), the
 // notes (the shape's field, the title's `enterkeyhint`, the sheet's and the detail's
 // sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
 // the menu's Lock and Delete's reason).
@@ -38,7 +39,7 @@ component App
   state draftNotes = ""
   // The last Save's refusal, in red under the field until a Save succeeds.
   state refusal = ""
-  // The row a long press opened the menu on, or the item Delete asks about.
+  // The row a long press opened the menu on, or the item the detail's Delete asks about.
   state aimed = ""
   resource lib = loadItems() as shape Item[] else empty()
   mutation added as shape Reply refreshes lib then afterSave
@@ -84,13 +85,14 @@ component App
     aimed = id
   action flipLock
     send lockSaved = lockItem(aimed, not aimedLocked)
-  // From the detail, a row's swipe or its menu; the detail closes if it showed this item.
+  // The detail's Delete asks first: it is a loss the item's own screen confirms.
   action askRemove(id: string)
     aimed = id
     showModal("remove")
-  action remove
-    send removed = removeItem(aimed)
-    if selected == aimed
+  // A row's swipe, its menu, or the alert's Delete; the detail closes if it showed this item.
+  action remove(id: string)
+    send removed = removeItem(id)
+    if selected == id
       nav = back(nav)
 
   view
@@ -123,8 +125,9 @@ component App
                 section
                   // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
                   // `delete=` is its swipe to delete (UIKit's on iOS), none while locked: the row still opens.
+                  // A swipe deletes at once, without asking, as iOS's own lists do.
                   for it in shown key=it.id
-                    link href=path("item", it.id) delete=askRemove(it.id) disabled=it.locked contextmenu=aim(it.id)
+                    link href=path("item", it.id) delete=remove(it.id) disabled=it.locked contextmenu=aim(it.id)
                       contextPopover="item-menu" testId=`item-${it.id}`
                       column flex=1 min-width=0
                         text it.title
@@ -179,13 +182,13 @@ component App
         button press=flipLock popovertarget="item-menu" popovertargetaction="hide" testId="menu-lock"
           image "symbol:lock"
           text (aimedLocked ? "Unlock" : "Lock")
-        button press=askRemove(aimed) destructive=true disabled=aimedLocked popovertarget="item-menu"
+        button press=remove(aimed) destructive=true disabled=aimedLocked popovertarget="item-menu"
           popovertargetaction="hide" testId="menu-delete"
           image "symbol:delete"
           text "Delete"
       dialog id="remove" role="alertdialog" aria-label="Delete Item?"
         text "This can’t be undone."
-        button press=remove destructive=true commandfor="remove" command="close" testId="remove-confirm"
+        button press=remove(aimed) destructive=true commandfor="remove" command="close" testId="remove-confirm"
           text "Delete"
         button commandfor="remove" command="close" testId="remove-cancel"
           text "Cancel"
