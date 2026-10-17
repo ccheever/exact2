@@ -24,7 +24,8 @@ class T3ComposerChipElement: NSAccessibilityElement {
 
     enum Part { case chip, citationLink, citationComment }
     private(set) weak var styler: T3ComposerStyler?
-    let chip: T3ComposerChip
+    /// The chip as the last refresh found it (an edit before it moves its offsets; `T3ComposerChipNames.elements`).
+    fileprivate(set) var chip: T3ComposerChip
     let part: Part
     /// The view whose accessibility children list this element beside the text area (`T3ComposerChipOrder`).
     weak var container: NSView?
@@ -150,13 +151,40 @@ enum T3ComposerChipNames {
         }
     }
 
-    static func elements(_ styler: T3ComposerStyler, view: NSTextView) -> [T3ComposerChipElement] {
+    /// The chips' elements, reusing `previous`'s: a chip's element stays the same object while the chip stays, as an
+    /// AppKit view does, its chip, role and label updated in place. A refresh follows every edit and selection, so a
+    /// press that selects its chip refreshes; replaced, the element VoiceOver pressed was gone, VoiceOver re-picked its
+    /// cursor (the 'Scroll to end' pill below the thread) and the keyboard focus followed (exact2 #694). An element
+    /// matches its chip first exactly, then by kind, label, detail and part in text order (an edit before it moved it).
+    static func elements(_ styler: T3ComposerStyler, view: NSTextView, reusing previous: [T3ComposerChipElement] = []) -> [T3ComposerChipElement] {
         let length = (view.string as NSString).length
-        return styler.chips.filter { $0.end <= length }.flatMap { chip in
-            parts(chip, styler: styler).map { entry -> T3ComposerChipElement in
-                entry.press ? T3ComposerChipPopupElement(styler: styler, view: view, chip: chip, part: entry.part, role: entry.role, label: entry.label)
+        let wanted = styler.chips.filter { $0.end <= length }.flatMap { chip in parts(chip, styler: styler).map { (chip: chip, entry: $0) } }
+        var pool = previous.filter { $0.styler === styler }
+        func take(_ chip: T3ComposerChip, _ part: T3ComposerChipElement.Part, press: Bool, exact: Bool) -> T3ComposerChipElement? {
+            guard let index = pool.firstIndex(where: { old in
+                old.part == part && (old is T3ComposerChipPopupElement) == press
+                    && (exact ? old.chip == chip : old.chip.kind == chip.kind && old.chip.label == chip.label && old.chip.detail == chip.detail)
+            }) else { return nil }
+            return pool.remove(at: index)
+        }
+        var found: [T3ComposerChipElement?] = wanted.map { take($0.chip, $0.entry.part, press: $0.entry.press, exact: true) }
+        for (index, want) in wanted.enumerated() where found[index] == nil {
+            found[index] = take(want.chip, want.entry.part, press: want.entry.press, exact: false)
+        }
+        return zip(wanted, found).map { want, reused in
+            let (chip, entry) = want
+            guard let element = reused else {
+                return entry.press ? T3ComposerChipPopupElement(styler: styler, view: view, chip: chip, part: entry.part, role: entry.role, label: entry.label)
                     : T3ComposerChipElement(styler: styler, view: view, chip: chip, part: entry.part, role: entry.role, label: entry.label)
             }
+            element.chip = chip
+            if element.accessibilityRole() != entry.role { element.setAccessibilityRole(entry.role) }
+            if element.accessibilityLabel() != entry.label {
+                element.setAccessibilityLabel(entry.label)
+                NSAccessibility.post(element: element, notification: .titleChanged)
+            }
+            element.setAccessibilityParent(view)
+            return element
         }
     }
 }

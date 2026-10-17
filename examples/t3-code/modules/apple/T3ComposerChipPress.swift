@@ -370,7 +370,7 @@ final class T3ComposerChipPress {
     func refreshAccessibility() {
         guard let styler, let view = styler.view else { elements = []; return }
         if exposed === view, styler.chips.isEmpty, elements.isEmpty { return }
-        elements = T3ComposerChipNames.elements(styler, view: view)
+        elements = T3ComposerChipNames.elements(styler, view: view, reusing: exposed === view ? elements : [])
         T3ComposerChipOrder.expose(elements, beside: view)
         exposed = view
     }
