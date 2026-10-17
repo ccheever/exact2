@@ -3109,8 +3109,9 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     eight hex digits after an `f`, since a name's segment starts with a letter.
   - The loader rewrites `param.<name>` to that token before anything reads it, where a
     component's row takes its value (a style, shorthand or motion row, an image's `symbol:`
-    source, named or positional): a string or a template, through `?:` branches, `match` arms,
-    `let` and `+`, the places a motion token is written into. Also in its params' defaults and
+    source, named or positional): a string or a template, through `?:` branches, `match` arms and
+    `+`, the places a motion token is written into. An expansion's `let` (a child's shared derive)
+    is read by name, a comparison too, so a token in its value is refused as a derive's. Also in its params' defaults and
     `select` options. A quoted word (the quote carried across a template's holes), one after `#`
     (`url(#…)`) and one touching a template's `${…}` are left as written, as is text that is no
     row (a `text`'s content, a `testId`, an image's URL, a `?:` branch of an image's source that is

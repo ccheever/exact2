@@ -266,3 +266,59 @@ fn a_design_named_apart_is_admitted_alone() {
         "{err}"
     );
 }
+
+#[test]
+fn the_second_re_check_a_shared_derive_a_match_source_and_designs_apart() {
+    // A child's derive, shared by a `let`, compared: refused.
+    let derive = r##"component App
+  params
+    tint: color = "#ffffff"
+  view
+    column
+      Swatch(tint="param.tint")
+component Swatch
+  props
+    tint: string
+  derive saved = tint
+  derive paint = saved == "#ffffff" ? saved : "#000000"
+  view
+    text "x" color=paint
+"##;
+    let path = app("let", &[("app.contract", derive)]);
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-param-scope", "{e:?}");
+    // An image source's `match` arms, each a symbol's.
+    let matched = r##"component App
+  params
+    glyph: icon = "icon(sf \"heart\")"
+  view
+    image (match some(true) { case some(x) => "symbol:param.glyph", case none => "symbol:star" })
+"##;
+    let path = app("match", &[("app.contract", matched)]);
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    // No design file: check builds the app, so its params are checked.
+    let control = "component App\n  params\n    fill: color = \"#ffffff\"  control=\"slider\"\n  view\n    text \"x\" color=\"param.fill\"\n";
+    let path = app("nodesign", &[("app.contract", control)]);
+    let (ok, _, err) = tamber(&["check"], &path);
+    assert!(!ok && err.contains("tamber-param-control"), "{err}");
+    // A design named apart folds no neighbouring param.
+    let read = "component App\n  params\n    fill: color = \"accent.fill\"\n  view\n    text \"x\" color=\"param.fill\"\n";
+    let path = app(
+        "other",
+        &[
+            ("app.contract", read),
+            ("app.tamber", "tamber t\n\ntheme\n  accent.fill = #ffffff\n"),
+            ("other.tamber", "tamber other\n"),
+        ],
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "check"])
+        .arg(path.parent().unwrap().join("other.tamber"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

@@ -83,8 +83,17 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     }
     // The app's components' params (LLP 1121 D15) fold with its design; an
-    // app with params and no design has them alone.
-    let app = contract::tamber_params::params_of(&app_contract(Path::new(&input)));
+    // app with params and no design has them alone. A design named apart
+    // (a `.tamber` the app does not build) is checked alone.
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let built = app_contract(Path::new(&input));
+    let apart = Path::new(&input).extension().is_some_and(|e| e == "tamber")
+        && contract::design_path(&built).map(|d| canonical(&d))
+            != Some(canonical(Path::new(&input)));
+    let app = match apart {
+        true => contract::tamber_params::AppParams::default(),
+        false => contract::tamber_params::params_of(&built),
+    };
     let params = app.tokens.as_slice();
     let (path, src) = match design(Path::new(&input)) {
         Some(path) => match std::fs::read_to_string(&path) {
@@ -139,12 +148,8 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     // What the compiler refuses of a design beyond the crate's check (a
     // CSS word as a name, a role that varies by an axis …), as a build would.
-    // An app with params is built itself, when the design checked is the
-    // one it builds (a design named apart is checked alone).
-    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    let built = app_contract(Path::new(&input));
-    let own = contract::design_path(&built).is_some_and(|d| canonical(&d) == canonical(&path));
-    let refused = match admission(&src, (!params.is_empty() && own).then_some(built)) {
+    // An app with params is built itself, as it builds its design.
+    let refused = match admission(&src, (!params.is_empty()).then_some(built)) {
         Ok(refused) => refused,
         Err(why) => {
             eprintln!("contract tamber: {why}");

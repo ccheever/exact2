@@ -57,10 +57,30 @@ fn source_parts(e: &mut Expr, f: &mut dyn FnMut(&mut Expr, bool)) {
             source_parts(a, f);
             source_parts(b, f);
         }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            f(subject, false);
+            source_parts(some, f);
+            source_parts(none, f);
+        }
+        // `"symbol:" + …`: a symbol's, as its first string says.
+        Expr::Binary(BinOp::Add, a, _, _) if leftmost(a).is_some_and(symbolic) => f(e, true),
         _ => {
             let symbol = symbolic(e);
             f(e, symbol)
         }
+    }
+}
+
+/// The first operand of a `+` chain.
+fn leftmost(e: &Expr) -> Option<&Expr> {
+    match e {
+        Expr::Binary(BinOp::Add, a, _, _) => leftmost(a),
+        other => Some(other),
     }
 }
 
@@ -180,8 +200,10 @@ type Visit<'a> = dyn FnMut(&mut String, At) + 'a;
 
 /// Visit each string literal and template text in `e`, everywhere in it;
 /// `value`: whether `e` supplies a row's value, which its strings and
-/// templates do through `?:` branches, `match` arms, `let` and `+` (as
-/// [`crate::motion`] writes a motion token in), and nothing else does.
+/// templates do through `?:` branches, `match` arms, a `let`'s body and `+`
+/// (as [`crate::motion`] writes a motion token in), and nothing else does:
+/// a `let` (an expansion's shared derive or call) is read by name, a
+/// comparison too, so its value is data.
 fn texts(e: &mut Expr, value: bool, f: &mut Visit<'_>) {
     walk(e, value, false, f)
 }
@@ -232,8 +254,10 @@ fn walk(e: &mut Expr, value: bool, quoted: bool, f: &mut Visit<'_>) {
             walk(some, value, quoted, f);
             walk(none, value, quoted, f);
         }
+        // Compiler-only: an expansion's shared derive or call, read by
+        // name wherever its body says, a comparison too: data.
         Expr::Let { value: v, body, .. } => {
-            walk(v, value, quoted, f);
+            walk(v, false, quoted, f);
             walk(body, value, quoted, f);
         }
         Expr::Binary(op, a, b, _) => {
