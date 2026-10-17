@@ -92,6 +92,21 @@ test('an iOS drag with ops during it needs a held finger', async () => {
   expect(d.asked.filter((a) => !Array.isArray(a))).toEqual([]);
 });
 
+// euxy FRICTION 14: `drag 0 -1500` on a scroller was refused for leaving the viewport; it scrolls as several strokes.
+test('a scroller dragged past the viewport scrolls in strokes that stay in it', async () => {
+  const strokes = [], node = { id: 9, type: 'ScrollView', x: 0, y: 0, w: 400, h: 800 };
+  const s = { contact: null, async layout() { return { nodes: [node], viewport: { w: 400, h: 800 } }; },
+    async op() { return { lines: [], next: 0 }; },
+    async tap(target, { drag }) { strokes.push([target, drag.dy, drag.over]); return { tapped: 9, drag }; } };
+  const r = await dragTap({ s, carrier: {}, node: { id: 9 }, target: 'list', host: 'ios', timing: 'agent' }, { dx: 0, dy: -1500, over: 300 });
+  // From the middle (400) to a point short of the top, each stroke 399 of the 1,500: three, then what is left.
+  expect(strokes.map(([, dy]) => Math.round(dy))).toEqual([-399, -399, -399, -303]);
+  expect(Math.round(strokes.reduce((sum, [, dy]) => sum + dy, 0))).toBe(-1500);
+  expect(r).toEqual(expect.objectContaining({ strokes: 4, drag: expect.objectContaining({ dx: 0, dy: -1500 }) }));
+  node.type = 'View';
+  await expect(dragTap({ s, carrier: {}, node: { id: 9 }, target: 'box', host: 'ios', timing: 'agent' }, { dx: 0, dy: -1500 })).rejects.toThrow('leaves the viewport');
+});
+
 test('drag-to movement depends on layout and fails as a refusal', async () => {
   for (const [x, options, message] of [
     [50, { over: 0 }, 'a drag that moves needs over > 0'],

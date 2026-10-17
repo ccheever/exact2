@@ -87,7 +87,12 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   if (!b) throw new Error(`view ${node.id} has no box on screen`);
   const start = from ? [b.x + from[0], b.y + from[1]] : [b.x + b.w / 2, b.y + b.h / 2], end = [start[0] + dx, start[1] + dy];
   const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
-  if (vp && !(inside(start) && inside(end))) throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
+  if (vp && !(inside(start) && inside(end))) {
+    // A scroller dragged further than the viewport reaches scrolls as far as a person's repeated flicks would
+    // (euxy FRICTION 14): strokes from the same start, each as long as the viewport allows, each lifted.
+    if (inside(start) && ['ScrollView', 'List'].includes(b.type) && !during.length && opts.to === undefined) return strokes(s, target, opts, start, vp);
+    throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
+  }
   // Each op runs with input refused; the runner path bounds each one by the gesture.
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
   if (carrier.touches) {
@@ -157,6 +162,24 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     throw error;
   }
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), await reorderNotes(s, mark));
+}
+
+/** A scroller's drag past the viewport (`dragTap`) as strokes that stay in it: each moves (dx, dy) scaled down to
+ * end inside it, over the drag's `over` scaled alike, and lifts; the last takes what is left. The reply is the
+ * last stroke's, with the whole drag and how many strokes it took. */
+async function strokes(s, target, opts, [x, y], vp) {
+  const { dx, dy, over = 250 } = opts;
+  // How far along (dx, dy) a stroke from the start stays inside, a point short of the edge.
+  const room = Math.min(dx > 0 ? (vp.w - 1 - x) / dx : dx < 0 ? (x - 1) / -dx : 1, dy > 0 ? (vp.h - 1 - y) / dy : dy < 0 ? (y - 1) / -dy : 1);
+  if (!(room > 0)) throw new Error(`drag: from (${x},${y}) there is no room to drag toward (${dx}, ${dy}) inside the viewport (${vp.w} × ${vp.h})`);
+  const count = Math.ceil(1 / room), parts = [];
+  for (let i = 0; i < count; i++) {
+    const part = Math.min(room, 1 - room * i);
+    const r = await s.tap(target, { drag: { ...opts, dx: dx * part, dy: dy * part, over: Math.max(1, over * part), press: i ? 0 : opts.press, hold: i === count - 1 ? opts.hold : 0 } });
+    if (r?.error) return r;
+    parts.push(r);
+  }
+  return { ...parts.at(-1), drag: { ...parts.at(-1).drag, dx, dy }, strokes: count };
 }
 
 /** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */
