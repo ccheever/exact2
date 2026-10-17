@@ -678,7 +678,8 @@ captures app-local `app.ts`/Contract sources, generates those declarations,
 runs the pinned TypeScript checker and Rolldown, compiles with `hermesc`, and
 bakes through that HBC with an empty store. Rolldown is already in this repo's
 toolchain; the Bun command below describes the original probe, not this producer.
-Imports outside the captured app refuse; npm dependency capture remains owed.
+Imports outside the captured app refuse; a package's code is captured as the
+bundle reaches it (below, "D5 Package code").
 A package's declarations are captured for the type check alone (below, "D5
 Type-only package imports").
 As of 2026-09-13, the snapshot also carries `.ttf`/`.otf` fonts and every
@@ -992,8 +993,8 @@ The checker therefore reads a package's types from the capture, and
   is refused by the same `--listFiles` check. A package's own `declare global`
   is its author's; this is a type boundary, not a sandbox (above).
 - **Not in this slice.** A package whose types are `.ts` sources rather than
-  declarations does not resolve from the capture; npm runtime capture remains
-  owed; the native wasm dev loop (`dev.mjs --wasm`) does not watch packages.
+  declarations does not resolve from the capture; package code came later
+  ("D5 Package code"); the native wasm dev loop (`dev.mjs --wasm`) does not watch packages.
   Packages are found by scanning the captured sources for specifiers, not
   by a parser: a match that is no import stages declarations nobody reads.
 - **Review (GPT-6 Astra, 2026-10-08).** Folded: the one-shot check, the
@@ -1007,6 +1008,69 @@ Qualification: `type_only_package_imports_check_alike_and_package_code_never_run
 bake over a fixture with a nested dependency and an `@types` companion; a
 scratch `exact new` app with `snapback4@0.4.13` and `snapback4 types` builds,
 type-checks and passes `bun exact.mjs test web`.
+
+#### D5 Package code (2026-10-16, implemented)
+
+**Implementer:** Claude, for the euxy port (FRICTION 1: `import … from
+'qrcode/lib/core/qrcode'` was refused, so the porter bundled the package into
+a `// @ts-nocheck` `src/qrcode.ts` by hand).
+
+A data module imports pure-JavaScript packages installed in `node_modules`
+(ESM or CommonJS; `.js`, `.mjs`, `.cjs`, JSON; `exports`, `main` and the
+`browser` field) and the app's own `.js` files, on every target that runs it.
+
+- **Captured as reached.** The shared plugin (`typescript.mjs`
+  `capturedSources`, in the one-shot, resident and web producers) resolves
+  each package import from where its importer really is, copies the file it
+  leads to into the stage under `node_modules/.packages/<name>@<version>/`
+  with every `package.json` between it and the package root (`type`,
+  `sideEffects`), and returns the copy; a captured file's own imports resolve
+  the same way. Only the copies load. Nothing a bundle does not reach is
+  taken, so a package's Node entry or CLI costs nothing until imported.
+- **Recorded.** The stage's `__exact_packages.json` lists each file with
+  where it was read and its SHA-256. A Cargo bake prints `rerun-if-changed`
+  for each, the receipt's `packages` maps each `name@version` to a digest of
+  its files' paths and digests (absent with none), and the JS dev loop
+  watches each package root. Two different installs of one `name@version`
+  are refused (`install one`): a place in the stage, which a bundle's output
+  names, is the same on every machine.
+- **One resolution.** Every bundle of the module resolves as a browser
+  bundle does (`platform: 'browser'`: the `browser` condition and field
+  first), as the page's own bundle already did, so the page and Hermes run the
+  same file of a package, and `process.env.NODE_ENV` is `"production"`. A
+  bundle of the existing apps is byte-identical to the `neutral` platform's.
+- **Refused, by package, version and file,** in every producer: an import of
+  a Node built-in a `browser` field does not replace; a `.node` file or a
+  package with `binding.gyp`/`gypfile`; an import that is not installed; and,
+  in a reached file that never tests it with `typeof` or uses it outside a
+  `try`, the DOM's globals (`window`, `document`, `navigator`, …), Node's
+  (`process` but `process.env.NODE_ENV`, `Buffer`, `global`, `__dirname`,
+  `__filename`) and `require` of a computed name. The static check is a
+  diagnosis, not a guard: the executor still refuses what it lacks by name.
+  A package's use of the clock is the executor's to refuse when it runs (a
+  date library's `isToday` is not refused for being bundled); the app's own
+  code keeps the build-time refusal.
+- **Code runs only when taken.** The web build's own Bun import of `app.ts`
+  (for `appId` and `grants`) waits for the capture's bundle and runs nothing
+  if it refused.
+- **Types.** The app's `.js` files are typed from their code (`allowJs`, not
+  checked); its `.d.ts` files are in the check as in an editor's project, so
+  an untyped package takes a `declare module`.
+
+Qualification: `js/bake/tests/packages.rs` drives the web build, the
+resident and the one-shot producers over ESM and CommonJS packages, a nested
+dependency, a `browser` condition and field, `.mjs`/`.cjs`/JSON and an app
+`.js` file, boots the bake, checks the record and receipt digests and a
+reproducible second bake; and refuses each class above in all three with the
+package's code never run. The euxy port with its hand-bundled `src/qrcode.ts`
+replaced by `import { create } from 'qrcode/lib/core/qrcode'` (and a `declare
+module`) bakes `qrcode@1.5.4` and `dijkstrajs@1.0.3` into the receipt and, on an
+iOS 27 simulator, answers the share card byte for byte as before (URL, path,
+size) and draws the same QR. Its web build passes, but its page does not boot
+on this checkout before or after the change (`exactTransport`: "is not a
+function", a JS-target fault apart from this one); a scratch app answering the
+same URL with the same `qrPath` over the package draws the identical path on
+the web.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 

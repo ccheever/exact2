@@ -445,7 +445,9 @@ fn build_sources(
     }
     // And the package declarations the type check read: a changed `.d.ts`
     // checks the app again (LLP 1027 D5, "Type-only package imports").
-    for file in package_declarations(&stage.0)? {
+    // And the package code the bundle captured ("Package code").
+    let code = package_code(&stage.0)?;
+    for file in package_declarations(&stage.0)?.iter().chain(&code.files) {
         println!("cargo:rerun-if-changed={}", file.display());
     }
     println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
@@ -471,6 +473,46 @@ fn package_declarations(stage: &Path) -> Result<Vec<PathBuf>, String> {
         .flatten()
         .filter_map(|file| file.as_str().map(PathBuf::from))
         .collect())
+}
+
+/// The package code a bake captured (`__exact_packages.json`, written by
+/// `capturedSources`): each file where it was read, and per package the
+/// SHA-256 of its captured files' paths and digests, for the receipt.
+struct PackageCode {
+    files: Vec<PathBuf>,
+    packages: serde_json::Map<String, serde_json::Value>,
+}
+
+fn package_code(stage: &Path) -> Result<PackageCode, String> {
+    let mut code = PackageCode {
+        files: Vec::new(),
+        packages: serde_json::Map::new(),
+    };
+    let Ok(bytes) = std::fs::read(stage.join("__exact_packages.json")) else {
+        return Ok(code);
+    };
+    let record: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let mut listed: BTreeMap<&str, String> = BTreeMap::new();
+    for file in record["files"].as_array().into_iter().flatten() {
+        let (Some(key), Some(path), Some(real), Some(sha)) = (
+            file[0].as_str(),
+            file[1].as_str(),
+            file[2].as_str(),
+            file[3].as_str(),
+        ) else {
+            return Err("__exact_packages.json: a malformed file entry".into());
+        };
+        code.files.push(PathBuf::from(real));
+        listed
+            .entry(key)
+            .or_default()
+            .push_str(&format!("{path}\0{sha}\n"));
+    }
+    for (key, lines) in listed {
+        code.packages
+            .insert(key.to_string(), digest(lines.as_bytes()).into());
+    }
+    Ok(code)
 }
 
 /// The tools on the producer machine, not on a client.
@@ -672,12 +714,10 @@ fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, Str
 }
 
 /// Capture the app-local source graph, and the directories the manifest
-/// mounts beside it. A package's runtime code is never captured: a value
-/// import from `node_modules` fails in the private snapshot until dependency
-/// capture is implemented, and must not silently resolve to unrelated files
-/// on the producer machine. Its declarations are captured for the type check
-/// alone, by the configuration (`typescript.mjs` `stagePackages`; LLP 1027
-/// D5, "Type-only package imports").
+/// mounts beside it. Packages are captured by the configuration: their
+/// declarations for the type check (`typescript.mjs` `stagePackages`; LLP
+/// 1027 D5, "Type-only package imports"), their code file by file as the
+/// bundle reaches it (`capturedSources`; "Package code").
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     let mounts = mounts(root)?;
     let manifest = root.join("app.json");
@@ -745,7 +785,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             let captured = matches!(
                 path.extension().and_then(|s| s.to_str()),
-                Some("ts" | "json" | "contract" | "ttf" | "otf")
+                Some("ts" | "js" | "mjs" | "cjs" | "json" | "contract" | "ttf" | "otf")
             ) || ["assets", "deck", "gpu/shaders"]
                 .iter()
                 .any(|tree| relative.starts_with(tree));
@@ -803,11 +843,10 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             Path::new(name),
             &[],
         )?;
-        result.extend(
-            mounted
-                .into_iter()
-                .filter(|(path, _)| path.extension().is_some_and(|e| e == "ts" || e == "json")),
-        );
+        result.extend(mounted.into_iter().filter(|(path, _)| {
+            path.extension()
+                .is_some_and(|e| ["ts", "js", "mjs", "cjs", "json"].iter().any(|x| e == *x))
+        }));
     }
     Ok(result)
 }
@@ -906,16 +945,16 @@ fn bake_in(
         "__exact_config.mjs",
         "__exact_paths.json",
         "__exact_declarations.json",
+        "__exact_packages.json",
+        "__exact_bundle.mjs",
         "__exact_canvas.js",
         "__exact_canvas.d.ts",
+        "app.js",
     ]
     .iter()
     .any(|name| captured.contains_key(Path::new(name)))
     {
-        return Err(
-            "__exact_entry.ts, __exact_tsconfig.json, __exact_config.mjs, __exact_paths.json, __exact_declarations.json and __exact_canvas.* are reserved for the producer"
-                .into(),
-        );
+        return Err("__exact_* and app.js (the bundle) are reserved for the producer".into());
     }
     for name in previous.keys().filter(|name| !captured.contains_key(*name)) {
         let path = stage.join(name);
@@ -1065,7 +1104,8 @@ fn bake_in(
     })?
     .encode();
     let source_map = source_map.map(|map| map.json(&plan));
-    let receipt = serde_json::json!({
+    let packages = package_code(stage)?.packages;
+    let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": if draws { 2 } else { 1 },
         "surfaces": surfaces,
         "rustSources": rust_sources,
@@ -1073,8 +1113,12 @@ fn bake_in(
         "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
         "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},
         "web": {"file": "app.js", "sha256": digest(&script), "bytes": script.len()},
-    })
-    .to_string();
+    });
+    // The package code bundled in, by name and version (absent with none).
+    if !packages.is_empty() {
+        receipt["packages"] = packages.into();
+    }
+    let receipt = receipt.to_string();
     Ok(Baked {
         plan,
         script,
@@ -1195,18 +1239,12 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
-import { assertCapturedModule, ambientRefusals, packageImports } from './__exact_config.mjs';
+import { bundleOptions, capturedSources } from './__exact_config.mjs';
 export default {
+  ...bundleOptions,
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
-  plugins: [{ name: 'captured-sources', resolveId: packageImports(process.cwd()), load(id) {
-    assertCapturedModule(process.cwd(), id);
-    return null;
-  }, transform(code, id) {
-    const why = ambientRefusals(process.cwd(), id, code, (c, o) => this.parse(c, o));
-    if (why.length) throw new Error(why.join('\n'));
-    return null;
-  }}],
+  plugins: [capturedSources(process.cwd())],
 };
 "#,
     )
@@ -1223,8 +1261,6 @@ export default {
             "iife",
             "--name",
             "exact",
-            "--platform",
-            "neutral",
             "--file",
             "app.js",
         ],

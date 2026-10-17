@@ -7,6 +7,8 @@
 // It reads only captured configuration; the producer owns the stage.
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { builtinModules } from 'node:module';
 import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
 
 /** Explicit build input, ahead of an ignored app-local development selection. */
@@ -48,9 +50,9 @@ export function injectBackendOrigin(code, origin, parse) {
 
 // Rolldown IDs are file paths, not URL or slash-normalized strings. Both
 // producers enforce the same captured-file boundary (LLP 1027 D5). A
-// package's declarations are captured for the checker alone (`stagePackages`):
-// nothing under the stage's `node_modules` runs, so loading one is refused by
-// the file it was captured from.
+// package's declarations are captured for the checker alone (`stagePackages`)
+// and never load; a package's code loads only from where `capturedSources`
+// captured it, which admits it before this check.
 export function assertCapturedModule(stage, id) {
   if (!isAbsolute(id)) throw new Error('module outside captured app: '+id);
   const root=realpathSync.native(stage), file=realpathSync.native(id), path=relative(root,file);
@@ -65,8 +67,8 @@ export function assertCapturedModule(stage, id) {
 // nothing) and `package.json` files are captured into the stage's
 // `node_modules`, at the place TypeScript looks for them, so the checker reads
 // a package's types from the capture as it reads app.ts, and the resolved
-// graph still stays inside the stage. Its JavaScript is never captured: an
-// import that reaches a package at run time is refused (`packageImports`).
+// graph still stays inside the stage. Its JavaScript is captured apart, file
+// by file as the bundle reaches it (`capturedSources`).
 const DECLARATION=/\.d\.[cm]?ts$/;
 // A string after `from`, `import`, `import(`, `require(`, `declare module` or
 // `<reference types=`, comments between included. Matching more than an
@@ -166,7 +168,7 @@ export function stagePackages(stage) {
       const path=join(dir,entry.name);
       if (entry.isDirectory() && entry.name==='node_modules') mirrors.push(path);
       else if (entry.isDirectory()) sources(path);
-      else if (entry.isFile() && /\.[cm]?tsx?$/.test(entry.name) && !entry.name.startsWith('__exact_')) {
+      else if (entry.isFile() && /\.[cm]?[jt]sx?$/.test(entry.name) && !entry.name.startsWith('__exact_') && path!==resolve(stage,'app.js')) {
         const root=roots.find(([at])=>within(path,at));
         need(readFileSync(path,'utf8'),dirname(resolve(root[1],relative(root[0],path))),root,null);
       }
@@ -197,25 +199,159 @@ export function stagePackages(stage) {
   if (!existsSync(recordPath) || readFileSync(recordPath,'utf8')!==record) writeFileSync(recordPath,record);
 }
 
-/** Rolldown's `resolveId` for a captured graph: a bare import that reaches a
- * package at run time (a value import, never one TypeScript erases) is
- * refused as any module outside the capture is, by the file it would run. */
-export function packageImports(stage) {
-  // Only staged declarations sit under a `node_modules` in the stage.
+// Package code (LLP 1027 D5, "Package code"). A package's JavaScript is
+// captured file by file as the bundle reaches it: each import is resolved
+// from where its importer really is (Node's lookup, a package's `exports`,
+// `main` and `browser` fields, as a browser bundle resolves them), and the
+// file it leads to is copied into the stage under `node_modules/.packages/
+// <name>@<version>/`, with every `package.json` between it and the package's
+// root (their `type` and `sideEffects`). The bundle loads only those copies;
+// `__exact_packages.json` records each by where it was read and its SHA-256,
+// so a bake stays a function of what it captured. A Node built-in, a native
+// addon, an import that is not installed, and an unguarded use of the DOM or
+// of Node's globals are refused by package and file: no executor has them.
+const RECORD='__exact_packages.json';
+const BUILTIN=new Set(builtinModules);
+const builtin=(spec)=>spec.startsWith('node:') || BUILTIN.has(spec) || BUILTIN.has(spec.split('/')[0]);
+// The package a file belongs to: the nearest `package.json` that names one
+// (a nested `{"type":"module"}` names none).
+function packageOf(file) {
+  for (let dir=dirname(file);;) {
+    try {
+      const json=JSON.parse(readFileSync(join(dir,'package.json'),'utf8'));
+      if (typeof json.name==='string' && json.name) return {root:dir,key:json.name+'@'+(json.version ?? ''),json};
+    } catch { /* none here, or not JSON */ }
+    const up=dirname(dir);
+    if (up===dir) return null;
+    dir=up;
+  }
+}
+// Every bundle of the module resolves packages as a browser bundle does (the
+// `browser` condition and field first), as the page's own bundle does, so
+// the page and Hermes run the same file of a package; `process.env.NODE_ENV`
+// is the constant packages test.
+export const bundleOptions={platform:'browser',transform:{define:{'process.env.NODE_ENV':'"production"'}}};
+/** The captured graph's Rolldown plugin, the same in every producer: app
+ * files load only from the stage, package code only from its capture, and
+ * the clock (`ambientRefusals`) or what no executor has (`packageRefusals`)
+ * is refused by file and line, into `refusals` when given, else thrown. */
+export function capturedSources(stage, refusals=null) {
+  const files=new Map(), roots=new Map();
+  let total=0;
+  // Staged declarations and captured package code sit under a `node_modules` in the stage.
   const staged=(id)=>within(id,stage) && relative(stage,id).split(sep).includes('node_modules');
-  return async function (source, importer, options) {
-    if (!importer || !packageName(source)) return null;
-    // `rows/../../helper.ts` names no file of a package: it leaves it, to a
-    // place that differs between the stage and the app's own directory.
-    if (source.split(/[\\/]/).some(part => part === '.' || part === '..')) throw new Error('module outside captured app: '+source);
-    const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
-    if (resolved && !staged(resolved.id)) return resolved;
-    // Where the import leads from the captured file's own place.
-    const [at,origin]=capturedOrigins(stage).find(([at])=>within(importer,at)) ?? [stage,stage];
-    const real=await this.resolve(source, resolve(origin,relative(at,importer)), { skipSelf: true }).catch(() => null);
-    if (!resolved && !real) return null;
-    throw new Error('module outside captured app: '+(real?.id ?? packageOrigin(stage,resolved.id)));
+  const label=(id,at='')=>{
+    const file=files.get(id);
+    if (!file) return relative(stage,id).split(sep).join('/')+at;
+    return `${file.package.key} (${relative(file.package.root,file.real).split(sep).join('/')}${at})`;
   };
+  const copy=(from,to,pkg)=>{
+    if (files.has(to)) return;
+    const bytes=readFileSync(from);
+    total+=bytes.length;
+    if (total>64<<20) throw new Error('package code exceeds 64 MiB');
+    if (!existsSync(to) || !readFileSync(to).equals(bytes)) { mkdirSync(dirname(to),{recursive:true}); writeFileSync(to,bytes); }
+    files.set(to,{real:from,package:pkg,sha256:createHash('sha256').update(bytes).digest('hex')});
+  };
+  const capture=(real,who)=>{
+    const found=packageOf(real);
+    if (!found) throw new Error('module outside captured app: '+real);
+    const pkg=roots.get(found.key) ?? found;
+    if (pkg.root!==found.root) throw new Error(`two copies of ${found.key} (${pkg.root}, ${found.root}); install one`);
+    roots.set(pkg.key,pkg);
+    if (/\.node$/.test(real) || pkg.json.gypfile || existsSync(join(pkg.root,'binding.gyp')))
+      throw new Error(`${who} imports ${pkg.key}, a native addon: a data module runs JavaScript alone`);
+    const base=join(stage,'node_modules','.packages',pkg.key), place=join(base,relative(pkg.root,real));
+    copy(real,place,pkg);
+    for (let dir=dirname(real); within(dir,pkg.root); dir=dirname(dir)) {
+      if (existsSync(join(dir,'package.json'))) copy(join(dir,'package.json'),join(base,relative(pkg.root,dir),'package.json'),pkg);
+      if (dir===pkg.root) break;
+    }
+    return place;
+  };
+  const report=(why)=>{ if (!why.length) return; if (refusals) refusals.push(...why); else throw new Error(why.join('\n')); };
+  return {
+    name:'captured-sources',
+    async resolveId(source, importer, options) {
+      if (!importer || importer.startsWith('\0')) return null;
+      const from=files.get(importer);
+      if (!from && !packageName(source) && !builtin(source)) return null;
+      if (!from && packageName(source)) {
+        // `rows/../../helper.ts` names no file of a package: it leaves it, to a
+        // place that differs between the stage and the app's own directory.
+        if (source.split(/[\\/]/).some(part => part === '.' || part === '..')) throw new Error('module outside captured app: '+source);
+        // A path mapping into the capture.
+        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        if (resolved && !resolved.external && within(resolved.id,stage) && !staged(resolved.id)) return resolved;
+      }
+      // Where the import leads from the importer's own place.
+      const [at,origin]=capturedOrigins(stage).find(([at])=>within(importer,at)) ?? [stage,stage];
+      const real=await this.resolve(source, from ? from.real : resolve(origin,relative(at,importer)), { ...options, skipSelf: true }).catch(() => null);
+      const who=label(importer);
+      if (!real || real.external) {
+        if (builtin(source)) throw new Error(`${who} imports Node's built-in '${source}': a data module runs on Hermes and in the browser, which have no Node modules; import a part of the package that needs none, or another package`);
+        if (from) throw new Error(`${who} imports '${source}', which is not installed`);
+        return null;
+      }
+      // A `browser` field's `false`: Rolldown's empty module.
+      if (real.id.startsWith('\0')) return real;
+      return { ...real, id: capture(real.id, who) };
+    },
+    load(id) {
+      if (!files.has(id) && !id.startsWith('\0rolldown/empty.js')) assertCapturedModule(stage, id);
+      return null;
+    },
+    transform(code, id) {
+      const parse=(c,o)=>this.parse(c,o);
+      report(!files.has(id) ? ambientRefusals(stage,id,code,parse) : /\.[cm]?js$/.test(id) ? packageRefusals(code,(at)=>label(id,at),parse) : []);
+      return null;
+    },
+    buildEnd() {
+      const record=JSON.stringify({
+        packages:[...roots].map(([key,{root}])=>[key,root]).sort(),
+        files:[...files.values()].map(({real,package:{key,root},sha256})=>[key,relative(root,real).split(sep).join('/'),real,sha256])
+          .sort((a,b)=>a[0]+'\0'+a[1]<b[0]+'\0'+b[1] ? -1 : 1),
+      });
+      const path=resolve(stage,RECORD);
+      if (!existsSync(path) || readFileSync(path,'utf8')!==record) writeFileSync(path,record);
+    },
+  };
+}
+// What package code may not use unless it tests for it (`typeof x`, or
+// inside a `try`): the DOM, which no data module has, and Node's globals.
+const DOM=['window','document','navigator','location','history','localStorage','sessionStorage','HTMLElement','Element','getComputedStyle','customElements','alert'];
+const NODE=['process','Buffer','global','__dirname','__filename','require'];
+const NOT_REFERENCES={MemberExpression:'property',Property:'key',MethodDefinition:'key',PropertyDefinition:'key',LabeledStatement:'label',BreakStatement:'label',ContinueStatement:'label',ImportSpecifier:'imported',ExportSpecifier:'exported'};
+/** The DOM and Node globals a captured package file uses, as `label(at)`'s
+ * `…: why`. Static, not a sandbox: a use behind a test it cannot see, or an
+ * alias, still reaches the executor, which refuses it by name. */
+export function packageRefusals(code, label, parse) {
+  const ast=parse(code,{lang:'js'}), local=bound(ast), tested=new Set(), found=[];
+  const at=lineColumn(code);
+  const scan=(node)=>{
+    if (!node || typeof node!=='object') return;
+    if (Array.isArray(node)) { node.forEach(scan); return; }
+    if (node.type==='UnaryExpression' && node.operator==='typeof' && node.argument?.type==='Identifier') tested.add(node.argument.name);
+    for (const key in node) if (key!=='parent') scan(node[key]);
+  };
+  scan(ast);
+  const walk=(node,parent,key,grand)=>{
+    if (!node || typeof node!=='object') return;
+    if (Array.isArray(node)) { node.forEach(n=>walk(n,parent,key,grand)); return; }
+    if (node.type==='TryStatement') { walk(node.handler,node,'handler',parent); walk(node.finalizer,node,'finalizer',parent); return; }
+    if (node.type==='Identifier' && !local.has(node.name) && !tested.has(node.name) && !(NOT_REFERENCES[parent?.type]===key && !parent.computed)) {
+      const name=node.name;
+      const constant=name==='process' && parent?.type==='MemberExpression' && propertyName(parent)==='env' && propertyName(grand)==='NODE_ENV';
+      const literal=name==='require' && parent?.type==='CallExpression' && key==='callee'
+        && ['Literal','TemplateLiteral'].includes(parent.arguments[0]?.type) && !parent.arguments[0].expressions?.length;
+      if (DOM.includes(name)) found.push(label(':'+at(node.start))+` uses the DOM's '${name}': a data module has no DOM`);
+      else if (name==='require' && !literal) found.push(label(':'+at(node.start))+' loads a module by a computed name, which a bundle cannot capture');
+      else if (NODE.includes(name) && name!=='require' && !constant) found.push(label(':'+at(node.start))+` uses Node's '${name}': a data module runs on Hermes and in the browser, which have no Node APIs`);
+    }
+    for (const k in node) if (k!=='parent' && node[k] && typeof node[k]==='object') walk(node[k],node,k,parent);
+  };
+  walk(ast,null,null,null);
+  return found;
 }
 
 // Time and seeds are source arguments (LLP 1027.000): every executor refuses
@@ -307,6 +443,16 @@ function bound(ast) {
   walk(ast,false);
   return names;
 }
+// `line:column` of an offset in `code`, by ECMAScript's line terminators:
+// LF, CR (CRLF is one), U+2028, U+2029.
+function lineColumn(code) {
+  const starts=[0];
+  for (let i=0;i<code.length;i++) {
+    const c=code.charCodeAt(i);
+    if (c===10 || c===0x2028 || c===0x2029 || (c===13 && code.charCodeAt(i+1)!==10)) starts.push(i+1);
+  }
+  return (offset)=>{ let lo=0, hi=starts.length; while (lo+1<hi) { const mid=(lo+hi)>>1; if (starts[mid]<=offset) lo=mid; else hi=mid; } return (lo+1)+':'+(offset-starts[lo]+1); };
+}
 /** The direct uses of the clock, randomness and timers in the captured
  * module `file`, as `path:line:col: why` with its path in the app: `parse`
  * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript.
@@ -315,13 +461,7 @@ function bound(ast) {
 export function ambientRefusals(stage, file, code, parse) {
   if (!isAbsolute(file) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
   const lang=/\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js';
-  const label=relative(stage,file).split(sep).join('/'), found=[], starts=[0];
-  // ECMAScript's line terminators: LF, CR (CRLF is one), U+2028, U+2029.
-  for (let i=0;i<code.length;i++) {
-    const c=code.charCodeAt(i);
-    if (c===10 || c===0x2028 || c===0x2029 || (c===13 && code.charCodeAt(i+1)!==10)) starts.push(i+1);
-  }
-  const at=(offset)=>{ let lo=0, hi=starts.length; while (lo+1<hi) { const mid=(lo+hi)>>1; if (starts[mid]<=offset) lo=mid; else hi=mid; } return (lo+1)+':'+(offset-starts[lo]+1); };
+  const label=relative(stage,file).split(sep).join('/'), found=[], at=lineColumn(code);
   const ast=parse(code,{lang}), local=bound(ast);
   const walk=(node)=>{
     if (!node || typeof node!=='object') return;
@@ -349,6 +489,9 @@ export const compilerOptions = {
   module: 'ESNext',
   moduleResolution: 'bundler',
   allowImportingTsExtensions: true,
+  // The app's own `.js` files are typed from their code, not checked; a
+  // package's JavaScript is never read for types (`maxNodeModuleJsDepth` 0).
+  allowJs: true,
   lib: ['ES2023', 'ES2024.Object', 'ES2024.Collection', 'ES2024.Promise', 'ES2024.String', 'WebWorker'],
   // No package's types are global unless a file names it: an installed
   // `@types/node` or `@types/bun` would declare timers and `process`, which
@@ -444,7 +587,10 @@ export function configure(stage, incremental=false, parse) {
   }
   if (base && !paths['*']) paths['*']=[local(resolve(base,'*'))];
   const config={compilerOptions:{...compilerOptions,paths,
-    ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts']};
+    ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts'],
+    // The app's own declarations, as an editor's project has them (an
+    // untyped package's `declare module`); a package's are read when named.
+    include:['**/*.d.ts'],exclude:['**/node_modules']};
   const path=resolve(stage,'__exact_tsconfig.json'), bytes=JSON.stringify(config);
   if (!existsSync(path) || readFileSync(path,'utf8')!==bytes) writeFileSync(path,bytes);
   if(capturedOrigins(stage).slice(0,-1).some(([,from])=>/(?:^|[/\\])snapback4[/\\](?:ts|online)$/.test(from))) {

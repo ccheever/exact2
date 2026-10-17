@@ -1161,7 +1161,9 @@ The app exports `appId`, `grants`, and an `Answer`-typed `answer`. The producer
 captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
-never overwrites an existing generation. npm dependencies are not captured yet.
+never overwrites an existing generation. An installed package's code is captured
+file by file as the bundle reaches it; the receipt's `packages` names each
+`name@version` with a digest of what was taken (LLP 1027 D5, "Package code").
 `EXACT_TSC` and `EXACT_ROLLDOWN` override producer tools. `hermesc` is always
 the compiler paired with the selected `hermes-lean-sys` bundle.
 A module's placement (LLP 1027.002) is the manifest's: `typescript.placement`
@@ -1247,7 +1249,7 @@ Browser navigation, both Apple cold/warm handlers and malformed-link refusals ar
 tested. The page cannot detect installation, and does not trigger signing/builds.
 
 **Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
-there); `app.ts` can't import npm packages' code, only their types (`import type`); signed delivery of TypeScript and Rust
+there); `app.ts` imports pure-JavaScript packages only (Node's modules, the DOM and native addons are refused); signed delivery of TypeScript and Rust
 modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
 was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
 and git.

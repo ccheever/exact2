@@ -1,4 +1,4 @@
-import { backendOrigin, injectBackendOrigin } from '../../js/bake/src/typescript.mjs';
+import { backendOrigin, bundleOptions, injectBackendOrigin } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -218,9 +218,13 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 // conformance fixture) is not app.ts's plan. That app's own build checked it
 // against its own plan; against the fixture's declarations every source it
 // answers is unknown, and its declarations stay its own.
-const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error) : null;
+// The capture's bundle, settled before the build's own Bun import of app.ts
+// below runs any package's code: null, or why it refused.
+let bundleSettled;
+const bundleVerdict = new Promise((settle) => { bundleSettled = settle; });
+const typeChecked = ts && !opt('--data') ? typecheck().then(() => null, error => error).then((error) => { bundleSettled(error); return error; }) : null;
 async function typecheck() {
-  const { configure, check, ambientRefusals, assertCapturedModule, packageImports } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const { configure, check, capturedSources } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
   const source = readFileSync(appTs, 'utf8');
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
@@ -234,8 +238,8 @@ async function typecheck() {
     writeFileSync(beside, declarations);
     console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
   }
-  // The bake's capture (js/bake/src/lib.rs `sources`): the app's TypeScript
-  // and JSON, and each `typescript.sources` mount under its name.
+  // The bake's capture (js/bake/src/lib.rs `sources`): the app's TypeScript,
+  // JavaScript and JSON, and each `typescript.sources` mount under its name.
   const stage = resolve(gen, 'typescript');
   // This build's own output may sit inside the app (`--out <app>/web-out`):
   // it is no source, and the stage is inside it (review r4a 2).
@@ -257,7 +261,7 @@ async function typecheck() {
         continue;
       }
       if (entry.isDirectory()) { if (realpathSync(path) !== output) capture(path, resolve(to, name), false); }
-      else if (/\.(ts|json)$/.test(name)) { mkdirSync(to, { recursive: true }); cpSync(path, resolve(to, name)); }
+      else if (/\.(ts|[cm]?js|json)$/.test(name)) { mkdirSync(to, { recursive: true }); cpSync(path, resolve(to, name)); }
     }
   };
   capture(appDir, stage, true);
@@ -295,10 +299,19 @@ async function typecheck() {
   const { rolldown } = await import('rolldown');
   const typed = check(real, resolve(libraries, 'tsc'), libraries).then(() => null, error => error);
   const bundled = (async () => {
-    const bundle = await rolldown({ cwd: real, input: resolve(real, '__exact_entry.ts'), platform: 'neutral', tsconfig: resolve(real, '__exact_tsconfig.json'),
-      logLevel: 'silent', plugins: [{ name: 'captured-sources', resolveId: packageImports(real), load(id) { assertCapturedModule(real, id); return null; }, transform(code, id) { why.push(...ambientRefusals(real, id, code, (c, o) => this.parse(c, o))); return null; } }] });
+    const bundle = await rolldown({ ...bundleOptions, cwd: real, input: resolve(real, '__exact_entry.ts'), tsconfig: resolve(real, '__exact_tsconfig.json'),
+      logLevel: 'silent', plugins: [capturedSources(real, why)] });
     try { await bundle.generate({ format: 'esm' }); } finally { await bundle.close(); }
   })().then(() => null, error => error);
+  bundleSettled((await bundled) ?? (why.length ? new Error(why.join('\n')) : null));
+  // The packages whose code it captured are inputs the dev loop watches, as it watches their declarations.
+  if (devReload && existsSync(resolve(real, '__exact_packages.json'))) {
+    const listed = resolve(gen, 'dev-sources.json');
+    const sources = existsSync(listed) ? JSON.parse(readFileSync(listed, 'utf8')) : {};
+    const roots = JSON.parse(readFileSync(resolve(real, '__exact_packages.json'), 'utf8')).packages.map(([, dir]) => dir);
+    sources.packages = [...new Set([...(sources.packages ?? []), ...roots])];
+    writeFileSync(listed, JSON.stringify(sources));
+  }
   const errors = [await bundled, ...why.map(line => new Error(line)), await typed].filter(Boolean);
   if (errors.length) throw new Error(errors.map(e => e.message ?? String(e)).join('\n'));
 }
@@ -311,11 +324,16 @@ const normalizeGrants = (label, spec, stem) => {
   if (set.error) throw new Error(`grant-parse: ${label}: ${set.error}`);
   return set;
 };
-// app.ts runs under Bun here, to read its appId and grants. A package
-// installed for it is refused before it loads, as every producer's bundle
-// check refuses it (js/bake/src/typescript.mjs `packageImports`), so none of
-// its code runs, at build or after. A type-only import Bun erases never loads.
-if (ts) {
+// app.ts runs under Bun here, to read its appId and grants, and runs the
+// packages it imports: only once the capture's bundle has taken them
+// (js/bake/src/typescript.mjs `capturedSources`), so a refused package's code
+// never runs, at build or after. With no capture (`--data`), none loads.
+if (ts && typeChecked && await bundleVerdict) {
+  const typeError = await typeChecked;
+  console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`);
+  process.exit(1);
+}
+if (ts && !typeChecked) {
   const installed = [...appRoots, ...tsMounts.map(([, dir]) => dir)].map(dir => join(dir, 'node_modules'));
   const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   Bun.plugin({ name: 'exact-packages', setup(build) {
@@ -336,7 +354,7 @@ const grants = ts ? String(tsModule.grants ?? '') : '';
 if (ts) {
   const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
   const problems = [
-    ...['__exact_backend_source.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts']
+    ...['__exact_backend_source.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...('draw' in tsModule) !== ('surfaces' in tsModule) ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],
@@ -519,14 +537,14 @@ const bundle = async (options) => {
 };
 // The renderer uses vm.Script, which cannot parse import.meta.
 if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')], format: 'iife', outdir: gen, naming: 'server.js',
-  define: { 'import.meta.url': JSON.stringify(pathToFileURL(resolve(out, 'app.js')).href) } });
+  define: { ...bundleOptions.transform.define, 'import.meta.url': JSON.stringify(pathToFileURL(resolve(out, 'app.js')).href) } });
 // The page's module and its chunks: Rolldown, the repo's app bundler, whose
 // minifier leaves the entry 6–10% smaller than Bun's after brotli (RealWorld
 // 25.8 → 23.6 KB, the feed bench's 30.9 → 27.9, the grid's 19.3 → 18.1),
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), transform: bundleOptions.transform, plugins: [{ name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.

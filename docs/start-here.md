@@ -197,7 +197,9 @@ an extra field. It reaches only what its `grants` name and answers failed fetche
 ([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
 refused there; time comes as an argument. A date from a value works
 (`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
-`logs` and its last lines in a failed test’s notes.
+`logs` and its last lines in a failed test’s notes. It imports its own `.ts`/`.js` and pure-JS npm
+packages (ESM or CommonJS, a `browser` build first); one needing Node (`fs`, `Buffer`), the DOM or a native
+addon is refused by name. Type an untyped one with `@types/<name>` or `declare module '<name>';` in a `.d.ts`.
 
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
