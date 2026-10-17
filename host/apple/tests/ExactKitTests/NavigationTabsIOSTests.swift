@@ -672,7 +672,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         let second = try XCTUnwrap((tabs.viewControllers?[1] as? UINavigationController)?.topViewController as? RouteController)
         let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
         XCTAssertFalse(tabs.tabBar.isHidden)
-        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always)
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic)
         XCTAssertEqual(list.convert(list.bounds, to: second.view).maxY, second.view.bounds.maxY, accuracy: 0.5, "under the bar")
         XCTAssertEqual(sv.adjustedContentInset.bottom, second.view.safeAreaInsets.bottom, accuracy: 0.5, "inset by the bar and the home indicator")
         XCTAssertGreaterThan(sv.adjustedContentInset.bottom, 40, "the bar's height and the indicator's")

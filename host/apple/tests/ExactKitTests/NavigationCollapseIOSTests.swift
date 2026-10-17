@@ -143,7 +143,7 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertNil(route.node.props["navigationScroll"].flatMap { $0.isEmpty ? nil : $0 }, "the route names nothing")
         XCTAssertTrue(route.collapseScroll === tall, "the scroller after the header is the bar's")
         XCTAssertTrue(route.contentScrollView(for: .top) === sv)
-        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always, "UIKit insets it under the bar")
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic, "UIKit insets it under the bar")
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains("collapses its title with its scroller"))
         XCTAssertEqual(tall.convert(tall.bounds, to: nil).minY, 0, accuracy: 0.5, "the scroller itself reaches the screen's top, under the bar")
         let top = try node(session, "tall-top"), bar = nav.navigationBar
@@ -155,6 +155,23 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertLessThan(top.convert(top.bounds, to: nil).maxY, bar.convert(bar.bounds, to: nil).maxY, "scrolled, its content passes under the bar")
         XCTAssertTrue(session.presenter.scrollsToTopTarget() === sv, "the status bar's tap scrolls the same one")
         XCTAssertTrue(sv.scrollsToTop)
+    }
+
+    /// Under a `viewport-fit="cover"` root a route's scroller spans the
+    /// window, side insets included. UIKit insets it at its top and bottom
+    /// only, so its content, as wide as it, has no sideways range (LLP 1123
+    /// D3); `.always` added the side inset too, and it scrolled sideways by it.
+    func testUnderACoverRootTheBarsScrollerHasNoSidewaysRange() throws {
+        let session = try booted("EXACT_COVER_SCROLL_PLAN", label: "cover-scroll")
+        let sv = try XCTUnwrap(try node(session, "home-scroll").scroll)
+        let host = try XCTUnwrap(window?.rootViewController), before = sv.safeAreaInsets.right
+        host.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 84)
+        host.view.layoutIfNeeded()
+        until("the scroller lies under the side inset") { sv.safeAreaInsets.right >= before + 83.5 }
+        XCTAssertEqual(sv.adjustedContentInset.left, 0, accuracy: 0.5)
+        XCTAssertEqual(sv.adjustedContentInset.right, 0, accuracy: 0.5, "UIKit adds no side inset")
+        XCTAssertLessThanOrEqual(sv.contentSize.width + sv.adjustedContentInset.left + sv.adjustedContentInset.right, sv.bounds.width + 0.5, "no sideways range")
+        XCTAssertGreaterThan(sv.adjustedContentInset.top, 0, "inset under the bar")
     }
 
     /// D11.1, several scrollers: the bar's is the one the status bar's tap
