@@ -15,6 +15,7 @@
 
 mod card;
 mod concepts;
+mod recipes;
 
 use concepts::Concept;
 use contract::functions::{self, Function};
@@ -25,7 +26,7 @@ use exact_kernel::{PropId, StyleId};
 use serde_json::{json, Value};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: contract vocab [--json] [--all] [<name> …]\n  no name: the card, what an app writes, in one read; --all: every tag, attribute and function\n  names: each one's entry in turn (exit 1 if one is unknown); --json: everything, as JSON";
+const USAGE: &str = "usage: contract vocab [--json] [--all] [<name> …]\n  no name: the card, what an app writes, in one read; --all: every tag, attribute and function\n  names: each one's entry in turn, a recipe (docs/recipes) whole, a pattern's summary (exit 1 if one is unknown); --json: everything, as JSON";
 
 pub fn run(args: &[String]) -> ExitCode {
     let mut json = false;
@@ -77,8 +78,8 @@ pub fn run(args: &[String]) -> ExitCode {
         }
         _ => {
             let mut known = true;
-            // A concept two names share prints once, at the first.
-            let mut shown = Vec::new();
+            // A concept or recipe two names share prints once, at the first.
+            let mut shown = Shown::default();
             for (i, name) in names.iter().enumerate() {
                 if i > 0 {
                     println!();
@@ -112,6 +113,15 @@ struct Entry {
     function: Option<Function>,
     part: Option<Part>,
     concept: Option<Concept>,
+    recipe: Option<(&'static str, &'static str)>,
+    pattern: Option<(&'static str, String)>,
+}
+
+/// The concepts and recipes printed so far in one call.
+#[derive(Default)]
+struct Shown {
+    concepts: Vec<&'static str>,
+    recipes: Vec<&'static str>,
 }
 
 /// A component of a built-in library (`exact:content`'s `RoundButton`), read
@@ -176,10 +186,19 @@ fn entry(name: &str) -> Option<Entry> {
         .map(|(n, _)| n)
         .collect();
     let concept = concepts::concept(name);
+    let recipe = recipes::recipe(name);
+    let pattern = recipes::pattern(name);
     // A concept's own name (`placeholder-color`) is answered by the concept,
-    // not by the open set's note that it might be a native module.
-    let open = vocab::open_set(name)
-        .filter(|_| tag.is_none() && attr.is_none() && value_of.is_empty() && concept.is_none());
+    // and a recipe's by the recipe, not by the open set's note that it might
+    // be a native module.
+    let open = vocab::open_set(name).filter(|_| {
+        tag.is_none()
+            && attr.is_none()
+            && value_of.is_empty()
+            && concept.is_none()
+            && recipe.is_none()
+            && pattern.is_none()
+    });
     let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
     let function = functions::function(name);
     let part = part(name);
@@ -190,7 +209,9 @@ fn entry(name: &str) -> Option<Entry> {
         || command.is_some()
         || function.is_some()
         || part.is_some()
-        || concept.is_some();
+        || concept.is_some()
+        || recipe.is_some()
+        || pattern.is_some();
     known.then_some(Entry {
         tag,
         attr,
@@ -200,6 +221,8 @@ fn entry(name: &str) -> Option<Entry> {
         function,
         part,
         concept,
+        recipe,
+        pattern,
     })
 }
 
@@ -219,6 +242,8 @@ fn one_json(name: &str) -> (Value, bool) {
         function,
         part,
         concept,
+        recipe,
+        pattern,
     }) = entry(name)
     else {
         return (json!({ "name": name, "refused": refusal(name) }), false);
@@ -226,6 +251,9 @@ fn one_json(name: &str) -> (Value, bool) {
     let mut doc = json!({ "name": name });
     if let Some(tag) = tag {
         doc["tag"] = tag;
+    }
+    if name == "symbol" {
+        doc["roles"] = exact_kernel::generated::SYMBOL_ROLES.to_vec().into();
     }
     if let Some(attr) = attr {
         doc["attribute"] = attr;
@@ -255,12 +283,19 @@ fn one_json(name: &str) -> (Value, bool) {
         }
         doc["concept"] = concept_json(&c);
     }
+    if let Some((recipe, text)) = recipe {
+        doc["recipe"] =
+            json!({ "name": recipe, "path": format!("docs/recipes/{recipe}.md"), "text": text });
+    }
+    if let Some((pattern, about)) = pattern {
+        doc["pattern"] = json!({ "name": pattern, "about": about, "write": format!("bun exact.mjs pattern {pattern}") });
+    }
     (doc, true)
 }
 
 /// One name as text, printed (a refusal on stderr), and whether it was
-/// known; a concept already in `shown` is named, not printed again.
-fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
+/// known; a concept or recipe already in `shown` is named, not printed again.
+fn one_text(name: &str, shown: &mut Shown) -> bool {
     // LLP 1116.017 D1: the parser reads `h1`-`h6` as headings, so no table has them.
     if let Some(level) = name
         .strip_prefix('h')
@@ -279,6 +314,8 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         function,
         part,
         concept,
+        recipe,
+        pattern,
     }) = entry(name)
     else {
         eprintln!("{}", refusal(name));
@@ -293,6 +330,7 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         && command.is_none()
         && function.is_none()
         && part.is_none();
+    let above = !only || concept.is_some();
     if let Some(p) = part {
         println!(
             "{name}: a part of `{}` (`use {name} from \"{}\"`)",
@@ -309,6 +347,10 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if let Some(note) = vocab::tag_note(name) {
             println!("  {note}");
         }
+    }
+    // A symbol refused at compile time points here for the roles (LLP 1116.021 D3).
+    if name == "symbol" {
+        println!("{}", symbol_roles());
     }
     if let Some(a) = tags::attr(name) {
         println!("{name}: {} attribute", kind(&a));
@@ -380,6 +422,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         } else {
             println!("{name}: {open}");
         }
+        if let Some((near, _)) = recipes::RECIPES.iter().find(|(r, _)| one_edit(name, r)) {
+            println!("  did you mean the recipe `{near}`?");
+        }
     }
     if let Some(command) = command {
         println!("{name}: {command}");
@@ -393,17 +438,40 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
                 println!("{note}");
             }
         }
-        if shown.contains(&c.name) {
+        if shown.concepts.contains(&c.name) {
             println!("{name}: the concept `{}`, above", c.name);
         } else {
             if !only {
                 println!();
             }
             print!("{}", c.text());
-            shown.push(c.name);
+            shown.concepts.push(c.name);
         }
     }
+    if let Some((recipe, text)) = recipe {
+        if shown.recipes.contains(&recipe) {
+            println!("{name}: the recipe `{recipe}`, above");
+        } else {
+            if above {
+                println!();
+            }
+            println!("{name}: the recipe docs/recipes/{recipe}.md");
+            print!("{text}");
+            shown.recipes.push(recipe);
+        }
+    }
+    if let Some((pattern, about)) = pattern {
+        println!("{name}: a pattern, a tested app (`bun exact.mjs pattern {pattern}` writes it here): {about}");
+    }
     true
+}
+
+/// What `image "symbol:…"` takes: the roles each host draws from its own set.
+fn symbol_roles() -> String {
+    format!(
+        "symbol: an image's source `symbol:<role>` is an icon each host draws from its own set; the roles: {}; `symbol:sf/<name>` is any SF Symbol, drawn on Apple and blank elsewhere (docs/recipes/symbols.md)",
+        exact_kernel::generated::SYMBOL_ROLES.join(", ")
+    )
 }
 
 fn concept_json(c: &Concept) -> Value {
@@ -430,12 +498,16 @@ fn refused(name: &str) -> String {
     let refusal = vocab::refusal(name);
     let head = format!("`{name}` is not a tag or an attribute");
     let hints = refusal.strip_prefix(&head).unwrap_or(&refusal);
-    let mut out = format!("`{name}` is not a tag, an attribute or a standard function{hints}");
+    let mut out = format!(
+        "`{name}` is not a tag, an attribute, a standard function, a recipe or a pattern{hints}"
+    );
     if let Some(near) = functions::functions()
         .into_iter()
         .find(|f| one_edit(name, &f.name))
     {
         out += &format!("; did you mean the function `{}`?", near.name);
+    } else if let Some((near, _)) = recipes::RECIPES.iter().find(|(r, _)| one_edit(name, r)) {
+        out += &format!("; did you mean the recipe `{near}`?");
     }
     out
 }

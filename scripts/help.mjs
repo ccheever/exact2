@@ -119,7 +119,8 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
       ...DRIVE.filter(naming(['--storage', '--size', '--sim', ...TEST_IGNORES.map(name)], false)),
     ],
     internal: [...TEST_IGNORES, ...DRIVE_INTERNAL],
-    body: `web builds the app first (web-build); ios and macos build first when the build is missing or
+    body: `Compiles first, a compile error said as contract build says it, so no contract build before
+it: web builds the app (web-build); ios and macos build when the build is missing or
 older than its sources, saying so on stderr. Each test launches the app fresh with its own
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
@@ -186,6 +187,7 @@ Large    each of those screens again at the largest text size (ios: the simulato
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
+         Its first line says about how long it takes (its last run's time): wait that once.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
          it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops
          it; one already answering there (a dev server) is refused, named, never written to; so is
@@ -264,13 +266,13 @@ Ports    none. Runs to completion.`,
   contract: {
     line: 'the Contract compiler: build, types, vocab, fmt, symbols …',
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
-    common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property or colour role (no name: the card)'],
+    common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property, colour role or recipe (no name: the card)'],
     flags: [],
     body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
   types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
   vocab [--json] [--all] [<name> …]       no name: the card, what an app writes, in one read (--all: every
                                           tag, attribute, CSS property and function); each name's entry in
-                                          turn, exit 1 if one is unknown
+                                          turn, a recipe whole, a pattern's summary; exit 1 if one is unknown
   fmt [--check | --stdout] <file.contract> · fmt --uses <file.contract>
   symbols <file.contract> [--name <name>] · sources <file.contract>
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)

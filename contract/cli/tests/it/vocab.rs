@@ -938,3 +938,108 @@ fn wakelock_says_its_two_words_and_where_it_holds() {
         assert!(text.contains(want), "{want}: {text}");
     }
 }
+
+/// LLP 1116.021 D1: a recipe's name answers with the whole recipe, in its
+/// place among the other names, so a screen's lookups are one call; a recipe
+/// two names reach prints once, and a pattern's name says what it has and
+/// how to write it.
+#[test]
+fn a_recipe_name_prints_the_recipe_in_its_place() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs");
+    let form = std::fs::read_to_string(format!("{root}/recipes/grouped-form.md")).unwrap();
+    let out = stdout(&vocab(&[
+        "swipe",
+        "grouped-form",
+        "persist",
+        "recipes/grouped-form.md",
+    ]));
+    let at = |needle: &str| {
+        out.find(needle)
+            .unwrap_or_else(|| panic!("{needle} missing:\n{out}"))
+    };
+    assert!(at("swipe (a concept)") < at(&form) && at(&form) < at("persist (a concept)"));
+    assert_eq!(out.matches(form.as_str()).count(), 1, "{out}");
+    assert!(
+        out.contains("recipes/grouped-form.md: the recipe `grouped-form`, above"),
+        "{out}"
+    );
+    assert!(!out.contains("native module"), "{out}");
+    let out = stdout(&vocab(&["tabs"]));
+    assert!(
+        out.contains("# Recipe: tabs") && out.contains("bun exact.mjs pattern tabs"),
+        "{out}"
+    );
+    let docs: Value =
+        serde_json::from_str(&stdout(&vocab(&["--json", "grouped-form", "one-screen"]))).unwrap();
+    assert_eq!(docs[0]["recipe"]["text"], form.as_str());
+    assert_eq!(
+        docs[1]["pattern"]["write"],
+        "bun exact.mjs pattern one-screen"
+    );
+    let output = vocab(&["tabz"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8(output.stderr)
+        .unwrap()
+        .contains("did you mean the recipe `tabs`?"));
+}
+
+/// LLP 1116.021 D3: a symbol the compiler refuses points to `contract vocab
+/// symbol`, which lists the roles.
+#[test]
+fn symbol_lists_the_roles() {
+    let out = stdout(&vocab(&["symbol"]));
+    assert!(
+        out.contains("symbol: tag")
+            && out.contains("`symbol:<role>`")
+            && out.contains("settings")
+            && out.contains("symbol:sf/<name>"),
+        "{out}"
+    );
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "symbol"]))).unwrap();
+    assert!(json["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "settings"));
+    let refused = |source: &str| {
+        contract::compile(&format!("component App\n  view\n    image \"{source}\"\n"))
+            .unwrap_err()
+            .to_string()
+    };
+    let error = refused("symbol:gearsh");
+    assert!(
+        error.contains("symbol `gearsh` is not a role; `contract vocab symbol` lists the roles")
+            && !error.contains("microphone"),
+        "{error}"
+    );
+    let error = refused("symbol:settins");
+    assert!(error.contains("did you mean `symbol:settings`?"), "{error}");
+}
+
+/// Every recipe and pattern under `docs/` answers by its name: the lists
+/// `contract vocab` embeds are the directories'.
+#[test]
+fn every_recipe_and_pattern_answers_by_name() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs");
+    let mut recipes = 0;
+    for entry in std::fs::read_dir(format!("{root}/recipes")).unwrap() {
+        let path = entry.unwrap().path();
+        let file = path.file_name().unwrap().to_str().unwrap().to_owned();
+        let Some(name) = file.strip_suffix(".md") else {
+            continue;
+        };
+        let out = stdout(&vocab(&[name]));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains(&text), "{name}: add it to vocab/recipes.rs");
+        recipes += 1;
+    }
+    assert!(recipes > 20, "{recipes} recipes");
+    for entry in std::fs::read_dir(format!("{root}/patterns")).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        let out = stdout(&vocab(&[&name]));
+        assert!(
+            out.contains(&format!("`bun exact.mjs pattern {name}`")),
+            "{name}: add it to vocab/recipes.rs"
+        );
+    }
+}
