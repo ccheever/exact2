@@ -349,8 +349,9 @@ extension Agent {
                 panPointer(contact, .down)
                 if let reach = contact.reach, reach.element == nil, reach.run == nil, reach.href == nil,
                    let target = reach.action?.live(in: presenter), !target.disabled, !target.inert,
-                   target.handlers.contains("press") || target.defaultLink != nil {
+                   target.handlers.contains("press") || target.defaultLink != nil || target.isNativeButton && presenter.invocation(of: target) != nil {
                     target.pressed = true
+                    highlight(target, true)
                     contact.shown = HeldNode(target)
                 }
                 panContact = contact
@@ -439,6 +440,13 @@ extension Agent {
         }
     }
 
+    /// A native button's press is UIKit's highlight, which only
+    /// `isHighlighted` draws: its node shows no dim of its own.
+    private func highlight(_ node: NodeView, _ on: Bool) {
+        guard node.isNativeButton, let button = presenter.controls.controls[node.id] as? UIButton else { return }
+        button.isHighlighted = on
+    }
+
     /// A finger held where it went down, off any `pan` node: a move is its
     /// `pointermove`s (nothing scrolls: `tap <scroller> drag` does), a hold
     /// moves its own time, and `up` is its `pointerup`, then the press a
@@ -459,7 +467,11 @@ extension Agent {
                 contact.t += ms / 1000 / Double(steps)
                 panPointer(contact, .move)
             }
-            if let shown = contact.shown?.live(in: presenter) { shown.pressFollows(inside: shown.pressInside(at: windowPoint(to))) }
+            if let shown = contact.shown?.live(in: presenter) {
+                let inside = shown.pressInside(at: windowPoint(to))
+                shown.pressFollows(inside: inside)
+                highlight(shown, inside)
+            }
             panContact = contact
             return ["phase": "move", "at": point(to), "delivery": "recognized"]
         case "hold":
@@ -471,7 +483,7 @@ extension Agent {
             panContact = nil
             // Released before the press runs, as `touchesEnded` releases it;
             // the pool reuses no pressed view, so this is still the one shown.
-            if let node = contact.shown?.node, !node.hasPressContact { node.pressed = false }
+            if let node = contact.shown?.node, !node.hasPressContact { node.pressed = false; highlight(node, false) }
             panPointer(contact, .up)
             var reply: [String: Any] = ["phase": phase, "at": point(contact.at), "delivery": "recognized"]
             // The press its lift makes, against what it reached where it went

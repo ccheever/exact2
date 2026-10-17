@@ -424,7 +424,8 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
       await new Promise((r) => setTimeout(r, Math.max(0, drag.press + (moves ? drag.over : 0) - (Date.now() - seen))));
       // Each op only while the finger is still down: one that runs long stops the rest, never read unpressed.
       for (const op of drag.during) {
-        if (finished || ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
+        const lifted = ours(await entries()).lifted;
+        if (lifted || finished) throw new Error(`${early} finished; lengthen hold`);
         during.push(await raced(op()));
       }
       if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
