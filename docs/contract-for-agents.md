@@ -1798,6 +1798,23 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   item's image inside the bar's capsule (a "● Clock" chip in 12-point monospace).
   A filled box holding a text or symbol (an avatar, a badge) is drawn without the
   capsule. Leave the font unsaid for an ordinary Edit or Done.
+- A readout nothing presses (a "● Clock" or "Saved" beside the title) is
+  `role="status"` in the header, beside the buttons; not a disabled button, which
+  is no item. It is an item on its side of the heading, a custom view in the bar's
+  glass drawn as written (its fonts, colours, a dot's size and corners, the gap) that
+  follows the state in place, read by VoiceOver as static text (its `aria-label`, else
+  its words). Its texts are never the subtitle. The web, the Mac and the agent's own
+  chrome draw it where it stands in the header (LLP 1075.003 §9.15):
+
+  ```
+  header display="flex" align-items="center"
+    button id="back" press=back
+      text "Settings"
+    text "Activity Log" role="heading" aria-level=2
+    row role="status" aria-label=(live ? "Clock, receiving" : "Clock") display="flex" align-items="center" gap=6
+      column width=7 height=7 border-radius=3.5 background-color=(live ? "c.cyan" : "c.dim")
+      text "Clock" font-family="Menlo" font-size=12 color=(live ? "c.cyan" : "c.dim")
+  ```
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab

@@ -254,8 +254,11 @@ impl<D: DataSource> Presenter<D> {
         let top = (bars.routes.iter())
             .find(|r| Some(r.route) == route)
             .map(|r| {
+                // A readout (`role="status"`, LLP 1075.003 §9.15) is no
+                // button, and Material's top app bar has no item for it.
                 let buttons = |ids: &[ViewId]| -> Vec<Button> {
                     (ids.iter())
+                        .filter(|id| r.shape.items.contains(id))
                         .filter_map(|id| self.bar_button(*id, dark))
                         .collect()
                 };

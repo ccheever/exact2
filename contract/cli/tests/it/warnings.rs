@@ -78,6 +78,9 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
         "  row\n    box background-color=\"-exact-system-blue\"\n      text \"AL\"\n    text \"Ada\" role=\"heading\" aria-level=1\n    row\n      image \"symbol:sf/bell.slash\"\n      text \"Muted\"",
         // A pressable group around the heading is the title, tapped.
         "  button press=go\n    text \"Ada\" role=\"heading\" aria-level=1\n    text \"online\"",
+        // Readouts (LLP 1075.003 §9.15): a status of a dot and a text after
+        // the buttons, a status text before the heading.
+        "  text \"Saved\" role=\"status\"\n  text \"Log\" role=\"heading\"\n  button press=go\n    text \"Add\"\n  row role=\"status\" gap=6\n    view width=7 height=7 border-radius=3.5 background-color=\"-exact-system-blue\"\n    text \"Clock\" font-family=\"Menlo\" font-size=12",
         // `if`, `for` and a computed role are given the benefit.
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"sub\"\n  if q != \"\"\n    text q\n  for x in [\"a\"] key=x\n    text x\n  text \"c\" role=(q == \"\" ? \"note\" : \"status\")",
         // Shown on no host, or over the page when opened.

@@ -88,7 +88,8 @@ struct HeaderTitle: Equatable {
         func walk(_ node: NodeView) {
             for child in shown(node) {
                 if child === heading { passed = true; continue }
-                if control(child) { continue }
+                // A bar item, a readout among them, is not the title's to read.
+                if control(child) || apart.contains(where: { $0 === child }) { continue }
                 if wrapper != nil, !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) {
                     avatar = face; placed.append(child); continue
                 }

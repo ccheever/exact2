@@ -31,6 +31,9 @@ final class RouteController: UIViewController {
     weak var edgeScroll: NodeView?
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
+    /// The bar items of its header's readouts, by node, kept across
+    /// projections so a readout's view changes in place (§9.15).
+    var readouts: [UInt32: UIBarButtonItem] = [:]
     /// The header's search field as UIKit's search controller (§9.6).
     var search: HeaderSearch?
     /// The title Exact drew from the heading's group, and the subtitle it

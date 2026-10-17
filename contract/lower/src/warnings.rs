@@ -232,6 +232,9 @@ enum Part {
     Tablist,
     /// A button that presses, or opens a popover: a bar item.
     Pressable,
+    /// `role="status"`: a readout, a bar item that nothing presses (LLP
+    /// 1075.003 §9.15), what it holds its face.
+    Status,
     /// A plain box, walked into.
     Box,
     /// Anything else.
@@ -259,6 +262,9 @@ fn part(node: &Node) -> Part {
     if has(attrs, "press") || (tag == "button" && opens) || tag == "link" {
         return Part::Pressable;
     }
+    if role == Some("status") && tag != "header" {
+        return Part::Status;
+    }
     match tag.as_str() {
         "text" if role == Some("heading") => Part::Heading,
         "text" => Part::Text,
@@ -280,7 +286,12 @@ fn kids(node: &Node) -> &[Node] {
 /// cannot see through: then a box around it is walked, not dropped whole.
 fn holds_placed(node: &Node) -> bool {
     kids(node).iter().any(|k| match part(k) {
-        Part::Doubt | Part::Heading | Part::Search | Part::Tablist | Part::Pressable => true,
+        Part::Doubt
+        | Part::Heading
+        | Part::Search
+        | Part::Tablist
+        | Part::Pressable
+        | Part::Status => true,
         Part::Box => holds_placed(k),
         Part::Hidden | Part::Text | Part::Other => false,
     })
@@ -289,7 +300,7 @@ fn holds_placed(node: &Node) -> bool {
 fn holds_heading(node: &Node) -> bool {
     kids(node).iter().any(|k| match part(k) {
         Part::Heading => true,
-        Part::Box | Part::Pressable => holds_heading(k),
+        Part::Box | Part::Pressable | Part::Status => holds_heading(k),
         _ => false,
     })
 }
@@ -358,7 +369,8 @@ const OR_NO_BAR: &str =
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The
 /// bar takes one heading as its title, the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
-/// tablist and the buttons that press or open a popover; the rest of the
+/// tablist, the buttons that press or open a popover and the readouts
+/// (`role="status"`, LLP 1075.003 §9.15); the rest of the
 /// header is hidden with it. With no heading or with two, the bar takes
 /// nothing and the header is shown as written, so nothing is dropped; that
 /// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). An `if` first
@@ -405,7 +417,7 @@ fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<Lowe
         out.push(LowerError {
             id: "lower-header-unplaced",
             message: format!(
-                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"` and the buttons that press, and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), or make it a button that presses (docs/contract-for-agents.md, \"Tabs and stacks\")"
+                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
             ),
             span,
         });
@@ -437,6 +449,9 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
                 walk(kids(node), bar);
             }
             Part::Pressable => {}
+            // A status around the heading is no readout: walked for it.
+            Part::Status if holds_heading(node) => walk(kids(node), bar),
+            Part::Status => {}
             Part::Text if bar.passed && !bar.subtitle => bar.subtitle = true,
             Part::Text => bar.unplaced.push((
                 span,
