@@ -12,7 +12,7 @@ use crate::tree::{
 };
 use crate::tree::{LayoutFlexboxContainer, LayoutPartialTreeExt, NodeId};
 use crate::compute::common::absolute::AbsolutePass;
-use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized};
+use crate::compute::ratio::{sizes_through_ratio, transfer_into_unsized, Ratio};
 use crate::util::debug::debug_log;
 use crate::util::sys::{f32_max, f32_min, new_vec_with_capacity, Vec};
 use crate::util::MaybeMath;
@@ -794,16 +794,18 @@ fn generate_anonymous_flex_items(
                 .max_size()
                 .maybe_resolve(percent_resolution_size, |val, basis| tree.calc(val, basis))
                 .maybe_add(box_sizing_adjustment);
-            let (size, _, _) = sizes_through_ratio(
-                &child_style,
-                pb_sum,
-                child_style
-                    .size()
-                    .maybe_resolve(percent_resolution_size, |val, basis| tree.calc(val, basis))
-                    .maybe_add(box_sizing_adjustment),
-                min_size,
-                max_size,
-            );
+            let given = child_style
+                .size()
+                .maybe_resolve(percent_resolution_size, |val, basis| tree.calc(val, basis))
+                .maybe_add(box_sizing_adjustment);
+            let (mut size, _, _) = sizes_through_ratio(&child_style, pb_sum, given, min_size, max_size);
+            // EXACT PATCH 37: a replaced item's automatic cross size follows
+            // its flexed main size (§9.4), not its preferred main size. Keeping
+            // the derived cross size also feeds that preferred size back into
+            // the content minimum, preventing shrinking (§4.5).
+            if child_style.is_compressible_replaced() {
+                size.set_cross(constants.dir, given.cross(constants.dir));
+            }
             FlexItem {
                 node: child,
                 order: index as u32,
@@ -937,6 +939,11 @@ fn determine_flex_base_size(
 
     for child in flex_items.iter_mut() {
         let child_style = tree.get_flexbox_child_style(child.node);
+        let replaced_ratio = if child_style.is_compressible_replaced() {
+            Ratio::of(&child_style, (child.padding + child.border).sum_axes())
+        } else {
+            None
+        };
 
         // Parent size for child sizing
         let cross_axis_parent_size = constants.node_inner_size.cross(dir);
@@ -1221,7 +1228,17 @@ fn determine_flex_base_size(
                     .with_cross(dir, cross_axis_available_space.maybe_sub(cross_axis_margin_sum));
 
                 debug_log!("COMPUTE CHILD MIN SIZE:");
-                let known = known_for_probe(tree);
+                // EXACT PATCH 37: measure the content suggestion independently
+                // of the transferred suggestion; a replaced item takes their
+                // smaller value (CSS Flexbox §4.5).
+                // A definite stretch is already the used cross size, so it
+                // still sizes the content probe (CSS Flexbox §9.8).
+                let definite_stretch = child.size.cross(dir).is_none() && child_cross_size_is_definite;
+                let known = if replaced_ratio.is_some() && !definite_stretch {
+                    Size::NONE
+                } else {
+                    known_for_probe(tree)
+                };
                 tree.measure_child_size(
                     child.node,
                     known,
@@ -1231,6 +1248,20 @@ fn determine_flex_base_size(
                     dir.main_axis(),
                     Line::FALSE,
                 )
+            };
+
+            let min_content_main_size = if let Some(ratio) = replaced_ratio {
+                let transfer = |cross| if dir.is_row() { ratio.width(cross) } else { ratio.height(cross) };
+                let content = min_content_main_size.maybe_clamp(
+                    child.min_size.cross(dir).map(transfer),
+                    child.max_size.cross(dir).map(transfer),
+                );
+                let transferred = child.size.cross(dir)
+                    .maybe_clamp(child.min_size.cross(dir), child.max_size.cross(dir))
+                    .map(transfer);
+                content.maybe_min(transferred)
+            } else {
+                min_content_main_size
             };
 
             // 4.5. Automatic Minimum Size of Flex Items

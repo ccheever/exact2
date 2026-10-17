@@ -16,6 +16,9 @@ type Frames = &'static [[f32; 4]];
 #[path = "browser_replaced_minimum.rs"]
 mod minimum;
 
+#[path = "browser_replaced_constraints.rs"]
+mod constraints;
+
 /// (name, root rows, element rows, element count, Chrome's frames for
 /// canvas, iframe, video, svg).
 const CASES: &[(&str, &str, &str, u32, [Frames; 4])] = &[
@@ -889,6 +892,11 @@ fn lay_out_held(layout: &str, item: &str, kind: NodeType, view_box: bool) -> Ker
         ),
         "row" => ("display:flex", &[(3, ""), (4, "")], &[(5, 3), (6, 4)]),
         "direct" => ("display:flex", &[], &[(3, 2), (4, 2)]),
+        "column" => (
+            "display:flex;flex-direction:column;height:200px;align-items:flex-start",
+            &[],
+            &[(3, 2), (4, 2)],
+        ),
         _ => ("position:absolute", &[], &[(3, 2)]),
     };
     let root = props(&[vec![(Width, n(400.0))], rows("position:relative")].concat());

@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 and 36 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36 and 37 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1108,6 +1108,27 @@ width/max-width percentages, calc, minimum and fixed sizes, padding, border and
 margins. Direct flex items keep their own content minimum.
 `browser_replaced::minimum` holds percentage-containing minima and the padding/border
 floor under both box-sizing modes against Chrome 151 frames for the same five tags.
+
+## Patch 37: preserve replaced ratios through flexing and min/max constraints
+
+A replaced flex item's automatic cross size is derived from its used main size
+(CSS Flexbox §9.4). The preferred main size's derived cross size is not retained:
+it otherwise feeds back into the automatic minimum and survives after shrinking.
+The content suggestion is measured independently, clamped by cross-axis bounds
+through the ratio, and capped by the transferred and specified suggestions (§4.5).
+A definite stretch still sizes the content probe (§9.8).
+
+The leaf's CSS 2.1 §10.4 constraint table takes sizes and bounds in the box the
+ratio relates, then restores the inset. Natural ratios relate content sizes under
+either box-sizing; authored non-auto ratios follow box-sizing. Padding and border
+therefore stay fixed when a content-box ratio scales the natural dimensions.
+
+**Held by** `browser_replaced::constraints`: literal Chrome 151.0.7922.34 frames
+for canvas and loaded images, with metadata-free video controls, direct and nested
+flex items, row and column axes, automatic and zero minima, cross-axis constraints,
+padding under both box-sizing modes, and authored ratios. The existing
+`browser_replaced` cases retain definite stretching; `browser_replaced::minimum`
+retains patch 36's descendant contributions.
 
 ## Cargo workspace boundary
 

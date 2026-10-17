@@ -25,7 +25,7 @@ pub(crate) struct Ratio {
     /// Width ÷ height, finite and positive.
     ratio: f32,
     /// What a border-box size loses to be of the related box.
-    inset: Size<f32>,
+    pub(crate) inset: Size<f32>,
 }
 
 impl Ratio {

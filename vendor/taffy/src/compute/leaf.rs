@@ -162,7 +162,14 @@ where
     let size = match ratio {
         Some(ratio) if node_size.width.is_none() && node_size.height.is_none() => {
             if style.is_compressible_replaced() {
-                replaced_constraints(measured_size + content_box_inset.sum_axes(), raw_min_size, raw_max_size)
+                // EXACT PATCH 37: the table scales the box the ratio relates.
+                // Natural ratios always relate content sizes, even with
+                // border-box sizing; padding and border do not scale.
+                replaced_constraints(
+                    (measured_size + content_box_inset.sum_axes() - ratio.inset).map(|v| f32_max(v, 0.0)),
+                    raw_min_size.maybe_sub(ratio.inset).maybe_max(Size::ZERO),
+                    raw_max_size.maybe_sub(ratio.inset).maybe_max(Size::ZERO),
+                ) + ratio.inset
             } else {
                 let derived = ratio.height(clamped_size.width);
                 let height = if floor_height {
