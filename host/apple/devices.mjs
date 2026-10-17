@@ -28,20 +28,26 @@ export function useXcode() {
 }
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
-/** A window capture the app drew (`path`, in `r`'s scale) with what other processes draw on the display put in from
- *  the simulator's own screenshot: the software keyboard, from its top (`r.keyboard.windowTop`) down (round 9: "blank
- *  keyboard region"), and the status bar, its top `r.statusBar` points (the euxy port, FRICTION 5: a window capture
- *  then compares with a `simctl io` reference, as the device shows it — `xcrun simctl status_bar <udid> override
- *  --time 9:41` sets what it shows). Only those rows are taken, so the picture stays the app's; what could not be
- *  done is said in `note`, and the picture is left as it was. Returns `r`. */
-export function withDisplay(r, path, udid) {
+/** A window capture the app drew (`path`, in `r`'s scale), its pixels then the simulator's own screenshot's, as a
+ *  device screenshot is: `drawHierarchy` draws Liquid Glass and the other backdrop materials only roughly (a tab bar's
+ *  glass left the rows under it legible, an alert's the list behind it: the euxy port's judged captures), and the
+ *  software keyboard (round 9: "blank keyboard region") and the status bar are other processes' pixels. The rows of the
+ *  status bar, its top `appTop` points, stay the app's when the caller did not ask for it (`r.statusBar` unset; with it
+ *  set, `xcrun simctl status_bar <udid> override --time 9:41` sets what it shows). A capture the agent marked
+ *  (`r.unshown`, struck-through header nodes) keeps its own picture and takes only the keyboard's rows, from its top
+ *  (`r.keyboard.windowTop`) down, and the status bar's. What could not be done is said in `note`, and the picture is
+ *  left as it was. Returns `r`. */
+export function withDisplay(r, path, udid, appTop = 0) {
   const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
+  const whole = !(r.unshown?.length > 0);
   const fail = (why) => {
     if (bar > 0) r.statusBar = false;
-    r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)` : `the status bar is not in the capture (${why})`;
+    r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`
+      : bar > 0 ? `the status bar is not in the capture (${why})`
+      : `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate`;
     return r;
   };
-  if (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0)) return fail('no keyboard top');
+  if (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0) && !whole) return fail('no keyboard top');
   if (!(scale > 0)) return fail('no scale');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
   try {
@@ -51,12 +57,14 @@ export function withDisplay(r, path, udid) {
     const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
     if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
     const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
-    if (bar > 0) { app.data.set(display.data.subarray(0, row(bar)), 0); r.statusBar = true; }
-    if (keyboard) app.data.set(display.data.subarray(row(top)), row(top));
+    if (whole) app.data.set(display.data.subarray(row(bar > 0 ? 0 : appTop)), row(bar > 0 ? 0 : appTop));
+    else if (bar > 0) app.data.set(display.data.subarray(0, row(bar)), 0);
+    if (!whole && keyboard) app.data.set(display.data.subarray(row(top)), row(top));
+    if (bar > 0) r.statusBar = true;
     writeFileSync(path, encodePng(app));
-    if (keyboard) {
+    if (keyboard || (whole && r.keyboard?.visible)) {
       r.keyboard.captured = true;
-      r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
+      r.note = `the software keyboard is up and in the capture${whole ? '' : ' from keyboard.top down'}, as the simulator draws it; the app above it is shortened`;
     }
     return r;
   } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }

@@ -1198,7 +1198,15 @@ at the screen's scale in the standard (8-bit sRGB) range — a wide-color
 screen would otherwise yield a 16-bit PNG — and sees Metal. By default it
 captures the session viewport. `window: true` captures the containing UIWindow,
 including native confirmations and other embedded sessions; separate system
-windows such as the keyboard are outside that capture. This distinction landed
+windows such as the keyboard are outside that capture. On a simulator the
+driver then takes a window capture's pixels from the display (`simctl io …
+screenshot`, `devices.mjs` `withDisplay`), as a device screenshot has them:
+`drawHierarchy` draws Liquid Glass and the other backdrop materials only
+roughly (a tab bar's glass left the rows under it legible, an alert's the list
+behind it), and the keyboard is another process's. The status bar's rows stay
+the app's unless asked for (`window status`); a capture that strikes through
+header nodes the bar leaves out keeps its own picture and takes only the
+keyboard's and the status bar's rows. This distinction landed
 with LLP 1021 D2's confirmation integration (2026-09-10). The driver's `ios` carrier (`scripts/agent.mjs`
 `openIOS`) installs the bundle, launches it with `simctl launch --console
 --terminate-running-process` and keeps that attached for the app's stdout

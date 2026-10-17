@@ -56,16 +56,55 @@ function withFakeSimctl(display, body) {
   }
 }
 
-test('the rows from the keyboard\'s top down are the display\'s, the app above them its own', () => {
+// A capture the agent marked (header nodes struck through), which only the app's own picture shows.
+const marked = { unshown: [{ id: 1, testId: null }] };
+
+// drawHierarchy draws Liquid Glass roughly: a tab bar's glass left the rows under it legible (the euxy port).
+test('a window capture is the display\'s, the status bar too when asked', () => {
   withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
     const shot = resolve(dir, 'app.png');
     writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 }, note: 'old' }, shot, 'UDID');
+    const r = withDisplay({ scale: 2, statusBar: 1 }, shot, 'UDID');
+    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
+    expect([at(0), at(2), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
+    expect(r.statusBar).toBe(true);
+    expect(r.note).toBeUndefined();
+  });
+});
+
+test('a window capture without its status bar keeps the app\'s rows there', () => {
+  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
+    const r = withDisplay({ scale: 2 }, shot, 'UDID', 1);
+    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
+    expect([at(0), at(1), at(2), at(7)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
+    expect(r.statusBar).toBeUndefined();
+  });
+});
+
+test('the keyboard is in a window capture, its top known or not', () => {
+  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
+    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2 }, note: 'old' }, shot, 'UDID');
+    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
+    expect(at(7)).toEqual([0, 0, 255, 255]);
+    expect(r.keyboard.captured).toBe(true);
+    expect(r.note).toContain('in the capture');
+  });
+});
+
+test('a marked capture takes the display\'s rows from the keyboard\'s top down, the app above them its own', () => {
+  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
+    const r = withDisplay({ ...marked, scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 }, note: 'old' }, shot, 'UDID');
     const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
     expect([at(0), at(3)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
     expect([at(4), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
     expect(r.keyboard.captured).toBe(true);
-    expect(r.note).toContain('in the capture');
+    expect(r.note).toContain('from keyboard.top down');
   });
 });
 
@@ -80,11 +119,11 @@ test('a display of another size leaves the picture as it was, and says why', () 
   });
 });
 
-test('the status bar\'s rows are the display\'s', () => {
+test('a marked capture takes only the status bar\'s rows from the display', () => {
   withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
     const shot = resolve(dir, 'app.png');
     writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ scale: 2, statusBar: 1 }, shot, 'UDID');
+    const r = withDisplay({ ...marked, scale: 2, statusBar: 1 }, shot, 'UDID');
     const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
     expect([at(0), at(1), at(2), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255], [255, 0, 0, 255], [255, 0, 0, 255]]);
     expect(r.statusBar).toBe(true);
@@ -92,8 +131,8 @@ test('the status bar\'s rows are the display\'s', () => {
   });
 });
 
-test('a capture that says no keyboard top is left alone', () => {
-  const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID');
+test('a marked capture that says no keyboard top is left alone', () => {
+  const r = withDisplay({ ...marked, scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID');
   expect(r.note).toContain('no keyboard top');
 });
 

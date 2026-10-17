@@ -775,10 +775,11 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       async screenshot(path, window = false, film = false, status = false) {
         const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
+        const bar = r.statusBar;
         if (!status) delete r.statusBar;
-        // The host draws the window itself (with an alert or sheet up, or asked); the keyboard and the status bar are other
-        // processes': the display's pixels, the status bar's only when asked (`window status`: a `simctl io` capture, 0.5 s).
-        return (window || r.window === true) && !film && (r.keyboard?.windowTop != null || r.statusBar > 0) ? withDisplay(r, path, dev.udid) : r;
+        // The host draws the window (with an alert or sheet up, or asked); its pixels are then the display's, a `simctl io`
+        // capture (0.5 s), which draws glass as the device does and holds the keyboard; the status bar's only when asked.
+        return (window || r.window === true) && !film ? withDisplay(r, path, dev.udid, status ? 0 : bar ?? 0) : r;
       },
       close,
     };
