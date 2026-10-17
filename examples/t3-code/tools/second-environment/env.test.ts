@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FINISH_WELCOME, pairOps, redact } from "./env.mjs";
 import { forget as forgetStandin } from "../acp-standin/install.mjs";
-import { ENVIRONMENTS, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, welcomeWait } from "./lib.mjs";
+import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
+import { ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -76,18 +77,26 @@ describe("a lane server's environment", () => {
   });
 });
 
-describe("threads with a completed turn (seed --turns)", () => {
-  test("only `second`'s background-only project has one, on the stand-in's provider instance", () => {
-    expect(SEEDS.second.flatMap((entry) => (entry.turns ?? []).map((turn) => [entry.repo, turn.title]))).toEqual([["background-only", "Background thread (completed turn)"]]);
+describe("threads with a turn (seed --turns)", () => {
+  test("only `second` has them: a completed turn, one with file edits, one waiting on an approval; and an empty project", () => {
+    expect(SEEDS.second.flatMap((entry) => (entry.turns ?? []).map((turn) => [entry.repo, turn.title, turn.prompt, !!turn.approval]))).toEqual([
+      ["background-only", "Background thread (completed turn)", "Say hello from the stand-in", false],
+      ["agent-edits", "Turn with file edits", "Edit the notes", false],
+      ["agent-edits", "Edit awaiting approval", "Ask before editing the notes", true]]);
+    expect(SEEDS.second.find((entry) => entry.repo === "empty-project")!.threads).toEqual([]);
     expect(SEEDS.third.some((entry) => entry.turns)).toBe(false);
     expect(STANDIN_INSTANCE).toMatch(/^[a-zA-Z][a-zA-Z0-9_-]*$/); // ProviderInstanceId
   });
 
-  test("a turn is done once the latest run has completed and none is active", () => {
-    expect(turnCompleted({ latestRunId: "r1", latestRunCompletedAt: "2026-10-16T00:00:00Z", activeRunId: null })).toBe(true);
+  test("a turn is done once the latest run has completed and none is active; an approval turn once its request is pending", () => {
+    const completed = { latestRunId: "r1", latestRunCompletedAt: "2026-10-16T00:00:00Z", activeRunId: null };
+    expect(turnCompleted(completed)).toBe(true);
     expect(turnCompleted({ latestRunId: null, latestRunCompletedAt: null })).toBe(false);
     expect(turnCompleted({ latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1" })).toBe(false);
     expect(turnCompleted(undefined)).toBe(false);
+    const waiting = { latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1", pendingRuntimeRequest: { id: "q1", kind: "file-change" } };
+    expect([turnSeeded({ approval: true }, waiting), turnSeeded({ approval: true }, completed), turnSeeded({ approval: true }, { ...waiting, pendingRuntimeRequest: null })]).toEqual([true, true, false]);
+    expect(turnSeeded({}, waiting)).toBe(false);
   });
 
   test("the stand-in's instance is one install.mjs forget removes", () => {
@@ -107,6 +116,29 @@ describe("a drive", () => {
   });
   test("prints no pairing token", () => {
     expect(redact('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=LEY3T64Y3TVC"')).toBe('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=<redacted>"');
+  });
+});
+
+describe("the usage hub stand-in (seed --limits)", () => {
+  test("lists its accounts, answers each one's usage the way cliproxyApi.ts reads it, and a consumed credit empties the session window", () => {
+    const now = Date.parse("2026-10-17T00:00:00Z"), seconds = now / 1000;
+    const hub = makeHub(HUB_ACCOUNTS, () => now);
+    const [, list] = hub("GET", "/v0/management/auth-files", undefined) as [number, { files: { provider: string; auth_index: string }[] }];
+    expect(list.files.map((file) => file.provider)).toEqual(["codex", "codex", "codex", "claude", "claude"]);
+    const call = (index: string, url: string, data?: object) => {
+      const [status, reply] = hub("POST", "/v0/management/api-call", { auth_index: index, url, ...(data ? { data: JSON.stringify(data) } : {}) }) as [number, { status_code: number; body: string }];
+      expect([status, reply.status_code]).toEqual([200, 200]);
+      return JSON.parse(reply.body);
+    };
+    const codex = "https://chatgpt.com/backend-api/wham";
+    expect(call("lane-1", `${codex}/usage`).rate_limit.primary_window).toEqual({ used_percent: 35, reset_at: seconds + 7200, limit_window_seconds: 18000 });
+    expect(call("lane-1", `${codex}/rate-limit-reset-credits`).credits.map((credit: { id: string }) => credit.id)).toEqual(["lane-1-credit-1", "lane-1-credit-2"]);
+    expect(call("lane-1", `${codex}/rate-limit-reset-credits/consume`, { credit_id: "lane-1-credit-1" })).toEqual({ code: "reset" });
+    expect(call("lane-1", `${codex}/usage`).rate_limit.primary_window.used_percent).toBe(0);
+    expect(call("lane-1", `${codex}/rate-limit-reset-credits/consume`, { credit_id: "lane-1-credit-1" })).toEqual({ code: "no_credit" });
+    expect(call("lane-4", "https://api.anthropic.com/api/oauth/usage").five_hour).toEqual({ utilization: 55, resets_at: new Date(now + 3 * 3_600_000).toISOString() });
+    expect(hub("POST", "/v0/management/reset-quota", { auth_index: "lane-1" })[0]).toBe(200);
+    expect(checkPort(HUB.port, {})).toBe(HUB.port);
   });
 });
 

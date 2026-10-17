@@ -7,10 +7,15 @@ for a thread on it to hold a completed turn. It signs in to no account and sends
 anywhere; its only state is `state.json` beside it.
 
 A turn (`session/prompt`) is answered at once: one `agent_message_chunk` update, "Stand-in
-reply: " and the first line of the user's words, then the stop reason `end_turn`. It reads no
-file, runs no tool and asks for no permission. It advertises `loadSession`, and `session/load`
-brings a session back with no history (it keeps none), so a later turn on the same thread runs
-after the server restarts too.
+reply: " and the first line of the user's words, a `usage_update` (12,480 of 200,000 tokens, so
+the thread has a context meter), then the stop reason `end_turn`. Two first lines do more, in
+the session's directory: "Edit the notes" edits `README.md` and writes `notes/plan.md` before the
+turn ends, so the turn's checkpoint (a Git snapshot the server takes) has a diff; "Ask before
+editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
+server turns into an approval on a thread in the runtime mode "approval-required" (in
+"full-access" it allows it itself), and writes `notes/approved.md` only if allowed. It
+advertises `loadSession`, and `session/load` brings a session back with no history (it keeps
+none), so a later turn on the same thread runs after the server restarts too.
 
 ## How the server finds it
 
@@ -40,9 +45,10 @@ bun ../second-environment/env.mjs stop second && bun install.mjs forget --home $
 
 A thread with a completed turn comes from `../second-environment/`: `bun env.mjs seed second
 --turns` installs the stand-in into that environment (mode `none` when it is not installed yet),
-adds it as the provider instance `acpRegistry_fixture-acp-standin`, and gives "Background thread
-(completed turn)" one turn, visited at its completion so it starts read (that README has the Mark
-unread recipe). In another mode the stand-in must be signed in first, or the seed stops with the
+adds it as the provider instance `acpRegistry_fixture-acp-standin` (an installed copy older than
+`agent.mjs` is rewritten), and seeds the threads with turns that README lists: a completed one,
+visited at its completion so it starts read (that README has the Mark unread recipe), one with
+file edits and one waiting on an approval. In another mode the stand-in must be signed in first, or the seed stops with the
 provider's status.
 
 Modes: `agent` (default) advertises one sign-in method the server completes with `authenticate`;

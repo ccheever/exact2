@@ -65,7 +65,7 @@ describe("the agent", () => {
     expect(replies.get(2)!.result.sessionId).toBeString();
   });
 
-  test("a prompt is one turn: the user's words echoed in one message chunk, then end_turn; a session comes back by session/load", async () => {
+  test("a prompt is one turn: the user's words echoed in one message chunk and a usage update, then end_turn; a session comes back by session/load", async () => {
     const { executable } = install(join(root, "home-g"), { methods: "none" });
     // A T3 server's prompt: its instructions around the user's words, then more context.
     const wrapped = "<t3_code_instructions>\nBe brief.\n</t3_code_instructions>\n<user_request>\nUser message:\nSay hello\nand more\n</user_request>";
@@ -75,8 +75,47 @@ describe("the agent", () => {
       { method: "session/load", params: { sessionId: "s1", cwd: root, mcpServers: [] } }], notes);
     expect(replies.get(1)!.result.agentCapabilities.loadSession).toBe(true);
     expect(replies.get(3)!.result).toEqual({ stopReason: "end_turn" });
-    expect(notes).toEqual([{ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Stand-in reply: Say hello" } } } }]);
+    expect(notes.map((note) => note.params.update)).toEqual([
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Stand-in reply: Say hello" } },
+      { sessionUpdate: "usage_update", used: 12480, size: 200000 }]);
     expect(replies.get(4)!.result).toEqual({});
+  });
+
+  test("'Edit the notes' edits the session's directory before the turn ends; 'Ask before editing the notes' writes only once allowed", async () => {
+    const { executable } = install(join(root, "home-i"), { methods: "none" });
+    const repo = join(root, "repo-i");
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(join(repo, "README.md"), "# repo\n\nA fixture repository.\n");
+    // A thread's first turn: the words alone inside <user_request>.
+    const first = (words: string) => [{ type: "text", text: `<t3_code_instructions>\nUser message: is not here\n</t3_code_instructions>\n<user_request>\n${words}\n</user_request>` }];
+    const notes: { method: string; params: any }[] = [];
+    const replies = await talk(executable, [{ method: "session/new", params: { cwd: repo, mcpServers: [] } }], notes);
+    const sessionId = replies.get(1)!.result.sessionId;
+    await talk(executable, [{ method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } }, { method: "session/prompt", params: { sessionId, prompt: first("Edit the notes") } }], notes);
+    expect(readFileSync(join(repo, "README.md"), "utf8")).toContain("edited by the ACP stand-in");
+    expect(readFileSync(join(repo, "notes/plan.md"), "utf8")).toStartWith("# Plan");
+    expect(notes.find((note) => note.params.update.sessionUpdate === "tool_call")!.params.update).toMatchObject({ kind: "edit", status: "completed" });
+
+    // The permission request goes to the client; the turn ends with its answer.
+    const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", env: {}, cwd: root });
+    const lines = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
+    let buffered = "";
+    const next = async () => { for (;;) { const at = buffered.indexOf("\n"); if (at >= 0) { const line = buffered.slice(0, at); buffered = buffered.slice(at + 1); return JSON.parse(line); } buffered += (await lines.read()).value ?? ""; } };
+    const write = (message: object) => { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`); child.stdin.flush(); };
+    write({ id: 1, method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } });
+    expect((await next()).result).toEqual({});
+    write({ id: 2, method: "session/prompt", params: { sessionId, prompt: first("Ask before editing the notes") } });
+    expect((await next()).params.update).toMatchObject({ sessionUpdate: "tool_call", kind: "edit", status: "pending" });
+    const asked = await next();
+    expect(asked).toMatchObject({ method: "session/request_permission", params: { sessionId, toolCall: { kind: "edit", title: "Write notes/approved.md" } } });
+    expect(asked.params.options.map((option: { kind: string }) => option.kind)).toEqual(["allow_once", "allow_always", "reject_once"]);
+    expect(existsSync(join(repo, "notes/approved.md"))).toBe(false);
+    write({ id: asked.id, result: { outcome: { outcome: "selected", optionId: "allow" } } });
+    const rest = [await next(), await next(), await next(), await next()];
+    expect(rest.map((message) => message.params?.update?.sessionUpdate ?? message.result?.stopReason)).toEqual(["tool_call_update", "agent_message_chunk", "usage_update", "end_turn"]);
+    expect(readFileSync(join(repo, "notes/approved.md"), "utf8")).toContain("after the approval");
+    child.stdin.end();
+    await child.exited;
   });
 
   test("a prompt needs the sign-in an agent mode asks for", async () => {

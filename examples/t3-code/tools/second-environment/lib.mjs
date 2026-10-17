@@ -11,7 +11,7 @@ import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, write
 import { connect as netConnect } from "node:net";
 import { join, resolve } from "node:path";
 import { connect, ensureProject } from "../github-lane/lib.mjs";
-import { AGENT, install as installStandin, status as standinStatus } from "../acp-standin/install.mjs";
+import { AGENT, install as installStandin, refresh as refreshStandin, status as standinStatus } from "../acp-standin/install.mjs";
 
 export const checkout = resolve(import.meta.dir, "../../../..");
 export const example = join(checkout, "examples/t3-code");
@@ -227,6 +227,11 @@ export const SEEDS = {
     { repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: ["Shared notes on second"] },
     { repo: "background-only", origin: "https://github.com/t3-fixture/background-only.git", threads: ["Background thread (no run)", "Background follow-up"],
       turns: [{ title: "Background thread (completed turn)", prompt: "Say hello from the stand-in" }] },
+    // A project with no thread: the legacy sidebar's Remove project needs one.
+    { repo: "empty-project", origin: "https://github.com/t3-fixture/empty-project.git", threads: [] },
+    // The stand-in edits files in a turn (its checkpoint has a diff) and asks before an edit (an approval).
+    { repo: "agent-edits", origin: "https://github.com/t3-fixture/agent-edits.git", threads: [],
+      turns: [{ title: "Turn with file edits", prompt: "Edit the notes" }, { title: "Edit awaiting approval", prompt: "Ask before editing the notes", approval: true }] },
   ],
   third: [
     { repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: ["Shared notes on third"] },
@@ -268,6 +273,7 @@ export const standinInstance = () => ({ driver: "acpRegistry", displayName: AGEN
 export async function addStandin(paths, name, conn, { timeoutMs = 20_000 } = {}) {
   const t3home = join(envDir(paths, name), "t3home");
   if (!standinStatus(t3home).installed) installStandin(t3home, { methods: "none" });
+  else refreshStandin(t3home);
   await conn.request("server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: STANDIN_INSTANCE, instance: standinInstance() } });
   // The server registers the instance's adapter once its probe is done; a turn sent before then is refused.
   const started = Date.now();
@@ -281,18 +287,21 @@ export async function addStandin(paths, name, conn, { timeoutMs = 20_000 } = {})
 
 /** A thread's turn is done when its shell row has a completion time for its latest run. */
 export const turnCompleted = (thread) => !!thread?.latestRunId && !!thread?.latestRunCompletedAt && !thread?.activeRunId;
+/** An approval turn is seeded once its thread waits on a runtime request (or a drive has answered it and the turn completed). */
+export const turnSeeded = (turn, thread) => (turn.approval ? !!thread?.pendingRuntimeRequest || turnCompleted(thread) : turnCompleted(thread));
 
 /**
  * One completed turn: a thread on the stand-in's instance (`existing`, else a new one) is sent
  * `prompt` (message.dispatch, as the composer's Send), waited for until its run completes, then
  * visited at that time, so it starts read, as a thread one has looked at; Mark unread is then the
- * only way to its "Completed" status.
+ * only way to its "Completed" status. An `approval` turn runs in the runtime mode
+ * "approval-required" and is waited for until the stand-in's permission request is pending.
  */
-async function seedTurn(conn, projectId, { title, prompt }, existing, { timeoutMs = 30_000 } = {}) {
+async function seedTurn(conn, projectId, { title, prompt, approval = false }, existing, { timeoutMs = 30_000 } = {}) {
   const threadId = existing ?? crypto.randomUUID();
   if (!existing) await conn.request("orchestration.dispatchCommand", {
     type: "thread.create", commandId: crypto.randomUUID(), createdBy: "user", creationSource: "web", threadId, projectId, title,
-    modelSelection: { instanceId: STANDIN_INSTANCE, model: "default" }, runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null,
+    modelSelection: { instanceId: STANDIN_INSTANCE, model: "default" }, runtimeMode: approval ? "approval-required" : "full-access", interactionMode: "default", branch: null, worktreePath: null,
   });
   await conn.request("orchestration.dispatchCommand", {
     type: "message.dispatch", commandId: crypto.randomUUID(), threadId, messageId: crypto.randomUUID(), text: prompt, attachments: [],
@@ -301,6 +310,7 @@ async function seedTurn(conn, projectId, { title, prompt }, existing, { timeoutM
   const started = Date.now();
   for (;;) {
     const thread = ((await shellSnapshot(conn)).threads ?? []).find((entry) => entry.id === threadId);
+    if (approval && thread?.pendingRuntimeRequest) return threadId;
     if (turnCompleted(thread)) {
       await conn.request("orchestration.dispatchCommand", { type: "thread.visit", commandId: crypto.randomUUID(), threadId, visitedAt: thread.latestRunCompletedAt });
       return threadId;
@@ -311,12 +321,13 @@ async function seedTurn(conn, projectId, { title, prompt }, existing, { timeoutM
 }
 
 /** Projects and threads for `name`, through the running server's API. Idempotent by title. */
-export async function seed(paths, name, seeds = SEEDS[name] ?? [], { turns = false } = {}) {
+export async function seed(paths, name, seeds = SEEDS[name] ?? [], { turns = false, limits = false } = {}) {
   const running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
   const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"));
   try {
     const out = [];
+    if (limits) out.push({ usageHub: `http://127.0.0.1:${(await startHub(paths)).port}`, accounts: await addHub(conn, hubPort()) });
     for (const entry of seeds) {
       const workspaceRoot = seedRepository(paths, name, entry);
       const projectId = await ensureProject(conn, workspaceRoot, { title: entry.repo });
@@ -331,7 +342,7 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? [], { turns = fal
         });
       }
       // A turn thread is done once it holds a completed turn; one an interrupted seed left without it gets its turn now.
-      const turnThreads = turns ? entry.turns ?? [] : [], pending = turnThreads.filter((turn) => !live.some((t) => t.title === turn.title && turnCompleted(t)));
+      const turnThreads = turns ? entry.turns ?? [] : [], pending = turnThreads.filter((turn) => !live.some((t) => t.title === turn.title && turnSeeded(turn, t)));
       if (pending.length) await addStandin(paths, name, conn);
       for (const turn of pending) await seedTurn(conn, projectId, turn, live.find((t) => t.title === turn.title)?.id);
       out.push({ project: entry.repo, projectId, threads: [...entry.threads, ...turnThreads.map((turn) => turn.title)] });
@@ -350,6 +361,57 @@ export async function shellOf(paths, name) {
     const projects = (shell.projects ?? []).filter((p) => !p.deletedAt);
     return projects.map((p) => ({ project: p.title, projectId: p.id, threads: (shell.threads ?? []).filter((t) => t.projectId === p.id && !t.archivedAt && !t.deletedAt).map((t) => ({ title: t.title, id: t.id })) }));
   } finally { conn.close(); }
+}
+
+/**
+ * The usage hub stand-in (`usage-hub.mjs`): a CLIProxyAPI management API on loopback, which the lane's
+ * offline proxy leaves direct. Port `T3_FIXTURE_HUB_PORT` (default 16590).
+ */
+export const HUB = { port: 16590, key: "lane-fixture-hub-key", sourceId: "cliproxy-lane", label: "Lane hub" };
+export const hubPort = (env = process.env) => checkPort(Number(env.T3_FIXTURE_HUB_PORT ?? HUB.port), env);
+const hubPidFile = (paths) => join(paths.root, "hub/hub.pid");
+
+/** Starts the hub stand-in (detached, its pid recorded) unless it runs; returns { pid, port }. */
+export async function startHub(paths) {
+  const file = hubPidFile(paths);
+  const running = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+  if (running && alive(running.pid)) return running;
+  const port = hubPort();
+  mkdirSync(join(paths.root, "hub"), { recursive: true });
+  const log = openSync(join(paths.root, "hub/hub.log"), "a");
+  const child = spawn(process.execPath, [join(import.meta.dir, "usage-hub.mjs"), String(port), HUB.key], { stdio: ["ignore", log, log], detached: true });
+  child.unref();
+  const entry = { pid: child.pid, port };
+  writeFileSync(file, JSON.stringify(entry));
+  for (let i = 0; i < 50; i++) {
+    try { if ((await fetch(`http://127.0.0.1:${port}/v0/management/auth-files`, { headers: { authorization: `Bearer ${HUB.key}` } })).ok) return entry; } catch {}
+    await Bun.sleep(100);
+  }
+  await stopHub(paths);
+  throw new Error(`the usage hub stand-in did not answer on ${port} (see ${join(paths.root, "hub/hub.log")})`);
+}
+export async function stopHub(paths) {
+  const file = hubPidFile(paths);
+  const running = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+  rmSync(file, { force: true });
+  if (!running || !alive(running.pid)) return null;
+  process.kill(running.pid, "SIGTERM");
+  for (let i = 0; i < 50 && alive(running.pid); i++) await Bun.sleep(100);
+  return running;
+}
+
+/**
+ * Makes the hub a usage limit source of a running environment (server.updateSettings, as Settings ›
+ * Providers' Add hub does) and waits until the server has read every account through it.
+ */
+export async function addHub(conn, port, { timeoutMs = 20_000 } = {}) {
+  await conn.request("server.updateSettings", { patch: { usageLimitSources: { [HUB.sourceId]: { kind: "cliproxy", label: HUB.label, url: `http://127.0.0.1:${port}`, managementKey: HUB.key, enabled: true } } } });
+  const read = (sources) => sources.find((source) => source.id === HUB.sourceId && (source.error || source.accounts?.length));
+  const events = await conn.stream("subscribeServerConfig", { usageLimitSources: true },
+    (values) => values.some((value) => value?.type === "usageLimitSourcesUpdated" && read(value.payload?.sources ?? [])), timeoutMs);
+  const source = events.map((value) => value?.type === "usageLimitSourcesUpdated" && read(value.payload?.sources ?? [])).filter(Boolean).at(-1);
+  if (!source || source.error) throw new Error(`the server could not read the usage hub: ${source?.error ?? "no snapshot"}`);
+  return source.accounts.length;
 }
 
 /** The app's Keychain service for access tokens (modules/apple/T3Credentials.swift). */

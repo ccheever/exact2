@@ -21,7 +21,7 @@ while anything listens there. A sandbox profile cannot do this: the server runs 
 "Lane Third", not this Mac's name.
 
 Ports are 16500-16599 (`T3_FIXTURE_PORTS=lo-hi` names another lane's range; 3773 never):
-"This machine" 16500, `second` 16510, `third` 16511. Everything is written under
+"This machine" 16500, `second` 16510, `third` 16511, the usage hub 16590. Everything is written under
 `T3_FIXTURE_ROOT` (default `<checkout>/target/t3-fixtures`): `runtime/` (the unpacked release),
 `envs/<name>/` (homes, `repos/`, `server.log`, `server.pid`, `environment.json`), `local/` (This
 machine's home for `--local` drives), `drives/`.
@@ -32,7 +32,7 @@ Stage the runtime and build the bundle first (the app README's Build and run). F
 `examples/t3-code/tools/second-environment`:
 
 ```sh
-bun env.mjs start second && bun env.mjs seed second
+bun env.mjs start second && bun env.mjs seed second [--turns] [--limits]
 bun env.mjs status                       # pid, port, label; projects and threads with their ids
 bun env.mjs drive --local --pair second --storage s1 -- "tree sidebar" "screenshot /abs/out.png window"
 bun env.mjs stop all
@@ -40,11 +40,35 @@ bun env.mjs stop all
 
 The seed: `shared-notes` in both environments (one Git origin, so the clone groups it as one
 logical project) with a thread each, and in `second` only `background-only` with "Background
-thread (no run)" and "Background follow-up". Threads are created with `thread.create` and never
-get a turn. `seed second --turns` adds "Background thread (completed turn)": the ACP stand-in
-(`../acp-standin/`) becomes a provider of that server and answers one prompt, so the thread holds
-a completed turn, and the seed visits it at its completion, so it starts read. Run again, the seed
-skips a thread that has its turn and gives one to a thread an interrupted seed left without.
+thread (no run)" and "Background follow-up", and `empty-project` with no thread (the legacy
+sidebar's Remove project). Threads are created with `thread.create` and never get a turn.
+
+`seed second --turns` makes the ACP stand-in (`../acp-standin/`) a provider of that server and
+adds threads with a turn on it, each with a context meter (the stand-in reports its usage):
+
+- "Background thread (completed turn)" in `background-only`: one completed turn, visited at its
+  completion, so it starts read.
+- "Turn with file edits" in `agent-edits`: the turn edits `README.md` and writes `notes/plan.md`,
+  so the diff panel's Turn submenu has "Turn 1" and the turn's diff has both files (collapsed: a
+  drive presses `diff-toggle-README.md` before its rows exist). The edits stay in the working tree,
+  so `agent-edits`' Uncommitted scope shows them too.
+- "Edit awaiting approval" in `agent-edits`, in the runtime mode "approval-required": the turn
+  waits on the stand-in's permission request (Allow once, Always allow, Reject; what the card
+  does not show as buttons is in its `approval-more-<id>` menu). The request lives in the
+  stand-in's process, so a server restart drops it; seed again for a new one.
+
+Run again, the seed skips a thread that has its turn (or its pending approval) and gives one to a
+thread an interrupted seed left without.
+
+`seed second --limits` starts the usage hub stand-in (`usage-hub.mjs`, port 16590,
+`T3_FIXTURE_HUB_PORT`) and adds it to that server as the usage limit source "Lane hub", as
+Settings › Providers' Add hub does; the seed waits until the server has read its accounts. The
+hub answers the CLIProxyAPI management calls the server makes (reference
+`apps/server/src/usage/cliproxyApi.ts`) for three Codex accounts and two Claude ones, so Usage ›
+Limits draws a Codex pool and a Claude pool with a segment per account (`usage-seg-<pool>-<window>-<n>`,
+indexes from 0).
+Two Codex accounts bank reset credits, so their popover has "Use reset" and its confirm; a
+consumed credit empties that account's session window. `stop all` stops the hub too.
 
 `drive` runs `scripts/agent.mjs macos` on the newest bundle (`EXACT_MAC_BIN` overrides) at
 1280x840. In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`

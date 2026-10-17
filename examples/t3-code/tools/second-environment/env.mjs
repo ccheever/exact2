@@ -2,10 +2,12 @@
 // Extra T3 environments for drives of the clone. README.md has the recipe.
 //
 //   bun env.mjs start <name> [--port N]   an offline lane server for second | third (16510, 16511)
-//   bun env.mjs seed <name> [--turns]     its projects and threads (idempotent); --turns adds the
-//                                         threads with a completed turn, answered by the ACP stand-in
+//   bun env.mjs seed <name> [--turns] [--limits]
+//                                         its projects and threads (idempotent); --turns adds the
+//                                         threads with a completed turn, answered by the ACP stand-in;
+//                                         --limits starts the usage hub stand-in and makes it a source
 //   bun env.mjs status                    each environment: pid, port, id, label, projects and threads with ids
-//   bun env.mjs stop <name|all>           stops the servers this fixture started (recorded pids only)
+//   bun env.mjs stop <name|all>           stops the servers this fixture started (recorded pids only; all: the hub too)
 //   bun env.mjs drive [--local] [--pair second,third] [--keep-welcome] [--storage S] [--size WxH] [--json] -- <op> …
 //                                         an agent drive of the bundle: with --local "This machine" too,
 //                                         each named environment paired in the welcome wizard (fresh
@@ -14,7 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, seed, shellOf, startServer, stopServer } from "./lib.mjs";
+import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, seed, shellOf, startServer, stopHub, stopServer } from "./lib.mjs";
 
 const paths = fixturePaths();
 const nameArg = (index = 3) => {
@@ -81,10 +83,11 @@ if (import.meta.main) {
       const name = nameArg();
       const port = flag(process.argv, "--port");
       console.log(JSON.stringify(await startServer(paths, name, port ? { port: Number(port) } : {})));
-    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg(), undefined, { turns: process.argv.includes("--turns") }), null, 2));
+    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg(), undefined, { turns: process.argv.includes("--turns"), limits: process.argv.includes("--limits") }), null, 2));
     else if (command === "stop") {
       const names = process.argv[3] === "all" ? Object.keys(ENVIRONMENTS) : [nameArg()];
       for (const name of names) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
+      if (process.argv[3] === "all") { const hub = await stopHub(paths); console.log(`usage hub: ${hub ? `stopped pid ${hub.pid}` : "not running"}`); }
     } else if (command === "status") {
       for (const name of existsSync(paths.envs) ? readdirSync(paths.envs) : []) {
         const running = recorded(paths, name);
@@ -101,6 +104,6 @@ if (import.meta.main) {
       if (!existsSync(file)) throw new Error(`${name} has never started`);
       const { origin, environmentId } = JSON.parse(readFileSync(file, "utf8"));
       console.log(forgetKeychain(origin, environmentId) ? "removed" : "none saved");
-    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 12).join("\n")); process.exitCode = command ? 2 : 0; }
+    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 15).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
