@@ -234,6 +234,42 @@ refresh until upstream has it. Consumers: every native executor's
 `GrantSet::parse` (Apple, Linux, Windows, the render server) and the bake's
 check of a TypeScript module's grants (`js/src/lib.rs`, `Module::inspect`).
 
+## Local patch, upstream-bound: hardening without descriptor records
+
+Hermes keeps every young-generation page a runtime has touched, so what
+hardening allocates between two collections stays in the app's footprint.
+Three walks read every property of the objects they reach, and each made a
+descriptor record per property; the C++ ones also made a string or property
+name per field they read, and the reachability guard a second record for
+each field (`getOwnPropertyDescriptor` on the record). In Exact's runtime
+(898 objects, 2,604 properties) the guard allocated 795 KB, `harden.js`
+470 KB and each of the two intrinsic snapshots 66 KB, 97% of it garbage.
+
+`bindings/install.cc` gains `FieldReader`, which reads a property's fields
+without a record: `Object.prototype.__lookupGetter__` and `__lookupSetter__`
+(ECMA-262 B.2.2.4, B.2.2.5) give an own property's getter and setter, and
+`Reflect.get` reads a property that has neither, stopping where the lookup
+stopped, so no getter runs; `Reflect.ownKeys` gives names and symbols in
+one array. `Reachability` (the guard) and `Integrity` (the snapshot, its
+`require` and `accept_property`) use it; `require` and `accept_property`
+test the key is still own with the captured `hasOwnProperty`, as an absent
+descriptor did. `bindings/harden.js` reads the same way past the global
+object, whose loop keeps its records for `configurable`. Where bootstrap has
+removed `__lookupGetter__`, `__lookupSetter__`, `Function.prototype.call` or
+`bind`, `harden.js` falls back to records; `Integrity` captured after such a
+bootstrap refuses, as it already refuses one without `Reflect`.
+
+The walks visit what they did: in Exact's runtime the guard and `harden.js`
+each visit 898 objects, `harden.js` 2,488 properties past the global object,
+89 of them accessors, and the guard 3,503 edges, as before; a planted getter
+on the global graph never runs and what it guards is frozen, by records or
+without. After it the guard allocates 165 KB, `harden.js` 198 KB and a
+snapshot 8–10 KB, and capture plus guarded hardening takes 1.25 ms where it
+took 1.94 (median of 41, release `exact-js` on an M-series Mac under load).
+`cargo test -p exact-js --lib --tests` passes, including the reachable
+abort-hook refusal and universal hardening. To go upstream to expo/ibex;
+replay it on a refresh until it is there.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
