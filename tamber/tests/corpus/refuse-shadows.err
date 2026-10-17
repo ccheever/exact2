@@ -12,3 +12,5 @@
 20:26: tamber-kind: `1`: a shadow's length says px (unitless only zero)
 21:32: tamber-kind: `shadow.box` is the other row's shadow
 24:3: tamber-kind: `card.unwritten` reads as a shadow: write its kind, `card.unwritten: box-shadow` or `card.unwritten: text-shadow`
+25:26: tamber-kind: `shadow.box` is a shadow token, not a length
+26:28: tamber-kind: `shadow.box` is a shadow token, not a number

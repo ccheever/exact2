@@ -223,7 +223,9 @@ runner resolves it.
 
 **`uses`** `{token, file?}` (*1.2*, stage 4 commit 6) says where the app reads a token,
 statically: every row of the plan of the token's kind (one that takes a colour for a colour token,
-one that takes none for a length or number token, *1.5*) whose expression names it, directly,
+one that takes none for a length or number token, *1.5*; and a row of the kind of a token whose
+value names it, so a `box-shadow` or `text-shadow` row for a length or colour a shadow token folds
+over, *1.8*) whose expression names it, directly,
 through a token whose value names it, through a synthetic token (a row's expression over
 tokens) that reads it, or through a slot or derive that may hold it (a slot whose initial
 value, or a value an action stores in it, names it). A value compared (`mode == "brand"`) is no
