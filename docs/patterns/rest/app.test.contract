@@ -1,10 +1,10 @@
 // Run by `test` or `verify`: the app's server, empty, for the whole run.
 test "an item is added for everyone, and another person's arrives on the next poll; a refusal and a lost server are said in words, in place; a locked one can't be deleted; who is signed in is kept"
-  expect text "items-empty" == "Nothing yet. Tap + to add the first item."
+  expect tree has "empty-add"
   tap "add-item"
   clock settle
-  tap "add-save"
-  expect text "add-error" == "Enter a title."
+  expect disabled "add-save"
+  expect text "add-hint" == "Enter a title to save."
   type "add-title" "Milk"
   type "add-notes" "Two litres"
   tap "add-save"

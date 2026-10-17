@@ -10,7 +10,7 @@
 // Compose as the platform does, and keep its detail route and add sheet when trimming: a row
 // pushes its detail, create and edit are sheets, a phone gets one column and a wide window two
 // (`responsive-columns`); not a form above one long list.
-use Badge from "exact:content"
+use Badge, EmptyState from "exact:content"
 
 routes nav
   items "/"
@@ -24,6 +24,8 @@ shape Item
   locked: bool
 
 shape Items
+  // True in every answer, so the first frame's placeholder is told from an empty list.
+  loaded: bool
   ok: bool
   error: string
   items: Item[]
@@ -42,7 +44,8 @@ fn titleOf(items: Item[], id: string): string = match first(items.filter(i => i.
 component App
   state draftTitle = ""
   state draftNotes = ""
-  state submitted = false
+  // The last Save's refusal, in red under the field until a Save succeeds.
+  state refusal = ""
   state persona = "ada" persist
   resource people = loadPeople() as shape Person[] else empty()
   resource lib = loadItems(persona) as shape Items else empty(ok=true)
@@ -54,8 +57,8 @@ component App
   derive removeError = match removed { case some(r) => r.error, case none => "" }
   // A failed poll keeps the last list, its reason above it; a refused delete says why there too.
   derive listError = pending(removed) ? "" : removeError != "" ? removeError : lib.error
-  // Said after the first Save, in red under the field; the next attempt clears it.
-  derive formError = not submitted ? "" : draftTitle.trim() == "" ? "Enter a title." : pending(added) ? "" : saveError
+  // Why Save is disabled, under the field (not red: nothing has been refused).
+  derive saveHint = pending(added) ? "Saving…" : draftTitle.trim() == "" ? "Enter a title to save." : ""
 
   task poll mount
     every(4000, pull)
@@ -67,7 +70,7 @@ component App
   action openAdd
     draftTitle = ""
     draftNotes = ""
-    submitted = false
+    refusal = ""
     nav = push(nav, "/add")
   action back
     nav = back(nav)
@@ -80,11 +83,11 @@ component App
   action editNotes(v: string)
     draftNotes = v
   action save
-    submitted = true
     if draftTitle.trim() != "" and not pending(added)
       send added = addItem(persona, draftTitle.trim(), draftNotes.trim())
   // The sheet closes only on an ok reply; a refusal keeps it open, saying why.
   action afterSave
+    refusal = saveError
     if saveError == "" and top(nav).name == "add"
       nav = back(nav)
   action setLock(on: bool)
@@ -110,26 +113,37 @@ component App
                 image "symbol:person"
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
-            list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-              // A failed poll or a refused delete, in red over the rows it is about.
-              if listError != ""
+            // In the list's place: the first load, a server that fails with nothing to show, no items.
+            if not lib.loaded
+              column flex=1 justify-content="center" align-items="center"
+                progress aria-label="Loading" testId="items-loading"
+            else if lib.items.length == 0 and lib.error != ""
+              EmptyState(symbol="symbol:alert", title="Can’t Load Items", message=lib.error)
+                button press=pull testId="retry"
+                  text "Try Again"
+            else if lib.items.length == 0
+              EmptyState(symbol="symbol:document", title="No Items", message="Items anyone adds appear here.")
+                button press=openAdd testId="empty-add"
+                  text "Add Item"
+            else
+              list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                // A failed poll or a refused delete, in red over the rows it is about.
+                if listError != ""
+                  section
+                    row
+                      text listError color="-exact-system-red" flex=1 min-width=0 testId="list-error"
                 section
-                  row
-                    text listError color="-exact-system-red" flex=1 min-width=0 testId="list-error"
-              section
-                // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
-                for it in lib.items key=it.id
-                  link href=path("item", it.id) testId=`item-${it.id}`
-                    column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
-                      text it.title
-                      if it.notes != ""
-                        text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
-                    // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
-                    if it.locked
-                      Badge(label="Locked", tint=none)
-                    image "symbol:forward-chevron"
-                footer
-                  text (lib.items.length == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
+                  // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
+                  for it in lib.items key=it.id
+                    link href=path("item", it.id) testId=`item-${it.id}`
+                      column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
+                        text it.title
+                        if it.notes != ""
+                          text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+                      // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                      if it.locked
+                        Badge(label="Locked", tint=none)
+                      image "symbol:forward-chevron"
         if e.name == "item"
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
             header display="flex" align-items="center" padding="8px 16px"
@@ -146,16 +160,19 @@ component App
                 text "Cancel"
               text "New Item" role="heading"
               button press=save buttonStyle="bordered-prominent" testId="add-save"
+                disabled=(draftTitle.trim() == "" or pending(added))
                 text "Save"
             list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                // The message sits in the field's row, under the field.
+                // Red is the server's refusal, in the field's row under the field; why Save is disabled is the footer.
                 row
                   column flex=1 min-width=0 gap=4
                     input value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
-                      autofocus=true enterkeyhint="next" testId="add-title"
-                    if formError != ""
-                      text formError font="-exact-footnote" color="-exact-system-red" testId="add-error"
+                      autofocus=true enterkeyhint="next" aria-invalid=(refusal != "") testId="add-title"
+                    if refusal != ""
+                      text refusal font="-exact-footnote" color="-exact-system-red" testId="add-error"
+                footer
+                  text saveHint testId="add-hint"
               section
                 header
                   text "Notes"

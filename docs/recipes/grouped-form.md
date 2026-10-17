@@ -1,7 +1,7 @@
 # Recipe: a grouped form
 
-A settings form: a grouped list with a text field, a quantity, a switch and a
-date picker, validated after the first Save.
+An entry or settings form: a grouped list with a text field, a quantity, a switch and
+a date picker. Save is disabled until the form is valid, saying why.
 
 ```contract
 routes nav
@@ -12,8 +12,8 @@ component Profile
   state qty = "1"
   state reminders = true
   state birthday = ""
-  state submitted = false
-  derive nameError = name.trim() == "" ? "Enter your name." : ""
+  state saved = false
+  derive nameHint = name.trim() == "" ? "Enter your name to save." : ""
   action editName(v: string)
     name = v
   action editQty(v: string)
@@ -23,7 +23,8 @@ component Profile
   action setBirthday(v: string)
     birthday = v
   action save
-    submitted = true
+    if nameHint == ""
+      saved = true
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
       for e in stack(nav) key=e.id
@@ -31,16 +32,15 @@ component Profile
           display="flex" flex-direction="column"
           header display="flex" align-items="center" padding="8px 16px"
             text "Profile" role="heading" aria-level=1 flex=1
-            button press=save buttonStyle="filled" testId="save"
+            button press=save buttonStyle="filled" disabled=(nameHint != "") testId="save"
               text "Save"
           list id="form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
               row
-                column flex=1 min-width=0 gap=4
-                  input value=name input=editName submit=save placeholder="Name" aria-label="Name"
-                    autocomplete="name" autocapitalize="words" aria-invalid=(submitted and nameError != "") testId="name"
-                  if submitted and nameError != ""
-                    text nameError font="-exact-footnote" color="-exact-system-red" testId="name-error"
+                input value=name input=editName submit=save placeholder="Name" aria-label="Name"
+                  autocomplete="name" autocapitalize="words" testId="name" flex=1 min-width=0
+              footer
+                text nameHint testId="name-hint"
             section
               row
                 text "Quantity"
@@ -54,14 +54,14 @@ component Profile
 ```
 
 ```contract-test
-test "an error shows after the first Save and clears when fixed"
-  expect tree missing "name-error"
-  type "name" key "Enter"
-  expect text "name-error" == "Enter your name."
+test "Save waits for a name, saying why; Enter saves"
+  expect disabled "save"
+  expect text "name-hint" == "Enter your name to save."
   type "name" "Ada"
-  tap "save"
-  expect tree missing "name-error"
-  expect state submitted == true
+  expect enabled "save"
+  expect text "name-hint" == ""
+  type "name" key "Enter"
+  expect state saved == true
 ```
 
 - Leave a field in a grouped row unsaid: each platform draws its own, as it does a switch, a
@@ -69,5 +69,6 @@ test "an error shows after the first Save and clears when fixed"
 - A quantity from 1 to 99 is `input type="number" min=1 max=99 step=1`: the platform draws its
   stepper; the field stays editable and its `value` is text (`parseNumber` it).
 - A `text` and a control in a row are a title and its accessory; any other is a flex row.
-  Show a validation derive only after the first Save, under the field in `-exact-system-red`
-  with `aria-invalid`; `submit=save` makes Enter save (no `form`).
+  Save is disabled until valid, the reason in the section's `footer`; red under a field is a
+  refusal the data sent back ([after-a-write](after-a-write.md)), kept until a Save succeeds.
+  `submit=save` makes Enter save (no `form`).

@@ -28,9 +28,9 @@ const sources: Sources = {
   loadPeople: async () => PEOPLE,
   loadItems: async ([persona]) => {
     const r = await call(persona, '/items');
-    if (!r.ok) return { ok: false, error: r.error, items: last };
+    if (!r.ok) return { loaded: true, ok: false, error: r.error, items: last };
     last = (r.body as Array<{ id: number; title: string; notes: string; locked: number }>).map((i) => ({ id: String(i.id), title: i.title, notes: i.notes, locked: i.locked === 1 }));
-    return { ok: true, error: '', items: last };
+    return { loaded: true, ok: true, error: '', items: last };
   },
   addItem: async ([persona, title, notes]) => reply(await call(persona, '/items', { method: 'POST', body: JSON.stringify({ title, notes }) })),
   lockItem: async ([persona, id, locked]) => reply(await call(persona, `/items/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ locked }) })),

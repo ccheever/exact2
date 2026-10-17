@@ -45,16 +45,14 @@ component App
   state title = ""
   state amountText = ""
   state category = "groceries"
-  state submitted = false
   derive today = formatDate(time.epochAtZero + now, time.utcOffset, "iso")
   resource summary = loadSummary(today.slice(0, 7)) as shape Summary else empty()
   mutation added as shape Reply queue refreshes summary
   derive left = summary.budget - summary.spent
   derive detail = left < 0 ? `${money(-left)} over budget` : `${money(left)} left of ${money(summary.budget)}`
   derive cost = cents(amountText)
-  // Said after the first Save, in red under the field.
-  derive titleError = submitted and title.trim() == "" ? "Enter a title." : ""
-  derive amountError = submitted and cost <= 0 ? "Enter an amount, like 12.50." : ""
+  // Why Save is disabled, under the fields: not red, since nothing has been refused.
+  derive saveHint = title.trim() == "" ? "Enter a title." : cost <= 0 ? "Enter an amount, like 12.50." : ""
   task tick mount
     every(60000, step)
   action step
@@ -65,7 +63,6 @@ component App
     title = ""
     amountText = ""
     category = "groceries"
-    submitted = false
     nav = push(nav, "/add")
   action back
     nav = back(nav)
@@ -80,7 +77,6 @@ component App
   // The day is read at the write, not from `today`, which can be a minute behind. A write that
   // may be refused closes the sheet in a `then` instead (`after-a-write`).
   action save
-    submitted = true
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
     if title.trim() != "" and cost > 0
@@ -109,12 +105,17 @@ component App
                       text "By Category" role="heading" aria-level=3
                       for c in summary.categories key=c.id
                         StatBar(label=c.name, value=`${money(c.spent)} of ${money(c.budget)}`, fraction=c.spent / c.budget, tint=(c.spent > c.budget ? some("-exact-system-red") : none))
+                // A failed read and an empty month each say so; while the first read is out, nothing.
                 column flex="1 1 320px" min-width=0
-                  if summary.recent.length == 0
+                  if failed(summary)
+                    EmptyState(symbol="symbol:alert", title="Can’t Load Spending", message="Something went wrong reading it.")
+                      button press=reload testId="retry"
+                        text "Try Again"
+                  else if summary.recent.length == 0 and not pending(summary)
                     EmptyState(symbol="symbol:chart", title="Nothing spent this month", message="Spending shows here by category as it comes in.")
                       button press=openAdd testId="empty-add"
                         text "Add Expense"
-                  else
+                  else if summary.recent.length > 0
                     column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="recent"
                       text "Recent" role="heading" aria-level=3
                       for x in summary.recent key=x.id
@@ -127,23 +128,18 @@ component App
               button id="back" press=back testId="add-cancel"
                 text "Cancel"
               text "New Expense" role="heading"
-              button press=save buttonStyle="bordered-prominent" testId="save"
+              button press=save buttonStyle="bordered-prominent" disabled=(saveHint != "") testId="save"
                 text "Save"
             list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                // A message sits in the field's row, under the field.
                 row
-                  column flex=1 min-width=0 gap=4
-                    input value=title input=editTitle placeholder="Title" aria-label="Title" autofocus=true
-                      enterkeyhint="next" aria-invalid=(titleError != "") testId="title"
-                    if titleError != ""
-                      text titleError font="-exact-footnote" color="-exact-system-red" testId="title-error"
+                  input value=title input=editTitle placeholder="Title" aria-label="Title" autofocus=true
+                    enterkeyhint="next" testId="title" flex=1 min-width=0
                 row
-                  column flex=1 min-width=0 gap=4
-                    input value=amountText input=editAmount submit=save inputmode="decimal" placeholder="Amount, like 12.50"
-                      aria-label="Amount" aria-invalid=(amountError != "") testId="amount"
-                    if amountError != ""
-                      text amountError font="-exact-footnote" color="-exact-system-red" testId="amount-error"
+                  input value=amountText input=editAmount submit=save inputmode="decimal" placeholder="Amount, like 12.50"
+                    aria-label="Amount" aria-invalid=(amountText != "" and cost <= 0) testId="amount" flex=1 min-width=0
+                footer
+                  text saveHint testId="save-hint"
               section
                 row
                   text "Category"
