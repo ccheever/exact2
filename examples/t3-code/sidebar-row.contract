@@ -307,7 +307,7 @@ component SidebarTip
 // each with its reference tooltip. A press on Snooze or Settle (and the slim rows'
 // Wake and Un-settle) closes its tooltip at once, as Base UI's tooltips close on press:
 // the window's `sidebarPressDown` moves
-// the card and tips away and forwards outside-press dismissal. The row keeps its hover and the press its gesture.
+// the card and tips away. The row keeps its hover and the press its gesture.
 component SidebarCardActions
   props
     t: Thread

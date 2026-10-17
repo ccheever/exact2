@@ -18,7 +18,6 @@ import type { Native } from './protocol';
 import { buildFileReviewComment, formatFileCommentRange, normalizeFileCommentRange, remapFileCommentAnnotations, reviewCommentContextRecord, type SelectedLineRange } from './diff-comments';
 import { dragTo, pressGutter, pressLine, releaseDrag, type FileSelection, type LineDrag, type RowIndex } from './diff-line-drag';
 import { addReviewCommentChip, localId, removeReviewCommentChip } from './composer-editor';
-import { closeChipFromPress } from './composer-chip-popover';
 
 type Range = { start: number; end: number };
 type Saved = { contextId: string; path: string; startLine: number; endLine: number; text: string };
@@ -122,18 +121,15 @@ function openDraft(state: FileComments, path: string, range: Range, panel: strin
 
 /**
  * `shelllocal:surface-files-comment-*`: the gutter's `drag` / `drag-shift` / `gutter` (a press on a number, with Shift, on
- * the "+"; value = the line), `to` (value = the row id under the pointer), `end` (the release) and `press` (a primary press
- * while the gutter is off); `begin` (the "+"'s or a number's press with no pointer gesture: a keyboard or accessibility
+ * the "+"; value = the line), `to` (value = the row id under the pointer), `end` (the release); `begin` (the "+"'s or a number's press with no pointer gesture: a keyboard or accessibility
  * press; value = the line), `cancel`, `save` (value = the text), `delete` (value = the context id), and the draft textarea's
  * `focus` / `blur` (`panel` = its panel key).
  */
 export async function fileComment(client: T3Client, native: Native, op: string, path: string, value: string, contents: string, panel = ''): Promise<string> {
   const state = stateOf(client), line = Number(value) || 0;
   if (op === 'focus' || op === 'blur') { state.focus = op === 'focus' && state.draft?.path === path ? panel : ''; return ''; }
-  if (op === 'drag' || op === 'drag-shift' || op === 'gutter' || op === 'press') {
-    // A press on the gutter is an outside press for a skill chip's details, which the window's root never hears.
-    if (op !== 'press' && !state.draft && line > 0) take(state, op === 'gutter' ? pressGutter(selectionOf(state), path, { line, side: 'additions' }, ROW) : pressLine(selectionOf(state), path, { line, side: 'additions' }, op === 'drag-shift', ROW));
-    await closeChipFromPress(native);
+  if (op === 'drag' || op === 'drag-shift' || op === 'gutter') {
+    if (!state.draft && line > 0) take(state, op === 'gutter' ? pressGutter(selectionOf(state), path, { line, side: 'additions' }, ROW) : pressLine(selectionOf(state), path, { line, side: 'additions' }, op === 'drag-shift', ROW));
     return '';
   }
   if (op === 'to') {

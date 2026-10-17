@@ -357,16 +357,14 @@ component T3Window
     citeQuote = (citeShown ? chip.quote : "")
     citeAt = (citeShown ? chip.at : -1)
     citeOpen = citeShown
-    // The answer whose Cite shows (markdown.contract AnswerMarkdown), its offer, its withdrawal, the
-    // timeline's scroll (ChatColumn), and the window's press handlers, which a press on an answer's text reaches through it.
+    // The answer whose Cite shows (markdown.contract AnswerMarkdown), its offer, its withdrawal, and the
+    // timeline's scroll (ChatColumn).
     citeOffered = (citeShows ? citeFor : "")
     citeOfferSet
     citeWithdraw
     citeHold
     citeHolding = (citeWaits > citeWaitDone)
     citeScrolled
-    outsidePressDown
-    outsidePressUp
     // The dialogs the focus has entered since they opened: each is `aria-modal` only from then (dialog-trap.contract).
     dialogSeated
   // Dialogs snapshot the actual focus before their first focusin. A pointer-opened Mac button does not take focus.
@@ -476,19 +474,13 @@ component T3Window
       if chip.kind == "citation"
         citeSettle()
       else
-        // Keep the two writes here: calling another window action repeats every capture in picker pointerdowns.
-        chipClosed = chip.seq
-        editorOp("chip-close", `${chip.seq}`, "")
+        chipClose(false)
     // The thread details popover in the chat column closes on a primary press
     // outside it, as Base UI's outside press. Its backdrop takes the column's presses and the terminal drawer's under it,
     // the floating player its own (detailsPlayerPointer); a press beside the column (the sidebar, the right panel) closes
-    // it here. Over a right panel sheet the popover is the window's, whose backdrop takes every press. detailsAct's
-    // "dismiss" is written out (its two writes, then the root's half): the floating theme editor's pickers call this
-    // action as a prop, where each call of a window action carries the window's captures (about 140 statements), and
-    // one more such call took their pointerdowns past the compiler's 1,024 (`syntax-call-size`, int-1012b).
+    // it here. Over a right panel sheet the popover is the window's, whose backdrop takes every press.
     if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)
-      titleMenuOpen = false
-      detailsActRoot("dismiss", "", "")
+      detailsAct("dismiss", "", "")
   // The floating player lies above the popover's backdrop: a primary press on it (its pill buttons, its screen, its resize
   // edges) is outside the popover and closes it (ChatColumn's players' pointerdown and pointerup). It closes as the press
   // ends, so the press lands where it went down: a popover leaving between the button's down and up lost a pill button's
@@ -801,11 +793,9 @@ component T3Window
     else if not over and id == sidebarHoverHeld
       sidebarHoverHeld = ""
     sidebarHoverRoot(back ? row : id, over or back)
-  // A control takes pointerdown from the window. Keep outside-press dismissal for Usage and chat popovers.
-  action sidebarPressDown(e: PointerEvent)
+  action sidebarPressDown
     sidebarHoverSeq = sidebarHoverSeq + 1
     sidebarHoverY = -10000
-    outsidePressDown(e)
   action sidebarDrag(id: string, section: string, dx: number, dy: number)
     if section != "working" and data.sidebar.dragEnabled and not commandPending
       if dragId != id
@@ -863,7 +853,7 @@ component T3Window
         // reference's settings route: leaving it forgets an open search, an "Add custom model" field, the legacy rows.
         if settingsOpen
           SettingsWindow(settingsOpen=settingsOpen, themeInspecting=(themeInspecting and settingsCore.editor.open), settingsCore=settingsCore, connecting=connecting, connectionRemove=connectionRemove, settingsThemeDialog=settingsThemeDialog, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, scheme=scheme, settingsMenu=settingsMenu, modelsOpen=modelsOpen, providerVisit=providerVisit, paletteOpen=paletteOpen, chipOpen=chipShown, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, keySidebar=settings.keySidebar, commandPending=commandPending, settingsScrollTop=settingsScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, keybindingHeld=holdKeybindingField, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, editSettingsQueryRoot=editSettingsQuery, coreSearchKeyRoot=coreSearchKey, coreNavigateRoot=coreNavigate, corePickRoot=corePick, settingsCommand=settingsCommand, resizeSidebar=resizeSidebar, finishResize=finishResize, resetSidebarWidth=resetSidebarWidth)
-        ThemeEditorHost(inspecting=themeInspecting, inspectSet=setThemeInspecting, reveal=themeRevealRequest, usage=themeUsage, kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, live=coreThemeLive, save=coreThemeChange("theme-editor-save", ""), outsideDown=outsidePressDown, outsideUp=outsidePressUp, outsideFocus=outsideFocus)
+        ThemeEditorHost(inspecting=themeInspecting, inspectSet=setThemeInspecting, reveal=themeRevealRequest, usage=themeUsage, kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, live=coreThemeLive, save=coreThemeChange("theme-editor-save", ""), outsideFocus=outsideFocus)
         WelcomeLayer(welcome=welcome, viewport=viewport, scheme=scheme, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish, providerOp=providerOp, setupBusy=providerAuthPending)
         ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=command, settings=openSettings, copy=prCopy, confirm=titleMenuPick)
         ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, restOpen=restOpen, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, scheme=scheme, sbSet=sbSet, taskBase=taskBaseRoot, cardScripts=(details.scriptName != ""))

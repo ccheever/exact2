@@ -18,7 +18,6 @@ import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, format
 import { openCitationComment, rememberCitedStart } from './citation-comment';
 import { pushToast } from './toast';
 import { letGo } from './let-go';
-import { closeChipFromPress } from './composer-chip-popover';
 
 /** After a preview answers: read the per-file patches it asked for (the first four, then whatever was requested since). */
 export async function loadDiffFiles(client: T3Client, native: Native): Promise<void> {
@@ -81,10 +80,6 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     return '';
   }
   if (action === 'to' || action === 'end') return lineDrag(client, state, scope, action, value);
-  // A primary press on the gutter (`press`: one that starts no drag, while a draft is open or on an empty side) is an outside
-  // press for a skill chip's details, which the window's root never hears.
-  if (action === 'press' || action === 'drag' || action === 'gutter') await closeChipFromPress(native);
-  if (action === 'press') return '';
   if (state.draft && ['comment', 'drag', 'gutter'].includes(action)) return ''; // an open draft holds the gutter (enableLineSelection: false)
   if (action === 'drag' || action === 'gutter') {
     // A press on a line number or the "+" starts the gutter's drag (diff-line-drag.ts).
