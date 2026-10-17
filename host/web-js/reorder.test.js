@@ -1,4 +1,16 @@
 import { test, expect, mock } from 'bun:test';
+import { arrangeController } from '../web/motion-glue.js';
+
+test('idle Arrange reconciliation and reset tolerate a collection controller that has not loaded', () => {
+  let controller = null;
+  const collections = new Proxy({}, { get: (_, key) => controller?.[key] });
+  const arrange = arrangeController({ views: new Map(), collections });
+  expect(() => arrange.commit()).not.toThrow();
+  expect(() => arrange.reset()).not.toThrow();
+  controller = { reporting: () => false };
+  expect(() => arrange.commit()).not.toThrow();
+  expect(() => arrange.reset()).not.toThrow();
+});
 
 const clock = { now: 0, timers: [] };
 mock.module('./rt.js', () => ({ clock, journal: [], commit: action => action(), every(ms, action) { clock.timers.push({ due: clock.now + ms, action }); } }));
