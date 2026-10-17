@@ -244,6 +244,10 @@ pub fn default(row: StyleId) -> Option<&'static str> {
         .iter()
         .find(|(field, _)| *field == row.name())
         .map(|(_, default)| *default)?;
+    // An unset pressed colour paints nothing over the node's own (LLP 1061 D7).
+    if matches!(row, StyleId::PressBackgroundColor | StyleId::PressColor) {
+        return Some("none (the node's own)");
+    }
     let colour = matches!(row.codec(), StyleCodec::ColorValue | StyleCodec::Rgba8);
     Some(if colour && default == "0" {
         "transparent"
