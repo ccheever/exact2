@@ -68,7 +68,7 @@ shape ThreadRow
   streaming: bool
   attribution: string
   intent: string
-  copied: bool
+  copyConfiguration: string
   expanded: bool
   toggleOp: string
   toggleId: string

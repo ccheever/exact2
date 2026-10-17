@@ -821,16 +821,17 @@ async function threadView(args: unknown[], native?: Native | null) {
   const inputObservation = mobilePendingInputObserveRoute(mobileClient, inputRoute);
   mobileThreadForkObserveRoute(mobileClient, str(visit), active === true && routeName === 'thread'
     && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId);
-  const queued = mobileOutboxThread(active === true ? str(environmentId) : '', active === true ? str(threadId) : '', Number(time), scheme === 'dark');
   const matched = active === true && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId;
+  const feedVisit = matched && ['thread', 'threadFiles'].includes(str(routeName)) ? str(visit) : '';
+  const queued = mobileOutboxThread(active === true ? str(environmentId) : '', active === true ? str(threadId) : '', Number(time), scheme === 'dark', mobileClient, feedVisit);
   if (queued && !matched) return queued;
   if (matched) await mobileThreadPrepare(native, Number(time));
   if (!mobilePendingInputRouteCurrent(mobileClient, inputObservation)) throw new ClientError('This thread read was superseded.', 'superseded');
   if (queued) {
-    const preparing = mobileOutboxThread(str(environmentId), str(threadId), Number(time), scheme === 'dark');
+    const preparing = mobileOutboxThread(str(environmentId), str(threadId), Number(time), scheme === 'dark', mobileClient, feedVisit);
     if (preparing) return preparing;
   }
-  const view = mobileThread(Number(time), scheme === 'dark', mobileClient, matched && routeName === 'thread' ? str(visit) : '', matched, { context: str(htmlContext),
+  const view = mobileThread(Number(time), scheme === 'dark', mobileClient, feedVisit, matched, { context: str(htmlContext),
     width: Number(contentWidth) || 0, theme: mobileHtmlRenderTheme(str(scheme), str(themeId)), iconColor: mobileThreadColors(str(scheme), str(themeId)).iconSubtle });
   const pendingInput = mobilePendingInput(mobileClient, inputRoute, str(scheme), str(themeId), inputObservation);
   if (matched) return { ...view, pendingInput };

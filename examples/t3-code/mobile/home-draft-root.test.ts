@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { answer } from './app';
 import { mobileClient } from './client';
 import { MobileDraftClient } from './mobile-draft-recovery';
@@ -137,4 +138,112 @@ test('actual inactive and mismatched thread queries preserve scalar metadata wit
     expect(row.body).toBe(body); expect(arr(row.blocks).find(block => block.kind === 'code')!.text).toBe(text.replace(/\n$/, ''));
     expect(mobileClient.thread).toBe(canonical); expect(obj(visible.composer).draft).toBe('  ');
   } finally { Object.assign(mobileClient, prior); }
+});
+
+test('actual preparing and ordinary thread sources bind Copy to the current feed visit', () => {
+  // These singleton and WeakMap owners have no exact restore API.
+  const result = spawnSync(process.execPath, ['--eval', String.raw`
+    import assert from 'node:assert/strict';
+    import { answer } from './app.ts';
+    import { mobileClient } from './client.ts';
+    import { MobileDraftClient } from './mobile-draft-recovery.ts';
+    import { mobileOutboxRead, mobileOutboxSnapshot } from './mobile-outbox.ts';
+    import { mobileOutboxThread } from './mobile-outbox-presentation.ts';
+
+    let checks = 0, scenarios = 0, nativeReads = 0, bodyReads = 0;
+    const failures = [];
+    const check = (name, actual, expected) => {
+      checks++;
+      try { assert.deepStrictEqual(actual, expected); }
+      catch (error) { failures.push(name + ': ' + error.message); }
+    };
+    const scenario = async (name, run) => {
+      scenarios++;
+      try { await run(); }
+      catch (error) { failures.push(name + ': ' + error.stack); }
+    };
+    const now = Date.parse('2026-10-17T12:00:00Z');
+    const environment = 'copy-root-env', thread = 'copy-root-thread', project = 'copy-root-project';
+    const raw = 'Canonical server prompt\n漢字 🛠';
+    const record = { schemaVersion: 1, origin: 'https://copy-root.invalid', environmentId: environment,
+      threadId: thread, messageId: 'copy-root-message', commandId: 'copy-root-command', text: 'Queued prompt', attachments: [],
+      creation: { projectId: project, workspaceMode: 'local', branch: 'main', worktreePath: null },
+      createdAt: new Date(now - 1000).toISOString() };
+    Object.assign(mobileClient, new MobileDraftClient(), { origin: record.origin, environmentId: environment,
+      threadId: thread, projectId: project, generation: 7, threadEpoch: 11 });
+    const native = { available: true, watch() { throw new Error('No watch'); }, async later(request) {
+      assert.equal(request.op, 'mobileOutbox'); assert.equal(request.action, 'read'); nativeReads++;
+      return { ok: true, generation: 7, value: { ownerEpoch: 'copy-root-epoch', sequenceFloor: 1, complete: true,
+        errors: [], records: [{ record, revision: 1, token: 'copy-root-epoch:1', held: false, pending: false }],
+        revisions: { [record.messageId]: 1 }, tokens: { [record.messageId]: 'copy-root-epoch:1' },
+        outcomes: [], mutations: [], transfers: [] } };
+    } };
+    assert.equal(await mobileOutboxRead(mobileClient, native), true);
+    const outboxBefore = mobileOutboxSnapshot(mobileClient);
+    const item = { id: 'copy-root-item', type: 'user_message', threadId: thread, runId: null, ordinal: 1,
+      messageId: record.messageId, status: 'completed', createdBy: 'user', attachments: [],
+      get text() { bodyReads++; return raw; } };
+    mobileClient.shell.threads = [{ id: thread }];
+    mobileClient.thread = { sequence: 1, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null,
+      projection: { thread: { id: thread, projectId: project, title: 'Canonical title' },
+        messages: [{ id: record.messageId }], runs: [], attempts: [], nodes: [], checkpoints: [],
+        visibleTurnItems: [{ position: 0, visibility: 'local', sourceThreadId: thread, sourceItemId: item.id, item }] } };
+    const view = (route, visit, active = true, env = environment, id = thread) => answer('threadView',
+      [0, now, 'light', env, id, active, visit, route, '', 360, 't3-code',
+        '/threads/' + env + '/' + id + (route === 'threadFiles' ? '/files' : '')]);
+    const configuration = visit => ({ id: JSON.stringify([thread, item.id]), text: raw, owner: {
+      origin: record.origin, environment, generation: mobileClient.generation, project,
+      thread, epoch: mobileClient.threadEpoch, route: visit, sourceThread: thread, sourceItem: item.id } });
+    try {
+      for (const route of ['thread', 'threadFiles']) {
+        await scenario('preparing ' + route, async () => {
+          mobileClient.thread.projection.messages = [{ id: record.messageId }];
+          const visit = 'preparing|' + route + ':one/漢字', result = await view(route, visit);
+          check(route + ' preparing', result.queued, true);
+          check(route + ' acknowledged rows', result.rows.map(row => row.kind), ['user']);
+          check(route + ' acknowledged binding', JSON.parse(result.rows[0].copyConfiguration), configuration(visit));
+        });
+        await scenario('mixed ' + route, async () => {
+          mobileClient.thread.projection.messages = [];
+          const visit = 'preparing|' + route + ':two/漢字', result = await view(route, visit);
+          check(route + ' mixed preparing', result.queued, true);
+          check(route + ' mixed binding', JSON.parse(result.rows[0].copyConfiguration), configuration(visit));
+          check(route + ' pending Copy absent', result.rows.map(row => [row.kind, row.copyConfiguration === '', row.first, row.last]),
+            [['user', false, true, false], ['pending', true, false, true]]);
+        });
+      }
+      mobileClient.generation = 8; mobileClient.threadEpoch = 12;
+      mobileClient.thread.projection.messages = [{ id: record.messageId }];
+      mobileClient.thread.projection.runs = [{ id: 'copy-root-run', status: 'completed' }];
+      for (const route of ['thread', 'threadFiles']) await scenario('ordinary ' + route, async () => {
+        const visit = 'ordinary|' + route + ':new/漢字', result = await view(route, visit);
+        check(route + ' handoff completed', result.queued, false);
+        check(route + ' ordinary rows', result.rows.map(row => row.kind), ['user']);
+        check(route + ' ordinary binding', JSON.parse(result.rows[0].copyConfiguration), configuration(visit));
+        check(route + ' owner counters unchanged', [mobileClient.generation, mobileClient.threadEpoch], [8, 12]);
+      });
+      for (const [name, active, env, id] of [['inactive', false, environment, thread],
+        ['foreign environment', true, 'other-env', thread], ['foreign thread', true, environment, 'other-thread']]) {
+        await scenario(name, async () => {
+          const before = bodyReads, result = await view('thread', name, active, env, id);
+          check(name + ' rows absent', result.rows, []);
+          check(name + ' retained text untouched', bodyReads, before);
+        });
+      }
+      await scenario('unselected pending creation', async () => {
+        mobileClient.threadId = 'other-selected-thread';
+        const before = bodyReads, result = await view('thread', 'pending|foreign:visit');
+        check('unselected creation retained', result.queued, true);
+        check('unselected pending Copy absent', result.rows.map(row => [row.kind, row.copyConfiguration]), [['pending', '']]);
+        check('unselected retained text untouched', bodyReads, before);
+      });
+      check('outbox projection unchanged', mobileOutboxSnapshot(mobileClient), outboxBefore);
+      check('only fixture inventory read', nativeReads, 1);
+    } finally { mobileOutboxThread('', '', now, false, mobileClient); }
+    console.log(JSON.stringify({ checks, scenarios, nativeReads, failures }));
+    process.exitCode = failures.length ? 1 : 0;
+  `], { cwd: import.meta.dir, encoding: 'utf8', timeout: 15_000 });
+  expect({ error: result.error?.message ?? '', status: result.status, signal: result.signal, stderr: result.stderr })
+    .toEqual({ error: '', status: 0, signal: null, stderr: '' });
+  expect(JSON.parse(result.stdout.trim())).toEqual({ checks: 31, scenarios: 10, nativeReads: 1, failures: [] });
 });

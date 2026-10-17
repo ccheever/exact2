@@ -9,6 +9,10 @@ import { mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadBlock
 import { mobileCodeTokens } from './thread-highlight';
 import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
 import { htmlRenderFileName, htmlRenderFrameHeight, htmlRenderFromToolItem, htmlRenderReferencesEqual, readHtmlRenderReference } from './html-render';
+import { mobileMessageCopyCommand } from './client';
+import { letGoAware } from './shared/let-go';
+import { timelineView } from './shared/timeline-presentation';
+import type { Files } from './shared/protocol';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
 const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
@@ -30,6 +34,108 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
     visibleTurnItems: items.map((value, position) => ({ position, visibility: 'local', sourceThreadId: 't1', sourceItemId: value.id, item: value })) } };
   return client;
 }
+
+describe('ordinary message Copy command and native configuration', () => {
+  function copyFixture(text: string, type = 'user_message', mode = 'success') {
+    const entry = item('copy', type, { text, markdown: text, messageId: 'copy-message', streaming: false });
+    const client = fixture([entry]); client.origin = 'https://copy.invalid'; client.generation = 3;
+    const calls: Obj[] = [], writes: unknown[] = [];
+    const storage: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); },
+      async atomicWriteFile(_path, bytes) { writes.push(JSON.parse(new TextDecoder().decode(bytes))); if (mode === 'save-error') throw new Error('disk full'); } } };
+    const native: Native = { available: true, watch() {}, async later(input) {
+      const request = input as Obj; calls.push(request);
+      if (request.op === 'devicePresentation') return { ok: true, generation: 3, value: {} };
+      if (request.op !== 'copyText') throw new Error(`Unexpected native operation ${String(request.op)}`);
+      if (mode === 'let-go') throw { name: 'FetchError', kind: 'Aborted', message: 'The answer was let go.' };
+      if (mode === 'rejected') return { ok: false, generation: 3, error: { kind: 'clipboard', message: 'Clipboard denied', uncertain: false } };
+      if (mode === 'generation') client.generation = 4;
+      return { ok: true, generation: 3, value: { copied: mode !== 'agent' } };
+    } };
+    const id = JSON.stringify(['t1', 'copy']);
+    return { client, calls, writes, storage, native: letGoAware(native), id,
+      run: (stamp = 'opaque-instance-and-attempt') => mobileMessageCopyCommand(client, id, stamp, now, letGoAware(native), storage) };
+  }
+
+  for (const [label, text, accepted] of [
+    ['empty', '', false], ['whitespace', ' \n\t', true], ['exact limit', 'a'.repeat(1_000_000), true],
+    ['over limit', 'a'.repeat(1_000_001), false], ['surrogate limit', '😀'.repeat(500_000), true],
+    ['surrogate over limit', '😀'.repeat(500_000) + 'a', false],
+  ] as const) test(`keeps actual UTF-16 Copy validation at ${label}`, async () => {
+    const f = copyFixture(text), result = await f.run();
+    const copies = f.calls.filter(row => row.op === 'copyText');
+    expect(result.message).toBe(accepted ? '' : 'That message is no longer available.');
+    expect(copies.length).toBe(accepted ? 1 : 0);
+    if (accepted) expect(copies[0]).toEqual({ op: 'copyText', text, generation: 3,
+      messageCopyStamp: 'opaque-instance-and-attempt', messageCopyId: f.id });
+    expect(f.writes.length).toBe(accepted ? 1 : 0);
+    expect(f.calls.filter(row => row.op !== 'copyText')).toEqual([expect.objectContaining({ op: 'devicePresentation' })]);
+  });
+
+  for (const type of ['user_message', 'assistant_message', 'proposed_plan']) test(`preserves raw ${type} payload and structured owner`, async () => {
+    const raw = '# Raw\n```ts\nconst x = 1\n```', f = copyFixture(raw, type);
+    const row = mobileThreadRows(f.client, now, false, 'visit|one')[0]!;
+    expect(JSON.parse(row.copyConfiguration)).toEqual({ id: f.id, text: raw, owner: {
+      origin: 'https://copy.invalid', environment: 'env', generation: 3, project: 'p1', thread: 't1', epoch: 0,
+      route: 'visit|one', sourceThread: 't1', sourceItem: 'copy' } });
+    if (type === 'proposed_plan') expect(row.showMeta).toBe(false);
+    expect((await f.run()).message).toBe('');
+    expect(f.calls.find(row => row.op === 'copyText')?.text).toBe(raw);
+    expect(timelineView(f.client).copies.get(f.id)).toMatchObject({ nonce: 1, ok: true });
+    expect(f.writes[0]).toMatchObject({ selections: { env: { projectId: 'p1', threadId: 't1' } } });
+  });
+
+  for (const [mode, message] of [['rejected', 'Clipboard denied'], ['agent', 'Copied message'],
+    ['generation', 'The connection changed. Refresh before continuing.'], ['let-go', '']] as const)
+    test(`preserves ${mode} result without confirmed-write success suppression`, async () => {
+      const f = copyFixture('body', 'user_message', mode), result = await f.run();
+      expect(result.message).toBe(message);
+      expect(f.calls.filter(row => row.op === 'copyText')).toHaveLength(1);
+      expect(f.writes).toHaveLength(mode === 'agent' ? 1 : 0);
+      if (mode === 'rejected' || mode === 'generation') {
+        expect(f.client.error).toBe(message); expect(timelineView(f.client).copies.get(f.id)?.ok).toBe(false);
+      }
+      if (mode === 'let-go') expect(timelineView(f.client).copies.has(f.id)).toBe(false);
+    });
+
+  test('retains save failure after a confirmed clipboard write', async () => {
+    const f = copyFixture('body', 'user_message', 'save-error');
+    expect((await f.run()).message).toBe('');
+    expect(f.client.error).toBe('Could not save local drafts and preferences. Keep a copy before closing.');
+    expect(f.writes).toHaveLength(1);
+    expect(timelineView(f.client).copies.get(f.id)?.ok).toBe(true);
+  });
+
+  test('keeps invocation stamps independent across held, out-of-order command answers', async () => {
+    const f = copyFixture('body'), entered = new Set<string>();
+    const releases = new Map<string, (value: unknown) => void>();
+    const entries = new Map<string, () => void>();
+    const wait = (stamp: string) => new Promise<void>(resolve => { if (entered.has(stamp)) resolve(); else entries.set(stamp, resolve); });
+    const native: Native = { available: true, watch() {}, async later(input) {
+      const request = input as Obj; f.calls.push(request);
+      if (request.op === 'devicePresentation') return { ok: true, generation: 3, value: {} };
+      if (request.op !== 'copyText') throw new Error('Unexpected operation');
+      const stamp = String(request.messageCopyStamp); entered.add(stamp); entries.get(stamp)?.();
+      return new Promise(resolve => releases.set(stamp, resolve));
+    } };
+    const first = mobileMessageCopyCommand(f.client, f.id, 'one', now, native, f.storage);
+    await wait('one');
+    const second = mobileMessageCopyCommand(f.client, f.id, 'two', now, native, f.storage);
+    await wait('two'); releases.get('two')!({ ok: true, generation: 3, value: { copied: true } });
+    expect((await second).message).toBe('');
+    releases.get('one')!({ ok: false, generation: 3, error: { kind: 'clipboard', message: 'First denied', uncertain: false } });
+    expect((await first).message).toBe('First denied');
+    expect(f.calls.filter(row => row.op === 'copyText').map(row => row.messageCopyStamp)).toEqual(['one', 'two']);
+    expect(f.calls.filter(row => row.op !== 'copyText').map(row => row.op)).toEqual(['devicePresentation', 'devicePresentation']);
+  });
+
+  test('untagged ordinary and code Copy retain their command results and request shape', async () => {
+    const f = copyFixture('body');
+    expect((await f.client.command('chatlocal:copy', f.id, '', now, f.native, f.storage)).message).toBe('Copied message');
+    expect((await f.client.command('chatlocal:copy-code', 'code', 'raw code', now, f.native, f.storage)).message).toBe('Copied code');
+    expect(f.calls.filter(row => row.op === 'copyText')).toEqual([
+      { op: 'copyText', text: 'body', generation: 3 }, { op: 'copyText', text: 'raw code', generation: 3 }]);
+  });
+});
 
 describe('mobile V2 transcript presentation', () => {
   const commentary = (id: string, text: string, seconds: number, extra: Obj = {}) => item(id, 'assistant_message',

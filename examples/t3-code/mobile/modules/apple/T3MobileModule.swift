@@ -43,6 +43,9 @@ final class T3MobileModule: ExactModule {
         "t3-work-row": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.workLog.makeRow(props: props, events: events)
         },
+        "t3-message-copy": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.messageCopy.makeView(props: props, events: events)
+        },
         "t3-work-failure": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.workLog.makeFailure(props: props, events: events)
         },
@@ -104,6 +107,7 @@ final class T3MobileModule: ExactModule {
     private let threadHeader = T3MobileThreadHeader()
     private let documentMenus = T3MobileDocumentMenus()
     private let workLog = T3MobileWorkLog()
+    private let messageCopy = T3MobileMessageCopy()
     private let sheets = T3MobileSheets()
     private let reviewViewport = T3MobileReviewViewport()
     private let inspectorChrome = T3MobileInspector()
@@ -185,6 +189,7 @@ final class T3MobileModule: ExactModule {
         threadHeader.configure(route)
         documentMenus.configure(route)
         workLog.configure(route)
+        messageCopy.configure(route)
         terminal.menus.configure(route)
         inspectorChrome.configure(route)
         keyboard.configure(route)
@@ -211,7 +216,7 @@ final class T3MobileModule: ExactModule {
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
-    override func routeEnded(_ route: ExactRoute) { media.end(route); keyboard.end(route); archiveChrome.end(route); modelSearch.end(route); homeSwipes.end(route); sheets.end(route); threadHeader.end(route); documentMenus.end(route); workLog.end(route); terminal.menus.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
+    override func routeEnded(_ route: ExactRoute) { media.end(route); keyboard.end(route); archiveChrome.end(route); modelSearch.end(route); homeSwipes.end(route); sheets.end(route); threadHeader.end(route); documentMenus.end(route); workLog.end(route); messageCopy.end(route); terminal.menus.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
     override func window(_ window: ExactWindow) { keyboard.configureWindow(window) }
     override func windowEnded(_ window: ExactWindow) { keyboard.endWindow(window) }
 
@@ -569,6 +574,17 @@ final class T3MobileModule: ExactModule {
             }
         case "copyText":
             guard let text = request["text"] as? String else { reply.fail("copyText requires text."); return }
+            if request["messageCopyStamp"] != nil {
+                guard let stamp = request["messageCopyStamp"] as? String,
+                      let id = request["messageCopyId"] as? String,
+                      let delivery = messageCopy.consume(stamp: stamp, id: id, text: text, generation: generation) else {
+                    reply.send(["ok": false, "generation": generation, "error": ["kind": "superseded",
+                        "message": "The message Copy button changed.", "uncertain": false]])
+                    return
+                }
+                if !context.agent { UIPasteboard.general.string = text; delivery.view.didCopy(revision: delivery.revision) }
+                answer(["copied": !context.agent]); return
+            }
             if !context.agent { UIPasteboard.general.string = text }
             answer(["copied": !context.agent])
         default:
@@ -624,6 +640,7 @@ final class T3MobileModule: ExactModule {
         threadHeader.destroy()
         documentMenus.destroy()
         workLog.destroy()
+        messageCopy.destroy()
         reviewViewport.destroy()
         workspace.destroy(); inspectorChrome.destroy()
         modelSearch.destroy()
