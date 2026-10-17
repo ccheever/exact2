@@ -683,10 +683,11 @@ fn the_sheets_text_follows_the_root_font_size() {
 /// field is 8rem at the far edge, and where both do not fit (iOS's
 /// accessibility sizes) the row wraps the field under the label, as large
 /// as the line, rather than squeezing the label to nothing. An author's
-/// `flex=1` title keeps its line at the default sizes.
+/// `flex=1` title keeps its line at the default sizes. A date and a menu
+/// (LLP 1116.020 D4) keep their own width.
 #[test]
 fn a_field_goes_under_its_label_when_both_do_not_fit() {
-    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"qty-row\"\n      text \"Quantity\" testId=\"qty-label\"\n      input type=\"number\" value=\"25\" min=1 max=99 step=1 testId=\"qty\"\n    row\n      text \"Focus minutes\" flex=1 testId=\"focus-label\"\n      input value=\"25\" testId=\"focus\"\n    row\n      text \"Birthday\" testId=\"date-label\"\n      input type=\"date\" value=\"2026-10-16\" testId=\"date\"";
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"qty-row\"\n      text \"Quantity\" testId=\"qty-label\"\n      input type=\"number\" value=\"25\" min=1 max=99 step=1 testId=\"qty\"\n    row\n      text \"Focus minutes\" flex=1 testId=\"focus-label\"\n      input value=\"25\" testId=\"focus\"\n    row\n      text \"Birthday\" testId=\"date-label\"\n      input type=\"date\" value=\"2026-10-16\" testId=\"date\"\n    row testId=\"menu-row\"\n      text \"Category\" testId=\"menu-label\"\n      select value=\"Groceries\" testId=\"menu\"\n        option \"Groceries and household\" value=\"Groceries\"";
     for (root, wraps) in [(13.0f32, false), (16.0, false), (17.0, false), (53.0, true)] {
         let mut r = boot(body);
         r.set_root_font_size(root.into()).unwrap();
@@ -711,11 +712,22 @@ fn a_field_goes_under_its_label_when_both_do_not_fit() {
                 assert!(l.height < 1.5 * root * 1.3, "{root}: {label} on one line");
             }
         }
-        let (l, f) = (frame("date-label"), frame("date"));
-        assert!(
-            l.x + l.width <= f.x || f.y >= l.y + l.height,
-            "{root}: the date does not overlap its label"
+        // LLP 1116.020 D4: a menu's value is a picker as the date is. Its width is the host's (a pop-up button), so the
+        // row's wrap is what says it goes under its label where both do not fit.
+        let row = k.node(id(&r, "menu-row")).unwrap();
+        assert_eq!(
+            row.computed_style(StyleMask::ALL).flex_wrap,
+            exact_kernel::FlexWrap::Wrap,
+            "{root}: a menu's row wraps"
         );
+        for (label, field) in [("date-label", "date"), ("menu-label", "menu")] {
+            let (l, f) = (frame(label), frame(field));
+            assert!(l.width > 0.0, "{root}: {label} keeps its words");
+            assert!(
+                l.x + l.width <= f.x || f.y >= l.y + l.height,
+                "{root}: {field} does not overlap its label"
+            );
+        }
     }
 }
 

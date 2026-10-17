@@ -36,17 +36,19 @@ pub(super) fn switch(node: &Node) -> bool {
                     && matches!(&a.value, Expr::Str(v, _) if v == "switch")))
 }
 
-/// What a row's field beside its label is: one line of text, or a date or
-/// time the platform shows as a compact picker.
+/// What a row's field beside its label is: one line of text, or a date,
+/// time or menu (a `select`) the platform shows as a compact picker.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Field {
     Text,
-    Date,
+    Picker,
 }
 
 pub(super) fn field_kind(node: &Node) -> Option<Field> {
-    if !matches!(node, Node::Element { tag, .. } if tag == "input") {
-        return None;
+    match node {
+        Node::Element { tag, .. } if tag == "select" => return Some(Field::Picker),
+        Node::Element { tag, .. } if tag == "input" => {}
+        _ => return None,
     }
     if text_field(node) {
         return Some(Field::Text);
@@ -55,11 +57,12 @@ pub(super) fn field_kind(node: &Node) -> Option<Field> {
         input_type(node).as_deref(),
         Some("date" | "time" | "datetime-local" | "month" | "week")
     )
-    .then_some(Field::Date)
+    .then_some(Field::Picker)
 }
 
 /// A row of a label and the field after it, written as such: its first
-/// shown part a `text`, and a text, date or time `input` among the rest.
+/// shown part a `text`, and a text, date or time `input` or a `select` among
+/// the rest.
 pub(super) fn field_beside_label(children: &[Node]) -> Option<Field> {
     let mut shown = children.iter().filter(|c| !hidden(c));
     if !matches!(shown.next(), Some(Node::Element { tag, .. }) if tag == "text") {

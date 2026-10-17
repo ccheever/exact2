@@ -1230,8 +1230,8 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         // fields of a section line up and the label, the author's `flex=1`
         // one too, keeps the rest; 8rem and a short label fit on one line up
         // to the largest size before the accessibility ones, and past it the
-        // row wraps the field under the label. A date or time keeps its own
-        // width. Under the label either is as narrow as the line.
+        // row wraps the field under the label. A date, time or menu keeps its
+        // own width. Under the label either is as narrow as the line.
         ("input", _) if texts.low() >= 1 && text_field(child) => with(
             child,
             vec![
@@ -1242,7 +1242,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 n("min-width", 0.0, at),
             ],
         ),
-        ("input", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Date) => {
+        ("input" | "select", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Picker) => {
             with(child, vec![n("min-width", 0.0, at)])
         }
         ("column", _) if stack => subtitle(child),
