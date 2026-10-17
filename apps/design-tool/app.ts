@@ -8,6 +8,9 @@
 // words in the answer, never a throw.
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
+// The panel's controls and the grid's cells by kind.
+import { cellText, colourLiteral, panelOf } from './dials';
+export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 
 export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
@@ -119,158 +122,9 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-type Control = Design['groups'][number]['dials'][number];
 const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], tokenGroups: [], names: [], axes: [] });
 let designs = 0;
 
-/** A number as Tamber writes one: a plain number, or a length's `Npx`; null
- * for anything else. */
-const numberOf = (v: string | undefined) => {
-  const t = v?.trim().replace(/px$/i, '') ?? '';
-  return t !== '' && Number.isFinite(Number(t)) ? Number(t) : null;
-};
-/** The decimal places a number is written to, an exponent counted:
- * `5e-3` is 3, `0.25` is 2, `12px` is 0. */
-const decimals = (v: string | undefined) => {
-  const m = /^[+-]?\d*(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(v?.trim().replace(/px$/i, '') ?? '');
-  return m ? Math.max(0, (m[1]?.length ?? 0) - Number(m[2] ?? 0)) : 0;
-};
-// CSS's named colours (CSS Color 4 §6.1), as color/src/named.rs has them.
-const NAMED = new Map((
-  'aliceblue:f0f8ff antiquewhite:faebd7 aqua:00ffff aquamarine:7fffd4 azure:f0ffff beige:f5f5dc ' +
-  'bisque:ffe4c4 black:000000 blanchedalmond:ffebcd blue:0000ff blueviolet:8a2be2 brown:a52a2a ' +
-  'burlywood:deb887 cadetblue:5f9ea0 chartreuse:7fff00 chocolate:d2691e coral:ff7f50 ' +
-  'cornflowerblue:6495ed cornsilk:fff8dc crimson:dc143c cyan:00ffff darkblue:00008b darkcyan:008b8b ' +
-  'darkgoldenrod:b8860b darkgray:a9a9a9 darkgreen:006400 darkgrey:a9a9a9 darkkhaki:bdb76b ' +
-  'darkmagenta:8b008b darkolivegreen:556b2f darkorange:ff8c00 darkorchid:9932cc darkred:8b0000 ' +
-  'darksalmon:e9967a darkseagreen:8fbc8f darkslateblue:483d8b darkslategray:2f4f4f ' +
-  'darkslategrey:2f4f4f darkturquoise:00ced1 darkviolet:9400d3 deeppink:ff1493 deepskyblue:00bfff ' +
-  'dimgray:696969 dimgrey:696969 dodgerblue:1e90ff firebrick:b22222 floralwhite:fffaf0 ' +
-  'forestgreen:228b22 fuchsia:ff00ff gainsboro:dcdcdc ghostwhite:f8f8ff gold:ffd700 ' +
-  'goldenrod:daa520 gray:808080 green:008000 greenyellow:adff2f grey:808080 honeydew:f0fff0 ' +
-  'hotpink:ff69b4 indianred:cd5c5c indigo:4b0082 ivory:fffff0 khaki:f0e68c lavender:e6e6fa ' +
-  'lavenderblush:fff0f5 lawngreen:7cfc00 lemonchiffon:fffacd lightblue:add8e6 lightcoral:f08080 ' +
-  'lightcyan:e0ffff lightgoldenrodyellow:fafad2 lightgray:d3d3d3 lightgreen:90ee90 lightgrey:d3d3d3 ' +
-  'lightpink:ffb6c1 lightsalmon:ffa07a lightseagreen:20b2aa lightskyblue:87cefa ' +
-  'lightslategray:778899 lightslategrey:778899 lightsteelblue:b0c4de lightyellow:ffffe0 lime:00ff00 ' +
-  'limegreen:32cd32 linen:faf0e6 magenta:ff00ff maroon:800000 mediumaquamarine:66cdaa ' +
-  'mediumblue:0000cd mediumorchid:ba55d3 mediumpurple:9370db mediumseagreen:3cb371 ' +
-  'mediumslateblue:7b68ee mediumspringgreen:00fa9a mediumturquoise:48d1cc mediumvioletred:c71585 ' +
-  'midnightblue:191970 mintcream:f5fffa mistyrose:ffe4e1 moccasin:ffe4b5 navajowhite:ffdead ' +
-  'navy:000080 oldlace:fdf5e6 olive:808000 olivedrab:6b8e23 orange:ffa500 orangered:ff4500 ' +
-  'orchid:da70d6 palegoldenrod:eee8aa palegreen:98fb98 paleturquoise:afeeee palevioletred:db7093 ' +
-  'papayawhip:ffefd5 peachpuff:ffdab9 peru:cd853f pink:ffc0cb plum:dda0dd powderblue:b0e0e6 ' +
-  'purple:800080 rebeccapurple:663399 red:ff0000 rosybrown:bc8f8f royalblue:4169e1 ' +
-  'saddlebrown:8b4513 salmon:fa8072 sandybrown:f4a460 seagreen:2e8b57 seashell:fff5ee sienna:a0522d ' +
-  'silver:c0c0c0 skyblue:87ceeb slateblue:6a5acd slategray:708090 slategrey:708090 snow:fffafa ' +
-  'springgreen:00ff7f steelblue:4682b4 tan:d2b48c teal:008080 thistle:d8bfd8 tomato:ff6347 ' +
-  'turquoise:40e0d0 violet:ee82ee wheat:f5deb3 white:ffffff whitesmoke:f5f5f5 yellow:ffff00 ' +
-  'yellowgreen:9acd32 '
-).trim().split(' ').map(p => p.split(':') as [string, string]));
-
-/** A colour written as hex, `rgb()` (numbers or percentages, commas or
- * spaces, any alpha) or a CSS name, folded as the server folds a dial's
- * colour (`#rrggbbaa`, lower case); another colour function as written,
- * its spaces tidied. */
-export function folded(v: string): string {
-  const t = v.trim().toLowerCase().replace(/\s+/g, ' ');
-  const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(t)?.[1];
-  if (hex) {
-    const full = hex.length <= 4 ? [...hex].map(c => c + c).join('') : hex;
-    return `#${full}${full.length === 6 ? 'ff' : ''}`;
-  }
-  if (t === 'transparent') return '#00000000';
-  if (NAMED.has(t)) return `#${NAMED.get(t)}ff`;
-  const num = (x: string, of: number) => (x.endsWith('%') ? (Number(x.slice(0, -1)) / 100) * of : Number(x));
-  const rgb = /^rgba?\( ?([\d.]+%?)[ ,]+([\d.]+%?)[ ,]+([\d.]+%?)(?: ?[,/] ?([\d.]+%?))? ?\)$/.exec(t);
-  if (rgb) {
-    const byte = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
-    return `#${[rgb[1], rgb[2], rgb[3]].map(x => byte(num(x, 255))).join('')}${byte(num(rgb[4] ?? '1', 1) * 255)}`;
-  }
-  return t;
-}
-/** Whether `v` is written as a colour literal: a hex, a CSS name, or a
- * colour function's call (its arguments the server's to judge); a
- * token's name is not, whatever it is spelled. */
-export const colourLiteral = (v: string, tokens: ReadonlySet<string>) => {
-  const t = v.trim();
-  if (tokens.has(t)) return false;
-  return /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t) || t.toLowerCase() === 'transparent' || NAMED.has(t.toLowerCase())
-    || /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^()]*\)$/i.test(t);
-};
-/** Whether `v` is a dial's literal of `kind`: a colour's, a plain number
- * for a number (no unit), `0` or `Npx` for a length. */
-const literalOf = (kind: string, v: string, tokens: ReadonlySet<string>) =>
-  kind === 'color' ? colourLiteral(v, tokens)
-  : kind === 'length' ? /^(0|[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?px)$/i.test(v.trim())
-  : /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(v.trim());
-
-/** A dial's control from its declared metadata (LLP 1121 D4, D15): its
- * `control`, else its kind's own (a colour's field, a ranged number's
- * slider, else a stepper); `none` is not drawn. Metadata is kept, not
- * checked, by Tamber, so a control that does not fit the kind (a stepper
- * for a colour, a slider with no range, a select with no options) is the
- * kind's own, said in its help; a step or priority that is no number is
- * left at its default. `token` names a picker of tokens, which a dial (a
- * literal) has none of. A select's option that is no literal of the kind
- * (a token's name: `tokens` are the design's) is left out, said so, since
- * `set-dial` takes a literal. */
-export function controlOf(d: { name: string; kind: string; value: string; range: [string, string] | null; meta: Record<string, string> }, tokens: ReadonlySet<string> = new Set()): Control | null {
-  const m = d.meta ?? {};
-  const own = d.kind === 'color' ? 'color' : d.range ? 'slider' : 'stepper';
-  const declared = m.control;
-  if (declared === 'none') return null;
-  const written = (m.options ?? '').split('|').map(o => o.trim()).filter(Boolean);
-  const literal = (o: string) => literalOf(d.kind, o, tokens);
-  const options = written.filter(literal);
-  const dropped = written.filter(o => !literal(o));
-  const fits = declared === 'color' ? d.kind === 'color'
-    : declared === 'slider' ? d.kind !== 'color' && !!d.range
-    : declared === 'stepper' ? d.kind !== 'color'
-    : declared === 'select' ? options.length > 0
-    : false;
-  const control = fits ? declared : own;
-  // With no step, the finest the value and the range are written in, so
-  // every declared value is a step (at least 0.01).
-  const finest = 10 ** -Math.max(2, decimals(d.value), decimals(d.range?.[0]), decimals(d.range?.[1]));
-  // A length's step is in px (LLP 1121 D15), written either way.
-  const declaredStep = m.step !== undefined && numberOf(m.step) !== null && (d.kind === 'length' || !/px$/i.test(m.step)) ? numberOf(m.step) : null;
-  const step = declaredStep !== null && declaredStep > 0 ? declaredStep : d.kind === 'number' ? finest : d.kind === 'length' ? 10 ** -Math.max(0, decimals(d.value), decimals(d.range?.[0]), decimals(d.range?.[1])) : 1;
-  const priority = [1, 2, 3].includes(Number(m.priority)) ? Number(m.priority) : 2;
-  const said = [
-    declared && declared !== 'token' && !fits ? `control=${declared} does not fit this ${d.kind} dial; its own control is shown.` : '',
-    dropped.length ? `${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} not a value a dial can take (a dial is a literal), so ${dropped.length === 1 ? 'it is' : 'they are'} not offered.` : '',
-  ].filter(Boolean).join(' ');
-  // A select's options as given, the current value matched by meaning (a
-  // colour folded as the server folds it), else listed first.
-  const same = (o: string) => (d.kind === 'color' ? folded(o) === folded(d.value) : numberOf(o) === numberOf(d.value));
-  const matched = options.find(same);
-  return {
-    name: d.name, kind: d.kind, control, label: m.label ?? d.name, help: [m.help ?? '', said].filter(Boolean).join(' '),
-    value: control === 'select' ? matched ?? d.value : d.value,
-    // With no range a stepper is bounded by nothing a person would type.
-    number: numberOf(d.value) ?? 0, min: numberOf(d.range?.[0]) ?? -1e12, max: numberOf(d.range?.[1]) ?? 1e12, step, priority,
-    bounds: control === 'slider' || control === 'stepper' ? [d.range ? `${numberOf(d.range[0])} – ${numberOf(d.range[1])}` : '', `step ${step}`].filter(Boolean).join(' · ') : '',
-    options: control === 'select' && !matched ? [d.value, ...options] : options,
-  };
-}
-
-/** The dials panel: groups in the order they first appear, each by
- * priority (1 first), priority 3 behind "more". */
-export function panelOf(dials: Parameters<typeof controlOf>[0][], tokens: ReadonlySet<string> = new Set()): Design['groups'] {
-  const groups = new Map<string, Control[]>();
-  for (const d of dials) {
-    const c = controlOf(d, tokens);
-    if (!c) continue;
-    const g = d.meta?.group ?? '';
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g)!.push(c);
-  }
-  return [...groups].map(([name, all]) => {
-    const sorted = all.map((c, i) => [c, i] as const).sort((a, b) => a[0].priority - b[0].priority || a[1] - b[1]).map(([c]) => c);
-    return { name, dials: sorted.filter(c => c.priority < 3), more: sorted.filter(c => c.priority === 3) };
-  });
-}
 
 type Axis = { name: string; values: string[]; under: string | null };
 type Column = { id: string; label: string; tuple: number; dark: boolean; values: string[] };
@@ -305,14 +159,20 @@ const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join('
  * has none; said, if one comes. And "only this mode": a `when` naming every
  * axis at this tuple, which holds here alone; on a light column with an
  * under-dark axis such a `when` would set the dark side only, so there is
- * none to offer ("" ). */
-export function branchOf(axes: Axis[], col: Column, whens: { when: When[]; value: string }[]): { when: string; index: number; tie: string; own: string } {
+ * none to offer ("" ). A token of another kind (LLP 1121 stage 6) has no
+ * sides and may not vary on an under-dark axis, so its own `when` names the
+ * other axes only (none, with no other axis); a duration or an easing
+ * varies on no axis, so it has none. */
+export function branchOf(axes: Axis[], col: Column, whens: { when: When[]; value: string }[], kind = 'color'): { when: string; index: number; tie: string; own: string } {
   const at = (axis: string) => col.values[axes.findIndex(a => a.name === axis)];
   const under = new Set(axes.filter(a => a.under === 'dark').map(a => a.name));
   const holding = whens.map((w, index) => ({ ...w, index })).filter(w => (col.dark || !w.when.some(c => under.has(c.axis))) && w.when.every(c => at(c.axis) === c.value));
   const most = Math.max(0, ...holding.map(w => w.when.length));
   const top = holding.filter(w => w.when.length === most && most > 0);
-  const own = !col.dark && under.size > 0 ? '' : whenText(axes.map((a, i) => ({ axis: a.name, value: col.values[i] })));
+  const others = axes.map((a, i) => ({ axis: a.name, value: col.values[i] })).filter(c => !under.has(c.axis));
+  const own = kind === 'duration' || kind === 'easing' ? ''
+    : kind !== 'color' ? (others.length ? whenText(others) : '')
+    : !col.dark && under.size > 0 ? '' : whenText(axes.map((a, i) => ({ axis: a.name, value: col.values[i] })));
   return { when: top[0] ? whenText(top[0].when) : '', index: top[0]?.index ?? -1, tie: top.length > 1 ? top.map(w => `when ${whenText(w.when)}`).join(' and ') : '', own };
 }
 
@@ -340,7 +200,7 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string; kinds: Map<string, string> };
 const snapshots = new Map<number, Snapshot>();
 // Design reads, and reads of the app design's axes (either kind): only the
 // newest of the second sets the axes a selection is placed by.
@@ -651,8 +511,9 @@ function reviewOf(p: any) {
     const m = proposed.get(t);
     if (m) return swatch(m.get(label) ?? m.get('default') ?? '', side, label, depth + 1);
     // A design token: its first tuple, a residual at its fallback.
+    // (A colour's: another kind's cell is its text, no colour to paint.)
     const cell = design?.stored.get(t)?.[0]?.[side];
-    return cell ? (cell.residual ? cell.srgb : cell.css) : '';
+    return cell && (cell.residual || cell.srgb) ? (cell.residual ? cell.srgb : cell.css) : '';
   };
   const mode = (label: string, mode: number, value: string) => ({ label, mode, value, light: swatch(value, 0, label), dark: swatch(value, 1, label) });
   // What the import does before its role overrides, each by its kind: a
@@ -817,13 +678,19 @@ const sources: Sources = {
         const tuples = (resolved[i].tuples ?? []) as any[];
         const sides = tuples.map(r => [false, true].map(dark => {
           const side = dark ? 'dark' : 'light';
+          // A token of another kind than colour (LLP 1121 stage 6): its value
+          // as `resolve` gives it (`cellText`); it has no sides and draws no
+          // swatch.
+          if (t.kind !== 'color') return { css: cellText(t.kind, r), srgb: '', residual: false, note: '', value: r.value };
           if (r.residual) return { css: r.value, srgb: r.fallback?.[side] ?? '', residual: true, note: r.value, value: r.value };
           return { css: r[side], srgb: r.srgb?.[side] ?? r[side], residual: false, note: '', value: r.value };
         }));
         stored.set(t.name, sides);
         const cells = columns.map(c => {
           const v = sides[c.tuple]?.[c.dark ? 1 : 0] ?? { css: '', srgb: '', residual: false, note: '', value: '' };
-          return { column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note, pairs: [] as { name: string; ratio: string; low: boolean }[] };
+          // A shadow is previewed on a small box (a text shadow on a word).
+          const shadow = t.kind === 'box-shadow' || t.kind === 'text-shadow' ? String(v.value ?? '') : '';
+          return { scheme: c.dark ? 'dark' : 'light', column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: t.kind !== 'color' ? 'transparent' : v.residual ? v.srgb : v.css, residual: v.residual, note: v.note, kind: t.kind, shadow, pairs: [] as { name: string; ratio: string; low: boolean }[] };
         });
         return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells };
       });
@@ -869,7 +736,7 @@ const sources: Sources = {
       if (number === issued) {
         // The app design's axes, of the newest read only.
         if (axesAt === axesReads) designAxes = axes;
-        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files) });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map(ir.tokens.map((t: { name: string; kind: string }) => [t.name, t.kind])) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
@@ -886,7 +753,7 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
+    const none = { ok: true, error: '', token: '', kind: 'color', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
@@ -895,7 +762,7 @@ const sources: Sources = {
     const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string> };
     // Of the revision the grid shows, or it is read again with the grid.
     if (x.files && digestKey(x.files) !== snap.digests) return { ...none, ok: false, error: 'The design changed while this cell was read; it is read again with the grid.' };
-    const b = branchOf(snap.axes, col, x.whens);
+    const b = branchOf(snap.axes, col, x.whens, snap.kinds.get(token) ?? 'color');
     if (b.tie) return { ...none, ok: false, error: `${token} has two branches for ${col.label}, ${b.tie}; the checker refuses that, so fix the file by hand.` };
     const value = b.index >= 0 ? x.whens[b.index].value : x.value;
     // An expression's inputs: the tokens and dials it names; a dial's
@@ -904,7 +771,7 @@ const sources: Sources = {
     // A dial with no control (`control=none`) is said, not offered.
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
-      ok: true, error: '', token, column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
+      ok: true, error: '', token, kind: snap.kinds.get(token) ?? 'color', column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
     };
   },

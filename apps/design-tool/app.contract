@@ -219,6 +219,9 @@ shape Control
   // A slider's or stepper's range and step, as the person reads them.
   bounds: string
   options: string[]
+  // What a number the slider or stepper gives is written with: `px` for a
+  // length (LLP 1121 D15: a length dial is a px value), nothing for a number.
+  unit: string
 
 shape DialGroup
   name: string
@@ -242,6 +245,11 @@ shape Cell
   swatch: string
   residual: bool
   note: string
+  // The token's kind (LLP 1121 stage 6), and a shadow's value to preview
+  // in the column's scheme.
+  kind: string
+  shadow: string
+  scheme: string
   pairs: PairBadge[]
 
 shape TokenRow
@@ -294,6 +302,8 @@ shape Branch
   ok: bool
   error: string
   token: string
+  // Its kind (a platform name it reads is a colour's, or a length's or a text style's).
+  kind: string
   column: string
   // The column's place, whole: its scheme and every axis's value.
   place: string
@@ -582,7 +592,7 @@ component DesignTool
       send written = cancelScrub(scrubAsk)
     draftName = person
     renaming = true
-  action dialNumber(name: string, n: number)
+  action dialNumber(name: string, unit: string, n: number)
     // A scrub open on another edit ends first.
     if scrubShown and not (editKind == "set-dial" and editTarget == name)
       scrubTick = scrubTick + 1
@@ -591,7 +601,17 @@ component DesignTool
     editKind = "set-dial"
     editTarget = name
     editWhen = ""
-    editValue = `${n}`
+    editValue = `${n}${unit}`
+  action dialStepped(name: string, unit: string, v: string)
+    // A stepper's number, with its dial's unit.
+    if scrubShown and not (editKind == "set-dial" and editTarget == name)
+      scrubTick = scrubTick + 1
+      scrubWant = false
+      send written = cancelScrub(scrubAsk)
+    editKind = "set-dial"
+    editTarget = name
+    editWhen = ""
+    editValue = v.trim() == "" ? "" : `${v.trim()}${unit}`
   action dialReleased(name: string, n: number)
     // A slider let go: the scrub on it writes its last value, once that is
     // previewed.
@@ -1017,13 +1037,13 @@ component DesignTool
                   column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                     text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                     for c in g.dials key=c.name
-                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name), onRelease=dialReleased(c.name))
+                      DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name, c.unit), onText=dialText(c.name), onStep=dialStepped(c.name, c.unit), onRelease=dialReleased(c.name))
                     if g.more.length > 0
                       button press=toggleMore(g.name) testId=`more-${g.name}`
                         text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                       if opened.includes(g.name)
                         for c in g.more key=c.name
-                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name), onText=dialText(c.name), onRelease=dialReleased(c.name))
+                          DialControl(c=c, focused=(focusDial == c.name), onNumber=dialNumber(c.name, c.unit), onText=dialText(c.name), onStep=dialStepped(c.name, c.unit), onRelease=dialReleased(c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -1044,7 +1064,15 @@ component DesignTool
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
                             column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellTints.filter((c, i) => lit.cells.indexOf(`${t.name}|${cell.column}`) == i).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
-                              view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
+                              if cell.kind == "box-shadow"
+                                // In a padded box of the column's scheme, so the shadow falls on its own ground.
+                                view padding=6 border-radius=4 color-scheme=cell.scheme background-color="-exact-background" testId=`cell-shadow-${t.name}-${cell.column}`
+                                  view height=16 border-radius=4 background-color="-exact-secondary-background" box-shadow=cell.shadow
+                              else if cell.kind == "text-shadow"
+                                view color-scheme=cell.scheme background-color="-exact-background" border-radius=4 testId=`cell-shadow-${t.name}-${cell.column}`
+                                  text "Aa" color="-exact-label" text-shadow=cell.shadow
+                              else if cell.kind == "color"
+                                view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
                               if cell.residual
                                 text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
                               text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
@@ -1068,7 +1096,7 @@ component DesignTool
                         button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
                           text `${d.name} (dial)`
                     for r in branch.roles key=r
-                      text `${r}: a platform colour, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
+                      text `${r}: ${branch.kind == "color" ? "a platform colour" : "a platform value"}, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
                     button press=pin buttonStyle="bordered" testId="pin"
                       text "Pin a value"
                   else
@@ -1323,6 +1351,7 @@ component DialControl
     focused: bool
     onNumber: action
     onText: action
+    onStep: action
     onRelease: action
   view
     column gap=4 padding=4 border-radius=6 background-color=(focused ? "-exact-tertiary-background" : "transparent") testId=`dial-${c.name}`
@@ -1337,7 +1366,7 @@ component DialControl
         // Each value while it is dragged; let go, a scrub open on it is kept.
         input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease aria-label=c.label testId=`dial-${c.name}-slider`
       else if c.control == "stepper"
-        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onText aria-label=c.label testId=`dial-${c.name}-stepper`
+        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onStep aria-label=c.label testId=`dial-${c.name}-stepper`
       else if c.control == "select"
         select value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-select`
           for o in c.options key=o

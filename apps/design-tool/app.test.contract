@@ -91,6 +91,19 @@ test "the dials panel is drawn from each dial's declared metadata"
   expect text "dial-paint-value" == "#f00"
   expect text "dial-paint-help" == "brand.red is not a value a dial can take (a dial is a literal), so it is not offered."
 
+test "a length dial's slider and stepper write a px length, as a length dial takes"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "group-Space"
+  expect text "dial-gap-value" == "8px"
+  type "dial-gap-slider" "10"
+  expect state editTarget == "gap"
+  expect state editValue == "10px"
+  type "dial-inset-stepper" "6"
+  expect state editTarget == "inset"
+  expect state editValue == "6px"
+
 test "the token grid: every mode tuple light and dark, swatches, residuals, what each follows"
   type "name" "Ada"
   tap "save-name"
@@ -103,6 +116,13 @@ test "the token grid: every mode tuple light and dark, swatches, residuals, what
   expect text "cell-text-surface.page-0-dark" == "#000000ff"
   expect text "cell-text-surface.inset-1-light" == "#eef0f2ff"
   expect text "cell-text-text.system-0-light" == "-exact-secondary-label"
+  // A length token (LLP 1121 stage 6): its value, no swatch, no sides.
+  expect text "cell-text-space.gap-0-light" == "8px"
+  expect text "cell-text-space.gap-0-dark" == "8px"
+  // A shadow, previewed in each column's scheme.
+  expect tree has "cell-shadow-shadow.card-0-light"
+  expect tree has "cell-shadow-shadow.card-0-dark"
+  expect text "cell-text-shadow.card-0-light" == "0px 1px 3px light-dark(#000000ff, #ffffffff)"
   expect tree has "cell-fallback-text.system-0-light"
   expect tree missing "cell-fallback-surface.page-0-light"
   expect text "follows-accent.soft" == "follows accent, lift"

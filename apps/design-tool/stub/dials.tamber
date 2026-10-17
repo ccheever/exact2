@@ -1,6 +1,7 @@
 // The design tool's fixture design (LLP 1122 D7): dials of each kind a
-// colour can follow, each with its metadata or none, groups and priorities
-// (declared out of priority order), a select with an option that is no
+// colour can follow and two length dials (a slider and a stepper, in px),
+// each with its metadata or none, groups and priorities (declared out of
+// priority order), a select with an option that is no
 // literal, a range in scientific notation, two axes, a role override and a
 // fixed-scheme token, and declared pairs (one below 4.5:1).
 tamber dials
@@ -18,6 +19,8 @@ dials
   paint: color = #f00  control=select options="#1083fe|#f00|brand.red" group=Colour priority=3
   warmth: number = 20  in 0..60  step=1 group=Tone priority=3 label="Warmth"
   shade: number = 0.2  in 0..0.5  control=none
+  gap: length = 8px  in 0px..24px  step=2px control=slider group=Space priority=1 label="Gap"
+  inset: length = 4px  in 0px..16px  control=stepper group=Space priority=2
 
 theme
   surface.page = light-dark(#ffffff, #000000)
@@ -28,6 +31,9 @@ theme
     when density=compact: light-dark(#eef0f2, #0c0e10)
   accent.fill = accent
   accent.soft = oklch(from accent calc(l + lift) c h)
+  space.gap = gap
+  space.inset = inset
+  shadow.card: box-shadow = 0px 1px 3px light-dark(#000000, #ffffff)
   tone.base = oklch(0.6 chroma hue)
   tone.warm = oklch(0.7 0.1 warmth)  pair=surface.page
   tone.fine = oklch(0.6 fine 200)

@@ -172,11 +172,14 @@ test('every control on the dials panel comes from the design as describe gives i
       'type name Ada', 'tap save-name', 'clock data', 'tap more-Colour', 'tap more-Tone', 'tree dials',
       // The sliders' own range and step, which the page keeps a value to:
       // a step of 0.001 to 0.005, a value past the end held at it.
-      'type dial-fine-slider 0.004', 'state', 'type dial-fine-slider 1', 'state', 'type dial-lift-slider 0.374', 'state', 'type dial-chroma-slider -1', 'state'], { cwd: ROOT, encoding: 'utf8' });
+      'type dial-fine-slider 0.004', 'state', 'type dial-fine-slider 1', 'state', 'type dial-lift-slider 0.374', 'state', 'type dial-chroma-slider -1', 'state',
+      // A length dial's value, written in px, which the real server takes (stage 6).
+      'type dial-gap-slider 10', 'clock data', 'tap apply', 'clock data'], { cwd: ROOT, encoding: 'utf8' });
     expect(drive.status, drive.stderr).toBe(0);
     const out = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const tree = out.find(r => r.nodes);
     expect(out.filter(r => r.slots).map(r => [r.slots.editTarget, r.slots.editValue])).toEqual([['fine', '0.004'], ['fine', '0.005'], ['lift', '0.37'], ['chroma', '0']]);
+    expect(readFileSync(join(app, 'app.tamber'), 'utf8')).toContain('gap: length = 10px');
     // The panel as drawn: each group's dials in screen order, "More"'s
     // after its button, and each one's control (its testId's last word),
     // label, value, range and step, options and help, all read off the
@@ -213,6 +216,11 @@ test('every control on the dials panel comes from the design as describe gives i
         // A range in scientific notation, its step fine enough for it.
         dial('fine', 'slider', 'fine', '0.001', '0 – 0.005 · step 0.001'),
         dial('warmth', 'slider', 'Warmth', '20', '0 – 60 · step 1'),
+      ] },
+      { group: 'Space', dials: [
+        // A length dial: its value, range and step in px (LLP 1121 D15).
+        dial('gap', 'slider', 'Gap', '8px', '0px – 24px · step 2px'),
+        dial('inset', 'stepper', 'inset', '4px', '0px – 16px · step 1px'),
       ] },
     ]);
     // And the panel describe gives, by the tool's own reading of each
@@ -1006,7 +1014,19 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
 }, 900_000);
 
 test('controls from metadata that does not fit, steps, select values, column labels, branches, inputs and contrast over a background', async () => {
-  const { controlOf, columnsOf, contrast, branchOf, inputsOf } = await import('../apps/design-tool/app.ts');
+  const { controlOf, columnsOf, contrast, branchOf, inputsOf, cellText } = await import('../apps/design-tool/app.ts');
+  // A cell's text for each stage 6 kind, from `resolve`'s tuples as the server gives them (tamber/tests/corpus).
+  expect(cellText('length', { amount: 12, kind: 'length', unit: 'px', value: '12px' })).toBe('12px');
+  expect(cellText('length', { amount: 1.5, kind: 'length', unit: 'rem', value: '1.5rem' })).toBe('1.5rem');
+  expect(cellText('number', { amount: 0.5, kind: 'number', value: '0.5' })).toBe('0.5');
+  // The server's spelling, not JavaScript's (measures.tamber's `tiny`).
+  expect(cellText('number', { amount: 0.0000004, kind: 'number', value: '0.0000004' })).toBe('0.0000004');
+  expect(cellText('box-shadow', { kind: 'box-shadow', shadows: [], value: 'inset 0px 2px 4px -1px #000000ff' })).toBe('inset 0px 2px 4px -1px #000000ff');
+  expect(cellText('type', { family: '"InterVariable"', kind: 'type', leading: '1.35', size: '-exact-body', style: null, value: '-exact-body/1.35 "InterVariable"', weight: null })).toBe('-exact-body/1.35 · weight unsaid · style unsaid · "InterVariable"');
+  expect(cellText('type', { family: null, kind: 'type', leading: null, size: '-exact-subheadline', style: 'italic', value: '', weight: 600 })).toBe('-exact-subheadline · weight 600 · italic · family unsaid');
+  expect(cellText('family', { family: 'ui-monospace', kind: 'family', value: 'ui-monospace' })).toBe('ui-monospace');
+  expect(cellText('duration', { kind: 'duration', ms: 400, value: '400ms' })).toBe('400 ms');
+  expect(cellText('easing', { kind: 'easing', value: 'cubic-bezier(0.2, 0, 0, 1)' })).toBe('cubic-bezier(0.2, 0, 0, 1)');
   const dial = (kind, meta, value = kind === 'color' ? '#1083feff' : '0.001', range = kind === 'color' ? null : ['0', '0.005']) => controlOf({ name: 'd', kind, value, range, meta });
   // A control that does not fit its kind is the kind's own, said so.
   expect(dial('color', { control: 'stepper' })).toMatchObject({ control: 'color', help: 'control=stepper does not fit this color dial; its own control is shown.' });
@@ -1022,7 +1042,7 @@ test('controls from metadata that does not fit, steps, select values, column lab
   expect(dial('color', { control: 'select', options: '#ff0000' })).toMatchObject({ value: '#1083feff', options: ['#1083feff', '#ff0000'] });
   // A step fine enough for a range in scientific notation; a length's range in px.
   expect(dial('number', {}, '0', ['0', '5e-3']).step).toBe(0.001);
-  expect(controlOf({ name: 'gap', kind: 'length', value: '12px', range: ['0px', '24px'], meta: {} })).toMatchObject({ control: 'slider', number: 12, min: 0, max: 24, step: 1, bounds: '0 – 24 · step 1' });
+  expect(controlOf({ name: 'gap', kind: 'length', value: '12px', range: ['0px', '24px'], meta: {} })).toMatchObject({ control: 'slider', number: 12, min: 0, max: 24, step: 1, bounds: '0px – 24px · step 1px', unit: 'px' });
   // A select's colours folded as the server folds them; an option naming a
   // token (no literal) is left out, said so; with none left, the kind's own.
   expect(dial('color', { control: 'select', options: '#f00|rgb(16, 131, 254)' })).toMatchObject({ value: 'rgb(16, 131, 254)', options: ['#f00', 'rgb(16, 131, 254)'] });
@@ -1043,6 +1063,10 @@ test('controls from metadata that does not fit, steps, select values, column lab
   const whens = [{ when: [{ axis: 'dark-style', value: 'black' }, { axis: 'density', value: 'compact' }], value: 'a' }, { when: [{ axis: 'density', value: 'compact' }], value: 'b' }];
   expect(branchOf(axes, light1, whens)).toMatchObject({ when: 'density=compact', index: 1, own: '', tie: '' });
   expect(branchOf(axes, dark3, whens)).toMatchObject({ when: 'density=compact', own: 'dark-style=dim density=compact' });
+  // A length's own branch names no under-dark axis (it has no sides); a duration has none.
+  expect(branchOf(axes, dark3, whens, 'length').own).toBe('density=compact');
+  expect(branchOf(axes, light1, whens, 'length').own).toBe('density=compact');
+  expect(branchOf(axes, dark3, whens, 'duration').own).toBe('');
   expect(branchOf(axes, dark3, [...whens, { when: [{ axis: 'dark-style', value: 'dim' }], value: 'c' }]).tie).toBe('when density=compact and when dark-style=dim');
   // A value's names as the checker reads them: a role by its bare name in
   // any case; no word inside a hex colour.
