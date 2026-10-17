@@ -627,6 +627,7 @@ name = "exact-tamber"
 version = "0.1.0"
 dependencies = [
  "exact-color",
+ "exact-motion",
  "exact-num",
  "serde_json",
 ]
