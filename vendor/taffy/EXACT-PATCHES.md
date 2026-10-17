@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 and 36 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36 and 37 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1108,6 +1108,26 @@ width/max-width percentages, calc, minimum and fixed sizes, padding, border and
 margins. Direct flex items keep their own content minimum.
 `browser_replaced::minimum` holds percentage-containing minima and the padding/border
 floor under both box-sizing modes against Chrome 151 frames for the same five tags.
+
+## Patch 37: a recorded call is looked up among its own box's calls — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-10-18, for
+`issues/closed/20261017-memo-recorder-repeats-quadratic.md`.
+
+Patch 29's `Recorder::repeats` asks whether the trace already holds a box's
+answer under an input, once for every answer a recorded layout takes from
+outside the computation (a measure, a cache hit). It scanned every call
+recorded so far, so recording a subtree of n boxes made O(n²) comparisons.
+`asked` now links each call to its box's call before it, and `last_asked`
+holds each box's last call by the trace's box index (dense: indices are
+given in order from 0), so a lookup compares that box's own few inputs and
+answers as before.
+
+**Held by** `tree::memo::tests::a_recorded_call_is_looked_up_among_its_own_boxs_calls`
+(2,000 boxes asked three questions each, twice: every answer is recorded
+once, and a lookup makes at most three comparisons; the scan made 36,018,000
+for its 12,003 lookups) and the kernel's `layout::memo_tests`, which compare
+replayed layouts with fresh ones bit for bit.
 
 ## Cargo workspace boundary
 
