@@ -290,7 +290,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         layers.compactMap { layer in
             guard let view = layer.controller.viewIfLoaded, let window = view.window, view.bounds.width > 0 else { return nil }
             let scale = view.convert(view.bounds, to: window).width / view.bounds.width
-            return abs(scale - 1) >= 0.005 ? (layer.route, layer.controller.modalPresentationStyle == .pageSheet ? "sheet" : layer.kind, scale) : nil
+            #if os(iOS)
+            let kind = layer.controller.modalPresentationStyle == .pageSheet ? "sheet" : layer.kind
+            #else
+            let kind = layer.kind
+            #endif
+            return abs(scale - 1) >= 0.005 ? (layer.route, kind, scale) : nil
         }
     }
     /// Each presentation's mount and the route it holds.
