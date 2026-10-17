@@ -93,6 +93,13 @@ pub(super) fn changed(
         style_changed(arena, layout, slot, rows, receipt);
         propagate_inherited(arena, layout, slot, rows, touched, receipt);
     }
+    // What is said above changed, if no value here did: a bare text style
+    // below fills what is not (LLP 1115.000 D12.2).
+    let said = before
+        .said_style
+        .minus(after.said_style)
+        .union(after.said_style.minus(before.said_style));
+    propagate_inherited(arena, layout, slot, said.minus(rows), touched, receipt);
     if before.native_tab != after.native_tab {
         control_env_changed(arena, layout, slot);
         receipt.layout_invalidated = true;

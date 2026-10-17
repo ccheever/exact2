@@ -118,6 +118,9 @@ impl Em<'_> {
         let clock = |s: &str| s.trim_start().starts_with("-exact-clock(");
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
+        let dynamic = |id: StyleId| {
+            binding(id).is_some_and(|b| style::literal(plan, plan.code(b.expr)).is_none())
+        };
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
         let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
         // @ref LLP 1115.002 D6 — a metric the binding may name is its value
@@ -312,18 +315,21 @@ impl Em<'_> {
             }
             // A bound `font` shorthand: its style's weight and leading with
             // its size (LLP 1115.000 D12.2), as a literal one's are written.
-            // What the node writes itself, statically or bound, it keeps.
+            // What the node writes statically it keeps. A bound longhand may
+            // be `none`, which leaves the style's: the style's goes to a
+            // custom property that binding falls back on (below).
             StyleId::FontSize if parts.props.contains_key("data-fontshorthand") => {
                 let [weight, leading] = &*style::TEXT_STYLE_ROWS;
-                let said = |row: StyleId, name: &str| {
-                    binding(row).is_some() || parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")))
-                };
+                let written = |name: &str| parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")));
                 let mut w = vec![("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string()))];
-                if !said(StyleId::FontWeight, "font-weight") {
-                    w.push(("font-weight".into(), String::new(), Some(weight.clone())));
-                }
-                if !said(StyleId::LineHeight, "line-height") {
-                    w.push(("line-height".into(), String::new(), Some(leading.clone())));
+                for (row, name, map) in [(StyleId::FontWeight, "font-weight", weight), (StyleId::LineHeight, "line-height", leading)] {
+                    if dynamic(row) {
+                        // `initial` where no style is named: one an ancestor
+                        // declared is not inherited here.
+                        w.push((style::style_fallback(name), String::new(), Some(format!("v=>({map})(v)??\"initial\""))));
+                    } else if binding(row).is_none() && !written(name) {
+                        w.push((name.into(), String::new(), Some(map.clone())));
+                    }
                 }
                 w
             }
@@ -393,6 +399,24 @@ impl Em<'_> {
                     (w.name, w.unit, map)
                 })
                 .collect(),
+        };
+        // A longhand bound beside a bound `font` shorthand: where it says
+        // nothing, the shorthand's style's (above), as the kernel has it.
+        let writes = if matches!(id, StyleId::FontWeight | StyleId::LineHeight)
+            && parts.tag != "img"
+            && parts.props.contains_key("data-fontshorthand")
+            && dynamic(StyleId::FontSize)
+        {
+            writes
+                .into_iter()
+                .map(|(name, unit, map)| {
+                    let fallback = format!("var({})", style::style_fallback(&name));
+                    let inner = map.unwrap_or_else(|| "v=>v".into());
+                    (name, unit, Some(format!("v=>({inner})(v)??{fallback:?}")))
+                })
+                .collect()
+        } else {
+            writes
         };
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at

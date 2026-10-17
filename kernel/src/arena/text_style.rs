@@ -105,23 +105,50 @@ impl NodeArena {
         }
     }
 
-    /// The nearest bare `font-size` style at or above `slot`, as CSS would
-    /// have its weight inherited from where it is named: its node, and the
-    /// rows it gives less those that node writes, a clear among them
-    /// (`inherit` there takes its parent's; a clear below inherits the
-    /// style's).
+    /// The nearest bare `font-size` style at or above `slot` that gives row
+    /// `id`, as CSS would have its weight inherited from where it is named:
+    /// its node and its rows. A node that writes the row, a clear among
+    /// them, is passed over (`inherit` there takes its parent's, a further
+    /// style's fill; a clear below inherits the style's).
     pub(crate) fn bare_text_style(
         &self,
         slot: u32,
-    ) -> Option<(u32, &'static StyleProps, StyleMask)> {
+        id: StyleId,
+    ) -> Option<(u32, &'static StyleProps)> {
         let mut cur = Some(slot);
         while let Some(s) = cur {
             if let Some(rows) = self.bare_style_rows(s) {
-                return Some((s, rows, self.style(s).written));
+                if rows.mask.has(id) && !self.style(s).written.has(id) {
+                    return Some((s, rows));
+                }
             }
             cur = self.parents[s as usize];
         }
         None
+    }
+    /// A style's rows (weight, leading) that something at or above `slot`
+    /// says: written, or a start (a shorthand's style among them); not a
+    /// bare style's fill or CSS's default. A bare style below fills only
+    /// the others, so a move that changes these and no value here still
+    /// changes what such a descendant computes.
+    pub(crate) fn said_style_rows(&self, slot: u32) -> StyleMask {
+        let mut said = StyleMask::EMPTY;
+        for id in [StyleId::FontWeight, StyleId::LineHeight] {
+            let mut cur = Some(slot);
+            while let Some(s) = cur {
+                let own = self.style(s);
+                if own.mask.has(id)
+                    || self
+                        .style_starts(s)
+                        .any(|start| start.mask.has(id) && !own.written.has(id))
+                {
+                    said.set(id);
+                    break;
+                }
+                cur = self.parents[s as usize];
+            }
+        }
+        said
     }
 }
 

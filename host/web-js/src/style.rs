@@ -634,6 +634,13 @@ pub static TEXT_STYLE_ROWS: std::sync::LazyLock<[String; 2]> = std::sync::LazyLo
     [map(&weights), map(&leadings)]
 });
 
+/// The custom property a bound `font` shorthand writes its style's
+/// `font-weight` or `line-height` to when that longhand is bound as well
+/// (LLP 1115.000 D12.2): the longhand's binding falls back on it.
+pub fn style_fallback(name: &str) -> String {
+    format!("--exact-style-{name}")
+}
+
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";

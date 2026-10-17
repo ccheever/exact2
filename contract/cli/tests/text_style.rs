@@ -47,6 +47,8 @@ const SOURCE: &str = r#"component App
         text testId="inheriting" font-size=12 font-weight="inherit" "Inheriting"
       text testId="nested" font-size="-exact-headline"
         text font-size="-exact-body" "Inner"
+      column font-size="-exact-headline"
+        text testId="passed" font-size="-exact-body" font-weight="inherit" "Passed"
 "#;
 
 fn boot() -> Runner<NoData> {
@@ -207,6 +209,11 @@ fn a_text_style_gives_its_weight_and_leading_by_its_precedence_and_column() {
     assert_eq!(
         inner, 400,
         "a nearer bare style's run takes its own, not the outer's fill"
+    );
+    assert_eq!(
+        weight(&r, "passed"),
+        600.0,
+        "a nearer bare style that clears the row passes it to the further one's"
     );
     // A bound shorthand moving its style moves what its children inherit,
     // a child with a size of its own included.

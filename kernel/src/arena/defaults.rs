@@ -62,6 +62,8 @@ pub(crate) struct DefaultContext {
     pub tab_bar: bool,
     pub tab: bool,
     pub native_tab: bool,
+    /// [`NodeArena::said_style_rows`].
+    pub said_style: StyleMask,
 }
 
 impl NodeArena {
@@ -132,6 +134,7 @@ impl NodeArena {
             tab_bar: self.is_neutral_tab_bar(slot),
             tab: self.is_neutral_tab(slot),
             native_tab: self.neutral_tab_root(slot).is_some(),
+            said_style: self.said_style_rows(slot),
         }
     }
 
@@ -234,10 +237,7 @@ impl NodeArena {
         }
         // A bare `font-size` style fills what nothing above says (LLP
         // 1115.000 D12.2).
-        if let Some((_, style, _)) = self
-            .bare_text_style(slot)
-            .filter(|(_, rows, written)| rows.mask.has(id) && !written.has(id))
-        {
+        if let Some((_, style)) = self.bare_text_style(slot, id) {
             return style;
         }
         if self.document_style.mask.has(id) {
@@ -272,9 +272,7 @@ impl NodeArena {
             }
             cur = self.parents[s as usize];
         }
-        self.bare_text_style(slot)
-            .filter(|(_, rows, written)| rows.mask.has(id) && !written.has(id))
-            .map(|(s, ..)| s)
+        self.bare_text_style(slot, id).map(|(s, _)| s)
     }
 
     /// The computed text style without copying unrelated rows.
@@ -303,14 +301,22 @@ impl NodeArena {
             .intersect(StyleMask::INHERITED)
             .minus(self.styles[slot as usize].mask);
         let mut cur = Some(slot);
-        // The nearest bare `font-size` style on the way up, less the rows
-        // its node writes (LLP 1115.000 D12.2).
-        let mut bare: Option<(&StyleProps, StyleMask)> = None;
+        // Per row, the nearest bare `font-size` style on the way up whose
+        // node does not write the row (LLP 1115.000 D12.2): a style gives
+        // two rows, so two fills at most.
+        let mut bare: [Option<(&StyleProps, StyleMask)>; 2] = [None, None];
+        let mut claimed = StyleMask::default();
         while !pending.is_empty() {
             let Some(p) = cur else { break };
             let ancestor: &StyleProps = &self.styles[p as usize];
-            if bare.is_none() {
-                bare = self.bare_style_rows(p).map(|rows| (rows, ancestor.written));
+            if let Some(rows) = self.bare_style_rows(p) {
+                let claim = rows.mask.minus(ancestor.written).minus(claimed);
+                if let Some(free) = bare.iter_mut().find(|b| b.is_none()) {
+                    if !claim.is_empty() {
+                        *free = Some((rows, claim));
+                        claimed = claimed.union(claim);
+                    }
+                }
             }
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {
@@ -327,8 +333,8 @@ impl NodeArena {
             cur = self.parents[p as usize];
         }
         // What nothing above says, a bare style fills.
-        if let Some((style, written)) = bare {
-            let found = pending.intersect(style.mask).minus(written);
+        for (style, claim) in bare.into_iter().flatten() {
+            let found = pending.intersect(claim);
             if !found.is_empty() {
                 copy(style, found);
                 pending = pending.minus(found);
