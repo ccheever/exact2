@@ -19,11 +19,12 @@ Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 ## functions
 at: xs.at(i) -> option<T>  (none past end; -1 is last)
-calendarDiff: (whole years/months between YYYY-MM-DD dates)
+calendarDiff: (whole ones; YYYY-MM-DD dates)
 concat: xs.concat(ys) -> T[]
 filter: xs.filter(x => bool) -> T[]
 first: first(xs) -> option<T>
 formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
+formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Yesterday, Monday)
 formatDecimal: (cents to "12.34"; digits a literal)
 formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
 formatTime: ("2:13 PM"; minutes east of UTC)
@@ -73,8 +74,6 @@ component App
     column
       input value=name input=setName inputmode="decimal" min=-40
       input type="checkbox" checked=on change=setOn
-      select value=name change=setName
-        option "A" value="a"
 ```
 - `select value=v change=set` holds `option "Label" value="x"`. Tabs: a `row role="tablist"` of `button role="tab" aria-controls="panel-x" aria-selected=… press=…`, each panel a `column role="tabpanel" id="panel-x"`; `routes nav`, `tab`, `select(nav, name)`.
 - A number field's `min`, `max`, `step` take numbers, negative bare (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
@@ -173,7 +172,7 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` copies the screenshots to look at. A screen no test ends on is unchecked.
+By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` keeps the screenshots. A screen no test ends on is unchecked.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"

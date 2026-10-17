@@ -1,9 +1,9 @@
-//! The linked capability `format`: `formatDate`, `formatNumber`, `toFixed`
-//! and `formatDecimal` (LLP 1102 §3.2, decided (c)).
+//! The linked capability `format`: `formatDate`, `formatDay`, `formatNumber`,
+//! `toFixed` and `formatDecimal` (LLP 1102 §3.2, decided (c)).
 //!
 //! @ref LLP 1054.000.003 D2 (dates), D3 (compact numbers), D7 (bounded
 //! input), D8 (linked by use, the router's way); LLP 1116 D8 (decimal,
-//! currency and percent numbers)
+//! currency and percent numbers); LLP 1116.020 D8 (a day's label)
 //!
 //! Nothing outside [`crate::RunnerLinks`] names this module: `ALL` fills
 //! `format` with [`formatting`], and the web registers it from
@@ -12,7 +12,7 @@
 //! (`stdlib.rs`), as `formatClockTime` was. The strings are `Intl`'s in
 //! `en-US`; the oracle table is `runner/tests/it/format.rs`.
 
-use crate::stdlib::{push_number, wall_ms};
+use crate::stdlib::{format_time, push_number, wall_ms};
 use exact_plan::{Stdlib, Value};
 
 /// A `format` entry's value; `None` when `f` is not one, or its arguments
@@ -29,9 +29,18 @@ pub fn formatting(f: Stdlib, args: &[Value]) -> Option<Value> {
                 _ => return None,
             };
             match wall_ms(num(0)?, num(1)?) {
-                Some(wall) => date(wall, style),
+                Some(wall) => Value::str(&date(wall, style)),
                 None => Value::str(""),
             }
+        }
+        Stdlib::FormatDay => {
+            let mode = match style(3)? {
+                "day" => DayMode::Day,
+                "day-time" => DayMode::DayTime,
+                "list" => DayMode::List,
+                _ => return None,
+            };
+            day_label(num(0)?, num(1)?, num(2)?, mode)
         }
         Stdlib::FormatNumber => match style(1)? {
             "compact" => compact(num(0)?),
@@ -70,7 +79,7 @@ enum Style {
 /// (`{ month: "long", year: "numeric" }`) or `2026-09-26` (LLP 1102 §3.4: the
 /// date part of `toISOString`) of a wall time in range. `en-US`'s short months are the first three letters of
 /// the long ones.
-fn date(wall: f64, style: Style) -> Value {
+fn date(wall: f64, style: Style) -> String {
     let (year, month, day) = civil((wall / 86_400_000.0).floor() as i64);
     let mut out = String::with_capacity(16);
     if style == Style::Iso {
@@ -86,7 +95,7 @@ fn date(wall: f64, style: Style) -> Value {
         pad(&mut out, f64::from(month), 2);
         out.push('-');
         pad(&mut out, f64::from(day), 2);
-        return Value::str(&out);
+        return out;
     }
     let name = MONTHS[month as usize - 1];
     if style == Style::MonthYear {
@@ -99,7 +108,7 @@ fn date(wall: f64, style: Style) -> Value {
     }
     out.push(' ');
     push_number(year as f64, &mut out);
-    Value::str(&out)
+    out
 }
 
 /// The proleptic Gregorian (year, month, day) of `days` since 1970-01-01:
@@ -114,6 +123,75 @@ fn civil(days: i64) -> (i64, u32, u32) {
     let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (yoe + era * 400 + i64::from(month <= 2), month, day)
+}
+
+/// A `formatDay` mode.
+#[derive(Clone, Copy, PartialEq)]
+enum DayMode {
+    Day,
+    DayTime,
+    List,
+}
+
+const WEEKDAYS: [&str; 7] = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+];
+
+/// `formatDay(thenMs, nowMs, utcOffset, mode)` (LLP 1116.020 D8): `then`'s
+/// day counted from `now`'s in the offset's calendar days, as Foundation's
+/// relative date formatting (`doesRelativeDateFormatting`) and Mail's list
+/// name them in `en-US`:
+///
+/// - `Day`: `Today`, `Yesterday`, `Tomorrow`, else the medium date;
+/// - `DayTime`: that, ` at `, and the short time (`Oct 11, 2026 at 4:42 PM`);
+/// - `List`: the short time today, `Yesterday`, the weekday two to six days
+///   back (seven back is today's weekday, so a date), else `M/D/YY`, as
+///   `{ dateStyle: "short" }` prints it, a later day's too.
+///
+/// `""` when either instant is invalid (D7).
+fn day_label(then: f64, now: f64, offset: f64, mode: DayMode) -> Value {
+    let (Some(wall), Some(today)) = (wall_ms(then, offset), wall_ms(now, offset)) else {
+        return Value::str("");
+    };
+    let day = |w: f64| (w / 86_400_000.0).floor() as i64;
+    let (days, apart) = (day(wall), day(wall) - day(today));
+    let time = || format_time(then, offset);
+    if mode == DayMode::List {
+        return match apart {
+            0 => time(),
+            -1 => Value::str("Yesterday"),
+            -6..=-2 => Value::str(WEEKDAYS[(days + 4).rem_euclid(7) as usize]),
+            _ => {
+                let (year, month, day) = civil(days);
+                let mut out = String::with_capacity(8);
+                push_number(f64::from(month), &mut out);
+                out.push('/');
+                push_number(f64::from(day), &mut out);
+                out.push('/');
+                let yy = year.rem_euclid(100) as u8;
+                out.push(char::from(b'0' + yy / 10));
+                out.push(char::from(b'0' + yy % 10));
+                Value::str(&out)
+            }
+        };
+    }
+    let mut out = match apart {
+        0 => "Today".to_owned(),
+        -1 => "Yesterday".to_owned(),
+        1 => "Tomorrow".to_owned(),
+        _ => date(wall, Style::Medium),
+    };
+    if mode == DayMode::DayTime {
+        out.push_str(" at ");
+        out.push_str(time().as_str().unwrap_or_default());
+    }
+    Value::str(&out)
 }
 
 /// `Intl.NumberFormat("en-US", { notation: "compact", roundingMode: "trunc",

@@ -1497,6 +1497,12 @@
       "params": ["number", "0..=20"],
       "returns": "string",
       "_comment": "@ref LLP 1102 §0, §3.2 (decided (c)): an integer count of a smallest unit as a decimal with `digits` places, exactly (`formatDecimal(1234, 2)` is `\"12.34\"`, `formatDecimal(-5, 2)` is `\"-0.05\"`, `formatDecimal(7, 0)` is `\"7\"`); `-0` prints as `0`. A count that is not an integer, or not finite, prints `\"\"`: money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal from 0 to 20. A linked `format` entry."
+    },
+    {
+      "name": "formatDay",
+      "params": ["number", "number", "number", "\"day\" | \"day-time\" | \"list\""],
+      "returns": "string",
+      "_comment": "@ref LLP 1116.020 D8: a day's label for (thenMs, nowMs, utcOffset), en-US. The days are the offset's calendar days, as `formatDate`'s are (one fixed offset for both instants: a DST change between them is not applied). `day` is `Today`, `Yesterday` or `Tomorrow`, else `formatDate`'s `medium`; `day-time` adds ` at ` and `formatTime`'s `short` (`Today at 4:42 PM`, `Oct 11, 2026 at 4:42 PM`); `list` is Mail's and Notes' list label: `formatTime`'s `short` today, `Yesterday`, the weekday's name two to six days back, else the numeric short date of Intl.DateTimeFormat(\"en-US\", { dateStyle: \"short\" }) (`10/11/26`), a later day's included. `\"\"` when either instant is invalid as `formatDate` judges one (LLP 1054.000.003 D7). Pure: the app passes its own `now`. The linked capability `format`."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

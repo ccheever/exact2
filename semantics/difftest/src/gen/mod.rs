@@ -179,8 +179,8 @@ pub(crate) struct Gen<'s> {
     pub(crate) uses: u64,
     /// Whether this program declares `routes nav` (its router slot `nav`).
     pub(crate) routes: bool,
-    /// Whether this program's strings may use `formatTime`, `formatDate`
-    /// and `formatNumber`.
+    /// Whether this program's strings may use `formatTime`, `formatDate`,
+    /// `formatDay` and `formatNumber`.
     pub(crate) formats: bool,
     /// The root action the mutation's `then` names.
     pub(crate) then: Option<usize>,

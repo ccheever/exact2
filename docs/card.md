@@ -3,7 +3,7 @@ Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 functions: call -> result
   xs.at(i) -> option<T>  (none past end; -1 is last)
   back(router) -> Router
-  calendarDiff(from, to, "years" or "months") -> option<number>  (whole years/months between YYYY-MM-DD dates)
+  calendarDiff(from, to, "years" or "months") -> option<number>  (whole ones; YYYY-MM-DD dates)
   ceil(n) -> number
   xs.concat(ys) -> T[]
   depth(router) -> number
@@ -16,6 +16,7 @@ functions: call -> result
   first(xs) -> option<T>
   floor(n) -> number
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
+  formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Yesterday, Monday)
   formatDecimal(units, digits) -> string  (cents to "12.34"; digits a literal)
   formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
@@ -168,7 +169,7 @@ a dated record: The write reads the clock itself, not a ticked `now`, and stores
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` copies the screenshots to look at. A screen no test ends on is unchecked.
+a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` keeps the screenshots. A screen no test ends on is unchecked.
   test "a pick survives a relaunch"
     tap "pick"
     clock data
@@ -196,8 +197,6 @@ component App
     column
       input value=name input=setName inputmode="decimal" min=-40
       input type="checkbox" checked=on change=setOn
-      select value=name change=setName
-        option "A" value="a"
 ```
 - `select value=v change=set` holds `option "Label" value="x"`. Tabs: a `row role="tablist"` of `button role="tab" aria-controls="panel-x" aria-selected=… press=…`, each panel a `column role="tabpanel" id="panel-x"`; `routes nav`, `tab`, `select(nav, name)`.
 - A number field's `min`, `max`, `step` take numbers, negative bare (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.

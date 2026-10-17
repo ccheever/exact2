@@ -385,6 +385,8 @@ component Cart
 - Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
   "years")` (or `"months"`) is the whole periods between two such dates as an
   `option<number>`, counted as an age is (a Feb 29 birthday has its year on Mar 1).
+  `formatDay(then, now, offset, "day")` names a day from `now` (`Today`, `Yesterday`, else
+  the date; `"day-time"` adds the time, `"list"` is a list row's, as Mail's).
 - There is no general list append: add an item to
   resource-backed data in its source and answer the updated list (a mutation that
   `refreshes` the list's resource, or its own answer).

@@ -523,7 +523,8 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
                         Stdlib::FormatDate
                         | Stdlib::FormatNumber
                         | Stdlib::ToFixed
-                        | Stdlib::FormatDecimal,
+                        | Stdlib::FormatDecimal
+                        | Stdlib::FormatDay,
                     ) => format = true,
                     Some(
                         Stdlib::Frame

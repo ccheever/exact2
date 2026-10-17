@@ -17,8 +17,9 @@ are called on their value (`s.trim()`, `xs.length`); the rest as functions (`fir
 - **Formatting:** `formatNumber(n, "decimal" | "percent" | "compact")` ·
   `formatNumber(n, "currency", "USD")` · `n.toFixed(digits)` · `formatDecimal(cents, 2)` ·
   `formatDate(ms, offset, "medium" | "month-year" | "iso")` · `formatTime(ms, offset, "short")` ·
-  `calendarDiff(from, to, "years" | "months") -> option<number>` · `t("key", name=value)`.
-- **Time:** `performanceNow() -> number`, milliseconds since this launch; the date is
+  `formatDay(then, now, offset, "day" | "list")` ·
+  `calendarDiff(from, to, "years" | "months")` · `t("key", name=value)`.
+- **Time:** `performanceNow() -> number`, ms since this launch; the date is
   `time.epochAtZero + performanceNow()` ([dates-and-days](dates-and-days.md)).
 - **Routes:** `push(nav, location)` · `replace(nav, location)` · `back(nav)` ·
   `go(nav, location)` · `open(nav, location)` · `select(nav, tab)` · `stack(nav) -> Entry[]` ·
