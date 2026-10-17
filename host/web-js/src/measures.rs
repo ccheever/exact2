@@ -321,10 +321,14 @@ pub fn map(
             let name = plan.str(r.name);
             // A type or family token's part the page declares: its property
             // (a text with no element children reads it, stage 6 C); on a
-            // node with children one that varies stands, for the browser to
-            // refuse, as the runner refuses it.
+            // node with children one that varies is no value, as the runner
+            // refuses it: the row is cleared (an undotted family's name
+            // would be a font name to the browser).
             if matches!(kind, Kind::Type | Kind::Family) && container && r.slices.len > 0 {
-                return None;
+                return Some(format!(
+                    "{}:\"unset\"",
+                    serde_json::to_string(plan.str(r.name)).unwrap()
+                ));
             }
             if matches!(kind, Kind::Type | Kind::Family) && !attribute {
                 if let Some((.., prop)) = types.iter().find(|(n, row, _)| n == name && *row == id) {

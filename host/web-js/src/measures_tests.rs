@@ -558,5 +558,8 @@ fn a_type_tokens_properties_hold_their_edges() {
         .split(";")
         .next()
         .unwrap();
-    assert!(!container.contains("family.vary"), "{container}");
+    assert!(
+        container.contains("\"family.vary\":\"unset\""),
+        "the row is cleared: {container}"
+    );
 }
