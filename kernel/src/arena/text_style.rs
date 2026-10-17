@@ -130,8 +130,13 @@ impl NodeArena {
     }
 
     /// Whether `slot`'s weight is the platform's control font's, as its host
-    /// gave it: drawn at the person's text settings already.
+    /// gave it, drawn at the person's text settings already: UIKit's body
+    /// font is (bold under Bold Text); Android's, which a host registers at
+    /// 400, is not.
     fn platform_control_weight(&self, slot: u32) -> bool {
+        if metrics::column() != metrics::Column::Ios {
+            return false;
+        }
         let source = self.computed_source(slot, StyleId::FontWeight);
         self.control_styles
             .as_ref()
@@ -146,7 +151,7 @@ impl NodeArena {
     /// A symbol is stepped (its configuration names the weight). A host that
     /// paints its controls (Android's) is stepped here, and so is a weight an
     /// author gives a control in the platform's control font; not the weight
-    /// that font has as a host gave it (UIKit's body font, bold already).
+    /// that font has as iOS's host gave it (UIKit's body font, bold already).
     pub(crate) fn emboldened(&self, slot: u32, weight: u16, family: u16) -> u16 {
         if self.takes_bold_text(slot, family) {
             bolder(weight)

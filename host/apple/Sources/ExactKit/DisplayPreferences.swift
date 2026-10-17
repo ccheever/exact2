@@ -186,10 +186,14 @@ enum DisplayPreferences {
 extension TextEngine {
     /// Whether Bold Text weights a run in stack `family` (LLP 1115.000
     /// D12.3), as the kernel weights its runs: the setting on, and the
-    /// family none the app ships a file for. A Markdown piece's own weight
-    /// takes the step its run's took.
+    /// stack the system's, a generic one or a list whose first member is a
+    /// generic family (the catalog's first face, as a compiled or runtime
+    /// list registered it). A Markdown piece's own weight takes the step its
+    /// run's took.
     package func boldTextSteps(_ family: Int) -> Bool {
-        DisplayPreferences.boldText && catalog[family]?.isEmpty != false
+        guard DisplayPreferences.boldText else { return false }
+        guard let faces = catalog[family] else { return family < 8 }
+        return faces.first?.generic != nil
     }
 
     /// The kernel's step (`exact_kernel::bolder`), UIKit's as measured: 100

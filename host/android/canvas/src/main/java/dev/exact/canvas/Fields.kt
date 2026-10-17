@@ -12,6 +12,7 @@ import android.text.TextWatcher
 import android.util.Log
 import android.util.TypedValue
 import android.view.Choreographer
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -35,7 +36,7 @@ import kotlin.math.roundToInt
  * The framework's own [EditText], as a hosted field uses it (LLP 1115.001 D8): nothing of it is replaced, and it
  * says when its selection moves, which no listener of the class tells.
  */
-internal class FieldText(context: Context) : EditText(context) {
+internal class FieldText(context: Context) : EditText(unadjusted(context)) {
     var selected: ((Int, Int) -> Unit)? = null
     /** `x_log_fields=1`: what the keyboard asks of the field's input connection, to the log. Its composition is
      * between it and the field, and shows nowhere else. */
@@ -52,6 +53,12 @@ internal class FieldText(context: Context) : EditText(context) {
     override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
         stand?.place(info)
+    }
+
+    /** Bold Text's step is in the weight the field is given ([unadjusted]): a change of the device's font weight
+     * adjustment reaches the kernel, never the field's own typeface. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(Configuration(newConfig).apply { fontWeightAdjustment = 0 })
     }
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
@@ -792,13 +799,8 @@ internal class Fields(context: Context) : FrameLayout(context) {
          * the device's default family). */
         private fun face(v: EditText, size: Float, weight: Int, italic: Boolean, spacing: Float, line: Float, family: String) {
             v.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
-            // Bold Text's step is in `weight` already (the kernel's, LLP 1115.000 D12.3), and a TextView adds the
-            // device's font weight adjustment to any typeface it is given: given less by that much, it draws `weight`.
-            val adjust = v.resources.configuration.fontWeightAdjustment
-                .takeIf { it != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED } ?: 0
-            val given = weight - adjust
-            v.typeface = faces.getOrPut("$family|$given|$italic") {
-                val w = given.coerceIn(1, 1000)
+            v.typeface = faces.getOrPut("$family|$weight|$italic") {
+                val w = weight.coerceIn(1, 1000)
                 val hash = family.lastIndexOf('#')
                 val made = if (hash <= 0) null else try {
                     Typeface.Builder(File(family.substring(0, hash))).setTtcIndex(family.substring(hash + 1).toIntOrNull() ?: 0)
@@ -866,7 +868,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
             val context = context ?: return -1L
             // A host booting on a thread of exact2's own: a view wants a looper to be made on.
             if (Looper.myLooper() == null) Looper.prepare()
-            val v = measurer.get() ?: bare(EditText(context)).also {
+            val v = measurer.get() ?: bare(EditText(unadjusted(context))).also {
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
                 measurer.set(it)
             }
@@ -884,4 +886,11 @@ internal class Fields(context: Context) : FrameLayout(context) {
                 (v.baseline.coerceIn(0, most).toLong() shl 42)
         }
     }
+}
+
+/** [context] with no font weight adjustment, for a field's [EditText]: Bold Text's step is in the weight the kernel
+ * gives it (LLP 1115.000 D12.3, UIKit's step, which light weights take too), and a `TextView` would otherwise add the
+ * device's adjustment to every typeface it is set in, the one it measures in included. */
+internal fun unadjusted(context: Context): Context = ContextThemeWrapper(context, context.theme).apply {
+    applyOverrideConfiguration(Configuration().apply { fontWeightAdjustment = 0 })
 }
