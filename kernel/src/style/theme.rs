@@ -30,6 +30,9 @@ pub struct Entry {
     pub role: bool,
     /// Which rows read it (LLP 1121 D3).
     pub kind: Kind,
+    /// It varies by an app axis (D5): no inherited row reads it, since only
+    /// a colour is chosen again at a mode boundary (D7).
+    pub varies: bool,
 }
 
 /// A token's kind (LLP 1121 D3), as the plan's `theme.kind` numbers it.
@@ -107,18 +110,25 @@ pub struct ThemeScope {
 
 /// A table of colours from `(name, colour text, a role's spelling)`.
 pub fn table<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool)>) -> Table {
-    kinded(entries.into_iter().map(|(n, v, r)| (n, v, r, Kind::Color)))
+    kinded(
+        entries
+            .into_iter()
+            .map(|(n, v, r)| (n, v, r, Kind::Color, false)),
+    )
 }
 
-/// A table from `(name, text, a role's spelling, kind)`.
-pub fn kinded<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool, Kind)>) -> Table {
+/// A table from `(name, text, a role's spelling, kind, whether it varies)`.
+pub fn kinded<'a>(
+    entries: impl IntoIterator<Item = (&'a str, &'a str, bool, Kind, bool)>,
+) -> Table {
     entries
         .into_iter()
-        .map(|(n, v, r, kind)| Entry {
+        .map(|(n, v, r, kind, varies)| Entry {
             name: n.into(),
             value: v.into(),
             role: r,
             kind,
+            varies,
         })
         .collect()
 }
@@ -188,7 +198,7 @@ pub fn declared(text: &str) -> Option<Box<str>> {
 /// its kind (LLP 1121 D3, D7): a row's whole value naming one of a kind
 /// `takes` admits, exactly; the read recorded as a colour's is. `None`
 /// when it names none.
-pub fn measure(text: &str, takes: impl Fn(Kind) -> bool) -> Option<(Kind, Box<str>)> {
+pub fn measure(text: &str, takes: impl Fn(Kind, bool) -> bool) -> Option<(Kind, Box<str>)> {
     let text = text.trim();
     if text.is_empty() || text.contains([' ', '(', '#']) {
         return None;
@@ -198,7 +208,7 @@ pub fn measure(text: &str, takes: impl Fn(Kind) -> bool) -> Option<(Kind, Box<st
         let e = e
             .as_ref()?
             .iter()
-            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind))?;
+            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind, e.varies))?;
         Some((e.kind, e.name.clone(), e.value.clone()))
     })?;
     note(&name);
@@ -254,7 +264,11 @@ pub fn measured(
     let super::StyleValue::Text(text) = value else {
         return None;
     };
-    let (kind, value) = measure(text, |kind| admits(kind, id))?;
+    // An inherited row reads no token that varies (D7), as the compiler
+    // refuses one a literal names.
+    let (kind, value) = measure(text, |kind, varies| {
+        admits(kind, id) && !(varies && id.inherited())
+    })?;
     Some(match kind {
         Kind::Number => super::StyleValue::Number(exact_num::parse_f64(value.trim()).ok()?),
         _ => super::StyleValue::Text(String::from(value).into()),

@@ -408,8 +408,11 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
             };
             // A tint role stays the role in its row (`ColorValue::themed`).
             let tint = roles::role(role).is_some_and(roles::tint);
+            // Whether it varies by an app axis, as edited (D7: no inherited
+            // row reads such a length or number).
+            let varies = edit.map_or(row.slices.len > 0, |(_, _, _, slices)| !slices.is_empty());
             kind.filter(|_| !tint)
-                .map(|kind| (name, value, false, kind))
+                .map(|kind| (name, value, false, kind, varies))
                 .into_iter()
                 .chain(
                     (!role.is_empty() && !tint && kind == Some(Kind::Color)).then_some((
@@ -417,6 +420,7 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
                         value,
                         true,
                         Kind::Color,
+                        varies,
                     )),
                 )
         }));

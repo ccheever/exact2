@@ -2688,7 +2688,10 @@ channel (queued).
     off `font-size` in one app mode is `tamber-kind`, with the kernel's reason);
   - a varying token in an inherited row is `tamber-inherited-axis` (only colours re-select at a
     mode boundary);
-  - a computed string may name a number token in a number row when the design has one.
+  - a computed string may name a number token in a number row when the design has one, and then
+    every number token must suit the row in every app mode (a press scale positive);
+  - at run time an inherited row reads no token that varies (`Entry::varies`), as the compiler
+    refuses a literal naming one, so a computed name of one there is refused as an invalid value.
   Retention keeps every length and number token when a row of either kind is computed and may be a
   string.
 - **Live:** a value edit is a live batch; a kind change (written or inferred) is structure, in both

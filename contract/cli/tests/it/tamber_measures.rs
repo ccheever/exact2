@@ -252,3 +252,34 @@ fn a_tuples_value_meets_the_rows_own_rules() {
     assert_eq!(e.id, "tamber-kind", "{e:?}");
     assert!(e.message.contains("positive scale"), "{}", e.message);
 }
+
+/// Review round 3: a computed string in a number row may name any number
+/// token, so each must suit the row in every app mode; an inherited row
+/// reads no varying token at run time, as a literal naming one is refused.
+#[test]
+fn a_computed_name_meets_the_rows_rules_and_inherited_rows_read_no_varying_token() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  press.amount: number = 0.97\n    when density=compact: 0\n  line.tight: number = 1.2\n    when density=compact: 1.1\n";
+    let path = app("computed-press", &[("app.tamber", design), ("app.contract", "component App\n  state s = \"press.amount\"\n  view\n    button -exact-press-scale=s\n      text \"a\"\n")]);
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-kind", "{e:?}");
+    assert!(
+        e.message.contains("press.amount") && e.message.contains("positive scale"),
+        "{}",
+        e.message
+    );
+    let ok = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  line.tight: number = 1.2\n    when density=compact: 1.1\n";
+    let path = app("computed-inherited", &[("app.tamber", ok), ("app.contract", "component App\n  state w = \"line.tight\"\n  view\n    column testId=\"col\" line-height=w\n      text \"a\"\n")]);
+    let r = booted(contract::compile_path(&path).unwrap());
+    assert!(
+        !row(&r, "col", StyleId::LineHeight).contains("1.2"),
+        "{}",
+        row(&r, "col", StyleId::LineHeight)
+    );
+    let journal: Vec<&str> = r.journal().collect();
+    assert!(
+        journal
+            .iter()
+            .any(|l| l.contains("line-height") || l.contains("line_height")),
+        "{journal:?}"
+    );
+}

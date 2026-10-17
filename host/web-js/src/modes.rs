@@ -538,6 +538,7 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                     value: t.value.as_str().into(),
                     role: false,
                     kind: Kind::Color,
+                    varies: false,
                 })]
                 .into();
                 row["root"] = true.into();

@@ -64,15 +64,21 @@ pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
                 None if b.id == StyleId::FontWeight as u16 => "`font-weight`".to_string(),
                 None => continue,
             };
+            // A static row's: the sentinel projection writes it. A bound
+            // value maps through the row's map instead ([`map`]).
+            let Some(literal) = crate::style::literal(plan, plan.code(b.expr)) else {
+                continue;
+            };
+            let Some(text) = literal.as_str().map(str::trim) else {
+                continue;
+            };
             for r in plan
                 .theme
                 .iter()
                 .filter(|r| matches!(kind(r), Some(Kind::Length | Kind::Number)))
             {
                 let name = plan.str(r.name);
-                if crate::style::can_be(plan, plan.code(b.expr), &|s| s.trim() == name)
-                    && !out.iter().any(|(n, _)| n == name)
-                {
+                if text == name && !out.iter().any(|(n, _)| n == name) {
                     out.push((name.to_string(), writer.clone()));
                 }
             }
@@ -152,8 +158,9 @@ pub fn map(
                 .filter(|k| *k != Kind::Color && exact_kernel::style::theme::admits(*k, id))?;
             // An SVG attribute reads no property, and no tuple's rule reaches
             // it: a varying token's name stands there (the JS target does not
-            // read one computed into an attribute).
-            if attribute && r.slices.len > 0 {
+            // read one computed into an attribute). Nor does an inherited row
+            // read one, as the kernel reads none (LLP 1121 D7).
+            if (attribute || id.inherited()) && r.slices.len > 0 {
                 return None;
             }
             let name = plan.str(r.name);

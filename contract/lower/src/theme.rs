@@ -378,14 +378,18 @@ impl Lowerer<'_> {
                         e.value.as_str(),
                         false,
                         kernel_kind(e.kind),
+                        !e.slices.is_empty(),
                     ))
                     .into_iter()
-                    .chain(
-                        e.role
-                            .as_deref()
-                            .filter(|_| !tint)
-                            .map(|r| (r, e.value.as_str(), true, kernel_kind(e.kind))),
-                    )
+                    .chain(e.role.as_deref().filter(|_| !tint).map(|r| {
+                        (
+                            r,
+                            e.value.as_str(),
+                            true,
+                            kernel_kind(e.kind),
+                            !e.slices.is_empty(),
+                        )
+                    }))
             }),
         ))
     }
@@ -920,10 +924,50 @@ pub(crate) fn names_measures(v: &Expr) -> bool {
 pub(crate) fn measure_row(
     a: &Attr,
     rows: &[exact_kernel::StyleId],
+    string: bool,
     check: &dyn Fn(&Attr) -> Result<(), LowerError>,
 ) -> Result<(), LowerError> {
     let mut all = Vec::new();
     leaves(&a.value, &mut Vec::new(), &mut all);
+    // A computed string in a number row may name any number token (values.rs
+    // admits one): each must suit the row in every app mode, as a literal
+    // naming it must (a press scale positive). A length row's computed text
+    // is the kernel's to read at run time, as any computed string is.
+    let computed = string
+        && all
+            .iter()
+            .any(|e| !matches!(e, Expr::Str(..) | Expr::Number(..)));
+    if computed && rows.iter().all(|r| theme::admits(theme::Kind::Number, *r)) {
+        let numbers: Vec<(String, Vec<String>)> = MEASURES.with(|m| {
+            m.borrow()
+                .iter()
+                .filter(|(_, kind, _)| *kind == tamber::Kind::Number)
+                .map(|(name, _, values)| (name.clone(), values.clone()))
+                .collect()
+        });
+        for (name, values) in numbers {
+            for value in values {
+                let Ok(n) = exact_num::parse_f64(&value) else {
+                    continue;
+                };
+                let alt = Attr {
+                    value: Expr::Number(n, a.value.span()),
+                    ..a.clone()
+                };
+                if let Err(e) = check(&alt) {
+                    let why = e
+                        .message
+                        .rsplit_once(": ")
+                        .map_or(e.message.as_str(), |(_, why)| why);
+                    return Err(LowerError {
+                        id: "tamber-kind",
+                        message: format!("`{}`'s computed value may name `{name}`, which is `{value}` in some app mode, which `{}` does not take: {why}", a.name, a.name),
+                        span: a.value.span(),
+                    });
+                }
+            }
+        }
+    }
     let found = all.into_iter().filter_map(|e| match e {
         Expr::Str(text, span) => Some((text.as_str(), *span)),
         _ => None,

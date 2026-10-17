@@ -471,7 +471,7 @@ pub(crate) fn check_style_value(
         return crate::theme::mode_pins(a);
     }
     // A length or number token in a row of another kind (LLP 1121 D3).
-    crate::theme::measure_row(a, rows, &|alt| {
+    crate::theme::measure_row(a, rows, ty.is_string(), &|alt| {
         let ty = match alt.value {
             Expr::Number(..) => Ty::Number,
             _ => Ty::String,

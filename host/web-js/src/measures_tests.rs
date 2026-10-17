@@ -282,3 +282,16 @@ fn an_attribute_map_holds_constants_and_opacity_reads_a_tokens_value() {
         out.js
     );
 }
+
+/// Review round 3: a token's name only compared in a font weight's value
+/// is no use of it; the build goes on.
+#[test]
+fn a_compared_name_is_no_inline_use() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  weight.strong: number = 600\n    when density=compact: 700\n";
+    let plan = plan(
+        "compared",
+        design,
+        "component App\n  state w = \"x\"\n  view\n    text \"a\" font-weight=(w == \"weight.strong\" ? 700 : 400)\n",
+    );
+    assert!(crate::emit::emit(&plan, false, false).is_ok());
+}
