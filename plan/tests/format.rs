@@ -833,3 +833,13 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     same.data = plan.data.clone();
     assert_eq!(same, plan);
 }
+
+/// The format digest is pinned: a change to `tables/format.json`, a comment
+/// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
+#[test]
+fn the_format_digest_is_pinned() {
+    assert_eq!(
+        FORMAT_DIGEST, 0x63af_3f19_b763_9c3e,
+        "the plan format digest moved: if intended, name the break and the hosts that move"
+    );
+}
