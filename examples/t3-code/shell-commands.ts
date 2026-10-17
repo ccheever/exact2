@@ -17,6 +17,7 @@ import { gitShellCommand, GIT_FAILURE_TITLES } from './r4-git-route';
 import { surfaceLocal, surfaceCommand } from './r4-surfaces-panel';
 import { openInEditorHere } from './remote-open'; // remote Open (OpenInPicker)
 import { letGo } from './let-go';
+import { markUnread } from './sidebar-commands';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -45,6 +46,7 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   }
   // The card's branch picker, Git actions and dialogs (r4-git-route.ts).
   if (op.startsWith('git-')) return gitShellCommand(client, native, storage, op.slice(4), id, value);
+  if (op === 'mark-unread') { await markUnread(client, native, id); return ''; } // the sidebar's, silent on failure
   const thread = threadOf(client, id);
   const title = str(thread.title, 'thread');
   if (op === 'rename') {
@@ -68,7 +70,6 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   const [commandId] = await access.ids(1);
   const payloads: Record<string, [string, Record<string, unknown>]> = {
     pin: ['Pin', { type: 'thread.pin' }], unpin: ['Unpin', { type: 'thread.unpin' }],
-    'mark-unread': ['Mark unread', { type: 'thread.mark-unread' }],
     'regenerate-title': ['Regenerate title of', { type: 'thread.metadata.update', regenerateTitle: true }],
     'auto-settle': ['Change auto-settle of', { type: 'thread.auto-settle.set', enabled: value !== 'false' }],
     archive: ['Archive', { type: 'thread.archive' }], delete: ['Delete', { type: 'thread.delete' }],
@@ -126,7 +127,6 @@ const FAILURE_TITLES: Record<string, string> = {
   'shell:pin': 'Failed to pin thread', 'shell:unpin': 'Failed to unpin thread', 'shell:rename': 'Failed to rename thread',
   'shell:archive': 'Failed to archive thread', 'shell:delete': 'Failed to delete thread',
   'shell:regenerate-title': 'Failed to regenerate thread title', 'shell:auto-settle': 'Failed to update auto-settle',
-  'shell:mark-unread': 'Failed to mark thread unread',
   'shell:open-editor': 'Unable to open editor', 'shell:git-action': 'Git action failed', 'copy-diagnostic': 'Could not copy trace ID',
 };
 

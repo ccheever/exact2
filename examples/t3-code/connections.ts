@@ -344,7 +344,10 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         });
         // Pairing a saved machine at another address adds a route, placed by kind.
         const added = obj(paired?.value);
-        if (str(added.environmentId) && added.primary !== true) await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});
+        if (str(added.environmentId) && added.primary !== true) {
+          await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});
+          await fleet.restart(native, str(added.environmentId)); // a saved one reconnects with the new credential
+        }
         if (client && !welcome) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
         await fleet.sync(native, focusOf(client));
         return { status: null, generation: -1 };
