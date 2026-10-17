@@ -191,10 +191,22 @@ export async function startServer(paths, name, { port = ENVIRONMENTS[name]?.port
   }
 }
 
+/**
+ * A stand-in in front of an environment's server (`../machines/older-server.mjs`) records itself in
+ * `route.json` ({ pid, port }): pairings go through it while it runs, and stopping the server stops it.
+ */
+export const routeFile = (paths, name) => join(envDir(paths, name), "route.json");
+export function routeOf(paths, name) {
+  const entry = existsSync(routeFile(paths, name)) ? JSON.parse(readFileSync(routeFile(paths, name), "utf8")) : null;
+  return entry && alive(entry.pid) ? entry : null;
+}
+
 /** Stops the server this fixture recorded for `name` (its pid only) and waits until its port is free. */
 export async function stopServer(paths, name) {
-  const running = recorded(paths, name);
+  const running = recorded(paths, name), route = routeOf(paths, name);
   rmSync(pidFile(paths, name), { force: true });
+  rmSync(routeFile(paths, name), { force: true });
+  if (route) process.kill(route.pid, "SIGTERM");
   if (!running) return null;
   process.kill(running.pid, "SIGTERM");
   for (let i = 0; i < 100 && alive(running.pid); i++) await Bun.sleep(100);
@@ -213,7 +225,7 @@ export function pairingToken(paths, name, label = "Fixture drive") {
 export function pairingUrl(paths, name, label) {
   const running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running (bun env.mjs start ${name})`);
-  return `http://127.0.0.1:${running.port}/pair#token=${pairingToken(paths, name, label)}`;
+  return `http://127.0.0.1:${routeOf(paths, name)?.port ?? running.port}/pair#token=${pairingToken(paths, name, label)}`;
 }
 
 /**
