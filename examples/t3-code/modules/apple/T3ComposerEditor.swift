@@ -496,10 +496,13 @@ final class T3ComposerEditor {
         return ([], png)
     }
 
+    /// Whether a paste here can attach files: the composer's, not the Appearance prompt sample's.
+    var takesPastedFiles: Bool { hatch == .t3Composer }
+
     /// A paste with files or an image on `pasteboard` (T3ComposerPasteHook): they are held for TypeScript and the text
     /// view pastes nothing. False leaves the paste to the text view.
     func pasteFiles(from pasteboard: NSPasteboard) -> Bool {
-        guard hatch == .t3Composer, let claim = Self.pasteClaim(pasteboard) else { return false }
+        guard takesPastedFiles, let claim = Self.pasteClaim(pasteboard) else { return false }
         var urls = claim.urls
         if let image = claim.image {
             let folder = pasteDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -539,6 +542,9 @@ final class T3ComposerEditor {
 /// ⌘V, Edit › Paste and the text menu's Paste each reach the text view's `paste:`. It is wrapped once per class, as
 /// T3ComposerAccessibleTextHooks wraps the accessibility answers: on the composer's text view a paste with files or an
 /// image attaches them (`T3ComposerEditor.pasteFiles`); any other paste, and any other text view's, is the text view's own.
+/// AppKit enables those Paste items only for a pasteboard the view can read, and a plain-text view reads no image, so the
+/// composer's `readablePasteboardTypes` also name PNG and TIFF: without them an image alone left Paste disabled and ⌘V
+/// never sent `paste:`.
 enum T3ComposerPasteHook {
     private static var installed: Set<ObjectIdentifier> = []
     private static var key = 0
@@ -564,7 +570,22 @@ enum T3ComposerPasteHook {
                editor.pasteFiles(from: editor.pasteboard()) { return }
             own(object, selector, sender)
         }
-        let implementation = imp_implementationWithBlock(block)
+        replace(cls, selector, method, imp_implementationWithBlock(block))
+        let readable = #selector(getter: NSTextView.readablePasteboardTypes)
+        guard let types = class_getInstanceMethod(cls, readable) else { return }
+        typealias Readable = @convention(c) (AnyObject, Selector) -> NSArray
+        let ownTypes = unsafeBitCast(method_getImplementation(types), to: Readable.self)
+        let readableBlock: @convention(block) (AnyObject) -> NSArray = { object in
+            let listed = ownTypes(object, readable)
+            guard let view = object as? NSTextView, let editor = editor(of: view), editor.textView === view, editor.takesPastedFiles,
+                  let list = listed as? [String] else { return listed }
+            return (list + [NSPasteboard.PasteboardType.png.rawValue, NSPasteboard.PasteboardType.tiff.rawValue].filter { !list.contains($0) }) as NSArray
+        }
+        replace(cls, readable, types, imp_implementationWithBlock(readableBlock))
+    }
+
+    /// `implementation` as `selector` on `cls`: in place of the class's own method, else added over the inherited one.
+    private static func replace(_ cls: AnyClass, _ selector: Selector, _ method: Method, _ implementation: IMP) {
         var count: UInt32 = 0
         let methods = class_copyMethodList(cls, &count)
         defer { free(methods) }
