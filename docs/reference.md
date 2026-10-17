@@ -224,6 +224,7 @@ terminal entry as a compiled plan. Rebuild after editing the entry or an
 import; launching the binary needs no Contract source or compiler work.
 `exact-terminal <entry.contract>` remains the source-driven development
 host. All three accept the headless operations and `--size COLSxROWS`.
+Interactive terminal I/O runs on Unix only; Windows supports headless operations.
 
 The harness's inline transcript is transferred to scrollback in bounded
 batches, retiring each only after the terminal prints it. A large burst
