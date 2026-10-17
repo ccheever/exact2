@@ -2,7 +2,7 @@
 // as TS. Handles never cross this boundary. @ref LLP 1027.001 D2.
 import { createFileSystem, requestBody } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
-import { agentRefusalSaid, agentStorageRefusal, storageKey } from './storage-environment.js';
+import { agentStorageRefusal, storageKey } from './storage-environment.js';
 import { grantError } from './grant-admission.js';
 import './documents-glue.js';
 const maxBytes = 16 << 20;
@@ -52,8 +52,8 @@ export function createStorageRequests(appId, admitted) {
           return encoded;
         }
         if (key == null) {
-          // A refused write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
-          if (!toldAgent && agentRefusalSaid(op)) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
+          // The first refused read or write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
+          if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
           throw new Error(agentStorageRefusal);
         }
         if (request.version!==1 || !args || typeof args.path!=='string' || !args.path.startsWith('app:/')) throw new Error('invalid portable storage request');

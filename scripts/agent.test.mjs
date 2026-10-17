@@ -306,8 +306,9 @@ test('a native named store is kept unless the drive resets it, under its lock; a
 test('a drive with no store says its storage was refused after the first op that met it, a screenshot too, once', async () => {
   const { driveNotes, STORAGE_NOTE } = await import('./agent-test.mjs');
   const said = [], quiet = console.error;
-  const lines = ['t=0 query lib: loadLibrary', 't=0 storage failed: readFile app:/data/library.json: Unavailable agent storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)'];
-  const s = { launchFacts: {}, op: async ({ since }) => ({ lines: lines.slice(since ?? 0), next: lines.length }), state: async () => ({}) };
+  const lines = ['t=0 query lib: loadLibrary', 't=0 storage refused (agent): storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)'];
+  const logs = (lines) => async ({ since }) => ({ lines: lines.slice(since ?? 0), next: lines.length });
+  const s = { launchFacts: {}, op: logs(lines), state: async () => ({}) };
   console.error = (line) => said.push(line);
   try {
     const notes = driveNotes(s, { host: 'ios', storage: undefined });
@@ -315,6 +316,9 @@ test('a drive with no store says its storage was refused after the first op that
     assert.deepEqual(said.filter((l) => l.includes('--storage')), [`note: ${STORAGE_NOTE}`]);
     said.length = 0;
     await driveNotes(s, { host: 'ios', storage: 's1' })('screenshot');
+    assert.deepEqual(said, []);
+    // A resource's own failure that only quotes the refusal is not taken for one.
+    await driveNotes({ ...s, op: logs(['t=0 lib failed: Unavailable agent storage is unavailable in agent mode']) }, { host: 'web', storage: undefined })('end');
     assert.deepEqual(said, []);
   } finally { console.error = quiet; }
 });

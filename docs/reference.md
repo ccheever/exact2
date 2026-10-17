@@ -638,8 +638,9 @@ in agent mode unless the drive names a scratch store (--storage <name>)`) and ke
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
 store}`), and the journal says `storage refused (agent): …` the first time
-a write is refused (a refused read finds what an empty store would: nothing), which
-the driver repeats once as a note. A Rust module's storage request in such a drive is answered
+a read or write is refused (a refused read finds what an empty store would: nothing,
+so a source that catches it falls back silently), which the driver repeats once as a
+note, after the first op that met it. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
 An answer waits for the storage it awaits, and only that (LLP 1097). Storage
@@ -1468,7 +1469,8 @@ Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 is absent at build, so `query` answers a placeholder, and in a scripted drive
 that names no scratch store: there `response` is an error, and the source
 answers as if nothing were kept. `--storage <name>` gives a drive a store kept
-between drives; an authored test gets an empty one, and its `reload` restarts
+between native drives (`--reset-storage` empties it); on the web the next drive
+keeps it with `--keep-storage`. An authored test gets an empty one, and its `reload` restarts
 on it. A game's data crate takes these crates from the SDK
 (`exact-data.workspace = true`, `serde_json.workspace = true`).
 

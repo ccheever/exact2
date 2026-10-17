@@ -283,10 +283,9 @@ const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; 
  * after each op with the op's name, and with `end` when the drive ends. The web reads after each input; a native
  * carrier, whose reads could be slow, at the end; both at a read before the clock first moved. Advice only: bounded,
  * and never fails a drive. */
-/** A journal line that says a data source was refused app storage because the drive named no store: a write's
- * (`storage refused (agent)`), or a source's own report of the refusal. */
-export const STORAGE_REFUSED = /storage refused \(agent\)|storage is unavailable in agent mode/;
-export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storage was refused: its data sources read nothing and keep nothing, and what shows is an empty install\'s, not an app bug; pass --storage <name> (docs/agent-pitfalls.md)';
+/** The journal line every host writes at a drive's first refused read or write of app storage, when the drive names no store. */
+export const STORAGE_REFUSED = /storage refused \(agent\)/;
+export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storage was refused: a data source that reads its files finds none and keeps nothing, so a screen may show an empty store, not the app\'s data; pass --storage <name> (docs/agent-pitfalls.md)';
 export function driveNotes(s, { host, storage, origins = [] }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };

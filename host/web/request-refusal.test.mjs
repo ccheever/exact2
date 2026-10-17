@@ -1176,7 +1176,7 @@ test('storage re-homes an answer\'s writes to the background before retiring it'
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-rehome-'));
   try {
     cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
-    writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const agentRefusalSaid = () => true; export const storageKey = () => 'k';");
+    writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
     // Each write lands when the test says.
     writeFileSync(resolve(dir, 'storage-fs.js'), 'export const createFileSystem = () => ({ writeFile: () => new Promise(ok => globalThis.landWrite.push(ok)) });');
     globalThis.landWrite = [];
@@ -1282,7 +1282,7 @@ try {
   postMessage('error: ' + (error && error.stack || error));
 }
 `);
-  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const agentRefusalSaid = () => true; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
   writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
   writeFile: () => new Promise(ok => globalThis.land.push(() => ok(''))),
   readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),
@@ -1339,7 +1339,7 @@ const scratch = owner => ({ owner });
 ${body}
 })();
 `);
-  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const agentRefusalSaid = () => true; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
   writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
   writeFile: () => new Promise(ok => { globalThis.writes++; globalThis.land.push(() => ok('')); }),
   readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),
