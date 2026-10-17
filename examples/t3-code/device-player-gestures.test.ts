@@ -140,32 +140,6 @@ describe('the docked details card while the top edge grows and shrinks the playe
   });
 });
 
-describe('a press on a pill button starts no drag', () => {
-  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-  async function component(name: string): Promise<string[]> {
-    const lines = (await source('r6-device.contract')).split('\n');
-    const start = lines.indexOf(`component ${name}`);
-    const end = lines.findIndex((line, index) => index > start && line.startsWith('component '));
-    return lines.slice(start, end < 0 ? undefined : end);
-  }
-
-  test('the pill holds no pan; a grab box behind its buttons does, and the buttons lie over it', async () => {
-    const lines = await component('R6DeviceMiniPlayer');
-    const pill = lines.findIndex(line => line.includes('testId="device-mini-pill"'));
-    expect(lines[pill]).not.toContain('pan=');
-    expect(lines[pill]).toContain('hover=overPill');
-    // Its first child: the grab box over the padding, the gaps and the 1 pt border, before (under) the two buttons.
-    expect(lines[pill + 1]).toContain('box position="absolute" left=-1 top=-1 right=-1 bottom=-1 pan=pan("move") panrelease=release touch-action="none"');
-    expect(lines[pill + 1]).toContain('testId="device-mini-grab"');
-    expect(lines.slice(pill + 2, pill + 4).every(line => line.trim().startsWith('R6MiniPillButton('))).toBe(true);
-    // Only the grab box, the handle and the eight zones pan.
-    expect(lines.filter(line => line.includes('pan=pan(')).length).toBe(10);
-    const button = (await component('R6MiniPillButton')).find(line => line.trim().startsWith('button '))!;
-    expect(button).not.toContain('pan=');
-    expect(button).toContain('position="relative" flex-shrink=0 width="1.5rem" height="1.5rem"');
-  });
-});
-
 describe('the player at 840 × 620', () => {
   // The sidebar is 208 at 840 wide: the canvas is 632 × 568.
   const small = { chat: [208, 0, 632, 620], overlay: [228, 451, 592, 165] };

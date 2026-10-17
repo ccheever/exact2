@@ -97,33 +97,3 @@ describe('Every reference ⌘ binding of an open thread keeps its dispatch butto
     }
   });
 });
-
-// CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presented a wide
-// text's raster made off screen only for a selectable text (the pump of
-// issues/closed/20261011-macos-scheme-switch-stale-text-raster.md), and no text under a button is one, so the title
-// stayed blank until the hover colour redrew it; the clone laid the button over texts beside it,
-// then kept the title selectable. Main #494 has the pump paint every shown text, so the row is the
-// reference's one button holding its marker and texts again: nothing over the row, no text
-// selectable or `aria-hidden`, the button's label the row's name.
-describe('The Timeline commit row is one button holding its texts, as the reference\'s CommitEvent', () => {
-  test('the button holds the marker, the title, the sha and age and the counts; the title keeps the reference tones', async () => {
-    const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
-    const start = lines.findIndex(line => line.trim() === 'if row.kind == "commit"');
-    const end = lines.findIndex((line, index) => index > start && line.startsWith('    if '));
-    const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));
-    const indent = (line: string) => line.length - line.trimStart().length;
-    // The row's first line is the button, and every other line nests under it.
-    expect(row[0]!.trim()).toStartWith('button press=openCommit(row.id) hover=hover aria-label=`View commit ${row.id}` position="relative"');
-    for (const attr of ['width="100%"', 'padding-left="3rem"', 'text-align="left"', 'display="flex"', 'flex-direction="column"', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[0]).toContain(attr);
-    expect(row[0]).not.toContain('position="absolute"');
-    for (const line of row.slice(1)) expect(indent(line)).toBeGreaterThan(indent(row[0]!));
-    expect(row.filter(line => line.trim().startsWith('button '))).toHaveLength(1);
-    expect(row[1]!.trim()).toStartWith('PrdMarker(row=row, pinned=false, muted=false, icon="git-commit-horizontal")');
-    const title = row.find(line => line.trim().startsWith('text row.headline'))!;
-    expect(title).toContain('color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk())');
-    expect(title).toContain('testId=`pull-request-timeline-commit-title-${row.sha}`');
-    for (const text of ['text row.sha', 'text row.age', 'text row.additions', 'text row.deletions']) expect(row.some(line => line.trim().startsWith(text))).toBe(true);
-    // No stand-in is left: nothing hidden from accessibility, nothing made unselectable by hand, no help-tag opt-out.
-    for (const attr of ['aria-hidden', 'user-select', 'title=""', 'z-index']) expect(row.filter(line => line.includes(attr))).toEqual([]);
-  });
-});

@@ -343,12 +343,6 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     expect(calls).toEqual([['command', 'diffreview', 'cite:["t","a"]', `12-152|280,${351.42 + 23.83},221.2,21|Cite check.\nA closing …`, 0], ['removeAllRanges']]);
     expect(state.citeFor).toBe('');
   });
-
-  test('Cite is drawn by the window above the timeline (the reference portals it to the body), not inside the answer', () => {
-    expect(source('app-window.contract')).toContain('if citeShows\n          CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))');
-    expect(source('markdown.contract')).toContain('column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys\n      DiagramBlocks(');
-    expect(source('diff-cite.contract')).toMatch(/button id="cite-action" retainFocus=true press=press key=keys hover=hover focus=focusChanged\(true\) blur=focusChanged\(false\) disabled=tooLong aria-label=\(tooLong \? "Selection is too long to cite" : "Cite selection in composer"\) testId=`cite-\$\{offer.source\}` position="absolute" left=citeActionLeft\(offer.x, viewportWidth, tooLong\) top=citeActionTop\(offer.y, viewportHeight\) z-index=50/);
-  });
 });
 
 describe('the pencil\'s comment above its chip (no change: the clone already places it as the reference)', () => {

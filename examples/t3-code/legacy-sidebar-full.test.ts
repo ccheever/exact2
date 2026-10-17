@@ -250,31 +250,11 @@ describe('the discovered-port button on a background environment: its own stream
 
 describe('the row\'s tooltips', () => {
   const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-  test('the title, the worktree glyph, the collapsed project\'s status and the controls carry the reference\'s tooltips', () => {
-    expect(view).toContain('LegacyTitleTip(label=t.title, tipId=`legacy-tip-title-${t.id}`, relay=innerHover)');
-    expect(view).toContain('Tip(label=t.worktreeLabel, side="top"');
-    expect(view).toContain('Tip(label=p.statusLabel, side="top"');
-    expect(view).toContain('Tip(label=(t.prPending ? "" : t.prTooltip)');
-    expect(view).toContain('Tip(label=t.portTip');
-  });
+
   // The host hovers only the nearest node with a hover handler (MouseChainMac `hoverUnderPointer`), so a pointer entering
   // a row on its title would hover the title's tooltip and not the row: Archive stayed hidden and a press there opened the
   // thread. Every tooltip trigger inside a row tells the row, as group-hover holds for the whole row.
-  test('every tooltip trigger inside a thread row or a project header tells the row the pointer is on it', () => {
-    const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('// A legacy row\'s or project header\'s tooltip trigger'));
-    const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
-    for (const [row, triggers] of [[thread, 6], [project, 2]] as const) { // thread: title, pull request, port, worktree, terminal, Archive
-      expect(row).toContain('action innerHover(value: bool)\n    inner = value');
-      expect(row).toContain('derive pointed = over or inner');
-      expect(row.match(/\bTip\(/g) ?? []).toHaveLength(0); // a plain Tip's hover would not reach the row
-      expect(row.match(/Tip\([^\n]*relay=innerHover\)/g) ?? []).toHaveLength(triggers);
-    }
-    for (const tip of ['component LegacyTitleTip', 'component LegacyRowTip']) {
-      const body = view.slice(view.indexOf(tip), view.indexOf('\n  view', view.indexOf(tip)));
-      expect(body).toContain('relay: action');
-      expect(body).toContain('action setOver(value: bool)\n    relay(value)');
-    }
-  });
+
   // The thread list clips its rows (overflow hidden, the reference's, for autoAnimate), which cut a bubble
   // drawn beside each project's first row. The reference portals every TooltipPopup; the window's hover layer is the clone's.
   test('the row\'s and the header\'s tooltips are drawn by the window\'s hover layer, so the list\'s clip does not cut them', () => {
@@ -320,15 +300,6 @@ describe('the row\'s tooltips', () => {
 });
 
 describe('list motion and the destructive "Delete anyway"', () => {
-  const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-  test('autoAnimate (180 ms ease-out, none under reduced motion): project and thread rows slide and a leaving row fades', () => {
-    expect(view).toContain('keyframes lsRowOut\n  from opacity=1 scale=1\n  to opacity=0 scale=0.98');
-    const motion = '-exact-layout-transition=(reduced ? "none" : "180ms ease-out") -exact-exit-animation=(reduced ? "none" : "lsRowOut 180ms ease-out")';
-    expect(view.split(motion).length - 1).toBe(3); // the project item, its thread list and each thread row
-    expect(view).toContain('keyframes lsRowIn\n  from opacity=0 scale=0.98\n  to opacity=1 scale=1');
-    expect(view).toContain('animation=(t.enter and not reduced ? "lsRowIn 180ms ease-out" : "none")');
-    expect(view).toContain('animation=(p.enter and not reduced ? "lsRowIn 180ms ease-out" : "none")');
-  });
   test('a row fades in when it arrives in a shown list, not on the first draw and not after its tick', () => {
     const { client } = rig({ threads: [thread('thread-1')] });
     const rows = (now: number) => legacySidebarSnapshot(client, now, { projectIdentity: identity }).projects.flatMap(project => [[project.name, project.enter], ...project.threads.map(row => [row.id, row.enter])]);
@@ -341,12 +312,6 @@ describe('list motion and the destructive "Delete anyway"', () => {
     rows(3000);
     client.local.clientSettings = { ...client.local.clientSettings, legacySidebarEnabled: true } as typeof client.local.clientSettings;
     expect(rows(4000).every(([, enter]) => enter === false)).toBe(true); // switched on again: a first draw
-  });
-  test('the "Project is not empty" toast\'s Delete anyway is the destructive button', () => {
-    const toastView = readFileSync(new URL('./shell-toast.contract', import.meta.url), 'utf8');
-    // bg-destructive: --error, red-500 (#fb2c36), lighter in dark mode, as the clone's other destructive buttons.
-    expect(toastView).toContain('background-color=(toast.actionDestructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")');
-    expect(toastView).not.toContain('#dc2626');
   });
 });
 
@@ -369,41 +334,6 @@ describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () 
     const { client, native, ops } = rig({ threadId: 'thread-1', presentation: { rowDrops: ['fleet:local:thread-2'] } });
     expect(await takeRowDrops(client, native)).toBe(false);
     expect(opsOf(ops, 'rowDropTake')).toEqual([]);
-  });
-  test('each legacy row\'s button carries the drop target hatch and its thread key', () => {
-    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-    expect(view).toContain('hatch="t3-row-drop" data-thread-key=t.dropKey');
-    const manifest = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8'));
-    expect(manifest.hatches).toContain('t3-row-drop');
-    expect(manifest.data).toContain('thread-key');
-  });
-});
-
-describe('Archive and New thread in the tab order (group-focus-within)', () => {
-  const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-  const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('component LegacyRenameField'));
-  const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
-  test('Archive stays mounted (opacity 0, no pointer) and shows on hover or while the focus is in the row', () => {
-    expect(thread).toContain('derive revealed = (pointed or inside) and not t.running');
-    expect(thread).toContain('        box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
-    expect(thread).toContain('shown=(not confirmShown and not t.running), relay=innerHover)\n            if not confirmShown and not t.running\n              button cursor="pointer" press=archive');
-    expect(thread).not.toContain('if over and not t.running');
-    for (const target of ['press=openPress', 'press=prPress', 'press=run("legacy-port"', 'press=archive']) {
-      const at = thread.indexOf(target);
-      expect(at).toBeGreaterThan(0);
-      expect(thread.slice(at, thread.indexOf('\n', at))).toMatch(/focus=within\("(\w+)", true\) blur=within\("\1", false\)/);
-    }
-    expect(thread).toContain('opacity=(revealed or confirmShown ? 0 : 1)'); // the meta hides the same way
-  });
-  test('Confirm takes the focus; the tooltip shows only without confirmation', () => {
-    expect(thread).toContain('press=confirmArchive focus=within("confirm", true) blur=within("confirm", false) autofocus=true');
-    expect(thread).toContain('Tip(label=(legacy.confirmArchive ? "" : "Archive")');
-  });
-  test('the project\'s New thread stays mounted and crossfades with the environment badge', () => {
-    expect(project).toContain('derive revealed = pointed or inside');
-    expect(project).toContain('opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
-    expect(project).toContain('opacity=(revealed ? 0 : 1) pointer-events="none" role="img" aria-label=p.remoteLabel');
-    expect(project).not.toContain('if over\n          box position="absolute" right="0.125rem"');
   });
 });
 
@@ -739,13 +669,7 @@ describe('drops and port opens whose thread did not open (handleThreadFileDrop, 
     await expect(threadOps.call(client, 'select-thread', 'fleet:env-gone:t1', 'click', 0, native, files, out)).rejects.toThrow('That environment is no longer connected.');
     expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['fleet:env-gone:t1']]);
   });
-  test('the open thread\'s own row only queues (no press); its drop is taken at the next refresh', () => {
-    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-    expect(view).toContain('data-thread-key=t.dropKey data-thread-open=(isOpen ? "1" : "0")');
-    expect(JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8')).data).toContain('thread-open');
-    const swift = readFileSync(new URL('./modules/apple/T3RowDrop.swift', import.meta.url), 'utf8');
-    expect(swift).toContain('self?.drop(key, urls, open: element?.data[.threadOpen] == "1") { element?.click() }');
-  });
+
   test('a port whose environment fails to become the focus is not opened later', async () => {
     const { client, native, rpcs } = rig();
     const entry = background([thread('t9', { projectId: 'r1' })]);

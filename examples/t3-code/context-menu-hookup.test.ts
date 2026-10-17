@@ -9,14 +9,6 @@ import { T3Client } from './client';
 import { filesState } from './r4-surfaces-files';
 import { resetRemoteEditorsForTests } from './remote-open';
 
-const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-/** The line of `file` whose node has this testId (the handler sits on the same node). */
-async function nodeLine(file: string, testId: string): Promise<string> {
-  const line = (await source(file)).split('\n').find(entry => entry.includes(testId));
-  if (!line) throw new Error(`${file}: no node ${testId}`);
-  return line;
-}
-
 const files: Files = { fs: { mkdir: async () => undefined, readFile: async () => { throw new Error('none'); }, atomicWriteFile: async () => undefined } } as unknown as Files;
 function fixture() {
   resetRemoteEditorsForTests();
@@ -35,24 +27,6 @@ function fixture() {
 }
 
 describe('right-click hookup', () => {
-  test('the Contract nodes carry the handlers and the root actions name the ops', async () => {
-    // The number's menu is a context popover (pages-prs.contract PrLinkMenu); its rows pick.
-    expect(await nodeLine('pages-prs.contract', 'testId=`pr-number-${row.number}`')).toContain('contextmenu=linkMenuFor(row.linkMenu, row.linkOpenLabel) contextPopover="pr-link-menu"');
-    expect(await source('pages-prs.contract')).toContain('PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor,');
-    expect(await source('pages-prs.contract')).toContain('PrLinkMenu(menuId="pr-link-menu", link=linkMenuOf, openLabel=linkMenuLabel, pick=control("link-pick"))');
-    expect(await nodeLine('pages-pr-detail.contract', 'testId="pull-request-open-host"')).toContain('contextPopover="pr-detail-link-menu"');
-    expect(await source('pages-pr-detail.contract')).toContain('PrLinkMenu(menuId="pr-detail-link-menu", link=detail.linkMenu, openLabel=detail.linkOpenLabel, pick=local("pr-link-pick", ""))');
-    expect(await nodeLine('r4-surfaces-files.contract', 'testId=`tree-${row.path}`')).toContain('contextmenu=local("surface-files-row-menu", row.path, "")');
-    const app = await source('app.contract');
-    // prControl (the list's `control`) and chatLocal (the panels' and the detail's `local`).
-    expect(app).toMatch(/action prControl\(op: string, value: string\)[\s\S]*?send localChanged = command\(`pageslocal:pr-\$\{op\}`, "", value, 0\)/);
-    expect(app).toMatch(/action chatLocal\(op: string, id: string, value: string\)[\s\S]*?send localChanged = command\(`chatlocal:\$\{op\}`, id,/);
-    const main = await source('app-main.contract');
-    expect(main).toContain('control=prControl');
-    expect(main).toMatch(/PrPanel\([^\n]*local=chatLocal\)/);
-    expect(main).toMatch(/SurfacePanel\([^\n]*local=chatLocal/);
-  });
-
   test('the ops those handlers send open the reference menus; a number\'s menu choice asks for no native menu', async () => {
     const { menus, command } = fixture();
     await command('pageslocal:pr-link-pick', '', 'copy-link\ngithub https://github.com/a/b/pull/7');

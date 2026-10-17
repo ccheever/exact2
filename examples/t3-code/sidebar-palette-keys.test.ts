@@ -46,18 +46,6 @@ const native = { available: true, watch() {}, later: async () => ({}) } as unkno
 const helpers = { projectIdentity: (name: string) => ({ projectMark: name.slice(0, 2).toUpperCase(), projectInk: 'ink', projectSurface: 'surface' }),
   providerBadge: () => ({ providerBadge: '', providerBadgeColor: '' }) };
 
-describe('⌘N and ⇧⌘N while a sidebar row holds the focus', () => {
-  test('a modifier\'s own press on a focused row sends nothing, so it leaves commandPending for the chord\'s button', async () => {
-    const app = await source('app.contract');
-    const run = app.split('\n').find(line => line.trim().startsWith('if not commandPending and ((op != "row-key"'))!;
-    for (const key of ['"Enter"', '" "', '"Meta"', '"Shift"', '"Control"', '"Alt"', '"CapsLock"']) expect(run).toContain(`value != ${key}`);
-    expect(run).toContain('op != "legacy-row-key"');
-    // The rows' key handlers all go through that action (the sidebar's `run`).
-    expect(await source('sidebar-row.contract')).toContain('key=run("row-key", t.id)');
-    expect(await source('legacy-sidebar.contract')).toContain('run("legacy-row-key", t.id, name)');
-  });
-});
-
 describe('⇧⌘S settles with the sidebar\'s undo notice', () => {
   test('the chord\'s chat:settle records the same undo step as the row\'s Settle, without moving on', async () => {
     const chord = fake([thread('a'), thread('b')], 'a');
@@ -138,11 +126,6 @@ describe('The New thread in… picks by ⌘1–⌘9', () => {
     // Closed, it takes nothing.
     expect((await paletteView(client(2, bindings), null, [false, 'command', '', '', '', false, NOW, 'light'])).jumpKeys).toEqual([]);
   });
-  test('the palette field\'s key handler is inputKey (sidebar-palette-keys.test.contract presses ⌘5 and ⌘2 through it)', async () => {
-    const palette = await source('palette.contract');
-    expect(palette).toContain('input id="palette-input" testId="palette-input" value=query input=edit key=inputKey submit=run(tOp, tArg, tArg2)');
-    expect(palette).toContain('if view.jumpKeys.filter((c) => c == chord).length > 0');
-  });
 });
 
 describe('The header without projects, the palette row\'s start', () => {
@@ -151,32 +134,6 @@ describe('The header without projects, the palette row\'s start', () => {
     Object.assign(none.client, { shell: { projects: [], threads: [], sequence: 1 }, projectGroups: () => [] });
     expect(sidebarSnapshot(none.client, NOW, helpers).sidebar).toMatchObject({ projectGroupCount: 0, hasProjects: false });
     expect(sidebarSnapshot(fake([thread('a')]).client, NOW, helpers).sidebar).toMatchObject({ projectGroupCount: 1, hasProjects: true });
-  });
-  test('Filter and Add project show only with a project group; New thread stays, disabled without projects', async () => {
-    const lines = (await source('sidebar.contract')).split('\n');
-    const gate = lines.findIndex(line => line.trim() === 'if data.sidebar.projectGroupCount > 0');
-    const indent = (line: string) => line.length - line.trimStart().length;
-    const inside = lines.slice(gate + 1, lines.findIndex((line, index) => index > gate && line.trim() !== '' && !line.trim().startsWith('//') && indent(line) <= indent(lines[gate]!)));
-    expect(inside.some(line => line.includes('testId="filter-project"'))).toBe(true);
-    expect(inside.some(line => line.includes('testId="add-project"'))).toBe(true);
-    expect(inside.some(line => line.includes('testId="new-thread"'))).toBe(false);
-    expect(lines.find(line => line.includes('testId="new-thread"'))).toContain('disabled=(busy or not data.connected or not data.sidebar.hasProjects)');
-  });
-  test('a palette option row starts its text at the left without an override', async () => {
-    // The reference's row is Base UI's AutocompleteItem, a div (start). The clone's is a button, whose text centres, so
-    // every text in it is sized by its words in a start-aligned column: a short line has no spare width to centre in, and
-    // an overflowing one is start-aligned by main 24083b9b9
-    // (issues/closed/20261009-apple-overflow-line-alignment.md). Only the code-search line keeps its explicit left.
-    const palette = await source('palette.contract');
-    const option = palette.split('\n').find(line => line.includes('testId=`palette-row-${row.key}` width="100%" min-height="2rem"'))!;
-    expect(option).not.toContain('text-align=');
-    const text = palette.slice(palette.indexOf('component PaletteText'), palette.indexOf('\ncomponent ', palette.indexOf('component PaletteText') + 10));
-    expect(text).toContain('column flex=1 min-width=0 align-items="flex-start"');
-    for (const line of text.split('\n').filter(line => /^\s*text /.test(line) && line.includes('white-space="nowrap"'))) {
-      expect(line).not.toMatch(/ width="100%"| flex=1 /);
-      expect(line).toContain('min-width=0');
-    }
-    expect(palette.split('\n').filter(line => line.includes('text-align="left"'))).toHaveLength(1);
   });
 });
 
@@ -236,24 +193,5 @@ describe('Custom snooze\'s date button and calendar', () => {
     // Closed, the snapshot carries no month.
     await sidebarLocal(client, native, 'dialog-close', '', '');
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.calendar.weeks).toEqual([]);
-  });
-  test('the dialog draws the date button, the root focuses a moved day, and the Unit select spans its column', async () => {
-    const overlays = await source('sidebar-overlays.contract');
-    expect(overlays).toContain('SnoozeDateField(cal=data.sidebar.calendar, local=local)');
-    expect(overlays).not.toContain('type="date"');
-    expect(overlays).toContain('testId="snooze-unit" width="100%"');
-    const field = await source('snooze-calendar.contract');
-    expect(field).toContain('button id="snooze-date" popovertarget="snooze-calendar" press=open');
-    // PopoverPopup align="start": below the date button's start, flipping near an edge.
-    expect(field).toContain('column id="snooze-calendar" popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="dialog" aria-label="Choose snooze date" position="absolute" position-area="bottom span-right" margin-top="0.25rem"');
-    expect(field).toContain('column aria-modal=true retainFocus=true tabindex=-1 width='); // Escape is the popover's while it shows
-    // The keys are the grid's (DayPicker handleDayKeyDown: a day button's), out of the Tab order; a month button's
-    // arrows do nothing (sidebar-palette-keys.test.contract presses them).
-    expect(field.match(/key=gridKey/g)).toHaveLength(1);
-    expect(field).toContain('column role="grid" aria-label=cal.title key=gridKey tabindex=-1');
-    expect(field).toContain('press=pick popovertarget="snooze-calendar" popovertargetaction="hide"');
-    const app = await source('app.contract');
-    expect(app).toContain('task snoozeCalendarFocus when data.sidebar.calendar.focusSeq > 0 key=data.sidebar.calendar.focusSeq');
-    expect(app).toContain('focus(`snooze-day-${data.sidebar.calendar.focus}`)');
   });
 });

@@ -35,10 +35,6 @@ describe('Settings › Keybindings: the capture field keeps the focus after a ch
     expect(modal()).toBe(false);
     expect(calls.slice(-2)).toEqual(['capture:mod+n,blur', 'held:keybinding-recorder-chat-new,false']);
   });
-  test('the field shows the draft once it stops recording, and the placeholder while it records', async () => {
-    const source = await Bun.file(new URL('./settings-keybindings.contract', import.meta.url)).text();
-    expect(source).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording,');
-  });
 });
 
 describe('Snooze: Escape returns the focus to the trigger', () => {
@@ -67,22 +63,7 @@ describe('Snooze: Escape returns the focus to the trigger', () => {
 describe('Return on a focused menu or launcher row presses it', () => {
   // The Mac host presses a focused menuitem, menuitemradio or option on Return as on Space (its popovertarget
   // included), so these rows take no key of their own: a handler that pressed too would press twice.
-  test('the + menu rows, the snooze rows and the kits leave Return to the host', async () => {
-    const read = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-    const rows = [
-      ['r4-surfaces.contract', 'popovertarget="r4-add-surface" popovertargetaction="hide" focus=', 1],
-      ['browser-surface.contract', 'button id="add-surface-browser" press=choose popovertarget="r4-add-surface" popovertargetaction="hide" focus=', 1],
-      ['sidebar-row.contract', 'popovertarget=popId popovertargetaction="hide" hover=hover', 1],
-      ['settings-kit.contract', 'button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover', 1],
-      ['settings-b-kit.contract', 'popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover', 1],
-      ['settings-rows.contract', 'press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover', 2],
-    ] as const;
-    for (const [file, row, count] of rows) {
-      const source = await read(file);
-      expect(source.split(row).length - 1).toBe(count);
-      expect(source).not.toContain('kmReturn');
-    }
-  });
+
   test('the composer\'s Run on and Workspace rows: Return on the focused row sends its press', () => {
     const menus = contractComponent('composer-controls.contract', 'ComposerMenus');
     const run = (current: string, args: unknown[]) => {

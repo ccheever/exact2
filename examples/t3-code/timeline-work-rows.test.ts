@@ -218,7 +218,7 @@ describe('the subagent card', () => {
   });
 });
 
-// The Contract side, read from the sources as hover-layer.test.ts reads them.
+// Execute the Contract elapsed-time expression against the TypeScript formatter.
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 async function component(file: string, name: string): Promise<string> {
   const lines = (await source(file)).split('\n');
@@ -231,13 +231,6 @@ async function component(file: string, name: string): Promise<string> {
 const evaluate = (expression: string, names: string[]) => new Function(...names, 'floor', 'max', `return (${expression});`) as (...values: unknown[]) => string;
 
 describe('the timeline clock and the work rows in Contract', () => {
-  test('The root ticks liveNow each second while a subagent is live, and the row passes it on', async () => {
-    const app = await source('app.contract');
-    expect(app).toMatch(/\n {4}if data\.running or data\.subagentsLive or [^\n]*\n {6}liveNow = performanceNow\(\)\n/);
-    expect(app).toContain('task liveClock mount\n    every(1000, liveTick)');
-    expect(await source('app-window.contract')).toContain('timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed))');
-    expect(await source('timeline.contract')).toContain('SubagentRow(agent=agent, command=command, now=now)');
-  });
   test('The row’s elapsedLabel is formatElapsedSeconds, and a live row counts up from its start each second', async () => {
     const work = await source('timeline-work.contract');
     const fn = /^fn elapsedLabel\(seconds: number\): string = (.+)$/m.exec(work)?.[1];
@@ -253,36 +246,5 @@ describe('the timeline clock and the work rows in Contract', () => {
     expect([0, 999, 1_000, 59_999, 65_000, 3_720_000].map(after => row(running, base + 6_000 + after))).toEqual(['0s', '0s', '1s', '59s', '1m 05s', '1h 02m']);
     expect(row(running, base)).toBe('0s'); // a clock behind the start reads 0s, as AgentElapsed's max(0, …)
     expect(row({ startedMs: 0, output: '1m 05s' }, base + 999_999)).toBe('1m 05s'); // settled: fixed
-  });
-  test('An expanded group’s cap grows by what its open rows add, each row reporting its own extra', async () => {
-    const entries = await component('timeline.contract', 'WorkEntries');
-    expect(entries).toContain('max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)`');
-    expect(entries).toContain('WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)');
-    // A running total: a report replaces that row's last one.
-    expect(entries).toContain('action entrySized(id: string, extra: number)\n    let previous = match first(extras.filter((e) => e.id == id)) { case some(e) => e.extra, case none => 0 }\n    opened = max(0, opened - previous + extra)');
-    const entry = await component('timeline-work.contract', 'WorkEntry');
-    // Only an open row adds; a shut one (a provider error's detail line included) reports 0.
-    expect(entry).toContain('action rowSized(width: number, height: number)\n    sized(entry.id, expanded ? max(0, height - 1.5 * rem) : 0)');
-    expect(entry).toMatch(/\n {4}column hover=setHover resize=rowSized /);
-  });
-  test('A web result presses link-open "external" and Open diff presses turn-diff with the change’s file and run', async () => {
-    // browser-links.test.ts and diff.test.ts take the two ops from here.
-    const item = await component('timeline-work.contract', 'InspectorItem');
-    expect(item).toContain('link href=item.href press=open("external", item.href)');
-    const entry = await component('timeline-work.contract', 'WorkEntry');
-    expect(entry).toContain('InspectorItem(item=item, codeSize=codeSize, open=linkOpen)');
-    expect(entry).toContain('button press=command("turn-diff", entry.diffPath, entry.diffRunId, 0) testId=`work-open-diff-${entry.id}`');
-    expect(await source('app-window.contract')).toContain('action linkOpen(kind: string, href: string, e: MouseEvent)\n    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)');
-  });
-  test('Every work-log image icon is muted but a live row’s highlight: opacity 0.7 here, brightness 0.6 in light in the hook', async () => {
-    const line = await component('timeline-work.contract', 'WorkLine');
-    expect(line).toContain('label=label, muted=(not highlighted))');
-    const icon = await component('timeline-icons.contract', 'ToolActivityIcon');
-    expect(icon).toContain('opacity=(muted ? 0.7 : 1)');
-    expect(icon).toContain('data-tool-icon-muted=(muted ? "1" : "")');
-    const hook = await source('modules/apple/T3ToolActivityIcon.swift');
-    expect(hook).toContain('muted: element.data[.toolIconMuted] == "1"');
-    expect(hook).toContain('guard muted, effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua else { return }');
-    expect(hook).toContain('NSColor.black.withAlphaComponent(0.4).setFill()');
   });
 });

@@ -11,26 +11,6 @@ import { contractFns } from './contract-fn-fixture';
 const source = (name: string) => readFileSync(join(import.meta.dir, name), 'utf8');
 const line = (file: string, needle: string) => source(file).split('\n').find(entry => entry.includes(needle))!;
 
-describe('Tab follows Keyboard Navigation', () => {
-  test('ControlGuard is a button with no tabindex, so it is a Tab stop exactly when the dialog\'s buttons are', () => {
-    const lines = source('dialog-trap.contract').split('\n');
-    const view = lines.slice(lines.indexOf('component ControlGuard')).find(entry => entry.trimStart().startsWith('button id=guardId'))!;
-    expect(view).toContain('aria-hidden=true focusin=enter key=hold');
-    expect(view).not.toContain('tabindex');
-    expect(view).toContain('pointer-events="none"');
-  });
-
-  test('both previews trap with ControlGuard, and the window behind them is inert while either is open', () => {
-    for (const [file, base] of [['composer-chip-file.contract', 'chip-file-preview'], ['composer-chip-image.contract', 'chip-image-preview']] as const) {
-      expect(source(file)).toContain(`ControlGuard(guardId="${base}-guard-start", targets=dialogTargets, popup="${base}")`);
-      expect(source(file)).toContain(`ControlGuard(guardId="${base}-guard-end", targets=dialogTargets, popup="${base}")`);
-      expect(source(file)).not.toContain('FocusGuard(');
-    }
-    expect(line('app-window.contract', 'row width="100%" height="100%" min-width=0 inert=('))
-      .toContain('inert=(modal or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0)');
-  });
-});
-
 describe('a press on the backdrop keeps the focus in the dialog, so closing gives it back', () => {
   test.each([['composer-chip-file.contract', 'chip-file-preview-backdrop'], ['composer-chip-image.contract', 'chip-image-backdrop']])('%s', (file, testId) => {
     const backdrop = line(file, `testId="${testId}"`);
@@ -195,17 +175,6 @@ describe('the image preview\'s zoomable image', () => {
     expect(state).toMatchObject(first);
   });
 
-  test('the viewport is the reference\'s: the page background, a ring, a polite zoom level; its picture has its own tile key', () => {
-    const viewport = line('composer-chip-image.contract', 'id="chip-image-viewport"');
-    expect(viewport).toContain('background-color="light-dark(#ffffff, #0a0a0a)"');
-    expect(viewport).toContain('box-shadow="0 0 0 1px light-dark(#e4e4e7b3, #ffffff0d), 0 25px 50px -12px #00000040"');
-    expect(line('composer-chip-image.contract', 'testId="chip-image-zoom"')).toContain('text `${round(z * 100)}% zoom` aria-live="polite"');
-    const picture = line('composer-chip-image.contract', 'testId="chip-image-picture"');
-    expect(picture).toContain('data-snapshot-id=`${fit > 0 ? "preview" : "fit"}:${preview.id}`');
-    expect(picture).toContain('dblclick=doubled');
-    expect(source('modules/apple/T3SnapShot.swift')).toContain('contain = fit || id.hasPrefix("contain:") || id.hasPrefix("preview:")');
-  });
-
   test('Enter toggles, + and - step by 1.5 within 1–8, 0 fits; zoomed, the arrows pan before they step images', () => {
     const { state, act, calls } = rig(400, 300);
     act('zoomKey', '+', keys());
@@ -236,14 +205,5 @@ describe('the image preview\'s zoomable image', () => {
     expect(Math.abs(state.zoom - Math.exp(0.2))).toBeLessThan(0.001);
     act('wheeled', { deltaY: -50, deltaMode: 0, ctrlKey: true, offsetX: 0, offsetY: 0 });
     expect(Math.abs(state.zoom - Math.exp(0.2) * Math.exp(0.5))).toBeLessThan(0.001);
-  });
-
-  test('presses beside the image reach the backdrop; the image and its name keep theirs', () => {
-    const view = source('composer-chip-image.contract');
-    expect(view).toContain('row width=(windowWidth * 0.92) align-items="center" justify-content="space-between" pointer-events="none"');
-    expect(view).toContain('column min-width=0 align-items="center" pointer-events="auto"');
-    expect(line('composer-chip-image.contract', 'id="chip-image-viewport"')).toContain('box id="chip-image-viewport" tabindex=0 role="region" aria-label=`${preview.name}, zoomable image`');
-    // The picture takes the clicks but no Tab stop: the viewport is the stop.
-    expect(line('composer-chip-image.contract', 'testId="chip-image-picture"')).toContain('tabindex=-1 retainFocus=true');
   });
 });

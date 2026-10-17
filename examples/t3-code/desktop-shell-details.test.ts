@@ -16,7 +16,6 @@ import { toasts } from './toast';
 import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width';
 import { T3Client } from './client';
 import { snapshot } from './presentation';
-import { readFileSync } from 'node:fs';
 
 const iso = (y: number, monthIndex: number, d: number, h: number, mi: number) => new Date(y, monthIndex, d, h, mi).toISOString();
 const plain = (text: string) => text.replace(/[\u202f\u00a0]/g, ' ');
@@ -189,14 +188,5 @@ describe('full-screen title row', () => {
     // A stale native field no longer counts: only the viewport's mode does.
     client.presentation = { ...client.presentation, fullScreen: true };
     expect(snapshot(client, 0, 'standalone').controlsLeft).toBe(90);
-  });
-  test('the snapshot request carries the viewport display mode, and every title row reads the shared inset', () => {
-    const read = (file: string) => readFileSync(`${import.meta.dir}/${file}`, 'utf8');
-    expect(read('app.contract')).toContain('resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode) as shape Snapshot');
-    expect(read('shapes.contract')).toMatch(/shape Viewport\n(?:  .*\n)*  displayMode: string/);
-    expect(read('app.ts')).toContain("snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''))");
-    for (const file of ['chat.contract', 'sidebar.contract', 'legacy-sidebar.contract', 'pages-hero.contract', 'pages-prs.contract', 'pages-usage.contract', 'settings-core.contract'])
-      expect(read(file)).toMatch(/controlsLeft/);
-    expect(read('presentation.ts')).not.toContain('presentation.fullScreen');
   });
 });

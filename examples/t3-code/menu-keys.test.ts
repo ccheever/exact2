@@ -127,18 +127,6 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     expect(text).toMatch(new RegExp(`KeyMenu\\(${quoted.replace(/[$(){}`.]/g, ch => `\\${ch}`)}, items=.*, modal=(true|false)\\)`));
   });
 
-  test('a popover menu is modal while it shows, so Escape closes it before a page\'s own Escape shortcut (Usage\'s Back, Settings\')', async () => {
-    for (const [file, line] of [['pages-usage.contract', 'KeyMenu(menuId="usage-environment-keys"'], ['pages-pr-actions.contract', 'KeyMenu(menuId="pr-more-keys"'],
-      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenu(menuId=`snooze-${t.id}-keys`'],
-      ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-turns-keys"'], ['shell-details.contract', 'KeyMenu(menuId="details-editors-keys"'],
-      ['r4-surfaces-files.contract', 'KeyMenu(menuId="file-editors-keys"'], ['r4-surfaces-files.contract', 'KeyMenu(menuId="crumb-menu-keys"'],
-      ['r4-surfaces.contract', 'KeyMenu(menuId="linked-pr-menu-keys"'], ['requests.contract', 'KeyMenu(menuId=`approval-menu-${approval.id}-keys`']] as const)
-      expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=true)');
-    // A menu its owner mounts from state keeps its backdrop's Escape (outside the menu): not modal.
-    for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"']] as const)
-      expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=false)');
-  });
-
   test('a row the keys move to has an id: every menuitem in a file with a keyboard menu', async () => {
     const files = readdirSync(dir).filter(name => name.endsWith('.contract'));
     const missing: string[] = [];
@@ -157,12 +145,6 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     }
     expect(rows).toBeGreaterThanOrEqual(40);
     expect(missing).toEqual([]);
-  });
-
-  test('a menu opened by the data module: its trigger lets go of the focus, so the popup can take it', async () => {
-    // Diff scope no longer waits for this: its panel shows the menu for the opening turn and focuses it.
-    for (const [file, comp, call] of [['markdown.contract', 'TableCopyButton', 'press()']] as const)
-      expect(await component(file, comp)).toContain(`    blur()\n    ${call}`);
   });
 });
 
@@ -279,22 +261,6 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
       expect(calls).toEqual([]);
     }
   });
-
-  test('a menu its owner mounts from state: ↓ and ↑ on its trigger open it, at the first or the last item', async () => {
-    // An action reads the state as it began, so the end comes from the key itself, not from the state it just set.
-    const title = await component('chat.contract', 'ChatHeader');
-    expect(title).toContain('action titleKey(k: string, e: KeyboardEvent)\n    titleEnd = kmKeyEnd(k)\n    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey\n      preventDefault()\n      title("open", "")\n      focus(kmOpenTarget("title-menu-keys", kmKeyEnd(k)))');
-    const files = await source('r4-surfaces-files.contract');
-    // The folder menu is a popover whose rows mount once the data module lists the folder: they read the end then.
-    expect(files.split('\n').find(l => l.includes('KeyMenu(menuId="crumb-menu-keys"'))).toContain('keyed=kmEndKeyed(menuEnd)');
-    expect(await source('r4-surfaces.contract')).toContain('R4LinkedMenu(row=row, menuId=`linked-pr-menu-${row.key}`, local=local, command=command, keyed=kmEndKeyed(menuEnd))');
-    // The table's Copy menu mounts at the window: the request itself carries the end, and the menu reads it as `menu.keyed`.
-    const copy = await component('markdown.contract', 'TableCopyButton');
-    expect(copy).toContain('button press=openMenu key=menuKey ');
-    expect(copy).toContain('      if k == "ArrowUp"\n        pressLast()\n      else\n        pressFirst()');
-    expect(await source('markdown.contract')).toContain('pressFirst=local("table-menu", block.id, `keys:first\\t${block.markdown}\\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\\t${block.markdown}\\t${block.csv}`)');
-    expect(await source('r8-keys-table-menu.contract')).toContain('keyed=menu.keyed, gap="0px", modal=false)');
-  });
 });
 
 describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and ↓', () => {
@@ -365,74 +331,6 @@ describe('Escape from the snooze menu with the pointer outside', () => {
   });
 });
 
-describe('the snooze menu sizes to its rows', () => {
-  test('MenuPopup\'s one minimum (min-w-[min(10rem,…)]), no fixed width: "Next week" and "Mon 9:00 AM" fit inside', async () => {
-    // A fixed 10.8rem cut the widest time at the menu's edge; the reference's menu is 192 px wide on a weekday.
-    const row = await component('sidebar-row.contract', 'ThreadRow');
-    const menu = row.split('\n').find(line => line.includes('aria-label="Snooze thread" position="absolute"')) ?? '';
-    // Placed by `position-area` (MenuPopup side="bottom" align="end", flipping), no inset.
-    expect(menu).toContain('position="absolute" margin-top="0.25rem" min-width="10rem" padding="0.25rem"');
-    expect(menu).not.toMatch(/\swidth=/);
-    const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
-    expect(item).toContain('text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0');
-    expect(item).toContain('text detail margin-left="auto" font-size="0.75rem" line-height="1rem" font-weight=500 letter-spacing="0.075rem" color="light-dark(#71717b, #818181)" white-space="nowrap"');
-  });
-});
-
-describe('#298 bugs 6 and 5: Escape goes to the palette over Custom snooze, and the dialog gets its focus back', () => {
-  test('covered by the palette, the dialog declares no Escape, so the palette\'s own takes it first', async () => {
-    const dialog = await component('sidebar-overlays.contract', 'SidebarSnoozeDialog');
-    expect(dialog).toContain('aria-keyshortcuts=(covered ? "" : "Escape") testId="snooze-cancel"');
-    expect(await source('sidebar-overlays.contract')).toContain('SidebarSnoozeDialog(data=data, busy=busy, covered=covered, local=local, run=run)');
-    const window = await source('app-window.contract');
-    expect(window.split('covered=paletteOpen)').length - 1).toBe(1);
-  });
-
-  test('a sidebar dialog takes the focus at its first stop again as the palette over it closes', async () => {
-    const app = await source('app.contract');
-    expect(app).toContain('task sidebarDialogFocus when data.sidebar.dialog != "" and not paletteOpen key=data.sidebar.dialog');
-  });
-});
-
-describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog by keyboard', () => {
-  test('More uses its real trigger and includes every enabled row, including handoffs', async () => {
-    const menu = await component('pages-pr-actions.contract', 'PrdActionsMenu');
-    expect(menu).toContain('button id="pull-request-more" popovertarget="pr-more-menu" hover=hover key=moreKey');
-    expect(menu).toContain('showPopover("pr-more-menu", source="pull-request-more")');
-    for (const id of ['pr-more-refresh', 'pr-more-ask', 'pr-more-explain', 'pr-more-fix-findings', 'pr-more-draft', 'pr-more-merge-now', 'pr-more-enable-auto-merge', 'pr-more-method-${item.method}', 'pr-more-open-host', 'pr-more-copy-link', 'pr-more-copy-number', 'pr-more-close', 'pr-more-reopen', 'pr-more-revert'])
-      expect(menu).toContain(id);
-    expect(menu).toContain('KeyMenu(menuId="pr-more-keys", items=rows, keyed=0, gap="0px", modal=true)');
-  });
-
-  test('the Act on rows of More and of Check out have their own ids, so ↓ reaches the rows of the menu that is open', async () => {
-    // Under real keys, More's ↓ stayed on "Fix findings" for each Act on row, because the key
-    // menu focused the row by id and the hidden Check out menu's row with that id came first.
-    const more = await component('pages-pr-actions.contract', 'PrdActionsMenu');
-    expect(more).toContain('KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label)');
-    expect(more).toContain('PrdActOnItems(keysId="pr-more-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-more-act-on-")');
-    const checkout = await source('pages-pr-handoffs.contract');
-    expect(checkout).toContain('KmItem(id=`pr-act-on-${item.key}`, label=item.label)');
-    expect(checkout).toContain('PrdActOnItems(keysId="pr-checkout-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-act-on-")');
-    expect(await component('pages-pr-links.contract', 'PrdActOnItem')).toContain('button id=`${idPrefix}${item.key}`');
-  });
-
-  test('the confirmation takes the focus at Cancel: the asking control lets go of it first, so Cancel\'s autofocus applies; Cancel gives it back', async () => {
-    // `autofocus` waits while a control holds the focus (HTML's rule); "…" held it, given back by the closing menu.
-    expect(await component('pages-pr-actions.contract', 'PrdHeaderActions')).toContain('action ask(what: string)\n    blur()\n    local("pr-ui-ask", ref, what)');
-    const menu = await component('pages-pr-actions.contract', 'PrdActionsMenu');
-    expect(menu).toContain('action ask(what: string)\n    blur()\n    local("pr-ui-ask", ref, what)');
-    for (const what of ['merge', 'enable-auto-merge', 'close', 'revert']) expect(menu).toContain(`press=ask("${what}")`);
-    expect(menu.split('local("pr-ui-ask"').length - 1).toBe(1); // only inside `ask`
-    expect(await component('pages-pr-actions.contract', 'PrdApproveWorkflows')).toContain('action ask\n    blur()\n    local("pr-ui-ask", ref, "approve-workflows")');
-    const dialog = await component('pages-pr-actions.contract', 'PrActionDialog');
-    expect(dialog).toContain('button id="pr-action-dialog-cancel" press=dismiss key=fromCancel autofocus=true aria-keyshortcuts="Escape"');
-    expect(dialog).toContain('action dismiss\n    local("pr-ui-cancel", ref, "")\n    focus(opener)');
-    expect(dialog).toContain('"pull-request-approve-workflows" : (actions.primary != "" and (actions.dialogValue == actions.primary or actions.dialogValue.startsWith(`${actions.primary}:`)) ? "pull-request-primary" : "pull-request-more")');
-    // No root line for it (app.contract's budget).
-    expect(await source('app.contract')).not.toContain('pr-action-dialog-cancel');
-  });
-});
-
 // The Pull Requests Filters submenus, as PullRequestListFilters' Base UI Menu draws and keys them.
 describe('the Pull Requests Filters submenus', () => {
   test('submenu Escape returns to its row until the pointer leaves; outer close restores Filters', async () => {
@@ -479,14 +377,6 @@ describe('the Pull Requests Filters submenus', () => {
     }
     const searchBody = await component('pages-prs.contract', 'PrFilterSub');
     expect(searchBody).toContain('if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
-  });
-  test('the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {
-    const sub = await component('pages-prs.contract', 'PrFilterSub');
-    expect(sub).toContain('label="Anyone", detail="", selected=(page.author == ""), tick=false,');
-    expect(sub).toContain('label="Open", detail="", selected=(page.state == "open"), tick=true,');
-    const author = await component('pages-prs.contract', 'PrAuthorItem');
-    expect(author).not.toContain('name="check"');
-    expect(author).toContain('person.selected ? "light-dark(#27272a14, #f2f2f214)"');
   });
 });
 
@@ -612,26 +502,6 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
     expect([...besides]).toEqual([]);
   });
 
-  test('the menus whose rows their owner draws focus the real row on entering and the popup on leaving', async () => {
-    const cases: [string, string, string[]][] = [
-      ['pages-hero.contract', 'HeroMenu', ['action hover(id: string, rowId: string, over: bool)\n    if over\n      focus(rowId)\n    else if lit == id\n      focus("hero-project-keys")', 'background-color=(lit == project.id ?']],
-      ['r6-polish.contract', 'R6ScriptMenu', ['action hover(id: string, rowId: string, value: bool)\n    if value\n      focus(rowId)\n    else if lit == id\n      focus("details-scripts-keys")', 'background-color=(lit == script.id ?', 'background-color=(lit == "add" ?']],
-      ['settings-rows.contract', 'ScopeMenu', ['    if over\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == choice.id or choice.selected ?']],
-      ['settings-rows.contract', 'CoreMenu', ['    if over and not disabled\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == option.id or option.selected ?']],
-      ['settings-rows.contract', 'TraitsMenu', ['    if over\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(option.selected or lit == option.id ?']],
-      ['r4-surfaces-files.contract', 'R4FileEditorsMenu', ['  action hover(id: string, over: bool)\n    if over\n      focus(`file-editor-${id}`)\n    else if lit == id\n      focus("file-editors-keys")', 'background-color=(lit == editor.id ?']],
-      ['snapshot.contract', 'SnapshotPanel', ['  action soundHover(id: string, over: bool)\n    if over\n      focus(id)\n    else if soundLit == id\n      focus("snapshot-sound-keys")', 'background-color=(soundLit == "snapshot-sound-off" ?']],
-      ['r4-surfaces.contract', 'R4LinkedMenu', ['    if on\n      focus("linked-pr-menu-open")\n    else if openLit\n      focus("linked-pr-menu-keys")', 'background-color=(openLit ?']],
-      ['pages-pr-actions.contract', 'PrdActionsMenu', ['    if on\n      focus("pr-more-open-host")\n    else if hostLit\n      focus("pr-more-keys")', 'background-color=(hostLit ?']],
-      ['requests.contract', 'MenuChoice', ['    if over\n      focus(testId)\n    else if focused\n      focus(keysId)', 'background-color=(focused ?', 'color=(focused ? "light-dark(#18181b, #f5f5f5)"']],
-    ];
-    for (const [file, name, wanted] of cases) {
-      const body = await component(file, name);
-      for (const text of wanted) expect(body).toContain(text);
-      expect(body).not.toMatch(/hovered == \w+(\.\w+)? or lit|over == "add"|hovering or focused \?/);
-    }
-  });
-
   test('no painted menu row paints from its own hover', async () => {
     const offenders: string[] = [];
     for (const file of readdirSync(dir).filter(name => name.endsWith('.contract'))) {
@@ -680,19 +550,5 @@ describe('the Browser More menu\'s Appearance submenu', () => {
     expect(run('BsMenuItem', 'hover', { keysId: 'browser-more-keys', id: 'browser-more-hard-reload', disabled: false }, [false])).toEqual([]);
     expect(run('BrowserMore', 'zoomRowHover', {}, [true])).toEqual([['hidePopover', child]]);
     expect(run('BrowserMore', 'zoomRowHover', {}, [false])).toEqual([]);
-  });
-  test('the submenu is nested in the More menu, beside its row (right, flipping left), its first item level with the row', async () => {
-    const more = await component('browser-surface.contract', 'BrowserMore');
-    expect(more).toContain('BrowserAppearanceItem(keysId="browser-more-keys", view=view, local=local)');
-    expect(more.indexOf('column id="browser-more-menu" popover="auto"')).toBeLessThan(more.indexOf('BrowserAppearanceItem('));
-    expect(more).toMatch(/row hover=zoomRowHover [^\n]*testId="browser-more-zoom"/);
-    const item = await component('browser-surface.contract', 'BrowserAppearanceItem');
-    const popup = item.split('\n').find(line => line.includes(`column id="${child}"`))!;
-    expect(popup).toContain('popover="auto" position-area="right span-bottom" position-try-fallbacks="flip-inline"');
-    expect(popup).toContain('margin-top="-0.3125rem"'); // MenuSubPopup's align offset: -5 px, its 4 px padding and 1 px border
-    expect(popup).not.toMatch(/margin-left|margin-right|position-try-fallbacks="none"/);
-    // A press or Enter on the row still toggles it; its radio items keep both menus open (no hide).
-    expect(item).toMatch(/button id="browser-more-appearance" popovertarget="browser-appearance-menu" hover=hover /);
-    expect(await component('browser-surface.contract', 'BrowserRadioItem')).not.toContain('popovertargetaction');
   });
 });

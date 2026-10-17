@@ -127,18 +127,6 @@ describe('A press on Settle or Snooze closes its tooltip at once', () => {
     r.release();
     expect(r.outsidePresses).toBe(1);
   });
-
-  test('Settle, Snooze, Wake and Un-settle close their tips on pointerdown; the press and the sweep keep their gestures', async () => {
-    const text = await source('sidebar-row.contract');
-    const controls = [
-      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("settle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "settle"\)/,
-      /button cursor="pointer" id=`snooze-trigger-\$\{t\.id\}` press=snoozePress key=snoozeKey [^\n]*popovertarget=`snooze-\$\{t\.id\}` pointerdown=pressDown [^\n]*aria-label="Snooze thread"/,
-      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsnooze", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "unsnooze"\)/,
-      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsettle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "unsettle"\)/,
-    ];
-    for (const control of controls) expect(text).toMatch(control);
-    expect(text.match(/pointerdown=/g)?.length).toBe(4);
-  });
 });
 
 // ---- The focus after a row menu's Archive ----
@@ -177,12 +165,6 @@ describe('The archived thread\'s delete confirm and its Unarchive button', () =>
     const c = client([{ id: 't2', projectId: 'p1', title: 'Still live', archivedAt: null }]);
     await archiveCommand(c, native, {} as never, 'archive-pick', 'env1:p1:t2', 'delete');
     expect(archiveConfirmation(c).title).toBe('Still live');
-  });
-  test('Unarchive is named by its text', async () => {
-    const row = await source('settings-archive.contract');
-    const button = /\n {8}button press=raw\("unarchive-thread"[^\n]*\n((?: {10}[^\n]*\n)*)/.exec(row)!;
-    expect(button[0]).not.toContain('aria-label');
-    expect(button[1]).toContain('text "Unarchive"');
   });
 });
 

@@ -630,6 +630,14 @@ five minutes, reset after 30 s connected; Retry, returning to the app and an off
 probe the live socket instead of replacing it) and resubscribes a failed stream on the same
 session after 250 ms doubling to 30 s.
 
+Tests should exercise the client or execute Contract actions through the existing fixtures.
+For example, invoke a menu action and assert its recorded hide, focus and dispatch calls;
+matching those calls as source text does not check their execution. Keep source scans for
+cross-file invariants, such as menu target ownership, dialog focus guards and heading levels.
+Avoid snapshots of whole source lines, CSS values, component inventories or retired workarounds:
+they duplicate the implementation and fail on harmless edits. Native focus, hit testing and
+layout still need the AppKit tests or an app drive; passing a source scan does not prove them.
+
 ```sh
 bun examples/t3-code/tools/generate/generate.mjs   # the generated sources, first
 bun test examples/t3-code

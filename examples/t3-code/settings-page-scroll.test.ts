@@ -1,5 +1,5 @@
-// Each Settings page opens at its top, read from the Contract sources as settings-escape.test.ts reads its own; the
-// offsets themselves are driven on macOS (a source read cannot scroll). Reference 1e2ecbd975: every page renders its
+// Each Settings page owns its scroller and search offset; the offsets themselves are driven on macOS
+// (a source read cannot scroll). Reference 1e2ecbd975: every page renders its
 // own scroller (SettingsPageContainer, settingsLayout.tsx `data-settings-page-scroll`) inside an Outlet keyed on the
 // scope search and the restore count (routes/settings.tsx SettingsContentLayout), so a new page mounts a scroller at
 // offset 0; the search jump then scrolls its target into view (scrollToSettingsTarget).

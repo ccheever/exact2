@@ -144,20 +144,6 @@ describe('the citation chip\'s comment popover', () => {
     expect(window).toContain('derive citeText = citeDraftSeq == chip.seq ? citeDraft : chip.comment');
   });
 
-  test('the popover: w-80, compact padding, its textarea, the limit and Cancel / Save, as the reference', async () => {
-    const layer = await source('citation-comment.contract');
-    expect(layer).toContain('derive width = min(20 * rem, viewportWidth - 2 * rem)');
-    expect(layer).toContain('role="dialog" aria-label="Edit citation comment"');
-    expect(layer).toContain('padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem"');
-    expect(layer).toContain('textarea id="citation-comment-text" value=draft input=edit key=keys blur=settle autofocus=true rows=2 placeholder="Add an optional comment..." aria-label="Comment on selected text" aria-description="Enter to save the citation comment; Command/Ctrl+Enter to save and send; Shift+Enter for a new line." aria-invalid=tooLong field-sizing="content" outline="none" width="100%" min-height="4rem" max-height="10rem"');
-    expect(layer).toContain('text "Comments can contain up to 8,000 characters." role="status"');
-    expect(layer).toContain('CitationCommentButton(label="Cancel", primary=false, enabled=true, choose=cancel');
-    expect(layer).toContain('CitationCommentButton(label=(tooLong ? "Shorten comment" : "Save"), primary=true, enabled=(not tooLong), choose=save(false)');
-    // Enter saves, ⌘/Ctrl+Enter saves and sends, Shift+Enter is the textarea's newline, Escape cancels.
-    expect(layer).toContain('  action keys(k: string, e: KeyboardEvent)\n    if k == "Escape"\n      preventDefault()\n      cancel()\n    else if k == "Enter" and not e.shiftKey\n      preventDefault()\n      if not tooLong\n        save(e.metaKey or e.ctrlKey)');
-    expect(layer).toContain('button press=choose hover=hover retainFocus=true');
-  });
-
   test('its place: align end on the anchor, 4 pt off, under the cited text or above the chip\'s button, flipped and kept 5 pt inside', async () => {
     const left = await contractFn('citation-comment.contract', 'citationPopoverLeft', ['chip', 'width', 'viewportWidth'], { max: Math.max, min: Math.min });
     const below = await contractFn('citation-comment.contract', 'citationPopoverBelow', ['chip', 'height', 'viewportHeight']);
@@ -197,7 +183,6 @@ describe('the citation chip\'s comment popover', () => {
 describe('the rest of Cite', () => {
   // The Cite fixture answer as the native parser lays it out: the paragraph flows word by word around its code span
   // (markdown.rs flow_tokens: a word keeps its trailing spaces, a code span is whole, a space after it stands alone).
-  const prose = 'Cite check: the parser keeps `parsePatch` pure, so a quote across inline code reads as written. Select across this paragraph and press Cite to quote it into the composer.';
   const words = (text: string) => text.match(/\S+\s*|\s+/g)!;
   const flow = [...words('Cite check: the parser keeps '), 'parsePatch', ...words(' pure, so a quote across inline code reads as written. Select across this paragraph and press Cite to quote it into the composer.')]
     .map((text, i) => ({ id: `${i}`, text, mono: text === 'parsePatch' }));
@@ -246,12 +231,5 @@ describe('the rest of Cite', () => {
     // With a language line, the code starts after it.
     const named = await fns('');
     expect(named.at('1', 'code') - named.at('1', '')).toBe('ts\n'.length);
-  });
-
-  test('every word, code span and code block text reports its part (Cite\'s place and frame: cite-selection-anchor.test.ts)', async () => {
-    const md = await source('markdown.contract');
-    expect(md.match(/selectionchange=cite\(blockId, run\.id\)/g)?.length).toBe(3);
-    expect(md.match(/id=`cite-\$\{source\}-\$\{block\.id\}-code` selectionchange=cite\(block\.id, "code"\)/g)?.length).toBe(6);
-    expect(md).toContain('  action selected(blockId: string, runId: string, s: Selection)\n    let key = runId == "" ? blockId : `${blockId}-${runId}`');
   });
 });

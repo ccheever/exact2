@@ -295,39 +295,3 @@ describe('the picker in the theme editor', () => {
     expect([saved.light![advanced ? 'border' : 'accent'], saved.light!.canvas, saved.light!.chrome]).toEqual(['#123456', '#faf0e6', '#faf0e6']);
   });
 });
-
-// Escape in the theme editor, read from the Contract sources (as dialog-focus.test.ts
-// reads its handlers); the keys themselves are driven on macOS, which a source read cannot do.
-// Reference: ThemeEditorPanel.tsx is a plain `role="dialog"` div with no Escape of its own (its only
-// keydown listener cancels Inspect), so an Escape in it reaches the page's
-// useEscapeToGoBack (Settings' navigateToMainApp) and the editor, above the router, stays; the colour
-// popover (Base UI Popover) closes on Escape, prevents it, and gives the focus back to its swatch.
-describe('Escape in the theme editor', () => {
-  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-
-  test('only Inspect owns Escape; the normal editor remains a non-modal panel', async () => {
-    const editor = await source('settings-appearance-editor.contract');
-    const nodes = editor.split('\n').filter(line => /^\s*[a-z][\w-]*\b/.test(line) && !/^\s*(\/\/|action|state|derive|use|component|fn)\b/.test(line));
-    expect(nodes.filter(line => /aria-keyshortcuts=/.test(line))).toEqual([expect.stringContaining('testId="theme-inspector-cancel"')]);
-    expect(nodes.filter(line => !line.trimStart().startsWith('for ') && /\skey=/.test(line))).toEqual([expect.stringContaining('key=inspectorKey')]);
-    expect(nodes.filter(line => /aria-modal=/.test(line))).toEqual([]);
-    const close = nodes.find(line => line.includes('testId="theme-editor-close"'))!;
-    expect(close).toContain('button press=close aria-label="Close the theme editor" class=SettingsGhost');
-  });
-
-  test('Settings\' Back, which an Escape in the editor reaches, blurs the focus before it leaves', async () => {
-    const core = await source('settings-core.contract');
-    expect(core).toContain('  action leave\n    blur()\n    back()');
-    expect(core.split('\n').find(line => line.includes('testId="close-settings"'))).toContain('button press=leave hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape")');
-  });
-
-  test('Escape in the colour popover closes only the popover and gives the focus to its swatch', async () => {
-    const picker = await source('theme-color-picker.contract');
-    const popover = picker.split('\n').find(line => line.includes('testId=`theme-color-${row.id}-popover`'))!;
-    // The host's light dismiss closes a popover="auto" on Escape; aria-modal keeps Settings' Back from taking it first.
-    for (const part of ['popover="auto"', 'key=popKey', 'role="dialog"', 'aria-modal=true']) expect(popover).toContain(part);
-    expect(picker).toContain('action popKey(k: string)\n    if k == "Escape"\n      focus(`theme-editor-swatch-${row.id}`)');
-    expect(picker).toContain('popovertarget=`theme-color-${row.id}`');
-    expect(picker).toContain('id=`theme-editor-swatch-${row.id}`');
-  });
-});

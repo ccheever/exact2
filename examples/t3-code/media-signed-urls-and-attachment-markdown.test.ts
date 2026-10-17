@@ -2,7 +2,6 @@
 // in Files' rendered Markdown (FileMarkdownPreview: `cwd` the workspace, `imageBaseDir` the file's folder, the thread or
 // draft ref) and in a sent attachment's (AttachmentFilePreview: no `cwd`, no thread).
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { surfaceLocal, panelView } from './r4-surfaces-panel';
@@ -126,38 +125,5 @@ describe('a sent attachment\'s Markdown media', () => {
     expect(chips.find(chip => chip.href === `${INLINE_IMAGE}t3-file:/repo/docs/shot.png`)).toMatchObject({ icon: 'blocked', detail: '', label: 'In' });
     expect(view.attachment.mdUrls).toEqual([]);
     expect(signed(calls).map(resource => resource._tag ?? '')).toEqual(signed(calls).map(() => 'attachment'));
-  });
-});
-
-describe('the views', () => {
-  const markdown = readFileSync(new URL('./markdown.contract', import.meta.url), 'utf8');
-  const media = readFileSync(new URL('./media-markdown.contract', import.meta.url), 'utf8');
-  const component = (name: string) => media.slice(media.indexOf(`component ${name}\n`), media.indexOf('\ncomponent ', media.indexOf(`component ${name}\n`) + 1) >>> 0);
-  test('FlowRuns draws a media run through its media chip, standalone when its run says so, else its alt text', () => {
-    expect(markdown).toContain('if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0');
-    expect(markdown).toContain('MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
-    expect(markdown).toContain('MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
-    expect(markdown).toContain('and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))\n          if ms < 0\n            text run.text');
-    expect(media).not.toContain('MarkdownInlineMedia');
-  });
-  test('an inline image has a zero-size status span while it loads and the fallback chip with its menu when it fails; a figure keeps its 16:9 frame', () => {
-    const block = component('MarkdownMedia');
-    expect(block).toContain('box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9"');
-    expect(block).toContain('if kind != "video" and standalone\n          MediaFailedFrame(alt=alt)\n        if kind != "video" and not standalone\n          MediaUnavailableLabel(alt=alt, video=false)');
-    const body = component('MarkdownMediaBody');
-    // A failed image keeps MediaActions; the settled one is MediaPreviewActions' button.
-    expect(body).toContain('if kind != "video" and standalone\n          MediaFailedFrame(alt=alt)\n        if kind != "video" and not standalone\n          MediaUnavailableLabel(alt=alt, video=false)');
-    expect(body).toContain('image url aria-label=alt error=imageBroke');
-    const frame = component('MediaFailedFrame');
-    expect(frame).toContain('max-width="30rem" aspect-ratio="16 / 9"');
-    expect(frame).toContain('role="alert"');
-  });
-  test('a video in a line of text is the block\'s player: its failure slot has Retry video and the open link (ChatMarkdownVideo)', () => {
-    const block = component('MarkdownMedia');
-    expect(block).toContain('MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)');
-    expect(block).not.toMatch(/if [^\n]*kind == "video"[^\n]*\n\s+video url/);
-    const body = component('MarkdownMediaBody');
-    expect(body).toContain('aria-label="Retry video"');
-    expect(body).toContain('testId="markdown-video-open"');
   });
 });

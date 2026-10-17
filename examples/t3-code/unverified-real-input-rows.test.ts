@@ -10,29 +10,6 @@ import type { Obj } from './domain';
 import { presentTimeline } from './pages-pr-timeline';
 import { presentSummary } from './pages-pr-summary';
 
-const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-/** The lines of one component of a contract file, from its `component` line to the next top-level line. */
-async function component(file: string, name: string): Promise<string[]> {
-  const lines = (await source(file)).split('\n'), start = lines.findIndex(line => line === `component ${name}`);
-  expect(start).toBeGreaterThan(-1);
-  const end = lines.findIndex((line, index) => index > start && line !== '' && !line.startsWith(' ') && !line.startsWith('//'));
-  return lines.slice(start, end === -1 ? undefined : end);
-}
-
-describe('The Code tab thread card has the author tip only, as ReviewThreadCard', () => {
-  test('the author keeps its LayerTip; the age is plain text with a test id and no tip', async () => {
-    const card = await component('pages-pr-threads.contract', 'PrdThreadComment');
-    expect(card.some(line => line.includes('LayerTip(label=comment.authorTip') && line.includes('pull-request-thread-author-tip-'))).toBe(true);
-    const age = card.findIndex(line => line.trim().startsWith('text comment.age '));
-    expect(age).toBeGreaterThan(-1);
-    expect(card[age]).toContain('testId=`pull-request-thread-age-${comment.id}`');
-    // Nothing wraps it: the line above is a comment or the author's tip, never a Tip or LayerTip.
-    expect(card.filter(line => /\b(Layer)?Tip\(label=comment\.age/.test(line))).toEqual([]);
-    expect(card.join('\n')).not.toContain('pull-request-thread-age-tip-');
-    expect((await source('pages-pr-threads.contract')).includes('ageTip')).toBe(false);
-  });
-});
-
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
 const person = (login: string): Obj => ({ login, name: null, avatarUrl: null });
@@ -50,15 +27,6 @@ const activity: Obj = {
 };
 
 describe('No age on the Timeline has a tip, as PullRequestTimelineTab', () => {
-  test('the comment cards, commits, lifecycle and verdict rows draw their age bare', async () => {
-    const file = await source('pages-pr-timeline.contract');
-    expect(file.includes('ageTip')).toBe(false);
-    const ages = file.split('\n').map((line, index, lines) => ({ line, above: lines[index - 1] ?? '' })).filter(({ line }) => /^\s*text (row|card)\.age /.test(line));
-    expect(ages.length).toBe(4);
-    for (const { above } of ages) expect(above).not.toMatch(/\bTip\(/);
-    // The stale verdict's tooltip is the reference's one Timeline tooltip, and stays.
-    expect(file).toContain('Tip(label=(row.stale ? row.staleLabel : "")');
-  });
   test('the rows carry the relative age and nothing for a tip', () => {
     const view = presentTimeline({ detail, activity, activityPending: false, activityError: '', now: NOW });
     const rows = view.newest;
@@ -72,17 +40,5 @@ describe('No age on the Timeline has a tip, as PullRequestTimelineTab', () => {
     const card = view.newest.find(entry => entry.id === 'c1')!;
     expect(card.ageTip).toContain('Open comment on host');
     expect(card.ageTip.length).toBeGreaterThan(' · Open comment on host'.length);
-  });
-});
-
-describe('A tip on the hover layer breaks a long word inside its bubble, as TooltipPopup (wrap-anywhere)', () => {
-  test('HoverText wraps anywhere within its 20rem bubble', async () => {
-    const tip = await component('hover-layer.contract', 'HoverText');
-    expect(tip.some(line => line.includes('max-width="20rem"'))).toBe(true);
-    expect(tip.find(line => line.trim().startsWith('text tip.text '))).toContain('overflow-wrap="anywhere"');
-  });
-  test('a commit link\'s tip is its URL on that layer (kind "tip", drawn by HoverText)', async () => {
-    const run = await component('markdown.contract', 'PrLinkRun');
-    expect(run.join('\n')).toContain('chip.target != "" ? "pr-preview" : "tip", run.href');
   });
 });

@@ -101,21 +101,3 @@ describe('about: the Update track with no feed', () => {
     expect(requests).toEqual([]);
   });
 });
-
-// SidebarUpdatePill with no feed (SidebarUpdatePill.tsx:111-160, canCheckForUpdate false): the disabled round control
-// at the end of SidebarUtilityMenu, which the thread sidebar, the legacy sidebar and the Settings nav each draw.
-describe('about: the no-feed "Check for updates" control', () => {
-  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-  test('it is disabled, labelled, and in all three footers with its side-top tooltip', async () => {
-    const pill = (await source('sidebar-icons.contract')).split('\ncomponent SidebarUpdatePill\n')[1]!;
-    expect(pill).toContain('button aria-disabled=true aria-label="Check for updates" cursor="not-allowed" testId=testId'); // aria-disabled, as the reference's (issues/closed/20261010-aria-disabled-focusable-control.md)
-    expect(pill).toContain('opacity=0.6');
-    expect(pill).not.toContain('press=');
-    for (const file of ['sidebar.contract', 'legacy-sidebar.contract']) {
-      expect(await source(file)).toContain('SidebarTip(tip="sidebar-update", hoverCard=hoverCard)\n            SidebarUpdatePill(color="light-dark(#a8a8ae, #545454)", testId="sidebar-check-updates")');
-    }
-    expect(await source('r4-polish-tip.contract')).toContain('TipCard(label="Check for updates", shown=(hoverId == "sidebar-update"))');
-    expect(await source('settings-core.contract')).toContain('box hover=updateTip("settings-update") margin-left="auto" flex-shrink=0 display="flex" testId="tip-settings-update"\n          SidebarUpdatePill(color=pal.sidebarIcon, testId="settings-check-updates")');
-    expect(await source('app-settings.contract')).toContain('TipCard(label="Check for updates", shown=updateTipHover)');
-  });
-});

@@ -1,8 +1,5 @@
-// Focus the reference moves itself, which the Mac host's `autofocus` (HTML's rule: no autofocus while another element
-// holds the focus) would leave where it was; the main sidebar trigger as one node; the remove-image confirm's final
-// focus; ⌘Z in the prompt; and the Snoozed shelf of a background environment. Reference: T3 Code 1e2ecbd975.
+// Remove-image focus return, prompt undo and background-environment Snoozed state.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { readdirSync } from 'node:fs';
 import type { T3Client } from './client';
 import { initialShell, type Obj } from './domain';
 import { chordWinners, type DispatchContext } from './keyboard-dispatch';
@@ -27,84 +24,8 @@ function removalFixture() {
   const native: Native = { available: true, watch() {}, async later() { return { ok: true, generation: client.generation, value: {} }; } };
   return { client, native, files };
 }
-const files = readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort();
-
-// An in-page field the reference focuses as it mounts (React's autoFocus, a mount effect or a popup's initialFocus):
-// each carries an `id` and, right before it, the DialogOpenFocus or FieldOpenSelect that focuses it at its first layout.
-const MOUNT_FOCUS: [string, string, string][] = [
-  ['sidebar-row.contract', '`sidebar-rename-${t.id}`', 'Sidebar.tsx: the row title input autoFocus, onFocus select()'],
-  ['legacy-sidebar.contract', '`rename-${t.id}`', 'LegacySidebar.tsx handleRenameInputRef: focus(); select()'],
-  ['legacy-sidebar.contract', '`thread-archive-confirm-${t.id}`', 'LegacySidebar.tsx handleStartArchiveConfirmation: focus()'],
-  ['sidebar-overlays.contract', '"scope-search"', 'Sidebar.tsx: the project scope ComboboxPopup focuses its search'],
-  ['citation-comment.contract', '"citation-comment-text"', 'AssistantCitationChip.tsx: initialFocus on the comment'],
-  ['diff-comments.contract', '"diff-comment-draft-text"', 'DiffCommentAnnotation.tsx: focusOnMount'],
-  ['settings-keybindings.contract', '"keybindings-filter"', 'KeybindingsSettings.tsx: the search autoFocus'],
-  ['settings-licenses.contract', '"license-search"', 'OpenSourceLicenses.tsx: the search autoFocus'],
-  ['providers.contract', '"custom-model-slug"', 'ProviderModelsSection.tsx: the custom model input autoFocus'],
-  ['providers-upkeep.contract', '`custom-model-name-${editor.slug}`', 'CustomModelEditor.tsx: Display name autoFocus'],
-  ['pages-pr-edit.contract', '`${testId}-text`', 'PullRequestMarkdownEditor.tsx: the textarea autoFocus'],
-  ['pages-pr-edit.contract', '"pull-request-title-input"', 'PullRequestDetailPanel.tsx: the title input autoFocus'],
-  ['pages-pr-threads.contract', '`pull-request-thread-reply-text-${card.id}`', 'PullRequestReviewAnnotation.tsx: Reply autoFocus'],
-  ['pages-pr-threads.contract', '"pr-code-draft-text"', 'DiffCommentAnnotation.tsx: focusOnMount'],
-];
-
-describe('a field the reference focuses as it mounts takes the focus whatever held it', () => {
-  for (const [file, id, reference] of MOUNT_FOCUS) {
-    test(`${file} ${id} (${reference})`, async () => {
-      const lines = (await source(file)).split('\n');
-      const at = lines.findIndex(line => line.includes(`id=${id} `) && line.includes('autofocus'));
-      expect(at).toBeGreaterThan(0);
-      const before = lines.slice(Math.max(0, at - 2), at).map(line => line.trim());
-      expect(before.some(line => line === `DialogOpenFocus(target=${id})` || line.startsWith(`FieldOpenSelect(target=${id}, `))).toBe(true);
-    });
-  }
-  test('the flat sidebar\'s rename field selects its title as the legacy one does', async () => {
-    expect(await source('sidebar-row.contract')).toContain('FieldOpenSelect(target=`sidebar-rename-${t.id}`, length=t.title.length)');
-  });
-});
-
-describe('the main sidebar trigger is one node, open or closed (AppSidebarLayout SidebarControl)', () => {
-  test('no surface draws its own; the window draws SidebarToggle once and Settings draws SettingsSidebarToggle once', async () => {
-    let window = 0, settings = 0;
-    for (const file of files) {
-      const text = await source(file);
-      expect([file, text.includes('aria-label="Toggle sidebar"')]).toEqual([file, false]);
-      window += text.split('\n').filter(line => line.trim().startsWith('SidebarToggle(')).length;
-      settings += text.split('\n').filter(line => line.trim().startsWith('SettingsSidebarToggle(')).length;
-    }
-    expect([window, settings]).toEqual([1, 1]);
-  });
-  test('it is a toggle named "Toggle main sidebar", its icon the only part that changes', async () => {
-    const toggle = await source('sidebar-toggle.contract');
-    expect(toggle).toContain('aria-label="Toggle main sidebar" aria-pressed=open aria-keyshortcuts=keySidebar testId="toggle-sidebar"');
-    expect(toggle).toMatch(/\n {10}if open\n {12}Icon\(name="sidebar"[^\n]*\n {10}else\n {12}Icon\(name="panel-left"/);
-    const main = (await source('app-main.contract')).split('\n');
-    const at = main.findIndex(line => line.trim().startsWith('SidebarToggle('));
-    const line = (name: string) => main.findIndex(text => text.trim().startsWith(name));
-    // After the page (above it in paint order, after it in Tab order, as the reference's SidebarControl follows the
-    // page), under the page's dialogs that cover the window (the reference portals its dialogs after SidebarControl).
-    expect(line('PagesLanding(')).toBeLessThan(at);
-    for (const dialog of ['ResetCreditDialog(', 'UsagePricesLayer(', 'UsageModelLayer(']) expect(line(dialog)).toBeGreaterThan(at);
-    // Inert while any of them is open, the pull request's confirm and stack dialogs included.
-    expect(main[at]).toContain('inert=(toggleInert or (pageCover and utilityPage == "usage" and (usageConfirmOpen or usage.detail.open or usage.prices.open)) or prDetail.actions.dialogOpen or prDetail.actions.stack.dialogOpen)');
-    // The pull request's dialogs are the window's, drawn after the pages.
-    const window = (await source('app-window.contract')).split('\n');
-    const pages = window.findIndex(text => text.trim().startsWith('PagesCover('));
-    expect(window.findIndex(text => text.trim().startsWith('WindowOverlays('))).toBeGreaterThan(pages);
-    expect((await source('app-overlays.contract'))).toContain('    PrActionLayers(actions=prDetail.actions');
-    // No z-index: the dialogs' own (40 to 80) and the right sheet's (10, 11) order them above it among its siblings.
-    expect(toggle).not.toContain('z-index');
-    const core = await source('settings-core.contract');
-    expect(core).toContain('aria-label="Toggle main sidebar" aria-pressed=open aria-keyshortcuts=keySidebar testId="settings-toggle-sidebar"');
-  });
-});
 
 describe('the remove-image confirm gives the focus back (Base UI finalFocus)', () => {
-  test('a Remove that asks has an id, so Cancel returns to it, and names the element after it when it held the focus', async () => {
-    const editor = await source('composer-editor.contract'), snapshot = await source('snapshot.contract');
-    expect(editor).toContain('button id=`remove-snapshot-${id}` press=ask(removeFocused ? `ui:confirm:${after}` : "ui:confirm", id, "remove-snapshot"');
-    expect(snapshot).toContain('button id=`remove-snapshot-${image.id}` press=ask(removeFocused ? `ui:confirm:${after}` : "ui:confirm", image.id, "remove-snapshot"');
-  });
   test('Confirm hands that element to the removal, whose result focuses it once the tile is gone', async () => {
     const app = await source('app.contract');
     expect(app).toContain('      confirmValue = value == "remove-snapshot" ? op.slice(11) : ""');

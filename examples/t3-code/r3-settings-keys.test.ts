@@ -157,9 +157,4 @@ describe('the Settings capture field (settings-keybindings.contract CaptureField
     expect(drawn('aria-modal=true focusin=entered', false, false)).toBe(false);
     expect(drawn('testId=`keybinding-capture-${rowId}`', false, false)).toBe(true);
   });
-  test('the new row\'s field is always shown', async () => {
-    const text = await Bun.file(new URL('./settings-keybindings.contract', import.meta.url)).text();
-    expect(text).toContain('CaptureField(rowId="new", ');
-    expect(text).not.toContain('button press=record aria-label=`Keybinding for ${label}`');
-  });
 });

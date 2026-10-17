@@ -56,15 +56,6 @@ function transcript(drawn = rows, owner = 'http://a:p:t1') {
 }
 
 describe('The turns on screen come from the user turns\' intersect reports', () => {
-  test('each user turn is observed (not its row or the answers); the user-turn native hook is gone', () => {
-    const user = source('timeline.contract').split('\ncomponent UserRow\n')[1]!;
-    expect(user).toContain('intersect=seen(message.id) intersect-margin="-1px 0px" width="100%" align-items="flex-end"');
-    expect(user).not.toContain('hatch="t3-turn" data-turn=message.id');
-    // Assistant answers keep the shared hook as citation targets only.
-    expect(source('timeline.contract')).toContain('column hatch="t3-turn" data-turn=`cite:${message.id}`');
-    expect(source('app-main.contract')).toContain('TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown,');
-    expect(source('timeline-minimap.ts')).not.toMatch(/turnsInView|turnAbove|timelineJump/);
-  });
   test('mount reports, enter and leave, a duplicate report, several turns on screen', () => {
     const t = transcript();
     expect([t.shown, t.current]).toEqual([[], -1]); // no turn reported, no scroll yet: no current strip
@@ -154,13 +145,5 @@ describe('A strip or chevron jumps through the public keyed command', () => {
     t.jump('u1', -1);
     expect(t.calls.at(-1)).toEqual(['scrollIntoView', 'transcript', 'u1', { offset: -24, behavior: 'instant' }]);
     expect(source('timeline-presentation.ts')).toContain("if (op === 'timeline-release') { await client.restAccess(native).call({ op: 'timelineRelease' })");
-  });
-  test('the strips and chevrons call it; no native jump or chatLocal route remains', () => {
-    const minimap = source('timeline-minimap.contract');
-    expect(minimap).toContain('button press=jump(item.id, -1) hover=setActive(item.index)');
-    expect(minimap).toContain('button press=jump("", target) hover=hover disabled=(target < 0)');
-    expect(minimap).not.toContain('local("jump"');
-    expect(source('timeline-presentation.ts')).not.toContain("op === 'jump'");
-    expect(source('modules/apple/T3TimelineTurns.swift')).not.toMatch(/turnsInView|boundsDidChangeNotification|func measure/);
   });
 });

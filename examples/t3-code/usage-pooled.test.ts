@@ -421,7 +421,6 @@ describe('UsagePage refresh (UsagePage.refresh.test.tsx)', () => {
   });
 });
 
-
 // Light dismiss, read from the Contract sources as dialog-focus.test.ts reads
 // its handlers (the page's popover state is Contract state). The behavior is checked by driving the app
 // on macOS, which a source read cannot do. Reference: UsageLimitsPooled.tsx PoolSegment is a Base UI
@@ -430,14 +429,6 @@ describe('UsagePage refresh (UsagePage.refresh.test.tsx)', () => {
 // another segment is outside it.
 describe('light dismiss of a pinned segment popover', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-  /** The lines of `component name` in `file`, up to the next top-level declaration. */
-  const component = async (file: string, name: string) => {
-    const lines = (await source(file)).split('\n');
-    const start = lines.findIndex(line => line === `component ${name}`);
-    if (start < 0) throw new Error(`${file}: no component ${name}`);
-    const end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
-    return lines.slice(start, end < 0 ? undefined : end).join('\n');
-  };
   /** A Contract boolean expression as JavaScript (`and`, `or`, `not`). */
   const js = (expr: string) => expr.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
 
@@ -450,155 +441,6 @@ describe('light dismiss of a pinned segment popover', () => {
     // The right and bottom edges are the next box's, as a hit test's are.
     expect([hit(card, 388, 100), hit(card, 200, 240), hit(card, 99.5, 100), hit(card, 200, 39.5)]).toEqual([false, false, false, false]);
     expect(hit({ x: 0, y: 0, width: 0, height: 0 }, 0, 0)).toBe(false);
-  });
-
-  test('a primary press that starts outside the pinned popover and both its triggers closes it as it ends', async () => {
-    const page = await component('pages-usage.contract', 'UsagePage');
-    // The page's root takes every press on the page but a segment's (below), the scroll port's empty ground
-    // included: main 3998e650e (issues/closed/20261009-macos-empty-scroll-pointer.md) passes it on to the scroll node
-    // and its ancestors, so the centred content is the scroll's own child, with no full-height ground under it, and nothing
-    // between the root and the scroll hears the press twice.
-    expect(page).toMatch(/\n {4}column [^\n]*pointerdown=pressDown pointerup=pressUp testId="usage-page"/);
-    expect(page).toMatch(/\n {6}scroll flex=1 min-height=0 width="100%" testId="usage-scroll"\n( {8}\/\/[^\n]*\n)* {8}column id="usage-content" position="relative" width="100%" max-width="64rem" margin-left="auto" margin-right="auto"/);
-    expect(page).not.toContain('usage-ground');
-    expect(page.match(/pointerdown=/g)).toHaveLength(1);
-    expect(page.match(/pointerup=/g)).toHaveLength(1);
-    // Down: outside the card and both handles of the popover on show, by the primary button only (a
-    // right-click is no click, so Base UI's intentional dismissal ignores it).
-    expect(page).toContain('action pressDown(e: PointerEvent)\n'
-      + '    let seg = frame(`usage-seg-${held}`)\n'
-      + '    let pop = frame(`usage-seg-pop-${held}`)\n'
-      + '    let leg = frame(`usage-legend-${held}`)\n'
-      + '    downOutside = held != "" and e.buttons == 1 and not (usageHit(seg, e.clientX, e.clientY) or usageHit(pop, e.clientX, e.clientY) or usageHit(leg, e.clientX, e.clientY))');
-    // Up (DOM's order: down, up, then the press): a press that does not end in the card closes it before the
-    // press runs, so a press on another segment then pins that one and a press on the pinned segment (inside)
-    // toggles it closed; one that ends in the card does not (Base UI's insideReactTree). Base UI closes it
-    // however it opened, so the dismissal also drops the hover helper's state.
-    expect(page).toContain('action pressUp(e: PointerEvent)\n'
-      + '    let id = held\n'
-      + '    let pop = frame(`usage-seg-pop-${id}`)\n'
-      + '    if downOutside and not usageHit(pop, e.clientX, e.clientY)\n'
-      + '      pinned = ""\n      hoverTipAt(noHoverTip(), "", true)\n    downOutside = false');
-    expect(page).toContain('action pin(id: string)\n    place(id, "seg")\n    toggle(id)');
-    expect(page).toContain('action toggle(id: string)\n    if held == id\n      hoverTipAt(noHoverTip(), "", true)\n    pinned = held == id ? "" : id\n    pinnedAt = outside');
-    for (const name of ['pin', 'toggle', 'pressDown', 'pressUp']) {
-      const body = page.slice(page.indexOf(`  action ${name}(`), page.indexOf('\n  action ', page.indexOf(`  action ${name}(`) + 3));
-      expect(body).not.toMatch(/\bover(Seg|Pop|Mail)\b/);
-    }
-    // The three boxes are the ones usage-pooled.contract draws, by these ids.
-    const pooled = await source('usage-pooled.contract');
-    expect(pooled).toContain('button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) aria-label');
-    expect(pooled).toMatch(/column width="18rem"[^\n]*role="dialog" aria-label=seg\.title id=`usage-seg-pop-\$\{seg\.id\}`/);
-    expect(pooled).toMatch(/button [^\n]*press=pin\(seg\.id\)[^\n]*id=`usage-legend-\$\{seg\.id\}`/);
-  });
-
-  test('a press anywhere else in the window (the sidebar, the theme editor, a toast) closes it too', async () => {
-    const page = await component('pages-usage.contract', 'UsagePage');
-    // A pin holds while the window's count of outside presses is the one it was made at.
-    expect(page).toContain('derive held = pinnedAt == outside ? pinned : ""');
-    expect(page).toContain('derive shown = hovered != "" ? hovered : held');
-    expect(page).toContain('shown=shown, pinned=held,');
-    const window = await component('app-window.contract', 'T3Window');
-    expect(window.split('\n').find(line => line.trim().startsWith('main testId="t3-code"'))).toContain('pointerdown=outsidePressDown pointerup=outsidePressUp');
-    expect(window).toContain('action outsidePressDown(e: PointerEvent)\n    outsideDown = e.buttons == 1');
-    expect(window).toContain('action outsidePressUp\n    outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses\n    outsideDown = false');
-    expect(window).toContain('PagesCover(pageCover=pageCover, outside=outsidePresses,');
-    const cover = await component('app-main.contract', 'PagesCover');
-    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.endsWith('outside=outside)'))).toEqual([true]);
-    // The nodes that take the pointer themselves hand their presses on (the theme editor's colour controls).
-    expect(window).toContain('outsideDown=outsidePressDown, outsideUp=outsidePressUp, outsideFocus=outsideFocus)');
-    const picker = await source('theme-color-picker.contract');
-    for (const name of ['triggerDown', 'planeDown', 'hueDown']) expect(picker).toMatch(new RegExp(`action ${name}\\(e: PointerEvent\\)\\n(    .*\\n)*?    outsideDown\\(e\\)`));
-    for (const name of ['triggerUp', 'planeUp', 'hueUp']) expect(picker).toMatch(new RegExp(`action ${name}(\\(e: PointerEvent\\))?\\n    outsideUp\\(\\)`));
-    expect(picker).toContain('pointerdown=triggerDown pointerup=triggerUp');
-    // An answer's box hears its presses for Cite's place and hands each on to the window's.
-    const md = await component('markdown.contract', 'AnswerMarkdown');
-    expect(md).toContain('  action down(e: PointerEvent)\n    outsidePressDown(e)');
-    expect(md).toContain('  action up(e: PointerEvent)\n    let bounds = frame("transcript")\n    outsidePressUp()');
-    expect(md).toContain('column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys');
-    // A text field's press reaches no pointerdown on macOS: the theme editor's fields count their focus.
-    expect(window).toContain('action outsideFocus\n    outsidePresses = outsidePresses + 1');
-    const editor = await source('settings-appearance-editor.contract');
-    expect(editor).toContain('pointerdown=outsideDown pointerup=inspectUp');
-    expect(editor).toContain('action inspectUp(e: PointerEvent)\n    outsideUp()\n    inspectPointer(true, e)');
-    expect(editor).toContain('input value=(named ? name : editor.name) input=editName focus=outsideFocus ');
-    expect(editor).toContain('input=edit change=commit focus=touched ');
-    expect(editor).toContain('change=commit("theme-editor", `color:${row.role}`) focus=outsideFocus blur=leave ');
-    // Escape that sends the page back blurs first, as useEscapeToGoBack does.
-    expect(page).toContain('    else\n      blur()\n      back()');
-    // Row controls close their tooltip on pointerdown and forward to the window. Their pointerup still reaches main.
-    expect(window).toContain('    outsidePressDown(e)');
-    expect(window).toContain('pressDown=sidebarPressDown,');
-    expect(await source('sidebar-row.contract')).toContain('pointerdown=pressDown');
-    // Every other press reaches the window's count, or has the explicit exception below.
-    const { readdirSync } = await import('node:fs');
-    const takers: string[] = [];
-    for (const file of readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort()) {
-      (await source(file)).split('\n').forEach(line => { if (/^\s*[a-z][\w-]*\b[^\n]*\spointer(down|up|move)=/.test(line)) takers.push(`${file} ${/testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.slice(1).find(Boolean) ?? ''}`); });
-    }
-    // The floating player hears `pointermove` for its pill and the
-    // pill's tooltips (its buttons hear no hover, issues/closed/20261009-macos-subtree-hover.md); a press there is the page's, the player's drag or resize, or a pill
-    // button's, and the Usage page's popover is never on screen with the chat's floating player. The
-    // diff gutter's number and "+" hear the pointer for their drags; the gutter is in a thread's Diff panel or a pull
-    // request's Code tab, which the Usage page covers, so its popover is never on screen with them either.
-    // So do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details
-    // beside them close from the gutter's own press). The floating
-    // device hears its press (app-window.contract detailsPlayerPointer closes the thread details popover and a skill chip's
-    // details as it ends); it is in the chat, which the Usage page covers. The composer image preview's picture hears the
-    // pointer for its zoom and pan; the preview covers the window, the Usage page included, and makes it inert.
-    expect(takers).toEqual([
-      'app-window.contract t3-code',
-      'browser-capture.contract browser-mini-player',
-      'composer-chip-image.contract chip-image-picture',
-      'diff-rows.contract diff-line-${path}-${side}-${line}',
-      'diff-rows.contract diff-comment-${path}-${side}-${line}',
-      'markdown.contract ',
-      'pages-usage.contract usage-page',
-      'r4-surfaces-files.contract file-line-${line.number}',
-      'r4-surfaces-files.contract file-comment-${line.number}',
-      'r6-device.contract device-mini-player',
-      'settings-appearance-editor.contract theme-inspector',
-      'sidebar-row.contract wake-${t.id}',
-      'sidebar-row.contract unsettle-${t.id}',
-      'sidebar-row.contract snooze-${t.id}',
-      'sidebar-row.contract settle-${t.id}',
-      'theme-color-picker.contract theme-editor-swatch-${row.id}',
-      'theme-color-picker.contract theme-color-${row.id}-plane',
-      'theme-color-picker.contract theme-color-${row.id}-hue',
-    ]);
-  });
-});
-
-// #263 row 12 (PR #298): after Escape (or Cancel, or Use credit) in the
-// "Use a reset credit?" confirm the focus did not go back to the segment under real time. The command's answer asks
-// for it (`focus:usage-seg-…`, usage-environments.ts), but UsagePage was still inert then: the usage answer that drops
-// the confirm comes after the command's, so the host refused the focus (the agent clock settles both together).
-describe('the reset confirm gives the segment the focus back (#298 item 12)', () => {
-  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-  const component = async (file: string, name: string) => {
-    const lines = (await source(file)).split('\n');
-    const start = lines.findIndex(line => line === `component ${name}`);
-    if (start < 0) throw new Error(`${file}: no component ${name}`);
-    const end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
-    return lines.slice(start, end < 0 ? undefined : end).join('\n');
-  };
-
-  test('the confirm closes for the page as it is answered, so the page is no longer inert when the focus comes', async () => {
-    const cover = await component('app-main.contract', 'PagesCover');
-    expect(cover).toContain('  state usageClosing = ""\n'
-      + '  derive usageConfirmOpen = usage.pooled.confirm != "" and usageClosing != usage.pooled.confirm\n'
-      + '  action usageCommand(op: string, id: string, value: string, n: number)\n    usageClosing = ""\n    command(op, id, value, n)\n'
-      + '  action usageConfirm(op: string, id: string, value: string, n: number)\n    usageClosing = id\n    command(op, id, value, n)');
-    // The confirm's buttons (Cancel, its Escape, Use credit) go through usageConfirm; the page's ask through usageCommand.
-    expect(cover).toContain('    if pageCover and utilityPage == "usage" and usageConfirmOpen\n'
-      + '      ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)');
-    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.includes('command=usageCommand, confirmOpen=usageConfirmOpen,'))).toEqual([true]);
-    const page = await component('pages-usage.contract', 'UsagePage');
-    expect(page).toContain('inert=(page.detail.open or page.prices.open or confirmOpen)');
-    expect(page).toContain('dialog=(page.detail.open or page.prices.open or confirmOpen)');
-    expect(page).not.toContain('page.pooled.confirm != ""');
-    // The confirm's commands still ask for the segment's focus (the agent clock settles it with the answer).
-    expect(await source('usage-bars.contract')).toContain('button id="reset-credit-cancel" press=command(`${prefix}-reset-cancel`, target, "", 0) key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape"');
   });
 });
 
@@ -615,15 +457,5 @@ describe('Model prices on every metric', () => {
     }
     await rig.command('usage-prices-close');
     for (const metric of ['limits', 'cost']) expect([metric, (await rig.page({ metric })).prices.open]).toEqual([metric, false]);
-  });
-});
-
-describe('the spent share\'s hatch (PoolSegment)', () => {
-  test('is the reference\'s repeating gradient over the spent share, in the provider colour at 20%', async () => {
-    const pooled = await Bun.file(new URL('./usage-pooled.contract', import.meta.url)).text();
-    const hatch = pooled.split('\n').find(line => line.includes('testId=`usage-seg-hatch-${seg.id}`'));
-    expect(hatch).toContain('box position="absolute" right=0 top=0 bottom=0 width=`${100 - seg.remaining}%` opacity=0.2');
-    expect(hatch).toContain('background-image=`repeating-linear-gradient(135deg, light-dark(${light}, ${dark}) 0 1px, transparent 1px 5px)`');
-    expect(pooled).not.toContain('path d=hatch');
   });
 });

@@ -1,8 +1,5 @@
-// What did not pass under a person's real input. The chip press is in macos/tests/composer (chippress.swift), the
-// permission helper in macos/tests/snapshot, the pull request diff's error text in macos/tests/transport; these check
-// the import wizard's focus return in the Contract sources (as model-picker-label-and-profile-keys.test.ts does)
-// and the Code tab's routing through its resource, with a focused server and a paired one: the diff, the Viewed read,
-// a hidden range's contents, the Viewed write (detached, held while the server is away) and its routing with GitHub shared.
+// The Code tab routes reads and writes through its resource with a focused server and a paired one,
+// including a detached Viewed write held while the server is away and routing with GitHub shared.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import { initialShell, type Obj } from './domain';
@@ -14,18 +11,6 @@ import { usageFleetEvent } from './usage-replies';
 import { composerReplyEvent } from './composer-replies';
 import { noteBalancePrefs } from './auto-balance';
 import { singleRouteKey } from './connection-routes';
-
-const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-
-describe('the import wizard gives the focus back to Add profile', () => {
-  test('however it closes, the focus goes to the Add profile button (Base UI Dialog\'s finalFocus)', async () => {
-    const app = await source('app.contract'), profiles = await source('browser-profiles.contract');
-    expect(app).toContain('  task importWizardFocus when integrations.browserProfiles.wizard.open != importWizardShown\n    after(1, importWizardFlip)\n  action importWizardFlip\n    if importWizardShown and not integrations.browserProfiles.wizard.open\n      focus("browser-profiles-add")\n    importWizardShown = integrations.browserProfiles.wizard.open\n');
-    // `focus` names an element by its `id`: the trigger whose menu opened the wizard.
-    expect(profiles).toContain('button id="browser-profiles-add" press=local("browser-profiles-sources", "") popovertarget="browser-profiles-add-menu"');
-    expect(profiles.match(/id="browser-profiles-add"/g)).toHaveLength(1);
-  });
-});
 
 // Under real input, a lane copy ran its embedded server (focused, "This machine", no GitHub project) and was paired with
 // the GitHub lane's server, where #168 was listed. The detail came from the lane server; the diff and the Viewed reads
