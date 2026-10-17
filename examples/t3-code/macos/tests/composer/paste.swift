@@ -90,12 +90,16 @@ final class ComposerPasteTests: XCTestCase {
         fixture.editor.paste(nil)
         XCTAssertTrue(fixture.editor.string.hasPrefix("look "))
         XCTAssertEqual(fixture.composer.editor.pastedFiles, [])
-        // Another text view of the same class keeps its own paste with files on the pasteboard.
+        // The composer reads images, so AppKit enables Paste for an image alone (a plain-text view reads none).
+        XCTAssertTrue(fixture.editor.readablePasteboardTypes.contains(.png))
+        XCTAssertTrue(fixture.editor.readablePasteboardTypes.contains(.tiff))
+        // Another text view of the same class keeps its own paste with files on the pasteboard, and its own types.
         let other = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
         other.isEditable = true
         fixture.window.contentView?.addSubview(other)
         board.clearContents(); board.writeObjects([notes as NSURL])
         other.paste(nil)
         XCTAssertEqual(fixture.composer.editor.pastedFiles, [], "only the composer's paste attaches")
+        XCTAssertFalse(other.readablePasteboardTypes.contains(.png))
     }
 }
