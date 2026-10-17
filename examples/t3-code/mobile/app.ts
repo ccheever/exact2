@@ -291,11 +291,11 @@ const sources: Sources = {
   },
   previewOwner: (args, _store, storage, nativeInput) => {
     const native = sourceNative('previewOwner', args, nativeInput);
-    return mobilePreviewOwner(args[0] === true);
+    return mobilePreviewOwner(args[0] === true, String(args[2]), String(args[3]));
   },
   previewPrepare: (args, _store, storage, nativeInput) => {
     const native = sourceNative('previewPrepare', args, nativeInput);
-    return mobilePreviewPrepare(String(args[0]), native);
+    return mobilePreviewPrepare(String(args[0]), String(args[1]), String(args[2]), args[3] === true, native);
   },
   previewColors: (args, _store, storage, nativeInput) => {
     const native = sourceNative('previewColors', args, nativeInput);
