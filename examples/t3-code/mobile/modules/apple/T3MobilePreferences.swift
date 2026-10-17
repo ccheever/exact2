@@ -333,8 +333,8 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
     private let port = UIView()
     private var config: T3SettingsHeaderConfig?
     private var right: [UIBarButtonItem] = []
-    private var left: UIBarButtonItem?
-    private var compactLeading: (items: [UIBarButtonItem]?, hidesBack: Bool, supplements: Bool)?
+    private var leadingItems: [UIBarButtonItem]?
+    private var previousLeading: (items: [UIBarButtonItem]?, hidesBack: Bool, supplements: Bool)?
     private var key = ""
     override var view: UIView { port }
     init(owner: T3SettingsNavigation, events: ExactNativeEvents) { self.owner = owner; super.init(events: events); port.isUserInteractionEnabled = false }
@@ -381,23 +381,20 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         }
         route.controller.navigationItem.rightBarButtonItems = right
         let item = route.controller.navigationItem
-        if config.compactRoot == true {
-            // Keep the authored Back action live for sheet dismissal, but do not paint it.
-            if compactLeading == nil || item.leftBarButtonItems?.isEmpty == false {
-                compactLeading = (item.leftBarButtonItems, item.hidesBackButton, item.leftItemsSupplementBackButton)
+        if config.compactRoot == true || config.back {
+            captureLeading(item)
+            leadingItems = nil
+            if config.compactRoot != true {
+                let back = UIBarButtonItem(image: UIImage(systemName: "chevron.left"), primaryAction: UIAction { [weak self, weak route] _ in
+                    guard let route else { return }
+                    self?.emit("back", key: config.routeKey, token: config.visitToken, route: route)
+                })
+                back.accessibilityLabel = "Go back"; leadingItems = [back]
             }
-            item.leftBarButtonItems = nil; item.hidesBackButton = true; item.leftItemsSupplementBackButton = false
+            // Keep Exact's authored Back live, but replace its automatic native button.
+            item.leftBarButtonItems = leadingItems; item.hidesBackButton = true; item.leftItemsSupplementBackButton = false
         } else {
-            restoreCompactLeading(item)
-        }
-        if config.back {
-            let back = UIBarButtonItem(image: UIImage(systemName: "chevron.left"), primaryAction: UIAction { [weak self, weak route] _ in
-                guard let route else { return }
-                self?.emit("back", key: config.routeKey, token: config.visitToken, route: route)
-            })
-            back.accessibilityLabel = "Go back"; left = back; route.controller.navigationItem.leftBarButtonItem = back
-        } else if route.controller.navigationItem.leftBarButtonItem === left {
-            route.controller.navigationItem.leftBarButtonItem = nil; left = nil
+            restoreLeading(item)
         }
     }
     private func currentBinding(key: String, token: String, route: ExactRoute) -> Bool {
@@ -418,21 +415,32 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         guard permitted, let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value, "requestRoute": key, "visitToken": token]) else { return }
         events.change(String(decoding: data, as: UTF8.self))
     }
-    private func restoreCompactLeading(_ item: UINavigationItem) {
-        if let saved = compactLeading, item.leftBarButtonItems?.isEmpty != false,
-           item.hidesBackButton, !item.leftItemsSupplementBackButton {
-            item.leftBarButtonItems = saved.items; item.hidesBackButton = saved.hidesBack
-            item.leftItemsSupplementBackButton = saved.supplements
+    private func captureLeading(_ item: UINavigationItem) {
+        // Reprojection can change one field while the others still hold our override.
+        if var saved = previousLeading {
+            if item.leftBarButtonItems != leadingItems { saved.items = item.leftBarButtonItems }
+            if !item.hidesBackButton { saved.hidesBack = item.hidesBackButton }
+            if item.leftItemsSupplementBackButton { saved.supplements = item.leftItemsSupplementBackButton }
+            previousLeading = saved
+        } else {
+            previousLeading = (item.leftBarButtonItems, item.hidesBackButton, item.leftItemsSupplementBackButton)
         }
-        compactLeading = nil
+    }
+    private func restoreLeading(_ item: UINavigationItem) {
+        if let saved = previousLeading, owner?.isBound(self, key: key) == true,
+           item.leftBarButtonItems == leadingItems {
+            item.leftBarButtonItems = saved.items
+            if item.hidesBackButton { item.hidesBackButton = saved.hidesBack }
+            if !item.leftItemsSupplementBackButton { item.leftItemsSupplementBackButton = saved.supplements }
+        }
+        previousLeading = nil; leadingItems = nil
     }
     fileprivate func detach() {
         if let route {
-            restoreCompactLeading(route.controller.navigationItem)
+            restoreLeading(route.controller.navigationItem)
             if route.controller.navigationItem.rightBarButtonItems == right { route.controller.navigationItem.rightBarButtonItems = nil }
-            if route.controller.navigationItem.leftBarButtonItem === left { route.controller.navigationItem.leftBarButtonItem = nil }
         }
-        route = nil; right = []; left = nil
+        route = nil; right = []
     }
     override func destroy() { detach(); owner?.unbind(self, key: key) }
 }
