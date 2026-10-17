@@ -4,7 +4,7 @@ use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
 // index landings (NoProjectsHero, DraftStartError and the hosted
 // HostedStaticOnboardingState), from T3 Code (MIT, see LICENSE-T3).
 use Snapshot from "./shapes.contract"
-use ProjectMark from "./icons.contract"
+use ProjectMark from "./icons-kit.contract"
 use PgIcon from "./pages-icons.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"

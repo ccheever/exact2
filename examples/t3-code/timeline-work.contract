@@ -4,12 +4,12 @@
 // V2ItemInspector panel an entry discloses.
 use Activity from "./shapes.contract"
 use InspectorResult from "./shapes.contract"
-use DriverMark from "./provider-icons.contract"
+use DriverMark from "./provider-icons-kit.contract"
 use CodeHighlight from "./markdown.contract"
 use synColor from "./markdown.contract"
 use Icon from "./icons.contract"
-use TimelineIcon from "./timeline-icons.contract"
-use ToolActivityIcon from "./timeline-icons.contract"
+use TimelineIcon from "./timeline-icons-kit.contract"
+use ToolActivityIcon from "./timeline-icons-kit.contract"
 use TimelineTimestamp from "./shell-tip.contract"
 use R11RetryPreparation from "./r11-upstream.contract"
 

@@ -1,6 +1,6 @@
 // App-local chat typography over the existing portable Markdown parser.
 use FileTypeIcon from "./timeline-files.contract"
-use TimelineIcon from "./timeline-icons.contract"
+use TimelineIcon from "./timeline-icons-kit.contract"
 use Tip from "./shell-tip.contract"
 use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./r4-timeline-tips.contract"
