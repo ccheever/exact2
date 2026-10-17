@@ -24,8 +24,8 @@ const row = (id: string, projectId = 'p1', extra: Obj = {}): Obj => ({ id, proje
 const KEY = 'https://second.example\nenv-b';
 
 /** A client on env-a whose server, and env-b's, refuse thread.mark-unread as a server does for a thread with no completed run. */
-function refusing(threads: Obj[], options: { caps?: Obj; picks?: string[]; settings?: Obj } = {}) {
-  const sent: string[] = [], picks = [...(options.picks ?? [])];
+function refusing(threads: Obj[], options: { caps?: Obj; settings?: Obj } = {}) {
+  const sent: string[] = [];
   const client = {
     shell: { projects: [{ id: 'p1', title: 'shared-notes', workspaceRoot: '/a' }], threads, sequence: 1 },
     config: { environment: { capabilities: options.caps ?? CAPS }, providers: [], keybindings: [] },
@@ -40,7 +40,7 @@ function refusing(threads: Obj[], options: { caps?: Obj; picks?: string[]; setti
         return {};
       },
       dispatch: async () => { throw new Error('Mark unread must not go through the write journal'); },
-      call: async (request: Obj) => request.op === 'sidebarMenu' ? { id: picks.shift() ?? null } : {},
+      call: async () => ({}),
     }),
   } as unknown as T3Client & { error: string };
   const native = { available: true, watch() {}, later: async (request: unknown) => {
@@ -57,10 +57,10 @@ const files = {} as Files;
 
 describe('Mark unread refused by the server', () => {
   test('the row menu, the multi-selection menu and the thread menu stay silent', async () => {
-    const { client, native, sent } = refusing([row('a'), row('b')], { picks: ['mark-unread'] });
+    const { client, native, sent } = refusing([row('a'), row('b')]);
     await sidebarCommand(client, native, files, 'menu-choice', 'a', 'mark-unread');
     sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'menu', 'a', 'row');
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'mark-unread');
     expect(await shellCommand(client, native, files, 'mark-unread', 'b', '')).toBe('');
     expect(sent).toEqual(['env-a:a', 'env-a:a', 'env-a:b', 'env-a:b']);
     expect(sidebarSession(client).selection).toEqual([]);
@@ -69,10 +69,10 @@ describe('Mark unread refused by the server', () => {
   });
 
   test('the legacy menus stay silent', async () => {
-    const { client, native, sent } = refusing([row('a'), row('b')], { picks: ['mark-unread', 'mark-unread'] });
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'a', '');
+    const { client, native, sent } = refusing([row('a'), row('b')]);
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'mark-unread');
     sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'a', '');
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'mark-unread');
     expect(sent).toEqual(['env-a:a', 'env-a:a', 'env-a:b']);
     expect(toasts(client)).toEqual([]);
   });

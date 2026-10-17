@@ -41,7 +41,7 @@ function fake(threads: Obj[], options: { settings?: Obj; serverSettings?: Obj; t
         if (method === 'vcs.refreshStatus' && options.failRefresh) throw new Error(options.failRefresh);
         return {};
       },
-      call: async (request: Obj) => request.op === 'sidebarMenu' ? { id: 'delete' } : {},
+      call: async () => ({}),
     }),
     async openSelected(_native: Native, id: string) { opened.push(id); client.threadId = id; },
     async openDraft(_native: Native, projectId: string) { drafts.push(projectId); client.threadId = ''; },
@@ -54,7 +54,7 @@ const native = { available: true, watch() {}, later: async () => ({}) } as unkno
 const files = {} as Files;
 const helpers = { projectIdentity: (name: string) => ({ projectMark: name.slice(0, 2).toUpperCase(), projectInk: 'ink', projectSurface: 'surface' }),
   providerBadge: () => ({ providerBadge: '', providerBadgeColor: '' }) };
-const del = (client: T3Client, id: string) => sidebarCommand(client, native, files, 'menu', id, 'row');
+const del = (client: T3Client, id: string) => sidebarCommand(client, native, files, 'menu-choice', id, 'delete');
 
 describe('G5: Delete the worktree too?', () => {
   test('an orphaned worktree asks with the reference copy; Confirm deletes the thread, then removes the worktree and refreshes status', async () => {

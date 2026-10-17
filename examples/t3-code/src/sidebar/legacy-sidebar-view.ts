@@ -13,7 +13,7 @@ import { fleet, fleetThreads, fleetThreadId, parseFleetThreadId, remoteThread, t
 import { groupLabel, logicalKey } from './project-groups';
 import { projectGlyph } from './sidebar-glyph';
 import type { ProjectGlyph } from './sidebar-glyph';
-import { canArchive } from './sidebar-menu';
+import { canArchive, menuRows, type MenuRow } from './sidebar-menu';
 import { lastVisited } from './sidebar-model';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
@@ -22,8 +22,10 @@ import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from '../panel/pr-
 import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr';
 import { portLabels, rowPorts } from './legacy-sidebar-ports';
 import { formatWorktreePathForDisplay } from './worktree-cleanup';
-import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator,
-  resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads, type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
+import { rowThread } from './legacy-sidebar-links';
+import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, buildMultiSelectThreadContextMenuItems, legacyProjectMenuItems, legacyThreadMenuItems, orderItemsByPreferredIds,
+  relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator, resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads,
+  type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
 
 export interface LegacyThreadRow {
   id: string; dropKey: string; title: string; label: string; active: boolean; selected: boolean; renaming: boolean; running: boolean;
@@ -31,6 +33,8 @@ export interface LegacyThreadRow {
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
   prIcon: string; prState: string; prTooltip: string; prPending: boolean; portLabel: string; portTip: string;
   worktree: boolean; worktreeLabel: string; remoteMachine: string; remoteLabel: string; age: string; jump: string;
+  /** The row's context popover (legacy-sidebar.contract LegacyThreadMenu): its thread's menu, or on a selected row the multi-selection menu. */
+  menu: MenuRow[];
   /** autoAnimate's addition: the row came into a shown list (not the sidebar's first draw, not a scroll back into view). */
   enter: boolean;
 }
@@ -40,6 +44,8 @@ export interface LegacyProjectRow {
   remoteMachine: string; remoteLabel: string; remoteTooltip: string;
   threads: LegacyThreadRow[]; showEmpty: boolean; showMore: boolean; showLess: boolean;
   hiddenLabel: string; hiddenDot: string; hiddenColor: string; hiddenPulse: boolean; newThreadLabel: string; enter: boolean;
+  /** The header's context popover (legacy-sidebar.contract LegacyProjectMenu): handleProjectButtonContextMenu's items. */
+  menu: MenuRow[];
 }
 export interface LegacySidebarView {
   enabled: boolean; projects: LegacyProjectRow[]; manual: boolean; projectSort: string; threadSort: string; previewCount: number;
@@ -178,7 +184,17 @@ function fallbackPr(client: T3Client, thread: Obj): { prIcon: string; prState: s
   const state = lifecycle(pr.state, pr.isDraft);
   return { prIcon: lifecycleIcon(state), prState: state, prTooltip: branchPrTooltip(pr), prPending: false };
 }
-function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Omit<LegacyThreadRow, 'enter'> {
+/**
+ * handleRowContextMenu (LegacySidebar.tsx:544-592): a row of a non-empty selection opens the multi-selection menu over
+ * the selection (readThreadShell per key, so a background environment's rows count); any other row its own thread's menu.
+ */
+function multiSelectMenu(client: T3Client): MenuRow[] {
+  const selection = sidebarSession(client).selection;
+  if (!selection.length) return [];
+  const threads = selection.map(key => rowThread(client, key)?.thread).filter((thread): thread is Obj => !!thread);
+  return menuRows(buildMultiSelectThreadContextMenuItems({ count: selection.length, hasRunningThread: threads.some(thread => !canArchive(thread)) }));
+}
+function threadRow(client: T3Client, thread: Obj, now: number, jump: string, multi: MenuRow[]): Omit<LegacyThreadRow, 'enter'> {
   const id = str(thread.id), title = str(thread.title, 'Untitled thread'), session = sidebarSession(client);
   const status = pillFields(statusOf(client, thread));
   const link = currentPullRequestLink(thread.pullRequests), snapshot = link && link.snapshot && typeof link.snapshot === 'object' ? obj(link.snapshot) : null;
@@ -207,6 +223,7 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
     worktree: worktree !== '', worktreeLabel,
     remoteMachine: remote ? (remote.machine === 'desktop' ? 'monitor' : remote.machine) : '', remoteLabel,
     age: relativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt, now), jump,
+    menu: multi.length && session.selection.includes(id) ? multi : menuRows(legacyThreadMenuItems(branch)),
   };
 }
 
@@ -273,6 +290,7 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
   const entering = arrivalsOf(client, now, [...entries.map(entry => `project:${entry.group.key}`), ...views.flatMap(view => view.rendered.map(thread => `thread:${str(thread.id)}`))]);
   const jumps = base.jumpHints ? Array.from({ length: 9 }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`)) : [];
   let visibleIndex = 0;
+  const multi = multiSelectMenu(client);
   const projects = entries.map(({ group, threads }, at): LegacyProjectRow => {
     const view = views[at]!;
     const status = resolveProjectStatusIndicator(threads.map(thread => statusOf(client, thread)));
@@ -285,10 +303,10 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
       statusLabel: shown.label, statusColor: shown.color, statusDot: shown.dot, statusPulse: shown.pulse,
       remoteMachine: group.remoteOnly ? 'cloud' : '', remoteLabel: group.remoteOnly ? 'Remote project' : '',
       remoteTooltip: group.remoteOnly ? `Remote environment: ${group.remoteLabels.join(', ')}` : '',
-      threads: view.rendered.map(thread => ({ ...threadRow(client, thread, now, jumps[visibleIndex++] ?? ''), enter: entering(`thread:${str(thread.id)}`) })),
+      threads: view.rendered.map(thread => ({ ...threadRow(client, thread, now, jumps[visibleIndex++] ?? '', multi), enter: entering(`thread:${str(thread.id)}`) })),
       showEmpty: view.expanded && threads.length === 0, showMore: view.expanded && view.overflowing && !view.listExpanded, showLess: view.expanded && view.overflowing && view.listExpanded,
       hiddenLabel: hidden.label, hiddenDot: hidden.dot, hiddenColor: hidden.color, hiddenPulse: hidden.pulse,
-      newThreadLabel: `Create new thread in ${group.name}`, enter: entering(`project:${group.key}`),
+      newThreadLabel: `Create new thread in ${group.name}`, enter: entering(`project:${group.key}`), menu: menuRows(legacyProjectMenuItems(group.members)),
     };
   });
   return { ...base, projects };

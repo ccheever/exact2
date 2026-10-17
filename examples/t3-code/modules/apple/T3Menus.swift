@@ -12,14 +12,15 @@ import UniformTypeIdentifiers
 /// Quit shortcut setting (QuitHold.ts); Quit from the menu stays immediate. Check for
 /// Updates… sits under About and in Help, as the reference's darwin template places it.
 ///
-/// These stay native, each for a reason the adopted API
-/// leaves open: an `-exact-menu` button's item is enabled only while its window is key and has
-/// no sheet (ShortcutsMac `validateMenuItem`), where the reference's Check for Updates… is
-/// always enabled (it reopens the main window); no Contract API zooms the main window, an app
-/// chord is heard only inside a shown modal while one is up (Shortcuts.swift `shortcutModal`),
-/// and the host files app View items ahead of Reload; the host files app-menu items after About's
-/// separator (ShortcutsMac `sync`), where the reference's Check for Updates… sits directly under
-/// About, and `-exact-menu-remove` names none of the Edit, Help or Go/Develop items hidden.
+/// These stay native, each for a reason the adopted API leaves open:
+/// - Check for Updates…: an `-exact-menu` button's item is enabled only while its window is key
+///   and has no sheet (ShortcutsMac `validateMenuItem`), where the reference's is always enabled
+///   (it reopens the main window); the host files app-menu items after About's separator
+///   (ShortcutsMac `sync`), where the reference's sits directly under About; and a Contract
+///   `alertdialog` is a sheet on the window (AlertsMac), where the reference's box has no parent.
+/// - Zoom: no Contract API zooms the main window (`setRootFontSize` leaves px lengths as they are),
+///   and an app chord is heard only inside a shown modal while one is up (Shortcuts.swift `shortcutModal`).
+/// - The hidden Help book item: `-exact-menu-remove` names none of the Edit, Help or Go/Develop items.
 final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private weak var window: NSWindow?
     private var monitor: Any?
@@ -110,14 +111,16 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         if let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu, view.item(withTitle: "Actual Size") == nil {
             let items: [(String, Selector, String, Bool)] = [("Actual Size", #selector(actualSize(_:)), "0", false), ("Zoom In", #selector(zoomIn(_:)), "=", false),
                                                             ("Zoom In", #selector(zoomIn(_:)), "+", true), ("Zoom Out", #selector(zoomOut(_:)), "-", false)]
+            // After the window's Reload and Force Reload, which the host files first with a separator of its own.
+            let start = Self.afterCommands(view)
             for (index, (title, action, key, hidden)) in items.enumerated() {
                 let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
                 item.target = self
                 item.isHidden = hidden
                 item.allowsKeyEquivalentWhenHidden = hidden
-                view.insertItem(item, at: index)
+                view.insertItem(item, at: start + index)
             }
-            view.insertItem(.separator(), at: items.count)
+            view.insertItem(.separator(), at: start + items.count)
         }
         // The host's Help since LLP 1115 D8 ("<app> Help" ⌘? and AppKit's search field): the reference's holds
         // Check for Updates… alone, so the help-book item hides and leaves ⇧⌘/ to the search field.
@@ -126,6 +129,14 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         }
         augmentUpdates(bar)
         keys.arrange(bar)
+    }
+
+    /// The index past the app commands the host files at the top of `menu` and the separator it puts after them.
+    static func afterCommands(_ menu: NSMenu) -> Int {
+        var index = 0
+        while index < menu.numberOfItems, T3MenuBar.isCommand(menu.items[index]) { index += 1 }
+        if index > 0, index < menu.numberOfItems, menu.items[index].isSeparatorItem { index += 1 }
+        return index
     }
 
     // MARK: Check for Updates…
