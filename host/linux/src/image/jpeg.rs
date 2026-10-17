@@ -3,8 +3,9 @@
 //! platform's decoder where there is one — Android's `AImageDecoder`
 //! (libjpeg-turbo, giflib, libwebp; sampled to the plan's size while
 //! decoding, as the platform's own image views decode; an animation's first
-//! frame). Other targets, and Android before 11 (API 30, `AImageDecoder`'s),
-//! refuse them as before. An animated GIF or WebP plays
+//! frame). Before Android 11 (API 30, `AImageDecoder`'s) the same decoder
+//! through the reader's `ImageDecoder` (`crate::canvas::legacy`). Other
+//! targets refuse them, as before. An animated GIF or WebP plays
 //! in the platform's own animated drawable, which a reader may draw in the
 //! still's place ([`crate::image::Bitmap::animation_file`]).
 //!
@@ -193,6 +194,12 @@ mod platform {
     }
 }
 
+/// Whether `AImageDecoder` is the platform's (Android 11, API 30, and later).
+#[cfg(target_os = "android")]
+pub(crate) fn platform_decoder() -> bool {
+    platform::decoder().is_some()
+}
+
 /// The whole file (it is bounded by `MAX_ENCODED_BYTES`): the platform
 /// decoder takes a buffer.
 #[cfg(target_os = "android")]
@@ -237,8 +244,17 @@ unsafe fn decode_into(
     len: usize,
 ) -> bool {
     use platform::ARect;
+    let (full, part, out) = (plan.full(), plan.crop, plan.pixels);
     let Some(d) = platform::decoder() else {
-        return false;
+        let crop = [part.x, part.y, out.width, out.height];
+        return crate::canvas::legacy::decode(
+            bytes,
+            (full.width, full.height),
+            crop,
+            pixels,
+            stride,
+            len,
+        );
     };
     crate::android::section_begin(c"exact platform decode");
     struct End;
@@ -253,7 +269,6 @@ unsafe fn decode_into(
     if (d.create)(bytes.as_ptr().cast(), bytes.len(), &mut decoder) != 0 {
         return false;
     }
-    let (full, part, out) = (plan.full(), plan.crop, plan.pixels);
     let cut = ARect(
         part.x as i32,
         part.y as i32,

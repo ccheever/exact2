@@ -1,7 +1,10 @@
 package dev.exact.canvas
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.graphics.Point
+import android.graphics.Rect
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.view.Display
@@ -13,14 +16,26 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.InputMethodManager
+import java.nio.ByteBuffer
 
 /**
  * The reader on Android 10 and 11 (API 29 and 30) where it otherwise calls a platform API of a later release: each
- * function here is entered only from a `Build.VERSION.SDK_INT` check, so a newer release never runs one. Glyph runs
- * are [LegacyGlyphs]'.
+ * function here is entered only from a `Build.VERSION.SDK_INT` check, or from exact2's Rust only where the call it
+ * stands in for is missing, so a newer release never runs one. Glyph runs are [LegacyGlyphs]'.
  */
 @Suppress("DEPRECATION")
 object Legacy {
+    /** A JPEG, GIF or WebP (an animation's first frame) from exact2's Rust where `AImageDecoder` (API 30) is missing:
+     * the same platform decoder by its Java face, as the Rust asks that one, scaled to [width] by [height], cropped to
+     * [w] by [h] at ([x], [y]), into software ARGB_8888 pixels (`host/linux/src/canvas/legacy.rs`). [source] is the
+     * file, read in place during the call. Called on the Rust's decode threads. */
+    @JvmStatic fun decode(source: ByteBuffer, width: Int, height: Int, x: Int, y: Int, w: Int, h: Int): Bitmap =
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(source)) { d, _, _ ->
+            d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            d.setTargetSize(width, height)
+            if (x != 0 || y != 0 || w != width || h != height) d.crop = Rect(x, y, x + w, y + h)
+        }
+
     /** The display the activity is on: `Context.getDisplay` is API 30. */
     fun display(activity: Activity): Display = activity.windowManager.defaultDisplay
 

@@ -1,86 +1,107 @@
 package dev.exact.canvas
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Typeface
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.fonts.Font
-import android.graphics.fonts.FontFamily
 import java.nio.ByteBuffer
 
 /**
  * Glyph runs on Android 10 and 11, which have no `Canvas.drawGlyphs` (API 31) and no other public way to draw a glyph
- * by its id. Each glyph exact2 shaped is drawn as the character the font's `cmap` maps to it, alone, at the position
- * exact2 gave it, in a typeface of that one font: what Android draws for that character is the same glyph. A glyph no
- * character maps to (a ligature, a contextual or positional form) is not drawn. Entered only below API 31.
+ * by its id. Each glyph is drawn from its outline, read by exact2's Rust from the font file the [Font] maps
+ * (`host/linux/src/canvas/legacy.rs`), the run's outlines filled as one [Path] with the run's paint (its blur too);
+ * a colour glyph (an emoji's bitmap) as its image. A face's outline is asked for once and kept. Entered only below
+ * API 31.
  */
 internal object LegacyGlyphs {
-    private class Face(val typeface: Typeface, val chars: IntArray)
+    /** A glyph in ems from the pen, y down: its outline, or a colour image over [box]. */
+    private class Glyph(val path: Path?, val image: Bitmap?, val box: RectF?)
+    private val none = Glyph(null, null, null)
 
     /** By identity: a [Font]'s own hash reads its whole buffer. The readers keep one [Font] per face they were told. */
-    private val faces = java.util.IdentityHashMap<Font, Face>()
+    private val faces = java.util.IdentityHashMap<Font, HashMap<Int, Glyph>>()
+
+    /** A face's glyph, by the face's identity. */
+    private class Key(val font: Font, val id: Int) {
+        override fun equals(other: Any?) = other is Key && other.font === font && other.id == id
+        override fun hashCode() = 31 * System.identityHashCode(font) + id
+    }
+
+    /** Colour images, the most recently drawn [IMAGES] (each is its strike's size, about 70 KB for an emoji):
+     * a picker of emoji would otherwise keep them all. A row recorded with one keeps its bitmap while it is kept. */
+    private val images = object : LinkedHashMap<Key, Glyph>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, Glyph>) = size > IMAGES
+    }
+    private const val IMAGES = 128
+
+    private fun known(font: Font, glyphs: HashMap<Int, Glyph>, id: Int): Glyph {
+        synchronized(glyphs) { glyphs[id] }?.let { return it }
+        val key = Key(font, id)
+        synchronized(images) { images[key] }?.let { return it }
+        val made = make(font, id)
+        if (made.image != null) synchronized(images) { images[key] = made } else synchronized(glyphs) { glyphs[id] = made }
+        return made
+    }
 
     fun draw(c: Canvas, ids: IntArray, positions: FloatArray, count: Int, font: Font, paint: Paint) {
-        val face = synchronized(faces) { faces.getOrPut(font) { face(font) } }
-        paint.typeface = face.typeface
-        val one = CharArray(2)
+        val glyphs = synchronized(faces) { faces.getOrPut(font) { HashMap() } }
+        val size = paint.textSize; val skew = paint.textSkewX
+        val run = Path(); val m = Matrix()
         for (g in 0 until count) {
-            val id = ids[g]
-            val char = if (id > 0 && id < face.chars.size) face.chars[id] else 0
-            if (char == 0) continue
-            c.drawText(one, 0, Character.toChars(char, one, 0), positions[2 * g], positions[2 * g + 1], paint)
+            val glyph = known(font, glyphs, ids[g])
+            val x = positions[2 * g]; val y = positions[2 * g + 1]
+            if (glyph.path != null) {
+                // As Skia sets a glyph: the em scaled to the size, skewed by the paint's synthetic italic, at the pen.
+                m.setScale(size, size); m.postSkew(skew, 0f); m.postTranslate(x, y)
+                run.addPath(glyph.path, m)
+            } else if (glyph.image != null) {
+                c.save(); c.translate(x, y); c.scale(size, size)
+                c.drawBitmap(glyph.image, null, glyph.box!!, Paint(Paint.FILTER_BITMAP_FLAG).also { it.alpha = paint.alpha })
+                c.restore()
+            }
         }
+        if (!run.isEmpty) c.drawPath(run, paint)
     }
 
-    private fun face(font: Font): Face {
-        val typeface = Typeface.CustomFallbackBuilder(FontFamily.Builder(font).build()).build()
-        val chars = try { chars(font.buffer.duplicate(), font.ttcIndex) } catch (e: IndexOutOfBoundsException) { IntArray(0) }
-        return Face(typeface, chars)
-    }
-
-    private fun u16(b: ByteBuffer, at: Int) = b.getShort(at).toInt() and 0xFFFF
-
-    /** Each glyph's character, the lowest the font's best Unicode `cmap` subtable maps to it (0: none), from the
-     * OpenType tables of face [ttc] in [b]. */
-    private fun chars(b: ByteBuffer, ttc: Int): IntArray {
-        val dir = if (b.getInt(0) == 0x74746366) b.getInt(12 + 4 * ttc) else 0 // 'ttcf': a collection's offsets.
-        var cmap = -1; var maxp = -1
-        for (t in 0 until u16(b, dir + 4)) {
-            val record = dir + 12 + 16 * t
-            when (b.getInt(record)) { 0x636D6170 -> cmap = b.getInt(record + 8); 0x6D617870 -> maxp = b.getInt(record + 8) }
+    private fun make(font: Font, id: Int): Glyph {
+        val axes = font.axes ?: emptyArray()
+        val settings = IntArray(2 * axes.size)
+        for ((k, a) in axes.withIndex()) {
+            settings[2 * k] = a.tag.fold(0) { t, ch -> (t shl 8) or (ch.code and 0xFF) }
+            settings[2 * k + 1] = java.lang.Float.floatToRawIntBits(a.styleValue)
         }
-        if (cmap < 0 || maxp < 0) return IntArray(0)
-        val out = IntArray(u16(b, maxp + 4))
-        fun put(char: Int, glyph: Int) { if (glyph in 1 until out.size && out[glyph] == 0) out[glyph] = char }
-        // Format 12 (all of Unicode) over format 4 (the Basic Multilingual Plane).
-        var table = -1; var format = 0
-        for (k in 0 until u16(b, cmap + 2)) {
-            val platform = u16(b, cmap + 4 + 8 * k); val encoding = u16(b, cmap + 6 + 8 * k)
-            val at = cmap + b.getInt(cmap + 8 + 8 * k)
-            val f = u16(b, at)
-            val unicode = platform == 0 || (platform == 3 && (encoding == 1 || encoding == 10))
-            if (unicode && (f == 12 || (f == 4 && format != 12))) { table = at; format = f }
-        }
-        if (format == 4) {
-            val segments = u16(b, table + 6) / 2
-            val ends = table + 14; val starts = ends + 2 * segments + 2
-            val deltas = starts + 2 * segments; val ranges = deltas + 2 * segments
-            for (s in 0 until segments) {
-                val start = u16(b, starts + 2 * s); val end = minOf(u16(b, ends + 2 * s), 0xFFFE)
-                val delta = b.getShort(deltas + 2 * s).toInt(); val range = u16(b, ranges + 2 * s)
-                for (char in start..end) {
-                    val glyph = if (range == 0) char + delta
-                        else u16(b, ranges + 2 * s + range + 2 * (char - start)).let { if (it == 0) 0 else it + delta }
-                    put(char, glyph and 0xFFFF)
+        val w = glyph(font.buffer, font.ttcIndex, settings, id) ?: return none
+        fun f(i: Int) = java.lang.Float.intBitsToFloat(w[i])
+        return when (w[0]) {
+            1 -> {
+                if (w[1] == 0) return none
+                val p = Path()
+                var i = 2
+                repeat(w[1]) {
+                    when (w[i]) {
+                        0 -> { p.moveTo(f(i + 1), f(i + 2)); i += 3 }
+                        1 -> { p.lineTo(f(i + 1), f(i + 2)); i += 3 }
+                        2 -> { p.quadTo(f(i + 1), f(i + 2), f(i + 3), f(i + 4)); i += 5 }
+                        3 -> { p.cubicTo(f(i + 1), f(i + 2), f(i + 3), f(i + 4), f(i + 5), f(i + 6)); i += 7 }
+                        else -> { p.close(); i += 1 }
+                    }
                 }
+                Glyph(p, null, null)
             }
-        } else if (format == 12) {
-            for (k in 0 until b.getInt(table + 12)) {
-                val group = table + 16 + 12 * k
-                val start = b.getInt(group); val first = b.getInt(group + 8)
-                val end = minOf(b.getInt(group + 4), start + (out.size - 1 - first))
-                for (char in start..end) put(char, first + (char - start))
+            2 -> {
+                val ppem = f(1); val left = w[2]; val top = w[3]; val width = w[4]; val height = w[5]
+                if (width <= 0 || height <= 0) return none
+                val image = Bitmap.createBitmap(w, 6, width, width, height, Bitmap.Config.ARGB_8888)
+                Glyph(null, image, RectF(left / ppem, -top / ppem, (left + width) / ppem, (height - top) / ppem))
             }
+            else -> none
         }
-        return out
     }
+
+    /** Glyph [id] of the face in [font] (collection index [index]) at the variation settings [axes] (tag, value bits
+     * pairs), as `legacy.rs`'s `glyph_words` writes it, or null. */
+    @JvmStatic private external fun glyph(font: ByteBuffer, index: Int, axes: IntArray, id: Int): IntArray?
 }
