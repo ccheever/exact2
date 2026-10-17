@@ -451,5 +451,64 @@ final class SheetHostMacTests: XCTestCase {
         XCTAssertNil(f.window.attachedSheet)
         XCTAssertNil(p.dialogs.active)
     }
+
+    /// A `dialog` that is the navigation root's own child, authored before
+    /// or after its routes, is no route: in its sheet it is live as one
+    /// inside a route is. Its `autofocus` field has the focus, its controls
+    /// are enabled, the accessibility tree holds what is in it, and the
+    /// stack is the routes' alone.
+    func testADialogBesideTheRoutesIsLiveInItsSheet() throws {
+        let page = """
+        component Probe
+          state name = "draft"
+          action rename(v: string)
+            name = v
+          view
+            column testId="root" navigationKey="home" navigationBack="back" width="100%" height="100%" position="relative"
+              dialog id="before" testId="before" aria-label="Before"
+                input testId="before-field" aria-label="Before field" value=name input=rename autofocus=true width=200 height=24
+                button testId="before-done" commandfor="before" command="close" width=60 height=28
+                  text "Done"
+              column navigationKey="home" testId="home" position="absolute" inset=0 padding=20 gap=12
+                button testId="open-before" commandfor="before" command="show-modal"
+                  text "Before"
+                button testId="open-inside" commandfor="inside" command="show-modal"
+                  text "Inside"
+                button testId="open-after" commandfor="after" command="show-modal"
+                  text "After"
+                dialog id="inside" testId="inside" aria-label="Inside"
+                  input testId="inside-field" aria-label="Inside field" value=name input=rename autofocus=true width=200 height=24
+                  button testId="inside-done" commandfor="inside" command="close" width=60 height=28
+                    text "Done"
+              dialog id="after" testId="after" aria-label="After"
+                input testId="after-field" aria-label="After field" value=name input=rename autofocus=true width=200 height=24
+                button testId="after-done" commandfor="after" command="close" width=60 height=28
+                  text "Done"
+
+        """
+        let f = try SheetFixture(page: page)
+        fixture = f
+        let p = f.presenter
+        for name in ["before", "inside", "after"] {
+            try f.press("open-\(name)")
+            let dialog = try f.node(name), done = try f.node("\(name)-done"), field = try XCTUnwrap(try f.node("\(name)-field").field)
+            let sheet = try XCTUnwrap(f.window.attachedSheet, name)
+            XCTAssertTrue(dialog.window === sheet && p.dialogs.active === dialog, name)
+            XCTAssertFalse(dialog.routeInert, "\(name): no route's gate")
+            XCTAssertFalse(dialog.inert || done.inert, name)
+            XCTAssertTrue(field.isEnabled, name)
+            XCTAssertTrue(sheet.firstResponder === field.currentEditor(), "\(name): its autofocus field has the focus")
+            guard case .owned(let content) = p.axSheet(sheet) else { return XCTFail("\(name): the sheet is the session's") }
+            let ax = p.axElements(roots: [p.viewport, content], modalRoot: content)
+            XCTAssertEqual((ax["modal"] as? [String: Any])?["id"] as? UInt32, dialog.id, name)
+            let ids = (ax["elements"] as? [[String: Any]] ?? []).compactMap { $0["testId"] as? String }
+            XCTAssertTrue(ids.contains("\(name)-field") && ids.contains("\(name)-done"), "\(name): \(ids)")
+            let navigation = f.session.agentInstance.stateSections()["navigation"] as? [String: Any]
+            XCTAssertEqual(navigation?["stack"] as? [String], ["home"], name)
+            try f.press("\(name)-done")
+            XCTAssertNil(f.window.attachedSheet, name)
+            XCTAssertFalse(try f.node("open-\(name)").inert, name)
+        }
+    }
 }
 #endif

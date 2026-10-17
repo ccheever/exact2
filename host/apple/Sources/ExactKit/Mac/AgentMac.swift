@@ -152,7 +152,7 @@ extension Agent {
                                          "transition": ["interactive": false, "phase": "idle"]]
         if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
             let key = container.props["navigationKey"] ?? ""
-            let routes = presenter.blocks.authored(NavigationTabs.routes(in: container), in: container.container) // one in its sheet too
+            let routes = presenter.navigation.routes(in: container) // one in its sheet too
             let keys = routes.map { $0.props["navigationKey"] ?? "" }
             navigation["route"] = key
             if let range = NavigationRules.stack(routeKeys: keys, selected: key) {
