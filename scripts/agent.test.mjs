@@ -172,3 +172,80 @@ test('a native hangup names how the app ended, its crash reports, and only its l
   assert.match(hangup({ what: 'the app hung up', pid: 999999 }), /\(pid 999999 gone\)$/);
   assert.match(hangup({ what: 'the app exited', exit: { code: 3, signal: null } }), /\(exit code 3\)$/);
 });
+
+// `screenshot <png> compare <reference>` (agent-compare.mjs), on synthetic pictures: white, with dark boxes.
+const picture = (w, h, boxes, scale = 1) => {
+  const data = new Uint8Array(w * scale * h * scale * 4).fill(255);
+  for (const [x, y, bw, bh, c = [20, 20, 20]] of boxes) for (let yy = Math.round(y * scale); yy < Math.round((y + bh) * scale); yy++) for (let xx = Math.round(x * scale); xx < Math.round((x + bw) * scale); xx++) data.set(c, (yy * w * scale + xx) * 4);
+  return { width: w * scale, height: h * scale, data };
+};
+const compared = async (ref, screen, w = 120, h = 200) => {
+  const { grid, compareGrids } = await import('./agent-compare.mjs');
+  const A = grid(picture(w, h, ref), w, h), B = grid(picture(w, h, screen), w, h);
+  return { A, B, result: compareGrids(A, B) };
+};
+
+test('compare: content moved down is one shift, placed in the box that grew, and nothing else differs', async () => {
+  const { report } = await import('./agent-compare.mjs');
+  // A 20-pt key at y=30 grows to 28: the bars below it sit 8 pt lower.
+  const { result } = await compared([[10, 30, 30, 20], [10, 90, 100, 6], [10, 130, 60, 6]], [[10, 30, 30, 28], [10, 98, 100, 6], [10, 138, 60, 6]]);
+  assert.deepEqual(result.changes.map((c) => c.to - c.from), [8]);
+  assert.equal(result.regions.length, 0);
+  assert.ok(result.alignedMatch > 0.999 && result.match < 0.99, `${result.match} → ${result.alignedMatch}`);
+  const text = report(result, [{ id: 1, type: 'View', testId: 'key', depth: 3, x: 10, y: 30, w: 30, h: 28 }, { id: 2, type: 'View', depth: 1, x: 0, y: 0, w: 120, h: 200 }], { reference: 'ref.png', diff: 'x.diff.png' });
+  assert.match(text, /shift {2}from y≈\d+ down: 8 pt lower than the reference; key \[10,30 30×28\] is 30×28, 30×20 in the reference/);
+});
+
+test('compare: a gap that widened is named by the boxes either side', async () => {
+  const { report } = await import('./agent-compare.mjs');
+  const { result } = await compared([[10, 30, 50, 10], [10, 60, 50, 10]], [[10, 30, 50, 10], [10, 66, 50, 10]]);
+  const text = report(result, [{ type: 'Text', text: 'Note', depth: 2, x: 10, y: 30, w: 50, h: 10 }, { type: 'Text', text: 'Track', depth: 2, x: 10, y: 66, w: 50, h: 10 }], { reference: 'r', diff: 'd' });
+  assert.match(text, /the space between Text "Note" \[10,30 50×10\] and Text "Track" \[10,66 50×10\] is 6 pt wider than the reference's/);
+});
+
+test('compare: a band moved sideways is a horizontal run; a recoloured box is a region with both colours', async () => {
+  const { report } = await import('./agent-compare.mjs');
+  const { result } = await compared([[20, 40, 8, 12], [40, 40, 8, 12], [60, 120, 30, 20, [0, 0, 0]]], [[24, 40, 8, 12], [44, 40, 8, 12], [60, 120, 30, 20, [255, 0, 0]]]);
+  assert.equal(result.changes.length, 0);
+  const moved = result.regions.find((r) => r.reference.y < 60), recoloured = result.regions.find((r) => r.reference.y > 100);
+  assert.deepEqual(moved.runs.map((r) => r.d), [4]);
+  assert.ok(moved.explained > 0.9);
+  assert.deepEqual([recoloured.screen.x, recoloured.screen.y, recoloured.screen.w, recoloured.screen.h], [60, 120, 30, 20]);
+  const text = report(result, [], { reference: 'r', diff: 'd' });
+  assert.match(text, /x \d+–\d+: 4 pt right of the reference/);
+  assert.match(text, /differs \(600 pt²\): here #f00, in the reference #000/);
+});
+
+test('compare: edges a device pixel apart match; the status bar is left out', async () => {
+  const { grid, compareGrids } = await import('./agent-compare.mjs');
+  // At 3 pixels a point, a box one pixel wider and lower: anti-aliasing, not a difference.
+  const A = grid(picture(100, 100, [[10, 10, 30, 30]], 3), 100, 100), B = grid(picture(100, 100, [[10 + 1 / 3, 10 + 1 / 3, 30, 30]], 3), 100, 100);
+  const same = compareGrids(A, B);
+  assert.equal(same.match, 1);
+  assert.equal(same.regions.length, 0);
+  const C = grid(picture(100, 100, [[0, 0, 100, 8]]), 100, 100), D = grid(picture(100, 100, [[50, 2, 40, 4, [0, 200, 0]]]), 100, 100);
+  assert.equal(compareGrids(C, D, { top: 10 }).match, 1);
+  assert.ok(compareGrids(C, D).match < 1);
+});
+
+test('compare: a visible box is found in the reference by its edges, at its size there', async () => {
+  const { boxDiffs } = await import('./agent-compare.mjs');
+  // A card 100×60 at x=10 in the reference is 90×60 at x=20 here.
+  const { A, B, result } = await compared([[10, 50, 100, 60, [30, 30, 30]]], [[20, 50, 90, 60, [30, 30, 30]]]);
+  const card = { type: 'View', testId: 'card', depth: 2, x: 20, y: 50, w: 90, h: 60 };
+  const [found] = boxDiffs(A, B, result, [card]);
+  assert.equal(found.node, card);
+  assert.deepEqual([found.ref.x, found.ref.w, found.ref.h], [10, 100, 60]);
+});
+
+test('compare: nearby differing cells on one band merge; the CLI form is checked before any capture', async () => {
+  const { regions, compareScreenshot } = await import('./agent-compare.mjs');
+  const w = 60, h = 20, mask = new Uint8Array(w * h);
+  for (const x0 of [5, 25]) for (let y = 5; y < 10; y++) for (let x = x0; x < x0 + 6; x++) mask[y * w + x] = 1;
+  const found = regions(mask, w, h);
+  assert.equal(found.length, 1);
+  assert.deepEqual([found[0].x, found[0].w], [5, 26]);
+  const s = { host: 'web', screenshot() { throw new Error('captured'); } };
+  for (const args of [['compare', 'r.png'], ['x.png', 'compare'], ['x.png', 'window', 'status', 'compare', 'r.png'], ['x.png', 'compare', 'r.png', 'extra']])
+    assert.throws(() => compareScreenshot(s, args), (e) => e.malformed === true);
+});
