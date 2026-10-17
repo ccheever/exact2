@@ -622,6 +622,10 @@ const CONTEXTMENU: &str = "a long press on iOS, a right click elsewhere: `contex
 /// HTML's capitalization hint, said for the fields that want other than sentences.
 const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username or a code; unsaid is sentences (an email, URL or password field is never capitalized)";
 
+/// LLP 1116.021 D6: five round-19 builders looked `overflow-wrap` up when a large text spilled, and
+/// `anywhere` broke their words.
+const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
+
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
@@ -739,6 +743,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     if name == "border-radius" {
         doc["note"] = SHEET_RADIUS.into();
     }
+    if name == "overflow-wrap" {
+        doc["note"] = OVERFLOW_WRAP.into();
+    }
     if name == "transform" {
         doc["note"] = vocab::BOX_TRANSFORM_REFUSAL.into();
     }
@@ -843,6 +850,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "border-radius" {
                 lines.push(SHEET_RADIUS.into());
+            }
+            if name == "overflow-wrap" {
+                lines.push(OVERFLOW_WRAP.into());
             }
             if name == "transform" {
                 lines.push(vocab::BOX_TRANSFORM_REFUSAL.into());

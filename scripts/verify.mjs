@@ -502,19 +502,31 @@ export function largeRemedy(f) {
   return WRAP;
 }
 /** LLP 1116.020 D4: each font size the app's own Contract fixes (no-tells.mjs `fixedSizesIn`), which no spill shows (a fixed
- * size never grows to spill): `{ lines, accepted }`, a line each, those app.json's `verify.accept` takes (`fixed-type`, the
- * node's testId) apart. Exact's parts that are fixed on purpose are the library's, not here. */
+ * size never grows to spill), and LLP 1116.021 D6's two like it: a symbol sized in points beside text that grows
+ * (`fixedSymbolsIn`), and text that breaks inside words (`brokenWordsIn`), the remedy builders reached for when a large
+ * text spilled. `{ lines, accepted, fonts }`, a line each, those app.json's `verify.accept` takes (`fixed-type`,
+ * `fixed-symbol` or `broken-words`, the node's testId) apart, and how many lines are font sizes. Exact's parts that are
+ * fixed on purpose are the library's, not here. */
 export async function fixedType(dir, host, accept = ACCEPT) {
-  const { contractFiles, fixedSizesIn } = await import('./no-tells.mjs'), unit = host === 'ios' ? 'pt' : 'px', lines = [], accepted = [];
+  const { contractFiles, fixedSizesIn, fixedSymbolsIn, brokenWordsIn } = await import('./no-tells.mjs'), unit = host === 'ios' ? 'pt' : 'px', lines = [], accepted = [];
+  let fonts = 0;
+  const add = (finding, testId, said) => {
+    const takes = testId != null && accept.find((e) => e.finding === finding && (/^[^*]+\*$/.test(e.node) ? testId.startsWith(e.node.slice(0, -1)) : e.node === testId));
+    if (takes) accepted.push({ line: said, accept: takes }); else { lines.push(said); if (finding === 'fixed-type') fonts++; }
+  };
   for (const file of contractFiles(dir).filter((f) => !f.endsWith('.test.contract'))) {
-    for (const f of fixedSizesIn(readFileSync(file, 'utf8'))) {
+    const source = readFileSync(file, 'utf8'), at = (f) => `${relative(dir, file)}:${f.line}`;
+    for (const f of fixedSizesIn(source)) {
       const rem = Math.round(f.size / 16 * 4) / 4;
-      const said = `  fixed    ${relative(dir, file)}:${f.line} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales`;
-      const takes = f.testId != null && accept.find((e) => e.finding === 'fixed-type' && (/^[^*]+\*$/.test(e.node) ? f.testId.startsWith(e.node.slice(0, -1)) : e.node === f.testId));
-      if (takes) accepted.push({ line: said, accept: takes }); else lines.push(said);
+      add('fixed-type', f.testId, `  fixed    ${at(f)} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales`);
     }
+    for (const f of fixedSymbolsIn(source)) {
+      const rem = Math.round(f.size / 16 * 4) / 4;
+      add('fixed-symbol', f.testId, `  fixed    ${at(f)} image ${f.property}=${f.value}: a symbol sized in points stays small as Dynamic Type grows: leave it unsized (it follows its text), or size it with a text style (\`font="-exact-title1"\`) or a font-size in rem ("${rem}rem")`);
+    }
+    for (const f of brokenWordsIn(source)) add('broken-words', f.testId, `  breaks   ${at(f)} ${f.tag} overflow-wrap=${f.value}: breaks inside words (Octo/ber); wrap between words (the default) or give the row room`);
   }
-  return { lines, accepted };
+  return { lines, accepted, fonts };
 }
 const contentSize = (udid, size) => spawnSync('xcrun', ['simctl', 'ui', udid, 'content_size', ...(size ? [size] : [])], { encoding: 'utf8' });
 
@@ -796,9 +808,12 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
   }
-  // Font sizes the app's Contract fixes (LLP 1116.020 D4): findings, as check's are.
+  // Font and symbol sizes the app's Contract fixes and words it breaks (LLP 1116.020 D4, LLP 1116.021 D6): findings, as
+  // check's are.
   if (fixed.lines.length) {
-    out.push(`fixed type: ${plural(fixed.lines.length, 'font size')} the reader's text size does not move`, ...fixed.lines.slice(0, SHOWN));
+    const said = (fixed.fonts ?? fixed.lines.length) === fixed.lines.length ? `${plural(fixed.lines.length, 'font size')} the reader's text size does not move`
+      : `${plural(fixed.lines.length, 'finding')}: a size the reader's text size does not move, or a word broken inside`;
+    out.push(`fixed type: ${said}`, ...fixed.lines.slice(0, SHOWN));
     if (fixed.lines.length > SHOWN) out.push(`  … and ${fixed.lines.length - SHOWN} more (verify --json lists them all)`);
     findings += fixed.lines.length;
   }

@@ -37,7 +37,7 @@ component Chat
           list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
             for m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
-                text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="anywhere"
+                text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="break-word"
                   background-color=(m.mine ? "AccentColor" : "-exact-fill") color=(m.mine ? "AccentColorText" : "-exact-label")
                   testId=`message-${m.id}`
           row align-items="flex-end" margin="6px 12px" padding="4px 4px 4px 12px" border-radius=20
@@ -75,5 +75,8 @@ test "a sent message lands; the composer clears"
 
 - Bubbles are not cells (`appearance="none"`); `scroll-start="end"` opens at the newest;
   `interactive-widget` keeps the composer over the keyboard; Send keeps it up.
+- `overflow-wrap="break-word"` breaks a word only when it is wider than the bubble (a pasted
+  link); prose wraps between words. `anywhere` would break words at large text sizes
+  ("Octo/ber"), which `verify` names.
 - Yours: the solid accent under `AccentColorText` (white on iOS; 3:1 in `check`), no name;
   a group names others'.
