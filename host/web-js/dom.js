@@ -16,6 +16,18 @@ class Node {
   get previousSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) - 1] ?? null : null; }
   get lastChild() { return this.childNodes.at(-1) ?? null; }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.nodeType === 9; }
+  // DOM §4.4: PRECEDING 2, FOLLOWING 4, CONTAINS 8, CONTAINED_BY 16; another tree is DISCONNECTED 1 (midi.js orders listeners by it).
+  compareDocumentPosition(other) {
+    if (other === this) return 0;
+    const path = n => { const p = []; for (; n; n = n.parentNode) p.unshift(n); return p; };
+    const a = path(this), b = path(other);
+    if (a[0] !== b[0]) return 1;
+    let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    if (i === a.length) return 16 | 4;
+    if (i === b.length) return 8 | 2;
+    const kids = a[i - 1].childNodes;
+    return kids.indexOf(b[i]) > kids.indexOf(a[i]) ? 4 : 2;
+  }
   append(...nodes) { for (const n of nodes) this.insertBefore(typeof n === 'string' ? new Text(n) : n, null); }
   // The nodes as one fragment, then before the first child (rt.js `each`'s row fragments).
   prepend(...nodes) { const f = new Fragment(); f.append(...nodes); this.insertBefore(f, this.firstChild); }

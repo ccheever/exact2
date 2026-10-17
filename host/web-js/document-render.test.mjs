@@ -53,8 +53,9 @@ component MediaFacts
 
 // The runtime answers `exactTransport` and `exactMIDI` itself from the boot's
 // first settlement, as the runner does; asked of a TypeScript data module,
-// which answers neither, they refused the boot. (A render does not run a
-// sequence: its server bundle installs no voice table.)
+// which answers neither, they refused the boot. Two `midimessage` listeners
+// are put in document order as the boot commit stands (midi.js `listeners`).
+// (A render does not run a sequence: its server bundle installs no voice table.)
 test('JavaScript-rendered boot answers the transport and MIDI beside a TypeScript data module', async () => {
   await renderedPages(`routes nav
   home "/" render=build
@@ -72,10 +73,16 @@ component ReservedBoot
   resource midi = exactMIDI() as shape MIDI
   action start
     takes = takes + 1
+  action hear(e: MIDIMessageEvent)
+    takes = takes + 1
   view
     main
       head title=\`\${transport.state} \${transport.bpm} \${midi.state} \${takes}\`
       button "Start" press=start
+      column midimessage=hear midiinputs=["keys"]
+        text "Keys"
+      column midimessage=hear midiinputs=["keys", "pads"]
+        text "Pads"
 `, page => {
     expect(page('')[0]).toBe('stopped 0 denied 0');
   }, { 'app.ts': "import type { Answer } from './app.contract.d.ts';\nexport const appId = 'test.heads', grants = '';\nexport const answer: Answer = name => { throw new Error(`no source ${name}`); };\n" });
