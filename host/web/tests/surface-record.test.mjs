@@ -507,8 +507,8 @@ test('second cutover failure preserves both live canvases and their input',async
 
 for(const refusal of ['disabled','hidden','inert','missing']) test(`control down refuses ${refusal}`,async()=>{
  const f=await fixture({input:true}),canvas=f.create(1),b=new f.Element('button');b.parent=canvas;
- b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:s.includes('[inert]')&&refusal==='inert'?b:null;
- b.getAttribute=()=>refusal==='missing'?null:'jump';b.disabled=refusal==='disabled';b.hidden=refusal==='hidden';
+ b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:null;
+ b.getAttribute=()=>refusal==='missing'?null:'jump';b.disabled=refusal==='disabled';b.hidden=refusal==='hidden';b.inert=refusal==='inert';
  canvas.listeners.pointerdown({target:b,pointerId:1,clientX:0,clientY:0,timeStamp:0,preventDefault(){}});
  assert.deepEqual(f.events,[]);
 });

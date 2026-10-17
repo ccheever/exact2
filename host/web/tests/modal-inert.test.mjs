@@ -2,8 +2,10 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { glueDeclarations } from './glue-fixture.mjs';
 
 const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
+const gpuListen = glueDeclarations(readFileSync(new URL('../gpu-glue.js', import.meta.url), 'utf8'), ['listen']);
 // Execute the wasm host's actual entry points with only the runner and unrelated
 // presenters stubbed. The browser owns dialog, popover, inert and scrolling behavior.
 const shown = glue.split('exact_geometry: { shown: ')[1].split(', read: ')[0];
@@ -30,6 +32,7 @@ const html = `<style>dialog { max-height: 240px; overflow: auto; }</style>
 <script type="module">
   import * as nav from '/navigation.js';
   import { reveal } from '/input-glue.js';
+  import '/document-glue.js';
   const { inertAncestor, modalLayers, contextAt, editMenu } = nav;
   const root = document.getElementById('exact-root');
   const views = new Map([...root.querySelectorAll('[id]')].map(el => [el.id, el]));
@@ -51,6 +54,15 @@ const html = `<style>dialog { max-height: 240px; overflow: auto; }</style>
   };
   window.agent = agentReply;
   applyProps(views.get('inside'), { contextpopover: 'inner-pop' }, []);
+  window.listenGPU = (host, canvas) => {
+    const entry = { host, el: canvas, view: 1, id: 1 }, events = [];
+    const live = () => entry, recoveringDevice = null, exact = { now: () => 0 };
+    const gpu = { gpu_input: (_, json) => { events.push(JSON.parse(json)); return true; } };
+    const messages = () => {}, schedule = () => {};
+    ${gpuListen}
+    listen(entry);
+    return { events, stop: () => entry.unlisten() };
+  };
   window.ready = true;
 </script>`;
 
@@ -70,6 +82,88 @@ async function inBrowser(run) {
     await run(page);
   } finally { await browser?.close(); server.stop(true); }
 }
+
+for (const stage of ['capture', 'replay']) test(`document modal input escapes inert ancestry at ${stage}`, () => inBrowser(async page => {
+  const results = await page.evaluate(async stage => {
+    const results = {};
+    for (const state of ['escaped', 'child inert', 'modal inert', 'disabled', 'disabled ancestor', 'nonmodal']) {
+      const root = document.createElement('div');
+      root.innerHTML = `<div><dialog><section><button data-view="1" data-exact-on="press">Save</button>
+        <input data-view="2" data-exact-on="input"></section></dialog></div>`;
+      document.body.append(root);
+      const ancestor = root.firstElementChild, modal = root.querySelector('dialog'), group = root.querySelector('section');
+      const button = root.querySelector('button'), input = root.querySelector('input');
+      modal.showModal();
+      const checkpoint = document.createElement('script');
+      checkpoint.type = 'application/vnd.exact.checkpoint'; checkpoint.dataset.activate = 'interaction';
+      document.head.append(checkpoint);
+      const events = [], logs = [], views = new Map([[1, button], [2, input]]);
+      for (const el of views.values()) el.exactHandlers = el.dataset.exactOn.split(' ');
+      const capture = exact.documentBoot({ root, views, dispatch: (...args) => events.push(args.slice(0, 3)), log: line => logs.push(line) });
+      checkpoint.remove();
+      let started = false;
+      capture.started.then(() => { started = true; });
+      const constrain = () => {
+        ancestor.inert = true;
+        if (state === 'child inert') group.inert = true;
+        if (state === 'modal inert') modal.inert = true;
+        if (state === 'disabled') button.disabled = input.disabled = true;
+        if (state === 'disabled ancestor') group.setAttribute('disabled', 'true');
+        if (state === 'nonmodal') { modal.close(); modal.show(); }
+      };
+      if (stage === 'capture') constrain();
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      await Promise.resolve();
+      const intent = started;
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      input.value = 'draft'; input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      if (stage === 'replay') constrain();
+      // Capture refusals stay refused even if the controls become usable at replay.
+      if (stage === 'capture' && state !== 'escaped') {
+        group.inert = modal.inert = false; button.disabled = input.disabled = false;
+        group.removeAttribute('disabled');
+        if (state === 'nonmodal') { modal.close(); modal.showModal(); }
+      }
+      capture.hold({ ops: [{ op: 'adopt', adopted: true }] });
+      capture.release(() => {});
+      await Promise.resolve();
+      results[stage + '/' + state] = { intent, events, dropped: logs.length };
+      modal.close(); root.remove();
+    }
+    return results;
+  }, stage);
+  for (const state of ['escaped', 'child inert', 'modal inert', 'disabled', 'disabled ancestor', 'nonmodal']) {
+    expect(results[stage + '/' + state]).toEqual({
+      intent: stage === 'replay' || state === 'escaped',
+      events: state === 'escaped' ? [[1, 0, ''], [2, 23, 'draft']] : [],
+      dropped: stage === 'replay' && state !== 'escaped' ? 2 : 0,
+    });
+  }
+}), 30000);
+
+for (const path of ['pointer', 'keyboard', 'assistive click']) test(`GPU modal controls accept ${path} past inert ancestors`, () => inBrowser(async page => {
+  const results = await page.evaluate(path => {
+    const host = document.getElementById('ancestor'), modal = document.getElementById('upper');
+    const button = document.getElementById('inside'), canvas = document.createElement('canvas');
+    host.append(canvas); button.dataset.action = 'jump'; modal.showModal(); host.inert = true;
+    const listener = listenGPU(host, canvas), results = {};
+    const send = () => {
+      if (path === 'pointer') for (const phase of ['down', 'up']) button.dispatchEvent(new PointerEvent('pointer' + phase, { bubbles: true, cancelable: true, pointerId: 7 }));
+      if (path === 'keyboard') for (const phase of ['down', 'up']) button.dispatchEvent(new KeyboardEvent('key' + phase, { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+      if (path === 'assistive click') button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+      return listener.events.splice(0).filter(e => e.t === 'control').map(e => [e.name, e.phase]);
+    };
+    results.escaped = send();
+    button.inert = true; results.childInert = send(); button.inert = false;
+    modal.inert = true; results.modalInert = send(); modal.inert = false;
+    button.disabled = true; results.disabled = send(); button.disabled = false;
+    host.hidden = true; results.hiddenAncestor = send(); host.hidden = false;
+    modal.close(); modal.show(); results.nonmodal = send();
+    listener.stop();
+    return results;
+  }, path);
+  expect(results).toEqual({ escaped: [['jump', 'down'], ['jump', 'up']], childInert: [], modalInert: [], disabled: [], hiddenAncestor: [], nonmodal: [] });
+}), 30000);
 
 test('wasm shown retains the front modal and later popovers in tree order', () => inBrowser(async page => {
   const snapshots = await page.evaluate(() => {
