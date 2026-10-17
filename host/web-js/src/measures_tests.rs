@@ -250,3 +250,35 @@ fn a_rows_map_takes_its_kinds_and_an_svg_attribute_writes_inline() {
         "{refused}"
     );
 }
+
+/// Review round 3: a varying token's name computed into an SVG attribute
+/// stands (no tuple's rule reaches an attribute); a bound opacity's layer
+/// test reads a constant token's value, and a varying one may be below 1.
+#[test]
+fn an_attribute_map_holds_constants_and_opacity_reads_a_tokens_value() {
+    let tile = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  tile = 8px\n  tile.varying = 8px\n    when density=compact: 6px\n  dim: number = 1\n  faded: number = 0.5\n    when density=compact: 0.25\n";
+    let plan = plan(
+        "attribute",
+        tile,
+        "component App\n  state size = \"tile.varying\"\n  state o = \"dim\"\n  view\n    column opacity=o\n      svg viewBox=\"0 0 24 24\" width=24 height=24\n        pattern id=\"p\" width=size height=size\n          path d=\"M0 0L4 4\"\n",
+    );
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let map = |name: &str| {
+        out.js
+            .split(&format!("const {name}="))
+            .nth(1)
+            .and_then(|m| m.split(';').next())
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(
+        map("$tla").contains("\"tile\":\"8px\"") && !map("$tla").contains("tile.varying"),
+        "{}",
+        out.js
+    );
+    assert!(
+        out.js.contains("{\"dim\":1,\"faded\":0}[v.trim()]??1)<1"),
+        "{}",
+        out.js
+    );
+}

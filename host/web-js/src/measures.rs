@@ -150,6 +150,12 @@ pub fn map(
         .filter_map(|r| {
             let kind = kind(r)
                 .filter(|k| *k != Kind::Color && exact_kernel::style::theme::admits(*k, id))?;
+            // An SVG attribute reads no property, and no tuple's rule reaches
+            // it: a varying token's name stands there (the JS target does not
+            // read one computed into an attribute).
+            if attribute && r.slices.len > 0 {
+                return None;
+            }
             let name = plan.str(r.name);
             let value = match props.iter().find(|(n, _)| n == name && !attribute) {
                 Some((_, prop)) => serde_json::to_string(&format!("var({prop})")).unwrap(),

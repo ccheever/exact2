@@ -2708,7 +2708,14 @@ channel (queued).
   the press animation through the computed property (`input-glue.js`). A bound row's value naming a
   token maps through a module constant per mix of the kinds the row takes (`$tl`, `$tn`, `$tln`, an
   SVG attribute's `…a` writing values, never `var()`), so a name of a kind the row does not take
-  stands, as the kernel leaves it; a bound `opacity` naming a token counts as a layer. In a static row a release writes a token that does not vary byte for byte as
+  stands, as the kernel leaves it. A bound `opacity`'s layer test reads a constant token's value (a
+  varying one may be below 1). A grid track's `var()` of a token passes the target's grid check
+  (each tuple's value was checked at build).
+- **What the JS target does not read:** a varying token's name computed (from state or data) into
+  an SVG attribute row stands there, since no tuple's rule reaches an attribute; and in a
+  development build a token computed into one is written as its value, so a live edit of it waits
+  for the rebuild. A literal name in an SVG attribute row is refused when it varies, and inline
+  otherwise (above). In a static row a release writes a token that does not vary byte for byte as
   its literal; a plan that keeps no length or number token is byte for byte as before (the clone's
   `app.js` and `app.css` are identical).
 - **Measured on theme-fixture with the JS loop, by hand:** a length edit arrives in ~0.2 s, a number
