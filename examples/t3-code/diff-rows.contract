@@ -180,16 +180,11 @@ component DiffCell
   state overId = ""
   action hover(over: bool)
     hovering = over
-  // Any primary press on the gutter is an outside press for a skill chip's details, which the window's root never hears
-  // (issues/20261010-pointer-events-reach-ancestors.md): one that starts no drag reports itself as `press`
-  // (diff-review.ts closes them).
   action down(gutter: bool, e: PointerEvent)
     if not open and line > 0 and e.buttons == 1
       dragging = true
       overId = `dl:${side}:${line}:${path}`
       command("diffreview", (gutter ? `gutter:${side}` : e.shiftKey ? `drag:${side}:shift` : `drag:${side}`), path, line)
-    else if e.buttons == 1
-      command("diffreview", "press", path, line)
   action move(e: PointerEvent)
     // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
     if dragging and e.buttons == 0

@@ -36,7 +36,7 @@ const frames: Record<string, { y: number; height: number }> = {
 };
 async function hoverRig() {
   const tipRow = await contractFn('sidebar.contract', 'sidebarTipRow', ['id']);
-  const win: Env = { sidebarHoverSeq: 0, sidebarHoverLast: '', sidebarHoverY: 0, sidebarHoverH: 0, sidebarHoverHeld: '', outsideDown: false, outsidePresses: 0, citeFor: '', keybindingField: '' };
+  const win: Env = { sidebarHoverSeq: 0, sidebarHoverLast: '', sidebarHoverY: 0, sidebarHoverH: 0, sidebarHoverHeld: '' };
   const root: Env = { sidebarHoverId: '' };
   const rootScope = { data: { sidebar: { searching: false } } };
   // The host's events, as the window's `hover=hoverCard(key)` and the presses' `sidebarHover("", false)` call them.
@@ -47,11 +47,7 @@ async function hoverRig() {
   }, [id, over]);
   return {
     hover,
-    press: (buttons: number) => windowHalf.call('sidebarPressDown', win, {
-      outsidePressDown: (e: { buttons: number }) => windowHalf.call('outsidePressDown', win, { chipShown: false, detailsOpen: false }, [e]),
-    }, [{ buttons }]),
-    release: () => windowHalf.call('outsidePressUp', win, {}, []),
-    get outsidePresses() { return win.outsidePresses; },
+    press: () => windowHalf.call('sidebarPressDown', win, {}, []),
     /** What the overlay draws (sidebar-overlays.contract): the card is the hovered row's at `y`, a tip its control's. */
     get shown() { return { id: root.sidebarHoverId, last: win.sidebarHoverLast, y: win.sidebarHoverY, h: win.sidebarHoverH, held: win.sidebarHoverHeld }; },
   };
@@ -107,7 +103,7 @@ describe('A press on Settle or Snooze closes its tooltip at once', () => {
   test('the press moves the tip and card away; the row stays hovered; leaving the control gives the row back, card still away', async () => {
     const r = await hoverRig();
     r.hover('a~active', true); r.hover('a~active#settle', true);
-    r.press(1);
+    r.press();
     // The tip is drawn at hoverY + its top, the card at hoverY: both off the window. The hover id still names the
     // control, so the row keeps its surface and actions (ThreadRow `hovering`) and the press its gesture.
     expect(r.shown).toMatchObject({ id: 'a~active#settle', y: -10000 });
@@ -115,17 +111,6 @@ describe('A press on Settle or Snooze closes its tooltip at once', () => {
     expect(r.shown).toEqual({ id: 'a~active', last: 'a~active', y: -10000, h: 78, held: 'a~active' });
     r.hover('b~active', true); // the next enter places the card again
     expect(r.shown).toMatchObject({ id: 'b~active', y: 180 });
-  });
-
-  test('the control still dismisses a pinned Usage popover when its primary press ends', async () => {
-    const r = await hoverRig();
-    r.press(1);
-    expect(r.outsidePresses).toBe(0);
-    r.release();
-    expect(r.outsidePresses).toBe(1);
-    r.press(2);
-    r.release();
-    expect(r.outsidePresses).toBe(1);
   });
 });
 

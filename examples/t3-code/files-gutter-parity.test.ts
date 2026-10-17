@@ -1,15 +1,12 @@
 // The Files preview's gutter as T3 Code (1e2ecbd975) draws it over @pierre/diffs (Pierre's "+"
 // at the number's right edge; a drag over the numbers selects lines and the draft opens at the end of any selection),
-// split view's hatched empty side, and a press on any gutter closing a skill chip's details. The reference's
+// and split view's hatched empty side. The reference's
 // values were read over CDP (FilePreviewPanel's File, DiffPanel's split Cargo.lock), light and dark.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { T3Client } from './client';
 import { fileComment, fileCommentLines, parseFileLineId, fileLineId } from './diff-file-comments';
-import { closeChipFromPress } from './composer-chip-popover';
-import { diffReview } from './diff-review';
-import { prCodeLocal } from './pages-pr-code';
 import { sourceGutter } from './r9-device-crumbs';
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -30,13 +27,11 @@ const REFERENCE = {
 
 const text = 'one\ntwo\nthree\nfour\nfive\n';
 const lines = (body: string) => body.split('\n').map((line, index) => ({ id: String(index + 1), number: String(index + 1), runs: [{ id: '0', text: line, syntax: '' }] }));
-/** A native that records its requests; its skill chip is open as press `seq` until it is closed. */
-function harness(chip: { open: boolean; seq: number } = { open: false, seq: 0 }) {
+/** A native that records its requests. */
+function harness() {
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
-    if (request.op === 'editorChip') return { ok: true, generation: 1, value: { seq: chip.seq, open: chip.open } };
-    if (request.op === 'editorChipClose') { if (request.seq === chip.seq) chip.open = false; return { ok: true, generation: 1, value: { seq: chip.seq, open: chip.open } }; }
     return { ok: true, generation: 1, value: { applied: true } };
   } };
   const client = new T3Client();
@@ -45,8 +40,7 @@ function harness(chip: { open: boolean; seq: number } = { open: false, seq: 0 })
   const view = () => fileCommentLines(client, 'a.txt', text, lines(text), false);
   const marks = () => view().filter(line => line.kind === 'line').map(line => `${line.line}${line.selected ? '*' : ''}${line.pin ? '+' : ''}`);
   const draft = () => view().find(line => line.kind === 'draft');
-  const closes = () => calls.filter(call => call.op === 'editorChipClose').map(call => call.seq);
-  return { client, native, calls, op, view, marks, draft, closes, chip };
+  return { client, native, calls, op, view, marks, draft };
 }
 
 describe('the Files preview\'s "+" is Pierre\'s utility button at the number\'s right edge', () => {
@@ -129,45 +123,5 @@ describe('a drag over the numbers selects lines, and the draft opens at the end 
     await h.op('line', '3'); await h.op('line-shift', '5');
     expect(h.marks().filter(mark => mark.includes('*'))).toEqual([]);
     expect(code).not.toContain('surface-files-comment-line');
-  });
-});
-
-describe('a press on a gutter closes a skill chip\'s details', () => {
-  test('closeChipFromPress closes the newest open press, and nothing when none is open', async () => {
-    const open = harness({ open: true, seq: 7 });
-    await closeChipFromPress(open.native);
-    expect([open.closes(), open.chip.open]).toEqual([[7], false]);
-    const shut = harness({ open: false, seq: 7 });
-    await closeChipFromPress(shut.native);
-    expect(shut.closes()).toEqual([]);
-  });
-  test('the Files gutter: a press that starts a drag and one while the draft is open close it; its moves and release do not', async () => {
-    const h = harness({ open: true, seq: 3 });
-    await h.op('drag', '1');
-    expect(h.closes()).toEqual([3]);
-    h.chip.open = true; h.chip.seq = 4;
-    await h.op('to', 'fl:2:a.txt'); await h.op('end');
-    expect(h.closes()).toEqual([3]);
-    await h.op('press'); // the draft is open: the press starts nothing
-    expect(h.closes()).toEqual([3, 4]);
-    h.chip.open = true; h.chip.seq = 5;
-    await h.op('cancel'); await h.op('gutter', '2');
-    expect(h.closes()).toEqual([3, 4, 5]);
-  });
-  test('the thread\'s Diff panel: a number, a "+" and a press that starts no drag', async () => {
-    for (const op of ['drag:additions', 'drag:deletions:shift', 'gutter:additions', 'press']) {
-      const h = harness({ open: true, seq: 9 });
-      await diffReview(h.client, h.native, op, 'a.ts', op === 'press' ? 0 : 2);
-      expect([op, h.closes()]).toEqual([op, [9]]);
-    }
-    const h = harness({ open: true, seq: 9 });
-    await diffReview(h.client, h.native, 'to', 'dl:additions:3:a.ts', 0); await diffReview(h.client, h.native, 'end', 'a.ts', 0);
-    expect(h.closes()).toEqual([]);
-  });
-  test('the pull request surface\'s Code tab beside the composer', async () => {
-    const h = harness({ open: true, seq: 2 });
-    const ctx = { client: { environmentId: 'env', local: {} } as unknown as T3Client, reference: { projectId: 'p1', repository: 'acme/app', number: 1 }, detail: null, native: h.native };
-    await prCodeLocal(ctx, 'drag', 'diffreview|press|0|a.ts');
-    expect(h.closes()).toEqual([2]);
   });
 });

@@ -200,16 +200,13 @@ component AnswerMarkdown
     citeQuote: string
     citeAt: number
     // The window's Cite (diff-cite.contract CiteAction): the answer whose selection it offers while it
-    // shows, the offer and its withdrawal; and the window's press handlers, which a press on this answer reaches through this
-    // answer's own (the innermost node hearing a pointer holds it).
+    // shows, the offer and its withdrawal.
     citeOffered: string
     citeOfferSet: action
     citeWithdraw: action
     // A double-click's wait before Cite shows (SELECTION_MULTI_CLICK_INTERVAL_MS), and whether one runs.
     citeHold: action
     citeHolding: bool
-    outsidePressDown: action
-    outsidePressUp: action
   props
     document: ChatDocument
     local: action
@@ -248,17 +245,15 @@ component AnswerMarkdown
       citeWithdraw(source)
     else if source != "" and next.length > 0
       citeOfferSet(citeOfferFor(source, next, citeStream(document.blocks, code), citeAxis(citeLineRight(next, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(citeLineBottom(next, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)))
-  // A press in the answer: the window hears it as before, and hides Cite there as for any press but Cite's own (the
+  // A press in the answer; the window's `main` hears it too, and hides Cite there as for any press but Cite's own (the
   // reference's "interaction" dismissal).
   action down(e: PointerEvent)
-    outsidePressDown(e)
     held = e.buttons == 1
     moved = false
   // The release of a press that changed the selection: Cite at the release point; within a double-click's wait (a third
   // click) the wait begins again.
   action up(e: PointerEvent)
     let bounds = frame("transcript")
-    outsidePressUp()
     held = false
     moved = false
     if held and moved and source != "" and parts.length > 0

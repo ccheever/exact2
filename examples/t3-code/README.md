@@ -572,6 +572,11 @@ permission helper's real grant (the user's), and a tailnet. Also:
 - VO-Space on the chip kinds session K did not press (sample.py, an image, a video and doc.pdf
   pass; the citation chip is the known difference above).
 - Kotoeri's ⌃K in the terminal has not been run: no Japanese input source is installed.
+- Outside presses that now reach the window's `main` by bubbling alone: a press on a diff gutter
+  and on the Files preview's gutter closing an open chip's details, and presses on the floating
+  theme editor's swatch, plane, hue slider and inspector counting as outside presses (an agent
+  drive confirmed it for a press in an answer and on a sidebar row's Snooze; it found no diff rows
+  in its tree).
 
 **Next real-input session:** each Settings page opening at its top after another page was
 scrolled, and the search jump still landing on its target; the rows session K did not run (under
@@ -590,14 +595,6 @@ to end' pill has no record yet. The macOS issues opened from 2026-10-13 to 2026-
 on main, the light-dismiss and VoiceOver ones (exact2 PRs #663, #664, #676, #679 and #681)
 included, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to every
 ancestor that hears them, and `stopPropagation()` stops them).
-
-**Workarounds main has made unnecessary:** since pointer events bubble, the window's `main` hears
-every press itself, so the app's forwards to it are redundant: the sidebar's `sidebarPressDown`
-and an answer's `down` (markdown.contract) call `outsidePressDown`, the floating theme editor's
-pickers and inspector take `outsideDown` and `outsideUp` as props, and the diff and Files gutters
-report a `press` that closes a skill chip's details (`closeChipFromPress`). Each press now runs
-the window's outside press twice, which is harmless, as each step checks what it already closed.
-Remove them, with their comments, in a clone branch that drives each case.
 
 ## Source and checks
 

@@ -370,15 +370,11 @@ component R4CodeRow
   state overId = ""
   action hover(over: bool)
     hovering = over
-  // Any primary press is an outside press for a skill chip's details, which the window's root never hears
-  // (issues/20261010-pointer-events-reach-ancestors.md): one that starts no drag reports itself as `press`.
   action down(plus: bool, e: PointerEvent)
     if not open and e.buttons == 1
       dragging = true
       overId = `fl:${line.line}:${path}`
       local((plus ? "surface-files-comment-gutter" : e.shiftKey ? "surface-files-comment-drag-shift" : "surface-files-comment-drag"), path, `${line.line}`)
-    else if e.buttons == 1
-      local("surface-files-comment-press", path, "")
   // The release lets go of the focus the press gave the gutter cell (a pressable node takes it on macOS), so the draft
   // that opens takes it (DiffDraftCard's autofocus), as FilePreviewPanel's beginComment blurs and focuses the draft.
   action move(e: PointerEvent)

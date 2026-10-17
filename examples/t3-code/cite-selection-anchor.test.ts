@@ -107,7 +107,7 @@ function answer() {
     ...std, ...cite, citeOffset: fns.citeOffset, citeRunOffset: fns.citeRunOffset, citeStream: fns.citeStream,
     document: { blocks }, code: [], source: '["t","a"]', citeOffered: offered,
     frame: (id: string) => frames[id] ?? { ...geometry(0, 0, 0, 0), unavailable: true },
-    citeOfferSet: spy('offer'), citeWithdraw: spy('withdraw'), citeHold: spy('hold'), citeHolding: false, outsidePressDown: spy('windowDown'), outsidePressUp: spy('windowUp'),
+    citeOfferSet: spy('offer'), citeWithdraw: spy('withdraw'), citeHold: spy('hold'), citeHolding: false,
     preventDefault: spy('preventDefault'), stopPropagation: spy('stopPropagation'), focus: spy('focus'),
   });
   const selection = (text: string, start: number, end: number, rects: ReturnType<typeof geometry>[]) => ({ text, start, end, rects });
@@ -119,15 +119,13 @@ describe('the answer offers Cite as observeSelectionActions does', () => {
   test('a drag: Cite hides at the press, waits through the drag, and is offered at the release point', () => {
     const a = answer();
     a.md.call('down', a.state, a.scope('["t","a"]'), [{ buttons: 1, clientX: 280.5, clientY: 362.8 }]);
-    // The window hears the press (and hides Cite there: below).
-    expect(a.calls).toEqual([['windowDown', { buttons: 1, clientX: 280.5, clientY: 362.8 }]]);
+    expect(a.calls).toEqual([]);
     expect(a.state).toMatchObject({ held: true, moved: false });
     a.md.call('selected', a.state, a.scope(), ['2', '', a.selection('A closing paragraph', 0, 19, [geometry(280, 352.5, 140, 21)])]);
     a.md.call('selected', a.state, a.scope(), ['2', '', a.selection('A closing … last line.', 0, 140, a.line2)]);
     expect(a.offers()).toEqual([]);
     expect(a.state.moved).toBe(true);
     a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 501.16, clientY: 385.52 }]);
-    expect(a.calls.at(-2)).toEqual(['windowUp']);
     // The stream: "Cite check." then a line break: the closing paragraph starts at 12.
     expect(a.offers()).toEqual([expect.objectContaining({ source: '["t","a"]', ranges: '12-152', x: 501.16, y: 385.52, end: 'cite-["t","a"]-2', lx: 0, lw: 221.2, lh: 21 })]);
     expect(a.offers()[0]!.ly).toBeCloseTo(375.25 - 351.42, 5);
@@ -139,8 +137,7 @@ describe('the answer offers Cite as observeSelectionActions does', () => {
     a.state.parts = [{ block: '2', start: 12, end: 31, lx: 0, ly: 1, lw: 140, lh: 21 }];
     a.md.call('down', a.state, a.scope('["t","a"]'), [{ buttons: 1, clientX: 900, clientY: 300 }]);
     a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 900, clientY: 300 }]);
-    expect(a.offers()).toEqual([]);
-    expect(a.calls.map(c => c[0])).toEqual(['windowDown', 'windowUp']);
+    expect(a.calls).toEqual([]);
   });
 
   test('a double-click: the release offers Cite and the double-click holds it 500 ms; a third click begins the wait again', () => {
@@ -149,12 +146,12 @@ describe('the answer offers Cite as observeSelectionActions does', () => {
     a.state.parts = [{ block: '2', start: 14, end: 21, lx: 13.1, ly: 3.1, lw: 46.1, lh: 16.5 }];
     a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 316, clientY: 362.8 }]);
     a.md.call('doubled', a.state, a.scope(), []);
-    expect(a.calls.map(c => c[0])).toEqual(['windowUp', 'offer', 'hold']);
+    expect(a.calls.map(c => c[0])).toEqual(['offer', 'hold']);
     expect(a.offers()[0]).toMatchObject({ x: 316, y: 362.8 });
     const b = answer();
     b.state.held = true; b.state.moved = true; b.state.parts = a.state.parts;
     b.md.call('up', b.state, { ...b.scope(), citeHolding: true }, [{ buttons: 0, clientX: 316, clientY: 362.8 }]);
-    expect(b.calls.map(c => c[0])).toEqual(['windowUp', 'offer', 'hold']);
+    expect(b.calls.map(c => c[0])).toEqual(['offer', 'hold']);
     expect(source('markdown.contract')).toContain('column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys');
   });
 

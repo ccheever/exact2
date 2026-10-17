@@ -139,7 +139,6 @@ describe('the citation chip\'s comment popover', () => {
     // Escape closes whatever the draft (in the textarea the editor's onCancel, elsewhere escape-key); an outside press here or
     // the textarea's blur settles.
     expect(resolveAssistantCitationCommentDismissal({ reason: 'escape-key', draft: 'x'.repeat(8001), savedComment: undefined })).toEqual({ kind: 'close' });
-    expect(window).toMatch(/if chip\.kind == "citation"\n {8}citeSettle\(\)\n {6}else\n {8}\/\/[^\n]*\n {8}chipClosed = chip\.seq\n {8}editorOp\("chip-close", `\$\{chip\.seq\}`, ""\)/);
     expect(window).toContain('CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)');
     expect(window).toContain('derive citeText = citeDraftSeq == chip.seq ? citeDraft : chip.comment');
   });
