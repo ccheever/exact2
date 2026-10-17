@@ -512,13 +512,13 @@ impl<D: DataSource> Presenter<D> {
         }
         let pressed = self.handler_target(view, EventKind::Press);
         // `-exact-press-haptic` plays at the press, the host's own as the
-        // scale below is (LLP 1077 D14).
+        // scale and paint below are (LLP 1077 D14; LLP 1061 D7).
         if let Some(id) = pressed {
             self.press_haptic(id);
         }
         let press = pressed.and_then(|id| {
             let node = self.host.kernel().node(id)?;
-            if node.style.press_scale == 1. {
+            if node.style.press_scale == 1. && !crate::host::press::paints(node.style) {
                 return None;
             }
             let (key, origin) = (node.key, node.style.transform_origin);

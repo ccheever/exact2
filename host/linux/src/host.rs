@@ -48,7 +48,7 @@ mod paint_motion;
 #[path = "presence.rs"]
 mod presence;
 #[path = "press.rs"]
-mod press;
+pub(crate) mod press;
 #[path = "scale.rs"]
 mod scale;
 #[path = "system_support.rs"]
@@ -670,10 +670,14 @@ impl<D: DataSource> Host<D> {
         }
         .or_else(|| self.paint.view_dark(node.key));
         shown.lowered = self.lowered_mask(node.key);
-        shown.press = self
-            .presses
-            .get(&node.key)
-            .map_or(1., |f| f.factor(self.now_ms));
+        let progress = self.press_progress(node.key);
+        shown.press = press::scale(node.style, progress);
+        // @ref LLP 1061 D7 — the opacity's share of the node's own; the
+        // painter shows the colours from the same progress.
+        shown.press_paint = progress;
+        if node.style.mask.has(exact_kernel::StyleId::PressOpacity) {
+            shown.opacity *= 1. + (node.style.press_opacity.clamp(0., 1.) - 1.) * progress;
+        }
         shown
     }
 

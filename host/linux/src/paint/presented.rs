@@ -23,6 +23,10 @@ pub struct Presented {
     pub scale: f32,
     /// Host feedback, multiplied into scale without entering the motion engine.
     pub press: f32,
+    /// How far a press shows its pressed paint, 0 to 1 (LLP 1061 D7): the
+    /// painter mixes the node's background and its subtree's text toward
+    /// its press colours by it.
+    pub press_paint: f32,
     /// Degrees.
     pub rotate: f32,
     /// Zero to one.
@@ -48,6 +52,7 @@ impl Presented {
         translate_percent: (0.0, 0.0),
         scale: 1.0,
         press: 1.0,
+        press_paint: 0.0,
         rotate: 0.0,
         opacity: 1.0,
         svg: [None; 8],
@@ -64,6 +69,7 @@ impl Presented {
             translate_percent: (s.translate_percent.x, s.translate_percent.y),
             scale: s.scale,
             press: 1.0,
+            press_paint: 0.0,
             rotate: s.rotate,
             opacity: s.opacity,
             svg: [None; 8],
@@ -200,6 +206,30 @@ impl BoxPaint {
             self.shadows = ShadowPaint::over(std::mem::take(&mut self.shadows), geometry, color);
         }
         self
+    }
+
+    /// The box with its pressed background (LLP 1061 D7) `progress` of the
+    /// way over its own.
+    pub(super) fn pressed(mut self, style: &StyleProps, progress: f32, dark: bool) -> BoxPaint {
+        if progress > 0.0 && style.mask.has(exact_kernel::StyleId::PressBackgroundColor) {
+            let pressed = super::rgba(style.press_background_color.resolve(dark));
+            self.background = press_mix(self.background, pressed, progress);
+        }
+        self
+    }
+}
+
+/// `to` mixed `t` of the way over `from`, straight 8-bit channels, as CSS
+/// interpolates colours: premultiplied, so a transparent end fades rather
+/// than darkens.
+pub(super) fn press_mix(from: [u8; 4], to: [u8; 4], t: f32) -> [u8; 4] {
+    let [a, b] = [from, to].map(|c| Value::rgba8(c[0], c[1], c[2], c[3]));
+    let t = f64::from(t.clamp(0.0, 1.0));
+    let mix = |x: f64, y: f64| x + (y - x) * t;
+    let w = mix(a.w, b.w);
+    match w > 0.0 {
+        true => Value::rgba(mix(a.x, b.x) / w, mix(a.y, b.y) / w, mix(a.z, b.z) / w, w).to_rgba8(),
+        false => [0, 0, 0, 0],
     }
 }
 

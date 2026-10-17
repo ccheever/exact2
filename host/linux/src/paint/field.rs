@@ -103,7 +103,7 @@ impl Painter {
             control::authored_placeholder(node.style, self.dark)
                 .unwrap_or_else(|| look::role("-exact-placeholder", self.dark))
         } else {
-            presented_color(walk, node)
+            presented_color(walk, node, self.dark)
                 .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
         };
         if native

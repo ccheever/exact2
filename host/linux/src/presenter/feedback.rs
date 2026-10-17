@@ -15,7 +15,8 @@ impl<D: DataSource> Presenter<D> {
     /// What shows a state at or above `id`: the control (a press on a
     /// button's title is the button's), or the nearest node that presses
     /// when it is in a list's row. A row's own press look replaces the
-    /// wash, as it does on the web: `-exact-press-scale`, or `pointerdown`
+    /// wash, as it does on the web: `-exact-press-scale`, the pressed paint
+    /// (LLP 1061 D7), or `pointerdown`
     /// or `pointerup` handlers, which draw one. A disabled row shows none.
     fn feedback_at(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.host.kernel();
@@ -33,6 +34,7 @@ impl<D: DataSource> Presenter<D> {
             {
                 let handlers = self.host.runner().handlers_of(id);
                 let own = node.style.written.has(exact_kernel::StyleId::PressScale)
+                    || crate::host::press::paints(node.style)
                     || handlers.contains(&EventKind::Pointerdown)
                     || handlers.contains(&EventKind::Pointerup);
                 let off = node.props.bool(PropId::Disabled) == Some(true);
