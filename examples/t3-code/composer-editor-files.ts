@@ -113,10 +113,13 @@ export function fileContextRecords(files: DraftFile[]): Obj[] {
 /**
  * Drop the files of drafts that are empty (sent or cleared). `liveKey` names
  * the draft whose editor still holds text the stored draft may not have yet.
+ * `among`, when given, are the files there were when the editor's state was
+ * asked for: one attached while that request was in flight is kept, since its
+ * chip went into the editor after the state that reads it as empty.
  */
-export function pruneFiles(local: object, drafts: Record<string, string>, liveKey: string): DraftFile[] {
+export function pruneFiles(local: object, drafts: Record<string, string>, liveKey: string, among?: readonly DraftFile[]): DraftFile[] {
   const files = draftFiles(local);
-  const kept = files.filter(file => file.draftKey === liveKey || (drafts[file.draftKey] ?? '').trim() !== '');
+  const kept = files.filter(file => (among !== undefined && !among.includes(file)) || file.draftKey === liveKey || (drafts[file.draftKey] ?? '').trim() !== '');
   if (kept.length !== files.length) setDraftFiles(local, kept);
   return files.filter(file => !kept.includes(file));
 }

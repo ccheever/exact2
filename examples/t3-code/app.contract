@@ -926,16 +926,18 @@ component T3Code
     settingsCheckout = ""
     settingsProjectId = ""
     modalError = ""
+  // The search jump's target page has its data: the jump scrolls once that page is laid out.
+  derive settingsJumpReady = settingsOpen and settingsFocusTarget != "" and (settingsRoute != "storage" or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available) and (settingsRoute != "keybindings" or bindings.available) and (settingsRoute != "scheduled-tasks" or scheduled.available) and (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "integrations" or integrations.available) and ((settingsRoute != "general" and settingsRoute != "appearance") or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0))
   action focusSettingsTarget
-    if settingsOpen and settingsFocusTarget != "" and (settingsRoute != "storage" or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available)
-      if settingsRoute != "keybindings" or bindings.available
-        if settingsRoute != "scheduled-tasks" or scheduled.available
-          if (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "integrations" or integrations.available)
-            if (settingsRoute != "general" and settingsRoute != "appearance") or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0)
-              settingsScrollPage = settingsPage
-              settingsScrollTop = max(0, frame(settingsFocusTarget).y - frame("settings-content-column").y + frame(settingsFocusTarget).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
-              focus(settingsFocusTarget)
-              settingsFocusTarget = ""
+    if settingsJumpReady
+      settingsScrollPage = settingsPage
+      settingsScrollTop = max(0, frame(settingsFocusTarget).y - frame("settings-content-column").y + frame(settingsFocusTarget).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
+      focus(settingsFocusTarget)
+      settingsFocusTarget = ""
+  // As scrollToSettingsTarget runs once the hash target mounts: a native `after(1, …)` runs after the layout the
+  // change made. The poll below is a backstop.
+  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}`
+    after(1, focusSettingsTarget)
   task settingsSearchFocus mount
     every(1000, focusSettingsTarget)
   action editSettingsQuery(value: string)

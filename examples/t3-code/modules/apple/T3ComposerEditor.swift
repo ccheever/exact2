@@ -123,12 +123,14 @@ final class T3ComposerEditor {
             })
         }
         styler.attach(view)
+        T3ComposerPasteHook.attach(self, to: view)
     }
 
     private func detach() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         styler.detach()
+        if let view = textView { T3ComposerPasteHook.detach(view) }
         if let view = textView, view.delegate === proxy { view.delegate = proxy.inner as? NSTextViewDelegate }
         proxy.inner = nil
         textView = nil
@@ -461,6 +463,67 @@ final class T3ComposerEditor {
         changed("t3.editor")
         return false
     }
+
+    // MARK: Pasted files (ChatComposer onComposerPaste)
+
+    /// Files a paste took from the pasteboard, held until TypeScript stages and attaches them (`composerPasteTake`).
+    private(set) var pastedFiles: [URL] = []
+    /// The pasteboard a paste reads (injectable for tests).
+    var pasteboard: () -> NSPasteboard = { .general }
+    /// Where a pasted image with no file of its own is written before it is staged.
+    var pasteDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("t3-composer-paste", isDirectory: true)
+
+    /// shouldHandleComposerAttachmentPaste over `pasteboard`: the files a paste attaches, or nil to let the text paste
+    /// go on. The files are its file URLs (folders aside), or else its image, as Chromium hands a page a copied image
+    /// (`image.png`). An image claims the paste; with only plain files, text keeps it a text paste unless the text is
+    /// just the files' names or paths, which Finder's copy puts beside them.
+    static func pasteClaim(_ pasteboard: NSPasteboard) -> (urls: [URL], image: Data?)? {
+        let urls = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        if !urls.isEmpty {
+            let files = urls.filter { url in
+                var directory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) && !directory.boolValue
+            }
+            guard !files.isEmpty else { return nil }
+            if files.contains(where: { T3ComposerAttach.kind(of: $0) != "file" }) { return (files, nil) }
+            let text = pasteboard.string(forType: .string) ?? ""
+            let names = Set(urls.flatMap { [$0.lastPathComponent, $0.path] })
+            let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return lines.allSatisfy(names.contains) ? (files, nil) : nil
+        }
+        if let png = pasteboard.data(forType: .png) { return ([], png) }
+        guard let tiff = pasteboard.data(forType: .tiff), let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return nil }
+        return ([], png)
+    }
+
+    /// A paste with files or an image on `pasteboard` (T3ComposerPasteHook): they are held for TypeScript and the text
+    /// view pastes nothing. False leaves the paste to the text view.
+    func pasteFiles(from pasteboard: NSPasteboard) -> Bool {
+        guard hatch == .t3Composer, let claim = Self.pasteClaim(pasteboard) else { return false }
+        var urls = claim.urls
+        if let image = claim.image {
+            let folder = pasteDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let file = folder.appendingPathComponent("image.png")
+            guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
+                  (try? image.write(to: file, options: .atomic)) != nil else { return false }
+            urls = [file]
+        }
+        pastedFiles += urls
+        changed("t3.editor")
+        return true
+    }
+
+    /// The held pasted files, once; a written image's folder is removed once `stage` has copied it.
+    func takePastedFiles(_ stage: (URL) -> [String: Any]) -> [[String: Any]] {
+        let urls = pastedFiles
+        pastedFiles.removeAll()
+        let files = urls.prefix(100).map(stage)
+        for url in urls where url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path == pasteDirectory.standardizedFileURL.path {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        return Array(files)
+    }
+
     static func isPaste(_ text: String) -> Bool {
         guard let event = NSApp.currentEvent, event.type == .keyDown,
               event.modifierFlags.intersection([.command, .control, .option]) == .command,
@@ -471,5 +534,42 @@ final class T3ComposerEditor {
     }
 
     deinit { destroy() }
+}
+
+/// ⌘V, Edit › Paste and the text menu's Paste each reach the text view's `paste:`. It is wrapped once per class, as
+/// T3ComposerAccessibleTextHooks wraps the accessibility answers: on the composer's text view a paste with files or an
+/// image attaches them (`T3ComposerEditor.pasteFiles`); any other paste, and any other text view's, is the text view's own.
+enum T3ComposerPasteHook {
+    private static var installed: Set<ObjectIdentifier> = []
+    private static var key = 0
+    private final class Owner { weak var editor: T3ComposerEditor?; init(_ editor: T3ComposerEditor) { self.editor = editor } }
+
+    static func attach(_ editor: T3ComposerEditor, to view: NSTextView) {
+        install(on: view)
+        objc_setAssociatedObject(view, &key, Owner(editor), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+    static func detach(_ view: NSTextView) { objc_setAssociatedObject(view, &key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+
+    private static func editor(of view: NSTextView) -> T3ComposerEditor? { (objc_getAssociatedObject(view, &key) as? Owner)?.editor }
+
+    private static func install(on view: NSTextView) {
+        let selector = #selector(NSText.paste(_:))
+        guard let cls = T3ComposerAccessibleTextHooks.baseClass(view), !installed.contains(ObjectIdentifier(cls)),
+              let method = class_getInstanceMethod(cls, selector) else { return }
+        installed.insert(ObjectIdentifier(cls))
+        typealias Paste = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
+        let own = unsafeBitCast(method_getImplementation(method), to: Paste.self)
+        let block: @convention(block) (AnyObject, AnyObject?) -> Void = { object, sender in
+            if let view = object as? NSTextView, let editor = editor(of: view), editor.textView === view, view.isEditable, !view.hasMarkedText(),
+               editor.pasteFiles(from: editor.pasteboard()) { return }
+            own(object, selector, sender)
+        }
+        let implementation = imp_implementationWithBlock(block)
+        var count: UInt32 = 0
+        let methods = class_copyMethodList(cls, &count)
+        defer { free(methods) }
+        if let methods, (0..<Int(count)).contains(where: { method_getName(methods[$0]) == selector }) { method_setImplementation(method, implementation) }
+        else { class_addMethod(cls, selector, implementation, method_getTypeEncoding(method)) }
+    }
 }
 #endif

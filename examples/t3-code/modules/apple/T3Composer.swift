@@ -258,6 +258,7 @@ final class T3Composer {
             value = editor.state
             value["notices"] = editor.takeNotices()
             value["folds"] = editor.folds
+            value["pastes"] = editor.pastedFiles.count
         case "editorEdit": value = editor.edit(request)
         case "editorInsert": value = editor.insert(request)
         case "editorPoke":

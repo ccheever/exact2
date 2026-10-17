@@ -1,9 +1,11 @@
-// Each Settings page owns its scroller and search offset; the offsets themselves are driven on macOS
-// (a source read cannot scroll). Reference 1e2ecbd975: every page renders its
+// Each Settings page owns its scroller and search offset. The jump's actions run here with Contract's action semantics
+// (contract-action-fixture.ts); the scrolling itself is driven on macOS. Reference 1e2ecbd975: every page renders its
 // own scroller (SettingsPageContainer, settingsLayout.tsx `data-settings-page-scroll`) inside an Outlet keyed on the
 // scope search and the restore count (routes/settings.tsx SettingsContentLayout), so a new page mounts a scroller at
 // offset 0; the search jump then scrolls its target into view (scrollToSettingsTarget).
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { contractComponent, value, type Env } from './contract-action-fixture';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const lines = (text: string, needle: string) => text.split('\n').filter(candidate => candidate.includes(needle));
@@ -21,15 +23,57 @@ describe('a Settings page owns its scroller', () => {
     expect(root).toContain('settingsRestores = settingsRestores + (op == "settings-core" and id == `restore-device-defaults:|${settingsCore.scopeKey}` ? 1 : 0)');
   });
 
-  test('the bound offset is the search jump\'s only on the page it revealed on, and 0 on any other', async () => {
+  test('a jump from another page lands on its row: the new page waits for its data, then the jump\'s offset wins over the reset', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const text = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
+    const derive = (name: string) => text.match(new RegExp(`^  derive ${name} = (.+)$`, 'm'))![1]!;
+    const focused: string[] = [];
+    const frames: Record<string, { x: number; y: number; width: number; height: number }> = {
+      'setting-time-format': { x: 0, y: 900, width: 600, height: 40 }, 'settings-content-column': { x: 0, y: 100, width: 600, height: 2000 },
+      'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 },
+    };
+    const state: Env = { settingsOpen: true, settingsRoute: 'appearance', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
+      settingsFocusTarget: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '' };
+    const available = { available: true };
+    let core = { ready: true, route: 'appearance', sections: [{}] };
+    // The root's scope: its derives over the current state, its resources and the host's frame and focus.
+    const scope = (): Env => {
+      const env: Env = { ...state, settingsCore: core, storageSettings: available, archives: available, diagnostics: available, bindings: available, scheduled: available,
+        sourceControl: available, integrations: available, max: Math.max, floor: Math.floor, frame: (id: string) => frames[id] ?? { x: 0, y: 0, width: 0, height: 0 },
+        focus: (id: string) => focused.push(id) };
+      for (const name of ['settingsPage', 'settingsPageScrollTop', 'settingsJumpReady']) env[name] = value(derive(name), env);
+      return env;
+    };
+    const run = (action: string, args: unknown[] = []) => root.call(action, state, scope(), args);
+    // From Appearance, the search picks General's "Time format": the route changes and General's settings are not in yet.
+    run('corePick', ['general', 'setting-time-format', '', '']);
+    expect(scope().settingsJumpReady).toBe(false);
+    run('focusSettingsTarget');
+    expect(state.settingsFocusTarget).toBe('setting-time-format');
+    run('settingsPageForget'); // the page-left task (after 1 ms)
+    expect(scope().settingsPageScrollTop).toBe(0); // the new page's scroller mounts at its top
+    // General's settings arrive: the jump is ready, and its task (after 1 ms, once the page is laid out) scrolls to the row.
+    core = { ready: true, route: 'general', sections: [{}] };
+    expect(scope().settingsJumpReady).toBe(true);
+    run('focusSettingsTarget');
+    expect(scope().settingsPageScrollTop).toBe(900 - 100 + 20 - 300 + 0.25); // the row's centre at the scroller's
+    expect(focused).toEqual(['setting-time-format']);
+    expect(state.settingsFocusTarget).toBe('');
+    // The page-left task firing after the jump keeps it: the offset is this page's.
+    run('settingsPageForget');
+    expect(scope().settingsPageScrollTop).toBe(520.25);
+    // Leaving for another page forgets it, so General opened later mounts at its top.
+    run('coreNavigate', ['appearance']);
+    expect(scope().settingsPageScrollTop).toBe(0);
+    run('settingsPageForget');
+    expect(state.settingsScrollPage).toBe('');
+  });
+
+  test('the jump runs once its page is ready, not only on the one-second poll', async () => {
     const root = await source('app.contract');
-    expect(root).toContain('  derive settingsPageScrollTop = settingsScrollPage == settingsPage ? settingsScrollTop : 0\n');
+    expect(root).toContain('  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}`\n    after(1, focusSettingsTarget)\n');
     expect(lines(root, 'settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage')).toHaveLength(1);
-    // The jump records its page with its offset; leaving that page (or Settings) forgets it, so the page opened again
-    // later mounts at 0 rather than at the old jump's offset.
-    expect(root).toContain('              settingsScrollPage = settingsPage\n              settingsScrollTop = max(0, frame(settingsFocusTarget).y');
-    expect(root).toContain('  task settingsPageLeft key=`${settingsOpen}|${settingsPage}`\n    after(1, settingsPageForget)\n  action settingsPageForget\n    settingsScrollPage = settingsOpen and settingsScrollPage == settingsPage ? settingsScrollPage : ""\n');
-    // Nothing else writes the jump's page.
+    // Nothing but the jump and the page-left task writes the jump's page.
     expect(root.split('\n').filter(candidate => /^ {4,}settingsScrollPage = /.test(candidate))).toHaveLength(2);
   });
 });
