@@ -9,7 +9,7 @@ use super::*;
 /// platform's looks it shows (LLP 1115.002 D6): the looks Exact draws itself
 /// are rows of the kernel's schema with a column a platform, and a plan's
 /// rows read theirs as they are set. The Mac's are its own; iOS's column is
-/// tvOS's and visionOS's too. Said for the process, before any plan boots.
+/// tvOS's, visionOS's and watchOS's too. Said for the process, before any plan boots.
 pub(crate) fn kernel(measurer: Box<dyn TextMeasurer>) -> Kernel {
     use exact_kernel::style::metrics::{set_column, Column};
     set_column(if cfg!(target_os = "macos") {

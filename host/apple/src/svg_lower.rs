@@ -159,8 +159,7 @@ pub(crate) fn specs_in(
     underlying: &dyn Fn(Property) -> (Value, f64),
     size: Option<(f64, f64)>,
 ) -> String {
-    // LLP 1126 D10: watchOS has no Core Animation presenter to consume these specs.
-    if cfg!(target_os = "watchos") {
+    if !crate::host::svg::render_server() {
         return "[]".into();
     }
     let mut s = String::from("[");
@@ -432,8 +431,7 @@ pub(crate) fn eligibility(
 /// runs on while the area under it is sampled (the chart's).
 pub(crate) fn hand_over_paths(kernel: &Kernel, engine: &mut Engine, live: bool) {
     use exact_kernel::svg::Paint;
-    // LLP 1126 D10: watchOS keeps path morphs sampled for its SwiftUI driver.
-    if cfg!(target_os = "watchos") {
+    if !crate::host::svg::render_server() {
         return;
     }
     let moving: Vec<u64> = engine

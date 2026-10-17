@@ -50,10 +50,16 @@ pub(crate) const BOX_LOWERED: [Property; 4] = [
     Property::BackgroundColor,
 ];
 
+/// Whether this host has a Core Animation render server to hand motion to.
+/// watchOS has none: its views are SwiftUI, drawn by LLP 1126's drivers
+/// (D10), so every property is sampled there.
+pub(crate) fn render_server() -> bool {
+    !cfg!(target_os = "watchos")
+}
+
 /// Every property Core Animation plays on this host.
 pub(crate) fn lowered(box_motion: bool) -> Vec<Property> {
-    // LLP 1126 D10: watchOS samples every property; its SwiftUI driver has no render server.
-    if cfg!(target_os = "watchos") {
+    if !render_server() {
         return Vec::new();
     }
     let mut all = LOWERED.to_vec();

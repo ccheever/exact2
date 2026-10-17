@@ -82,7 +82,6 @@ fn target_colors(text: &str, platform: &str) -> String {
                     .iter()
                     .find_map(|p| {
                         let (name, value) = p.split_once(char::is_whitespace)?;
-                        // LLP 1126 D10: watchOS has no UIKit presenter for iOS color names.
                         (name == platform || (platform == "tvos" && name == "ios")).then_some(
                             if name == "web" {
                                 value.trim()

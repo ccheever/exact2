@@ -24,11 +24,11 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        // It reads an llp/ directory from the file system, which an Apple TV has none of.
-        Ok("tvos") => panic!(
-            "LLP has no tvOS build: it reads documents from a directory an Apple TV does not have"
+        // It reads an llp/ directory from the file system, which an Apple TV and a watch have none of.
+        Ok("tvos" | "watchos") => panic!(
+            "LLP has no tvOS or watchOS build: it reads documents from a directory neither has"
         ),
-        Ok("ios" | "watchos") => "ios",
+        Ok("ios") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
