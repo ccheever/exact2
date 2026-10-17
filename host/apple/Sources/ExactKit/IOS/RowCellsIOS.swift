@@ -30,7 +30,7 @@
 // the next row's top edge (`none` is written too), has no separator there;
 // a row with a ground of its own is its author's card, whose press is a
 // custom pressable's (the dim); a row's own press (`-exact-press-scale`,
-// `pointerdown`, `pointerup`) replaces the highlight.
+// its pressed paint, `pointerdown`, `pointerup`) replaces the highlight.
 #if os(iOS) || os(tvOS)
 import UIKit
 

@@ -31,10 +31,8 @@ struct PressFeedback {
     #endif
     /// In and back alike: a fast settle that reads as a physical give.
     static let duration: CFTimeInterval = 0.12
-    #if os(iOS) || os(tvOS)
     /// `ease` as Core Animation's curve, for the render server's ease.
     static let timing = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
-    #endif
     /// Shorter than one 60 Hz frame: a press this young was never presented.
     static let unseen: CFTimeInterval = 1.0 / 60
 
@@ -91,10 +89,11 @@ extension NodeView {
         #endif
     }
 
-    /// `pressed` changed: ease toward the pressed scale, or back to 1; a
-    /// node that declares none shows the platform's press instead: iOS's dim
-    /// (LLP 1115, `dimPress`), the Mac's pressed effect (LLP 1115.000 D6,
-    /// `tintPress`, Mac/PressLookMac.swift).
+    /// `pressed` changed: ease toward the pressed scale and paint (LLP 1061
+    /// D7, PressPaint.swift), or back; a node that declares neither shows
+    /// the platform's press instead: iOS's dim (LLP 1115, `dimPress`), the
+    /// Mac's pressed effect (LLP 1115.000 D6, `tintPress`,
+    /// Mac/PressLookMac.swift).
     func pressChanged() {
         if pressed { pressHaptic() }
         #if os(iOS)
@@ -106,6 +105,7 @@ extension NodeView {
         if platformPressTints { tintPress(pressed); return }
         if !pressed { tintPress(false) }
         #endif
+        paintPress(pressed)
         aimPress(pressed, release: !pressed)
     }
     /// The pointer moved while pressed: the feedback follows whether it is
@@ -118,6 +118,7 @@ extension NodeView {
         #elseif os(macOS)
         if platformPressTints { tintPress(inside); return }
         #endif
+        paintPress(inside)
         aimPress(inside)
     }
 
@@ -378,13 +379,14 @@ extension NodeView {
     static let dimHold: CFTimeInterval = 0.1
 
     /// Whether a press shows the platform's dim: a node the host presses
-    /// (a `press` handler or a link), with no `-exact-press-scale` written
-    /// (any value, 1 included, is the author's), no `pointerdown` or
-    /// `pointerup` of its own (the author paints its pressed state), and not
-    /// a scrim covering the window (a backdrop that closes a sheet shows
-    /// nothing in UIKit). A native button is UIKit's own and never comes here.
+    /// (a `press` handler or a link), with no pressed look written (a
+    /// `-exact-press-scale` or pressed paint, any value, 1 included, is the
+    /// author's: `authorsPress`), no `pointerdown` or `pointerup` of its own
+    /// (the author paints its pressed state), and not a scrim covering the
+    /// window (a backdrop that closes a sheet shows nothing in UIKit). A
+    /// native button is UIKit's own and never comes here.
     var platformPressDims: Bool {
-        guard style["press_scale"] == nil, !isNativeButton, !isSurfaceControl,
+        guard !authorsPress, !isNativeButton, !isSurfaceControl,
               handlers.contains("press") || defaultLink != nil,
               !handlers.contains("pointerdown"), !handlers.contains("pointerup") else { return false }
         if let w = window {

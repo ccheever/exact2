@@ -1412,6 +1412,29 @@ mod flow_tests {
         );
     }
 
+    /// LLP 1061 D7: the pressed paint is the presenter's to show too: the
+    /// opacity a number, the colours as any colour row's (`PressPaint.swift`).
+    #[test]
+    fn the_pressed_paint_crosses_as_rows() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::PressOpacity, &StyleValue::Number(0.5))
+            .unwrap();
+        s.set_dynamic(StyleId::PressColor, &StyleValue::Text("#ff0000".into()))
+            .unwrap();
+        s.set_dynamic(
+            StyleId::PressBackgroundColor,
+            &StyleValue::Text("light-dark(#ffffff, #000000)".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            style_json(&s, &Env::default()),
+            (
+                r#"{"press_opacity":0.5,"press_background_color":[[255,255,255,255],[0,0,0,255]],"press_color":[255,0,0,255]}"#.into(),
+                vec![]
+            )
+        );
+    }
+
     /// LLP 1066: a gradient crosses as its shape and ready-to-mix stops; a
     /// `light-dark()` one carries both appearances, and `none` nothing.
     #[test]

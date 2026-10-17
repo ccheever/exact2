@@ -204,6 +204,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
+    var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
     var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false { didSet { presenter?.mouseChain.bubbledPress?.validate() } }

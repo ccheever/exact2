@@ -1093,7 +1093,7 @@ package final class Presenter {
             case .create:
                 let v = NodeView(id: id, kind: op.kind, presenter: self)
                 v.handlers = op.handlers
-                v.applyStyle(op.style)
+                v.applyStyle(v.pressPainted(op.style))
                 v.applyProps(set: op.props, clear: [])
                 views[id] = v
                 elements.created(v)
@@ -1109,7 +1109,7 @@ package final class Presenter {
             case .style:
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"], old = v.style
-                v.applyStyle(op.style)
+                v.applyStyle(v.pressPainted(op.style))
                 anchorChanges.note(id, from: old, to: v.style)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6);

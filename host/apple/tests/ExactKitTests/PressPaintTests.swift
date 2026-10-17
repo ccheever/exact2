@@ -1,0 +1,139 @@
+#if os(iOS) || os(macOS)
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
+import XCTest
+@testable import ExactKit
+
+/// The author's pressed paint (LLP 1061 D7) on UIKit and AppKit: while a
+/// node is pressed it shows its `press_opacity` as an additive fade, its
+/// `press_background_color` in place of its own, and its `press_color` as
+/// the text colour of its subtree (not of a text with a colour of its own);
+/// an engine write mid-press keeps the paint and its value comes back with
+/// the release; the paint replaces the platform's unsaid press and composes
+/// with the scale.
+///   bun host/apple/build.mjs --test --ios   (and --test for the Mac)
+final class PressPaintTests: XCTestCase {
+    #if os(iOS)
+    private var window: UIWindow!
+    #else
+    private var window: NSWindow!
+    override func tearDown() { window?.close(); window = nil }
+    #endif
+
+    private let blue: [Double] = [37, 99, 235, 255], navy: [Double] = [29, 78, 216, 255]
+    private let white: [Double] = [255, 255, 255, 255], yellow: [Double] = [253, 224, 71, 255], green: [Double] = [187, 247, 208, 255]
+    /// A colour as the style holds it.
+    private func ink(_ c: [Double]) -> BatchValue { .array(c.map(BatchValue.number)) }
+
+    /// A pressable box (1) holding a text that takes its colour (2) and one
+    /// with its own (3).
+    private func fixture(_ press: [String: Any]) throws -> (Presenter, NodeView) {
+        let p = Presenter()
+        #if os(iOS)
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        #else
+        _ = NSApplication.shared
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        #endif
+        let style: [String: Any] = ["background_color": blue, "text_color": white].merging(press) { $1 }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": style],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Inherits"], "style": ["text_color": white]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Keeps"], "style": ["text_color": green, "written": ["text_color"]]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 50.0, "y": 50.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 20.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 20.0, "w": 200.0, "h": 20.0],
+        ]))
+        return (p, try XCTUnwrap(p.views[1]))
+    }
+
+    private func layer(_ v: NodeView) -> CALayer? { v.layer }
+    private func fade(_ v: NodeView) -> CABasicAnimation? { layer(v)?.animation(forKey: "pressOpacity") as? CABasicAnimation }
+
+    func testPressingShowsThePaintAndReleasingGivesTheEnginesBack() throws {
+        let (p, v) = try fixture(["press_opacity": 0.5, "press_background_color": navy, "press_color": yellow])
+        let inherits = try XCTUnwrap(p.views[2]), keeps = try XCTUnwrap(p.views[3])
+        v.pressed = true
+        let held = try XCTUnwrap(fade(v))
+        XCTAssertTrue(held.isAdditive)
+        XCTAssertEqual(try XCTUnwrap(held.fromValue as? Float), 0, "eased in from where it was")
+        XCTAssertEqual(try XCTUnwrap(held.toValue as? Float), -0.5, accuracy: 1e-6)
+        XCTAssertEqual(held.duration, PressFeedback.duration)
+        XCTAssertFalse(held.isRemovedOnCompletion)
+        XCTAssertEqual(v.style["background_color"], ink(navy))
+        XCTAssertEqual(v.style["text_color"], ink(yellow))
+        XCTAssertEqual(inherits.style["text_color"], ink(yellow), "the subtree takes the press colour")
+        XCTAssertEqual(keeps.style["text_color"], ink(green), "a text with its own keeps it")
+        XCTAssertNotNil(layer(v)?.animation(forKey: kCATransition), "the colours cross-fade")
+        // An engine write mid-press: kept for the release, the paint still shown.
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": white, "text_color": white, "press_opacity": 0.5, "press_background_color": navy, "press_color": yellow]]]))
+        XCTAssertEqual(v.style["background_color"], ink(navy))
+        v.press.start -= 1; v.pressPaint.at -= 1 // released a moment later
+        v.pressed = false
+        let back = try XCTUnwrap(fade(v))
+        XCTAssertEqual(try XCTUnwrap(back.toValue as? Float), 0)
+        XCTAssertTrue(back.isRemovedOnCompletion)
+        XCTAssertEqual(v.style["background_color"], ink(white), "the engine's newer value")
+        XCTAssertEqual(inherits.style["text_color"], ink(white))
+        XCTAssertEqual(keeps.style["text_color"], ink(green))
+    }
+
+    /// The finger (the mouse) leaving the box lets the paint go; back inside it shows again.
+    func testThePaintFollowsThePointer() throws {
+        let (_, v) = try fixture(["press_background_color": navy])
+        v.pressed = true
+        v.pressPaint.at -= 1
+        v.pressFollows(inside: false)
+        XCTAssertEqual(v.style["background_color"], ink(blue))
+        v.pressFollows(inside: true)
+        XCTAssertEqual(v.style["background_color"], ink(navy))
+        v.pressPaint.at -= 1
+        v.pressed = false
+        XCTAssertEqual(v.style["background_color"], ink(blue))
+        XCTAssertNil(fade(v), "no opacity written, none faded")
+    }
+
+    /// A release in the same turn as the press (UIKit's delayed touches in a
+    /// scroll view) waits until the press has eased in, so the tap shows.
+    func testAQuickTapStillShowsThePaint() throws {
+        let (_, v) = try fixture(["press_opacity": 0.5, "press_background_color": navy])
+        v.pressed = true
+        v.pressed = false
+        XCTAssertEqual(v.style["background_color"], ink(navy), "held")
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.5, accuracy: 1e-6)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
+        XCTAssertEqual(v.style["background_color"], ink(blue), "then let go")
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), 0)
+    }
+
+    /// Author > platform: any pressed paint (an opacity of 1 included) is the
+    /// author's press, so the platform's shows none; it composes with a scale.
+    func testThePaintReplacesThePlatformsPressAndComposesWithTheScale() throws {
+        for paint: [String: Any] in [["press_opacity": 1], ["press_color": yellow], ["press_background_color": navy]] {
+            let (_, v) = try fixture(paint)
+            XCTAssertTrue(v.authorsPress)
+            #if os(iOS)
+            XCTAssertFalse(v.platformPressDims, "\(paint)")
+            v.pressed = true
+            XCTAssertNil(v.layer.animation(forKey: "pressDim"), "\(paint)")
+            #else
+            XCTAssertFalse(v.platformPressTints, "\(paint)")
+            #endif
+        }
+        let (_, v) = try fixture(["press_opacity": 0.4, "press_scale": 0.9])
+        v.pressed = true
+        XCTAssertEqual(v.press.to, 0.9)
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.6, accuracy: 1e-6)
+    }
+}
+#endif

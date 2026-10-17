@@ -343,6 +343,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         return false
     }
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
+    var pressPaint = PressPaint() // LLP 1061 D7: the author's pressed paint
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
     package var inert: Bool { presenter?.modals.inertBehind(self) == true || authoredInert }
