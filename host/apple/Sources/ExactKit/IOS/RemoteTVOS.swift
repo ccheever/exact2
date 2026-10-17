@@ -88,7 +88,8 @@ extension NodeView {
             return true
         }
         guard presses.contains(where: { $0.type == .select }), !disabled, !cssVisibilityHidden, handlers.contains("press") else { return false }
-        if down { presenter?.press(id) }
+        // A key's activation, which ends a live press's handoff and starts none.
+        if down { presenter?.supersedePress(); presenter?.press(id) }
         return true
     }
 }

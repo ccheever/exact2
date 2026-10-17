@@ -623,7 +623,7 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertNil(p.pressHandoff)
     }
 
-    /// A key, a shortcut, typed text or a new contact going down (on the
+    /// A key, a shortcut, typed or composed text or a new contact going down (on the
     /// control the press focused too) ends the handoff a press's route still
     /// held: the route's autofocus then takes nothing.
     func testAKeyAShortcutTypedTextOrAContactEndsTheHandoff() throws {
@@ -638,6 +638,7 @@ final class PressFocusIOSTests: XCTestCase {
             ("a key", { _ = p.keyDown(at: nil, "a") }),
             ("a shortcut", { p.performShortcut(UIKeyCommand(input: "k", modifierFlags: .command, action: #selector(UIResponder.becomeFirstResponder))) }),
             ("typed text", { text.insertText("x") }),
+            ("composed text", { text.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0)) }),
             ("a contact on another control", { touch(other) }),
             ("a new contact on the control", { touch(fab) }),
         ]

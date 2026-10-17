@@ -56,9 +56,14 @@ final class PressHandoff {
         // Through authored parents: a sheet's, a lifted popover's (`listenerParent`).
         return sequence(first: candidate as UIView, next: presenter.listenerParent).contains { view in destinations.contains { $0.route === view } }
     }
-    /// A route whose nodes left the presenter's tree is gone.
+    /// A route whose nodes left the presenter's tree is gone, and so is one
+    /// UIKit's stack no longer holds (popped), though its node stays.
     private func prune() {
-        destinations.removeAll { d in d.route.map { presenter?.views[$0.id] !== $0 } ?? true }
+        destinations.removeAll { d in
+            guard let route = d.route, let presenter, presenter.views[route.id] === route else { return true }
+            guard let controller = presenter.navigation.controllers[route.id], controller.node === route else { return false }
+            return controller.navigationController == nil
+        }
     }
     func settle() {
         prune()

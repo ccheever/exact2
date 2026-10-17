@@ -1133,6 +1133,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         logicalChildren = [:]
         shownKeys = []; fallbackKey = nil
         refitForBars()
+        for controller in controllers.values { presenter.pressHandoff?.drop(controller.node) } // reset: no route of a press stays
         controllers.removeAll()
         routeIDs = []
         pendingSync = false

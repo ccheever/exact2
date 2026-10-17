@@ -108,6 +108,7 @@ final class TextField: UITextField {
         return ok
     }
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
@@ -155,6 +156,7 @@ package final class TextArea: UITextView {
     package var markup: MarkdownEditing?
 
     package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        owner?.presenter?.supersedePress() // composed text, as typed text
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }

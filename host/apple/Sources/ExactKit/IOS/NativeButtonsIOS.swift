@@ -92,6 +92,7 @@ final class NativeButtonIOS: UIButton {
         super.didUpdateFocus(in: context, with: coordinator)
         guard let owner, let presenter = owner.presenter else { return }
         if context.nextFocusedItem === self {
+            presenter.supersedePress() // the remote moved the focus (PressHandoffIOS)
             presenter.focusKey = owner.props["testId"]
             presenter.focusGuides.focused(owner)
             presenter.focus(owner.id)
@@ -132,6 +133,9 @@ extension NodeView {
         let lifetimes = bubbled ? [] : presenter.pressLifetimes(from: self, to: target)
         let handoff = focusForPress(target: target)
         defer { handoff?.dispatched() }
+        #if os(tvOS)
+        presenter.supersedePress() // Select is a key's activation: it hands no focus on (PressHandoffIOS)
+        #endif
         guard !bubbled || path?.isLive(in: presenter) == true,
               lifetimes.allSatisfy({ $0() }), let target = heldTarget?.live(in: presenter), target.takesPress(bubbled: bubbled) else { return }
         presenter.press(target.id, bubbled: bubbled)
