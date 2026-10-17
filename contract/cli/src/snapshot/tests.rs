@@ -51,6 +51,22 @@ fn entry_is_small_pure_and_gated_at_decode() {
 }
 
 #[test]
+fn entry_shares_route_urls_and_only_reachable_types_and_helpers() {
+    let src = source(
+        "    link href=path(\"home\")\n      text label(Shared(value=title))",
+        "routes nav\n  tab home \"/\" render=build pages=appPages()\nshape Shared\n  value: string\nshape Unused\n  appOnly: number\nfn label(item: Shared): string = item.value\nfn unused(): string = \"app-only-helper\"",
+        "  action unusedAction\n    log(unused())\n",
+    );
+    let plan = compile(&src, &widget()).unwrap();
+    assert_eq!(plan.nodes.len(), 2);
+    assert!(plan.resources.is_empty() && plan.actions.is_empty());
+    assert!(plan.strings.iter().any(|s| s == "Shared"));
+    for name in ["Unused", "appOnly", "app-only-helper", "appPages"] {
+        assert!(!plan.strings.iter().any(|s| s == name), "{name}");
+    }
+}
+
+#[test]
 fn refusals_name_an_edit_including_shared_styles_and_functions() {
     for (view, decl, members, id, edit) in [
         (

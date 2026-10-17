@@ -165,10 +165,13 @@ fn an_hour_away_on_the_live_clock_shows_the_time_after_one_tick() {
 #[test]
 fn the_home_screen_explains_when_service_has_ended() {
     let now = caltrain_data::DAY_START_MS + 24.0 * 60.0 * 60_000.0;
-    let plan = contract::compile(&caltrain::SOURCE.replace(
-        "state seededEpoch = 1787915400000",
-        &format!("state seededEpoch = {now}"),
-    ))
+    let plan = contract::compile_path_source(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("app.contract"),
+        &caltrain::SOURCE.replace(
+            "state seededEpoch = 1787915400000",
+            &format!("state seededEpoch = {now}"),
+        ),
+    )
     .unwrap();
     let r = caltrain::boot(plan, Kernel::with_monospace()).unwrap();
     let messages = r.kernel().find_by_test_id("board-north");
@@ -270,7 +273,8 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.
-    let edited = contract::compile(
+    let edited = contract::compile_path_source(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("app.contract"),
         &caltrain::SOURCE.replace("text \"Caltrain\" ", "text \"Caltrain Live\" "),
     )
     .unwrap();

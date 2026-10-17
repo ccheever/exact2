@@ -181,11 +181,9 @@ fn attrs(tag: &str, attrs: &[Attr], errors: &mut Vec<CompileError>) {
                 }
             }
             Some(AttrTarget::Surface | AttrTarget::MediaMetadata) => errors.push(fail("snapshot-request", "render only supplied props; move this work into the refresh function and use an image")),
-            Some(AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p)) => {
-                // The archive's leaves expose only content, accessibility and a URL.
-                if !matches!(p.name(), "text" | "src" | "href" | "alt" | "testId" | "id" | "accessibilityLabel" | "accessibilityRole" | "accessibilityHidden" | "datetime" | "format" | "value" | "max" | "start" | "end") {
-                    errors.push(fail("snapshot-prop", "this prop requires a running host; remove it from the entry"));
-                }
+            Some(AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p))
+                if !matches!(p.name(), "text" | "src" | "href" | "alt" | "testId" | "id" | "accessibilityLabel" | "accessibilityRole" | "accessibilityHidden" | "datetime" | "format" | "value" | "max" | "start" | "end") => {
+                errors.push(fail("snapshot-prop", "this prop requires a running host; remove it from the entry"));
             }
             _ => {}
         }

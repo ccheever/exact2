@@ -1,5 +1,5 @@
 //! Compile a widget's reachable component tree with a typed, replaceable
-//! props slot. No request, app route, timer or handler enters this plan.
+//! props slot. No request, timer or handler enters this plan.
 
 use super::{check, refusal, visit_nodes};
 use crate::{manifest::Widget, CompileError, Manifest};
@@ -125,7 +125,7 @@ fn compile_file(
         }
     }
     file.components.retain(|c| reached.contains(&c.name));
-    file.routes = None;
+    let routes = file.routes.take();
     file.tests.clear();
     file.launch.clear();
     file.sounds.clear();
@@ -152,6 +152,10 @@ fn compile_file(
         });
     }
     file.styles.retain(|s| styles.contains(&s.name));
+    // No handler is admitted. Its unreferenced body must not retain helpers.
+    for c in &mut file.components {
+        c.actions.clear();
+    }
     let functions = std::mem::take(&mut file.fns);
     loop {
         let calls = contract_syntax::scope::calls(&mut file);
@@ -164,6 +168,30 @@ fn compile_file(
         if file.fns.len() == before {
             break;
         }
+    }
+    let shapes = std::mem::take(&mut file.shapes);
+    loop {
+        let mut used = contract_syntax::scope::type_names(&mut file);
+        used.extend(contract_syntax::scope::calls(&mut file));
+        used.insert(widget.props.clone());
+        let before = file.shapes.len();
+        for s in &shapes {
+            if used.contains(&s.name) && !file.shapes.iter().any(|kept| kept.name == s.name) {
+                file.shapes.push(s.clone());
+            }
+        }
+        if file.shapes.len() == before {
+            break;
+        }
+    }
+    if contract_syntax::scope::calls(&mut file).contains("path") {
+        // A URL shares the app's checked patterns, never its page data sources.
+        file.routes = routes.map(|mut routes| {
+            for row in &mut routes.rows {
+                row.fields.clear();
+            }
+            routes
+        });
     }
     let mut fonts = HashSet::new();
     let mut dynamic_font = false;
@@ -193,9 +221,6 @@ fn compile_file(
         file.fonts.retain(|f| fonts.contains(&f.name));
     }
     check(&file)?;
-    for c in &mut file.components {
-        c.actions.clear();
-    }
     let mut wrapper = contract_syntax::parse("component Snapshot\n  view\n    view\n")
         .expect("wrapper")
         .components
