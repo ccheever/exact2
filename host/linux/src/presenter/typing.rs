@@ -447,11 +447,10 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(id)
             .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()));
-        self.alert_allows(id)
+        self.focus_refusal(id).is_none()
             && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
             && self.radio_tab_stop(id)
-            && self.host.route_visibility(id) == (false, false)
             && boxed.contains(&id)
     }
 

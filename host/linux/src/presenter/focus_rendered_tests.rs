@@ -21,7 +21,7 @@ const APP: &str = r#"component App
     shown = shown
   view
     column
-      button press=reveal testId="reveal"
+      button id="placed" press=reveal testId="reveal"
         text "Reveal"
       button press=poke testId="poke"
         text "Poke"
@@ -73,6 +73,23 @@ fn a_node_in_a_closed_dialog_is_not_rendered() {
     let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
     assert!(
         journal.contains(r#"focus \"inside\" refused: not rendered"#),
+        "{journal}"
+    );
+}
+
+#[test]
+fn focus_refuses_a_descendant_of_a_hidden_canvas_placement() {
+    let mut p = attached();
+    let target = named(&p, "poke");
+    let parent = p.host.kernel().node(target).unwrap().parent.unwrap();
+    p.brush
+        .placements
+        .insert(parent, crate::placement::Placement::Hidden);
+    // The placement boundary applies to descendants, not just its root.
+    assert_eq!(p.focus_command(&[Value::str("placed")]), None);
+    let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+    assert!(
+        journal.contains(r#"focus \"placed\" refused: not rendered"#),
         "{journal}"
     );
 }
