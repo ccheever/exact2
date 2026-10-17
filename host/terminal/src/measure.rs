@@ -115,28 +115,84 @@ impl<const PAINT: bool> Wrapped<PAINT> {
         }
     }
 
-    fn word(&mut self, word: &mut Vec<Cluster<'_>>) {
-        if word.is_empty() {
-            return;
-        }
-        let width: usize = word.iter().map(|g| g.cols).sum();
-        if self
-            .limit
-            .is_some_and(|max| self.cols > 0 && self.cols + width > max)
-        {
+    fn cluster(&mut self, glyph: Cluster<'_>) {
+        if glyph.text == "\n" {
             self.newline();
+        } else if glyph.cols > 0 {
+            if glyph.text == " " {
+                if self.keeps || self.cols > 0 {
+                    self.push(glyph);
+                    self.trailing += 1;
+                }
+            } else {
+                self.trailing = 0;
+                self.push(glyph);
+            }
         }
-        self.trailing = 0;
-        let split = self.breaks_words && self.limit.is_some_and(|max| width > max);
-        for glyph in word.drain(..) {
-            if split
-                && self
-                    .limit
-                    .is_some_and(|max| self.cols > 0 && self.cols + glyph.cols > max)
-            {
+    }
+
+    // Keep the last fitting opportunity: a SHY whose hyphen would overflow
+    // must retreat to an earlier break, but its continuation may still fit.
+    fn line_end(&self, cells: &[(Cluster<'_>, bool)]) -> (usize, bool) {
+        let limit = self.limit.unwrap();
+        let (mut cols, mut trailing) = (0, 0);
+        let (mut best, mut fallback) = (None, None);
+        for (i, &(glyph, boundary)) in cells.iter().enumerate() {
+            if glyph.text == "\n" {
+                return (i + 1, false);
+            }
+            let space = glyph.text == " ";
+            if !space && glyph.cols > 0 && cols + glyph.cols > limit {
+                if let Some(end) = best {
+                    return end;
+                }
+                if self.breaks_words && cols > 0 {
+                    return (i, false);
+                }
+                if let Some(end) = fallback {
+                    return end;
+                }
+            }
+            if space {
+                if self.keeps || cols > 0 {
+                    cols += glyph.cols;
+                    trailing += glyph.cols;
+                }
+            } else if glyph.cols > 0 {
+                cols += glyph.cols;
+                trailing = 0;
+            }
+            if boundary && (cols > trailing || (self.keeps && cols > 0)) {
+                let hyphen = glyph.text == "\u{ad}";
+                let end = (i + 1, hyphen);
+                fallback = Some(end);
+                if cols - trailing + usize::from(hyphen) <= limit {
+                    best = Some(end);
+                }
+            }
+        }
+        (cells.len(), false)
+    }
+
+    fn wrapped(&mut self, cells: &[(Cluster<'_>, bool)]) {
+        let mut start = 0;
+        while start < cells.len() {
+            let (len, hyphen) = self.line_end(&cells[start..]);
+            let end = start + len;
+            for &(glyph, _) in &cells[start..end] {
+                self.cluster(glyph);
+            }
+            if hyphen {
+                self.cluster(Cluster {
+                    text: "-",
+                    cols: 1,
+                    run: cells[end - 1].0.run,
+                });
+            }
+            if end < cells.len() && cells[end - 1].0.text != "\n" {
                 self.newline();
             }
-            self.push(glyph);
+            start = end;
         }
     }
 }
@@ -165,50 +221,36 @@ fn layout<const PAINT: bool>(
             && (!min_content || paragraph.overflow_wrap == OverflowWrap::Anywhere),
         limit: if white_space.wraps() { limit } else { None },
     };
-    // Reuse one word buffer. A word may span styled runs; whitespace
-    // flushes it directly into the current line, without a token list.
-    let mut word = Vec::new();
-    for (index, run) in runs.iter().enumerate() {
-        let text = collapsed
+    let text = |index: usize| {
+        collapsed
             .as_ref()
-            .map_or(&*run.text, |c| c.runs[index].as_str());
-        clusters(text, |cluster| {
-            if cluster == "\n" || cluster == "\r\n" {
-                out.word(&mut word);
-                out.newline();
-            } else if breakable_space(cluster) {
-                out.word(&mut word);
-                if out.keeps || out.cols > 0 {
-                    out.push(Cluster {
-                        text: " ",
-                        cols: 1,
-                        run: index,
-                    });
-                    out.trailing += 1;
-                }
+            .map_or(&*runs[index].text, |c| c.runs[index].as_str())
+    };
+    // Breaks belong to the collapsed paragraph, not individual styled runs.
+    // The terminal still owns its cell widths and whitespace presentation.
+    let breaks = if out.limit.is_some() {
+        let joined: String = (0..runs.len()).map(text).collect();
+        exact_textflow::line_breaks(&joined, &[])
+    } else {
+        Vec::new()
+    };
+    let mut breaks = breaks.into_iter().peekable();
+    let mut cells = Vec::new();
+    let mut offset = 0;
+    for index in 0..runs.len() {
+        clusters(text(index), |cluster| {
+            let glyph = cell(cluster, index);
+            if out.limit.is_none() {
+                out.cluster(glyph);
             } else {
-                // A control character is never drawn as itself (LLP 1101 D7).
-                let (text, cols) = if cluster.chars().any(char::is_control) {
-                    ("\u{fffd}", 1)
-                } else {
-                    (cluster, cluster.width().max(1))
-                };
-                let glyph = Cluster {
-                    text,
-                    cols,
-                    run: index,
-                };
-                if out.limit.is_none() {
-                    // Without wrapping, a word needs no lookahead or scratch storage.
-                    out.trailing = 0;
-                    out.push(glyph);
-                } else {
-                    word.push(glyph);
-                }
+                offset += cluster.len();
+                while breaks.next_if(|&end| end < offset).is_some() {}
+                let boundary = breaks.next_if(|&end| end == offset).is_some();
+                cells.push((glyph, boundary));
             }
         });
     }
-    out.word(&mut word);
+    out.wrapped(&cells);
     out.finish_line();
     if out.clamp > 0 {
         out.rows = out.rows.min(out.clamp);
@@ -254,22 +296,31 @@ pub(crate) fn visit_preserved(
                 col = 0;
                 return;
             }
-            let (text, cols) = if breakable_space(cluster) {
-                (" ", 1)
-            } else if cluster.chars().any(char::is_control) {
-                ("\u{fffd}", 1)
-            } else {
-                (cluster, cluster.width().max(1))
-            };
-            each(row, col, text, cols, run);
-            col += cols;
+            let glyph = cell(cluster, run);
+            if glyph.cols > 0 {
+                each(row, col, glyph.text, glyph.cols, run);
+                col += glyph.cols;
+            }
         });
     }
 }
 
-fn breakable_space(cluster: &str) -> bool {
-    cluster.chars().all(char::is_whitespace)
+fn cell(cluster: &str, run: usize) -> Cluster<'_> {
+    let (text, cols) = if matches!(cluster, "\n" | "\r\n") {
+        ("\n", 0)
+    } else if matches!(cluster, "\u{ad}" | "\u{200b}") {
+        (cluster, 0)
+    } else if cluster.chars().all(char::is_whitespace)
         && !matches!(cluster, "\u{a0}" | "\u{202f}" | "\u{2007}" | "\u{feff}")
+    {
+        (" ", 1)
+    } else if cluster.chars().any(char::is_control) {
+        // A control character is never drawn as itself (LLP 1101 D7).
+        ("\u{fffd}", 1)
+    } else {
+        (cluster, cluster.width().max(1))
+    };
+    Cluster { text, cols, run }
 }
 
 /// LLP 1104 D7: the terminal drops the symbol and paints the title, or
@@ -377,6 +428,234 @@ mod tests {
     use super::*;
     use exact_kernel::{text::TextStyle, StyleProps, WhiteSpace};
 
+    fn assert_layout(
+        runs: &[TextRun<'_>],
+        paragraph: &Paragraph,
+        limit: Option<usize>,
+        min_content: bool,
+        expected: &[(&str, usize)],
+    ) -> Vec<Line> {
+        let lines = wrap(runs, paragraph, limit, min_content);
+        let actual: Vec<_> = lines
+            .iter()
+            .map(|line| {
+                (
+                    line.glyphs
+                        .iter()
+                        .map(|g| g.text.as_str())
+                        .collect::<String>(),
+                    line.cols(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            actual,
+            expected
+                .iter()
+                .map(|&(s, n)| (s.to_owned(), n))
+                .collect::<Vec<_>>()
+        );
+        let measured = layout::<false>(runs, paragraph, limit, min_content);
+        assert_eq!(
+            measured.width,
+            expected.iter().map(|&(_, n)| n).max().unwrap()
+        );
+        assert_eq!(measured.rows, expected.len());
+        lines
+    }
+
+    #[test]
+    fn discretionary_breaks_have_ink_only_when_a_soft_hyphen_is_taken() {
+        let paragraph = Paragraph::from_style(&StyleProps::default());
+        // CSS Text 3 §5.4: a taken SHY contributes the visible hyphen's width.
+        for (text, limit, expected) in [
+            ("ab\u{ad}cdef", 4, vec![("ab-", 3), ("cdef", 4)]),
+            ("ab\u{ad}cdef", 6, vec![("abcdef", 6)]),
+            ("ab\u{ad}c", 3, vec![("abc", 3)]),
+            ("ab\u{ad}", 2, vec![("ab", 2)]),
+            ("x ab\u{ad}cdef", 4, vec![("x", 1), ("ab-", 3), ("cdef", 4)]),
+            ("ab\u{ad} cd", 2, vec![("ab", 2), ("cd", 2)]),
+            ("foo\u{200b}bar", 3, vec![("foo", 3), ("bar", 3)]),
+            ("foo\u{200b}bar", 6, vec![("foobar", 6)]),
+            ("\u{200b}\u{ad}ab", 2, vec![("ab", 2)]),
+            ("界\u{ad}abc", 3, vec![("界-", 3), ("abc", 3)]),
+            ("界\u{200b}界", 2, vec![("界", 2), ("界", 2)]),
+            ("界界", 2, vec![("界", 2), ("界", 2)]),
+        ] {
+            let runs = [TextRun {
+                text: text.into(),
+                style: paragraph.strut,
+            }];
+            assert_layout(&runs, &paragraph, Some(limit), false, &expected);
+        }
+    }
+
+    #[test]
+    fn discretionary_breaks_map_to_styled_runs_after_collapsing() {
+        let paragraph = Paragraph::from_style(&StyleProps::default());
+        for (text, expected) in [
+            ("  ab\u{ad}cdef  ", vec![("ab-", 3), ("cdef", 4)]),
+            ("  foo\u{200b}bar  ", vec![("foo", 3), ("bar", 3)]),
+        ] {
+            for split in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
+                let mut second = paragraph.strut;
+                second.font_weight = 700;
+                let runs = [
+                    TextRun {
+                        text: text[..split].into(),
+                        style: paragraph.strut,
+                    },
+                    TextRun {
+                        text: text[split..].into(),
+                        style: second,
+                    },
+                ];
+                let lines = assert_layout(&runs, &paragraph, Some(4), false, &expected);
+                let mut cursor = 0;
+                for glyph in lines.iter().flat_map(|line| &line.glyphs) {
+                    let source = if glyph.text == "-" {
+                        "\u{ad}"
+                    } else {
+                        &glyph.text
+                    };
+                    let at = cursor + text[cursor..].find(source).unwrap();
+                    cursor = at + source.len();
+                    assert_eq!(glyph.run, usize::from(at >= split), "{text:?} {split}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn discretionary_breaks_respect_min_content_emergency_wrap_and_clamp() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        for (text, normal, anywhere) in [
+            (
+                "ab\u{ad}cdef",
+                vec![("ab-", 3), ("cdef", 4)],
+                vec![("a", 1), ("b", 1), ("c", 1), ("d", 1), ("e", 1), ("f", 1)],
+            ),
+            (
+                "foo\u{200b}bar",
+                vec![("foo", 3), ("bar", 3)],
+                vec![("f", 1), ("o", 1), ("o", 1), ("b", 1), ("a", 1), ("r", 1)],
+            ),
+        ] {
+            let runs = [TextRun {
+                text: text.into(),
+                style: paragraph.strut,
+            }];
+            for mode in [
+                OverflowWrap::Normal,
+                OverflowWrap::BreakWord,
+                OverflowWrap::Anywhere,
+            ] {
+                paragraph.overflow_wrap = mode;
+                let expected = if mode == OverflowWrap::Anywhere {
+                    &anywhere
+                } else {
+                    &normal
+                };
+                assert_layout(&runs, &paragraph, Some(0), true, expected);
+                let metrics = CellMeasurer::default().measure(&TextMeasureRequest {
+                    runs: &runs,
+                    paragraph,
+                    width: AxisOffer::MinContent,
+                    height: AxisOffer::MaxContent,
+                    exclusions: &[],
+                });
+                assert_eq!(
+                    metrics.width,
+                    expected.iter().map(|&(_, n)| n).max().unwrap() as f32 * COLUMN
+                );
+                if mode != OverflowWrap::Normal {
+                    assert_layout(&runs, &paragraph, Some(1), false, &anywhere);
+                }
+            }
+            paragraph.overflow_wrap = OverflowWrap::Normal;
+            paragraph.line_clamp = 1;
+            assert_layout(&runs, &paragraph, Some(4), false, &normal[..1]);
+            paragraph.line_clamp = 0;
+        }
+        paragraph.overflow_wrap = OverflowWrap::Anywhere;
+        let runs = [TextRun {
+            text: "👩🏽‍💻\u{200b}é界".into(),
+            style: paragraph.strut,
+        }];
+        assert_layout(
+            &runs,
+            &paragraph,
+            Some(1),
+            false,
+            &[("👩🏽‍💻", 2), ("é", 1), ("界", 2)],
+        );
+    }
+
+    #[test]
+    fn nonwrapping_and_preserved_paint_skip_discretionary_controls() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        let runs = ["ab\u{ad}", "cd\u{200b}", "界\u{1b}"].map(|text| TextRun {
+            text: text.into(),
+            style: paragraph.strut,
+        });
+        for space in [
+            WhiteSpace::Normal,
+            WhiteSpace::Nowrap,
+            WhiteSpace::Pre,
+            WhiteSpace::PreWrap,
+        ] {
+            paragraph.white_space = space;
+            assert_layout(&runs, &paragraph, None, false, &[("abcd界�", 7)]);
+            if !space.model().wraps() {
+                assert_layout(&runs, &paragraph, Some(1), false, &[("abcd界�", 7)]);
+            }
+        }
+        let mut painted = Vec::new();
+        visit_preserved(&runs, |row, col, text, cols, run| {
+            painted.push((row, col, text.to_owned(), cols, run));
+        });
+        let expected = [
+            (0, "a", 1, 0),
+            (1, "b", 1, 0),
+            (2, "c", 1, 1),
+            (3, "d", 1, 1),
+            (4, "界", 2, 2),
+            (6, "�", 1, 2),
+        ]
+        .map(|(col, text, cols, run)| (0, col, text.to_owned(), cols, run));
+        assert_eq!(painted, expected);
+    }
+
+    #[test]
+    fn unicode_separator_runs_are_preserved_and_trailing_spaces_hang() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        // Chrome preserves both separators under these three white-space modes.
+        for space in ['\u{2028}', '\u{85}', '\u{c}'] {
+            let text = format!("A{space}{space}B\u{1b}");
+            let runs = [TextRun {
+                text: text.as_str().into(),
+                style: paragraph.strut,
+            }];
+            for white_space in [WhiteSpace::Normal, WhiteSpace::Nowrap, WhiteSpace::PreLine] {
+                paragraph.white_space = white_space;
+                assert_layout(&runs, &paragraph, Some(80), false, &[("A  B�", 5)]);
+            }
+        }
+        for space in ['\u{3000}', '\u{2009}'] {
+            for (text, expected) in [
+                (format!("AA{space}BB"), vec![("AA", 2), ("BB", 2)]),
+                (format!("AA{space}"), vec![("AA", 2)]),
+            ] {
+                let runs = [TextRun {
+                    text: text.as_str().into(),
+                    style: paragraph.strut,
+                }];
+                paragraph.white_space = WhiteSpace::Normal;
+                assert_layout(&runs, &paragraph, Some(2), false, &expected);
+            }
+        }
+    }
+
     #[test]
     fn empty_text_has_no_line_box() {
         let style = StyleProps::default();
@@ -412,6 +691,7 @@ mod tests {
             "\nfirst\r\nsecond\nthird\n",
             "a\tb\u{1b}c\u{7}d ",
             "界é 👩🏽‍💻 🇺🇸 ｱ\nend  ",
+            "ab\u{ad}cdef foo\u{200b}bar\n界\u{ad}界\u{200b}  ",
             "a\u{a0}b\u{202f}c\u{2007}d\u{feff}e",
         ] {
             for split in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
