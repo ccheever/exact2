@@ -217,3 +217,20 @@ fn a_button_a_url_template_binaries_and_the_graph() {
     let e = contract::compile_path(&path).unwrap_err();
     assert!(e.message.contains("no source for linux"), "{e:?}");
 }
+
+/// theme2's ruling: an app's target crate (`web/`, `linux/`, `android/`) is
+/// a target it ships.
+#[test]
+fn a_target_crate_is_a_shipped_target() {
+    let path = app(
+        "crate",
+        "\"ios\": {}",
+        "  icon.sf = icon(sf \"star\")\n",
+        &view("symbol:icon.sf"),
+    );
+    let dir = path.parent().unwrap();
+    std::fs::create_dir_all(dir.join("web")).unwrap();
+    std::fs::write(dir.join("web/Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    let e = contract::compile_path(&path).unwrap_err();
+    assert!(e.message.contains("no source for web"), "{e:?}");
+}

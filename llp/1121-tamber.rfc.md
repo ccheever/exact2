@@ -2896,9 +2896,10 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   is refused.
 - **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are its manifest's
   (`.shells/app.json` first, as the build reads it, else `app.json`) `host`, `deploy.store` and
-  `deploy.binaries` keys; an app with no manifest is checked for none. The source graph names each
+  `deploy.binaries` keys, and its target crates (`android/`, `linux/`, `web/`, theme2's ruling); an app with no manifest is checked for none. The source graph names each
   icon's SVG, so a watcher rebuilds on its edit. Apple's draw an `sf` (their hosts draw no path yet, so an SVG is no
-  source there); any other a template SVG; the web also a file that is no template, as written. Else `tamber-icon-missing: <icon> has no source
+  source there: a known limit, narrowing D10's "svg fallback", accepted by theme2; QUEUE "Apple
+  hosts draw icon paths"); any other a template SVG; the web also a file that is no template, as written. Else `tamber-icon-missing: <icon> has no source
   for <target>`, or `tamber-icon-svg` naming why the file is no one-colour shape and the target.
 - **The source form:** a literal `symbol:icon.reply` is written as
   `symbol:icon|<sf>|<view_box>|<path>|<svg>`, which hosts read (`exact_kernel::Icon`,

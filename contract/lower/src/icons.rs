@@ -50,8 +50,9 @@ fn apple(target: &str) -> bool {
     matches!(target, "ios" | "macos" | "tvos")
 }
 
-/// The targets `app.json` ships: its `host`, `deploy.store` and
-/// `deploy.binaries` keys. An app with none (no `app.json`) is checked for none.
+/// The targets an app ships: its manifest's `host`, `deploy.store` and
+/// `deploy.binaries` keys, and its target crates (`android/`, `linux/`,
+/// `web/`). An app with no manifest is checked for none.
 fn targets(root: Option<&Path>) -> Vec<String> {
     // A game's resolved manifest first, as the build reads it (`Manifest::read`).
     let read = |file: &str| {
@@ -62,6 +63,12 @@ fn targets(root: Option<&Path>) -> Vec<String> {
         return Vec::new();
     };
     let mut out: Vec<String> = Vec::new();
+    // An app's target crate is a target it builds (theme2's ruling).
+    for dir in ["android", "linux", "web"] {
+        if root.is_some_and(|r| r.join(dir).join("Cargo.toml").is_file()) {
+            out.push(dir.to_string());
+        }
+    }
     for keys in [
         &app["host"],
         &app["deploy"]["store"],

@@ -728,7 +728,7 @@
     },
     {
       "name": "icons",
-      "_comment": "@ref LLP 1121 D10 (stage 6 F): each icon token the plan keeps, which a computed `symbol:` source may name (`symbol:icon.reply`, or `symbol:sf/<name>` for the icon whose `sf` it is): its SF Symbol (empty for none), the SVG's viewBox and its paths' `d` joined, drawn as a template as a role's path is (empty for a file the web draws as written), and the SVG's path under `assets/` (empty for none). A literal source is written at build as `symbol:icon|<sf>|<view_box>|<path>|<svg>`.",
+      "_comment": "@ref LLP 1121 D10 (stage 6 F): each icon token the plan keeps, which a computed `symbol:` source may name (`symbol:icon.reply`, or `symbol:sf/<name>` for the icon whose `sf` it is): its SF Symbol (empty for none), the SVG's viewBox and its paths' `d` joined by `;`, drawn as a template as a role's path is (empty for a file the web draws as written), and the SVG's path under `assets/` (empty for none). A literal source is written at build as `symbol:icon|<sf>|<view_box>|<path>|<svg>`, the image source form hosts read (`exact_kernel::Icon`): `<path>` is each SVG path's `d` joined by `;`, each filled nonzero; no part holds a `|`, which the build refuses.",
       "fields": [
         {
           "name": "name",
