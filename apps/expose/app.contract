@@ -87,6 +87,21 @@ theme
   banner="light-dark(#ffffff, #1c1c20)" // the reply banner
   toast="light-dark(#0b0b0cd9, #f5f5f7e6)" // a word from the system
   bannerShadow="rgba(0, 0, 0, 0.35)" // the reply banner's shadow
+  // The three faces (LLP 1121 stage 6 C).
+  textFace="\"Exposure Sans\"" // reading text
+  liltFace="\"Exciting Lilt\"" // titles, times, a notice's sender
+  glyphFace="\"Exciting\"" // an app's one-letter mark
+  // The corners that are the design's, not a circle's (half a side).
+  radiusCard="16px" // a settings card
+  radiusTile="17px" // an app tile, home and dock
+  radiusWell="10px" // an icon's well, a field, a search bar
+  radiusSmallWell="8px" // a settings row's icon
+  radiusWideWell="12px" // a reader row's icon
+  radiusButton="14px" // a full-width button, the reader widget's art
+  radiusBubble="20px" // a message, a toast
+  radiusNotice="22px" // a notification, the banner
+  radiusWidget="24px" // a home screen widget
+  radiusDock="34px" // the dock
 
 component Expose
   // Where we are.
@@ -240,14 +255,14 @@ component Expose
     send saved = saveModel(value)
 
   view
-    main testId="expose" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" font-family="Exposure Sans" font-size=17 color="fore" background-color="page"
+    main testId="expose" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" font-family="textFace" font-size=17 color="fore" background-color="page"
 
       // ---------------------------------------------------------------- lock
       if screen == "lock"
         column testId="lock-screen" flex=1 min-height=0 box-sizing="border-box" color="paper" background-color="ink" background-image="linear-gradient(180deg, lockDusk 0%, ink 55%, night 100%)" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
           button press=unlock testId="lock-clock" width="100%" display="flex" flex-direction="column" align-items="center" padding-top=26 padding-bottom=6
             text `${clock.weekday}, ${clock.date}` font-size=20 font-weight=500 color="onDark80"
-            text clock.time font-family="Exciting" font-weight=900 font-size=124 line-height="132px" letter-spacing=-2 color="paper"
+            text clock.time font-family="glyphFace" font-weight=900 font-size=124 line-height="132px" letter-spacing=-2 color="paper"
             if weather.ready
               text `${weather.temp}  ${weather.condition}` font-size=15 font-weight=500 color="onDark60" margin-top=2
           scroll flex=1 min-height=0
@@ -288,28 +303,28 @@ component Expose
           scroll flex=1 min-height=0
             column padding-left=22 padding-right=22 padding-top=10 gap=22
               row gap=14
-                button press=nope("Calendar") testId="widget-calendar" -exact-press-scale=0.98 flex=1 height=164 border-radius=24 background-color="mist" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" color="ink" text-align="start"
+                button press=nope("Calendar") testId="widget-calendar" -exact-press-scale=0.98 flex=1 height=164 border-radius="radiusWidget" background-color="mist" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" color="ink" text-align="start"
                   column
                     text clock.weekday font-size=13 font-weight=600 letter-spacing=0.6 text-transform="uppercase" color="ash"
-                    text clock.day font-family="Exciting" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
+                    text clock.day font-family="glyphFace" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
                   column gap=1
-                    text "Type review" font-family="Exciting Lilt" font-weight=700 font-size=15
+                    text "Type review" font-family="liltFace" font-weight=700 font-size=15
                     text "2:00 – 3:00 PM · Studio" font-size=12 color="ash"
-                button press=nope("Weather") testId="widget-weather" -exact-press-scale=0.98 flex=1 height=164 border-radius=24 background-color="slate" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" text-align="start"
+                button press=nope("Weather") testId="widget-weather" -exact-press-scale=0.98 flex=1 height=164 border-radius="radiusWidget" background-color="slate" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" text-align="start"
                   column
-                    text weather.place font-family="Exciting Lilt" font-weight=700 font-size=15
-                    text weather.temp font-family="Exciting" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
+                    text weather.place font-family="liltFace" font-weight=700 font-size=15
+                    text weather.temp font-family="glyphFace" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
                   column gap=1
                     text weather.condition font-size=13 font-weight=500 line-clamp=1
                     text (weather.ready ? `H ${weather.high}  L ${weather.low}` : "Palo Alto, from Open-Meteo") font-size=12 color="onDark60" line-clamp=1
               for a in library.articles key=a.id
                 if a.id == library.lead
-                  button press=openArticle(a.id) testId="widget-reader" -exact-press-scale=0.98 width="100%" border-radius=24 background-color="slate" padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
-                    column width=52 height=52 border-radius=14 background-color="mist" align-items="center" justify-content="center" flex-shrink=0
-                      text "R" font-family="Exciting" font-weight=900 font-size=30 line-height="34px" color="ink"
+                  button press=openArticle(a.id) testId="widget-reader" -exact-press-scale=0.98 width="100%" border-radius="radiusWidget" background-color="slate" padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
+                    column width=52 height=52 border-radius="radiusButton" background-color="mist" align-items="center" justify-content="center" flex-shrink=0
+                      text "R" font-family="glyphFace" font-weight=900 font-size=30 line-height="34px" color="ink"
                     column flex=1 min-width=0 gap=3
                       text `READER · ${a.section}` font-size=11 font-weight=600 letter-spacing=0.8 text-transform="uppercase" color="onDark55"
-                      text a.title font-family="Exciting Lilt" font-weight=700 font-size=18 line-height="22px" line-clamp=2
+                      text a.title font-family="liltFace" font-weight=700 font-size=18 line-height="22px" line-clamp=2
                       text `${a.author} · ${a.minutes.toString()} min` font-size=12 color="onDark60"
               column gap=20 padding-top=2
                 row justify-content="space-between"
@@ -330,7 +345,7 @@ component Expose
               row justify-content="center" gap=8 padding-top=2 padding-bottom=10
                 box width=7 height=7 border-radius=4 background-color="paper"
                 box width=7 height=7 border-radius=4 background-color="veil30"
-          row margin-left=16 margin-right=16 margin-bottom=6 padding=12 border-radius=34 background-color="veil10" justify-content="space-around" flex-shrink=0
+          row margin-left=16 margin-right=16 margin-bottom=6 padding=12 border-radius="radiusDock" background-color="veil10" justify-content="space-around" flex-shrink=0
             DockTile(id="messages", glyph="M", tile="mist", ink="ink", press=go("messages"))
             DockTile(id="reader", glyph="R", tile="graphite", ink="paper", press=go("reader"))
             DockTile(id="expose", glyph="E", tile="pewter", ink="paper", press=openThread("expose"))
@@ -351,7 +366,7 @@ component Expose
             scroll flex=1 min-height=0
               column padding-bottom=16
                 text "Messages" class=Title padding-left=16 padding-right=16 padding-top=2 padding-bottom=10
-                row margin-left=16 margin-right=16 margin-bottom=10 height=36 border-radius=10 background-color="raised" align-items="center" padding-left=10 gap=8
+                row margin-left=16 margin-right=16 margin-bottom=10 height=36 border-radius="radiusWell" background-color="raised" align-items="center" padding-left=10 gap=8
                   svg viewBox="0 0 24 24" width=15 height=15
                     circle cx=10.5 cy=10.5 r=6.5 fill="none" stroke="quiet" stroke-width=2.2
                     path d="M15.5 15.5L20 20" stroke="quiet" stroke-width=2.2 stroke-linecap="round"
@@ -360,10 +375,10 @@ component Expose
                   button press=openThread(t.id) testId=`thread-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10 text-align="start"
                     box width=8 height=8 border-radius=4 background-color=(t.unread ? "signal" : "clear") flex-shrink=0
                     column width=50 height=50 border-radius=25 background-color=(t.kind == "assistant" ? "fore" : "avatar") align-items="center" justify-content="center" flex-shrink=0
-                      text t.initials font-family="Exciting" font-weight=900 font-size=(t.kind == "assistant" ? 26 : 20) line-height="30px" color=(t.kind == "assistant" ? "reverse" : "paper")
+                      text t.initials font-family="glyphFace" font-weight=900 font-size=(t.kind == "assistant" ? 26 : 20) line-height="30px" color=(t.kind == "assistant" ? "reverse" : "paper")
                     column flex=1 min-width=0 padding-top=11 padding-bottom=11 padding-right=14 margin-left=4 gap=2 class=Hairline
                       row justify-content="space-between" align-items="baseline" gap=8
-                        text t.name font-family="Exciting Lilt" font-weight=700 font-size=(17 * scale) flex=1 min-width=0 line-clamp=1
+                        text t.name font-family="liltFace" font-weight=700 font-size=(17 * scale) flex=1 min-width=0 line-clamp=1
                         text t.time font-size=(14 * scale) class=Muted flex-shrink=0
                       text t.preview font-size=(15 * scale) class=Muted line-clamp=2 line-height=1.3
             HomeBar(tone="statusInk", press=go("home"))
@@ -379,7 +394,7 @@ component Expose
                     text inbox.unread.toString() font-size=12 font-weight=600 color="reverse"
               column flex=1 align-items="center" gap=3
                 column width=38 height=38 border-radius=19 background-color=(chat.kind == "assistant" ? "fore" : "avatar") align-items="center" justify-content="center"
-                  text chat.initials font-family="Exciting" font-weight=900 font-size=(chat.kind == "assistant" ? 21 : 17) line-height="24px" color=(chat.kind == "assistant" ? "reverse" : "paper")
+                  text chat.initials font-family="glyphFace" font-weight=900 font-size=(chat.kind == "assistant" ? 21 : 17) line-height="24px" color=(chat.kind == "assistant" ? "reverse" : "paper")
                 text chat.name font-size=11 font-weight=500 line-clamp=1
               if chat.kind == "assistant"
                 button press=clearChat testId="thread-clear" width=76 height=44 display="flex" flex-direction="row" align-items="center" justify-content="flex-end" padding-right=8
@@ -391,8 +406,8 @@ component Expose
                 if chat.kind == "assistant"
                   column align-items="center" gap=6 padding-bottom=14
                     column width=64 height=64 border-radius=32 background-color="fore" align-items="center" justify-content="center"
-                      text "E" font-family="Exciting" font-weight=900 font-size=36 line-height="40px" color="reverse"
-                    text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=20
+                      text "E" font-family="glyphFace" font-weight=900 font-size=36 line-height="40px" color="reverse"
+                    text "Expose" font-family="liltFace" font-weight=700 font-size=20
                     text `${intelligence.modelName} · via OpenRouter` font-size=12 class=Muted
                     if not intelligence.hasKey
                       button press=openPage("intelligence") testId="thread-add-key" -exact-press-scale=0.97 margin-top=4 height=34 padding-left=14 padding-right=14 border-radius=17 background-color="signal" display="flex" flex-direction="row" align-items="center"
@@ -427,24 +442,24 @@ component Expose
             scroll flex=1 min-height=0
               column padding-left=20 padding-right=20 padding-top=8 padding-bottom=24 gap=18
                 row align-items="baseline" justify-content="space-between"
-                  text "Reader" font-family="Exciting" font-weight=900 font-size=40 line-height="46px" letter-spacing=-0.5
+                  text "Reader" font-family="glyphFace" font-weight=900 font-size=40 line-height="46px" letter-spacing=-0.5
                   text `${clock.weekday}, ${clock.date}` font-size=13 font-weight=500 class=Muted
                 for a in library.articles key=a.id
                   if a.id == library.lead
                     button press=openArticle(a.id) testId=`article-${a.id}` -exact-press-scale=0.985 width="100%" class=Card padding=18 box-sizing="border-box" display="flex" flex-direction="column" gap=8 align-items="flex-start" text-align="start"
                       text a.section font-size=12 font-weight=700 letter-spacing=0.8 text-transform="uppercase" color="signal"
-                      text a.title font-family="Exciting Lilt" font-weight=700 font-size=28 line-height="32px" letter-spacing=-0.3 text-align="left"
+                      text a.title font-family="liltFace" font-weight=700 font-size=28 line-height="32px" letter-spacing=-0.3 text-align="left"
                       text a.deck font-size=(16 * scale) font-style="italic" line-height=1.35 class=Muted text-align="left"
                       text `${a.author} · ${a.posted} · ${a.minutes.toString()} min read` font-size=12 font-weight=500 class=Muted padding-top=2
                 column class=Card
                   for a in library.articles key=a.id
                     if a.id != library.lead
                       button press=openArticle(a.id) testId=`article-${a.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding-left=16 text-align="start"
-                        column width=44 height=44 border-radius=12 background-color="iconWell" align-items="center" justify-content="center" flex-shrink=0
-                          text (a.section == "Type" ? "Aa" : a.section == "Field notes" ? "F" : a.section == "Intelligence" ? "E" : "P") font-family="Exciting" font-weight=900 font-size=20 line-height="24px" color="paper"
+                        column width=44 height=44 border-radius="radiusWideWell" background-color="iconWell" align-items="center" justify-content="center" flex-shrink=0
+                          text (a.section == "Type" ? "Aa" : a.section == "Field notes" ? "F" : a.section == "Intelligence" ? "E" : "P") font-family="glyphFace" font-weight=900 font-size=20 line-height="24px" color="paper"
                         column flex=1 min-width=0 gap=3 padding-top=14 padding-bottom=14 padding-right=16 class=Hairline align-items="flex-start"
                           text `${a.section} · ${a.minutes.toString()} min` font-size=11 font-weight=600 letter-spacing=0.6 text-transform="uppercase" class=Muted
-                          text a.title font-family="Exciting Lilt" font-weight=700 font-size=(17 * scale) line-height=1.2 line-clamp=2 text-align="left"
+                          text a.title font-family="liltFace" font-weight=700 font-size=(17 * scale) line-height=1.2 line-clamp=2 text-align="left"
                           text a.deck font-size=(14 * scale) class=Muted line-clamp=2 line-height=1.3 text-align="left"
                 text "Set in Exciting, Exciting Lilt and Exposure Sans Original 10." font-size=12 font-style="italic" class=Muted text-align="center" padding-top=6
             HomeBar(tone="statusInk", press=go("home"))
@@ -454,28 +469,28 @@ component Expose
             row height=44 align-items="center" justify-content="space-between" padding-left=8 padding-right=16 flex-shrink=0
               BackButton(id="reader", label="Reader", press=closeArticle)
               button press=askAbout(article) testId="ask-expose" aria-label="Ask Expose about this article" -exact-press-scale=0.95 height=32 padding-left=12 padding-right=12 border-radius=16 background-color="fore" display="flex" flex-direction="row" align-items="center" gap=6
-                text "E" font-family="Exciting" font-weight=900 font-size=15 line-height="18px" color="reverse"
+                text "E" font-family="glyphFace" font-weight=900 font-size=15 line-height="18px" color="reverse"
                 text "Ask Expose" font-size=13 font-weight=600 color="reverse"
             scroll flex=1 min-height=0
               for a in library.articles key=a.id
                 if a.id == article
                   column padding-left=22 padding-right=22 padding-top=10 padding-bottom=40 gap=14
                     text a.section font-size=12 font-weight=700 letter-spacing=0.8 text-transform="uppercase" color="signal"
-                    text a.title font-family="Exciting Lilt" font-weight=700 font-size=32 line-height="36px" letter-spacing=-0.4
+                    text a.title font-family="liltFace" font-weight=700 font-size=32 line-height="36px" letter-spacing=-0.4
                     text a.deck font-size=(19 * scale) font-style="italic" line-height=1.35 class=Muted
                     row align-items="center" gap=10 padding-top=2 padding-bottom=6 class=Hairline
                       column width=30 height=30 border-radius=15 background-color="iconWell" align-items="center" justify-content="center"
-                        text (a.author == "Nico" ? "N" : a.author == "Type Crew" ? "TC" : a.author == "Expose Builds" ? "Ex" : "CC") font-family="Exciting" font-weight=900 font-size=13 line-height="16px" color="paper"
+                        text (a.author == "Nico" ? "N" : a.author == "Type Crew" ? "TC" : a.author == "Expose Builds" ? "Ex" : "CC") font-family="glyphFace" font-weight=900 font-size=13 line-height="16px" color="paper"
                       text `${a.author} · ${a.posted} · ${a.minutes.toString()} min read` font-size=13 font-weight=500 class=Muted
                     for p in a.body key=p
                       text p font-size=(17.5 * scale) line-height=1.5
                     column border-left-style="solid" border-left-width=3 border-color="signal" padding-left=16 padding-top=4 padding-bottom=4 margin-top=6 margin-bottom=6
-                      text a.pull font-family="Exciting Lilt" font-weight=600 font-size=(24 * scale) line-height=1.2
+                      text a.pull font-family="liltFace" font-weight=600 font-size=(24 * scale) line-height=1.2
                     button press=askAbout(a.id) testId="ask-expose-below" -exact-press-scale=0.98 width="100%" margin-top=10 class=Card padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
                       column width=44 height=44 border-radius=22 background-color="fore" align-items="center" justify-content="center" flex-shrink=0
-                        text "E" font-family="Exciting" font-weight=900 font-size=24 line-height="28px" color="reverse"
+                        text "E" font-family="glyphFace" font-weight=900 font-size=24 line-height="28px" color="reverse"
                       column flex=1 min-width=0 gap=2 align-items="flex-start"
-                        text "Talk about this with Expose" font-family="Exciting Lilt" font-weight=700 font-size=17
+                        text "Talk about this with Expose" font-family="liltFace" font-weight=700 font-size=17
                         text "Hands the article to the assistant in Messages." font-size=13 class=Muted text-align="left"
             HomeBar(tone="statusInk", press=go("home"))
 
@@ -489,9 +504,9 @@ component Expose
                 text "Settings" class=Title margin-top=4 margin-bottom=12
                 button press=openPage("about") testId="settings-profile" width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding=12 class=Card text-align="start"
                   column width=58 height=58 border-radius=29 background-color="fore" align-items="center" justify-content="center" flex-shrink=0
-                    text "CC" font-family="Exciting" font-weight=900 font-size=22 line-height="26px" color="reverse"
+                    text "CC" font-family="glyphFace" font-weight=900 font-size=22 line-height="26px" color="reverse"
                   column flex=1 min-width=0 gap=2 align-items="flex-start"
-                    text "Charlie Cheever" font-family="Exciting Lilt" font-weight=700 font-size=(20 * scale) line-clamp=1
+                    text "Charlie Cheever" font-family="liltFace" font-weight=700 font-size=(20 * scale) line-clamp=1
                     text "Expose Account, devices, and more" font-size=(13 * scale) class=Muted line-clamp=1
                   svg viewBox="0 0 24 24" width=18 height=18
                     path d="M9 6l6 6-6 6" fill="none" stroke="chevron" stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
@@ -522,7 +537,7 @@ component Expose
             StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, press=lock)
             row height=44 align-items="center" padding-left=8 padding-right=8 flex-shrink=0
               BackButton(id="settings", label="Settings", press=closePage)
-              text (page == "intelligence" ? "Intelligence" : page == "display" ? "Display & Text Size" : "About") flex=1 text-align="center" font-family="Exciting Lilt" font-weight=700 font-size=17 line-clamp=1
+              text (page == "intelligence" ? "Intelligence" : page == "display" ? "Display & Text Size" : "About") flex=1 text-align="center" font-family="liltFace" font-weight=700 font-size=17 line-clamp=1
               box width=100
             scroll flex=1 min-height=0
               column padding=16 gap=22 padding-bottom=32
@@ -530,16 +545,16 @@ component Expose
                   column class=Card padding=16 gap=12
                     row align-items="center" gap=12
                       column width=44 height=44 border-radius=22 background-color="fore" align-items="center" justify-content="center" flex-shrink=0
-                        text "E" font-family="Exciting" font-weight=900 font-size=24 line-height="28px" color="reverse"
+                        text "E" font-family="glyphFace" font-weight=900 font-size=24 line-height="28px" color="reverse"
                       column flex=1 min-width=0 gap=2
-                        text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=20
+                        text "Expose" font-family="liltFace" font-weight=700 font-size=20
                         text (intelligence.hasKey ? (intelligence.keySource == "settings" ? `Key ${intelligence.keyHint}, from Settings` : `Key ${intelligence.keyHint}, baked into this build`) : "No key yet") font-size=13 class=Muted line-clamp=1
                     text "Expose thinks with a model of your choosing, reached through OpenRouter with your own key. The key stays on this phone." font-size=(15 * scale) line-height=1.35 class=Muted
                   column class=Card padding=16 gap=10
                     text "OPENROUTER KEY" font-size=13 class=Muted
                     row align-items="center" gap=8
-                      input appearance="none" id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="fieldRim" font-size=16 color="fore" background-color="reverse"
-                      button press=saveKey testId="save-key" disabled=(keyDraft.trim() == "") -exact-press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius=10 background-color=(keyDraft.trim() == "" ? "disabledGround" : "signal") display="flex" flex-direction="row" align-items="center"
+                      input appearance="none" id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius="radiusWell" border-style="solid" border-width=1 border-color="fieldRim" font-size=16 color="fore" background-color="reverse"
+                      button press=saveKey testId="save-key" disabled=(keyDraft.trim() == "") -exact-press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius="radiusWell" background-color=(keyDraft.trim() == "" ? "disabledGround" : "signal") display="flex" flex-direction="row" align-items="center"
                         text "Save" font-size=15 font-weight=600 color=(keyDraft.trim() == "" ? "disabledInk" : "paper")
                     if keySaved
                       text "Saved. Expose will use this key from now on." font-size=13 color="signal"
@@ -556,8 +571,8 @@ component Expose
                         column flex=1 min-width=0 align-items="flex-start"
                           text m.name font-size=(16 * scale) font-weight=(m.selected ? 600 : 400)
                           text m.maker font-size=(12 * scale) class=Muted
-                  button press=openThread("expose") testId="intelligence-chat" -exact-press-scale=0.98 width="100%" height=48 border-radius=14 background-color="fore" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                    text "Talk to Expose" font-family="Exciting Lilt" font-weight=700 font-size=17 color="reverse"
+                  button press=openThread("expose") testId="intelligence-chat" -exact-press-scale=0.98 width="100%" height=48 border-radius="radiusButton" background-color="fore" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                    text "Talk to Expose" font-family="liltFace" font-weight=700 font-size=17 color="reverse"
                 if page == "display"
                   row class=Card padding-left=16 padding-right=16 min-height=46 align-items="center" justify-content="space-between" gap=12
                     text "Appearance" font-size=(17 * scale) flex=1 min-width=0
@@ -574,18 +589,18 @@ component Expose
                     text "Changes the text in Messages, Reader and Settings. Titles stay put: Lilt is drawn for 17 px and above and does not scale with body text." font-size=13 class=Muted line-height=1.35
                   column class=Card padding=16 gap=12
                     text "EXCITING" font-size=13 class=Muted
-                    text clock.time font-family="Exciting" font-weight=900 font-size=64 line-height="70px" letter-spacing=-1
-                    text "M R E S Aa 0123456789" font-family="Exciting" font-weight=900 font-size=28 line-height="34px"
+                    text clock.time font-family="glyphFace" font-weight=900 font-size=64 line-height="70px" letter-spacing=-1
+                    text "M R E S Aa 0123456789" font-family="glyphFace" font-weight=900 font-size=28 line-height="34px"
                     text "The loudest voice: the clock, the marks on the tiles, the Reader masthead. One word at a time, never a sentence." font-size=(15 * scale) line-height=1.35 class=Muted
                   column class=Card padding=16 gap=12
                     text "EXCITING LILT" font-size=13 class=Muted
-                    text "Sphinx of black quartz, judge my vow" font-family="Exciting Lilt" font-weight=700 font-size=26 line-height="32px"
+                    text "Sphinx of black quartz, judge my vow" font-family="liltFace" font-weight=700 font-size=26 line-height="32px"
                     text "The titling voice: names, titles, actions, 17 px and up. Bold for titles, Semibold for the large numbers." font-size=(15 * scale) line-height=1.35 class=Muted
                     column gap=6 margin-top=2
-                      text "Expose 17" font-family="Exciting Lilt" font-weight=700 font-size=17
-                      text "Expose 24" font-family="Exciting Lilt" font-weight=700 font-size=24
-                      text "Expose 34" font-family="Exciting Lilt" font-weight=700 font-size=34
-                      text "Expose 48" font-family="Exciting Lilt" font-weight=600 font-size=48 line-height="52px"
+                      text "Expose 17" font-family="liltFace" font-weight=700 font-size=17
+                      text "Expose 24" font-family="liltFace" font-weight=700 font-size=24
+                      text "Expose 34" font-family="liltFace" font-weight=700 font-size=34
+                      text "Expose 48" font-family="liltFace" font-weight=600 font-size=48 line-height="52px"
                   column class=Card padding=16 gap=12
                     text "EXPOSURE SANS ORIGINAL 10" font-size=13 class=Muted
                     text "The quick brown fox jumps over the lazy dog, and the five boxing wizards jump quickly." font-size=(17 * scale) line-height=1.35
@@ -598,8 +613,8 @@ component Expose
                     text "0123456789 · 9:41 · 68° · $12.40 · 3,844 pairs" font-size=(17 * scale) class=Muted
                 if page == "about"
                   column class=Card padding=20 gap=8 align-items="center"
-                    text "E" font-family="Exciting" font-weight=900 font-size=72 line-height="80px"
-                    text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=28
+                    text "E" font-family="glyphFace" font-weight=900 font-size=72 line-height="80px"
+                    text "Expose" font-family="liltFace" font-weight=700 font-size=28
                     text "Version 1.0 (26A1)" font-size=15 class=Muted
                     text "A phone operating system built on Expo and Exact, for Nothing and Pixel hardware." font-size=(15 * scale) line-height=1.35 class=Muted text-align="center"
                   column class=Card
@@ -611,23 +626,23 @@ component Expose
                     text "Exciting Black v18 — the display face, an original design inspired by, and not derived from, Chicago." font-size=(14 * scale) line-height=1.4 class=Muted
                     text "Exciting Lilt v10 — Semibold and Bold, the titling face." font-size=(14 * scale) line-height=1.4 class=Muted
                     text "Exposure Sans Original 10 — the text face, four weights and an italic." font-size=(14 * scale) line-height=1.4 class=Muted
-                  button press=lock testId="about-lock" -exact-press-scale=0.98 width="100%" height=48 border-radius=14 class=Card display="flex" flex-direction="row" align-items="center" justify-content="center"
-                    text "Lock the phone" font-family="Exciting Lilt" font-weight=700 font-size=17
+                  button press=lock testId="about-lock" -exact-press-scale=0.98 width="100%" height=48 border-radius="radiusButton" class=Card display="flex" flex-direction="row" align-items="center" justify-content="center"
+                    text "Lock the phone" font-family="liltFace" font-weight=700 font-size=17
             HomeBar(tone="statusInk", press=go("home"))
 
       // ---------------------------------------------- the banner and the toast
       if banner
         for t in inbox.threads key=t.id
           if t.id == "expose"
-            button press=openThread("expose") testId="banner" position="absolute" top="calc(env(safe-area-inset-top) + 8px)" left=12 right=12 z-index=10 animation="drop 360ms ease-out" display="flex" flex-direction="row" gap=12 padding=12 box-sizing="border-box" border-radius=22 background-color="banner" box-shadow="0 10px 30px bannerShadow" align-items="flex-start" text-align="start"
-              column width=40 height=40 border-radius=10 background-color="fore" align-items="center" justify-content="center" flex-shrink=0
-                text "E" font-family="Exciting" font-weight=900 font-size=22 line-height="26px" color="reverse"
+            button press=openThread("expose") testId="banner" position="absolute" top="calc(env(safe-area-inset-top) + 8px)" left=12 right=12 z-index=10 animation="drop 360ms ease-out" display="flex" flex-direction="row" gap=12 padding=12 box-sizing="border-box" border-radius="radiusNotice" background-color="banner" box-shadow="0 10px 30px bannerShadow" align-items="flex-start" text-align="start"
+              column width=40 height=40 border-radius="radiusWell" background-color="fore" align-items="center" justify-content="center" flex-shrink=0
+                text "E" font-family="glyphFace" font-weight=900 font-size=22 line-height="26px" color="reverse"
               column flex=1 min-width=0 gap=2 align-items="flex-start"
                 row width="100%" justify-content="space-between" align-items="baseline" gap=8
-                  text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=16 flex=1 min-width=0 line-clamp=1 color="fore"
+                  text "Expose" font-family="liltFace" font-weight=700 font-size=16 flex=1 min-width=0 line-clamp=1 color="fore"
                   text "now" font-size=12 class=Muted flex-shrink=0
                 text t.preview font-size=14 line-clamp=2 line-height=1.3 color="fore" text-align="left"
       if toastAt > 0
         row position="absolute" bottom="calc(env(safe-area-inset-bottom) + 96px)" left=0 right=0 z-index=10 justify-content="center" pointer-events="none"
-          row testId="toast" padding-top=10 padding-bottom=10 padding-left=16 padding-right=16 border-radius=20 background-color="toast" animation="settle 240ms ease-out"
+          row testId="toast" padding-top=10 padding-bottom=10 padding-left=16 padding-right=16 border-radius="radiusBubble" background-color="toast" animation="settle 240ms ease-out"
             text toast font-size=14 font-weight=500 color="reverse"
