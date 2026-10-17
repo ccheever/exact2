@@ -40,7 +40,8 @@ struct ChipFace: Equatable {
     /// scheme the page is in and drawn again when that changes.
     let dark: Bool
     /// Bold Text, which weights the system font, an authored weight included,
-    /// as it does the titles beside it (LLP 1115.000 D12.3).
+    /// as it does the titles beside it (LLP 1115.000 D12.3): the kernel's
+    /// weights say it; kept so a change draws the face again.
     let bold: Bool
 
     private enum Either { case view(NodeView), leaf(FlatLeaf) }
@@ -98,12 +99,13 @@ struct ChipFace: Equatable {
                 let text = child.accessibleText
                 guard !text.isEmpty else { return }
                 typed = typed || fonted
-                // A font file the author ships is left alone; the system
-                // font takes UIKit's step for Bold Text, regular to semibold.
-                let family = Int(child.number("font_family")), shipped = engine.catalog[family]?.isEmpty == false
-                let weight = Int(child.number("font_weight", 400)) + (bold && !shipped ? 200 : 0)
+                // Bold Text's step is in the weight already: the kernel
+                // weights the system font and leaves a shipped one alone
+                // (LLP 1115.000 D12.3).
+                let family = Int(child.number("font_family"))
+                let weight = Int(child.number("font_weight", 400))
                 let font = readout && !fonted ? UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
-                    : engine.font(size: child.number("font_size", PageFacts.defaultRootFontSize), weight: min(900, weight),
+                    : engine.font(size: child.number("font_size", PageFacts.defaultRootFontSize), weight: min(1000, weight),
                                   family: family, italic: child.style["font_style"]?.string == "italic")
                 parts.append(.text(text, font, inked ? pair(child, "text_color") : nil))
                 opacities.append(alpha)

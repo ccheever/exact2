@@ -212,6 +212,10 @@ impl NodeArena {
     pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
         let mut out = self.effective_style(slot).into_owned();
         self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
+        if self.bold_text && (rows.has(StyleId::FontWeight) || out.mask.has(StyleId::FontWeight)) {
+            let family = self.computed_source(slot, StyleId::FontFamily).font_family;
+            out.font_weight = self.emboldened(slot, out.font_weight, family);
+        }
         out
     }
 
@@ -277,9 +281,12 @@ impl NodeArena {
 
     /// The computed text style without copying unrelated rows.
     pub fn text_style(&self, slot: u32) -> crate::text::TextStyle {
-        crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
-            self.copy_inherited(slot, rows, take)
-        })
+        let mut style =
+            crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
+                self.copy_inherited(slot, rows, take)
+            });
+        style.font_weight = self.emboldened(slot, style.font_weight, style.font_family);
+        style
     }
 
     /// Inherited values for comparison across a topology change.
@@ -288,6 +295,15 @@ impl NodeArena {
         self.copy_inherited(slot, StyleMask::INHERITED, |from, mask| {
             out.copy_rows(from, mask)
         });
+        if self.bold_text {
+            let weight = self.computed_source(slot, StyleId::FontWeight).font_weight;
+            let family = self.computed_source(slot, StyleId::FontFamily).font_family;
+            let bold = StyleProps {
+                font_weight: self.emboldened(slot, weight, family),
+                ..StyleProps::default()
+            };
+            out.copy_rows(&bold, StyleMask::of(StyleId::FontWeight));
+        }
         out
     }
 

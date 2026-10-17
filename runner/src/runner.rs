@@ -825,6 +825,9 @@ impl<D: DataSource> Runner<D> {
         // Its own role overrides (LLP 1121 stage 5): bound while it boots, installed once it has.
         let roles = exact_kernel::style::roles::Roles::new(crate::bridge::role_overrides(&plan));
         let booting = exact_kernel::style::roles::bind(&roles);
+        // The person's Bold Text, before the first frame (LLP 1115.000 D12.3).
+        let mut kernel = kernel;
+        kernel.set_bold_text(viewport.preferences.bold_text);
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),

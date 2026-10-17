@@ -43,6 +43,14 @@ impl<D: DataSource> Runner<D> {
             preferences,
             ..self.viewport
         };
+        // Bold Text is the kernel's, no resource's (LLP 1115.000 D12.3).
+        if self.kernel.set_bold_text(preferences.bold_text) && viewport == self.viewport {
+            let result = self.commit_again(Vec::new(), "bold text");
+            if result.is_err() {
+                let _ = self.kernel.set_bold_text(!preferences.bold_text);
+            }
+            return result.map(Some);
+        }
         self.replace_viewport(viewport, "preferences")
     }
 

@@ -100,6 +100,22 @@ impl<D: DataSource> Runner<D> {
         result.map(Some)
     }
 
+    /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
+    /// setting, which weights the system font (an authored weight
+    /// included) and leaves a family the app ships alone. A change commits
+    /// every text again, at the weight it now means; the same setting
+    /// commits nothing.
+    pub fn set_bold_text(&mut self, on: bool) -> Result<Option<CommitReceipt>, RunnerError> {
+        if !self.kernel.set_bold_text(on) {
+            return Ok(None);
+        }
+        let result = self.commit_again(Vec::new(), "bold text");
+        if result.is_err() {
+            let _ = self.kernel.set_bold_text(!on);
+        }
+        result.map(Some)
+    }
+
     /// The display's scale, device pixels a px, as last set; 1 until a host
     /// says (LLP 1115.000 D10.3).
     pub fn display_scale(&self) -> f64 {

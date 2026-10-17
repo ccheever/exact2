@@ -13,6 +13,10 @@ use crate::style::relative::Unit;
 use crate::LineHeight;
 use std::sync::LazyLock;
 
+/// The generic font stacks, the system's (`system-ui` to `ui-rounded`): the
+/// ids below a declared family's (`contract/lower/src/fonts.rs`).
+const GENERIC_STACKS: u16 = 8;
+
 /// Each text style's rows in each column, as a start: its weight and its
 /// leading (a ratio, or `normal`).
 static STARTS: LazyLock<Vec<[StyleProps; 4]>> = LazyLock::new(|| {
@@ -35,6 +39,22 @@ static STARTS: LazyLock<Vec<[StyleProps; 4]>> = LazyLock::new(|| {
 });
 
 use crate::style::relative::column_index as index;
+
+/// The weight Bold Text gives `weight` in the system font (LLP 1115.000
+/// D12.3), as UIKit's: one step, measured on an iOS 27 simulator
+/// (UIFontMetrics with `legibilityWeight` bold): 100 to 200, 200 to 300, 300
+/// to 400, 400 to 600, 500 to 700, 600 to 800, 700 and on to 900; between two
+/// hundreds, between their steps.
+pub fn bolder(weight: u16) -> u16 {
+    const STEPS: [u16; 11] = [100, 200, 300, 400, 600, 700, 800, 900, 900, 900, 1000];
+    let w = weight.clamp(1, 1000);
+    let (at, rest) = (usize::from(w / 100), w % 100);
+    if at >= 10 {
+        return 1000;
+    }
+    let (from, to) = (STEPS[at], STEPS[at + 1]);
+    from + (to - from) * rest / 100
+}
 
 impl NodeArena {
     /// The text style `slot`'s own `font-size` names, and whether the `font`
@@ -92,6 +112,24 @@ impl NodeArena {
             rows.fill(bare, unsaid(bare).minus(above))
         } else {
             rows
+        }
+    }
+
+    /// `weight` as Bold Text draws it on `slot` in stack `family` (LLP
+    /// 1115.000 D12.3): heavier in the system font, the generic stacks, when
+    /// the person turned it on; a family the app ships is left alone, and so
+    /// is a native control and its title, which the platform's control
+    /// weights itself.
+    pub(crate) fn emboldened(&self, slot: u32, weight: u16, family: u16) -> u16 {
+        let native = |s: u32| self.is_native_button(s) || self.is_native_text_control(s);
+        if self.bold_text
+            && family < GENERIC_STACKS
+            && !native(slot)
+            && !self.parents[slot as usize].is_some_and(native)
+        {
+            bolder(weight)
+        } else {
+            weight
         }
     }
 

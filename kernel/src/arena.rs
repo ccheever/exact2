@@ -81,6 +81,10 @@ pub struct NodeArena {
     /// its next commit applies what it says.
     pub(crate) display_scale: Option<f32>,
     pub(crate) display_scale_next: Option<f32>,
+    /// Bold Text is on (LLP 1115.000 D12.3): the person's setting, which the
+    /// host says and its next commit applies.
+    pub(crate) bold_text: bool,
+    pub(crate) bold_text_next: Option<bool>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
@@ -159,6 +163,8 @@ impl Clone for NodeArena {
             root_font_size_next: self.root_font_size_next,
             display_scale: self.display_scale,
             display_scale_next: self.display_scale_next,
+            bold_text: self.bold_text,
+            bold_text_next: self.bold_text_next,
             contents: self.contents.clone(),
             insets: self.insets.clone(),
             nonzero_insets: self.nonzero_insets.clone(),
@@ -617,7 +623,8 @@ impl NodeArena {
         let s = slot as usize;
         match self.node_types[s] {
             NodeType::TextInput => {
-                let style = rows.style();
+                let mut style = rows.style();
+                style.font_weight = self.emboldened(slot, style.font_weight, style.font_family);
                 // An input has a line box even when empty (the web's
                 // `<input>`): its value, else its placeholder, else one space.
                 let props = &self.props[s];
@@ -667,10 +674,10 @@ impl NodeArena {
                         ))
                     };
                     boundary.push(text);
-                    out.push(TextRun {
-                        text: shown,
-                        style: rows.style(),
-                    });
+                    let mut style = rows.style();
+                    // Bold Text (LLP 1115.000 D12.3), as `text_style` reads it.
+                    style.font_weight = self.emboldened(slot, style.font_weight, style.font_family);
+                    out.push(TextRun { text: shown, style });
                 } else {
                     for child in &self.children[s] {
                         if self.node_types[*child as usize] == NodeType::Text {

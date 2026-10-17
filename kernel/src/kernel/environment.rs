@@ -2,6 +2,18 @@
 use super::*;
 
 impl Kernel {
+    /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
+    /// accessibility setting, which weights the system font, an authored
+    /// weight included, and leaves a family the app ships alone. The next
+    /// commit applies it. Whether it changed.
+    pub fn set_bold_text(&mut self, on: bool) -> bool {
+        if self.arena.bold_text_next.unwrap_or(self.arena.bold_text) == on {
+            return false;
+        }
+        self.arena.bold_text_next = Some(on);
+        true
+    }
+
     /// The page's environment: what `env(safe-area-inset-*)`,
     /// `env(viewport-segment-*)` and the layout regions'
     /// `env(-exact-<region>-inset-*)` lengths resolve to (LLP 1001 §2; LLP
