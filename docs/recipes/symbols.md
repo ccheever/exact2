@@ -48,5 +48,4 @@ the role, with a warning that names it (`lower-symbol-alias`).
   web; a row's trailing `forward-chevron` is already the platform's grey.
   Emoji aren't icons: they ignore the tint, the weight and the theme.
 - A symbol takes its text's size. To size one, give it a text style (`-exact-title1`), as
-  UIKit configures a symbol: it grows with the reader's text size; a `width` does not, and
-  `verify` names one beside text.
+  UIKit configures a symbol: it grows with the reader's text size; a `width` does not.
