@@ -869,3 +869,54 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   real touch as before. The dispatch log records a touch a system
   recognizer took without a view (iOS 26's tab bar) where the window's hit
   test put it.
+
+## Amended (2026-10-16: a screenshot compared with a reference)
+
+An agent porting an app matches each screen to a screenshot of the original.
+Three ports of the euxy Expo app were judged against its screenshots; most
+of the exact2 port's deficits were authoring a pixel comparison would have
+named (note pads 8 pt too tall, a share card centred instead of left-aligned,
+a swipe action's text white instead of black), and the UIKit porter, who
+diffed its screenshots with scripts of its own, scored highest. So the
+driver compares, as a form of `screenshot` (a question about the picture,
+not an eleventh operation): `screenshot <png> [window [status]] compare
+<reference.png>` (`compareScreenshot`, `scripts/agent-compare.mjs`).
+
+- **The capture.** On an iOS simulator it is always the window with its
+  status bar (`window status`), as a device screenshot is; elsewhere the
+  viewport, or the window with `window`. The reference must have the
+  screen's shape at a pixel a point or more; any other is refused. The
+  comparison runs on a grid of one cell a point, each cell the area mean of
+  the pixels it covers; two cells match when each is within 40 (of 255) in
+  every channel of the other's 3×3 neighbourhood, so anti-aliasing and
+  sub-point offsets do not count. The status bar's rows are left out.
+- **Shifts.** Each row of the reference is matched to a row of the screen
+  by a Viterbi pass over offsets up to 64 pt that charges for each change
+  of offset; a run of one offset must then leave clearly fewer differing
+  cells than its neighbours' offsets would, or it takes theirs. A change of
+  2 pt or more is reported with where it falls: the smallest box (from
+  `layout` and `tree`, covered screens left out) that holds it and could
+  have grown by it, with its size in both and its look-alike siblings, or
+  the two boxes it falls between, whose gap widened.
+- **Regions.** What the rows' alignment leaves, isolated cells dropped and
+  the rest merged along their bands, the six largest: each with the named
+  nodes under it (testId, else type and text; box; source line), its
+  columns aligned the same way (a run that sits right or left, and the gap
+  or box that moved it), and, where that does not explain it, the fill and
+  ink on each side.
+- **Boxes.** A node under a region or a shift whose edges are visible (a
+  fill unlike what is around it, on each side) is found in the reference by
+  those edges; one 2 pt or more wider, taller or across is reported with
+  its size and place there.
+- **The picture.** `<png>.diff.png`: the reference, the screen, and the
+  screen faded with what still differs in red, the shifts dashed and the
+  regions boxed.
+
+On the euxy port the four screens the judge marked down came out as the
+judge saw them: the note pads (`pad-65 … is 25×48, 25×40 in the reference
+(and 23 like it)`), the share card (`share-card [36,237 330×452]: in the
+reference 343×471 at 24,237`), the lane editor's values (`x 204–348: 4 pt
+right of the reference; the space between Text "Note" … and note-value … is
+4 pt wider`), and the swipe action (`here #ddd on #f42, in the reference
+#000 on #f42`). A row a third of a point short (the judge's "rows slightly
+shorter") is under the grid's resolution.
