@@ -24,6 +24,7 @@ This guide is documentation, not an additional policy layer. Documents in
 - [Composition and lifetime](#composition-and-lifetime)
 - [Data requests and side effects](#data-requests-and-side-effects)
 - [Views, layout, and interaction](#views-layout-and-interaction)
+  - [Tabular numbers](#tabular-numbers)
 - [Routes and web documents](#routes-and-web-documents)
 - [Tabs and stacks](#tabs-and-stacks)
 - [Time, motion, graphics, and platform facts](#time-motion-graphics-and-platform-facts)
@@ -678,6 +679,55 @@ render-function props.
 Imports resolve local `.contract` declarations, with cycle and app-boundary
 checks. Paths begin with `./` and cannot contain `..` segments. They do not load app logic or expand the available built-in function
 roster. Compiler-owned router names exist only with a `routes` declaration.
+
+### Tabular numbers
+
+Use `font-variant-numeric="tabular-nums"` for **numeric columns** and **values that
+change in place**: prices in a ledger, timetable times, timers, scores, counters,
+progress percentages and recalculated totals.
+
+Use default spacing for prose, ordinary labels, static standalone statistics,
+and fields merely accepting numbers. Choose by how the value is used, regardless
+of its size or currency symbol: static columns need alignment, and updating
+headlines need stable digits.
+
+```contract
+text balance font-variant-numeric="tabular-nums"
+```
+
+Apply it to numeric text, keeping the platform font. It makes digits equal-width
+without monospacing letters. Font support is required; unsupported fonts remain
+unchanged. The property inherits. `normal` restores the font's default, which may
+already be tabular; Exact does not accept `proportional-nums`.
+
+Equal-width digits do not fix the whole value's width: `99` → `100`, signs,
+precision, separators and units can still move content. Reserve space for the
+formatted range when layout must stay still. Align numeric columns to a common
+edge (usually right for left-to-right numbers), with consistent units and precision
+where appropriate. Digits alone do not align decimals; do not pad with spaces or
+misleading zeroes.
+
+Supported for ordinary text on macOS, iOS, tvOS, Linux, Windows, Android and both
+web targets, including prerendered pages. Exceptions:
+
+- **Terminal:** ordinary digits already occupy equal-width cells. Explicit
+  `font-variant-numeric` settings are currently rejected.
+- **Android editable fields:** unsupported on native `input` and `textarea`;
+  they keep their font's default digits.
+- **Native buttons:** unsupported. Keep their typography; use separate `text`
+  for a readout. This property also does not style Canvas/GPU drawing or native hatches.
+- **Text wrapping around shapes on web:** a paragraph using `tabular-nums` skips
+  Exact's wrapping along image or shape outlines and uses ordinary browser layout.
+  Keep readouts separate from prose that needs this wrapping.
+
+`exact:content` components set their own typography: `SummaryCard` uses tabular
+digits for `value` and `detail`. Use `text` for a static statistic needing default
+spacing.
+
+Check the actual font, locale and host, including fallback digits, `11` → `88`,
+`99` → `100` and large accessibility text. Widths can differ across hosts. Keep
+locale-aware formatting and accessible labels. See
+[numeric-readout](recipes/numeric-readout.md) for sizing.
 
 ### Content components: `exact:content`
 

@@ -36,6 +36,13 @@ platform's: a `color` a bar button only inherits from the page leaves UIKit's ti
 writing apps should therefore say less — structure (a header's heading and buttons, a
 `tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
 
+## Numeric typography
+
+On graphical hosts, use tabular digits for numeric columns and values that change
+in place. Use default spacing for prose, ordinary labels and static standalone
+statistics. Apply it to numeric text, keeping the platform font. See the
+[guidance and limits](docs/contract-for-agents.md#tabular-numbers).
+
 ## Writing
 
 For all prose: comments, commit messages, guides, LLPs, issues and PR text.
