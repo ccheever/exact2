@@ -69,6 +69,13 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "prDetail",
             "welcome",
             "timelineAttachments",
+            // The server connections (src/transport/transport.ts): sockets, attempts, update jobs, replies, the tick.
+            "transportSocket",
+            "transportConnect",
+            "transportUpdateStep",
+            "transportUpdateSocket",
+            "transportDeliver",
+            "transportPump",
         ],
         &[
             "renderMarkdown",

@@ -114,7 +114,7 @@ export class Drive {
   now = 1_000_000;
   table: Table;
   readonly servers = new Map<string, FakeServer>();
-  private connects: Array<{ attempt: number; url: string; check: number; pending: boolean }> = Array.from({ length: 9 }, () => ({ attempt: -1, url: '', check: 0, pending: false }));
+  private connects: Array<{ attempt: number; check: number; pending: boolean }> = Array.from({ length: 9 }, () => ({ attempt: -1, check: 0, pending: false }));
   private sockets: Array<FakeSocket | null> = Array.from({ length: 9 }, () => null);
   private updates: Array<{ step: number; url: string; pending: boolean; socket: FakeSocket | null; socketUrl: string }> = Array.from({ length: 4 }, () => ({ step: -1, url: '', pending: false, socket: null, socketUrl: '' }));
   private socketUrls: string[] = Array.from({ length: 9 }, () => '');
@@ -147,12 +147,13 @@ export class Drive {
   }
 
   get bridge() { return this.transport.wrap(this.module)!; }
-  /** A bridge op, as the client sends it; its reply once the drive has run. */
+  /** A bridge op, as the client sends it; its reply once the drive has run, and the window once it is quiet again. */
   async op(request: Obj, rounds = 40): Promise<Obj> {
     let settled: Obj | null = null;
     void this.bridge.later(request).then(reply => { settled = reply as Obj; });
     for (let round = 0; round < rounds && settled === null; round++) await this.turn();
     if (settled === null) throw new Error(`op ${String(request.op)} never settled`);
+    await this.settle();
     return settled;
   }
 
@@ -168,16 +169,16 @@ export class Drive {
     let progress = false;
     this.table = this.transport.pump(this.now);
     for (let index = 0; index < 9; index++) {
-      const slot = (this.table as unknown as Record<string, { key: string; attempt: number; check: number }>)[`s${index}`]!;
+      const slot = (this.table as unknown as Record<string, { key: string; attempt: number; check: number; url: string }>)[`s${index}`]!;
       const connect = this.connects[index]!;
       if (slot.key && !connect.pending && (slot.attempt !== connect.attempt || slot.check !== connect.check)) {
         connect.pending = true; progress = true;
         const attempt = slot.attempt, check = slot.check;
         void this.transport.connect(index, slot.key, attempt, check, this.module).then(reply => {
-          if (this.connects[index] === connect) Object.assign(connect, { attempt: reply.attempt, url: reply.url, check, pending: false });
+          if (this.connects[index] === connect) Object.assign(connect, { attempt: reply.attempt, check, pending: false });
         });
       }
-      const url = connect.attempt === slot.attempt ? connect.url : '';
+      const url = slot.url;
       if (url !== this.socketUrls[index]) {
         progress = true;
         const old = this.sockets[index];

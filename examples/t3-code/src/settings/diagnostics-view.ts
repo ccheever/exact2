@@ -58,7 +58,7 @@ export function visibleLive(processes: Obj[], collapsed: Set<string>): Obj[] {
 const expandable = (text: string) => text.length > 180 || text.includes('\n');
 
 // One fetch per visit and Refresh: the key is the environment, period and refresh count. Each read is kept
-// as it lands and is a shared read (T3Transport `share`): an answer Exact asked again before a reply (a
+// as it lands and is a shared read (the request's `share`): an answer Exact asked again before a reply (a
 // telemetry sample, data.telemetry) joins the read still pending instead of sending it again, and keeps
 // what the earlier answer never received. The reads land before the
 // telemetry stream opens (settings-a-telemetry.ts telemetryPage): its first sample comes at once, and a reply that reached the

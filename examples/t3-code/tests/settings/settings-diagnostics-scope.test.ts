@@ -7,7 +7,7 @@
 // runner of the two resources: `data` is asked when a topic it watches changed, `diagnostics` when its arguments change,
 // and a replaced answer's pending native calls reject as Exact's do (let-go.ts).
 import { afterEach, describe, expect, test } from 'bun:test';
-import { answer } from '../../app';
+import { answerClient as answer } from '../../app'; // the client against this file's scripted bridge
 import { Backend, nextAppGeneration, storage } from '../support/client-fixture';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { SCHEDULED_TASKS_KEY } from '../../src/client/live-streams';

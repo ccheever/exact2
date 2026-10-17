@@ -10,6 +10,6 @@ describe('what #327 retires', () => {
     const swift = await Promise.all(readdirSync(appPath('modules/apple')).filter(name => name.endsWith('.swift')).map(name => source(`modules/apple/${name}`)));
     expect(swift.filter(text => text.includes('T3Storage'))).toEqual([]);
     const module = await source('modules/apple/T3Module.swift');
-    expect(module).toContain('transport = T3Transport(persistent: !context.agent, dataDirectory: context.data,');
+    expect(module).toContain('preferencesURL = context.data.appendingPathComponent("t3-code.json"');
   });
 });

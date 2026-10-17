@@ -2,7 +2,7 @@
 // LICENSE-T3; reference 1e2ecbd975: packages/contracts/src/auth.ts AuthStandardClientScopes,
 // packages/shared/src/oauthScope.ts encodeOAuthScope, apps/web/src/connection/platform.ts
 // ClientPresentation `scopes`, packages/client-runtime/src/authorization/remote.ts).
-// The constant lives here only: the Swift transport sends the `scope` it is given and names none.
+// The constant lives here only: the transport sends the `scope` it is given and names none.
 import { ClientError } from '../client/protocol';
 
 /** AuthStandardClientScopes, in the reference's order. */

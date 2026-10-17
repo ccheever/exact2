@@ -61,7 +61,7 @@ export function providerSetupEvent(host: Host, entry: Obj): boolean {
   const setup = value.entries.get(key.slice(KEYS[kind].length)), target = setup?.[kind];
   if (!setup || !target || !target.subscription || str(entry.subscriptionId) !== target.subscription) return true;
   const item = obj(entry.value);
-  // T3Transport retries a failed stream after a backoff and says so with `_retryDue`; the next watch resubscribes.
+  // The transport retries a failed stream after a backoff and says so with `_retryDue`; the next watch resubscribes.
   if (item._retryDue || item._streamEnded) { target.subscription = ''; target.requested = false; return true; }
   if (item._transportError) { target.error = str(obj(item._transportError).message, 'Could not load the provider setup status.'); return true; }
   target.state = item; target.error = ''; setup.done.clear();

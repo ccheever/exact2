@@ -69,7 +69,7 @@ export function serverUpdateLabel(client: T3Client): string {
   const saved = fleet.saved.find(entry => str(entry.environmentId) === client.environmentId);
   return `${str(saved?.label) || str(obj(client.config.environment).label) || client.environmentId} server`;
 }
-/** The saved key T3Fleet runs this environment's job under: its home origin, else the focused route. */
+/** The saved key the transport runs this environment's job under: its home origin, else the focused route. */
 export function focusedKey(client: T3Client): string {
   const saved = fleet.saved.find(entry => str(entry.environmentId) === client.environmentId);
   return environmentKey(str(saved?.origin) || client.origin, client.environmentId);

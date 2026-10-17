@@ -55,8 +55,9 @@ describe('the embedded server, the primary', () => {
     server.tokens.add('local-bearer');
     const drive = new Drive(server);
     drive.primaryBearer = 'local-bearer';
-    const reply = await drive.op({ op: 'connect', origin: A, primary: true });
-    expect(value(reply)).toMatchObject({ state: 'connected', primary: true, focus: 'primary' });
+    // The connect replies once its socket's URL is in; the socket opens after.
+    expect(value(await drive.op({ op: 'connect', origin: A, primary: true }))).toMatchObject({ state: 'connecting', environmentId: 'env-local', primary: true });
+    expect(value(await drive.op({ op: 'status' }))).toMatchObject({ state: 'connected', primary: true, focus: 'primary' });
     expect(value(await drive.op({ op: 'environments' })).saved).toEqual([]);
     expect(JSON.parse(drive.store.get('t3-catalog')!).focus).toBe('primary');
   });

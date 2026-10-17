@@ -15,7 +15,7 @@
 // fleet: `environments()` is the registry's entries (read again at every decision, as the reference
 // reads its SubscriptionRef), `request` is `registry.run(id, request(tag, input))`. Effect.cached is a
 // lazily started, memoized promise. Timeouts (30 s reads, 2 s identity probes, 1 s invalidations) are
-// the transport's own per-request deadline (`timeoutSeconds`, T3Transport `timeout`): a data module
+// the transport's own per-request deadline (`timeoutSeconds`, the request's `timeout`): a data module
 // has no timer (issues/closed/20261009-typescript-failure-parity.md). Interruption is Exact letting the answer go (`letGo`), which every fallback
 // rethrows, as the reference re-raises `Cause.hasInterrupts`. The SSH-profile re-check of
 // `routingAllowed` is folded into `permission` by the host: an SSH environment whose saved profile no

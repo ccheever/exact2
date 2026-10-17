@@ -3,7 +3,7 @@
 // previewAutomationRequestConsumer.ts; packages/contracts/src/rpc.ts `previewAutomation.connect`, `.respond`,
 // `.focusHost`, `subscribePreviewEvents`).
 //
-// The streams are the Swift transport's subscriptions (until #126's runner-owned streams), drained by
+// The streams are the transport's subscriptions, drained by
 // client.ts into `previewStreamEvent`: a request joins this client's queue, a preview event updates the thread's
 // preview store (an agent-opened or agent-navigated tab appears). `automationPrepare` (browserPrepare, every shell
 // answer) subscribes, hands each queued request's plan (browser-automation-plan.ts) to the module once

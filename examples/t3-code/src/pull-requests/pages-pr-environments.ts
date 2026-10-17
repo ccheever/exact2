@@ -56,13 +56,13 @@ export const readsPullRequests = (environment: PrEnvironment) => obj(obj(environ
 /**
  * One request on one server: the focused connection's own (its generation and write rules), or a background
  * transport's (`fleet: <key>` at its generation). `timeoutSeconds` is the transport's per-request deadline
- * (T3Transport `timeout`), how the reference's 2 s probes and 1 s invalidations are bounded here (issues/closed/20261009-typescript-failure-parity.md: no timer
+ * (the request's `timeout`), how the reference's 2 s probes and 1 s invalidations are bounded here (issues/closed/20261009-typescript-failure-parity.md: no timer
  * in the data module).
  */
 export async function environmentRequest(client: T3Client, native: Native, environmentId: string, method: string, payload: Obj,
   options: { write?: boolean; timeoutSeconds?: number; share?: boolean } = {}, source: EnvironmentFleet = fleet): Promise<Obj> {
   const timeout = options.timeoutSeconds === undefined ? {} : { timeout: options.timeoutSeconds };
-  // `share`: a read that joins an identical one still pending on that transport (T3Transport `share`).
+  // `share`: a read that joins an identical one still pending on that session (the request's `share`).
   const share = options.share && options.write !== true ? { share: true } : {};
   if ((!environmentId || environmentId === client.environmentId) && !options.timeoutSeconds && !share.share) {
     return client.request(native, method, payload, client.generation, options.write === true);

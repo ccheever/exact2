@@ -5,7 +5,7 @@
 // process, a disconnected focus connects to:
 //  - the primary ("This machine", local-primary.ts) when the transport's focus token says it was
 //    the last focus (its port can change every launch, so it has no remembered origin);
-//  - else the saved environment of the last origin (the credential Keychain keeps for it);
+//  - else the saved environment of the last origin (the token the catalog keeps for it);
 //  - else the primary while the Local environment switch is on (the reference's desktop always
 //    opens its primary environment);
 //  - else the first switched-on saved environment.

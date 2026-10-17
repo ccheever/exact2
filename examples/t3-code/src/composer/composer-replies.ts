@@ -3,9 +3,9 @@
 // (ChatView.tsx onSend's submitCodexFeedback; UsageLimits.tsx useResetCredit). The native data
 // executor answers one request at a time, so a source answer that waited on such a reply held
 // every other answer (the draft, the transcript, the "Sending feedback" state) until it came.
-// Here the command only starts the request: T3Transport sends it and files the reply in the
-// inbox under `composer-reply:<id>` (the rpc `deliver` key, T3Transport.swift) and wakes
-// `t3.events`; the next snapshot's drain hands it to the waiting promise. A reply from an older
+// Here the command only starts the request: the transport sends it and files the reply in the
+// inbox under `composer-reply:<id>` (the request's `deliver` key, transport-session.ts), which asks
+// the snapshot again; the next snapshot's drain hands it to the waiting promise. A reply from an older
 // connection never comes (the inbox resets), so a connection change settles the older waiters as
 // interrupted (client.ts adoptStatus), and an inbox that overflowed settles this connection's
 // waiters as lost: the request may have been applied, as a dropped atom command's may.

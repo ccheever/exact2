@@ -13,7 +13,7 @@
 // Discovery: the server's port scanner (`lsof` on macOS, then an HTML probe) streams the live local servers;
 // the empty state lists them, configured project preview URLs first. The stream lasts while a Browser tab of
 // the focused thread shows its empty state (the reference's query lives with PreviewEmptyState), carried by the
-// Swift transport like the client's other streams (exact2 #126).
+// transport like the client's other streams.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';

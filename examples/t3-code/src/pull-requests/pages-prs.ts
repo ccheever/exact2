@@ -360,7 +360,7 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
 /**
  * The list last drawn, per client, with the server it was drawn for. While the
  * focused connection resynchronizes on the same server (a return to the app resubscribes its shell and thread streams,
- * T3Transport.applicationActive, and `ready` waits for the shell's completion marker), the page keeps these rows, as the
+ * the transport's `foreground`, and `ready` waits for the shell's completion marker), the page keeps these rows, as the
  * reference's list keeps its data (`answered ?? carried`); an empty "loading" view there emptied the list for a moment
  * and brought it back at its top on every refocus.
  */

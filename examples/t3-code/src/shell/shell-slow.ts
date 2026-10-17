@@ -16,8 +16,8 @@
 //    interrupted; an Exact answer that is let go never resumes, so its `finally` never runs. The
 //    client side below ends the requests of an environment that is switched off, disconnected or
 //    replaced instead (`slowRequests`).
-//  - A request ends at the latest when T3Transport has failed it: the transport interrupts any RPC
-//    that is still pending after 30 s (its timer ticks each second) and sends the failure to the
+//  - A request ends at the latest when the transport has failed it: it interrupts any RPC
+//    that is still pending after 30 s (its tick runs each second) and sends the failure to the
 //    answer that asked. A let-go answer never sees that reply, so `slowRequests` ends the request
 //    itself once it is older than the transport allows (TRANSPORT_REQUEST_DEADLINE_MS).
 //  - A request is timed from the first shell time that is newer than the one the shell had when it
@@ -36,7 +36,7 @@ export const SLOW_RPC_ACK_THRESHOLD_MS = 15_000;
  */
 export const LONG_RUNNING_RPC_ACK_THRESHOLD_MS = 120_000;
 export const MAX_TRACKED_RPC_ACK_REQUESTS = 256;
-/** T3Transport.rpc: a request not answered in 30 s is interrupted and failed by a timer that ticks each second. */
+/** The transport's `rpc`: a request not answered in 30 s is interrupted and failed by its tick, which runs each second. */
 export const TRANSPORT_REQUEST_DEADLINE_MS = 31_000;
 
 export interface SlowRpcAckRequest {

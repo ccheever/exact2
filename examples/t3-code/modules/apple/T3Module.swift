@@ -1,15 +1,16 @@
-// Contract/TypeScript owns presentation and domain projection. This optional
-// module owns one authenticated connection; Exact's core knows nothing of T3.
+// Contract/TypeScript owns presentation, domain projection and the server connections
+// (src/transport/); this module owns the native views and what feeds them. Exact's core knows nothing of T3.
 import Foundation
 import AppKit
 
 final class T3Module: ExactModule {
-    let transport: T3Transport
-    let activity: T3ActivityReporter // reportClientActivity; its window facts are the page's (T3Module+Shell.swift `activityFacts`)
+    /// The module's links to the environments the data module has connected (T3Link.swift): terminals, Browser automation, devices.
+    let links = T3Links()
+    let activityInput: T3ActivityInput // when the reader last pointed, typed or scrolled (T3ActivityInput.swift)
+    private let preferencesURL: URL? // t3-code.json (T3Preferences.swift)
     private let panelTabs = RightPanelTabsInput()
     private let toolIcons = T3ToolActivityIcon()
     private let timelineTips = T3TimelineTooltip()
-    let fleet: T3Fleet // Background environments (T3Fleet.swift); T3BrowserAutomation answers their previewAutomation hosts.
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     let composer: T3Composer
     /// Settings › Appearance's editable prompt sample: its own editor, never the composer's (T3ComposerEditor.swift).
@@ -65,12 +66,9 @@ final class T3Module: ExactModule {
         rowDrop = T3RowDrop(attach: attach, changed: changed)
         video = T3ComposerVideo(dataRoot: context.data, muted: context.agent)
         media = T3MediaPreview(agent: context.agent, stagedFile: attach.stagedFile) // a draft file's preview reads its staged copy
-        let credentials = T3Credentials(persistent: !context.agent), saved = T3SavedEnvironments(persistent: !context.agent)
-        activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: context.data, pageFacts: true)
-        transport = T3Transport(persistent: !context.agent, dataDirectory: context.data, credentials: credentials, savedEnvironments: saved, activity: activity, changed: changed)
-        fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: changed)
-        fleet.transportCreated = T3TerminalSessions.fleetObserver(focused: transport) // a background environment's terminals
-        devices = T3DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: changed)
+        activityInput = T3ActivityInput(changed: changed)
+        preferencesURL = context.data.appendingPathComponent("t3-code.json", isDirectory: false)
+        devices = T3DeviceStreams(access: { [links] done in links.deviceHubAccess(done) }, changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         composerInput = T3ComposerInput()
         latinChords = T3LatinChords(agent: context.agent)
@@ -88,29 +86,37 @@ final class T3Module: ExactModule {
         attachBrowserAutomation() // T3Module+Browser.swift
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
-        if let key = request["fleet"] as? String { return fleet.perform(key, request) { reply.send($0) } }
         route(request, reply: reply, from: 0)
     }
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
-    /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
-    /// an op. A feature adds its area's method in its own file and one entry here.
+    /// calls `next` for the rest; what no area owns is the module's own (`status`, the preferences,
+    /// `links`). No two areas share an op. A feature adds its area's method in its own file and one entry here.
     private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.terminalOps, T3Module.localOps, T3Module.activationOps, T3Module.codexAuthOps, T3Module.browserOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
     }
-    /// The authenticated connection's ops (T3Transport.swift); a status read gains the presentation state.
+    /// The module's own ops. `status`: the native views' presentation state, which the data module adds to its
+    /// connection's status, and the last interaction for its activity reporter.
     private func forward(_ request: [String: Any], reply: ExactReply) {
-        transport.perform(request) { [weak self] response in
-            if request["op"] as? String == "status" {
-                DispatchQueue.main.async {
-                    var result = response
-                    var value = result["value"] as? [String: Any] ?? [:]
-                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }.merging(self?.browserAutomation.status ?? [:]) { first, _ in first }.merging(self?.rowDrop.status ?? [:]) { first, _ in first }
-                    result["value"] = value
-                    reply.send(result)
-                }
-            } else { reply.send(response) }
+        let generation = request["generation"] as? Int ?? 0
+        let failed = { (failure: T3Failure) in reply.send(["ok": false, "generation": generation, "error": failure.json]) }
+        switch request["op"] as? String {
+        case "status":
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return failed(T3Failure(kind: "Closed", message: "The window was closed.")) }
+                let presentation = self.timeline.status.merging(self.composer.status) { first, _ in first }.merging(self.intent.status) { first, _ in first }.merging(self.frames.status) { first, _ in first }.merging(self.scrollEnds.status) { first, _ in first }.merging(self.sidebar.status) { first, _ in first }.merging(self.media.status) { first, _ in first }.merging(self.devices.status) { first, _ in first }.merging(self.chrome.status) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self.browserSessions.status) { first, _ in first }.merging(self.browserAutomation.status) { first, _ in first }.merging(self.rowDrop.status) { first, _ in first }
+                reply.send(["ok": true, "generation": generation, "value": ["presentation": presentation, "activityLastInteraction": self.activityInput.lastInteractionAt()]])
+            }
+        case "readPreferences":
+            do { reply.send(["ok": true, "generation": generation, "value": ["text": try T3Preferences.read(preferencesURL)]]) } catch { failed(error as? T3Failure ?? T3Failure(kind: "Persistence", message: "\(error)")) }
+        case "writePreferences":
+            guard let text = request["text"] as? String else { return failed(T3Failure(kind: "Arguments", message: "writePreferences requires text.")) }
+            do { try T3Preferences.write(text, to: preferencesURL); reply.send(["ok": true, "generation": generation, "value": [:] as [String: Any]]) } catch { failed(error as? T3Failure ?? T3Failure(kind: "Persistence", message: "\(error)")) }
+        // The data module's connected environments (src/transport/transport.ts pushLinks).
+        case "links":
+            DispatchQueue.main.async { [links] in links.update(request); reply.send(["ok": true, "generation": generation, "value": [:] as [String: Any]]) }
+        default: failed(T3Failure(kind: "Arguments", message: "Unknown native operation."))
         }
     }
     override func element(_ element: ExactElement) {
@@ -134,7 +140,7 @@ final class T3Module: ExactModule {
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); activity.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); rowDrop.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); latinChords.destroy(); composerInput.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); activityInput.destroy(); links.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); rowDrop.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); latinChords.destroy(); composerInput.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self

@@ -3,8 +3,8 @@
 // (client-runtime state/usage.ts refreshUsage, UsagePage.tsx refreshLimits, UsageLimits.tsx
 // useResetCredit). The native data executor answers one request at a time, so no answer waits on
 // another environment's reply: like composer-replies.ts for the focused connection, the request
-// carries a `deliver` key (T3Transport.swift), the background transport files the reply in its own
-// inbox and wakes `t3.fleet`, and EnvironmentFleet's drain hands it here (`usageFleetEvent`). A
+// carries a `deliver` key (transport-session.ts), the background session files the reply in its own
+// inbox, which is fleet news for the snapshot, and EnvironmentFleet's drain hands it here (`usageFleetEvent`). A
 // connection change or a stopped environment settles the waiter as interrupted (`settleFleetWaiters`).
 // This module imports no value from settings-b-fleet.ts, which imports it.
 import { bridgeReply, ClientError, type Native } from '../client/protocol';

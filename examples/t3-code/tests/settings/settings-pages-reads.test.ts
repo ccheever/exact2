@@ -20,7 +20,7 @@ import { TELEMETRY_KEY } from '../../src/settings/settings-a-telemetry';
 // The app's own answer(), from an instance of app.ts that only this file uses: its client adopts only a newer
 // connection generation (client.ts adoptStatus), and the other files that drive answer() pick theirs for the order
 // the runner happens to visit the files in. A query-string import is a module instance of its own in Bun.
-const { answer } = (await import('../../app.ts?settings-pages-reads')) as typeof import('../../app');
+const { answerClient: answer } = (await import('../../app.ts?settings-pages-reads')) as typeof import('../../app'); // the client against this file's scripted bridge
 
 const NOW = Date.parse('2026-10-10T08:00:00.000Z');
 const task = (id: string, title: string): Obj => ({ id, title, prompt: 'Check the build', enabled: true, projectId: 'p1', threadId: null,

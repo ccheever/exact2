@@ -676,6 +676,18 @@ final class T3LocalAuth: @unchecked Sendable {
 
     var cached: String? { lock.lock(); defer { lock.unlock() }; return token }
 
+    /// The `/oauth/token` form DesktopLocalEnvironmentAuth.ts sends: no scope (every scope), "T3 Code Desktop", desktop.
+    static func exchangeForm(credential: String) -> Data {
+        let fields = ["grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "subject_token": credential,
+                      "subject_token_type": "urn:t3:params:oauth:token-type:environment-bootstrap",
+                      "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                      "client_label": "T3 Code Desktop", "client_device_type": "desktop"]
+        var parts = URLComponents()
+        parts.queryItems = fields.keys.sorted().map { URLQueryItem(name: $0, value: fields[$0]) }
+        // application/x-www-form-urlencoded treats a literal '+' as a space.
+        return Data((parts.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").utf8)
+    }
+
     func bearerToken(base: URL, credential: String, _ done: @escaping (String?) -> Void) {
         lock.lock()
         if let token { lock.unlock(); return done(token) }
@@ -686,7 +698,7 @@ final class T3LocalAuth: @unchecked Sendable {
         var request = URLRequest(url: URL(string: "/oauth/token", relativeTo: base)!.absoluteURL, timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "content-type")
-        request.httpBody = T3RemoteAuth.exchangeForm(credential: credential, client: .localDesktop)
+        request.httpBody = Self.exchangeForm(credential: credential)
         session.dataTask(with: request) { [self] data, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let object = (200..<300).contains(status) ? data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } : nil

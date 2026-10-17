@@ -326,7 +326,7 @@ export class T3Client {
   async refresh(native: Native | null | undefined, storage: Files): Promise<void> {
     if (!native?.available) { this.available = false; return; }
     const epoch = ++this.nextRefreshEpoch;
-    native.watch('t3.status'); native.watch('t3.events');
+    native.watch('t3.status'); // the module's presentation; the connections' news is the snapshot's argument (app.contract)
     native.watch('t3.notify'); // a command's wake redraws the composer (Send's "Preparing machine")
     try {
       await this.load(storage);
@@ -510,7 +510,7 @@ export class T3Client {
         if (num(entry.generation, -1) !== generation) { through = Math.max(through, seq); continue; }
         const item = obj(entry.value), key = str(entry.key);
         if (!this.subscriptions[key] && (key === 'config' || key === 'shell' || (key === 'thread' && this.threadId))) {
-          // Native can enqueue a subscription's first marker before its reply
+          // The transport can file a subscription's first marker before its reply
           // reaches the answer installing it. Keep this entry and every later
           // entry in the inbox; that answer's completion will trigger a reread.
           awaitingRegistration = true;
@@ -529,7 +529,7 @@ export class T3Client {
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
         if (key === PREVIEW_AUTOMATION_KEY || key === PREVIEW_EVENTS_KEY) { previewStreamEvent(this, entry); continue; } // browser-automation.ts: agent requests, preview events
         if (!this.subscriptions[key] || str(entry.subscriptionId) !== this.subscriptions[key]) continue;
-        // T3Transport resubscribes a failed stream on this session after a backoff (250 ms
+        // The transport resubscribes a failed stream on this session after a backoff (250 ms
         // doubling to 30 s); an authorization failure waits for the next session (c5a929e).
         if (item._retryDue) { this.streamRetryDue.add(key); continue; }
         if (item._transportError || item._streamEnded) {
@@ -777,7 +777,7 @@ export class T3Client {
   }
   // Generation-guarded server access for settings-rest-commands.ts / settings-rest-data.ts.
   restAccess(native: Native) {
-    // `read`: a read the transport shares with an identical one already pending (T3Transport `share`): an
+    // `read`: a read the transport shares with an identical one already pending (the request's `share`): an
     // answer asked again before its reply (Exact lets the old one go) joins it instead of sending again,
     // as the reference's query atoms share one request per input (unshared, vcs.refreshStatus ran four a second).
     return { request: (method: string, payload: Obj = {}, write = false) => this.request(native, method, payload, this.generation, write),

@@ -2,8 +2,8 @@
 // (T3 Code 1e2ecbd975 apps/web/src/components/settings/EnvironmentRoutesList.tsx,
 // EnvironmentRow.tsx environmentTransportLabel, ConnectionsSettings.tsx "Add a route to";
 // client-runtime registry.ts registerRoute / reorderRoutes / removeRoute and supervisor.ts
-// learnRoutesFrom; MIT, see LICENSE-T3). The pure model is connection-routes.ts; the native
-// store and the walk are T3SavedEnvironments and T3Routes.swift.
+// learnRoutesFrom; MIT, see LICENSE-T3). The pure model is connection-routes.ts; the store and
+// the walk are the transport's (transport-catalog.ts, transport-routes.ts).
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';

@@ -12,7 +12,7 @@
 // - Host resources load in a command (`cclocal:balance-load`) the root's `balanceLoad`
 //   task sends when `branches.balanceFetch` changes (issues/closed/20261009-typescript-failure-parity.md: no timers in a data module;
 //   issues/20261009-runner-owned-bidirectional-streams.md: each machine's request goes over its own transport, the focused connection or
-//   its T3Fleet transport, with a 5 s deadline). The task hands the window's wall time
+//   its background session, with a 5 s deadline). The task hands the window's wall time
 //   in; it stands for the client receipt time of that load's samples.
 // - The reference retargets the draft's project reference when the choice resolves
 //   (setDraftThreadContext). Here a draft belongs to the focused connection, so the

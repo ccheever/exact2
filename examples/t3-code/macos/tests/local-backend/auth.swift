@@ -52,10 +52,4 @@ final class LocalAuthTests: XCTestCase {
         XCTAssertEqual(auth.cached, "desktop-bearer-token")
     }
 
-    func testARemoteExchangeKeepsItsOwnLabel() {
-        let body = String(decoding: T3RemoteAuth.exchangeForm(credential: "c", scope: "orchestration:read"), as: UTF8.self)
-        XCTAssertTrue(body.contains("client_label=Exact%20T3%20for%20Mac"), body)
-        XCTAssertTrue(body.contains("client_os=macos"))
-        XCTAssertTrue(body.contains("scope=orchestration:read") || body.contains("scope=orchestration%3Aread"))
-    }
 }

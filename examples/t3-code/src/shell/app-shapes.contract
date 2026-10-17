@@ -16,3 +16,4 @@ shape Time
 shape Page
   visibilityState: string
   hasFocus: bool
+  onLine: bool

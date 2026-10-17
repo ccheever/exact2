@@ -113,9 +113,9 @@ through a native hatch, not a Contract `drop`). Those rows need real input.
 
 ## Real input (a normal launch)
 
-A normal launch saves the pairing in the Keychain (service `com.exact.t3code.macos.access-token`,
-account `<origin>\n<environment id>`) and the saved list in the app's defaults. Launch a lane copy
+A normal launch saves the pairing and its token in the connection catalog, one Keychain item (service the
+app's bundle id, account `t3-catalog`). Launch a lane copy
 of the bundle (its own bundle id) with `T3_LOCAL_HOME=<root>/local/t3home T3_LOCAL_PORT=16500`,
 pair with a URL from `bun -e 'import {fixturePaths,pairingUrl} from "./lib.mjs"; await Bun.write("/abs/pairing-url", pairingUrl(fixturePaths(), "second"))'`
-(paste it from that file), and afterwards remove the token with `bun env.mjs forget second`
-(only that fixture account; "none saved" when there was none).
+(paste it from that file), and afterwards remove it with `bun env.mjs forget second --app <the copy's bundle id>`
+(only that fixture's entry and tokens; "none saved" when there was none).

@@ -1,9 +1,9 @@
 // Orchestration protocol compatibility (MIT reference f90b77d,
 // commit 22e9d35: client-runtime connection/compatibility.ts). The message names
 // the direction: an older server is updated on its host, a newer one needs a newer
-// client. T3Transport.swift refuses both with the same text; the outdated-host
-// update itself (bare socket, self-update RPCs, descriptor poll) is T3Fleet's
-// fleetOutdated* operations and settings-b-outdated.ts.
+// client. The transport refuses both with the same text; the outdated-host
+// update itself (bare socket, self-update RPCs, descriptor poll) is its
+// fleetOutdated* operations (transport-outdated.ts) and settings-b-outdated.ts.
 import { obj, str, type Obj } from './domain';
 
 export const ORCHESTRATION_PROTOCOL_VERSION = 2;

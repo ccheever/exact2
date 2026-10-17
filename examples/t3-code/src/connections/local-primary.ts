@@ -6,8 +6,8 @@
 // is the descriptor's), components/chat/folderDrop.ts, and ConnectionsSettings.tsx (the desktop
 // session counts as AuthAdministrativeScopes; canManageLocalBackend).
 //
-// It connects through T3Transport (the focus) or T3Fleet (in the background) with `primary: true`:
-// the bearer is the embedded server's, in memory, never Keychain; it is never saved, has no row
+// It connects through the transport's focused session or a background one with `primary: true`:
+// the bearer is the embedded server's, in memory, never in the catalog; it is never saved, has no row
 // under Environments, and leads Load balancing and GitHub sharing. Its port can change every
 // launch, so its origin is never remembered: the transport keeps the focus token `primary` beside
 // `t3.server.origin`. A saved entry with the primary's environment id (the same T3 home, paired
