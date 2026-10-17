@@ -98,7 +98,7 @@ extension Presenter {
     #endif
 
     /// The editor being edited.
-    private var editor: NodeView? { editing ?? views.values.first { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true } }
+    var editor: NodeView? { editing ?? views.values.first { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true } }
 
     /// Reveals the editor of a presentation's route while the keys are up.
     func revealSheetEditor() {
