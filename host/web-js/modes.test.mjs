@@ -106,6 +106,23 @@ test('a live batch sets each tuple rule on its base, and a stale one asks for th
   expect(dim.style.map.get('--x-ink')).toBe('#111111ff');
 });
 
+// Stage 6 C's follow-up: a type token is a property a row it writes; a
+// batch sets each of its `parts` in every tuple's rule.
+test('a live batch sets each part of a type token', async () => {
+  const document = createDocument();
+  const rule = (selectorText) => ({ selectorText, style: { map: new Map(), setProperty(p, v) { this.map.set(p, v); } } });
+  const regular = rule(':root,[data-x-modes="density=regular"]'), compact = rule('[data-x-modes="density=compact"]');
+  document.styleSheets = [{ cssRules: [regular, compact] }];
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  modes([['density', ['regular', 'compact']]], {}, [], {}, [], { '--x-type-a-size': 'type.a', '--x-type-a-weight': 'type.a' }, 'd0', 's0');
+  const parts = [{ prop: '--x-type-a-size', css: ['1rem', '0.75rem'] }, { prop: '--x-type-a-weight', css: ['600', '700'] }];
+  expect(globalThis.exact.design({ kind: 'tamber-batch', structure: 's0', base: 'd0', design: 'd1', tokens: [{ name: 'type.a', value: '600 -exact-body', slices: [], parts }] }).live).toBe('applied');
+  expect(regular.style.map.get('--x-type-a-size')).toBe('1rem');
+  expect(compact.style.map.get('--x-type-a-size')).toBe('0.75rem');
+  expect(compact.style.map.get('--x-type-a-weight')).toBe('700');
+});
+
 // LLP 1121 stage 5: a role override's property is set in each tuple's rule,
 // and the tint's (`root`) in the theme's own `:root` rule alone, so a tuple
 // rule on a boundary does not mask an authored accent above it.

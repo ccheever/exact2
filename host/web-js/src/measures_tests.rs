@@ -397,13 +397,123 @@ fn a_type_token_is_its_parts_and_a_varying_one_is_refused() {
         out.js
     );
     let _ = std::fs::remove_dir_all(&dir);
-    let varying = plan(
+}
+
+/// Stage 6 C's follow-up: a type or family token that varies by an app axis
+/// is a property a row it writes, declared by each tuple's rule (a size's
+/// text style as its `rem`, a family as its plan stack); a bound row maps
+/// its name to the property; a constant one stays its literal, as before.
+#[test]
+fn a_varying_type_or_family_token_is_a_property_a_row() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  type.a = italic 400 -exact-title1/1.2 Georgia, serif\n  type.vary = italic 600 -exact-body/1.2 Georgia, serif\n    when density=compact: italic 700 -exact-footnote/1.1 system-ui\n  family.vary: family = ui-monospace\n    when density=compact: Georgia, serif\n";
+    let p = plan(
         "type-vary",
         design,
-        "component App\n  view\n    text \"v\" font=\"type.vary\"\n",
+        "component App\n  state big = false\n  view\n    column\n      text \"v\" font=\"type.vary\"\n      text \"f\" font-family=\"family.vary\"\n      text \"a\" font=\"type.a\"\n      text \"b\" font=(big ? \"type.vary\" : \"type.a\")\n",
     );
-    let e = crate::emit::emit(&varying, false, false)
-        .err()
-        .expect("refused");
-    assert!(e.contains("`type.vary` varies by an app axis"), "{e}");
+    let out = crate::emit::emit(&p, false, false).unwrap_or_else(|e| panic!("{e}"));
+    let css = &out.css;
+    for row in [
+        "font-size:var(--x-type-vary-size)",
+        "font-weight:var(--x-type-vary-weight)",
+        "font-style:var(--x-type-vary-style)",
+        "line-height:var(--x-type-vary-leading)",
+        "font-family:var(--x-type-vary-family)",
+        "font-family:var(--x-family-vary)",
+    ] {
+        assert!(css.contains(row), "{row}\n{css}");
+    }
+    // A constant one is its literal.
+    assert!(
+        css.contains("font-size:1.6875rem;") && !css.contains("--x-type-a"),
+        "{css}"
+    );
+    let regular = css
+        .find(":root,[data-x-modes=\"density=regular\"]{")
+        .expect(css);
+    let compact = css.find("[data-x-modes=\"density=compact\"]{").expect(css);
+    let (r, c) = (&css[regular..compact], &css[compact..]);
+    for part in [
+        "--x-type-vary-size:1rem;",
+        "--x-type-vary-weight:600;",
+        "--x-type-vary-leading:1.2;",
+        "--x-type-vary-style:italic;",
+    ] {
+        assert!(r.contains(part), "{part}\n{css}");
+    }
+    for part in [
+        "--x-type-vary-size:0.75rem;",
+        "--x-type-vary-weight:700;",
+        "--x-type-vary-leading:1.1;",
+        "--x-type-vary-family:system-ui;",
+    ] {
+        assert!(c.contains(part), "{part}\n{css}");
+    }
+    assert!(
+        r.contains("--x-family-vary:ui-monospace") && c.contains("--x-family-vary:\"Georgia\""),
+        "{css}"
+    );
+    // A bound row maps the varying token's name to its property, the
+    // constant one's to its part.
+    assert!(
+        out.js.contains("\"type.vary\":\"var(--x-type-vary-size)\""),
+        "{}",
+        out.js
+    );
+    assert!(
+        out.js.contains("\"type.a\":\"-exact-title1\""),
+        "{}",
+        out.js
+    );
+}
+
+/// In a development build every type and family token is properties, so an
+/// edit to its style, weight, size or line height is live: the design lists
+/// each row's property and its CSS per tuple (`parts`), never `inline`.
+#[test]
+fn a_development_build_makes_every_type_token_properties() {
+    let design = "tamber t\n\ntheme\n  type.a = 600 18px/1.4 Georgia, serif\n";
+    let p = plan(
+        "type-dev",
+        design,
+        "component App\n  view\n    text \"a\" font=\"type.a\"\n",
+    );
+    let dev = crate::emit::emit(&p, false, true).unwrap();
+    assert!(
+        dev.css.contains("font-size:var(--x-type-a-size)")
+            && dev.css.contains("font-weight:var(--x-type-a-weight)"),
+        "{}",
+        dev.css
+    );
+    let release = crate::emit::emit(&p, false, false).unwrap();
+    assert!(
+        release.css.contains("font-size:18px;font-weight:600;") && !release.css.contains("--x-"),
+        "{}",
+        release.css
+    );
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&p)
+    };
+    let token = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "type.a")
+        .unwrap()
+        .clone();
+    assert!(token.get("inline").is_none(), "{token}");
+    let parts = token["parts"].as_array().unwrap();
+    assert!(
+        parts.contains(&serde_json::json!({"prop": "--x-type-a-size", "css": ["18px"]})),
+        "{token}"
+    );
+    assert!(
+        parts.contains(&serde_json::json!({"prop": "--x-type-a-leading", "css": ["1.4"]})),
+        "{token}"
+    );
+    assert!(
+        !parts.iter().any(|p| p["prop"] == "--x-type-a-style"),
+        "it writes no style: {token}"
+    );
 }

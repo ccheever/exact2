@@ -208,7 +208,8 @@ function design(frame) {
   if (frame.base != null && frame.base !== Design) return { live: "stale" };
   if (frame.design === Design || !frame.tokens?.length) return { live: "applied" };
   const rules = tupleRules();
-  for (const t of frame.tokens) {
+  // A type token is a property a row it writes (`parts`, modes.rs `design`).
+  for (const t of frame.tokens.flatMap(t => t.parts ?? [t])) {
     if (!t.prop || !Array.isArray(t.css)) continue;
     // The tint's override: the theme's `:root` rule, under an authored
     // `accent-color`'s redeclaration (LLP 1121 stage 5).

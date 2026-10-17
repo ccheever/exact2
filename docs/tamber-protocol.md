@@ -398,11 +398,13 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     names, or a length or number an SVG attribute row names, has no property the page sets in
     place, so its edit rebuilds and the JS dev loop refuses its scrub, the refusal naming why (the
     design entry says `inline`).
-    So does every type and family token (stage 6 C, under *1.9*): the JS target writes each as
-    the kernel resolves its longhands, a literal, so an edit to one rebuilds there and has no
-    scrub, whatever `propose` classes it for the native and wasm builds (`live` for a value-only
-    edit is no promise for the JS target); and one that varies by an app axis is refused at build
-    when the app ships the JS target.
+    A type or family token is no longer one (stage 6 C's follow-up): the JS target declares each
+    row such a token writes as a property per tuple (`--x-type-body-size`, `--x-family-mono`),
+    one that varies by an app axis always and every one in a development build, so an edit that
+    changes only a type token's style, weight, size or line height is live and scrubbable there
+    too; one that changes the rows it writes or a family rebuilds, as `propose` classes it. The
+    design entry of such a token lists each row's property and its CSS per tuple (`parts`) in
+    place of `prop` and `css`.
 - **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
   the scrub opened with, its reply a transaction's. A file moved since is a conflict naming who
   moved it (`by`): nothing is written, and the builds get the committed design back. While a

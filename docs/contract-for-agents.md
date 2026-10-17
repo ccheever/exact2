@@ -3153,7 +3153,8 @@ weight applies where it names none, and a size in px is warned of
 (`tamber-type-fixed`: it does not follow the person's text size). A family token
 is a stack (`family.text = "InterVariable", system-ui`), named by `font-family`.
 One that varies by a mode goes on the text, not its container
-(`tamber-inherited-axis`); on the JS target it may not vary yet.
+(`tamber-inherited-axis`); on the JS target each row it writes is a property
+per mode (`--x-type-body-size`).
 A component declares what a designer may tweak in a `params` section (LLP 1121
 D15), one param a line: `radius: length = "radius.md"  range="0..40"  step=1
 control="slider"  group="Shape"  priority=1  label="Corner radius"`. A param is a

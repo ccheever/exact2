@@ -98,19 +98,6 @@ pub fn row(id: StyleId) -> bool {
 /// refused ([`refuse_inline`]).
 pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    // A type or family token (stage 6 C) is written as the kernel resolves
-    // its rows, each longhand's part, never a property.
-    for r in plan
-        .theme
-        .iter()
-        .filter(|r| matches!(kind(r), Some(Kind::Type | Kind::Family)))
-    {
-        let writer = match kind(r) {
-            Some(Kind::Type) => "`font`",
-            _ => "`font-family`",
-        };
-        out.push((plan.str(r.name).to_string(), writer.to_string()));
-    }
     for node in &plan.nodes {
         let attributes = exact_kernel::NodeType::from_wire(node.node_type)
             .map_or(&[][..], exact_web::host::template::attribute_rows);
@@ -160,6 +147,79 @@ pub fn refuse_inline(plan: &Plan) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The rows a type token may write, each with its CSS property and the
+/// suffix of the property a page declares it in (`--x-type-body-size`).
+pub const TYPE_ROWS: [(StyleId, &str, &str); 5] = [
+    (StyleId::FontStyle, "font-style", "style"),
+    (StyleId::FontWeight, "font-weight", "weight"),
+    (StyleId::FontSize, "font-size", "size"),
+    (StyleId::LineHeight, "line-height", "leading"),
+    (StyleId::FontFamily, "font-family", "family"),
+];
+
+/// Theme row `row`'s text in app tuple `tuple`: its slice where it varies.
+pub fn value_at<'a>(plan: &'a Plan, row: &exact_plan::ThemeRow, tuple: u32) -> &'a str {
+    match row.slices.len {
+        0 => plan.str(row.value),
+        len => plan.str(plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value),
+    }
+}
+
+/// Row `id`'s part of type or family token text `value` as a page's rule
+/// declares it (LLP 1121 stage 6 C, as properties): what the template writes
+/// for the literal's part, a size or a line height that is a length as its
+/// CSS (a text style its `rem`), a family its plan stack's.
+pub fn part_css(plan: &Plan, kind: Kind, id: StyleId, value: &str) -> Option<String> {
+    let part = font_part(plan, kind, id, value)?;
+    Some(match id {
+        StyleId::FontSize => css(Kind::Length, &part),
+        StyleId::LineHeight if part.parse::<f64>().is_err() => css(Kind::Length, &part),
+        _ => part,
+    })
+}
+
+/// Each type or family token the page declares as properties, one a row it
+/// writes (LLP 1121 stage 6 C's follow-up): a token that varies by an app
+/// axis, and in a development build every one; `(name, row, property)`. A
+/// family token's one row is its name's property, `--x-<name>`; a type
+/// token's `--x-<name>-<part>`. Every tuple writes the same rows
+/// (`tamber-type-longhands`), so the default tuple's say which.
+pub fn type_properties(plan: &Plan, every: bool) -> Vec<(String, StyleId, String)> {
+    let mut out = Vec::new();
+    for r in plan.theme.iter() {
+        let Some(kind @ (Kind::Type | Kind::Family)) = kind(r) else {
+            continue;
+        };
+        if r.slices.len == 0 && !every {
+            continue;
+        }
+        let name = plan.str(r.name);
+        let base: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        for (id, _, part) in TYPE_ROWS {
+            if kind == Kind::Family && id != StyleId::FontFamily
+                || font_part(plan, kind, id, value_at(plan, r, 0)).is_none()
+            {
+                continue;
+            }
+            let prop = match kind {
+                Kind::Family => format!("--x-{base}"),
+                _ => format!("--x-{base}-{part}"),
+            };
+            out.push((name.to_string(), id, prop));
+        }
+    }
+    out
 }
 
 /// Token `i`'s sentinel of `kind` at offset `k`: the value text a parse
@@ -232,6 +292,7 @@ pub fn map(
     id: StyleId,
     attribute: bool,
 ) -> Option<String> {
+    let types = type_properties(plan, crate::modes::every_token());
     let pairs: Vec<String> = plan
         .theme
         .iter()
@@ -242,10 +303,18 @@ pub fn map(
             // it: a varying token's name stands there (the JS target does not
             // read one computed into an attribute). Nor does an inherited row
             // read one, as the kernel reads none (LLP 1121 D7).
+            let name = plan.str(r.name);
+            // A type or family token's part the page declares: its property
+            // (a text with no element children reads it, stage 6 C).
+            if matches!(kind, Kind::Type | Kind::Family) && !attribute {
+                if let Some((.., prop)) = types.iter().find(|(n, row, _)| n == name && *row == id) {
+                    let var = serde_json::to_string(&format!("var({prop})")).unwrap();
+                    return Some(format!("{}:{var}", serde_json::to_string(name).unwrap()));
+                }
+            }
             if (attribute || id.inherited()) && r.slices.len > 0 {
                 return None;
             }
-            let name = plan.str(r.name);
             // A type token's part for this row, a family's stack, as the
             // template writes the literal's (stage 6 C); a part it does not
             // write stands, for the browser to refuse, as the kernel leaves it.

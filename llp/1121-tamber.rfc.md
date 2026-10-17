@@ -3263,3 +3263,26 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   line's) no longer reads, directly or through another token, an icon's alias or a param: D14's
   mark, "no longer follows `radius.md`".
 
+### Stage 6 C's follow-up: type and family tokens as properties on the JS target (draft for theme2)
+
+- **What changed.** The JS target wrote a type or family token as the kernel resolves each longhand,
+  a literal, so one that varied by an app axis was refused there and an edit to one rebuilt. Now each
+  row such a token writes is a property per tuple, as stage 6 B made lengths and numbers: a type
+  token's `--x-<name>-style`, `-weight`, `-size`, `-leading` and `-family`, as it writes them; a
+  family token's `--x-<name>`. One that varies has them always; in a development build every one
+  does (`measures::type_properties`).
+- **Each tuple's rule declares each part** as the template writes the literal's: a size, or a line
+  height that is a length, as its CSS (a text style its `rem`); a family as its plan stack's CSS
+  (`measures::part_css`).
+- **No sentinel marks a part.** A style is `normal` or `italic`, a weight a whole number, a family a
+  stack the plan declares, so none can be bound to a value no app writes. The declaration a row
+  writes is found by its property instead (`Modes::type_rows`): a varying token reaches only a text
+  with no element children (`tamber-inherited-axis`), whose own rows these are.
+- **A bound row** (`font=(c ? "type.a" : "type.b")`) maps the name to its part's `var()`.
+- **Live.** The design entry lists each row's property and its CSS per tuple (`parts`), and the page
+  sets each one; a type token is no longer `inline`. A change to its style, weight, size or line
+  height is live and scrubbable on the JS loop; one that changes the rows it writes or a family
+  rebuilds, by the design's shape, as everywhere.
+- **Release** output is byte for byte the same where no type or family token varies.
+- Out of scope: Bold Text, and the weight and leading a text style implies where the token writes
+  none (they stay the default tuple's literal).
