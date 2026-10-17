@@ -518,6 +518,8 @@ theme
   `setScheme`, which stays the host's appearance command. The new slice applies in the
   action's own commit, refreshed by D7's per-use domains: repainted, and laid out only where
   a selected value is in a layout row. Undeclared axes and values are refused at compile.
+  A dev reload keeps the window's slice (runner `Carried::modes`, the JS target's checkpoint);
+  an axis or value the edit removed starts again at its first value.
 - **A subtree pins app modes** with `-exact-mode="dark-style=dim"` (several, space- or comma-separated; `axis=value` is the one spelling, as in a `when`),
   as `color-scheme` pins the scheme (LLP 1034 §8). A pin inherits the axes it does not name
   from above. A mode pin never changes the scheme: a settings screen previews the three

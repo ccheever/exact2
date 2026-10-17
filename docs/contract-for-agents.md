@@ -3133,7 +3133,8 @@ on a node holds its subtree in one (pins are `axis=value`, by spaces or commas;
 `axis:value` is refused), and inherited text inside takes the pin's value. The
 agent's `prefer mode dark-style=dim` sets it from a drive (the app's own
 `setMode` still wins after it: an app that restores a kept mode at launch
-overrides an earlier `prefer`, so prefer after `clock data`), `layout <id>` shows
+overrides an earlier `prefer`, so prefer after `clock data`; a dev reload keeps
+the window's mode unless the edit removed it), `layout <id>` shows
 the token beside each row's value, and `bun exact.mjs tamber check | eval --mode
 … | ir | fmt` checks the design, prints its tokens in a mode, writes its IR, or
 puts it in its one layout (`fmt --check` changes nothing). The

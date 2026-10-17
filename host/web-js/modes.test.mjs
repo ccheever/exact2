@@ -145,6 +145,20 @@ test('a development build with no axes puts its boundaries in the empty tuple', 
   expect(b.getAttribute('data-x-modes')).toBe('');
 });
 
+// A dev reload's checkpoint carries the window's modes: each axis the
+// design still has at that value keeps it; a value gone starts again.
+test('a development build boots in the modes its reload carried', async () => {
+  const document = createDocument();
+  const checkpoint = { textContent: JSON.stringify({ modes: { 'dark-style': 'dim', density: 'compact' } }) };
+  document.querySelector = sel => (sel.includes('dev-checkpoint') ? checkpoint : null);
+  Object.assign(globalThis, { document, __exactRender: true });
+  const { modes } = await import('./modes.js');
+  modes([['dark-style', ['black', 'dim']], ['density', ['cozy', 'loose']]], {}, [], {}, [], {}, 'd0', 's0');
+  for (const f of After) f();
+  expect(globalThis.exact.modes.read()).toEqual({ 'dark-style': 'dim', density: 'cozy' });
+  expect(document.documentElement.getAttribute('data-x-modes')).toBe('dark-style=dim,density=cozy');
+});
+
 // A release build copies modes.js without the live table (build.mjs
 // `withoutDev`): no `exact.design`, whatever the call passes, and the
 // modes still work.

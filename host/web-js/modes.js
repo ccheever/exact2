@@ -237,6 +237,9 @@ export function modes(axes, classes, texts, vars, accent, names, devDesign, devS
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
   // dev-only {
   if (devDesign != null && typeof document !== "undefined") { Design = devDesign; Structure = devStructure; Rules = null; Object.assign(globalThis.exact ??= {}, { design, designDigest: devDesign }); }
+  // A dev reload's checkpoint (dev.mjs `capture`) carries the window's modes the design still has.
+  const kept = JSON.parse(globalThis.document?.querySelector?.('script[type="application/vnd.exact.dev-checkpoint"]')?.textContent ?? "null")?.modes;
+  if (kept) Axes.forEach(([a, values], i) => { const j = values.indexOf(kept[a]); if (j >= 0) Win[i] = j; });
   // dev-only }
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };

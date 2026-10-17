@@ -31,6 +31,9 @@ pub struct Carried {
     /// The driver's fetch faults as they are (LLP 1103 D3, `Faults::spec`),
     /// so a replacement neither revives a spent fault nor loses an armed one.
     pub faults: Option<String>,
+    /// The window's app modes, (axis, value) (LLP 1121 D5): an app's
+    /// `setMode` or the agent's `prefer mode` outlives a reload.
+    pub modes: Vec<(String, String)>,
 }
 
 #[cfg(test)]

@@ -2,7 +2,8 @@
 //! action, or the agent's `prefer mode`. A node's tuple is the window's,
 //! overridden by the nearest `-exact-mode` pin; a new window tuple sets every
 //! themed row again in the commit that changed it, which paints (a colour
-//! token moves no geometry). Neither persists across a launch (§9 Q5).
+//! token moves no geometry). Neither persists across a launch (§9 Q5); a
+//! reload carries the window's.
 
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::CommitReceipt;
@@ -61,6 +62,19 @@ impl<D: DataSource> Runner<D> {
                 .zip(&digits)
                 .fold(0, |tuple, ((_, values), d)| tuple * values.len() as u32 + d),
         )
+    }
+
+    /// A reload's carried window modes: each axis the new plan still has
+    /// at that value keeps it; one it lacks, or a value gone, starts again.
+    pub(super) fn carry_modes(&mut self, modes: &[(String, String)]) {
+        let pins: Vec<(&str, &str)> = modes
+            .iter()
+            .map(|(a, v)| (a.as_str(), v.as_str()))
+            .filter(|pin| self.window_with(&[*pin]).is_some())
+            .collect();
+        if let Some(tuple) = self.window_with(&pins) {
+            self.set_window(tuple);
+        }
     }
 
     /// Set the window's tuple, to be set again in the next visit.
