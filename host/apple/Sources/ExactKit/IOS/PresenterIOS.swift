@@ -362,7 +362,7 @@ package final class Presenter {
         reorder?.abandon()
         reorderGroup?.abandon()
         session?.rasters.reset()
-        collections.reset()
+        collections.reset(); elementScrolls.cancelAll()
         autofocusProcessed.removeAll()
         segments.reset()
         accent.release()
@@ -421,7 +421,7 @@ package final class Presenter {
     /// One native focus intent, bound to the actual editor across controller
     /// transitions. Replacing a node with the same HTML id cannot inherit it.
     private var pendingFocus: (node: NodeView, args: [Any], selectText: Bool, reason: String)?
-    private var deliveringFocus = false; var pendingElementScroll: (node: NodeView, args: [Any])? // `scrollIntoView` awaiting its target's window (IntoView.swift)
+    private var deliveringFocus = false; lazy var elementScrolls = ElementScrolls(self) // held `scrollIntoView` requests (IntoView.swift)
     var pendingFocusObservation: [String: String]? {
         guard let pending = pendingFocus, let name = pending.args.first as? String else { return nil }
         return ["target": name, "reason": pending.reason]
@@ -804,7 +804,7 @@ package final class Presenter {
                 textSelection.batchEnded()
                 #endif
                 if moved { session?.natives.refreshWorldGeometry() }
-                flushPendingFocus()
+                flushPendingFocus(); elementScrolls.flush()
             }
         }
         var beganGeometry = false

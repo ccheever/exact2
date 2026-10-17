@@ -273,8 +273,9 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         let dialog = entry.dialog
         dialog.accessibilityViewIsModal = false
         entry.under?.accessibilityElementsHidden = entry.underHidden
-        // A focus still waiting for the sheet's window has nowhere to go.
+        // A focus or scroll still waiting for the sheet's window has nowhere to go.
         if presenter?.pendingFocusNode?.isDescendant(of: dialog) == true { presenter?.cancelPendingFocus() }
+        presenter?.elementScrolls.cancel(inside: dialog)
         dialog.isHidden = true
         if live(dialog), let parent = entry.parent {
             parent.insertSubview(dialog, at: min(entry.index, parent.subviews.count))

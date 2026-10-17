@@ -114,24 +114,83 @@ extension Presenter {
 #elseif os(iOS) || os(tvOS)
 import UIKit
 
+/// `scrollIntoView` requests held until their targets can be scrolled to
+/// (UIKit's sheets mount a turn after the batch that made them; euxy's
+/// preselected icon was asked in that turn), and carried out once more when a
+/// presentation or navigation settles, after any focus it brought, which
+/// UIKit would otherwise scroll back to. One per HTML id, the latest; a
+/// request for another element leaves them be.
+final class ElementScrolls {
+    private struct Held {
+        weak var node: NodeView?
+        let incarnation: UInt64
+        let name: String
+        let args: [Any]
+    }
+    private var held: [Held] = []
+    private unowned let presenter: Presenter
+    init(_ presenter: Presenter) { self.presenter = presenter }
+
+    var names: [String] { held.map(\.name) }
+    func hold(_ node: NodeView, _ name: String, _ args: [Any]) {
+        drop(name)
+        held.append(Held(node: node, incarnation: node.incarnation, name: name, args: args))
+    }
+    func drop(_ name: String) { held.removeAll { $0.name == name } }
+    /// A closing sheet or dialog takes its requests with it.
+    func cancel(inside root: UIView) { held.removeAll { $0.node?.isDescendant(of: root) ?? true } }
+    func cancelAll() { held.removeAll() }
+
+    /// Carry out each request whose target can be scrolled to, outside a
+    /// batch; keep it while a presentation or navigation is settling. A
+    /// target replaced, recycled into another row, or on an inactive route
+    /// cancels its request.
+    func flush() {
+        guard !held.isEmpty, !presenter.applying else { return }
+        let settling = presenter.settlesElementScroll
+        for entry in held {
+            guard let node = entry.node, node.incarnation == entry.incarnation, presenter.views[node.id] === node,
+                  node.props["id"] == entry.name, !presenter.navigation.isInactiveRoute(containing: node) else {
+                drop(entry.name)
+                presenter.session?.log("scrollIntoView \"\(entry.name)\" cancelled: its target was replaced or left")
+                continue
+            }
+            guard presenter.canScrollIntoView(node) else { continue }
+            presenter.scrollIntoView(node, entry.args)
+            if !settling { drop(entry.name) }
+        }
+    }
+}
+
 extension Presenter {
+    var settlesElementScroll: Bool { navigation.defersFocus || modals.defersFocus }
+
+    /// Whether `target` is laid out where it can be scrolled to: in a
+    /// window, with a size. A row of a grouped list counts once its window
+    /// is there: its authored original is a hidden sibling of the native
+    /// collection, which projects the row (or, offscreen, scrolls to the
+    /// original's place).
+    func canScrollIntoView(_ target: NodeView) -> Bool {
+        guard target.window != nil else { return false }
+        return groupedLists?.scroller(for: target.id) != nil || target.bounds.width > 0 || target.bounds.height > 0
+    }
+
     func scrollElementIntoView(_ args: [Any]) {
         guard let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             session?.log("scrollIntoView \"\(args.first ?? "")\" refused: no live node with that id")
             return
         }
-        // A presented sheet's views enter the window only when UIKit starts
-        // the presentation, a turn after the batch that made them: on real
-        // timing an answer landing in that turn (euxy's preselected icon)
-        // found no window. It waits for the target's window, as `focus`
-        // does; the latest request wins.
-        guard target.window != nil else {
-            pendingElementScroll = (target, args)
-            session?.log("scrollIntoView \"\(name)\" waits: its target is not in a window yet")
+        guard canScrollIntoView(target), !applying else {
+            elementScrolls.hold(target, name, args)
+            session?.log("scrollIntoView \"\(name)\" waits: its target is not laid out in a window yet")
             return
         }
-        pendingElementScroll = nil
+        scrollIntoView(target, args)
+        if settlesElementScroll { elementScrolls.hold(target, name, args) } else { elementScrolls.drop(name) }
+    }
+
+    func scrollIntoView(_ target: NodeView, _ args: [Any]) {
         let (block, inline) = IntoView.options(args)
         let grouped = groupedLists?.scroller(for: target.id).flatMap { scroll in
             scroll.window === target.window && groupedLists?.projectedRect(for: target, in: scroll) != nil ? scroll : nil
@@ -170,19 +229,6 @@ extension Presenter {
             // UIKit element jumps fall back to instant (LLP 1070.000 §14).
             sv.setContentOffset(to, animated: false)
         }
-    }
-    /// Carry out a `scrollIntoView` that waited for its target's window,
-    /// once the target is there and no batch is applying; a target replaced
-    /// or removed meanwhile cancels it.
-    func flushPendingElementScroll() {
-        guard let pending = pendingElementScroll, !applying else { return }
-        guard views[pending.node.id] === pending.node, pending.node.props["id"] == pending.args.first as? String else {
-            pendingElementScroll = nil
-            session?.log("scrollIntoView \"\(pending.args.first ?? "")\" cancelled: its target was replaced before it was mounted")
-            return
-        }
-        guard pending.node.window != nil else { return }
-        scrollElementIntoView(pending.args)
     }
 }
 #endif

@@ -632,14 +632,15 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func fit() {
         guard !closing else { return }
         presenter.session?.view?.fit()
-        presenter.flushPendingElementScroll()
         presenter.flushPendingFocus()
+        presenter.elementScrolls.flush()
     }
 
     func closeTop(animated: Bool = !ExactEnv.agentFreezes, refit: Bool = true) {
         guard let layer = layers.last else { return }
         closing = true
         if !layer.alreadyDismissed { presenter.cancelPendingFocus() }
+        presenter.elementScrolls.cancel(inside: layer.controller.view)
         let controller = layer.controller
         presenter.navigation.retireNavigation(layer.navigation, preserving: controller.retiringNavigation != nil)
         layers.removeLast()
