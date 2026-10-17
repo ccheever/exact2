@@ -28,14 +28,21 @@ export function useXcode() {
 }
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
-/** A window capture the app drew (`path`, in `r`'s scale) with the software keyboard put in from the simulator's own
- *  screenshot: UIKit draws the keyboard in a process of its own, so no capture of the app's window has it (round 9:
- *  "blank keyboard region"). Only the rows from the keyboard's top (`r.keyboard.windowTop`) are taken, so the picture
- *  stays the app's; what could not be done is said in `note`, and the picture is left as it was. Returns `r`. */
-export function withKeyboard(r, path, udid) {
-  const top = r.keyboard?.windowTop, scale = r.scale;
-  const fail = (why) => { r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`; return r; };
-  if (!(top >= 0) || !(scale > 0)) return fail('no keyboard top');
+/** A window capture the app drew (`path`, in `r`'s scale) with what other processes draw on the display put in from
+ *  the simulator's own screenshot: the software keyboard, from its top (`r.keyboard.windowTop`) down (round 9: "blank
+ *  keyboard region"), and the status bar, its top `r.statusBar` points (the euxy port, FRICTION 5: a window capture
+ *  then compares with a `simctl io` reference, as the device shows it — `xcrun simctl status_bar <udid> override
+ *  --time 9:41` sets what it shows). Only those rows are taken, so the picture stays the app's; what could not be
+ *  done is said in `note`, and the picture is left as it was. Returns `r`. */
+export function withDisplay(r, path, udid) {
+  const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
+  const fail = (why) => {
+    if (bar > 0) r.statusBar = false;
+    r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)` : `the status bar is not in the capture (${why})`;
+    return r;
+  };
+  if (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0)) return fail('no keyboard top');
+  if (!(scale > 0)) return fail('no scale');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
   try {
     const shot = resolve(dir, 'display.png');
@@ -43,11 +50,14 @@ export function withKeyboard(r, path, udid) {
     if (taken.status !== 0 || !existsSync(shot)) return fail(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
     const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
     if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
-    const y = Math.max(0, Math.min(app.height, Math.round(top * scale)));
-    app.data.set(display.data.subarray(y * app.width * 4), y * app.width * 4);
+    const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
+    if (bar > 0) { app.data.set(display.data.subarray(0, row(bar)), 0); r.statusBar = true; }
+    if (keyboard) app.data.set(display.data.subarray(row(top)), row(top));
     writeFileSync(path, encodePng(app));
-    r.keyboard.captured = true;
-    r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
+    if (keyboard) {
+      r.keyboard.captured = true;
+      r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
+    }
     return r;
   } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }
   finally { rmSync(dir, { recursive: true, force: true }); }
