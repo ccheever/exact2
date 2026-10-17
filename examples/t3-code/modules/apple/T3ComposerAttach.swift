@@ -41,7 +41,8 @@ final class T3ComposerAttach {
             try FileManager.default.copyItem(at: url, to: staged.appendingPathComponent(id))
         } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
         file["id"] = id
-        // A video's tile shows its first frame and plays from a typed link (T3ComposerVideo.swift).
+        // A video's tile shows its first frame; the expanded preview's `video` plays the typed link, whose
+        // extension tells AVFoundation its type (composer-attachments.ts stagedVideoSrc).
         if Self.isVideo(url) {
             let ext = url.pathExtension.lowercased()
             try? FileManager.default.linkItem(at: staged.appendingPathComponent(id), to: staged.appendingPathComponent("\(id).\(ext)"))

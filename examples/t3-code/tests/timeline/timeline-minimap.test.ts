@@ -32,7 +32,7 @@ const hit = (isIntersecting: boolean): Entry => ({ isIntersecting, intersectionR
 function transcript(drawn = rows, owner = 'http://a:p:t1') {
   const calls: unknown[][] = [];
   const mounted = new Set(drawn.map(row => row.id));
-  const state: Env = { turnsSeen: [], turnsOwner: '', firstKey: '', anchor: { owner: '' } };
+  const state: Env = { turnsSeen: [], turnsOwner: '', firstKey: '', anchor: { owner: '' }, tipEpoch: 0, tipArmed: false };
   // The column's other derives read the canvas and the lane (laneInset, stackWidth): a plain wide window.
   const scope: Env = { ...fns, min: Math.min, max: Math.max, composerOwner: owner, viewport: { prefersReducedMotion: false }, canvas: { ready: false }, conversationWidth: 1024, rem: 16,
     data: { messages: drawn.map(row => ({ id: row.id })), minimap: minimapItems(drawn), threadId: 't1', look: { chatMax: 768 } },

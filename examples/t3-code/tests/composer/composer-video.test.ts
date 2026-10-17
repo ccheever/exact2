@@ -24,7 +24,7 @@ describe('video preview aspect after relaunch', () => {
     const second = client();
     adoptComposerFiles(second.local, saved);
     await videoOp(second, native, 'shelf-video-play', vid);
-    expect(composerVideoSnapshot(second).composerVideoPreview).toEqual([{ open: true, id: vid, name: 'clip.mov', width: 1080, height: 1920 }]);
+    expect(composerVideoSnapshot(second).composerVideoPreview).toEqual([{ open: true, id: vid, name: 'clip.mov', width: 1080, height: 1920, src: `app:/data/composer-files/${vid}.mov` }]);
   });
   test('an unknown or invalid size stays unknown (16:9 in the view)', async () => {
     const saved = { composerFiles: [{ ...file, videoWidth: 0, videoHeight: 'x' }] };

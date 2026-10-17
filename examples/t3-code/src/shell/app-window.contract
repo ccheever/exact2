@@ -349,6 +349,7 @@ component T3Window
     hoverShown
     linkOpen
     linkMenu
+    refScrollEnd
     scheme // the chrome row and the annotation overlay take the resolved appearance (browser-capture.contract)
     pickModel
     taskModelPick
@@ -442,6 +443,9 @@ component T3Window
   // A link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button"). The
   // click's modifiers are its press's own (`kind|meta+shift`; no native gesture read).
+  // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
+  action refScrollEnd(name: string)
+    chatLocal("ref-scroll-end", name, "")
   action linkOpen(kind: string, href: string, e: MouseEvent)
     chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)
   // A Markdown web link's own menu (ChatMarkdown's anchor onContextMenu, external-link-menu.ts). A page

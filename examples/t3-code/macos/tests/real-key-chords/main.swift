@@ -196,7 +196,7 @@ final class Fixture {
         let composerElement = element(.t3Composer, "composer", 3, composerText, ["snapshot-owner": "t1"])
         let sendElement = element(.t3Send, "send", 4, send)
         let transcriptElement = element(.t3Transcript, "transcript", 5, transcript, ["timeline-owner": "t1", "timeline-rest": "yes"])
-        let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "tab-chip:files"])
+        let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "tab-editor:files"])
         activate()
         menus.updatesDisabledReason = { "no feed" }
         sidebar.install(); textMenu.install()

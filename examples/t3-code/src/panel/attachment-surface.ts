@@ -129,7 +129,7 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
  */
 async function renderedAttachment(client: T3Client, native: Native | null | undefined, id: string, text: string) {
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
-  const diagrams = await filesMermaid(client, native, text);
+  const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `attachment:${id}`, kind: 'attachment', title: '', body: text }],
     md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${id}`, { thread: false }) }, // the owner names the document

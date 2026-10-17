@@ -91,8 +91,7 @@ enum T3DeviceModels {
     private static var locating: [String: [([String: URL]) -> Void]] = [:]
     private static var models: [URL: SCNNode] = [:]
 
-    /// The served `assets/<id>-<hash>.glb` names, found by following the web client's own chunks
-    /// (as T3TimelineMermaid finds the server's Mermaid build). Main thread.
+    /// The served `assets/<id>-<hash>.glb` names, found by following the web client's own chunks. Main thread.
     static func locate(origin: URL, _ done: @escaping ([String: URL]) -> Void) {
         let key = origin.absoluteString
         if let found = located[key] { return done(found) }

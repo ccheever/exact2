@@ -5,11 +5,10 @@
 // layer (z-[130], over the provider banner), positions it below the trigger
 // with a 4px side offset, flips it above when the window has no room below,
 // and, as a modal menu, closes it on Escape or a press outside. The window's
-// chatLocal reports the trigger's frame and the window size with
+// chatLocal reports the trigger's frame() as drawn (every scroll offset applied) and the window size with
 // `table-menu` (x|y|width|height|windowWidth|windowHeight|markdown, a tab, csv).
 import type { T3Client } from '../client/client';
-import { ClientError, type Native } from '../client/protocol';
-import { num, obj } from '../client/domain';
+import { ClientError } from '../client/protocol';
 
 export interface TableMenuView {
   id: string; x: number; y: number; triggerX: number; triggerY: number; markdown: string; csv: string;
@@ -35,23 +34,13 @@ export function placeTableMenu(trigger: { x: number; y: number; width: number; h
   return { x, y: fitsBelow || above < COLLISION_PADDING ? below : above };
 }
 
-/** The trigger as drawn now (T3Measure.swift): Contract's frame() is the layout's, which a scrolled transcript leaves behind. */
-async function drawnFrame(native: Native | undefined, id: string): Promise<number[] | null> {
-  if (!native?.available) return null;
-  try {
-    const reply = obj(await native.later({ op: 'measureFrame', name: `table-copy-${id}`, generation: 0 }));
-    const box = obj(reply.value);
-    return reply.ok === true && num(box.width) > 0 ? [num(box.x), num(box.y), num(box.width), num(box.height), num(box.windowWidth), num(box.windowHeight)] : null;
-  } catch { return null; }
-}
-
 /** `chatlocal:table-menu` toggles the table's popup; `table-menu-close` dismisses it. */
-export async function tableMenuAction(client: T3Client, op: string, id: string, value: string, native?: Native): Promise<string> {
+export function tableMenuAction(client: T3Client, op: string, id: string, value: string): string {
   if (op === 'table-menu-close') { menus.delete(client); return ''; }
   const open = menus.get(client);
   if (open && open.id === id && open.threadId === client.threadId) { menus.delete(client); return ''; }
   const parts = value.split('|');
-  const [x, y, width, height, windowWidth, windowHeight] = (await drawnFrame(native, id)) ?? parts.slice(0, 6).map(Number);
+  const [x, y, width, height, windowWidth, windowHeight] = parts.slice(0, 6).map(Number);
   // ↓ or ↑ on the Copy button marks its request `keys:first` or `keys:last` and a tab before the
   // table (MenuTrigger's arrow keys open the menu at its first or last item; a table's Markdown starts with a pipe).
   const rest = parts.slice(6).join('|');

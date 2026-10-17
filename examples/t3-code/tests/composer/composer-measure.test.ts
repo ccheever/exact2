@@ -4,7 +4,7 @@ import { footerLayout } from '../../src/composer/composer-controls-view';
 import { measuredLabels } from '../../src/composer/composer-measure';
 import { effortMenuWidth, menuProbes, probeKey, runOnMenuWidth, runtimeMenuWidth, uniqueProbes } from '../../src/composer/composer-menus';
 import { refsPageWanted } from '../../src/composer/ref-loading';
-import { firstPage, mergePage, morePages, pageWanted, refsStatus, scrollEnds } from '../../src/composer/ref-paging';
+import { firstPage, mergePage, morePages, noteRefScrollEnd, pageWanted, refsStatus, scrollEnds } from '../../src/composer/ref-paging';
 
 // The served reference's measurements (Chrome, f90b77d809) at 1280×840: GPT-5.6-Luna 93.22, "Medium" 52.89,
 // "Full access" 73.05 in the 14pt medium toolbar; the native probes report the same widths.
@@ -69,24 +69,24 @@ describe('ref pages (usePaginatedBranches, shouldLoadNextBranchPageAfterScroll)'
     const calls: number[] = [];
     const fetch = async (cursor: number) => { calls.push(cursor); return page([`r${cursor}`], cursor < 200 ? cursor + 100 : null); };
     let pages = firstPage(page(['r0'], 100), 3);
-    pages = await morePages(pages, { scrollEnds: { 'scroll:details-refs': 3 } }, 'details-refs', fetch);
+    pages = await morePages(pages, { 'scroll:details-refs': 3 }, 'details-refs', fetch);
     expect(calls).toEqual([]);
     // Each signal is answered twice, first with "Loading more refs...", then with the page.
     const twice = async (ends: number) => {
-      const presentation = { scrollEnds: { 'scroll:details-refs': ends } };
-      const marked = await morePages(pages, presentation, 'details-refs', fetch);
+      const reports = { 'scroll:details-refs': ends };
+      const marked = await morePages(pages, reports, 'details-refs', fetch);
       if (marked.loadingMore) {
-        expect(pageWanted(marked, presentation, 'details-refs')).toBe(true);
+        expect(pageWanted(marked, reports, 'details-refs')).toBe(true);
         expect(refsStatus(marked, false)).toBe('Loading more refs...');
       }
-      return morePages(marked, presentation, 'details-refs', fetch);
+      return morePages(marked, reports, 'details-refs', fetch);
     };
     pages = await twice(4);
     expect(calls).toEqual([100]);
     pages = await twice(5);
     pages = await twice(6);
     expect(calls).toEqual([100, 200]);
-    expect(pageWanted(pages, { scrollEnds: { 'scroll:details-refs': 6 } }, 'details-refs')).toBe(false);
+    expect(pageWanted(pages, { 'scroll:details-refs': 6 }, 'details-refs')).toBe(false);
     expect(pages.refs.map(ref => ref.name)).toEqual(['r0', 'r100', 'r200']);
     expect(refsStatus(pages, false)).toBe('');
     expect(refsStatus(firstPage(page(['x'], 100), 0), false)).toBe('Showing 1 of 250 refs');
@@ -113,7 +113,7 @@ describe('the strip and card pickers page past 100 refs', () => {
     };
     let view = await composerBranches(client, native, true, '');
     expect([view.refs.length, view.status]).toEqual([100, 'Showing 100 of 250 refs']);
-    client.presentation = { ...client.presentation, scrollEnds: { 'scroll:strip-refs': 1 } };
+    noteRefScrollEnd(client, 'strip-refs');
     view = await composerBranches(client, native, true, '');
     expect([view.refs.length, view.status]).toEqual([100, 'Loading more refs...']);
     expect(refsPageWanted(client)).toBe(true);
@@ -122,7 +122,7 @@ describe('the strip and card pickers page past 100 refs', () => {
     expect(refsPageWanted(client)).toBe(false);
     // The workspace card reads the same repository (closed picker) without dropping the open picker's pages.
     await composerBranches(client, native, false, '', true);
-    client.presentation = { ...client.presentation, scrollEnds: { 'scroll:strip-refs': 2 } };
+    noteRefScrollEnd(client, 'strip-refs');
     await composerBranches(client, native, true, '');
     view = await composerBranches(client, native, true, '');
     expect([view.refs.length, view.status]).toEqual([250, '']);
