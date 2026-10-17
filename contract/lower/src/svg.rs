@@ -924,54 +924,62 @@ fn exit_ends(value: &Expr) -> Result<(), LowerError> {
     }
 }
 
-// These props bypass CSS length resolution. A NUL marks unknown text so
-// interpolation and concatenation cannot turn a partial token into a refusal.
-fn length_text(value: &Expr) -> String {
+// These props bypass CSS length resolution. NUL represents only unknown text;
+// literal neighbors, including empty strings and separators, stay intact.
+fn length_text(value: &Expr, bindings: &[(&str, &Expr)]) -> String {
     match value {
         Expr::Str(text, _) => text.clone(),
         Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
+        Expr::Ident(name, _) => bindings
+            .iter()
+            .rposition(|(bound, _)| *bound == name)
+            .map(|i| length_text(bindings[i].1, &bindings[..i]))
+            .unwrap_or_else(|| "\0".into()),
         Expr::Template(parts, _) => parts
             .iter()
             .map(|part| match part {
                 TemplatePart::Text(text) => text.clone(),
-                TemplatePart::Expr(value) => length_text(value),
+                TemplatePart::Expr(value) => length_text(value, bindings),
             })
             .collect(),
         Expr::Binary(BinOp::Add, a, b, _) => crate::keyframes::constant(value, &[])
-            .unwrap_or_else(|| length_text(a) + &length_text(b)),
-        Expr::Let { body, .. } | Expr::Typed(body, ..) => length_text(body),
+            .unwrap_or_else(|| length_text(a, bindings) + &length_text(b, bindings)),
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let mut bindings = bindings.to_vec();
+            bindings.push((name, value));
+            length_text(body, &bindings)
+        }
+        Expr::Typed(body, ..) => length_text(body, bindings),
         _ => "\0".into(),
     }
 }
 
 fn check_length(name: &str, value: &Expr) -> Result<(), LowerError> {
-    check_length_fragment(name, value, false, false)
+    check_length_fragment(name, value, "", "", &[])
 }
 
 fn check_length_fragment(
     name: &str,
     value: &Expr,
-    open_start: bool,
-    open_end: bool,
+    prefix: &str,
+    suffix: &str,
+    bindings: &[(&str, &Expr)],
 ) -> Result<(), LowerError> {
-    let mut text = length_text(value);
-    if open_start {
-        text.insert(0, '\0');
-    }
-    if open_end {
-        text.push('\0');
-    }
-    check_length_text(name, &text, value.span())?;
-    check_length_choices(name, value, open_start, open_end)
+    check_length_choices(name, value, prefix, suffix, bindings)?;
+    let text = format!("{prefix}{}{suffix}", length_text(value, bindings));
+    check_length_text(name, &text, value.span())
 }
 
-// Check each possible result without enumerating combinations of independent
-// choices. In a concatenation, a branch's boundary tokens may be incomplete.
+// Splice one choice at a time into its literal neighbors. Other independent
+// choices remain unknown, so the work does not enumerate their combinations.
 fn check_length_choices(
     name: &str,
     value: &Expr,
-    open_start: bool,
-    open_end: bool,
+    prefix: &str,
+    suffix: &str,
+    bindings: &[(&str, &Expr)],
 ) -> Result<(), LowerError> {
     match value {
         Expr::Ternary(_, yes, no, _)
@@ -980,28 +988,62 @@ fn check_length_choices(
             none: no,
             ..
         } => {
-            check_length_fragment(name, yes, open_start, open_end)?;
-            check_length_fragment(name, no, open_start, open_end)
+            check_length_fragment(name, yes, prefix, suffix, bindings)?;
+            check_length_fragment(name, no, prefix, suffix, bindings)
         }
-        Expr::Let { body, .. } | Expr::Typed(body, ..) => {
-            check_length_choices(name, body, open_start, open_end)
+        Expr::Ident(bound, _) => {
+            if let Some(i) = bindings.iter().rposition(|(name, _)| *name == bound) {
+                check_length_choices(name, bindings[i].1, prefix, suffix, &bindings[..i])?;
+            }
+            Ok(())
         }
+        Expr::Let {
+            name: bound,
+            value,
+            body,
+            ..
+        } => {
+            let mut bindings = bindings.to_vec();
+            bindings.push((bound, value));
+            check_length_choices(name, body, prefix, suffix, &bindings)
+        }
+        Expr::Typed(body, ..) => check_length_choices(name, body, prefix, suffix, bindings),
         Expr::Template(parts, _) => {
+            let text: Vec<_> = parts
+                .iter()
+                .map(|part| match part {
+                    TemplatePart::Text(text) => text.clone(),
+                    TemplatePart::Expr(value) => length_text(value, bindings),
+                })
+                .collect();
             for (i, part) in parts.iter().enumerate() {
                 if let TemplatePart::Expr(value) = part {
                     check_length_choices(
                         name,
                         value,
-                        open_start || i > 0,
-                        open_end || i + 1 < parts.len(),
+                        &format!("{prefix}{}", text[..i].concat()),
+                        &format!("{}{suffix}", text[i + 1..].concat()),
+                        bindings,
                     )?;
                 }
             }
             Ok(())
         }
         Expr::Binary(BinOp::Add, a, b, _) => {
-            check_length_choices(name, a, open_start, true)?;
-            check_length_choices(name, b, true, open_end)
+            check_length_choices(
+                name,
+                a,
+                prefix,
+                &format!("{}{suffix}", length_text(b, bindings)),
+                bindings,
+            )?;
+            check_length_choices(
+                name,
+                b,
+                &format!("{prefix}{}", length_text(a, bindings)),
+                suffix,
+                bindings,
+            )
         }
         _ => Ok(()),
     }
@@ -1033,26 +1075,41 @@ fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerErro
         return refuse(&format!("{}()", &before[start..]));
     }
     for word in text.split(|c: char| c == ',' || c.is_ascii_whitespace()) {
-        let start = word
-            .trim_end_matches(|c: char| c.is_ascii_alphabetic())
-            .len();
-        let unit = &word[start..];
-        if matches!(unit, "e" | "E") && exact_num::parse_f64(&word[..start]).is_ok() {
-            continue;
-        }
-        // `${prefix}x` may finish `px`, but no admitted unit ends in `em`.
-        // A token ending at an unknown interpolation has no known suffix.
-        if start > 0
-            && word.as_bytes()[start - 1] == 0
-            && (Length::ABSOLUTE_UNITS
+        let mut fragments = word.split('\0').peekable();
+        let mut after_unknown = false;
+        while let Some(fragment) = fragments.next() {
+            let start = fragment
+                .trim_end_matches(|c: char| c.is_ascii_alphabetic())
+                .len();
+            let unit = &fragment[start..];
+            let open_start = after_unknown && start == 0;
+            let open_end = fragments.peek().is_some();
+            after_unknown = true;
+            if unit.is_empty() || Length::parse(&format!("1{unit}")).is_some() {
+                continue;
+            }
+            // A trailing e can become an exponent only across unknown text.
+            if open_end
+                && matches!(unit, "e" | "E")
+                && (open_start || exact_num::parse_f64(&fragment[..start]).is_ok())
+            {
+                continue;
+            }
+            let unit = unit.to_ascii_lowercase();
+            let completes = |known: &str| match (open_start, open_end) {
+                (true, true) => known.contains(&unit),
+                (true, false) => known.ends_with(&unit),
+                (false, true) => known.starts_with(&unit),
+                (false, false) => false,
+            };
+            if Length::ABSOLUTE_UNITS
                 .iter()
-                .any(|(known, _)| known.ends_with(&unit.to_ascii_lowercase()))
-                || keywords.iter().any(|known| known.ends_with(unit)))
-        {
-            continue;
-        }
-        if !unit.is_empty() && Length::parse(&format!("1{unit}")).is_none() {
-            return refuse(unit);
+                .any(|(known, _)| completes(known))
+                || keywords.iter().any(|known| completes(known))
+            {
+                continue;
+            }
+            return refuse(&fragment[start..]);
         }
     }
     Ok(())
