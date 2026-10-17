@@ -65,5 +65,7 @@ test "search, swipe to delete, delete from the menu"
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list
   ([persisted-setting](persisted-setting.md)): the platform's segmented control, or keys of
   your own with `appearance="none"` on the group.
+- The bar's buttons: iOS 26 puts neighbours in one glass capsule; `buttonStyle="glass"` on a
+  header button gives it a capsule of its own.
 - One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`
   and hides it (iOS: a `UIMenu`). Test: `tap "note-1" contextmenu`.
