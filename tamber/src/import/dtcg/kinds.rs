@@ -106,6 +106,18 @@ fn number(ty: &str, v: &Value) -> Result<String, String> {
     if let Some(n) = v.as_f64() {
         return Ok(num(n));
     }
+    // A line height as a percentage dimension, `{value: 120, unit: "%"}`: a
+    // ratio.
+    let leading = ty == "lineHeights" || ty == "lineHeight";
+    if let (true, Some(o)) = (leading, v.as_object()) {
+        return match (
+            o.get("value").and_then(Value::as_f64),
+            o.get("unit").and_then(Value::as_str),
+        ) {
+            (Some(p), Some("%")) => Ok(num(p / 100.0)),
+            _ => Err(format!("`{v}` is no line height as a number")),
+        };
+    }
     let s = v
         .as_str()
         .map(str::trim)
@@ -117,7 +129,7 @@ fn number(ty: &str, v: &Value) -> Result<String, String> {
         .strip_suffix('%')
         .and_then(|p| p.trim().parse::<f64>().ok())
     {
-        if ty == "lineHeights" || ty == "lineHeight" {
+        if leading {
             return Ok(num(p / 100.0));
         }
     }
@@ -144,10 +156,13 @@ fn number(ty: &str, v: &Value) -> Result<String, String> {
     }
 }
 
-/// A family: a name, a stack's text, or a list of names.
-fn family(v: &Value) -> Result<String, String> {
+/// A family: a name (DTCG's `fontFamily` string is one family, commas and
+/// all), Tokens Studio's `fontFamilies` text a stack as written, or a list
+/// of names.
+fn family(ty: &str, v: &Value) -> Result<String, String> {
     let member = |m: &str| {
         let bare = !m.is_empty()
+            && !m.contains(',')
             && m.split_whitespace().all(|w| {
                 w.chars()
                     .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
@@ -159,8 +174,7 @@ fn family(v: &Value) -> Result<String, String> {
         }
     };
     match v {
-        // A stack written as text stays as written.
-        Value::String(s) if s.contains(',') => Ok(s.trim().to_string()),
+        Value::String(s) if ty == "fontFamilies" => Ok(s.trim().to_string()),
         Value::String(s) => Ok(member(s.trim())),
         Value::Array(a) => a
             .iter()
@@ -236,11 +250,14 @@ fn typography(v: &Value) -> Result<String, String> {
     let size = length(o.get("fontSize").ok_or("a typography with no `fontSize`")?)?;
     out.push(match o.get("lineHeight") {
         None => size,
+        Some(l @ Value::Object(o)) if o.get("unit").and_then(Value::as_str) == Some("%") => {
+            format!("{size}/{}", number("lineHeight", l)?)
+        }
         Some(l @ Value::Object(_)) => format!("{size}/{}", length(l)?),
         Some(l) => format!("{size}/{}", number("lineHeight", l)?),
     });
     if let Some(f) = o.get("fontFamily") {
-        out.push(family(f)?);
+        out.push(family("fontFamily", f)?);
     }
     Ok(out.join(" "))
 }
@@ -251,7 +268,7 @@ pub(super) fn text(ty: &str, v: &Value) -> Result<String, String> {
     match ty {
         "dimension" | "borderRadius" | "spacing" | "sizing" | "borderWidth" | "fontSizes"
         | "letterSpacing" | "paragraphSpacing" => length(v),
-        "fontFamily" | "fontFamilies" => family(v),
+        "fontFamily" | "fontFamilies" => family(ty, v),
         "fontWeight" | "fontWeights" | "number" | "lineHeights" | "opacity" => number(ty, v),
         "duration" => match v {
             Value::Object(o) => {
@@ -302,6 +319,17 @@ mod tests {
         assert_eq!(text("borderRadius", &json!("8")), Ok("8px".into()));
         assert_eq!(text("fontWeights", &json!("Semi Bold")), Ok("600".into()));
         assert_eq!(text("lineHeights", &json!("150%")), Ok("1.5".into()));
+        assert_eq!(
+            text("lineHeights", &json!({"value": 120, "unit": "%"})),
+            Ok("1.2".into())
+        );
+        assert_eq!(
+            text(
+                "typography",
+                &json!({"fontSize": {"value": 16, "unit": "px"}, "lineHeight": {"value": 120, "unit": "%"}})
+            ),
+            Ok("16px/1.2".into())
+        );
         assert_eq!(
             text("fontFamily", &json!(["Inter", "system-ui"])),
             Ok("Inter, system-ui".into())

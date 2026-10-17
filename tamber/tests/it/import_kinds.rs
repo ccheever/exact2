@@ -274,3 +274,112 @@ fn astryx_refuses_a_length_with_a_dark_side_and_a_style_with_no_size() {
         ["a text style with no size"]
     );
 }
+
+/// Review round 1: what a source means after folding, not just a token
+/// that checks.
+#[test]
+fn each_importer_maps_what_the_source_means_or_reports_it() {
+    let tw = |css: &str| tailwind::import(css, "tw", &parse(EMPTY).unwrap()).unwrap();
+    // A sub-property redefined outside `@theme`: the type token is none.
+    let i = tw("@theme { --text-sm: 12px; --text-sm--line-height: 1.5; } .dark { --text-sm--line-height: 2; }");
+    assert!(!accepted(&i).contains("tw.type.sm"));
+    assert!(
+        why(&i, "--text-sm")[0].contains("redefined"),
+        "{:?}",
+        why(&i, "--text-sm")
+    );
+    // A weight named through a key redefined outside `@theme`.
+    let i = tw("@theme { --font-weight-heavy: 700; --text-body: 16px; --text-body--font-weight: var(--font-weight-heavy); } :root { --font-weight-heavy: 800; }");
+    assert!(!accepted(&i).contains("tw.type.body"));
+    // A type size naming another type key is its size alone.
+    let i = tw("@theme { --text-base: 16px; --text-base--font-weight: 700; --text-copy: var(--text-base); }");
+    let text = accepted(&i);
+    assert!(text.contains("  tw.type.copy: type = 16px\n"), "{text}");
+    // A reference to a key another owns the name of makes no token.
+    let i = tw("@theme { --radius-1: 4px; --radius-s1: 8px; --spacing-gap: var(--radius-s1); }");
+    assert!(!accepted(&i).contains("tw.space.gap"));
+    // A quoted family keeps its spaces and its text.
+    let i = tw("@theme { --font-brand: \"A  var(--x)\", serif; }");
+    assert!(accepted(&i).contains("  tw.family.brand: family = \"A  var(--x)\", serif\n"));
+    // A design token of another kind is not set to this one.
+    let design = parse("tamber app\n\ntheme\n  tw.radius.md: number = 1\n").unwrap();
+    let i = tailwind::import("@theme { --radius-md: 4px; }", "tw", &design).unwrap();
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    assert_eq!(
+        why(&i, "--radius-md"),
+        ["not a length Tamber folds: the design's `tw.radius.md` is a number token, not a length"]
+    );
+
+    let sc = |css: &str| shadcn::import(css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    // A dark value of no kind: no token for either side.
+    let i = sc(":root { --gap: 8px; } .dark { --gap: 2vh; }");
+    assert!(!accepted(&i).contains("shadcn.gap"));
+    assert!(why(&i, "--gap")
+        .iter()
+        .any(|w| w.contains("a token is one kind")));
+    // A length named `--primary` is offered no colour role.
+    let i = sc(":root { --primary: 8px; }");
+    assert!(i.offers.iter().all(|o| o.ops.is_empty()), "{:?}", i.offers);
+    // A reference through a reference takes the kind at its end.
+    let text = accepted(&sc(":root { --a: 4px; --b: var(--a); --c: var(--b); }"));
+    assert!(text.contains("  shadcn.c: length = shadcn.b\n"), "{text}");
+
+    let ax = |light: &str, dark: &str| {
+        let json =
+            format!("{{\"source\": \"t\", \"core\": \"t\", \"light\": {light}, \"dark\": {dark}}}");
+        astryx::import(&json, "astryx", &parse(EMPTY).unwrap(), &vocab()).unwrap()
+    };
+    // Two variables to one name: the second is reported.
+    let i = ax(
+        r#"{"--spacing-1": "4px", "--spacing-s1": "8px"}"#,
+        r#"{"--spacing-1": "4px", "--spacing-s1": "8px"}"#,
+    );
+    assert!(accepted(&i).contains("  astryx.space.s1: length = 4px\n"));
+    assert_eq!(
+        why(&i, "--spacing-s1"),
+        ["its token is `--spacing-1`'s (astryx.space.s1)"]
+    );
+    // A side that lacks it: nothing invented.
+    let i = ax(r#"{"--spacing-1": "4px"}"#, "{}");
+    assert!(!accepted(&i).contains("astryx.space"));
+
+    // DTCG: a `fontFamily` string is one family, commas and all.
+    let files = vec![(
+        "t.json".to_string(),
+        r#"{"f": {"$type": "fontFamily", "$value": "Acme, Display"}}"#.to_string(),
+    )];
+    let i = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    assert!(accepted(&i).contains("  ds.f: family = \"Acme, Display\"\n"));
+}
+
+/// Review round 1 (Grok): chains of references, a leading over a token, and
+/// a design token's written kind.
+#[test]
+fn chains_resolve_to_what_they_end_at() {
+    let i = shadcn::import(
+        ":root { --font-sans: 16px; --font-sans: Inter, sans-serif; --font-body: var(--font-sans); --shadow-lg: 0 1px 2px #111111; --shadow-md: var(--shadow-lg); --shadow-sm: var(--shadow-md); }",
+        "shadcn",
+        &parse(EMPTY).unwrap(),
+        &vocab(),
+    )
+    .unwrap();
+    let text = accepted(&i);
+    assert!(
+        text.contains("  shadcn.font-body: family = shadcn.font-sans\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  shadcn.shadow-sm: box-shadow = shadcn.shadow-md\n"),
+        "{text}"
+    );
+    let css = "@theme { --leading-tight: 1.25; --text-body: 1rem; --text-body--line-height: calc(var(--leading-tight) * 2); --font-weight-bold: 700; --font-weight-heading: var(--font-weight-bold); --text-body--font-weight: var(--font-weight-heading); }";
+    let text = accepted(&tailwind::import(css, "tw", &parse(EMPTY).unwrap()).unwrap());
+    assert!(
+        text.contains("  tw.type.body: type = 700 1rem/2.5\n"),
+        "{text}"
+    );
+    let design = parse("tamber app\n\ntheme\n  shadcn.radius: color = #ffffff\n").unwrap();
+    let i = shadcn::import(":root { --radius: 8px; }", "shadcn", &design, &vocab()).unwrap();
+    assert!(i.ops.is_empty(), "{:?}", i.ops);
+    assert!(why(&i, "--radius")[0].contains("is a color token, not a length"));
+}

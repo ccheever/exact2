@@ -249,7 +249,14 @@ pub fn import(
             false => unmapped.push(report("not a colour Tamber folds".into(), Some(name))),
         }
     }
-    mapped += other_kinds(&others, &mut made, &mut tokens, &mut unmapped, vocab);
+    mapped += other_kinds(
+        &others,
+        &mut made,
+        &mut tokens,
+        &mut unmapped,
+        design,
+        vocab,
+    );
     let ops = reconcile(design, &[], &[], &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
     let counted = counted(names.len() + local.len(), mapped, unmapped.len())?;
@@ -281,6 +288,7 @@ fn other_kinds(
     made: &mut std::collections::BTreeMap<String, String>,
     tokens: &mut Vec<Mapped>,
     unmapped: &mut Vec<Unmapped>,
+    design: &Design,
     vocab: &Vocab,
 ) -> usize {
     use super::kinds;
@@ -303,7 +311,34 @@ fn other_kinds(
             continue;
         }
         seen.push(&o.token);
-        let group: Vec<&Other> = others.iter().filter(|x| x.token == o.token).collect();
+        // The variables one token carries: a text style's size, weight and
+        // leading, the first of each; any other to its name is reported.
+        let mut group: Vec<&Other> = Vec::new();
+        for x in others.iter().filter(|x| x.token == o.token) {
+            let fits = match o.kind {
+                "type" => {
+                    matches!(part(x).as_str(), "size" | "weight" | "leading")
+                        && !group.iter().any(|g| part(g) == part(x))
+                }
+                _ => group.is_empty(),
+            };
+            match (fits, group.first()) {
+                (true, _) => group.push(x),
+                (false, Some(first)) => report(
+                    unmapped,
+                    x,
+                    format!("its token is `{}`'s ({})", first.var, o.token),
+                ),
+                (false, None) => report(
+                    unmapped,
+                    x,
+                    "a text style's part Tamber's type token does not name".into(),
+                ),
+            }
+        }
+        if group.is_empty() {
+            continue;
+        }
         if let Some(first) = made.get(&o.token) {
             for x in &group {
                 report(
@@ -314,11 +349,11 @@ fn other_kinds(
             }
             continue;
         }
-        // Each one's value: its sides' one value.
+        // Each one's value: its sides' one value, on both.
         let value = |x: &Other| match &x.sides {
             (Some(l), Some(d)) if l.trim() != d.trim() => Err(kinds::SIDED.to_string()),
-            (Some(v), _) | (None, Some(v)) => kinds::bare(v, |_| None),
-            (None, None) => Err("no value on either side".to_string()),
+            (Some(v), Some(_)) => kinds::bare(v, |_| None),
+            _ => Err("not a value Tamber reads on both sides".to_string()),
         };
         let text = if o.kind == "type" {
             let find = |p: &str| group.iter().find(|x| part(x) == p).copied();
@@ -360,7 +395,7 @@ fn other_kinds(
             }
         }
     }
-    let why = kinds::unfolded(tokens, &[], vocab);
+    let why = kinds::unfolded(tokens, &[], design, vocab);
     let mut mapped = 0;
     for (k, (kind, group)) in carried.iter().enumerate() {
         match &why[start + k] {

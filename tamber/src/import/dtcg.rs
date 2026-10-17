@@ -1415,7 +1415,7 @@ pub fn import(
         made.push(path);
     }
     // Each of another kind that does not fold makes no token.
-    let why = other::unfolded(&tokens, &axes, &crate::Vocab::default());
+    let why = other::unfolded(&tokens, &axes, design, &crate::Vocab::default());
     for (path, why) in made.iter().zip(&why) {
         if let Some(why) = why {
             fates.insert(

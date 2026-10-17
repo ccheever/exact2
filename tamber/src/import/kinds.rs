@@ -30,39 +30,70 @@ pub(super) const SIDED: &str =
     "differs between light and dark, and only a colour has a dark side (`light-dark()`)";
 
 /// `value` on one line with each `var(--x)` written as the token `token`
-/// gives `--x`, or why it cannot be.
+/// gives `--x`, or why it cannot be. A string (a quoted family name) is kept
+/// as written: its spaces, and any `var(` in it, are its text.
 pub(super) fn bare(value: &str, token: impl Fn(&str) -> Option<String>) -> Result<String, String> {
-    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let chars: Vec<char> = value.trim().chars().collect();
     let mut out = String::new();
-    let mut rest = value.as_str();
-    while let Some(at) = rest.find("var(") {
-        out.push_str(&rest[..at]);
-        let inner = &rest[at + 4..];
-        let mut depth = 1;
-        let close = inner.char_indices().find_map(|(i, c)| {
-            match c {
-                '(' => depth += 1,
-                ')' => depth -= 1,
-                _ => {}
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' || c == '\'' {
+            // The string to its close, escapes and all.
+            out.push(c);
+            i += 1;
+            while i < chars.len() {
+                out.push(chars[i]);
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    out.push(chars[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                if chars[i - 1] == c {
+                    break;
+                }
             }
-            (depth == 0).then_some(i)
-        });
-        let Some(close) = close else {
-            return Err(format!("`{value}` has a `var(` it does not close"));
-        };
-        let var = inner[..close].trim();
-        if var.contains(',') {
-            return Err(format!(
-                "`var({var})` has a fallback, which a token never needs"
-            ));
+            continue;
         }
-        match token(var) {
-            Some(name) => out.push_str(&name),
-            None => return Err(format!("`{var}` makes no token for it to name")),
+        if c.is_whitespace() {
+            while i < chars.len() && chars[i].is_whitespace() {
+                i += 1;
+            }
+            out.push(' ');
+            continue;
         }
-        rest = &inner[close + 1..];
+        if chars[i..].starts_with(&['v', 'a', 'r', '(']) {
+            let mut depth = 1;
+            let mut j = i + 4;
+            while j < chars.len() && depth > 0 {
+                match chars[j] {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                j += 1;
+            }
+            if depth > 0 {
+                return Err(format!("`{}` has a `var(` it does not close", value.trim()));
+            }
+            let var: String = chars[i + 4..j - 1].iter().collect();
+            let var = var.trim();
+            if var.contains(',') {
+                return Err(format!(
+                    "`var({var})` has a fallback, which a token never needs"
+                ));
+            }
+            match token(var) {
+                Some(name) => out.push_str(&name),
+                None => return Err(format!("`{var}` makes no token for it to name")),
+            }
+            i = j;
+            continue;
+        }
+        out.push(c);
+        i += 1;
     }
-    out.push_str(rest);
     Ok(out)
 }
 
@@ -92,13 +123,40 @@ fn words(value: &str) -> impl Iterator<Item = &str> {
 /// Why each of `tokens` with a kind does not fold beside the others (`None`
 /// where it does, and for a colour): one design of them, with the colours
 /// they name and `axes` their `when` lines name, checked again without the
-/// ones it refuses until it folds.
+/// ones it refuses until it folds; and one `design` has of another kind.
 pub(super) fn unfolded(
     tokens: &[Mapped],
     axes: &[(String, Vec<String>)],
+    design: &crate::Design,
     vocab: &Vocab,
 ) -> Vec<Option<String>> {
     let mut why: Vec<Option<String>> = vec![None; tokens.len()];
+    // A token the design has already of another kind: a value of this one
+    // would not fit its line.
+    // Its kinds as it folds, or (where it does not fold against `vocab`) as
+    // written.
+    let checked = crate::check_design(design.clone(), vocab).ok();
+    for (t, why) in tokens.iter().zip(why.iter_mut()) {
+        let Some(kind) = t.kind else { continue };
+        let have = match &checked {
+            Some(f) => f
+                .tokens
+                .iter()
+                .find(|c| c.name == t.name)
+                .map(|c| c.kind.name().to_string()),
+            None => design
+                .tokens
+                .iter()
+                .find(|d| d.name.value == t.name)
+                .and_then(|d| d.kind.clone()),
+        };
+        if let Some(have) = have.filter(|h| h != kind) {
+            *why = Some(format!(
+                "the design's `{}` is a {have} token, not a {kind}",
+                t.name
+            ));
+        }
+    }
     let named = |i: usize| {
         let t = &tokens[i];
         std::iter::once(t.value.as_str())
@@ -221,7 +279,12 @@ mod tests {
             token("t.shadow", Some("box-shadow"), "0 1px 2px t.ink"),
             token("t.gap", Some("length"), "12%"),
         ];
-        let why = unfolded(&tokens, &[], &Vocab::default());
+        let why = unfolded(
+            &tokens,
+            &[],
+            &crate::parse("tamber t\n").unwrap(),
+            &Vocab::default(),
+        );
         assert_eq!(why[0], None);
         assert_eq!(why[1], None);
         assert!(why[2].as_deref().unwrap().contains("only px"), "{why:?}");
@@ -234,5 +297,9 @@ mod tests {
             Ok("calc(t.radius - 4px)".into())
         );
         assert!(bare("var(--x, 1px)", |_| None).is_err());
+        assert_eq!(
+            bare("\"A  var(--x)\",   serif", |_| None),
+            Ok("\"A  var(--x)\", serif".into())
+        );
     }
 }

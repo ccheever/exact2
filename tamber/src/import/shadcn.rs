@@ -250,15 +250,21 @@ pub fn import(
         .collect();
     for (i, ((label, var, value, _), fate)) in decls.iter().zip(&fates).enumerate() {
         let token = names.get(var).filter(|_| !dropped.contains(&var)).cloned();
-        // Of another kind in every block it wins (a colour in one is no
-        // token of either kind).
-        let one_kind = decls
-            .iter()
-            .zip(&fates)
-            .all(|((_, v, _, _), f)| v != var || matches!(f, Fate::NotColour | Fate::Superseded));
-        if let (Fate::NotColour, Some(kind), true) =
-            (fate, other_kind(&decls, var, value), one_kind)
-        {
+        // One other kind in every block it wins (a colour in one, or a
+        // value of no kind, is no token of either kind).
+        let own = || {
+            decls
+                .iter()
+                .zip(&fates)
+                .filter(|((_, v, _, _), _)| v == var)
+        };
+        let coloured = own().any(|(_, f)| !matches!(f, Fate::NotColour | Fate::Superseded));
+        let kind = other_kind(&decls, var, value);
+        let one_kind = !coloured
+            && own()
+                .filter(|(_, f)| matches!(f, Fate::NotColour))
+                .all(|((_, v, x, _), _)| other_kind(&decls, v, x) == kind);
+        if let (Fate::NotColour, Some(kind), true) = (fate, kind, one_kind) {
             others.push((i, kind));
             continue;
         }
@@ -291,11 +297,18 @@ pub fn import(
                     let why = super::unfolded(value).unwrap_or_default();
                     (format!("a colour Tamber does not fold yet: {why}"), token)
                 }
-                None if other_kind(&decls, var, value).is_some() => (
-                    format!(
-                        "a {} here and a colour in another block: a token is one kind",
-                        other_kind(&decls, var, value).unwrap_or_default()
-                    ),
+                None if kind.is_some() => (
+                    match coloured {
+                        true => format!(
+                            "a {} here and a colour in another block: a token is one kind",
+                            kind.unwrap_or_default()
+                        ),
+                        false => format!(
+                            "a {} here, and another block's value is no {}: a token is one kind",
+                            kind.unwrap_or_default(),
+                            kind.unwrap_or_default()
+                        ),
+                    },
                     token,
                 ),
                 None => (
@@ -321,7 +334,7 @@ pub fn import(
         names,
         &themes,
         &axes,
-        vocab,
+        (design, vocab),
         &mut tokens,
         &mut unmapped,
     );
@@ -341,23 +354,41 @@ pub fn import(
 /// its value (`--radius: 0.625rem`), else a shadow or a family by its name
 /// (`--shadow-sm`, `--font-sans`); a reference the kind of what it names.
 fn other_kind(decls: &[Decl], var: &str, value: &str) -> Option<&'static str> {
-    if let Some(r) = engine::reference(value).filter(|r| *r != var) {
-        return decls
-            .iter()
-            .filter(|(_, v, _, _)| v == r)
-            .find_map(|(_, v, value, _)| match engine::reference(value) {
-                Some(_) => None,
-                None => other_kind(&[], v, value),
-            });
+    kind_through(decls, var, value, &mut Vec::new())
+}
+
+/// [`other_kind`] through a chain of references (a cycle is none).
+fn kind_through<'a>(
+    decls: &'a [Decl],
+    var: &'a str,
+    value: &str,
+    seen: &mut Vec<&'a str>,
+) -> Option<&'static str> {
+    let named = || {
+        if var == "--shadow" || var.starts_with("--shadow-") {
+            Some("box-shadow")
+        } else if var.starts_with("--font-") {
+            Some("family")
+        } else {
+            None
+        }
+    };
+    // A reference: the kind of what it names, by its last declaration (the
+    // one that wins), else this variable's by its name.
+    if let Some(r) = engine::reference(value) {
+        if seen.contains(&var) || r == var {
+            return None;
+        }
+        seen.push(var);
+        let last = decls.iter().rev().find(|(_, v, _, _)| v == r);
+        return last
+            .and_then(|(_, v, value, _)| kind_through(decls, v, value, seen))
+            .or_else(named);
     }
     if looks_like_length(value) {
         Some("length")
-    } else if var == "--shadow" || var.starts_with("--shadow-") {
-        Some("box-shadow")
-    } else if var.starts_with("--font-") {
-        Some("family")
     } else {
-        None
+        named()
     }
 }
 
@@ -376,7 +407,7 @@ fn other_kinds(
     names: &std::collections::BTreeMap<String, String>,
     themes: &[String],
     axes: &[(String, Vec<String>)],
-    vocab: &Vocab,
+    (design, vocab): (&Design, &Vocab),
     tokens: &mut Vec<Mapped>,
     unmapped: &mut Vec<Unmapped>,
 ) -> usize {
@@ -511,7 +542,7 @@ fn other_kinds(
             });
         }
     }
-    let why = kinds::unfolded(tokens, axes, vocab);
+    let why = kinds::unfolded(tokens, axes, design, vocab);
     let mut mapped = 0;
     for (k, (kind, carried)) in made.iter().enumerate() {
         match &why[start + k] {
@@ -563,7 +594,8 @@ fn offers(
     axes: &[(String, Vec<String>)],
     tokens: &[Mapped],
 ) -> Vec<Offer> {
-    let has = |name: &str| tokens.iter().any(|t| t.name == name);
+    // A colour token: a role is a colour.
+    let has = |name: &str| tokens.iter().any(|t| t.name == name && t.kind.is_none());
     let roles: Vec<(String, bool)> = vocab
         .roles
         .iter()

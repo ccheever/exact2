@@ -1092,9 +1092,10 @@ dark overrides wherever the stylesheet redefines the variables (`.dark { … }`,
 | `--spacing`, `--spacing-<n>` | `tw.space.base`, `tw.space.<n>` (length) | — |
 | `--radius-<n>` | `tw.radius.<n>` | — |
 | `--font-<n>` | `tw.family.<n>` | — |
-| `--text-<n>`, `--text-<n>--line-height` | `tw.type.<n>` (size and line height) | — |
-| `--font-weight-<n>`, `--leading-<n>`, `--tracking-<n>` | numbers (`tw.weight.<n>` …) | — |
-| `--shadow-<n>`, `--inset-shadow-<n>`, `--text-shadow-<n>` | `box-shadow`, `box-shadow` (inset), `text-shadow` | a dark redefinition, if any |
+| `--text-<n>`, `--text-<n>--line-height`, `--text-<n>--font-weight` | `tw.type.<n>` (size, line height and weight) | — |
+| `--font-weight-<n>`, `--leading-<n>` | numbers (`tw.weight.<n>`, `tw.leading.<n>`) | — |
+| `--tracking-<n>` | `tw.tracking.<n>` (length, as built: an `em`) | — |
+| `--shadow-<n>`, `--inset-shadow-<n>`, `--text-shadow-<n>` | `box-shadow`, `box-shadow` (inset), `text-shadow` | as built (stage 6 H): only a colour has a dark side, so a redefinition outside `@theme` is reported |
 | `--ease-<n>` | `tw.ease.<n>` (easing) | — |
 | `--breakpoint-*`, `--container-*`, `--blur-*`, `--drop-shadow-*`, `--perspective-*`, `--aspect-*`, `--animate-*` | not mapped, reported (no Tamber kind; breakpoints are layout, CSS's own) | — |
 | `--*: initial`, `--color-*: initial` | resets, honoured: the reset names are not imported | — |
@@ -2978,41 +2979,52 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   and `add-token` writes the kind (`tw.radius.lg: length = 0.5rem`). A value is proposed when it
   folds as its kind beside the import's other tokens. The check is one design of them, plus the
   colours they name and the axes their `when` lines name (`import/kinds.rs`). It also says why a
-  value does not fold, and that reason goes in the report: `not a <kind> Tamber folds: <why>`.
-- **References.** A `var(--x)` is the token `--x` becomes, named bare (D3). A Tailwind shadow
-  over `var(--color-ring)` names `tw.ring`. A DTCG alias is written out as its value, inside a
+  value does not fold, and that reason goes in the report: `not a <kind> Tamber folds: <why>`. A
+  token the design already has of another kind is reported, not set (its line keeps its kind).
+- **References.** A `var(--x)` is the token `--x` becomes, named bare (D3), through a chain of
+  them; one to a variable that makes no token (another's name, a redefined key) is reported. A
+  string (a quoted family) is kept as written. A Tailwind shadow over `var(--color-ring)` names
+  `tw.ring`. A DTCG alias is written out as its value, inside a
   composite too (a shadow's `{size.sm}`, a typography's `{font.body}`).
 - **One value on both sides.** A value of these kinds that differs between light and dark is
   reported: only a colour has a dark side. A theme class (shadcn) or a mode (DTCG) still gives a
   `when` line.
 - **Each importer:**
   - **Tailwind.** `--text-<n>` with its `--line-height` and `--font-weight` is one type token.
-    A `calc()` leading is folded to its number. A weight `var()` is the key's number.
+    The leading and the weight are written out, their `var()`s as what the keys hold, and a
+    `calc()` leading is folded to its number. A type key whose size is `var(--text-<m>)` takes
+    that size alone, not `<m>`'s leading and weight.
     Reported:
     - a sub-property a token holds no part of (`--letter-spacing`, a family's
       `--font-feature-settings`);
     - a sub-property whose key the theme lacks;
-    - a key the stylesheet redefines outside `@theme` (its utilities follow the redefinition);
+    - a key the stylesheet redefines outside `@theme`, or a sub-property of it (its utilities
+      follow the redefinition);
     - a text shadow list.
 
     The default theme is now 419 = 364 mapped + 55 reported.
   - **shadcn.** A declaration that is no colour is a length by its value. It is a shadow or a
-    family by its name (`--shadow-*`, `--font-*`), or a reference the kind of what it names.
-    One that is a colour in another block is reported. Neutral is 47 = 47 + 0.
+    family by its name (`--shadow-*`, `--font-*`), or a reference the kind of what it names (its
+    last declaration, through a chain). A variable with one kind in every block it wins is a
+    token; one that is a colour, or a value of no kind, in another block is reported. A colour
+    role is offered only over a colour token. Neutral is 47 = 47 + 0.
     - `--radius`'s derived sizes are proposed when they fold: `lg` is `shadcn.radius`.
     - `sm`, `md` and `xl` are `calc()` over a `rem` radius. They are reported outside the
       count until QUEUE's "`rem`/`em` where the kernel still takes only `px`".
     - A px radius derives all four.
   - **DTCG.** These `$type`s map (`import/dtcg/kinds.rs`):
     - `dimension` and Tokens Studio's length types (a bare number is px);
-    - `fontFamily`;
-    - `fontWeight` (a weight's name too) and `number` (a `lineHeights` percentage is a ratio);
+    - `fontFamily` (a string is one family, commas and all; Tokens Studio's `fontFamilies`
+      text is a stack);
+    - `fontWeight` (a weight's name too) and `number` (a line height's percentage, as text or a
+      dimension, is a ratio);
     - `duration`, `cubicBezier`, `shadow` (an `innerShadow` is inset);
     - `typography`. A typography whose letter spacing, paragraph spacing, case or decoration
       says anything is refused: a type token holds none.
 
     Figma's fixture is 104 = 101 + 3; Tokens Studio's sample is 49 = 49 + 0.
   - **Astryx.** A text style's size, weight and leading is one type token. Font sizes are lengths
-    and weights are numbers. 268 = 261 + 7: the six duration tiers and the line style.
+    and weights are numbers. A value must be on both sides. A second variable to one token's
+    name is reported. 268 = 261 + 7: the six duration tiers and the line style.
 - **Counts.** Every importer's count still holds (source = mapped + reported), and re-importing
   proposes nothing (`tamber/tests/it/import.rs`, `import_kinds.rs`).

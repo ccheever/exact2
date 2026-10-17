@@ -296,7 +296,8 @@ design.
 - **An edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves every
   other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
 - **The limits are the checker's:**
-  - a token's `kind` is `color` until LLP 1121 stage 6;
+  - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
+    `text-shadow`, `duration`, `easing`, `type`, `family`);
   - the axes may make at most 64 tuples;
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
 - **Not yet built:**
