@@ -106,9 +106,12 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
   if (carrier.touches) {
     let r;
-    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.map(held) } }); }
+    // A still drag's ops first wait up to `REACH_MS` for the touch to reach its view, inside the finger's time: the
+    // runner holds that much longer, and the reply says the hold asked.
+    const reach = !moves && during.length ? REACH_MS : 0;
+    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
-    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
+    return noted(await s.landed({ ...r, ...(r.drag ? { drag: { ...r.drag, hold } } : {}), target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
@@ -178,9 +181,12 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
 
 /** How much longer than its holds a played contact with steps inside stays down: `HELD_LEAD` to see the touch begin
  *  in the dispatch log and to end the clock's real run, `REACH_MS` for the longest wait for it to reach its view (the
- *  touch runner's timer is already running), and `HELD_READ` for each read (a simulator's screenshot takes about
- *  100 ms). */
-export const HELD_LEAD = 250, HELD_READ = 150;
+ *  touch runner's timer is already running), `HELD_READ` for each read (a simulator's screenshot takes about 100 ms)
+ *  and `HELD_STEP` for each hold and clock step, a request or two to the app and the dispatch log read between steps. */
+export const HELD_LEAD = 250, HELD_READ = 150, HELD_STEP = 50;
+
+/** How long a played contact's finger is held for its steps (`heldPhase`). */
+const heldPress = (queue) => queue.reduce((t, q) => t + (q.hold ?? q.clock ?? 0) + (q.run && q.clock === undefined ? HELD_READ : HELD_STEP), HELD_LEAD + REACH_MS);
 
 /**
  * `tap <target> down` … `tap up` under `--touch platform`: one real touch, so a native view's own recognizers (a
@@ -201,9 +207,11 @@ export async function heldDown(s, node, at) {
   return { contact: node.id, phase: 'down', at: point, delivery: 'platform', note: 'under --touch platform a held contact is one real touch, played at tap up: the holds, reads and clock +<ms> steps before then run inside it, pressed, and answer at tap up' };
 }
 
-const heldTime = (whole, ms) => {
-  if (whole.hold + ms > DRAG_BOUNDS.hold) throw new MalformedOperation(`a held real touch lasts at most ${DRAG_BOUNDS.hold} ms`);
-  whole.hold += ms;
+/** Keep a step, refused when the press it makes would pass the runner's bound. */
+const keep = (whole, step) => {
+  if (heldPress([...whole.queue, step]) > DRAG_BOUNDS.hold) throw new MalformedOperation(`a held real touch lasts at most ${DRAG_BOUNDS.hold} ms, the steps inside it and their allowance with it`);
+  whole.queue.push(step);
+  whole.hold += step.hold ?? step.clock ?? 0;
 };
 
 /** An op line written between `tap <target> down` and `tap up` of a played contact (`heldDown`): a `tap hold`, a read
@@ -218,14 +226,12 @@ export function heldRead(s, line, run) {
   if (w[0] === 'tap' && w[1] === 'hold') {
     const [, { ms }] = tapWords(w.slice(1), true);
     pointerArguments('hold', { ms });
-    heldTime(whole, ms);
-    whole.queue.push({ hold: ms, line: text });
+    keep(whole, { hold: ms, line: text });
     return true;
   }
   const clock = w[0] === 'clock' && /^\+\d+(\.\d+)?$/.test(w[1] ?? '') && (w.length === 2 || (w.length === 3 && w[2] === 'real'));
   if (!duringAllowed(text) || (w[0] === 'clock' && !clock)) throw new Error(`under --touch platform tap <target> down … tap up is one real touch, played at tap up, and only tap hold, reads and clock +<ms> run inside it (tree, layout, state, logs, screenshot, perf): tap up or tap cancel before \`${text}\``);
-  if (clock) heldTime(whole, Number(w[1].slice(1)));
-  whole.queue.push({ ...(clock ? { clock: Number(w[1].slice(1)) } : {}), line: text, run });
+  keep(whole, { ...(clock ? { clock: Number(w[1].slice(1)) } : {}), line: text, run });
   return true;
 }
 
@@ -233,8 +239,7 @@ export async function heldPhase(s, carrier, phase, opts) {
   const whole = s.contact.whole, at = [s.contact.x, s.contact.y];
   if (phase === 'move') throw new Error('tap move: under --touch platform a finger that moves is one real gesture, tap <target> drag <dx> <dy> [press <ms>] [over <ms>] [hold <ms>]; tap up or tap cancel ends this contact');
   if (phase === 'hold') {
-    heldTime(whole, opts.ms);
-    whole.queue.push({ hold: opts.ms });
+    keep(whole, { hold: opts.ms });
     return { phase, at, delivery: 'platform', held: whole.hold };
   }
   s.contact = null;
@@ -276,7 +281,7 @@ export async function heldPhase(s, carrier, phase, opts) {
     } finally { s.held = null; }
   });
   const readCount = queue.filter((q) => q.run && q.clock === undefined).length;
-  const press = inside.length ? whole.hold + HELD_LEAD + REACH_MS + HELD_READ * readCount : 0;
+  const press = inside.length ? heldPress(queue) : 0;
   let r;
   try { r = await carrier.input(whole.id, 'drag', { at, drag: { dx: 0, dy: 0, press: 0, over: 0, hold: press, during: inside, ...(readCount ? { reach: true } : {}) } }); }
   catch (error) { error.message = error.message.replace(/lengthen hold$/, `the press was delivered; the reads inside it took longer than the ${HELD_READ} ms each it allows them: read less in one press`); throw error; }

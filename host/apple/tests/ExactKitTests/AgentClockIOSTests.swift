@@ -172,6 +172,26 @@ final class AgentClockIOSTests: XCTestCase {
     /// its own down disables still hears its release; a view the pool
     /// reuses for another node is not the held one. A press while a contact
     /// is held is refused; the samples carry the modifiers held.
+    func testAHeldFingersPressIsJudgedAgainstTheUnpressedBox() throws {
+        let session = try booted(), p = session.presenter
+        let node = NodeView(id: UInt32.max, kind: "view", presenter: p)
+        p.views[node.id] = node
+        node.frame = CGRect(x: 0, y: 200, width: 100, height: 40)
+        node.handlers = ["press"]
+        node.applyStyle(["press_scale": 0.5])
+        p.viewport.addSubview(node)
+        var pressed = 0
+        p.onPress = { _ in pressed += 1 }
+        let agent = Agent(session: session)
+        // Four points inside its left edge: outside the box drawn at half size, inside the box it presses as.
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(node.id), "x": 4.0, "y": 220.0])?["delivery"] as? String, "recognized")
+        XCTAssertTrue(node.pressed)
+        _ = agent.recognizedPan("move", ["dx": 0.0, "dy": 0.0])
+        XCTAssertTrue(node.pressed, "a still finger stays pressed")
+        _ = agent.recognizedPan("up", [:])
+        XCTAssertEqual(pressed, 1, "the lift presses it")
+    }
+
     func testAHeldFingerKeepsItsNodesAndATapItsTarget() throws {
         let session = try booted(), p = session.presenter
         let make = { (id: UInt32) -> NodeView in

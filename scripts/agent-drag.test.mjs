@@ -1,8 +1,8 @@
 // `drag`'s reply carries what the host journaled about a reorder during it (LLP 1102 §3.17), and
 // keeps every field of the carrier's reply. `bun test ./scripts/agent-drag.test.mjs`.
 import { test, expect } from 'bun:test';
-import { dragTap, heldDown, heldPhase, heldRead, HELD_LEAD, HELD_READ, STROKES } from './agent-drag.mjs';
-import { realTap, REACH_MS } from '../host/apple/touches.mjs';
+import { dragTap, heldDown, heldPhase, heldRead, HELD_LEAD, HELD_READ, HELD_STEP, STROKES } from './agent-drag.mjs';
+import { DRAG_BOUNDS, realTap, REACH_MS } from '../host/apple/touches.mjs';
 
 /** A session and carrier whose journal says `lines` during the drag; replies settle a tick later. */
 function drive(lines, { touches = false, notes = {} } = {}) {
@@ -207,9 +207,9 @@ test('the holds, reads and clock steps between a played contact\'s down and up r
   expect(keep('tap up')).toBe(false); // the contact's lift goes on to `tap`
   expect(ran).toEqual([]);
   const r = await heldPhase(s, carrier, 'up', {});
-  // The whole hold, the lead, the longest wait for the touch to reach its view, and a read's time for each read; the
-  // reads need the touch to reach its view.
-  expect(asked).toEqual([[7, 'drag', 350 + HELD_LEAD + REACH_MS + 2 * HELD_READ, true]]);
+  // The whole hold, the lead, the longest wait for the touch to reach its view, a read's time for each read and a
+  // step's for each hold and clock step; the reads need the touch to reach its view.
+  expect(asked).toEqual([[7, 'drag', 350 + HELD_LEAD + REACH_MS + 2 * HELD_READ + 3 * HELD_STEP, true]]);
   expect(ran).toEqual([['screenshot held.png', true, 'tap #7 down', true], ['clock +250 real', true], ['clock +100 real', true], ['state counter', true]]);
   expect(s.heldReads).toEqual([
     ['screenshot', { screenshot: 'held.png' }], ['clock', { clock: '+250 real' }],
@@ -225,6 +225,10 @@ test('a played contact refuses input and waiting clocks between, cancels with no
   const d = heldDrive();
   await heldDown(d.s, { id: 7 });
   for (const line of ['tap other', 'type field hi', 'screenshot a.png over 300 every 50', 'perf list during "tap x"', 'clock settle', 'clock data', 'clock 5000']) expect(() => d.keep(line)).toThrow('tap up or tap cancel');
+  // Nor a step past the runner's bound, the allowance for the steps counted: many zero holds as well as a long one.
+  expect(() => d.keep(`tap hold ${DRAG_BOUNDS.hold - HELD_LEAD - REACH_MS}`)).toThrow(`at most ${DRAG_BOUNDS.hold} ms`);
+  expect(() => { for (let i = 0; i < DRAG_BOUNDS.hold / HELD_STEP; i++) d.keep('tap hold 0'); }).toThrow(`at most ${DRAG_BOUNDS.hold} ms`);
+  d.s.contact.whole.queue.length = 0;
   for (const line of ['tap hold 50', 'screenshot a.png']) d.keep(line);
   expect(await heldPhase(d.s, d.carrier, 'cancel', {})).toEqual(expect.objectContaining({ note: 'nothing was pressed; the steps written before it ran after it, unpressed' }));
   expect(d.asked).toEqual([]);
@@ -274,4 +278,27 @@ test('a still real touch runs its ops once the touch has reached its view, and a
   const b = stillTouch({ reachedAt: null, liftAfter: REACH_MS + 200 }), ran = [];
   await expect(b.run({ reach: true, during: [async () => { ran.push(1); }] })).rejects.toThrow(`did not reach the view it landed on within ${REACH_MS} ms`);
   expect(ran).toEqual([]);
+
+  // An op that outlasts the press stops the rest: none reads the screen unpressed.
+  const c = stillTouch({ reachedAt: 1 }), later = [];
+  const slow = async () => { c.t.lifted = true; c.t.lift(); return 'slow'; };
+  await expect(c.run({ during: [slow, async () => { later.push(1); }] })).rejects.toThrow('the touch lifted before the ops during it finished');
+  expect(later).toEqual([]);
+});
+
+// A still drag's ops wait for the touch to reach its view inside the finger's time: the runner holds that much longer,
+// and the reply says the hold asked.
+test('a still real drag with ops during it holds the wait for delivery longer, and says the hold asked', async () => {
+  const asked = [];
+  const s = { contact: null, held: null,
+    async layout() { return { nodes: [{ id: 7, x: 10, y: 10, w: 40, h: 20 }], viewport: { w: 400, h: 800 } }; },
+    async op() { return { lines: [], next: 0 }; },
+    async landed(r) { return r; } };
+  const carrier = { touches: true, async input(id, phase, opts) { asked.push(opts.drag.hold); return { tapped: id, delivery: 'platform', drag: { dx: 0, dy: 0, press: 0, over: 0, hold: opts.drag.hold } }; } };
+  const run = (opts) => dragTap({ s, carrier, node: { id: 7 }, target: 'row', host: 'ios', timing: 'agent', tapRefusal: async (_, __, e) => e }, opts);
+  const r = await run({ dx: 0, dy: 0, hold: 200, during: [async () => 'read'] });
+  expect(r.drag.hold).toBe(200);
+  await run({ dx: 0, dy: 0, hold: 200 });
+  await run({ dx: 0, dy: 40, hold: 200, during: [async () => 'read'] });
+  expect(asked).toEqual([200 + REACH_MS, 200, 200]);
 });

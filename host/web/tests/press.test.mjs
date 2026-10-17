@@ -415,9 +415,10 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     await evaluate(`addEventListener('pointerdown', e => { window.lastPointer = e.pointerId; }, true)`);
     const [x, y] = await centre('inner');
     await finger('touchStart', [x, y]);
-    await evaluate(`((globalThis.exact ??= {}).contacts ??= new Map()).set(window.lastPointer, 'claimed')`);
+    // As motion-glue claims a swipe: the mark goes at the claim, and no later move inside the box brings it back.
+    await evaluate(`(globalThis.exact.contacts ??= new Map()).set(window.lastPointer, 'claimed'); globalThis.exact.pressClaimed(window.lastPointer)`);
+    expect(await marked('inner', 'data-pressed')).toBe(false);
     await finger('touchMove', [x + 1, y]);
-    await finger('touchMove', [x + 2, y]);
     expect(await marked('inner', 'data-pressed')).toBe(false);
     await finger('touchEnd');
   } finally {

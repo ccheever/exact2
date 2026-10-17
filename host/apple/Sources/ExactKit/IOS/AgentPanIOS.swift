@@ -481,9 +481,10 @@ extension Agent {
                   let start = reach.reached?.live(in: presenter),
                   let pressing = reach.action?.live(in: presenter) ?? reach.reached?.live(in: presenter),
                   pressing.window != nil else { return reply }
-            let landing = presenter.pressBox(of: pressing, from: start)
-            let inside = landing === pressing ? box(pressing).contains(contact.at)
-                : landing.bounds.contains((landing as? NodeView)?.local(windowPoint(contact.at)) ?? landing.convert(windowPoint(contact.at), from: nil))
+            // Against a node's box as it stands unpressed (`pressInside`), as a
+            // real touch's lift: its press scale makes it no smaller a target.
+            let landing = presenter.pressBox(of: pressing, from: start), p = windowPoint(contact.at)
+            let inside = (landing as? NodeView)?.pressInside(at: p) ?? landing.bounds.contains(landing.convert(p, from: nil))
             guard inside else { return reply }
             reply.merge(lift(reach, at: windowPoint(contact.at), held: contact.held)) { _, b in b }
             return reply

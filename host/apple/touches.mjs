@@ -422,7 +422,11 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
       if (drag.reach && reachedIn === false) throw new Error(`${what}: the touch did not reach the view it landed on within ${REACH_MS} ms (a recognizer kept it), so nothing inside it ran`);
       // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
       await new Promise((r) => setTimeout(r, Math.max(0, drag.press + (moves ? drag.over : 0) - (Date.now() - seen))));
-      for (const op of drag.during) during.push(await raced(op()));
+      // Each op only while the finger is still down: one that runs long stops the rest, never read unpressed.
+      for (const op of drag.during) {
+        if (finished || ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
+        during.push(await raced(op()));
+      }
       if (ours(await entries()).lifted) throw new Error(`${early} finished; lengthen hold`);
     } catch (error) {
       const done = await injecting;
