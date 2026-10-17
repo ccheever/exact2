@@ -1,7 +1,7 @@
 # Recipe: the standard functions
 
 Every function an expression may call; `bun exact.mjs contract vocab <name>` has one's rules (a
-name Contract lacks, such as `sort`, prints what to write). The web's string and array methods
+name Contract lacks prints what to write). The web's string and array methods
 are called on their value (`s.trim()`, `xs.length`); the rest as functions (`first(xs)`).
 
 - **Text:** `s.trim()` · `s.toLowerCase()` ·
@@ -12,7 +12,7 @@ are called on their value (`s.trim()`, `xs.length`); the rest as functions (`fir
   `xs.filter(x => bool)` · `first(xs) -> option<T>` · `xs.at(i) -> option<T>` ·
   `xs.slice(start, end?)` · `xs.concat(ys)` · `xs.includes(x) -> bool` ·
   `xs.indexOf(x) -> number` · `xs.join(sep) -> string` · `sum(xs)` ·
-  `sortBy(xs, x => key, "desc"?) -> T[]`, stable by one number or string key.
+  `sortBy(xs, x => key)`, stable.
 - **Numbers:** `floor(n)` · `ceil(n)` · `round(n)` · `min(a, b)` · `max(a, b)` ·
   `sin(rad)` · `cos(rad)` · `+ - * / %`.
 - **Formatting:** `formatNumber(n, "decimal" | "percent" | "compact")` ·
@@ -42,7 +42,5 @@ What the web has and Contract doesn't is a composition, or the data module's job
   `xs.map(p).indexOf(true)`.
 - A count chooses its noun by the number: `${n} ${n == 1 ? "book" : "books"}`, never "1 books"
   (`lower-count-plural`).
-- A comparator `sort` is `sortBy(xs, x => key)`; a second key is an earlier `sortBy` (equal keys
-  keep their order). A locale's collation, a stored order, grouping, folds and other maths
-  (`reduce`, `pow`, `abs`) are the data module's.
+- Grouping, folds and other maths (`reduce`, `pow`, `abs`) are the data module's.
   Upper case is CSS: `text-transform="uppercase"`.
