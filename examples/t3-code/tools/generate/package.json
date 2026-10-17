@@ -1,7 +1,7 @@
 {
   "name": "t3-code-generate",
   "private": true,
-  "description": "The clone's generated sources (generate.mjs): built from these pinned packages and committed inputs, never committed. The app build (macos/build.rs) runs it.",
+  "description": "The clone's generated sources (generate.mjs): built from these pinned packages and committed inputs, never committed. The app build (data/build.rs) runs it.",
   "type": "module",
   "dependencies": {
     "@pierre/theme": "1.1.0",

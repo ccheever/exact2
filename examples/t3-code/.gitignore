@@ -34,7 +34,7 @@
 /src/providers/provider-icons.contract
 /src/diff/diff-glyphs.contract
 /assets/composer-icons.json
-/macos/pierre-icons.tsv
+/data/pierre-icons.tsv
 /macos/tests/terminal/vectors.json
 # The app's own Cargo workspace builds here (Cargo.toml).
 /target/

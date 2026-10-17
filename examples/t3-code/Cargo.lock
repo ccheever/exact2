@@ -1688,18 +1688,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "t3-code-data"
+version = "0.1.0"
+dependencies = [
+ "exact-bake",
+ "exact-data",
+ "exact-plan",
+ "exact-runner",
+ "markdown-parse",
+]
+
+[[package]]
 name = "t3-code-macos"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
- "exact-bake",
- "exact-data",
  "exact-js",
  "exact-js-bake",
  "exact-logic",
  "exact-plan",
  "exact-runner",
- "markdown-parse",
+ "t3-code-data",
 ]
 
 [[package]]

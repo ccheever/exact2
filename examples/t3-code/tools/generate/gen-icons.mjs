@@ -9,7 +9,7 @@
 //   pages-icons.contract          the pages' Lucide glyphs (PAGE_GLYPHS) and two of their own, one path each
 //   timeline-files.contract       FileTypeIcon: each Pierre icon's paths, opacities, fill rules and tint
 //   timeline-files-tables.ts      Pierre's file-name and extension tables (timeline-files.ts resolves with them)
-//   macos/pierre-icons.tsv        the same tables for the Markdown module's file chips (pierre_icons.rs)
+//   data/pierre-icons.tsv         the same tables for the Markdown module's file chips (pierre_icons.rs)
 //   assets/composer-icons.json    the composer's chip icons as SVG (T3ComposerIcons.swift draws them)
 //   icons.contract, shell-icons.contract, sidebar-icons.contract, timeline-icons.contract,
 //   panel-icons.contract, settings-icons.contract, provider-icons.contract, diff-glyphs.contract,
@@ -17,7 +17,7 @@
 //                                 the icon tables: icon-tables.mjs's lists of Lucide names (and the
 //                                 geometry no Lucide icon has), and icon-marks.mjs's vendored marks
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DIFF_GLYPHS, ICON, ICON_FILLED, ICON_THIN, PROVIDER_FILLED, PROVIDER_ICON, PANEL_ICON, SETTINGS_ICONS, SHELL_ICON, SIDEBAR_ICON, TIMELINE_ICON } from './icon-tables.mjs';
@@ -550,7 +550,7 @@ export async function generate() {
     { file: join(example, 'src', 'shared', 'pages-icons.contract'), text: await pageIcons() },
     { file: join(example, 'src', 'shared', 'timeline-files.contract'), text: fileTypeIcon(symbols, tints) },
     { file: join(example, 'src', 'shared', 'timeline-files-tables.ts'), text: tables.ts },
-    { file: join(example, 'macos', 'pierre-icons.tsv'), text: tables.tsv },
+    { file: join(example, 'data', 'pierre-icons.tsv'), text: tables.tsv },
     { file: join(example, 'assets', 'composer-icons.json'), text: await composerIcons(symbols, tints) },
     { file: join(example, 'src', 'shared', 'icons.contract'), text: await iconsContract() },
     { file: join(example, 'src', 'shell', 'shell-icons.contract'), text: await tableContract(`ShellIcon: the Lucide glyphs the window shell draws (toasts, panel controls, the
@@ -566,4 +566,10 @@ export async function generate() {
     { file: join(example, 'src', 'shell', 'editor-icons.contract'), text: await editorContract() },
     { file: join(example, 'src', 'settings', 'settings-brands.contract'), text: brandsContract() },
   ];
+}
+
+/** The Pierre tables' former path, beside the macOS crate before the data crate embedded them. */
+export function stale() {
+  const old = join(example, 'macos', 'pierre-icons.tsv');
+  return existsSync(old) ? [old] : [];
 }
