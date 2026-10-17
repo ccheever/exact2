@@ -8,10 +8,11 @@ what to write for a name Contract lacks. The web's methods are called on their v
   `s.includes(t)` · `s.startsWith(t)` · `s.endsWith(t)` · `s.indexOf(t) -> number` ·
   `s.slice(start, end?)` · `s.split(sep) -> string[]` · `s.replaceAll(find, with)` ·
   `x.toString()` · `parseNumber(s) -> option<number>` · `encodeURIComponent(s)`.
-- **Lists:** `x.length` and `x.isEmpty()` (text too) · `xs.map((x, i) => y) -> U[]` ·
+- **Lists:** `x.length` and `x.isEmpty()` (text too) · `xs.map((x, i) => y)` ·
   `xs.filter(x => bool)` · `first(xs) -> option<T>` · `xs.at(i) -> option<T>` ·
   `xs.slice(start, end?)` · `xs.concat(ys)` · `xs.includes(x)` ·
-  `xs.indexOf(x) -> number` · `xs.join(sep)` · `sum(xs)` · `sortBy(xs, x => key)`, stable.
+  `xs.indexOf(x) -> number` · `xs.join(sep)` · `sum(xs)` · `sortBy(xs, x => key)`, stable ·
+  `range(n)`.
 - **Numbers:** `floor(n)` · `ceil(n)` · `round(n)` · `min(a, b)` · `max(a, b)` ·
   `sin(rad)` · `cos(rad)` · `+ - * / %`.
 - **Formatting:** `formatNumber(n, "decimal" | "percent" | "compact")` ·
@@ -19,7 +20,7 @@ what to write for a name Contract lacks. The web's methods are called on their v
   `formatDate(ms, offset, "medium" | "month-year" | "iso")` · `formatTime(ms, offset, "short")` ·
   `formatDay(then, now, offset, "day" | "list")` ·
   `calendarDiff(from, to, "years" | "months")` · `t("key", name=value)`.
-- **Time:** `performanceNow() -> number`, ms since this launch; the date is
+- **Time:** `performanceNow()`, ms since launch; the date is
   `time.epochAtZero + performanceNow()` ([dates-and-days](dates-and-days.md)).
 - **Routes:** `push(nav, location)` · `replace(nav, location)` · `back(nav)` ·
   `go(nav, location)` · `open(nav, location)` · `select(nav, tab)` · `stack(nav) -> Entry[]` ·

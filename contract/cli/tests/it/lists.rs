@@ -466,6 +466,101 @@ component A
     }
 }
 
+/// `range(n)` (the euxy port's `range64().slice(0, n)`) is 0 to n - 1, a list
+/// step an item before it is built; a count that is not a whole number at
+/// least 0 does not fit: refused where it is a literal, a trap where it is
+/// computed, which refuses the commit that would make it.
+#[test]
+fn range_counts_from_zero_on_the_budget_and_refuses_what_is_no_count() {
+    let src = r#"component A
+  state n = 3
+  derive xs = range(n)
+  action set(v: number)
+    n = v
+  view
+    column
+      text xs.join(",") testId="xs"
+      text `${range(0).length} ${range(-0).length} ${sum(range(4))}` testId="edges"
+      for i in range(2) key=i
+        text `row ${i}` testId=`row-${i}`
+"#;
+    struct Nothing;
+    impl DataSource for Nothing {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(Vec::new()))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Nothing,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<Nothing>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text(&r, "xs"), "0,1,2");
+    assert_eq!(text(&r, "edges"), "0 0 6");
+    assert_eq!(text(&r, "row-1"), "row 1");
+    for bad in [2.5, -1.0] {
+        let e = r.act("set", vec![Value::Number(bad)]).unwrap_err();
+        assert!(format!("{e:?}").contains("TypeMismatch"), "{bad}: {e:?}");
+        assert_eq!(text(&r, "xs"), "0,1,2", "{bad} refused whole");
+    }
+    // NaN and the infinities live only inside an evaluation.
+    for bad in ["0 / 0", "1 / 0", "-1 / 0"] {
+        let plan = contract::compile(&format!(
+            "component A\n  state z = 0\n  derive xs = range({bad} + z)\n  view\n    text xs.join(\",\")\n"
+        ))
+        .unwrap();
+        let e = Runner::boot(
+            plan,
+            Nothing,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .err()
+        .unwrap_or_else(|| panic!("{bad} booted"));
+        assert!(format!("{e:?}").contains("TypeMismatch"), "{bad}: {e:?}");
+    }
+    r.act("set", vec![Value::Number(65_536.0)]).unwrap();
+    let e = r.act("set", vec![Value::Number(65_537.0)]).unwrap_err();
+    assert!(format!("{e:?}").contains("IterationLimit"), "{e:?}");
+    let e = r.act("set", vec![Value::Number(1e300)]).unwrap_err();
+    assert!(format!("{e:?}").contains("IterationLimit"), "{e:?}");
+    // Literals are refused where they are written; `range(a, b)` names the slice.
+    for (call, id, says) in [
+        (
+            "range(2.5)",
+            "type-argument",
+            "a whole number at least 0; given `2.5`",
+        ),
+        ("range(-1)", "type-argument", "given `-1`"),
+        ("range(\"3\")", "type-argument", "expects `number`"),
+        ("range(1, 4)", "type-arity", "`range(n).slice(a, b)`"),
+    ] {
+        let e = contract::compile(&format!(
+            "component A\n  view\n    text {call}.join(\",\")\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, id, "{call}: {e}");
+        assert!(e.message.contains(says), "{call}: {e}");
+    }
+}
+
 /// A callback's parameters are binders: a prop passed in that mentions the
 /// same name is not captured by them; a `fn` that reaches itself through a
 /// callback is recursive; a call repeated inside a callback is bound inside

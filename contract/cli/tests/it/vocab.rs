@@ -79,6 +79,19 @@ fn appearance_vocab_explains_authored_bars() {
         .contains("root tablist"));
 }
 
+/// `range` is a standard function (2026-10-17) and, on the web, a slider's
+/// `type`: its entry says both.
+#[test]
+fn range_is_the_function_and_names_the_slider() {
+    let out = stdout(&vocab(&["range"]));
+    assert!(out.contains("range: standard function"), "{out}");
+    assert!(out.contains("`range(4)` is `[0, 1, 2, 3]`"), "{out}");
+    assert!(out.contains("a slider is `input type=\"range\""), "{out}");
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json", "range"]))).unwrap();
+    let means = doc["function"]["means"].as_str().unwrap_or_default();
+    assert!(means.contains("input type=\"range\""), "{doc}");
+}
+
 #[test]
 fn navigation_detent_vocab_names_its_validated_forms() {
     let out = stdout(&vocab(&["navigationDetent"]));

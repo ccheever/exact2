@@ -2,10 +2,12 @@
 //! §5): the roster's list operations, typed here because a callback is not
 //! a value the roster table can describe; and `concat`, `slice`, `includes` and `indexOf`
 //! (LLP 1088 §9.1), whose types follow their first argument's: a list's
-//! item type, or text for all but `concat`, the web's same-named methods.
+//! item type, or text for all but `concat`, the web's same-named methods;
+//! and `range` (LLP 1017.003 §Refused, 2026-10-17), whose literal count is
+//! checked where it is written.
 
 use crate::{checks, err, infer, Ref, Scope, Shapes, Ty, TypeError};
-use contract_syntax::{Expr, Span};
+use contract_syntax::{Expr, Span, UnOp};
 use exact_plan::Stdlib;
 
 /// Whether `f` is one of them.
@@ -20,7 +22,47 @@ pub(crate) fn is_list_op(f: Stdlib) -> bool {
             | Stdlib::Slice
             | Stdlib::Includes
             | Stdlib::IndexOf
+            | Stdlib::Range
     )
+}
+
+/// `range(n)`: one number, the count; a literal one is a whole number at
+/// least 0, as the runner traps any other.
+fn infer_range(args: &[Expr], span: Span, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    let [n] = args else {
+        return err(
+            "type-arity",
+            format!(
+                "`range(n)` takes one argument, the count (`range(3)` is `[0, 1, 2]`), given {}; the numbers from `a` to `b - 1` are `range(b).slice(a)`, and a window of them `range(n).slice(a, b)`",
+                args.len()
+            ),
+            span,
+        );
+    };
+    let t = infer(n, scope, shapes)?;
+    if t != Ty::Number {
+        return err(
+            "type-argument",
+            format!("argument 1 of `range` expects `number`, given `{t}`"),
+            n.span(),
+        );
+    }
+    let literal = match n {
+        Expr::Number(v, _) => Some(*v),
+        Expr::Unary(UnOp::Neg, inner, _) => match &**inner {
+            Expr::Number(v, _) => Some(-v),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(v) = literal.filter(|v| !(v.fract() == 0.0 && *v >= 0.0)) {
+        return err(
+            "type-argument",
+            format!("`range(n)` counts from 0 to n - 1, so `n` is a whole number at least 0; given `{v}`"),
+            n.span(),
+        );
+    }
+    Ok(Ty::List(Box::new(Ty::Number)))
 }
 
 /// `concat(T[], T[])`, `slice(string | T[], number, number?)`
@@ -133,6 +175,9 @@ pub(crate) fn infer_call(
         Stdlib::Concat | Stdlib::Slice | Stdlib::Includes | Stdlib::IndexOf
     ) {
         return infer_built(f, args, span, scope, shapes);
+    }
+    if f == Stdlib::Range {
+        return infer_range(args, span, scope, shapes);
     }
     let name = f.name();
     if f == Stdlib::SortBy {

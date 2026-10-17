@@ -727,6 +727,7 @@ says. Every roster function has a row and an example, and each example written
 | `sin(rad)` | Number; `Math.sin`, CSS's `sin()`. The native runners' `libm` gives the same bits on every target; the web's `Math.sin` may differ in the last bits | `sin(0)` is `0` |
 | `cos(rad)` | Number; `Math.cos`, CSS's `cos()`, computed as `sin` is (a point on a ring is `cx + r * cos(a)`, `cy + r * sin(a)`) | `cos(0)` is `1` |
 | `sum(xs)` | Number; a list of numbers added left to right from 0, as `xs.reduce((a, x) => a + x, 0)` (`sum([])` is `0`), a list step an item; `sum(xs.map(x => …))` totals a field | `sum([1, 2, 3])` is `6` |
+| `range(n)` | `number[]`; Exact's own, not the web's: the whole numbers from 0 to `n - 1` in order (`range(0)` is `[]`), a list step an item. `n` is a whole number at least 0: another literal is refused, and another computed value traps (`TypeMismatch`), refusing the commit that made it. `range(a, b)` is refused: the numbers from `a` are `range(b).slice(a)`, a window `range(n).slice(a, b)` | `range(4)` is `[0, 1, 2, 3]` |
 | `text.includes(substring)` | Boolean, case-sensitive literal substring | `"grocery".includes("roc")` is `true` |
 | `xs.includes(item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `["a", "b"].includes("b")` is `true` |
 | `text.startsWith(prefix)` | Boolean, case-sensitive | `"/settings".startsWith("/")` is `true` |
@@ -797,9 +798,9 @@ the refusals say what to write instead. Neither `indexOf` nor `split` takes
 the web's second argument (a start position, a limit), and `split` takes no
 regular expression.
 
-`concat`, `split`, `sum`, and `slice`, `includes` and `indexOf` over a list, take
+`concat`, `split`, `sum`, `range`, and `slice`, `includes` and `indexOf` over a list, take
 list steps on the evaluation's budget as `map` and `join` do (LLP 1090): one
-for each item `concat`, `slice` or `split` keeps, taken before the list is
+for each item `concat`, `slice`, `split` or `range` makes, taken before the list is
 built, one for each item `sum` adds, and one for each item `includes` or
 `indexOf` scans up to its match. A
 list they build is bounded as any built value is. `sortBy` takes one step an

@@ -387,6 +387,7 @@ impl Gen<'_> {
                 2,
                 if **elem == Ty::Str { 2 } else { 0 },
                 3,
+                if **elem == Ty::Num { 2 } else { 0 },
             ]) {
                 0 => {
                     let src_ty = self.held(env, false);
@@ -430,7 +431,7 @@ impl Gen<'_> {
                 }
                 // LLP 1116.016 §5: a stable sort by a number or string key,
                 // in either direction.
-                _ => {
+                7 => {
                     let src = self.expr(env, t, d, false);
                     let (head, inner) = self.arrow_head(env, elem);
                     let key_ty = if self.rng.chance(1, 2) {
@@ -444,6 +445,19 @@ impl Gen<'_> {
                         .pick(&["", "", ", \"asc\"", ", \"desc\"", ", \"desc\""]);
                     format!("sortBy({src}, {head} {key}{dir})")
                 }
+                // `range(n)`: mostly a small count or a length; now and then
+                // any number floored, which a negative or non-finite one
+                // refuses at run time (a literal one, at compile time). The
+                // `min` keeps a count clear of the list bound, which the
+                // runner traps and the semantics does not model.
+                _ => match self.rng.weighted(&[3, 1, 1]) {
+                    0 => format!("range({})", self.rng.range(0, 5)),
+                    1 => format!("range(({}).length)", self.sized(env, d)),
+                    _ => format!(
+                        "range(min(floor({}), 8))",
+                        self.expr(env, &Ty::Num, d, false)
+                    ),
+                },
             },
             Ty::Rec(i) => {
                 let shape = self.shapes[*i].clone();

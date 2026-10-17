@@ -230,14 +230,15 @@ fn call_value(
         },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
         // call; `join` is the VM's, which bounds the string it makes, and so
-        // are `concat` and `split` (LLP 1088 §9.1), which build a list.
+        // are `concat`, `split` and `range` (LLP 1088 §9.1), which build a list.
         Stdlib::Map
         | Stdlib::Filter
         | Stdlib::Join
         | Stdlib::Concat
         | Stdlib::Split
         | Stdlib::Sum
-        | Stdlib::SortBy => return None,
+        | Stdlib::SortBy
+        | Stdlib::Range => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         // `Math.sin` and `Math.cos` through the pinned `libm`, so every
         // native target computes the same bits (LLP 1003 §7).

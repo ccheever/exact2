@@ -116,6 +116,7 @@ fn stepped(f: u64) -> bool {
         Stdlib::IndexOf,
         Stdlib::Split,
         Stdlib::Sum,
+        Stdlib::Range,
     ]
     .iter()
     .any(|&g| f == g as u64)

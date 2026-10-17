@@ -279,6 +279,13 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
     split <;> simp [VTy]
   case h_49 =>
     split at h <;> simp at h; subst h; simp [VTy]
+  case h_51 =>
+    split at h
+    · split at h <;> simp at h; subst h
+      exact VTyAll.of_mem fun x hx => by
+        obtain ⟨i, _, rfl⟩ := List.mem_map.mp hx
+        simp [VTy]
+    · simp at h
 
 /-! ## Strict operators -/
 

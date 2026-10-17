@@ -38,6 +38,7 @@ functions: call -> result
   performanceNow() -> number  (ms since launch)
   push(router, location) -> Router
   querySelectorAll(selector) -> string[]
+  range(n) -> number[]
   replace(router, location) -> Router
   text.replaceAll(find, with) -> string
   round(n) -> number  (half up)
@@ -152,7 +153,7 @@ a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond
   text `${now}`
 keeping a value: Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records belong in a source (`files-and-grants`).
   state units = "C" persist
-colour: Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+colour: Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
   main
     text "Total" color="-exact-secondary-label"
     view padding=12 background-color="-exact-secondary-background"
@@ -165,7 +166,7 @@ reading and writing data: `loadItems` and `addItem` are in app.ts and answer exa
   action add
     send added = addItem("Milk")
   text items.join(", ")
-a dated record: The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 at each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
+a dated record: The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
   shape Time
     epochAtZero: number
     utcOffset: number
@@ -174,13 +175,13 @@ a dated record: The write reads the clock itself, not a ticked `now`, and stores
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` keeps screenshots. A screen no test ends on is unchecked.
+a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for an iPhone app; `--shots <dir>` keeps screenshots. A screen no test ends on is unchecked.
   test "a pick survives a relaunch"
     tap "pick"
     clock data
     reload
     expect text "n" == "1"
-composing a screen: One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+composing a screen: One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering live. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
   use SummaryCard from "exact:content"
   column gap=16 padding=16
     SummaryCard(label="Streak", value="12", detail="days in a row", progress=none, symbol=none)

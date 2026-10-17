@@ -144,6 +144,7 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
   else if name = "ceil" ∨ name = "round" ∨ name = "sin" ∨ name = "cos" then match ts with | [.number] => .some .number | _ => .none
   else if name = "sum" then
     match ts with | [.list .number] | [.list .unknown] => .some .number | _ => .none
+  else if name = "range" then match ts with | [.number] => .some (.list .number) | _ => .none
   else if name = "parseNumber" then match ts with | [.string] => .some (.option .number) | _ => .none
   else if name = "calendarDiff" then
     match ts with | [.string, .string, .string] => .some (.option .number) | _ => .none

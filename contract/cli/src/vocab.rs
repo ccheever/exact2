@@ -510,7 +510,7 @@ fn refused(name: &str) -> String {
     {
         out += &format!("; did you mean the function `{}`?", near.name);
     }
-    if let Some((_, means)) = MEANS.iter().find(|(names, _)| names.contains(&name)) {
+    if let Some(means) = means(name) {
         out += &format!("; {means}");
     }
     let near = named_like(name);
@@ -625,10 +625,22 @@ fn function_json(f: &Function) -> Value {
     if let Some(note) = idiom(&f.name) {
         doc["note"] = note.into();
     }
+    if let Some(means) = means(&f.name) {
+        doc["means"] = means.into();
+    }
     if routed(f) {
         doc["routes"] = true.into();
     }
     doc
+}
+
+/// What a name from elsewhere is written as, from [`MEANS`]: said beside a
+/// function of the same name (`range`, the slider's `type`).
+fn means(name: &str) -> Option<&'static str> {
+    MEANS
+        .iter()
+        .find(|(names, _)| names.contains(&name))
+        .map(|(_, means)| *means)
 }
 
 /// Whether the function exists only in an app with a `routes` declaration.
@@ -654,6 +666,9 @@ fn function_text(f: &Function) -> String {
     }
     if let Some(note) = idiom(&f.name) {
         out += &format!("  the web's `{}`: {note}\n", f.name);
+    }
+    if let Some(means) = means(&f.name) {
+        out += &format!("  `{}` elsewhere: {means}\n", f.name);
     }
     out += "  docs/contract-grammar.md#standard-functions-and-intrinsics\n";
     out

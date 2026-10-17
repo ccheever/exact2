@@ -251,10 +251,19 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   -- LLP 1116.016 §5: the roster's half of `sortBy`, on the items, their keys
   -- (a `map` of the callback) and whether it is descending.
   | "sortBy", [.list xs, .list ks, .bool d] => sortByKeys xs ks d
+  -- LLP 1017.003 §Refused (2026-10-17): the whole numbers below `n`. Any
+  -- other count does not fit, which the runner traps; a count past the
+  -- runner's list bound is outside the semantics (LLP 1090 D8), so none
+  -- is built here.
+  | "range", [.num n] =>
+    if n.isFinite && n.floor == n && F64.le 0 n then
+      if n.toNat ≤ 65536 then .ok (.list ((List.range n.toNat).map fun i => .num (F64.ofNat i)))
+      else .error (.unsupported "`range` past the list bound")
+    else .error (.refused "`range` of a count that is not a whole number at least 0")
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
-  | "sin", _ | "cos", _ | "sum", _ | "sortBy", _
+  | "sin", _ | "cos", _ | "sum", _ | "sortBy", _ | "range", _
   | "split", _ | "ceil", _ | "round", _ | "parseNumber", _ | "calendarDiff", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")

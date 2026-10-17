@@ -142,7 +142,7 @@ Root `state` only: a number, string or bool (or an option or list of one) up to 
 state units = "C" persist
 ```
 ### colour
-Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role, which follows the scheme: text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+Leave the accent unsaid (the platform's blue; a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
 ```contract
 main
   text "Total" color="-exact-secondary-label"
@@ -161,7 +161,7 @@ action add
 text items.join(", ")
 ```
 ### a dated record
-The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 at each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
+The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
 ```contract
 shape Time
   epochAtZero: number
@@ -173,7 +173,7 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` keeps screenshots. A screen no test ends on is unchecked.
+By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for an iPhone app; `--shots <dir>` keeps screenshots. A screen no test ends on is unchecked.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"
@@ -182,7 +182,7 @@ test "a pick survives a relaunch"
   expect text "n" == "1"
 ```
 ### composing a screen
-One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering live. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
 ```contract
 use SummaryCard from "exact:content"
 column gap=16 padding=16

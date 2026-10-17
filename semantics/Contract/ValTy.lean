@@ -163,6 +163,18 @@ theorem ValTys.of_mem {p : Program} {t : Ty} : ∀ {xs : List Value}, (∀ x ∈
   | [], _ => trivial
   | y :: ys, h => ⟨h y (by simp), ValTys.of_mem fun x hx => h x (by simp [hx])⟩
 
+/-- `Value.sum` of a list of numbers answers. -/
+theorem sum_ok {p : Program} {xs : List Value} (h : ValTys p xs .number) (a : F64) :
+    ∃ n, Value.sum xs a = .some n := by
+  induction xs generalizing a with
+  | nil => exact ⟨a, rfl⟩
+  | cons x xs ih => cases x <;> simp only [ValTys, ValTy] at h <;> first | exact ih h.2 _ | exact h.1.elim
+
+/-- `range`'s list is of numbers. -/
+theorem range_vals {p : Program} (n : Nat) :
+    ValTys p ((List.range n).map fun i => Value.num (F64.ofNat i)) .number :=
+  ValTys.of_mem fun x hx => by obtain ⟨i, _, rfl⟩ := List.mem_map.mp hx; trivial
+
 theorem ValTys.iff {p : Program} {t : Ty} {xs : List Value} : ValTys p xs t ↔ ∀ x ∈ xs, ValTy p x t :=
   ⟨fun h => h.mem, ValTys.of_mem⟩
 

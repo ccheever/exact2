@@ -84,7 +84,7 @@ export function K(a, pc) {
 }
 
 // ---------------------------------------------------------------- lists (LLP 1088 §9.1)
-// `concat`, `split`, `sum`, and `slice`, `includes` and `indexOf` over a list, on the caller's budget as `join` is: each takes
+// `concat`, `split`, `sum`, `range`, and `slice`, `includes` and `indexOf` over a list, on the caller's budget as `join` is: each takes
 // the caller's `$s` and traps where the sum passes the bound, before it builds (`vm.rs`, `list_call`), leaving its own
 // steps in `ST`, which the caller adds to its `$s` (code.rs); a list it builds is `K`'s. Over text, `slice`, `includes`
 // and `indexOf` take no step.
@@ -156,6 +156,13 @@ export function x_sum(l, s, pc) {
   let total = 0;
   for (const x of l) total += x;
   return total;
+}
+/** `range(n)`: 0 to n - 1, a step an item, taken before it builds; an `n` that is not a whole number at least 0 does not
+ * fit, the runner's `TypeMismatch` (format.json `range`). */
+export function x_range(n, s, pc) {
+  if (!Number.isInteger(n) || n < 0) throw new Trap("TypeMismatch", pc);
+  step(s, n, pc);
+  return K(Array.from({ length: n }, (_, i) => i), pc);
 }
 /** `split(t, sep)`: a step a piece; an empty `sep` splits into code units, each made well formed (LLP 1088 D2), and
  * steps before it splits, as the runner counts first. */
