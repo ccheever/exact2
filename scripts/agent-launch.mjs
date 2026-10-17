@@ -936,6 +936,22 @@ export async function backLayer(req, { evaluate, escape, frame }) {
 /** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
 export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
 
+/** One simulator's display, across every drive and checkout: a capture that reads it (`withDisplay`) holds it, and so
+ *  does a launch, which brings its app to the front over another drive's. Runs `fn` holding it. */
+export async function simulatorDisplay(udid, fn, { directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
+  const path = createHash('sha256').update(JSON.stringify(['display', udid])).digest('hex') + '/.lock';
+  const started = Date.now();
+  for (;;) {
+    let entered = false;
+    try { return await filesystemLock(directory, path, () => { entered = true; return fn(); }); }
+    catch (error) {
+      if (entered || !error.message.includes('stream is locked by another publisher')) throw error;
+      if (Date.now() - started >= timeout) throw new Error(`simulator ${udid}'s display busy: another drive still held it after ${timeout / 1000}s`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
+
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through
  * the helper's stdin. Permanent lock files avoid unlink/reacquire races. */

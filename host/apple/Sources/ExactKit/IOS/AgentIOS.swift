@@ -1125,9 +1125,11 @@ extension Agent {
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
+        // The simulator driver's check, after it read the display, that the display was still this app's.
+        if req["probe"] as? Bool == true { return ["front": displayFront()] }
         let loading = settleForPicture()
         // UIKit's own motion lands first, unless the picture is a film's frame (LLP 1116.003 D8).
-        if req["film"] as? Bool != true { settleMotion() }
+        let moving = req["film"] as? Bool != true && !settleMotion()
         // A canvas painting its children through its surface (LLP 1014)
         // shows its last capture: what is pending is captured and rendered
         // at the agent's clock first, as `clock` leaves it.
@@ -1203,6 +1205,9 @@ extension Agent {
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if wholeWindow { r["window"] = true }
+        // Whether the simulator driver may take the display's pixels for this picture (devices.mjs `withDisplay`).
+        if wholeWindow { r["front"] = displayFront() }
+        if moving { r["moving"] = true }
         #if os(iOS)
         // The status bar is SpringBoard's, never in the window's picture: its height, for the simulator driver to put it in (devices.mjs `withDisplay`).
         if wholeWindow, let bar = vp.window?.windowScene?.statusBarManager?.statusBarFrame.height, bar > 0, !(vp.window?.windowScene?.statusBarManager?.isStatusBarHidden ?? true) { r["statusBar"] = Agent.r2(bar) }
@@ -1238,6 +1243,16 @@ extension Agent {
             r["note"] = "the software keyboard is up: it is not in the capture, and the app above it may be shortened (state shows keyboard.top)"
         }
         return r
+    }
+
+    /// Whether the display shows this app's window, or why not: an app that
+    /// is not active is behind a system alert, another app or the home
+    /// screen, and a window that is not key is behind another of its scene's.
+    func displayFront() -> Any {
+        if UIApplication.shared.applicationState != .active { return "the app is not active" }
+        if presenter.viewport.window?.windowScene?.activationState != .foregroundActive { return "the app's scene is not in front" }
+        if presenter.viewport.window?.isKeyWindow != true { return "the app's window is not key" }
+        return true
     }
 
     /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "menu",

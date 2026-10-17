@@ -1203,10 +1203,18 @@ driver then takes a window capture's pixels from the display (`simctl io …
 screenshot`, `devices.mjs` `withDisplay`), as a device screenshot has them:
 `drawHierarchy` draws Liquid Glass and the other backdrop materials only
 roughly (a tab bar's glass left the rows under it legible, an alert's the list
-behind it), and the keyboard is another process's. The status bar's rows stay
-the app's unless asked for (`window status`); a capture that strikes through
-header nodes the bar leaves out keeps its own picture and takes only the
-keyboard's and the status bar's rows. This distinction landed
+behind it), and the keyboard is another process's. It reads the display twice
+after the reply and takes it only when the reply said the app was in front
+(active, its scene in front, its window key) with UIKit's motion settled, the
+two reads agree below the status bar, and the app, asked again
+(`{"op":"screenshot","probe":true}`), is still in front at the same epoch,
+incarnation and clock; a launch and such a capture hold the simulator's
+display lock (`simulatorDisplay`), so another drive's app does not come to the
+front between them. Otherwise the picture stays the app's and the reply's
+`pixels: "app"` and `pixelsWhy` say why. The status bar's rows stay the app's
+unless asked for (`window status`); `window app` asks for the app's own
+drawing, as does a capture that strikes through header nodes the bar leaves
+out, which then takes only the keyboard's and the status bar's rows. This distinction landed
 with LLP 1021 D2's confirmation integration (2026-09-10). The driver's `ios` carrier (`scripts/agent.mjs`
 `openIOS`) installs the bundle, launches it with `simctl launch --console
 --terminate-running-process` and keeps that attached for the app's stdout

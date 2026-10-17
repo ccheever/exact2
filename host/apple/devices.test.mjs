@@ -39,16 +39,17 @@ test('a refused phone token cannot admit a command carrier; the right token stil
 
 const solid = (width, height, rgba) => encodePng({ width, height, data: Uint8Array.from({ length: width * height * 4 }, (_, i) => rgba[i % 4]) });
 
-function withFakeSimctl(display, body) {
+// `displays`: one picture every read gets, or one per read in turn.
+async function withFakeSimctl(displays, body) {
   const dir = mkdtempSync(resolve(tmpdir(), 'devices-test-'));
-  const [path, env] = [resolve(dir, 'display.png'), { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR }];
+  const env = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR };
   try {
-    writeFileSync(path, display);
-    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\ncp '${path}' "$last"\n`);
+    [displays].flat().forEach((display, i) => writeFileSync(resolve(dir, `display-${i}.png`), display));
+    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\nn=$(cat '${dir}/n' 2>/dev/null || echo 0)\nf='${dir}/display-'$n'.png'\n[ -f "$f" ] || f='${dir}/display-0.png'\ncp "$f" "$last"\necho $((n + 1)) > '${dir}/n'\n`);
     chmodSync(resolve(dir, 'xcrun'), 0o755);
     process.env.PATH = `${dir}:${env.PATH}`;
     process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
-    return body(dir);
+    return await body(dir);
   } finally {
     process.env.PATH = env.PATH;
     if (env.DEVELOPER_DIR === undefined) delete process.env.DEVELOPER_DIR;
@@ -56,83 +57,149 @@ function withFakeSimctl(display, body) {
   }
 }
 
+const RED = [255, 0, 0, 255], BLUE = [0, 0, 255, 255];
+const rows = (path) => { const png = decodePng(readFileSync(path)); return (y) => [...png.data.subarray(y * png.width * 4, y * png.width * 4 + 4)]; };
+// The app's answer: in front, at epoch 3; the probe after the reads says the same unless told otherwise.
+const front = { front: true, epoch: 3, incarnation: 1, clock: 1500 };
+const still = (more = {}) => ({ probe: async () => ({ ...front, ...more }) });
 // A capture the agent marked (header nodes struck through), which only the app's own picture shows.
 const marked = { unshown: [{ id: 1, testId: null }] };
 
 // drawHierarchy draws Liquid Glass roughly: a tab bar's glass left the rows under it legible (the euxy port).
-test('a window capture is the display\'s, the status bar too when asked', () => {
-  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+test('a window capture is the display\'s, the status bar too when asked', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
     const shot = resolve(dir, 'app.png');
-    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ scale: 2, statusBar: 1 }, shot, 'UDID');
-    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
-    expect([at(0), at(2), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
-    expect(r.statusBar).toBe(true);
-    expect(r.note).toBeUndefined();
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, scale: 2, statusBar: 1 }, shot, 'UDID', 0, still());
+    const at = rows(shot);
+    expect([at(0), at(2), at(7)]).toEqual([BLUE, BLUE, BLUE]);
+    expect([r.statusBar, r.pixels, r.note]).toEqual([true, 'display', undefined]);
   });
 });
 
-test('a window capture without its status bar keeps the app\'s rows there', () => {
-  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+test('a window capture without its status bar keeps the app\'s rows there', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
     const shot = resolve(dir, 'app.png');
-    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ scale: 2 }, shot, 'UDID', 1);
-    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
-    expect([at(0), at(1), at(2), at(7)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
-    expect(r.statusBar).toBeUndefined();
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, scale: 2 }, shot, 'UDID', 1, still());
+    const at = rows(shot);
+    expect([at(0), at(1), at(2), at(7)]).toEqual([RED, RED, BLUE, BLUE]);
+    expect([r.statusBar, r.pixels]).toEqual([undefined, 'display']);
   });
 });
 
-test('the keyboard is in a window capture, its top known or not', () => {
-  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+test('the keyboard is in a window capture, its top known or not', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
     const shot = resolve(dir, 'app.png');
-    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2 }, note: 'old' }, shot, 'UDID');
-    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
-    expect(at(7)).toEqual([0, 0, 255, 255]);
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, scale: 2, keyboard: { visible: true, top: 2 }, note: 'old' }, shot, 'UDID', 0, still());
+    expect(rows(shot)(7)).toEqual(BLUE);
     expect(r.keyboard.captured).toBe(true);
     expect(r.note).toContain('in the capture');
   });
 });
 
-test('a marked capture takes the display\'s rows from the keyboard\'s top down, the app above them its own', () => {
-  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
+// Another app, a system alert or the home screen in front: the display is not this app's picture.
+test('an app not in front keeps its own picture, and says why', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
     const shot = resolve(dir, 'app.png');
-    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ ...marked, scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 }, note: 'old' }, shot, 'UDID');
-    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
-    expect([at(0), at(3)]).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
-    expect([at(4), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255]]);
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, front: 'the app is not active', scale: 2 }, shot, 'UDID', 1, still());
+    expect(rows(shot)(7)).toEqual(RED);
+    expect([r.pixels, r.pixelsWhy]).toEqual(['app', 'the app is not active']);
+    expect(r.note).toContain('approximate');
+  });
+});
+
+test('an app that left the front while the display was read keeps its own picture', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, scale: 2 }, shot, 'UDID', 1, still({ front: 'the app is not active' }));
+    expect(rows(shot)(7)).toEqual(RED);
+    expect(r.pixelsWhy).toBe('the app is not active');
+  });
+});
+
+test('an app that changed while the display was read keeps its own picture', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, scale: 2 }, shot, 'UDID', 1, still({ epoch: 4 }));
+    expect(rows(shot)(7)).toEqual(RED);
+    expect(r.pixelsWhy).toBe('the app changed while the display was read');
+  });
+});
+
+// A keyboard sliding, a caret blinking: the display is of no one moment.
+test('a display that moves between its two reads leaves the app\'s picture', async () => {
+  await withFakeSimctl([solid(4, 8, BLUE), solid(4, 8, [0, 255, 0, 255])], async (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, scale: 2, statusBar: 1 }, shot, 'UDID', 0, still());
+    const at = rows(shot);
+    expect([at(0), at(2), at(7)]).toEqual([BLUE, RED, RED]);
+    expect([r.statusBar, r.pixels, r.pixelsWhy]).toEqual([true, 'app', 'the display changed while it was read']);
+  });
+});
+
+test('UIKit motion still running leaves the app\'s picture', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, moving: true, scale: 2 }, shot, 'UDID', 1, still());
+    expect(rows(shot)(7)).toEqual(RED);
+    expect(r.pixelsWhy).toBe('UIKit\'s motion had not settled');
+  });
+});
+
+test('a capture asked for as the app\'s own drawing stays it, silently', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, scale: 2 }, shot, 'UDID', 1, { ...still(), own: true });
+    expect(rows(shot)(7)).toEqual(RED);
+    expect([r.pixels, r.note]).toEqual(['app', undefined]);
+  });
+});
+
+test('a marked capture takes the display\'s rows from the keyboard\'s top down, the app above them its own', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, ...marked, scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 }, note: 'old' }, shot, 'UDID', 0, still());
+    const at = rows(shot);
+    expect([at(0), at(3)]).toEqual([RED, RED]);
+    expect([at(4), at(7)]).toEqual([BLUE, BLUE]);
     expect(r.keyboard.captured).toBe(true);
     expect(r.note).toContain('from keyboard.top down');
   });
 });
 
-test('a display of another size leaves the picture as it was, and says why', () => {
-  withFakeSimctl(solid(6, 8, [0, 0, 255, 255]), (dir) => {
-    const shot = resolve(dir, 'app.png'), app = solid(4, 8, [255, 0, 0, 255]);
+test('a marked capture takes only the status bar\'s rows from the display', async () => {
+  await withFakeSimctl(solid(4, 8, BLUE), async (dir) => {
+    const shot = resolve(dir, 'app.png');
+    writeFileSync(shot, solid(4, 8, RED));
+    const r = await withDisplay({ ...front, ...marked, scale: 2, statusBar: 1 }, shot, 'UDID', 0, still());
+    const at = rows(shot);
+    expect([at(0), at(1), at(2), at(7)]).toEqual([BLUE, BLUE, RED, RED]);
+    expect([r.statusBar, r.pixelsWhy]).toEqual([true, 'header nodes are struck through in it']);
+  });
+});
+
+test('a display of another size leaves the picture as it was, and says why', async () => {
+  await withFakeSimctl(solid(6, 8, BLUE), async (dir) => {
+    const shot = resolve(dir, 'app.png'), app = solid(4, 8, RED);
     writeFileSync(shot, app);
-    const r = withDisplay({ scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 } }, shot, 'UDID');
+    const r = await withDisplay({ ...front, scale: 2, keyboard: { visible: true, top: 2, windowTop: 2 } }, shot, 'UDID', 0, still());
     expect(readFileSync(shot).equals(Buffer.from(app))).toBe(true);
     expect(r.keyboard.captured).toBeUndefined();
     expect(r.note).toContain('the display is 6x8, the capture 4x8');
   });
 });
 
-test('a marked capture takes only the status bar\'s rows from the display', () => {
-  withFakeSimctl(solid(4, 8, [0, 0, 255, 255]), (dir) => {
-    const shot = resolve(dir, 'app.png');
-    writeFileSync(shot, solid(4, 8, [255, 0, 0, 255]));
-    const r = withDisplay({ ...marked, scale: 2, statusBar: 1 }, shot, 'UDID');
-    const png = decodePng(readFileSync(shot)), at = (y) => [...png.data.subarray(y * 16, y * 16 + 4)];
-    expect([at(0), at(1), at(2), at(7)]).toEqual([[0, 0, 255, 255], [0, 0, 255, 255], [255, 0, 0, 255], [255, 0, 0, 255]]);
-    expect(r.statusBar).toBe(true);
-    expect(r.note).toBeUndefined();
-  });
-});
-
-test('a marked capture that says no keyboard top is left alone', () => {
-  const r = withDisplay({ ...marked, scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID');
+test('a marked capture that says no keyboard top is left alone', async () => {
+  const r = await withDisplay({ ...front, ...marked, scale: 2, keyboard: { visible: true, top: 2 } }, '/nonexistent.png', 'UDID', 0, still());
   expect(r.note).toContain('no keyboard top');
 });
 

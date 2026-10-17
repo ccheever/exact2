@@ -29,43 +29,71 @@ export function useXcode() {
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
 /** A window capture the app drew (`path`, in `r`'s scale), its pixels then the simulator's own screenshot's, as a
- *  device screenshot is: `drawHierarchy` draws Liquid Glass and the other backdrop materials only roughly (a tab bar's
- *  glass left the rows under it legible, an alert's the list behind it: the euxy port's judged captures), and the
+ *  device screenshot has them: `drawHierarchy` draws Liquid Glass and the other backdrop materials only roughly (a tab
+ *  bar's glass left the rows under it legible, an alert's the list behind it: the euxy port's judged captures), and the
  *  software keyboard (round 9: "blank keyboard region") and the status bar are other processes' pixels. The rows of the
  *  status bar, its top `appTop` points, stay the app's when the caller did not ask for it (`r.statusBar` unset; with it
- *  set, `xcrun simctl status_bar <udid> override --time 9:41` sets what it shows). A capture the agent marked
- *  (`r.unshown`, struck-through header nodes) keeps its own picture and takes only the keyboard's rows, from its top
- *  (`r.keyboard.windowTop`) down, and the status bar's. What could not be done is said in `note`, and the picture is
- *  left as it was. Returns `r`. */
-export function withDisplay(r, path, udid, appTop = 0) {
+ *  set, `xcrun simctl status_bar <udid> override --time 9:41` sets what it shows).
+ *
+ *  The display is read twice, after the app answered, and is taken only when it is this picture's moment and this
+ *  app's: the app said it was in front (`r.front`: active, its scene in front, its window key) with UIKit's motion
+ *  settled (no `r.moving`), the two reads agree below the status bar (nothing moved: no keyboard sliding, no caret
+ *  blinking, no glass settling), and `probe` (the app asked again) answers that it is still in front at the same
+ *  epoch, incarnation and clock. The caller holds the simulator's display (`simulatorDisplay`), so no other drive's
+ *  launch comes in between. Otherwise, or for a capture the agent marked (`r.unshown`, struck-through header nodes) or
+ *  asked to keep (`own`), the picture stays the app's, with only the keyboard's rows, from its top
+ *  (`r.keyboard.windowTop`) down, and the status bar's taken from the display. `r.pixels` says which (`display` or
+ *  `app`, `r.pixelsWhy` why); what could not be done is said in `note`. Returns `r`. */
+export async function withDisplay(r, path, udid, appTop = 0, { own = false, probe = null } = {}) {
   const top = r.keyboard?.windowTop, bar = r.statusBar, scale = r.scale, keyboard = top != null;
-  const whole = !(r.unshown?.length > 0);
+  const approximate = (why) => `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate`;
+  const say = (note) => { r.note = r.note ? `${r.note}; ${note}` : note; };
   const fail = (why) => {
     if (bar > 0) r.statusBar = false;
+    r.pixels = 'app'; r.pixelsWhy = why;
     r.note = r.keyboard?.visible ? `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`
-      : bar > 0 ? `the status bar is not in the capture (${why})`
-      : `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate`;
+      : bar > 0 ? `the status bar is not in the capture (${why})` : approximate(why);
     return r;
   };
-  if (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0) && !whole) return fail('no keyboard top');
   if (!(scale > 0)) return fail('no scale');
+  const front = (said) => said === true ? null : typeof said === 'string' ? said : 'the app did not say it was in front';
+  let why = own ? 'asked for the app\'s own drawing' : r.unshown?.length > 0 ? 'header nodes are struck through in it'
+    : front(r.front) ?? (r.moving ? 'UIKit\'s motion had not settled' : null);
+  if (why && (keyboard ? !(top >= 0) : r.keyboard?.visible && !(bar > 0))) return fail('no keyboard top');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
   try {
-    const shot = resolve(dir, 'display.png');
-    const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
-    if (taken.status !== 0 || !existsSync(shot)) return fail(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
-    const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
+    const capture = (name) => {
+      const shot = resolve(dir, name);
+      const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
+      if (taken.status !== 0 || !existsSync(shot)) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+      return decodePng(readFileSync(shot));
+    };
+    const display = capture('display.png'), app = decodePng(readFileSync(path));
     if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
     const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
-    if (whole) app.data.set(display.data.subarray(row(bar > 0 ? 0 : appTop)), row(bar > 0 ? 0 : appTop));
-    else if (bar > 0) app.data.set(display.data.subarray(0, row(bar)), 0);
-    if (!whole && keyboard) app.data.set(display.data.subarray(row(top)), row(top));
+    const from = row(bar > 0 ? 0 : appTop), below = row(bar > 0 ? bar : appTop);
+    if (!why) {
+      const again = capture('again.png');
+      if (Buffer.compare(display.data.subarray(below), again.data.subarray(below)) !== 0) why = 'the display changed while it was read';
+    }
+    if (!why) {
+      const after = probe ? await probe() : { front: 'the app was not asked again' };
+      why = front(after.front) ?? (['epoch', 'incarnation', 'clock'].some((k) => after[k] !== r[k]) ? 'the app changed while the display was read' : null);
+    }
+    if (!why) app.data.set(display.data.subarray(from), from);
+    else {
+      if (bar > 0) app.data.set(display.data.subarray(0, row(bar)), 0);
+      if (keyboard) app.data.set(display.data.subarray(row(top)), row(top));
+    }
     if (bar > 0) r.statusBar = true;
     writeFileSync(path, encodePng(app));
-    if (keyboard || (whole && r.keyboard?.visible)) {
+    r.pixels = why ? 'app' : 'display';
+    if (why) r.pixelsWhy = why;
+    if (keyboard || (!why && r.keyboard?.visible)) {
       r.keyboard.captured = true;
-      r.note = `the software keyboard is up and in the capture${whole ? '' : ' from keyboard.top down'}, as the simulator draws it; the app above it is shortened`;
+      r.note = `the software keyboard is up and in the capture${why ? ' from keyboard.top down' : ''}, as the simulator draws it; the app above it is shortened`;
     }
+    if (why && !own) say(approximate(why));
     return r;
   } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }
   finally { rmSync(dir, { recursive: true, force: true }); }
