@@ -782,11 +782,12 @@ deterministic and a smoke against real credentials leaves nothing behind.
   <target> down` and `tap up` the target shows its press, its
   `-exact-press-scale` or the platform's dim, on every host, so `tap row
   down`, `screenshot held.png`, `tap up` pictures the press and then presses
-  once. Under `--touch platform` on iOS the reads and `clock` steps written
-  between run inside the one real touch, in order with its holds (a `clock
-  +<ms>` counts toward the hold), after UIKit has handed the touch to the view,
-  and answer at `tap up`; any other op between is refused, naming `tap up` and
-  `tap cancel`, and a `tap cancel` runs them after it with nothing pressed.
+  once. Under `--touch platform` on iOS the holds, reads and `clock +<ms>`
+  steps written between run inside the one real touch in the order written (a
+  `clock +<ms>` counts toward the hold), after UIKit has handed the touch to
+  its view, and each answers at `tap up`, in that order; any other op between,
+  a waiting `clock` too, is refused, naming `tap up` and `tap cancel`, and a
+  `tap cancel` runs them after it with nothing pressed (LLP 1080.000 §14).
 - **iOS holds a contact.** Off a `pan` node, where no swipe or other drag
   could take it, `tap … down` is a recognized finger (`delivery: recognized`,
   `AgentPanIOS.swift`): its `pointerdown` as

@@ -267,10 +267,14 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
+    // A gesture that claimed the contact (motion-glue's swipe) ends the press, as a pan cancels a touch.
+    if (globalThis.exact?.contacts?.get(e.pointerId) === "claimed") return release();
     const [l, t, r, b] = press.box;
     showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
+  // The window losing focus may take the release with it, as the pointer dispatch below assumes.
+  addEventListener("blur", e => { if (e.target === window) release(); });
   // @ref LLP 1115.000 D4.2 — a route is a page, so the focus follows it, as a careful web app moves it when it
   // navigates. On a push (or a replace) it goes to the new route's header's heading, else to the route itself; on
   // Back, to the control whose press pushed the route that left (the row, the link, the button that opened a sheet),

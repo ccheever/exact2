@@ -459,7 +459,7 @@ extension Agent {
                 contact.t += ms / 1000 / Double(steps)
                 panPointer(contact, .move)
             }
-            if let shown = contact.shown?.live(in: presenter) { shown.pressFollows(inside: box(shown).contains(to)) }
+            if let shown = contact.shown?.live(in: presenter) { shown.pressFollows(inside: shown.pressInside(at: windowPoint(to))) }
             panContact = contact
             return ["phase": "move", "at": point(to), "delivery": "recognized"]
         case "hold":

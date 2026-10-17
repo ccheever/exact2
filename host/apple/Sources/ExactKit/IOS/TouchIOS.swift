@@ -5,7 +5,7 @@
 // log records each touch the window dispatched, after UIKit dispatched it
 // (D5): window dispatch only — never a recognizer's outcome, a cancellation
 // or a handled press, which `state` and `tree` answer — and beside it which
-// touches down a node's `touchesBegan` has had (`reached`).
+// touches down have reached the view they landed on (`reached`).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -44,7 +44,8 @@ enum TouchLog {
     nonisolated(unsafe) static var dropped = 0
     nonisolated(unsafe) static var ids: [ObjectIdentifier: Int] = [:]
     nonisolated(unsafe) static var nextTouch = 1
-    /// The touches down that a node's `touchesBegan` has had. UIKit hands a
+    /// The touches down whose view's `touchesBegan` has had them, for the
+    /// views that say so (a node, a native button: `reports`). UIKit hands a
     /// touch to its view after the window dispatched it, in a scroll view
     /// only once `delaysContentTouches` lets it go (about 150 ms), and a
     /// read inside a held touch waits for that (`touches.mjs`).
@@ -96,6 +97,8 @@ enum TouchLog {
         var at = view
         while let v = at, !(v is NodeView) { at = v.superview }
         out["node"] = (at as? NodeView).map { Int($0.id) } ?? NSNull()
+        // Whether the view says when the touch reaches it (`reach`).
+        out["reports"] = view is NodeView || view is NativeButtonIOS
         // In a grouped list's cell, which row and which part of it: the
         // node alone is the list's for every row (LLP 1084).
         if let projected = GroupedListsLink.part?(view) { out["projected"] = projected }

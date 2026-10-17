@@ -15,6 +15,10 @@ import UIKit
 /// (the node is the focus owner, D4).
 final class NativeButtonIOS: UIButton {
     weak var owner: NodeView?
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if ExactEnv.agentMode { TouchLog.reach(touches) }
+        super.touchesBegan(touches, with: event)
+    }
     /// What was last written, so a batch that changes nothing writes nothing.
     struct Written: Equatable {
         var face: ButtonFace

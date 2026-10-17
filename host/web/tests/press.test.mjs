@@ -406,6 +406,20 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect([await shown('inner', 'outer'), await marked('inner', 'data-pressed')]).toEqual(['0.65,1', true]);
     await finger('touchEnd');
     expect(await marked('inner', 'data-pressed')).toBe(false);
+    // The window losing focus lets it go, and so does a gesture claiming the contact (motion-glue's swipe): a later
+    // move inside the box does not press it again.
+    await finger('touchStart', await centre('inner'));
+    await evaluate(`dispatchEvent(new Event('blur'))`);
+    expect(await marked('inner', 'data-pressed')).toBe(false);
+    await finger('touchEnd');
+    await evaluate(`addEventListener('pointerdown', e => { window.lastPointer = e.pointerId; }, true)`);
+    const [x, y] = await centre('inner');
+    await finger('touchStart', [x, y]);
+    await evaluate(`((globalThis.exact ??= {}).contacts ??= new Map()).set(window.lastPointer, 'claimed')`);
+    await finger('touchMove', [x + 1, y]);
+    await finger('touchMove', [x + 2, y]);
+    expect(await marked('inner', 'data-pressed')).toBe(false);
+    await finger('touchEnd');
   } finally {
     await close();
   }

@@ -299,8 +299,10 @@ extension NodeView {
     /// between the two edges, which re-grows the box under it, which presses
     /// again: a flicker. The unpressed point is the pressed one scaled back
     /// out about the origin.
-    func pressInside(_ touch: UITouch) -> Bool {
-        let p = local(touch.location(in: nil)), f = pressModelFactor, o = transformOriginPoint
+    func pressInside(_ touch: UITouch) -> Bool { pressInside(at: touch.location(in: nil)) }
+    /// The same for a point in the window (the agent's recognized finger).
+    func pressInside(at windowPoint: CGPoint) -> Bool {
+        let p = local(windowPoint), f = pressModelFactor, o = transformOriginPoint
         return bounds.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
     }
     #else

@@ -307,8 +307,9 @@ const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.ses
   && ['w', 'h', 'x', 'y'].every((k) => a.screen[k] === b.screen[k]) && a.point[0] === b.point[0] && a.point[1] === b.point[1]
   && String(a.viewport) === String(b.viewport);
 
-/** How long the ops during a still gesture wait for the touch to reach its node's view. */
-export const REACH_MS = 500;
+/** How long the ops during a still gesture wait for the touch to reach the view it landed on: a scroll view hands it
+ *  on about 150 ms after the window dispatched it (`delaysContentTouches`). */
+export const REACH_MS = 250;
 
 /** A drag's bounds (LLP 1080.000 §11): each duration in ms; the travel is bounded so its moves fit the dispatch log's ring (D5). */
 export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000 };
@@ -399,7 +400,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
       if (ids.length > 1) throw new Error(`${what}: ambiguous: ${ids.length} touches after seq ${a.seq}: ${JSON.stringify(log.slice(0, 8))}`);
       if (!ids.length) return null;
       const began = log.find((e) => e.touch === ids[0] && e.phase === 'began');
-      return { lifted: log.some((e) => e.touch === ids[0] && e.phase === 'ended'), node: began.view === 'NodeView', reached: reached.includes(ids[0]) };
+      return { lifted: log.some((e) => e.touch === ids[0] && e.phase === 'ended'), reports: began.reports === true, reached: reached.includes(ids[0]) };
     };
     const early = `${what}: the touch lifted before the ops during it`;
     try {
@@ -409,15 +410,16 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
       }
       let touch = ours(await entries());
       const seen = Date.now();
-      // A still finger on a node: the ops wait for the node's `touchesBegan` (`reached`), which a scroll view holds back
-      // about 150 ms (`delaysContentTouches`), so what they read is what a person holding it sees. A touch some
-      // recognizer keeps from the view runs them at the bound.
-      for (const by = Date.now() + REACH_MS; !moves && touch.node && !touch.reached && !touch.lifted && Date.now() < by;) {
+      // A still finger on a view that reports it (a node, a native button): the ops wait for its `touchesBegan`
+      // (`reached`), so what they read is what a person holding it sees. A touch some recognizer keeps from the view
+      // runs them at the bound, or, with `drag.reach` (a held contact's reads), fails before them.
+      for (const by = Date.now() + REACH_MS; !moves && touch.reports && !touch.reached && !touch.lifted && Date.now() < by;) {
         await new Promise((r) => setTimeout(r, 16));
         touch = ours(await entries());
       }
       if (touch.lifted) throw new Error(`${early} began; lengthen hold`);
-      if (!moves && touch.node) reachedIn = touch.reached ? Date.now() - seen : false;
+      if (!moves && touch.reports) reachedIn = touch.reached ? Date.now() - seen : false;
+      if (drag.reach && reachedIn === false) throw new Error(`${what}: the touch did not reach the view it landed on within ${REACH_MS} ms (a recognizer kept it), so nothing inside it ran`);
       // The ops run after the move, as the carriers' own phases run them (kanban F14): the runner presses and drags on real time.
       await new Promise((r) => setTimeout(r, Math.max(0, drag.press + (moves ? drag.over : 0) - (Date.now() - seen))));
       for (const op of drag.during) during.push(await raced(op()));
