@@ -331,6 +331,25 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(p.views[20]).headerField, "the authored field is its own again")
     }
 
+    /// An email prompt keeps its text as typed, as the page's field does: no
+    /// capitalization, correction, smart quotes or smart dashes.
+    func testAnEmailPromptKeepsItsTextAsTyped() throws {
+        let (p, controller, _) = confirmation(label: "Invite", texts: [], actions: ["Delete", "Send"], cancel: true)
+        defer { dismiss(p, controller) }
+        p.apply(wireBatch([["op": "create", "id": 20, "kind": "input", "handlers": ["input"],
+                            "props": ["value": "", "type": "email", "testId": "email"], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 20, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
+                           ["op": "children", "id": 2, "ids": [20, 3, 4, 9]]]))
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let field = try XCTUnwrap(alert.textFields?.first)
+        XCTAssertEqual(field.keyboardType, .emailAddress)
+        XCTAssertEqual(field.autocapitalizationType, .none)
+        XCTAssertEqual(field.autocorrectionType, .no)
+        XCTAssertEqual(field.smartQuotesType, .no)
+        XCTAssertEqual(field.smartDashesType, .no)
+    }
+
     private final class PromptKey: UIKey {
         var text = "7"
         var code = UIKeyboardHIDUsage.keyboard7

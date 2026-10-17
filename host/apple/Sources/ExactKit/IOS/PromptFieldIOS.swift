@@ -47,7 +47,12 @@ final class PromptField: NSObject, UITextFieldDelegate {
             let said = { (name: String) in node.props[name] != nil }
             let plain = ["email", "url", "password"].contains((node.props["type"] ?? "").lowercased())
             if said("autocapitalize") || plain { field.autocapitalizationType = own.autocapitalizationType }
-            if said("autocorrect") || plain { field.autocorrectionType = own.autocorrectionType }
+            if said("autocorrect") || plain {
+                // Smart quotes and dashes go with correction (`inputSmartQuotes`).
+                field.autocorrectionType = own.autocorrectionType
+                field.smartQuotesType = own.smartQuotesType
+                field.smartDashesType = own.smartDashesType
+            }
             if said("spellcheck") { field.spellCheckingType = own.spellCheckingType }
             if said("enterKeyHint") { field.returnKeyType = own.returnKeyType }
         } else {
