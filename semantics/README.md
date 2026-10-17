@@ -126,7 +126,8 @@ the Lean checker must judge the same. A mutant the compiler refuses cannot
 pass `contract lean`, so its expansion is emitted with the types of the
 program it came from (`contract::lean::emit_checked`). Mutants touch only
 what the semantics evaluates (a view's presentation attributes are left
-alone). The embedding carries what the Rust checker judges at a use and
+alone) and what its checker judges (a host command's literal argument is
+not retyped: the command's signature is the Rust checker's). The embedding carries what the Rust checker judges at a use and
 at a source: every typed prop's and inject's argument is ascribed its
 declared type (`.typed`, from `contract_syntax::expand_typed`), and the
 program carries each data source's one signature (`Program.sources`), which
@@ -231,12 +232,13 @@ option, a checkbox's text, a date outside HTML's format or its bounds).
 
 The JS target's `sin` and `cos` are the browser's `Math.sin` and
 `Math.cos`, held to the runner's pinned libm by value, not by bits (LLP
-1003 §7); the semantics is held to the runner's bits. So a program that
-calls either, whose observations differ only in numbers at most four units
-in the last place apart (as bits or as printed text, line by line), is
-counted apart as agreeing but for sin/cos's last bits, not as a
-divergence. A last bit that changes a branch, a rounding or a printed
-integer still diverges.
+1003 §7); the semantics is held to the runner's bits. The driver replaces
+the two (`roster.js`'s `x_sin`, `x_cos`) with the runner's bits for each
+input: an input it has no answer for is answered by `Math` and reported,
+the harness computes it with `exact_motion::math`, and the case is driven
+again, up to four times, so a chain of trig results is answered link by
+link. Every other number is compared by its bits, so the comparison stays
+exact; `Math.sin` and `Math.cos` themselves are not what it checks.
 
 A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics

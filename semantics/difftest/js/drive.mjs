@@ -95,6 +95,11 @@ function runtime(dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   for (const f of driverRuntime(root)) cpSync(resolve(root, f), resolve(dir, basename(f)));
+  // `sin` and `cos` answer the runner's bits (`trig` below), not `Math`'s.
+  const roster = resolve(dir, 'roster.js'), engine = 'export const x_sin = Math.sin, x_cos = Math.cos;';
+  const text = readFileSync(roster, 'utf8');
+  if (!text.includes(engine)) throw new Error(`roster.js no longer has \`${engine}\``);
+  writeFileSync(roster, text.replace(engine, 'export const x_sin = x => globalThis.__trig.sin(x), x_cos = x => globalThis.__trig.cos(x);'));
   for (const f of ['admission.js', 'agent.js']) writeFileSync(resolve(dir, f), localImports(readFileSync(resolve(webJs, f), 'utf8')));
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
   writeFileSync(resolve(dir, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
@@ -152,6 +157,19 @@ async function drive(code, c, hostSources) {
       ['HTMLButtonElement', 'button'], ['HTMLIFrameElement', 'iframe']].map(([name, tag]) => [name, { [Symbol.hasInstance]: el => el?.localName === tag }])),
   });
   ctx.globalThis = ctx; ctx.self = ctx; ctx.window = ctx;
+  // The JS target's `sin` and `cos` are the engine's `Math.sin` and
+  // `Math.cos`, held to the runner's libm by value, not by bits (LLP 1003 §7).
+  // Here they answer the runner's bits for each input the harness computed
+  // (`c.trig`, by `sin:`/`cos:` and the input's bits); an input it has not
+  // computed yet is asked for (`asked`) and the case is driven again.
+  const trig = new Map(Object.entries(c.trig ?? {})), asked = new Set();
+  const answer = (f, x) => {
+    const k = `${f}:${hex(x)}`;
+    if (trig.has(k)) return fromHex(trig.get(k));
+    asked.add(k);
+    return Math[f](x);
+  };
+  ctx.__trig = { sin: x => answer('sin', x), cos: x => answer('cos', x) };
   vm.runInContext(code, ctx, { filename: 'app.js' });
   const { app, names, types, data, journal, clock, advance, Hosts, Mutations, Sounds } = ctx.__drive;
   const notes = [];
@@ -186,9 +204,11 @@ async function drive(code, c, hostSources) {
   Object.defineProperty(Sounds, 'apply', {
     configurable: true,
     get: () => cmds => {
-      if (cmds.some(([name]) => Sounds.own.has(name))) {
-        const hosts = cmds.filter(([name]) => !Sounds.own.has(name)).length;
-        commands.splice(commands.length - hosts, hosts, ...cmds.map(([name, args]) => `command ${name}${args.map(a => ' ' + untyped(a)).join('')}`));
+      // `setMode` was never recorded (above), and the runner tells no host of it.
+      const shown = cmds.filter(([name]) => name !== 'setMode');
+      if (shown.some(([name]) => Sounds.own.has(name))) {
+        const hosts = shown.filter(([name]) => !Sounds.own.has(name)).length;
+        commands.splice(commands.length - hosts, hosts, ...shown.map(([name, args]) => `command ${name}${args.map(a => ' ' + untyped(a)).join('')}`));
       }
       return applySounds?.(cmds);
     },
@@ -205,12 +225,12 @@ async function drive(code, c, hostSources) {
   const before = mark();
   try { state = app(); } catch (e) {
     out.push(/poison/.test(e.message) ? 'outcome poisoned' : 'outcome refused', `# ${e.message}`);
-    return [...out, ...notes];
+    return { lines: [...out, ...notes], asked: [...asked] };
   }
   await settle();
   const booted = outcome(since(before)) === 'poisoned' ? 'poisoned' : 'ok';
   out.push(`outcome ${booted}`);
-  if (booted === 'poisoned') return [...out, ...notes];
+  if (booted === 'poisoned') return { lines: [...out, ...notes], asked: [...asked] };
   const root = document.root;
   // Elements in preorder; a virtualized list's rows are its window's (left out), as observe.rs leaves
   // out a collection's. list.js attaches its collection as `$list`, regardless of the author's role.
@@ -287,7 +307,7 @@ async function drive(code, c, hostSources) {
     if (o === 'poisoned') break;
     observe();
   }
-  return [...out, ...notes];
+  return { lines: [...out, ...notes], asked: [...asked] };
 }
 
 // A loaded piece the drive does not carry (the Markdown wasm, a fetch)
@@ -300,7 +320,7 @@ for (const c of batch.cases) {
   let result;
   try {
     const b = await build(batch.compiler, batch.work, c.file);
-    result = b.outside !== undefined ? b : { lines: await drive(b.code, c, batch.hostSources) };
+    result = b.outside !== undefined ? b : await drive(b.code, c, batch.hostSources);
   } catch (e) { result = { error: String(e?.stack ?? e) }; }
   process.stdout.write(JSON.stringify(result) + '\n');
 }

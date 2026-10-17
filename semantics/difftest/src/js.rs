@@ -13,6 +13,7 @@ use crate::oracle::{self, Oracle};
 use crate::script::{Case, Event};
 use crate::{compile, observe};
 use exact_plan::Value;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -21,11 +22,6 @@ use std::process::Command;
 pub enum JsVerdict {
     /// The JS target printed the runner's observation.
     Agree,
-    /// The program calls `sin` or `cos`, and the observations differ only
-    /// in numbers a few units in the last place apart: the web's
-    /// `Math.sin` and `Math.cos` are not the runner's pinned libm, and are
-    /// held to it by value, not by bits (LLP 1003 §7).
-    Trig,
     /// The compiler refused the program (the runner never ran it).
     Refused(String),
     /// `exact-web-js` refused it: outside the JS target.
@@ -131,8 +127,22 @@ fn event(e: &Event) -> String {
 struct Ready {
     rust: Vec<String>,
     json: String,
-    /// Whether the program calls `sin` or `cos`.
-    trig: bool,
+    /// The runner's `sin` and `cos` of each input the JS target asked for,
+    /// by `sin:`/`cos:` and the input's bits, as the driver keys them.
+    trig: BTreeMap<String, String>,
+}
+
+impl Ready {
+    /// The case's line of the driver's batch, with its `trig` answers.
+    fn line(&self) -> String {
+        let answers: Vec<String> = self
+            .trig
+            .iter()
+            .map(|(k, v)| format!("{}:{}", string(k), string(v)))
+            .collect();
+        let open = self.json.strip_suffix('}').expect("the case is an object");
+        format!("{open},\"trig\":{{{}}}}}", answers.join(","))
+    }
 }
 
 /// Run `case` on the runner and write its half of a batch; the program goes
@@ -204,14 +214,14 @@ fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
     Ok(Ready {
         rust,
         json,
-        trig: calls_trig(&case.source),
+        trig: BTreeMap::new(),
     })
 }
 
 /// One driver process over `ready`; each case's result line.
 fn drive(compiler: &Path, dir: &Path, ready: &[&Ready]) -> Result<Vec<String>, String> {
     let hosts: Vec<String> = oracle::HOST_SOURCES.iter().map(|s| string(s)).collect();
-    let cases: Vec<&str> = ready.iter().map(|r| r.json.as_str()).collect();
+    let cases: Vec<String> = ready.iter().map(|r| r.line()).collect();
     let batch = format!(
         "{{\"compiler\":{},\"work\":{},\"hostSources\":[{}],\"cases\":[{}]}}",
         string(&compiler.display().to_string()),
@@ -258,7 +268,7 @@ fn field(line: &serde_json::Value, name: &str) -> Option<Vec<String>> {
     }
 }
 
-fn verdict(rust: Vec<String>, text: &str, trig: bool) -> JsVerdict {
+fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
     let line: serde_json::Value = match serde_json::from_str(text) {
         Ok(l) => l,
         Err(e) => return JsVerdict::Error(format!("{e}: {text}")),
@@ -282,9 +292,6 @@ fn verdict(rust: Vec<String>, text: &str, trig: bool) -> JsVerdict {
     let at = r.iter().zip(&j).position(|(a, b)| a != b);
     match at {
         None if r.len() == j.len() => JsVerdict::Agree,
-        Some(_) if trig && r.len() == j.len() && r.iter().zip(&j).all(|(a, b)| near(a, b)) => {
-            JsVerdict::Trig
-        }
         None => JsVerdict::Diverge {
             at: r.len().min(j.len()),
             rust,
@@ -294,78 +301,32 @@ fn verdict(rust: Vec<String>, text: &str, trig: bool) -> JsVerdict {
     }
 }
 
-/// Whether `source` calls `sin` or `cos` (a longer name ending in either,
-/// as `asin(`, does not count).
-fn calls_trig(source: &str) -> bool {
-    ["sin(", "cos("].iter().any(|f| {
-        source.match_indices(f).any(|(i, _)| {
-            !source[..i]
-                .chars()
-                .next_back()
-                .is_some_and(|c| c.is_alphanumeric() || c == '_')
-        })
-    })
+/// The `sin:`/`cos:` inputs a driver line says the JS target asked for and
+/// the harness has not answered.
+fn asked(text: &str) -> Vec<String> {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|l| field(&l, "asked"))
+        .unwrap_or_default()
 }
 
-/// How far apart, in units in the last place, two results of the same
-/// `sin` or `cos` may land on two conforming implementations after the
-/// arithmetic a program does with them.
-const ULPS: u64 = 4;
-
-/// Whether two observation lines are the same but for numbers at most
-/// [`ULPS`] apart: a number as its bits (`n3fe0000000000000`) or as text
-/// (`0.5`, `1e-7`).
-fn near(a: &str, b: &str) -> bool {
-    let (a, b) = (tokens(a), tokens(b));
-    a.len() == b.len()
-        && a.iter().zip(&b).all(|(x, y)| {
-            x == y || matches!((printed(x), printed(y)), (Some(x), Some(y)) if apart(x, y) <= ULPS)
-        })
+/// The runner's answer for a driver's `sin:<bits>` or `cos:<bits>` key, as
+/// its bits: `exact_motion::math`, the runner's pinned libm.
+fn libm(key: &str) -> Option<String> {
+    let (f, bits) = key.split_once(':')?;
+    let x = f64::from_bits(u64::from_str_radix(bits, 16).ok()?);
+    let y = match f {
+        "sin" => exact_motion::math::sin(x),
+        "cos" => exact_motion::math::cos(x),
+        _ => return None,
+    };
+    Some(format!("{:016x}", y.to_bits()))
 }
 
-/// Maximal runs of letters, digits and `.` (an exponent's sign kept inside
-/// its number); every other character a token of its own.
-fn tokens(line: &str) -> Vec<&str> {
-    let bytes = line.as_bytes();
-    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'.';
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        let start = i;
-        if word(bytes[i]) {
-            while i < bytes.len()
-                && (word(bytes[i])
-                    || (matches!(bytes[i], b'+' | b'-')
-                        && matches!(bytes[i - 1], b'e' | b'E')
-                        && bytes[start].is_ascii_digit()
-                        && bytes.get(i + 1).is_some_and(u8::is_ascii_digit)))
-            {
-                i += 1;
-            }
-        } else {
-            i += line[i..].chars().next().map_or(1, char::len_utf8);
-        }
-        out.push(&line[start..i]);
-    }
-    out
-}
-
-/// A token as the number it prints: `n` and sixteen hex digits are its bits.
-fn printed(t: &str) -> Option<f64> {
-    match t.strip_prefix('n') {
-        Some(hex) if hex.len() == 16 => u64::from_str_radix(hex, 16).ok().map(f64::from_bits),
-        _ if t.starts_with(|c: char| c.is_ascii_digit()) => t.parse().ok(),
-        _ => None,
-    }
-}
-
-/// Units in the last place between two finite numbers of one sign.
-fn apart(x: f64, y: f64) -> u64 {
-    if !x.is_finite() || !y.is_finite() || x.is_sign_negative() != y.is_sign_negative() {
-        return u64::MAX;
-    }
-    x.to_bits().abs_diff(y.to_bits())
-}
+/// How many times a case is driven while it asks for `sin` or `cos` of
+/// inputs not yet answered: each drive answers the inputs the one before
+/// it reached, a chain of trig results one more link.
+const TRIG_ROUNDS: usize = 4;
 
 /// Run `cases` on the runner and the JS target, `batch` cases per driver
 /// process, the processes side by side (`DIFFTEST_JOBS`, as [`crate::check`]).
@@ -417,17 +378,48 @@ fn run_chunk(compiler: &Path, chunk: &[Case], dir: &Path) -> Result<Vec<JsVerdic
         .enumerate()
         .map(|(i, c)| prepare(c, dir, i))
         .collect();
-    let ready: Vec<&Ready> = prepared.iter().filter_map(|p| p.as_ref().ok()).collect();
-    let mut lines = if ready.is_empty() {
-        Vec::new()
-    } else {
-        drive(compiler, dir, &ready)?
+    let mut ready: Vec<Ready> = Vec::new();
+    let mut slots: Vec<Result<usize, JsVerdict>> = Vec::new();
+    for p in prepared {
+        slots.push(p.map(|r| {
+            ready.push(r);
+            ready.len() - 1
+        }));
     }
-    .into_iter();
-    Ok(prepared
+    // Drive every case, then again each that asked for `sin` or `cos` of an
+    // input the harness had not answered, with those answered.
+    let mut lines: Vec<String> = vec![String::new(); ready.len()];
+    let mut pending: Vec<usize> = (0..ready.len()).collect();
+    for round in 1..=TRIG_ROUNDS {
+        if pending.is_empty() {
+            break;
+        }
+        let batch: Vec<&Ready> = pending.iter().map(|&i| &ready[i]).collect();
+        let driven = drive(compiler, dir, &batch)?;
+        let mut again = Vec::new();
+        for (&i, line) in pending.iter().zip(driven) {
+            let keys = asked(&line);
+            lines[i] = line;
+            if keys.is_empty() || round == TRIG_ROUNDS {
+                continue;
+            }
+            for k in keys {
+                if let Some(v) = libm(&k) {
+                    ready[i].trig.insert(k, v);
+                }
+            }
+            again.push(i);
+        }
+        pending = again;
+    }
+    let mut ready: Vec<Option<Ready>> = ready.into_iter().map(Some).collect();
+    Ok(slots
         .into_iter()
-        .map(|p| match p {
-            Ok(r) => verdict(r.rust, &lines.next().expect("one line per case"), r.trig),
+        .map(|s| match s {
+            Ok(i) => {
+                let r = ready[i].take().expect("each case once");
+                verdict(r.rust, &lines[i])
+            }
             Err(v) => v,
         })
         .collect())
@@ -471,14 +463,12 @@ pub fn report(
     shrinking: bool,
     verbose_outside: bool,
 ) -> Result<bool, String> {
-    let (mut agree, mut trig, mut diverge, mut outside, mut refused, mut errors) =
-        (0, 0, 0, 0, 0, 0);
+    let (mut agree, mut diverge, mut outside, mut refused, mut errors) = (0, 0, 0, 0, 0);
     let dir = crate::work_dir().join("failures");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (i, (case, v)) in cases.iter().zip(verdicts).enumerate() {
         match v {
             JsVerdict::Agree => agree += 1,
-            JsVerdict::Trig => trig += 1,
             JsVerdict::Refused(_) => refused += 1,
             JsVerdict::Outside(why) => {
                 outside += 1;
@@ -547,7 +537,7 @@ pub fn report(
         }
     }
     println!(
-        "difftest js: {} cases: {agree} agree, {trig} agree but for sin/cos's last bits, {diverge} diverge, {outside} outside the JS target, {refused} refused by the compiler, {errors} driver errors",
+        "difftest js: {} cases: {agree} agree, {diverge} diverge, {outside} outside the JS target, {refused} refused by the compiler, {errors} driver errors",
         cases.len()
     );
     Ok(diverge == 0 && errors == 0)
@@ -557,29 +547,21 @@ pub fn report(
 mod tests {
     use super::*;
 
+    /// The driver's key for `sin(4)` answers the runner's bits, which
+    /// JavaScriptCore's `Math.sin` misses by one unit in the last place.
     #[test]
-    fn numbers_a_few_units_apart_are_near_and_nothing_else_is() {
-        let line = |x: &str| format!("slot s0 {{\"1e21\",{x},n4000000000000000}}");
-        assert!(near(&line("nbfe7328434159860"), &line("nbfe732843415985f")));
-        assert!(near(
-            "view \"C0\" \"0-0.9560510077059199\"",
-            "view \"C0\" \"0-0.9560510077059198\""
-        ));
-        assert!(near("text \"1.5e-7\"", "text \"1.5000000000000002e-7\""));
-        assert!(!near(
-            &line("nbfe7328434159860"),
-            &line("nbfe7328434159870")
-        ));
-        assert!(!near("text \"1\"", "text \"2\""));
-        assert!(!near("text \"0\"", "text \"-0\""));
-        assert!(!near("text \"a\"", "text \"b\""));
-    }
-
-    #[test]
-    fn a_call_of_sin_or_cos_is_one_by_its_whole_name() {
-        assert!(calls_trig("derive d = sin(x)"));
-        assert!(calls_trig("derive d = (cos(x))"));
-        assert!(!calls_trig("fn asin(x: number): number = x"));
-        assert!(!calls_trig("derive d = floor(x)"));
+    fn a_trig_key_answers_the_runners_bits() {
+        let key = format!("sin:{:016x}", 4f64.to_bits());
+        assert_eq!(libm(&key).as_deref(), Some("bfe837b9dddc1eae"));
+        assert_eq!(libm("tan:3fe0000000000000"), None);
+        let ready = Ready {
+            rust: Vec::new(),
+            json: "{\"file\":\"a\"}".into(),
+            trig: BTreeMap::from([(key, "bfe837b9dddc1eae".to_string())]),
+        };
+        assert_eq!(
+            ready.line(),
+            "{\"file\":\"a\",\"trig\":{\"sin:4010000000000000\":\"bfe837b9dddc1eae\"}}"
+        );
     }
 }

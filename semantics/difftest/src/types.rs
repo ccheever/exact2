@@ -53,6 +53,11 @@ const KINDS: [Kind; 7] = [
 enum Role {
     Plain,
     Cond,
+    /// A host command's argument as written: its type is the command's
+    /// signature, which the Lean judgments leave to the Rust checker
+    /// (`Contract/Types.lean`), so a literal there is not swapped for one of
+    /// another type. What it contains is mutated as anywhere else.
+    HostArg,
 }
 
 /// Visit every expression of a file in preorder, with whether it stands as
@@ -98,7 +103,8 @@ fn walk_stmts(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr, Role) -> bool) -> bo
         let stop = match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => walk_expr(expr, Role::Plain, f),
             // A call is expansion's, never an authored tree's (LLP 1089).
-            Stmt::Command { args, .. } | Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
+            Stmt::Command { args, .. } => args.iter_mut().any(|a| walk_expr(a, Role::HostArg, f)),
+            Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
                 args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
             }
             Stmt::Refresh { .. } => false,
@@ -238,7 +244,9 @@ fn walk_expr(e: &mut Expr, role: Role, f: &mut dyn FnMut(&mut Expr, Role) -> boo
 
 fn applies(kind: Kind, e: &Expr, role: Role) -> bool {
     match kind {
-        Kind::Literal => matches!(e, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)),
+        Kind::Literal => {
+            role != Role::HostArg && matches!(e, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..))
+        }
         Kind::Field => matches!(e, Expr::Member(..)),
         Kind::ArgAdd => matches!(e, Expr::Call(..)),
         Kind::ArgDrop | Kind::ArgType => matches!(e, Expr::Call(_, args, _) if !args.is_empty()),

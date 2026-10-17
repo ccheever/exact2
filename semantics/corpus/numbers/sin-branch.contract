@@ -1,0 +1,26 @@
+// A branch and an integer that turn on sin's last bit. The runner's libm
+// gives sin(4) = -0.7568024953079282; JavaScriptCore's Math.sin gives
+// -0.7568024953079283, one unit in the last place below. The semantics and
+// the JS driver must reach the runner's branch and integers exactly. `again`
+// feeds one sin into another, so its input exists only once the first is
+// computed.
+component App
+  state x = 4
+  derive s = sin(x)
+  derive branch = s < -0.7568024953079282 ? 9007199254740992 : 9007199254740994
+  derive digits = floor(s * -10000000000000000)
+  derive again = floor(sin(s * 1000) * 10000000000000000)
+  action set(v: number)
+    x = v
+  view
+    column
+      text `${s}` testId="s"
+      text `${branch} ${digits}` testId="integers"
+      text `${again}` testId="again"
+      button "four" press=set(4) testId="four"
+      button "seven" press=set(7) testId="seven"
+
+test "sin's last bit picks no other branch"
+  expect text "integers" == "9007199254740994 7568024953079282"
+  tap "seven"
+  tap "four"
