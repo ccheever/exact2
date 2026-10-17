@@ -2785,3 +2785,28 @@ channel (queued).
 - **Dials:** D15's duration control (a slider in ms) is a param's (stage 7); a dial stays a colour,
   a length or a number.
 - **The wire** (`tamber/1.9`): the kinds, and `resolve`'s `{ms}` and easing tuples.
+
+### Stage 6, commit A: the prerequisite, LLP 1115.000 D12.2 and D12.3 (A1 `e3e263603`..`df377a133`, A2 `60ef5581e`..`4a55f98ab`)
+
+Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). For Tamber:
+- **A text style carries its weight and leading** per platform column, measured on the iOS simulator
+  and the Mac: the Mac's headline is Bold with its own leadings, and iOS uses the face's natural
+  line height.
+- **Precedence per longhand** (the lead's ruling):
+  1. written on the node;
+  2. a style named through `font` or a type token;
+  3. inherited;
+  4. a style named by a bare `font-size`;
+  5. CSS's default.
+
+  So the `font` shorthand lowers to only `font-style` and `font-size`. That is what lets C's type
+  tokens write only the longhands they name.
+- **`layout` and inspect** name a row's source `style` or `heading`.
+- **Headings** keep an implied bold through one switch, `HEADING_BOLD`, pending Charlie.
+- **Bold Text** weights the system font by UIKit's measured step (400→600, 600→800, 700 and above
+  →900), and leaves a bundled family alone. iOS and Android read the setting; the Mac and the web
+  have none. Android's toggle is compiled and unit-tested but not observed on the emulator.
+- **A known web-target difference:** a style named by a bare `font-size` fills nothing on the JS
+  target, which keeps no kernel to see an ancestor's weight (queued).
+- **The kernel schema digest moved again** (the `textStyles` columns and prop 270,
+  `fontShorthand`), within stage 6's break window after B's. No host binary shipped between them.
