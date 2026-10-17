@@ -158,3 +158,43 @@ fn a_bound_row_maps_a_tokens_name_to_its_css() {
         out.js
     );
 }
+
+/// Review round 1: two varying numbers each get a sentinel no other is a
+/// part of; an SVG stroke's length, which css.rs writes unitless, is its
+/// property too; a font weight's number says it is inline, so a change
+/// builds.
+#[test]
+fn sentinels_stay_apart_and_unitless_lengths_and_weights_are_handled() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  opacity.a: number = 0.5\n    when density=compact: 0.25\n  opacity.b: number = 0.75\n    when density=compact: 0.6\n  stroke.width = 2px\n  weight.strong = 600\n";
+    let plan = plan(
+        "apart",
+        design,
+        "component App\n  view\n    column opacity=\"opacity.a\"\n      column opacity=\"opacity.b\"\n        svg viewBox=\"0 0 24 24\" width=24 height=24\n          path d=\"M0 0L24 24\" stroke=\"#000\" stroke-width=\"stroke.width\"\n      text \"a\" font-weight=\"weight.strong\"\n",
+    );
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let css = &out.css;
+    assert!(
+        css.contains("opacity:var(--x-opacity-a)") && css.contains("opacity:var(--x-opacity-b)"),
+        "{css}"
+    );
+    assert!(!css.contains("70000") && !css.contains("0.0007"), "{css}");
+    // A development build: the stroke's length is a property.
+    let dev = crate::emit::emit(&plan, false, true).unwrap();
+    assert!(
+        dev.css.contains("stroke-width:var(--x-stroke-width)"),
+        "{}",
+        dev.css
+    );
+    assert!(!dev.css.contains("70000"), "{}", dev.css);
+    let design = {
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)
+    };
+    let weight = design["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "weight.strong")
+        .unwrap();
+    assert_eq!(weight["inline"], true);
+}

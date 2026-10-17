@@ -17,3 +17,6 @@
 30:17: tamber-kind: `rem.token` in `calc(rem.token * 2)`: the kernel takes only px inside `calc()`, `min()`, `max()` and `clamp()` until QUEUE's item "`rem`/`em` where the kernel still takes only `px`"
 31:19: tamber-kind: `space.ok` is a length, not a colour
 32:28: tamber-unknown-token: `nowhere` is no token, dial or named length
+33:22: tamber-syntax: `calc(2 3)`: two operands need an operator between them
+34:22: tamber-syntax: `calc(2 /)`: an operand is missing
+35:3: tamber-kind: `link` overrides a colour role, so it is a colour

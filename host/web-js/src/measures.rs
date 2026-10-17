@@ -8,7 +8,7 @@
 
 use exact_kernel::style::relative::{self, Unit};
 use exact_kernel::style::theme::Kind;
-use exact_kernel::{StyleCodec, StyleId};
+use exact_kernel::StyleId;
 use exact_plan::{BindingKind, Plan};
 
 /// The plan's kind code for `kind` ([`Kind::of`]'s inverse).
@@ -45,13 +45,11 @@ pub fn css(kind: Kind, value: &str) -> String {
     }
 }
 
-/// Whether a row may read a length or number token (the rows the compiler
-/// admits one in: a length, a line height, a number).
+/// Whether a row may read a length or number token: those the kernel
+/// resolves one in (`style::theme::admits`).
 pub fn row(id: StyleId) -> bool {
-    matches!(
-        id.codec(),
-        StyleCodec::Dimension | StyleCodec::LineHeight | StyleCodec::F32 | StyleCodec::U16
-    )
+    use exact_kernel::style::theme::admits;
+    admits(Kind::Length, id) || admits(Kind::Number, id)
 }
 
 /// Whether the plan keeps a length or number token.
@@ -63,8 +61,8 @@ pub fn any(plan: &Plan) -> bool {
 
 /// The number tokens a literal names in a row that takes an integer
 /// (`font-weight`): no sentinel fraction stands in for them, so they stay
-/// inline, and a live edit of one waits for the rebuild.
-pub fn integer_tokens(plan: &Plan) -> Vec<String> {
+/// inline, and a change to one builds (the design says `inline`).
+pub fn inline_tokens(plan: &Plan) -> Vec<String> {
     let mut out = Vec::new();
     for node in &plan.nodes {
         for b in node.bindings.iter() {
@@ -86,22 +84,25 @@ pub fn integer_tokens(plan: &Plan) -> Vec<String> {
 }
 
 /// Token `i`'s sentinel of `kind` at offset `k`: the value text a parse
-/// reads, and the CSS the projection writes for it.
-pub fn sentinel(kind: Kind, k: u32, i: usize) -> [String; 2] {
+/// reads first, then the CSS texts the projection may write for it, the
+/// longer first (a length is unitless in an SVG stroke's CSS). Every one is
+/// as long as every other of its kind, so none is another's substring.
+pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
+    let n = k as usize * 64 + i;
     match kind {
-        // A px length no app writes: thousands, and a quarter.
+        // A px length no app writes: six digits and a quarter.
         Kind::Length => {
-            let px = 7000.0 + f64::from(k) * 64.0 + i as f64 + 0.25;
-            [
-                format!("{px}px"),
-                format!("{}px", exact_web::css::num(px as f32)),
-            ]
+            let px = format!("7{n:05}.25");
+            vec![format!("{px}px"), format!("{px}px"), px]
         }
-        // A fraction in (0, 1): an opacity, a flex factor and a press scale
-        // take it.
+        // A fraction in (0, 1) an opacity, a flex factor and a press scale
+        // take, its last digit a 9, so no zero is dropped.
         _ => {
-            let n = (0.000_1 + f64::from(k) * 0.000_01 + i as f64 * 0.000_000_1) as f32;
-            [format!("{n}"), exact_web::css::num(n)]
+            let text = format!("0.0007{n:04}9");
+            let css = text
+                .parse::<f32>()
+                .map_or_else(|_| text.clone(), exact_web::css::num);
+            vec![text, css]
         }
     }
 }

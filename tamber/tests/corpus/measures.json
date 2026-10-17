@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "digest": "f57042799d1cb341",
+  "digest": "9ba6636a6a1132f0",
   "name": "measures",
   "tuples": 2,
   "axes": [
@@ -30,6 +30,9 @@
     {"name": "opacity.half", "kind": "number", "role": null, "values": ["0.5"], "entries": null, "dials": [], "fallback": ["0.5", "0.5"]},
     {"name": "scale.pressed", "kind": "number", "role": null, "values": ["0.97", "0.95"], "entries": [0, 1], "dials": [], "fallback": ["0.97", "0.97"]},
     {"name": "flex.grow", "kind": "number", "role": null, "values": ["2"], "entries": null, "dials": [], "fallback": ["2", "2"]},
+    {"name": "space.double", "kind": "length", "role": null, "values": ["24px", "16px"], "entries": [0, 1], "dials": [], "fallback": ["24px", "24px"]},
+    {"name": "space.grouped", "kind": "length", "role": null, "values": ["20px"], "entries": null, "dials": [], "fallback": ["20px", "20px"]},
+    {"name": "tiny", "kind": "number", "role": null, "values": ["0.0000004"], "entries": null, "dials": [], "fallback": ["0.0000004", "0.0000004"]},
     {"name": "ink", "kind": "color", "role": null, "values": ["#000000ff"], "entries": null, "dials": [], "fallback": ["#000000ff", "#000000ff"]}
   ],
   "exports": null

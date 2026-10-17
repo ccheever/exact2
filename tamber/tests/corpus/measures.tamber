@@ -29,4 +29,7 @@ theme
   scale.pressed: number = 0.97
     when density=compact: 0.95
   flex.grow = max(1, 2)
+  space.double = calc(space.row * 2)
+  space.grouped = calc((2px + 3px) * 4)
+  tiny: number = 0.0000004
   ink = #000000

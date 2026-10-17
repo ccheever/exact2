@@ -30,3 +30,6 @@ theme
   rem.through = calc(rem.token * 2)
   ink.on: color = space.ok
   unknown.length: length = nowhere
+  adjacent: number = calc(2 3)
+  dangling: number = calc(2 /)
+  link = 4px

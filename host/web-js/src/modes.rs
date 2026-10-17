@@ -91,7 +91,7 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     // A number token a font weight names stays inline (`measures`).
     let integer = if every_token() {
-        crate::measures::integer_tokens(plan)
+        crate::measures::inline_tokens(plan)
     } else {
         Vec::new()
     };
@@ -135,8 +135,9 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
 
 /// A plan's modes as the build writes them.
 pub struct Modes {
-    /// Each varying token: its name, its property and its sentinel's CSS.
-    tokens: Vec<(String, String, [String; 2])>,
+    /// Each varying token: its name, its property and its sentinel's texts
+    /// (the value first, then the CSS it writes).
+    tokens: Vec<(String, String, Vec<String>)>,
     /// The varying tokens whose value names the accent in some tuple, by
     /// property: an element with its own `accent-color` declares them again.
     accent: Vec<String>,
@@ -187,14 +188,14 @@ impl Modes {
                 })
                 .collect();
             let forms = |k: u32, i: usize| match kinds[i] {
-                Kind::Color => sentinel((0xe1 + k) & 0xff, i),
+                Kind::Color => sentinel((0xe1 + k) & 0xff, i).to_vec(),
                 kind => crate::measures::sentinel(kind, k, i),
             };
             // An offset whose sentinels the plain projection never writes,
             // and none of which writes another's.
             let k = (0..=0xffu32)
                 .find(|k| {
-                    let all: Vec<[String; 2]> =
+                    let all: Vec<Vec<String>> =
                         (0..self.tokens.len()).map(|i| forms(*k, i)).collect();
                     all.iter().enumerate().all(|(i, f)| {
                         f.iter().all(|form| {
@@ -501,6 +502,7 @@ pub fn design(plan: &Plan) -> serde_json::Value {
     );
     let tokens = design::tokens(plan);
     let props = properties(plan);
+    let inline = crate::measures::inline_tokens(plan);
     let tables: Vec<_> = (0..bridge::tuples(plan))
         .map(|tuple| bridge::theme_table_at(plan, tuple))
         .collect();
@@ -525,6 +527,9 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                 row["prop"] = prop.clone().into();
                 row["css"] = css.into();
                 row["accent"] = accent.into();
+            } else if inline.contains(&t.name) {
+                // Written inline: a change builds (`measures`).
+                row["inline"] = true.into();
             } else if let Some(prop) = tint_property(plan, &t.name) {
                 // The tint's override: its property in the theme's own
                 // `:root` rule (`root`), which rows read as the role and an

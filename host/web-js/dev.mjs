@@ -207,8 +207,10 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   });
   // The design's shape and the plan's structure (a profile colour's value
   // is in it) as a kept build requires, and each token's accent.
+  // A token the page writes inline (`inline`: no property sets it in place,
+  // LLP 1121 stage 6) builds when its value moves.
   const sameShape = (from, next) => from && next && from.shape === next.shape && from.structure === next.structure && from.tokens.length === next.tokens.length
-    && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent));
+    && next.tokens.every((t, i) => t.name === from.tokens[i].name && String(t.accent) === String(from.tokens[i].accent) && (!t.inline || same(t, from.tokens[i])));
   // A fast batch is checked by the full build after it (`verifying`): the
   // design's module inputs and its compile; a value-only edit during that
   // build is sent at once and checked again after (`fastSeq`).
@@ -280,7 +282,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     const seqAtStart = fastSeq, hadError = error;
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
-      && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent));
+      && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
     built = await build(app, dist, keep, compiler);
     verifying = false;
     // A value-only edit was sent while this built: what it built is behind

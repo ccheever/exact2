@@ -884,7 +884,12 @@ fn style_value(
     let metric = !a.written && crate::metrics::names(&a.value);
     // So is a number token's name, which the runner reads as its number
     // (LLP 1121 D3).
-    let token = crate::theme::names_measures(&a.value);
+    // A computed string may name one too, when the design has one (D7).
+    let token = crate::theme::names_measures(&a.value)
+        || crate::theme::number_tokens()
+            && rows.iter().all(|r| {
+                exact_kernel::style::theme::admits(exact_kernel::style::theme::Kind::Number, *r)
+            });
     if !metric && !token && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
         let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
             (ty.is_string() && !css_wide_branches(&a.value, rows)).then_some(a.value.span())

@@ -185,9 +185,10 @@ pub fn declared(text: &str) -> Option<Box<str>> {
 }
 
 /// The text a length or number entry `text` names in the bound theme, and
-/// its kind (LLP 1121 D3, D7): a row's whole value naming one, exactly; the
-/// read recorded as a colour's is. `None` when it names none.
-pub fn measure(text: &str) -> Option<(Kind, Box<str>)> {
+/// its kind (LLP 1121 D3, D7): a row's whole value naming one of a kind
+/// `takes` admits, exactly; the read recorded as a colour's is. `None`
+/// when it names none.
+pub fn measure(text: &str, takes: impl Fn(Kind) -> bool) -> Option<(Kind, Box<str>)> {
     let text = text.trim();
     if text.is_empty() || text.contains([' ', '(', '#']) {
         return None;
@@ -197,22 +198,63 @@ pub fn measure(text: &str) -> Option<(Kind, Box<str>)> {
         let e = e
             .as_ref()?
             .iter()
-            .find(|e| e.kind != Kind::Color && *e.name == *text)?;
+            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind))?;
         Some((e.kind, e.name.clone(), e.value.clone()))
     })?;
     note(&name);
     Some((kind, value))
 }
 
-/// A row's value with a length or number token it names replaced by the
+/// The rows a number token may name (LLP 1121 D3).
+const NUMBER_ROWS: [crate::StyleId; 5] = [
+    crate::StyleId::Opacity,
+    crate::StyleId::LineHeight,
+    crate::StyleId::FlexGrow,
+    crate::StyleId::FontWeight,
+    crate::StyleId::PressScale,
+];
+
+/// Whether row `id` may name a token of `kind` (LLP 1121 D3): a colour a
+/// row that holds a colour; a number the rows D3 lists; a length any other
+/// row but those that take only a number (`line-height` takes both). The
+/// row's codec still reads the value: a text style only as a font size.
+pub fn admits(kind: Kind, id: crate::StyleId) -> bool {
+    use crate::generated::StyleCodec as C;
+    let colour = matches!(
+        id.codec(),
+        C::ColorValue
+            | C::KeywordColor
+            | C::Rgba8
+            | C::Color2
+            | C::SymbolPalette
+            | C::Paint
+            | C::BackgroundImage
+            | C::MaskImage
+            | C::BoxShadow
+            | C::TextShadow
+            | C::Filter
+            | C::BackdropFilter
+    );
+    match kind {
+        Kind::Color => colour,
+        Kind::Number => NUMBER_ROWS.contains(&id),
+        Kind::Length => !colour && (id == crate::StyleId::LineHeight || !NUMBER_ROWS.contains(&id)),
+    }
+}
+
+/// Row `id`'s value with a length or number token it names replaced by the
 /// token's (LLP 1121 D7): a length's text, which the row's codec and the
 /// relative side table read as the literal's; a number's number. `None`
-/// when it names no such token, and the value stands.
-pub fn measured(value: &super::StyleValue) -> Option<super::StyleValue<'static>> {
+/// when it names no such token, or one the row does not take
+/// ([`admits`]), and the value stands for the codec to read or refuse.
+pub fn measured(
+    id: crate::StyleId,
+    value: &super::StyleValue,
+) -> Option<super::StyleValue<'static>> {
     let super::StyleValue::Text(text) = value else {
         return None;
     };
-    let (kind, value) = measure(text)?;
+    let (kind, value) = measure(text, |kind| admits(kind, id))?;
     Some(match kind {
         Kind::Number => super::StyleValue::Number(exact_num::parse_f64(value.trim()).ok()?),
         _ => super::StyleValue::Text(String::from(value).into()),

@@ -107,14 +107,13 @@ impl Value {
     }
 }
 
-/// A number as CSS writes it: no exponent, no trailing zeros, `-0` as `0`.
+/// A number as CSS writes it: its shortest decimal, with no exponent, and
+/// `-0` as `0`.
 pub(crate) fn num(n: f64) -> String {
     if n == 0.0 {
         return "0".into();
     }
-    let s = format!("{:.6}", n);
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    s.to_string()
+    exact_num::Shortest(n).to_string()
 }
 
 /// The kind a value's text makes it, where the text says (§3: "a kind is
@@ -296,7 +295,8 @@ fn func(
         Ok(out)
     };
     match (f, rest.len()) {
-        ("calc", 0) => Ok(first),
+        // `calc()`, or a group in one: `(2px + 3px)`.
+        ("calc" | "", 0) => Ok(first),
         ("calc", _) => fail(
             "tamber-syntax",
             format!("`{text}`: `calc()` takes one expression"),
@@ -359,19 +359,31 @@ fn sum(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity, Fo
 /// `a * b / c …`: at most one side of each a length.
 fn product(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity, FoldError> {
     let mut out: Option<Quantity> = None;
-    let mut op = '*';
+    // The operator before the next operand; none before the first, and one
+    // between each two.
+    let mut op: Option<char> = None;
     for item in items {
         match item {
-            Item::Op('*') => {
-                op = '*';
+            Item::Op('*') | Item::Slash if out.is_some() && op.is_none() => {
+                op = Some(if matches!(item, Item::Slash) {
+                    '/'
+                } else {
+                    '*'
+                });
                 continue;
             }
-            Item::Slash => {
-                op = '/';
-                continue;
+            Item::Op('*') | Item::Slash => {
+                return fail("tamber-syntax", format!("`{text}`: an operand is missing"))
+            }
+            _ if out.is_some() && op.is_none() => {
+                return fail(
+                    "tamber-syntax",
+                    format!("`{text}`: two operands need an operator between them"),
+                )
             }
             _ => {}
         }
+        let op = op.take().unwrap_or('*');
         let q = operand(item, text, names)?;
         out = Some(match out {
             None => q,
@@ -389,6 +401,9 @@ fn product(items: &[Item], text: &str, names: &mut dyn Names) -> Result<Quantity
                 }
             },
         });
+    }
+    if op.is_some() {
+        return fail("tamber-syntax", format!("`{text}`: an operand is missing"));
     }
     match out {
         Some(Quantity::Px(n) | Quantity::Number(n)) if !n.is_finite() => fail(
@@ -411,7 +426,9 @@ fn operand(item: &Item, text: &str, names: &mut dyn Names) -> Result<Quantity, F
             "tamber-kind",
             format!("`{}{unit}` in `{text}`: a length is px here", num(*n)),
         ),
-        Item::Func(f, args, inner) if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") => {
+        Item::Func(f, args, inner)
+            if matches!(f.as_str(), "calc" | "min" | "max" | "clamp" | "") =>
+        {
             func(f, args, inner, names)
         }
         Item::Ident(name) => match names.named(name)? {

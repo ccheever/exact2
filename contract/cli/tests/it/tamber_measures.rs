@@ -179,3 +179,65 @@ fn a_live_length_edit_lays_out_and_a_number_edit_in_a_paint_row_does_not() {
     assert!(text.contains('1'), "{text}");
     eprintln!("length edit {length:?}, number edit {number:?} (1000 rows)");
 }
+
+/// Every tuple's value is checked against the row, not the default's
+/// alone; a computed string may name a number token in a number row, and
+/// the kernel reads a token only in a row of its kind at run time.
+#[test]
+fn every_tuples_value_is_checked_and_a_computed_name_reads_its_kind() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  space.row = 12px\n    when density=compact: -exact-body\n  opacity.faded: number = 0.5\n  space.gap = 4px\n";
+    let path = app(
+        "tuples",
+        &[
+            ("app.tamber", design),
+            (
+                "app.contract",
+                "component App\n  view\n    column padding=\"space.row\"\n      text \"a\"\n",
+            ),
+        ],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-kind", "{e:?}");
+    assert!(e.message.contains("-exact-body"), "{}", e.message);
+    // A state's string naming a number token, in a number row; and one naming
+    // a number token in a length row, which the kernel does not resolve there.
+    let path = app("computed", &[("app.tamber", design), ("app.contract", "component App\n  state alpha = \"opacity.faded\"\n  state wide = \"opacity.faded\"\n  view\n    column testId=\"card\" opacity=alpha width=wide\n      text \"a\"\n")]);
+    let r = booted(contract::compile_path(&path).unwrap());
+    assert!(
+        row(&r, "card", StyleId::Opacity).contains("0.5"),
+        "{}",
+        row(&r, "card", StyleId::Opacity)
+    );
+    assert!(
+        !row(&r, "card", StyleId::Width).contains("0.5"),
+        "{}",
+        row(&r, "card", StyleId::Width)
+    );
+    let journal: Vec<&str> = r.journal().collect();
+    assert!(journal.iter().any(|l| l.contains("width")), "{journal:?}");
+}
+
+/// A token's name passed through a component's prop, and read twice (an
+/// expansion `let`), is checked against the row as a literal is.
+#[test]
+fn a_tokens_name_through_a_prop_is_checked_as_written() {
+    let card = |row: &str| {
+        format!("component App\n  view\n    Card(o=\"opacity.faded\")\n\ncomponent Card\n  props\n    o: string\n  derive twice = o\n  view\n    column testId=\"card\" {row}=twice\n      text \"a\" testId=(twice == \"x\" ? \"x\" : \"y\")\n")
+    };
+    let path = app(
+        "prop-ok",
+        &[("app.tamber", DESIGN), ("app.contract", &card("opacity"))],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    assert!(
+        row(&r, "card", StyleId::Opacity).contains("0.5"),
+        "{}",
+        row(&r, "card", StyleId::Opacity)
+    );
+    let path = app(
+        "prop-refused",
+        &[("app.tamber", DESIGN), ("app.contract", &card("padding"))],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-kind", "{e:?}");
+}

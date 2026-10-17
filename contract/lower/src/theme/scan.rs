@@ -191,14 +191,8 @@ impl Said {
 fn measure_attr(name: &str) -> bool {
     match crate::tags::attr(name) {
         Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| {
-            !colour_codec(*r)
-                && matches!(
-                    r.codec(),
-                    StyleCodec::Dimension
-                        | StyleCodec::LineHeight
-                        | StyleCodec::F32
-                        | StyleCodec::U16
-                )
+            use exact_kernel::style::theme::{admits, Kind};
+            admits(Kind::Length, *r) || admits(Kind::Number, *r)
         }),
         _ => false,
     }

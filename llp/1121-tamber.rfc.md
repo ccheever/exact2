@@ -2678,15 +2678,19 @@ channel (queued).
     compat record. The JS target recompiles.
 - **The token beside the row is the runner's index**, as for colours (`runner/src/instance/theme.rs`),
   not a kernel field; D7's "keeps the token beside it" is met there.
+- **Which rows take which kind** is the kernel's one rule (`style::theme::admits`), read at run time
+  and by the compiler: a number in `opacity`, `line-height`, `flex-grow`, `font-weight` and
+  `-exact-press-scale`; a length in no colour row and no number-only row (`line-height` takes
+  both). At run time a name of another kind is not resolved, and the row's codec refuses it.
 - **The compiler** (`contract/lower/src/theme.rs`, `measure_row`):
-  - a number token only in `opacity`, `line-height`, `flex-grow`, `font-weight` and
-    `-exact-press-scale`;
-  - a length token in no colour row and no number-only row (`line-height` takes both);
-  - neither, when it varies by an app axis, in an inherited row (`tamber-inherited-axis`: only
-    colours re-select at a mode boundary);
-  - a form the row's codec refuses (a text style off `font-size`) is `tamber-kind` with the kernel's
-    reason.
-  Retention keeps every length and number token when such a row is computed and may be a string.
+  - a literal naming a token a row does not take is `tamber-kind`, naming the row;
+  - every tuple's value is read as the row's codec reads it, not the default's alone (a text style
+    off `font-size` in one app mode is `tamber-kind`, with the kernel's reason);
+  - a varying token in an inherited row is `tamber-inherited-axis` (only colours re-select at a
+    mode boundary);
+  - a computed string may name a number token in a number row when the design has one.
+  Retention keeps every length and number token when a row of either kind is computed and may be a
+  string.
 - **Live:** a value edit is a live batch; a kind change (written or inferred) is structure, in both
   the session's shape and the runner's. The kernel lays out for a length: on a 1,000-row list, a
   `padding` token edit sets 4,000 rows and lays out in 12.9 ms; an `opacity` number edit sets 1,000
@@ -2695,10 +2699,15 @@ channel (queued).
   development build every one, is a custom property whose value per tuple is the literal's CSS (a
   `rem` stays `rem`, a text style its `rem`, the hairline the sheet's property). It is found by a
   sentinel the plain projection never writes: px for a length, a fraction in (0, 1) for a number.
-  A number token a `font-weight` names stays inline in a development build, since no fraction is a
-  weight; a live edit of one waits for the rebuild. A bound row's value naming a token maps through
-  one module constant (`$tm`). A release writes a token that does not vary byte for byte as its
-  literal. The clone's `app.js` and `app.css` are identical before and after.
+  Every sentinel of a kind is as long as every other, so none is another's substring; a length's
+  bare number is replaced too, since an SVG stroke's CSS is unitless. A number token a
+  `font-weight` names stays inline in a development build, since no fraction is a weight; its
+  design entry says `inline`, so a change to it builds. A token-backed `-exact-press-scale` reaches
+  the press animation through the computed property (`input-glue.js`). A bound row's value naming a
+  token maps through one module constant (`$tm`), on every bound length or number row of a plan that
+  keeps such a token. In a static row a release writes a token that does not vary byte for byte as
+  its literal; a plan that keeps no length or number token is byte for byte as before (the clone's
+  `app.js` and `app.css` are identical).
 - **Measured on theme-fixture with the JS loop, by hand:** a length edit arrives in ~0.2 s, a number
   edit in ~0.05 s, with no reload; a length scrub previews and cancels, with the file untouched.
 - **The wire** (`tamber/1.5`): each IR token's `kind`; `resolve`'s length `{unit, amount}` and number

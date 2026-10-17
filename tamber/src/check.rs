@@ -653,6 +653,22 @@ impl<'a> Checker<'a> {
         for i in 0..design.tokens.len() {
             let mut path = vec![false; design.tokens.len()];
             self.kinds[i] = self.kind_of(i, &mut path);
+            // A role override is a colour, written or inferred.
+            let t = &design.tokens[i];
+            if !self.refused[i]
+                && self.kinds[i] != Kind::Color
+                && self.role_key(&t.name.value).is_some()
+            {
+                self.refused[i] = true;
+                self.at(
+                    &t.name,
+                    "tamber-kind",
+                    format!(
+                        "`{}` overrides a colour role, so it is a colour",
+                        t.name.value
+                    ),
+                );
+            }
         }
     }
 
@@ -669,20 +685,61 @@ impl<'a> Checker<'a> {
         let Ok(items) = css::parse(&t.value.value) else {
             return Kind::Color;
         };
-        if let Some(k) = measure::inferred(&items, self.named_length) {
-            return k;
-        }
-        match items.as_slice() {
-            [css::Item::Ident(name)] => match self.names.get(name.as_str()) {
-                Some(&j) if j != i => self.kind_of(j, path),
-                _ => match self.dials.get(name.as_str()) {
-                    Some((_, DialValue::Number(_))) => Kind::Number,
-                    Some((_, DialValue::Length(_))) => Kind::Length,
-                    _ => Kind::Color,
-                },
+        let kind = match items.as_slice() {
+            // A function over numbers is a number, over a length a length:
+            // a dimension, or a name of a length token or dial.
+            [css::Item::Func(f, args, _)]
+                if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") =>
+            {
+                Some(match self.measures(args.iter().flatten(), i, path) {
+                    true => Kind::Length,
+                    false => Kind::Number,
+                })
+            }
+            [css::Item::Ident(name)] if !(self.named_length)(name) => {
+                Some(self.named_kind(name, i, path))
+            }
+            _ => measure::inferred(&items, self.named_length),
+        };
+        path[i] = false;
+        kind.unwrap_or(Kind::Color)
+    }
+
+    /// The kind of what `name` names: a token's (followed), a dial's; a
+    /// colour otherwise.
+    fn named_kind(&self, name: &str, i: usize, path: &mut [bool]) -> Kind {
+        match self.names.get(name) {
+            Some(&j) if j != i => self.kind_of(j, path),
+            _ => match self.dials.get(name) {
+                Some((_, DialValue::Number(_))) => Kind::Number,
+                Some((_, DialValue::Length(_))) => Kind::Length,
+                _ => Kind::Color,
             },
-            _ => Kind::Color,
         }
+    }
+
+    /// Whether a function's items hold a length: a dimension, or a name of
+    /// a length token or dial, at any depth.
+    fn measures<'i>(
+        &self,
+        items: impl Iterator<Item = &'i css::Item>,
+        i: usize,
+        path: &mut [bool],
+    ) -> bool {
+        for item in items {
+            let length = match item {
+                css::Item::Dim(..) => true,
+                css::Item::Ident(name) => {
+                    (self.named_length)(name) || self.named_kind(name, i, path) == Kind::Length
+                }
+                css::Item::Func(_, args, _) => self.measures(args.iter().flatten(), i, path),
+                _ => false,
+            };
+            if length {
+                return true;
+            }
+        }
+        false
     }
 
     /// A `when` names declared axes and values, each axis once.
