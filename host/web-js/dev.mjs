@@ -279,6 +279,9 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // be a value-only edit.
   const edited = new Set(), appeared = new Set();
   let seq = 1, saved = 0, again = false, timer = null, since = t0;
+  // `.exact/backend-origin`'s bytes when the last build began (null: none).
+  const backendOf = () => { try { return readFileSync(resolve(app.dir, '.exact/backend-origin'), 'utf8'); } catch { return null; } };
+  let backendSeen = backendOf();
   const pending = new Map(); // seq -> the save it answers
   const rebuild = async () => {
     const at = saved, t = Date.now();
@@ -340,6 +343,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     if (!designOnly) buildTool();
     // What a full build reads from disk is what changed since it began.
     since = t;
+    backendSeen = backendOf();
     verifying = fast;
     const seqAtStart = fastSeq, hadError = error;
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
@@ -427,6 +431,15 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // watcher skips (a dot directory).
     if (name && skip.test(String(name)) && !contractInput(resolve(base, String(name)))
       && !(base === app.dir && /^\.exact(?:[\\/]backend-origin)?$/.test(String(name)))) return;
+    // `.exact/` is an input only for `backend-origin`: the loop's own design
+    // server makes the directory for its lock, which is none. An event for
+    // either is an edit when that file's bytes (or its being there) differ
+    // from the last build's, whatever its time says.
+    let backendMoved = false;
+    if (base === app.dir && /^\.exact(?:[\\/]backend-origin)?$/.test(String(name))) {
+      if (backendOf() === backendSeen) return;
+      backendMoved = true;
+    }
     // The declarations a build writes beside app.ts, for an editor.
     if (base === app.dir && String(name) === 'app.contract.d.ts') return;
     // A screenshot, film, log or note written into the app folder, outside the input trees and not named by
@@ -436,7 +449,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // file is newer than nothing, and its target's time says nothing of it.
     // The entry's own time (lstat): a link replaced by one to an older file
     // is new, though its target is not.
-    try { if (fresh && name && lstatSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
+    try { if (fresh && name && !backendMoved && lstatSync(resolve(base, String(name))).mtimeMs < since) return; } catch { /* removed: an edit */ }
     if (!timer) saved = Date.now();
     const path = resolve(base, String(name ?? ''));
     edited.add(path);
