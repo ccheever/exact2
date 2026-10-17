@@ -1,12 +1,12 @@
 # LLP 1126: System surfaces — an app's views outside its window
 
 **Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built until Charlie has read it)
-**Status:** Draft r1, 2026-10-17. Proposed from outside the working set: it reopens LLP 1035.006 item 11.10 (app extensions and system surfaces, deferred) and, at its last stage, the `rules/DEFERRED.md` §Surfaces line "watchOS, which has no UIKit, stays out". Both need Charlie's ruling (§7). Not in `llp/current/`, which holds 15 of 15.
-**Systems:** a new SwiftUI renderer in the Apple host (`host/apple/Sources`), the app manifest (`scripts/app.schema.json`), the bake (`contract/cli`), the plan's entries (`plan/`), the runner's headless sessions (LLP 1031), the store's location (LLP 1018), delivery's update store (LLP 1030), the Apple build's packaging (`host/apple/build.mjs`), the agent (`scripts/agent.mjs`)
+**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Proposed from outside the working set: what it amends is §9, and each amendment needs Charlie's ruling. Not in `llp/current/`, which holds 15 of 15.
+**Systems:** a new SwiftUI renderer in the Apple host (`host/apple/Sources`), a presenter-free session composition (`ExactKit`'s `ExactSession`), the app manifest (`scripts/app.schema.json`), the bake and the schema's admission columns (`contract/cli`, `kernel/tables/schema.json`), the envelope's plans (LLP 1031 D1), the store and the update store across processes (`update/src/store.rs`, LLP 1018), the Apple build's packaging (`host/apple/build.mjs`), the agent (`scripts/agent.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Date:** 2026-10-17
-**Implementer:** none yet. Stage 0 (§5) is a set of probes; a spec follows a ruling.
-**Related:** LLP 1115 (write the web, ship the platform) and 1115.000; LLP 1035.006 §11.10; `rules/DEFERRED.md` §Surfaces; LLP 1031 (sessions embedded in a host); LLP 1018 (the store); LLP 1030 (delivery); LLP 1038 (a location is a URL); LLP 1047 (pay for what you use); LLP 1024 and 1067.000 (native modules); LLP 1112 and 1113 (a state as an image; settled); LLP 1069 (the Expo SDK survey: `expo-widgets` missing); LLP 1124 (host extensions — a different sense of "extension", §7 question 4)
+**Date:** 2026-10-17 (r1, r2)
+**Implementer:** none yet. Stage 0 (§5) is a set of probes with kill lines; a spec follows a ruling.
+**Related:** LLP 1115 (write the web, ship the platform); LLP 1101 D1–D2 (the terminal entry and its admission profile: the shape D2 takes); LLP 1031 D1 (the deferred `plans` map, whose trigger D2 pulls) and D4 (session snapshots); LLP 1030 D3a (compatibility id) and its extension row; LLP 1018 (the store); LLP 1047 and 1047.001 (link by use); LLP 1035.006 §11.10; `rules/DEFERRED.md` §Surfaces, §Components, the notifications entry; LLP 1038 (a location is a URL); LLP 1024 and 1067.000 (native modules); LLP 1112 and 1113 (pictures; settled); LLP 1016.002 (push invalidates, the answer stays a pull); LLP 1069 (the Expo survey: `expo-widgets` missing); LLP 1124 (host extensions, a different sense of "extension")
 
 ## Summary
 
@@ -14,113 +14,124 @@ Apple puts an app's content in many places outside its window: Home Screen,
 Lock Screen and StandBy widgets, Live Activities and the Dynamic Island,
 watch complications, CarPlay and HomeView widgets, Siri and Spotlight
 snippets, CarPlay apps, Control Center controls, notifications, and the
-Apple Watch app itself. Exact can put content in none of them.
+Apple Watch app. Exact can put content in none of them.
 
-These places differ less than their number suggests. Each runs in one of
-five ways, and the way it runs, not the place, decides what Exact needs:
+Three questions decide what each place needs, and they are separate:
 
-1. **Snapshot.** Code runs briefly in an extension and returns a SwiftUI
-   view value; the system archives it and draws it with no code running
-   (WidgetKit: every widget, every Live Activity placement, complications,
-   snippets).
-2. **Live.** A running SwiftUI view tree (the watch app, a watch
-   notification's custom view; later visionOS volumes and ornaments).
-3. **Template.** The app gives the system data and the system draws (CarPlay
-   apps, which HomeView also runs; Control Center controls; standard
-   notifications; tvOS Top Shelf).
-4. **Hosted.** A UIKit view controller in an extension, which the existing
-   presenter can fill (rich notifications on iOS, iMessage, share and
-   keyboard extensions).
-5. **Island.** A SwiftUI-only system view inside the running app (Swift
-   Charts, StoreKit's views), which native modules already host.
+- **How it runs** (its class). *Snapshot*: code runs briefly and returns a
+  view value the system archives and draws with no code running (WidgetKit).
+  *Live*: a running view tree (the watch app). *Template*: the app gives
+  data, the system draws (CarPlay apps, controls). *Hosted*: a view
+  controller the existing presenter fills (rich notifications). *Island*: a
+  system view inside the running app (Swift Charts), which native modules
+  already host.
+- **What draws it** on that platform: SwiftUI's archive on Apple, RemoteViews
+  or ProtoLayout on Android, a template.
+- **Which binary runs it**: the iPhone app's extension, or a binary built for
+  another OS. An iPhone widget appears in CarPlay, on HomeView and on the
+  Mac with no code there; a watch complication needs a watchOS binary.
 
-So Exact needs one new renderer, not one per place: a **SwiftUI renderer**
-that turns a subtree the kernel has laid out into SwiftUI views, with two
-drivers. The **snapshot driver** renders an entry once from its inputs, under
-WidgetKit's rules; it serves every WidgetKit surface on iOS, iPadOS, macOS,
-watchOS and visionOS, and with them CarPlay and HomeView, which show iPhone
-widgets. The **live driver** keeps a retained tree that the runner updates;
-it serves the watch app. Templates need a mapping, not a renderer, and get
-their own RFC. Hosted and island surfaces need nothing new.
+On Apple, every snapshot surface is drawn by one thing: a **SwiftUI renderer**
+whose **snapshot driver** places the kernel's laid-out boxes as SwiftUI views
+WidgetKit can archive. A later **live driver** shares its leaves and serves
+the watch app. Templates need a mapping, not a renderer, and get their own
+RFC.
 
-The decisions that matter most: a surface is an entry of the one app, baked
-with it (D2); a snapshot is a pure render whose work happens in a separate
-refresh step (D3); layout stays CSS, computed by the kernel and placed in
-SwiftUI, never translated to SwiftUI stacks or flattened to a picture (D4);
-time and taps on a snapshot belong to the platform (D6, D7). The snapshot
-driver comes first; the live driver reuses it.
+The load-bearing decisions: a surface is an entry of the one app, compiled
+under a `snapshot` admission profile into its own plan in the app's bundle
+(D2); its render is pure and its work happens in a refresh step (D3); layout
+stays CSS, placed at fixed frames with the kernel's own line breaks (D4);
+time and taps belong to the platform (D6, D7); the app and its extensions are
+one compatibility cohort, the app owns updates and the extensions read
+committed generations (D8); what the system stores between versions (a Live
+Activity's state, an archived tap) is a generic envelope that carries the
+plan's digest, never per-app generated Swift (D9). The first stages ship
+only what the iPhone's extension draws.
 
 ## 1. Motivation
 
 - **Where users look.** Many apps are seen more often in a widget or a Live
   Activity than in their own window: a delivery's progress, the next train,
-  a score. A hand-built app on iOS has these; an Exact app cannot have them,
-  which is a tell at the level of the whole app (LLP 1115).
-- **Reach without new code.** On iOS 26 any iPhone widget can appear in
-  CarPlay, and Live Activities appear on the CarPlay Dashboard. HomeView
-  (announced 2026-10-13, shipping 2026-11-13) has no App Store; it shows the
-  paired iPhone's widgets and runs its CarPlay audio and video apps. Apple's
-  updated program agreement says "Your iOS Application widget may be made
-  available on CarPlay and Apple HomeView", with `disfavoredLocations` to opt
-  out. A watch's Smart Stack shows the iPhone's Live Activities. A widget
-  written once reaches the phone, the car, the home and the wrist.
+  a score. A hand-built app on iOS has these; an Exact app cannot, which is
+  a tell at the level of the whole app (LLP 1115).
+- **Reach without code elsewhere.** The iPhone's own extension already
+  reaches beyond the phone. On iOS 26 iPhone widgets appear in CarPlay and
+  Live Activities on the CarPlay Dashboard; the watch's Smart Stack mirrors
+  the iPhone's Live Activities; the Mac shows iPhone widgets and, on macOS
+  26, the iPhone's Live Activities in its menu bar. HomeView (as reported:
+  announced 2026-10-13, shipping 2026-11-13) has no App Store and shows the
+  paired iPhone's widgets, under the program agreement's line "Your iOS
+  Application widget may be made available on CarPlay and Apple HomeView".
+  None of this needs a binary for the car, the home, the Mac or the watch.
 - **Ports.** LLP 1069's survey lists `expo-widgets` (widgets and Live
   Activities) as missing. An app moving from Expo that has a widget cannot
   come.
 - **The watch.** `rules/DEFERRED.md` keeps watchOS out because it has no
-  UIKit. Its UI framework is SwiftUI; with a SwiftUI renderer that reason
-  goes away, and the rest of the watch's cost (§D10) can be weighed on its
-  own.
+  UIKit presenter (it has UIKit's value types, not `UIView`). Its UI
+  framework is SwiftUI. This RFC makes the renderer that answer needs, and
+  leaves admitting watchOS to its own ruling (D10).
 
 ## 2. What exists
 
 - **No SwiftUI.** No Swift file in `host/` or `apps/` imports SwiftUI. The
-  Apple presenters are UIKit and AppKit over Core Animation: about 86,000
-  lines in `ExactKit`, 162 files importing UIKit and 153 importing AppKit.
-  SwiftUI appears only in comments, as the behaviour to match.
-- **What a SwiftUI renderer could reuse.** 66 of `ExactKit`'s 162 top-level
-  files (about 11,700 lines) import no UI framework: the wire decode
-  (`Bridge`, `BatchReader`, `Batch`, `BatchShapes`), text on Core Text
-  (`TextResidency`, `TextFlow`, `InlineText`, `ParagraphGeometry`,
-  `TextBreaks`, `TextAnswers`), images (`RasterImage`, `AnimatedRaster`),
-  and plumbing (`Owner`, `PlanURL`, `Assets`). Clean imports do not prove
-  they compile in an extension or for watchOS. All of the Rust below the
-  C ABI carries over.
-- **Sessions.** LLP 1031 made a session an instance an embedding host owns.
-  An extension is such a host.
-- **The store and delivery.** LLP 1018's store and LLP 1030's update store
-  live in the app's container today, where an extension cannot read them.
-- **Pictures and settled.** LLP 1112 and 1113 define when a state is
-  settled enough to capture. A snapshot is a capture of the same kind.
-- **Deferrals.** LLP 1035.006 §11.10 defers widgets, Live Activities and
-  other extension surfaces ("not arbitrary views mounted inside Exact").
-  `rules/DEFERRED.md` §Surfaces admits the Apple platforms UIKit covers and
-  keeps watchOS out.
+  Apple presenters are UIKit and AppKit over Core Animation (about 86,000
+  lines in `ExactKit`).
+- **No headless session.** `ExactSession`'s initializer builds the text
+  engine and the presenter's machinery (`Session.swift`); LLP 1031 made a
+  session an instance a host owns, not a session without a view. Extension
+  code may not call `UIApplication.shared` and similar; about 32 `ExactKit`
+  files use one of these, `UIScreen.main` or `NSApp`. The text engine itself
+  is Core Text and Foundation only.
+- **Text is drawn line by line.** The UIKit presenter draws the kernel's
+  measured lines with `CTLineDraw`, sharing one set of breaks between
+  measurement and painting (`TextAnswers.swift`, `Text.swift`); the kernel
+  can measure a height at a width (`fit_content_height`).
+- **One process owns the state.** The update store holds an exclusive lock
+  for its owner's lifetime (`update/src/store.rs`). A session sees the store
+  as it was at its boot and a peer's writes only at its next boot or
+  `data_ready` (LLP 1031 D4). Secrets are in the app's own Keychain access
+  group (LLP 1018 D6–D7).
+- **Extensions are binaries.** LLP 1030 lists "widgets, extensions, watch
+  apps, helpers" as separate signed targets, binary in every column.
+- **A precedent for a second root.** LLP 1101 D1–D2: the terminal entry is
+  a root `.contract` named in `app.json`, compiled under the `terminal`
+  profile into its own plan, admitted row by row by a column of
+  `kernel/tables/schema.json`. LLP 1031 D1 deferred N plans in one envelope
+  until "a named consumer whose second surface cannot be a route of the
+  first"; a widget is one.
+- **Refusals in force.** LLP 1035.006 §11.10 defers extension surfaces.
+  `rules/DEFERRED.md` §Surfaces keeps watchOS out and admits visionOS "when
+  someone ports it"; its notifications entry refuses push delivery from a
+  server (LLP 1030.000 D6: exact2 sends no pushes and relays none). §Components
+  admits only HTML's elements as built-in tags.
 
 ## 3. The surfaces
 
-| Surface | Class | Where | Notes |
+"Binary" is the binary whose extension draws the surface. Only rows marked
+*iPhone* are reachable without a binary for another OS.
+
+| Surface | Class | Binary | Notes |
 |---|---|---|---|
-| Home Screen widgets | snapshot | iOS, iPadOS | tinted and clear modes on iOS 26 |
-| Lock Screen widgets | snapshot | iOS, iPadOS | the vibrant rendering mode |
-| StandBy | snapshot | iOS | the same widgets; red-tinted at night |
-| CarPlay widgets | snapshot | iPhone, shown in the car | ordinary iPhone widgets (iOS 26) |
-| HomeView widgets | snapshot | iPhone, shown on HomeView | the same; `disfavoredLocations` opts out |
-| Mac desktop and Notification Center widgets | snapshot | macOS; iPhone widgets on the Mac | |
-| visionOS widgets | snapshot | visionOS 26 | placed in the room |
-| Complications, Smart Stack | snapshot | watchOS | WidgetKit's accessory families |
-| Live Activities | snapshot | Lock Screen, Dynamic Island (compact, minimal, expanded), StandBy, watch Smart Stack, CarPlay Dashboard, the Mac's menu bar | one view, several placements; ActivityKit |
-| Interactive snippets | snapshot (to verify) | Siri, Spotlight, Visual Intelligence | App Intents' `SnippetIntent`, iOS 26 |
-| The watch app | live | watchOS | SwiftUI is the only public UI framework |
-| A watch notification's custom view | live | watchOS | `WKUserNotificationHostingController` |
-| visionOS volumes, ornaments, immersive spaces | live | visionOS | SwiftUI with RealityKit; windows ride the UIKit presenter |
-| CarPlay apps | template | the car; HomeView runs the audio and video ones | `CPTemplate` by entitlement category; a navigation app's map is a UIKit `CPWindow` |
-| Controls | template | Control Center, Lock Screen, Action button | `ControlWidgetButton` and `ControlWidgetToggle`: a symbol and a label |
-| Standard notifications | template | every Apple OS | title, body, attachments, actions |
-| tvOS Top Shelf | template | tvOS | |
-| Rich notifications | hosted | iOS | `UNNotificationContentExtension` is a `UIViewController` |
-| iMessage, share, action and keyboard extensions; App Clips | hosted | iOS | |
-| Swift Charts, `Gauge`, StoreKit's views, Translation | island | every Apple OS | a native module hosts them (LLP 1024, 1067.000) |
+| Home Screen widgets | snapshot | iPhone, iPad | tinted and clear modes on iOS 26 |
+| Lock Screen widgets | snapshot | iPhone, iPad | vibrant mode; may render before first unlock |
+| StandBy | snapshot | iPhone | the same widgets |
+| CarPlay widgets | snapshot | iPhone | ordinary iPhone widgets, iOS 26 |
+| HomeView widgets | snapshot | iPhone | as reported; `disfavoredLocations` opts out |
+| iPhone widgets on the Mac | snapshot | iPhone | |
+| Live Activities | snapshot | iPhone | Lock Screen, Dynamic Island (compact, minimal, expanded), StandBy; mirrored to the watch's Smart Stack, the CarPlay Dashboard, the Mac's menu bar |
+| Interactive snippets | snapshot or live (to verify) | iPhone | App Intents' `SnippetIntent`, iOS 26; whether the view is archived or stays live in the app is unverified |
+| A Mac app's own widgets | snapshot | macOS | desktop and Notification Center |
+| Complications and watch Smart Stack widgets | snapshot | watchOS | needs watchOS admitted (D10) |
+| visionOS widgets | snapshot | visionOS | needs a visionOS port |
+| The watch app; a watch notification's custom view | live | watchOS | SwiftUI is the only public UI framework |
+| visionOS volumes | live | visionOS | immersive spaces are RealityKit: out of this RFC |
+| CarPlay apps (and HomeView's audio and video apps) | template | iPhone | `CPTemplate`, with a live app lifecycle and callbacks |
+| Controls | template | iPhone | Control Center, Lock Screen, Action button |
+| Standard notifications; tvOS Top Shelf; a Mac menu bar item's menu; the Dock's menu and badge | template | each OS | |
+| CarPlay navigation map | hosted | iPhone | a UIKit `CPWindow` scene |
+| Rich notifications; iMessage, share, action, keyboard and Quick Look extensions | hosted | each OS | a view controller; each under its own memory limit |
+| App Clips | (an app) | iPhone | a size-capped app with the existing presenter |
+| Swift Charts, `Gauge`, StoreKit's views, Translation; visionOS ornaments on a UIKit window | island | each OS | a native module (LLP 1024, 1067.000) |
 
 Sources: Apple's [SwiftUI views for widgets](https://developer.apple.com/documentation/widgetkit/swiftui-views),
 [ActivityKit](https://developer.apple.com/documentation/activitykit),
@@ -129,338 +140,449 @@ Sources: Apple's [SwiftUI views for widgets](https://developer.apple.com/documen
 [UNNotificationContentExtension](https://developer.apple.com/documentation/usernotificationsui/unnotificationcontentextension);
 HomeView as reported by [9to5Mac](https://9to5mac.com/2026/10/14/homeview-can-display-third-party-widgets-from-your-iphone/)
 and [MacRumors](https://www.macrumors.com/2026/10/14/apple-homeview-apps-carplay/).
+No decision below rests on HomeView; it is reach the iPhone's widgets get.
 
 ## 4. Design
 
-### D1 — A renderer per class of surface, never per surface
+### D1 — Admit a surface by its class, its drawer and its binary
 
-Exact admits a surface by saying which class it is in. A class has one
-renderer (or, for templates, one mapping) on each platform; a new surface in
-an existing class costs its packaging and its presentation rules (D5), not
-a renderer. Snapshot and live share one SwiftUI core: the code that turns a
-laid-out node into SwiftUI views and modifiers. Live is the snapshot core
-plus a retained tree, events and native controls, so building snapshot first
-wastes nothing.
+A surface is admitted by answering the three questions of the summary. Its
+class decides the execution contract (D3 for snapshots); its drawer decides
+the renderer, one per drawer per platform, never one per surface; its
+binary decides the packaging and whether a platform ruling is needed. A new
+surface that shares all three with an admitted one costs its packaging and
+its presentation rules (D5).
 
-The SwiftUI renderer is not a third presenter for iOS or macOS. UIKit and
-AppKit stay the presenters of the running app there.
+On Apple the snapshot driver and the later live driver share the SwiftUI
+leaves: text, images, shapes, colour roles, accessibility. The live driver's
+retained tree, events, scrolling, navigation and controls are new work; the
+snapshot driver stands on its own value, not on the live driver's.
 
-### D2 — A surface is an entry of the one app, baked with it
+The SwiftUI renderer is not a presenter for the running app on iOS or macOS.
+UIKit and AppKit stay those.
 
-A widget, a Live Activity or a complication is a component of the app's own
-Contract, named in `app.json` as an entry with its class, its families and
-its inputs:
+### D2 — A surface is an entry of the one app, compiled under the `snapshot` profile
 
-```json
-"surfaces": {
-  "next-train": { "class": "snapshot", "kind": "widget",
-                  "families": ["systemSmall", "systemMedium", "accessoryRectangular"],
-                  "component": "NextTrainWidget", "refresh": "nextTrainRefresh" },
-  "trip": { "class": "snapshot", "kind": "liveActivity",
-            "component": "TripActivity", "state": "TripState" }
-}
-```
+A surface takes the terminal entry's shape (LLP 1101 D1–D2):
 
-(The shape is illustrative; its spelling is the spec's.) One bake makes one
-plan: the surfaces share the app's shapes, functions, store schema and data
-sources, and a type change that breaks a widget fails the same bake that
-breaks the app. The bake gives each surface's process only what that
-surface reaches (LLP 1047's link by use applied to entries), so a widget's
-extension does not carry the app's screens.
+- `app.json` names each surface: its kind (a widget kind, a Live Activity),
+  its families, its root component, its props shape, and its refresh
+  function. The spelling is the spec's.
+- The bake compiles each surface's root under a `snapshot` profile into its
+  own plan, in the same bundle as the app's plan and under the same
+  compatibility id. This pulls LLP 1031 D1's deferred trigger: the envelope
+  gains its `plans` map, one plan per root, one stream.
+- The profile is the admission authority: a `snapshot` column on the rows of
+  `kernel/tables/schema.json`, as the `terminal` column is. A row the
+  snapshot driver cannot emit within WidgetKit's archive is refused at bake
+  with an edit. D6's clock refusal and D7's handler refusal are this
+  profile's rules.
+- The surface shares what sits below the view: shapes, functions, the data
+  module, storage, routes, and components through `use` where they pass the
+  profile. A type change that breaks a widget fails the same bake that
+  breaks the app.
 
-The alternative, a separate app per surface, duplicates the types the
-surface and the app must agree on, and lets them drift.
+A surface's plan is a baked artifact, not a filter applied to the app's
+plan at load: an extension never decodes the app's whole plan.
 
-### D3 — A snapshot is a pure render; its work happens in a refresh step
+What is compile-time on Apple stays a binary change (LLP 1030): the widget
+kinds and families (`WidgetBundle`), a Live Activity's existence, the
+extension's Info.plist, the intents Siri lists by name (D7). The bake
+generates that Swift. The views and data the surfaces show ride the bundle.
 
-A snapshot entry's render is a function of its props, a read-only snapshot
-of the store, and the environment the system gives (family, size, colour
-scheme, rendering mode, text size). It reads no clock, starts no timer,
-takes no input and fetches nothing; it is rendered when settled (LLP 1113),
-and the render is what the system archives.
+### D3 — A snapshot's render is pure; its work happens in a refresh step
 
-The work that changes what a snapshot shows happens outside the render, in
-one of three refresh steps the platform defines:
+A snapshot's render is a function of its props, a read-only store snapshot,
+and the environment the system gives (family, size, colour scheme, rendering
+mode, text size). The `snapshot` profile makes it pure by construction: no
+clock, no timer, no input, no fetch, no native module. It is complete when
+its layout is done and its images are loaded; that is the whole of
+"settled" here (LLP 1113's procedure, which pumps work and activates modules,
+is not needed and not used).
 
-- **A timeline request** (a widget's `TimelineProvider`): the entry's
-  `refresh` function runs in a headless session in the extension. It may
-  run data sources and write the store, within WidgetKit's budget (Apple
-  documents a typical 40 to 70 refreshes a day), and returns the props of
-  one or more timeline entries, each with the date it takes effect.
-- **An intent** (a tap; D7): a handler runs in a headless session and
-  commits; the surface then reloads.
-- **A Live Activity update**: new `ContentState`, from the app or a push
-  (D9). The extension only renders it.
+The work happens in the platform's refresh steps, each in a session in the
+extension:
 
-This split is the foundation of the design. It keeps the render small
-enough to run in an extension's memory and time, makes it deterministic
-enough to test as an image (LLP 1112), and puts data access where the
-platform budgets it.
+- **A timeline request**: the surface's refresh function may run data
+  sources and write the store, within WidgetKit's budget (Apple documents a
+  typical 40 to 70 refreshes a day), and returns timeline entries, each
+  props with the date it takes effect.
+- **An intent** (a tap, D7): a handler commits; the surface reloads.
+- **A Live Activity update**: new state (D9). The extension only renders it.
+- **A placeholder** (`placeholder(in:)`, which must answer at once without
+  data): the render with props the bake records from the surface's
+  declared preview values.
 
-### D4 — Layout stays CSS: the kernel lays out, SwiftUI places
+The render runs no app JavaScript. A refresh may run an app's TypeScript data
+module, as bytecode under Hermes in the extension (`rules/RULES.md`: modules
+ship as bytecode); "first pixel" has no meaning in a refresh, and the
+refresh's budget is Q3's.
+
+The render may run several times per refresh: once per timeline entry and
+per environment variant WidgetKit asks for. Q3 counts that.
+
+### D4 — Layout stays CSS: fixed frames, the kernel's line breaks, platform text
 
 The snapshot driver lays the entry out with the kernel at the size the
-system proposes, and emits SwiftUI primitives (shapes, `Text`, `Image`,
-gradients, `Canvas`) placed at the kernel's frames. The web stays the
-layout oracle (LLP 1115: "layout stays CSS").
+system proposes and emits, as the proposal stage 0 tests:
 
-Two alternatives are rejected:
+- **Fixed frames.** Each box is a SwiftUI shape or container at the kernel's
+  frame, by fixed frames and offsets. A custom `Layout` is used only if Q1
+  shows WidgetKit's archive keeps it.
+- **The kernel's lines.** A paragraph is emitted as one single-line `Text`
+  per kernel line, so SwiftUI draws and never re-breaks. Colours are roles,
+  never resolved colours, so the rendering modes can tint them.
+- **Live text in a reserved width.** A platform-formatted time (D6) is a
+  SwiftUI `Text` with a date style, in a frame the kernel sized for its
+  widest value.
+- **Regions the system sizes.** For a Dynamic Island region or a Lock Screen
+  Live Activity, the kernel measures the content's size at the region's
+  width (`fit_content_height`) and the frame takes it.
+- **Pictures only for pictures.** A canvas or an app-drawn chart is a
+  picture leaf (SwiftUI's `Canvas` is on WidgetKit's list, so a Canvas 2D
+  recording can replay into it). A whole surface is never a picture.
 
-- **Translating CSS to SwiftUI stacks** and letting SwiftUI lay out. SwiftUI's
-  stack, spacer and priority rules are not flexbox; every app would lay out
-  one way in its window and another in its widget. This is the
-  four-disagreeing-layers bug class the kernel exists to end.
-- **Rendering a picture** (Core Graphics or the CPU painter into an `Image`)
-  as the default. It is the cheapest path to pixels, and it is a tell: an
-  image does not take the Lock Screen's vibrant mode or the accented mode
-  by role, does not follow the text size, gives VoiceOver nothing, and
-  cannot carry the platform's live text (D6). A picture is admitted for a
-  leaf that is a picture anyway (a canvas, a chart drawn by the app);
-  SwiftUI's `Canvas` is on WidgetKit's list, so a Canvas 2D recording can
-  replay into it.
+Rejected: translating CSS to SwiftUI stacks (a second layout engine,
+disagreeing with the window: the bug class the kernel ends); a picture by
+default (no vibrant or accented mode by role, no text size, nothing for
+VoiceOver, no live text).
 
-The system owns some geometry: a Dynamic Island region's size, a Lock
-Screen Live Activity's height. There the kernel needs the region's proposal
-and the region needs the content's size; how the two meet inside an archive
-(a custom `Layout`, which Apple's list of widget views does not name, or a
-measured fixed frame) is stage 0's first probe (§8, Q1).
+**Kill line.** If fixed frames with per-line text do not survive the archive,
+or the text does not hold its breaks across the rendering modes and text
+sizes, D4 stops and the fallback is decided then from two: narrow the
+`snapshot` profile to what does survive, or the strongest alternative the
+reviews named, author-written SwiftUI views over Exact's data seam
+(Alternatives, §6).
+
+D4 decides Apple. Android's snapshot drawers (RemoteViews, ProtoLayout)
+re-lay out at their own sizes; its RFC decides between frames (a
+RemoteViews `FrameLayout` can take them), translation and pictures.
 
 ### D5 — On a snapshot, the platform's presentation wins where the author is silent
 
-LLP 1115 applies unchanged; judge against a hand-built WidgetKit widget on
-the same OS. What the author leaves unsaid is the platform's, and the
-snapshot driver supplies it:
+LLP 1115 applies unchanged, accessibility included; judge against a
+hand-built WidgetKit widget on the same OS. The snapshot driver supplies
+what the author leaves unsaid:
 
-- the entry root's background becomes the `containerBackground`, which the
-  system removes where widgets have none (StandBy, the Lock Screen);
+- the root's background becomes the `containerBackground`, which the system
+  removes where widgets have none (StandBy, the Lock Screen);
 - content margins are the system's;
-- under the accented and vibrant rendering modes, each node takes the mode
-  its role gives (text and symbols tint; images desaturate unless the author
-  says otherwise), with an author's override by name;
-- colour roles (LLP 1095) resolve to the system's dynamic colours, which the
-  archive keeps;
-- a Live Activity's Dynamic Island keyline and its region layout are the
-  system's;
+- under the accented and vibrant modes each node takes the mode its role
+  gives (text and symbols tint; images desaturate unless the author says
+  otherwise);
+- colour roles (LLP 1095) resolve to the system's dynamic colours;
+- a Live Activity's Dynamic Island keyline and region layout are the system's;
 - accessibility labels and roles carry over from the nodes.
 
-### D6 — Time on a snapshot belongs to the platform
+### D6 — Time on a snapshot belongs to the platform, through HTML's `time` and `progress`
 
-A snapshot cannot tick, but the system can: `Text(date, style: .timer)`,
-`.relative` and `.offset`, and `ProgressView(timerInterval:)`, update with
-no code running. Exact admits that vocabulary as elements whose value is a
-date or an interval and whose format is named (a relative time, a timer, a
-countdown, progress over an interval). They are elements on every host:
-the running app's presenters format them on the runner's clock, so an
-author writes one view for the app and the widget.
+A snapshot cannot tick, but the system can: `Text(date, style:)` and
+`ProgressView(timerInterval:)` update with no code running. Exact reaches
+them through HTML's own elements (`rules/DEFERRED.md` §Components admits no
+other): `time` with a `datetime` and a named format (a relative time, a
+timer, a countdown), and `progress` over an interval. The platform formats
+them (LLP 1115 §3). The running app's presenters format the same elements on
+the runner's clock, so an author writes one view for the app and the widget.
 
-A snapshot entry that reads the clock otherwise fails the bake, with an
-edit that names the element. Caltrain's departure card computes its
-countdown from `nowMs`; its widget would say "a countdown to `d.at`"
-instead. A change that is not a ticking date (the next train replacing the
-last) is a timeline entry with its own date (D3). How a snapshot's text
-reserves width for a value that changes with no code running is part of
-stage 0 (§8, Q2).
+A snapshot entry that reads the clock otherwise fails the bake, with an edit
+that names the element. Caltrain's departure card computes its countdown
+from `nowMs`; its widget says "a countdown to `d.at`". A change that is not a
+ticking date (the next train replacing the last) is a timeline entry with
+its own date.
 
-### D7 — A tap on a snapshot is an intent or a URL
+### D7 — A tap is a URL or an intent; an archived tap carries its plan's digest
 
-A snapshot has two kinds of tap, as WidgetKit does:
+- **Open the app somewhere.** A location is a URL (LLP 1038), so a link in a
+  snapshot is `Link` or `widgetURL` with the route's URL.
+- **Act without opening the app** (iOS 17's interactive widgets and Live
+  Activities). A handler on a `Button` or `Toggle` becomes one generic
+  `AppIntent` carrying the action's name, its arguments and the digest of
+  the plan that rendered it. The intent runs the handler in the extension,
+  commits, and reloads the surface. A handler that navigates or needs input
+  is refused at bake, with an edit that makes it a link.
+- **A stale tap.** The system can keep an archive across an update. A tap
+  whose digest the installed plan does not know is refused without running
+  anything, and the surface reloads.
 
-- **Open the app somewhere.** A location is a URL (LLP 1038), so a link in
-  a snapshot entry is `Link` or `widgetURL` with the route's URL. The app
-  opens at that route.
-- **Do something without opening the app** (iOS 17's interactive widgets
-  and Live Activities). An event handler on a `Button` or `Toggle` becomes
-  an `AppIntent`. The intent boots a headless session, runs the handler
-  against the store, commits, and reloads the surface. A handler that
-  navigates or needs input is refused here, with an edit that makes it a
-  link.
+Intents Siri, Shortcuts and snippets list by name must be Swift types; the
+bake generates them from actions the app declares as such, as a binary
+change (D2), at a later stage.
 
-App Intents' metadata is read at build time, so intents cannot be made at
-run time. One generic intent, which carries an action's name and arguments,
-serves every widget tap. Intents that Siri, Shortcuts and snippets list by
-name must be Swift types; the bake generates them from actions the app
-declares as such (a later stage).
+These rules are a snapshot's. A template's app (CarPlay) has a live
+lifecycle and callbacks, and its RFC sets its own (D11).
 
-### D8 — An extension embeds a headless session
+### D8 — One cohort, one owner: the app updates, the extensions read
 
-Each snapshot surface is packaged as a WidgetKit extension that embeds an
-Exact session (LLP 1031) with no presenter: the plan, the runner, the
-kernel, text, and the snapshot driver. Three things follow:
+**One compatibility cohort per app.** The app and every extension link the
+same set, in one framework they all load, so they share one compatibility
+id, one stream and one bundle (LLP 1030 D3a). Pruning per surface is the
+plan's (D2), never the binary's. This amends LLP 1030's extension row:
+an extension takes the app's bundle. Q4 measures what the shared framework
+costs the app's launch; it is not a choice of cohort.
 
-- **One copy of the runtime.** An app with a widget and a Live Activity has
-  at least two processes linking Exact. The runtime is shared as one
-  framework that the app and its extensions load, not a static archive
-  copied into each. Whether link-by-use (LLP 1047) still applies to a
-  shared framework, or extensions take a smaller one, is stage 0's (§8, Q4).
-- **One container.** The store (LLP 1018) and the update store (LLP 1030)
-  move to the app group's container, and Keychain items to a shared access
-  group, so the app and its extensions read one state and run one plan. The
-  app owns updates; an extension runs whatever bundle the app last made
-  current, and never fetches one.
-- **A budget.** An extension runs under memory and time limits the app does
-  not have (commonly reported near 30 MB for a widget). The boot rule
-  (`rules/RULES.md`: the boot path executes and compiles nothing) and the
-  surface's pruned plan (D2) are what keep a session inside it. Stage 0
-  measures it before anything is built (§8, Q3).
+**The app owns updates.** The app alone opens the update store and its lock.
+It publishes generations as immutable directories in the app group's
+container and keeps a generation while an extension may be reading it. An
+extension reads the generation the app last made current, pinned for the
+whole invocation, and never fetches, selects or repairs one.
 
-### D9 — A Live Activity's state is a Contract shape, and the bake gives it to servers
+**Two writers, one store.** An intent commits in the extension while the app
+may be running. The store's writes stay transactional across processes, and
+each commit bumps a generation counter in the container. The app, at
+foreground and on that counter moving, re-asks the resources that read the
+store (the existing `data_ready` path); after a commit that touches a
+surface's inputs it reloads that surface's timelines. The answer stays a pull
+(LLP 1016.002); there is no shared heap and no reactive shared store. A
+widget's write reaches an open app at its next foreground, not at once (§7,
+question 6).
 
-A Live Activity changes only when its `ContentState` changes, from the app
-through ActivityKit or from a server through a push; Apple limits an update
-to 4 KB. Its `ContentState` is a Contract shape named by the surface (D2).
-The bake emits the Swift `Codable` type the extension decodes and a
-TypeScript type (and JSON Schema) a server uses to build the push, so the
-app, the extension and the server cannot disagree on the payload's shape.
+**The render touches no secret.** A Lock Screen surface can render before
+first unlock, when the Keychain's usual class is unavailable. Secrets are
+read only in refresh steps; the render reads its props and the plain store.
 
-Starting, updating and ending an activity are sends from the app, which
-work where ActivityKit exists and are absent elsewhere (Charlie,
-2026-09-27, LLP 1055.000 Q5: "allow platforms to reach their full platform
-rather than sanding everything down to lowest common denominator"). An activity's
-entry declares its placements (Lock Screen, the Dynamic Island's compact,
-minimal and expanded regions) as named slots of one component; the
-watch's Smart Stack, the CarPlay Dashboard and the Mac's menu bar take
-placements the system derives from those.
+**A session without a presenter.** The extension needs an `ExactKit`
+composition that builds no presenter and calls no app-only API
+(`APPLICATION_EXTENSION_API_ONLY`), with the kernel, the runner, text and the
+snapshot driver. It is extracted from today's session, not added beside it.
 
-A push can carry a `ContentState` from a newer version of the app than the
-one installed. The payload carries the shape's digest; how an extension
-renders a payload whose digest it does not know follows the store's
-compatibility rule (LLP 1030's compatibility id), and is a spec question.
+**A budget with a kill line.** An extension runs under limits the app does
+not have (a widget's is commonly reported near 30 MB and is not a documented
+number). Stage 0 measures the ceiling on the oldest supported iPhone, then a
+session's peak resident memory, cold refresh time and cold intent time. The
+proposed kill line: the session's peak above half the measured ceiling, or a
+cold refresh or a tap's commit above one second. Past it, the fallback is a
+render-only extension (§6).
 
-### D10 — The live driver, and the watch app, come after the snapshot driver
+### D9 — What the system keeps between versions is a generic envelope
 
-The live driver is the snapshot core with a retained tree: one observable
-model per node, updated from the runner's batches; frames placed by a
-custom `Layout` (no archive restricts it here); and the platform's
-controls, scrolling and navigation at the leaves (`Button`, `Toggle`,
-`Picker` on the Digital Crown, `TextField` with the system's input sheet,
-`ScrollView` for crown scrolling, `NavigationStack` bound to the router,
-haptics through `WKInterfaceDevice`). The agent drives it as it drives
-every host.
+A Live Activity's state lives in the system and in pushes, across updates of
+the app. If each app's state were a generated Swift `Codable`, a change to
+its shape would be a binary contract: a payload the installed decoder cannot
+read stops the activity. So every Exact Live Activity has one Swift state
+type: an envelope with the shape's digest and the state as JSON. The plan
+decodes the JSON by its Contract shape. A shape change rides the bundle; the
+app keeps the shape of every activity it still has alive; a payload whose
+digest the plan does not know renders the activity's last good state, marked
+stale. The bake emits the shape's TypeScript type and JSON Schema for the
+app's own backend.
 
-Its first consumer is the watch app. The watch costs more than the renderer,
-and this RFC names the costs without deciding them:
+An activity's root declares its placements (Lock Screen; the Dynamic
+Island's compact, minimal and expanded regions) as named slots of one
+component. The watch's Smart Stack, the CarPlay Dashboard and the Mac's menu
+bar take placements the system derives from those.
 
-- Rust's watchOS targets are Tier 3 (nightly with `-Zbuild-std`); older
-  watches need `arm64_32`, whose `usize` is 32 bits;
-- no Metal: no wgpu, no GPU canvas, no GPU module; canvases are CPU;
-- a device restricts low-level networking (Apple's
-  [TN3135](https://developer.apple.com/documentation/technotes/tn3135-low-level-networking-on-watchos)),
+Starting, updating and ending an activity are sends from the running app,
+present where ActivityKit exists and absent elsewhere (Charlie, 2026-09-27,
+LLP 1055.000 Q5: "allow platforms to reach their full platform rather than
+sanding everything down to lowest common denominator"). With D6, an
+activity updated by its app while it runs and counting down on its own is
+useful by itself: the first consumer needs no push.
+
+Updates from the app's own server, through ActivityKit push tokens, are what
+most Live Activities are for (a delivery, a flight, a score), and
+`rules/DEFERRED.md` refuses push delivery from a server. Exact would relay
+nothing (LLP 1030.000 D6): the app registers its token with its own backend,
+which sends; the 4 KB limit applies there. Admitting that is §7, question 5.
+
+### D10 — The watch is its own ruling: complications first, then the live driver
+
+Anything that runs on the watch needs a watchOS binary: complications and
+the watch's own Smart Stack widgets come from a widget extension inside a
+watchOS app. That costs, before any renderer:
+
+- Rust's watchOS targets, Tier 3 (nightly with `-Zbuild-std`); older watches
+  need `arm64_32`, whose `usize` is 32 bits;
+- `ExactKit`'s presenter-free composition (D8) compiling for watchOS;
+- no Metal: no wgpu, no GPU canvas, no GPU module;
+- restricted low-level networking on a device ([TN3135](https://developer.apple.com/documentation/technotes/tn3135-low-level-networking-on-watchos)),
   which reaches app WebSockets, the agent's socket carrier and the dev
   connection; HTTP through URLSession is unrestricted;
 - no JIT and no JavaScriptCore, so `app.ts` needs a Hermes built for
-  watchOS or waits;
-- a watch app is its own small app, not a phone layout made smaller, so its
-  entry is the author's to write.
+  watchOS or waits.
 
-Admitting watchOS reverses a line of `rules/DEFERRED.md` and is Charlie's
-call (§7, question 3). Until then the live driver is not built: the
-watch's complications and Smart Stack are snapshot surfaces and arrive
-with D3–D8.
+What reaches the wrist without any of that comes with stage 2: the iPhone's
+Live Activities in the Smart Stack.
+
+If watchOS is admitted, complications come first, by the snapshot driver;
+the live driver and the watch app come second. The live driver keeps one
+observable model per node, updated from the runner's batches, places frames
+with a custom `Layout` (no archive restricts it), and puts the platform's
+controls, scrolling and navigation at the leaves (`Picker` on the Digital
+Crown, `TextField` with the system's input sheet, `ScrollView`,
+`NavigationStack` bound to the router, haptics through `WKInterfaceDevice`).
+A watch app is its own small app, so its entry is the author's to write. Its
+design is a later RFC's.
 
 ### D11 — Templates get their own RFC
 
 CarPlay apps (and so HomeView's audio and video apps), controls, standard
-notifications and Top Shelf draw what the system draws from data the app
-gives. They need no renderer: an entry whose tree is restricted to a
-template's vocabulary (a list, a grid, now playing) maps to the template.
-They share D2 (an entry of the one app), D7 (actions as intents or URLs)
-and D8 (a headless session where the template is filled out of process),
-and their mapping is a separate RFC.
+notifications, Top Shelf, a Mac menu bar item's menu and the Dock's are drawn
+by the system from data the app gives. They need a mapping, not a renderer:
+an entry whose tree is restricted to a template's vocabulary maps to it.
+They share D2's entry and D8's cohort. A CarPlay app has a live lifecycle and
+callbacks, unlike a snapshot, so the template RFC sets its own action rules.
 
-### D12 — Hosted and island surfaces need nothing new
+### D12 — Hosted and island surfaces need no new renderer
 
-A rich notification, an iMessage app, a share or keyboard extension is a
-`UIViewController`: the existing presenter, in a session embedded in that
-extension, under that extension's limits. Each is admitted when an app
-needs it. A SwiftUI-only system view inside the running app (Swift Charts,
-`Gauge`, StoreKit's subscription views, Translation's modifiers) is a
-native module (LLP 1024, 1067.000), as Expo Services' number transition is
-today.
+A rich notification, an iMessage app, a share, action, keyboard or Quick
+Look extension, and CarPlay's navigation map are UIKit or AppKit views: the
+existing presenter, in D8's presenter-free composition plus a presenter,
+under that extension's own limits (a keyboard's is tight). Each is admitted
+when an app needs it. An App Clip is an app. A SwiftUI-only system view in
+the running app (Swift Charts, `Gauge`, StoreKit's views, Translation's
+modifiers, an ornament on a visionOS UIKit window) is a native module, as
+Expo Services' number transition is today.
 
-### D13 — Android has the same classes
+### D13 — Android has the same questions, answered by its own RFC
 
-Android's surfaces fall into the same five: Glance widgets over
-RemoteViews and Wear OS Tiles are snapshots; a Wear OS app in Compose is
-live; Android Auto's Car App Library and Android 16's Live Updates are
-templates; a notification's custom view is hosted. The seams are defined
-in these terms, not in WidgetKit's, so that an entry is portable and its
-class per platform may differ: a Live Activity is a snapshot on iOS and a
-Live Update, a template, on Android.
+The three questions are platform-neutral, and Android's answers differ in
+the second: Glance widgets (over RemoteViews) and a custom notification
+(RemoteViews) are snapshots drawn by a different drawer than Wear OS Tiles
+(ProtoLayout); Wear OS complications, Quick Settings tiles and Android Auto's
+Car App Library are templates; a Wear OS app in Compose is live. Whether
+Android 16's Live Updates are a template or can carry a custom view is
+unverified. These are hypotheses for Android's RFC. What D2 makes portable is
+the entry, its shapes and its data; its class and vocabulary may differ by
+platform.
 
 ### D14 — Development and the agent see what the extension sees
 
-The archive is unforgiving: an unsupported view inside a widget draws
-nothing, with a console line. Three things guard it:
+An unsupported view inside a WidgetKit archive draws nothing, with a console
+line. The guards:
 
-- **The bake checks the vocabulary.** A snapshot entry that uses an element
-  the snapshot driver cannot emit within WidgetKit's list fails the bake
-  with an edit, as Contract refusals do.
-- **One driver in-process and in the extension.** The running app's
-  development build has a gallery of its surfaces, rendered by the same
-  snapshot driver at each family's size and in each rendering mode; the
-  agent addresses it (`tree`, `screenshot`, `tap` as the intent, `state`)
-  with a surface, a family and props. The web dev host shows the entries
-  laid out at the families' sizes, an approximation labelled as one.
+- **The profile refuses at bake** (D2).
+- **One driver in-process and in the extension.** A development build of the
+  app has a gallery of its surfaces, rendered by the same snapshot driver at
+  each family's size and in each rendering mode and variant; the agent
+  addresses it (`tree`, `screenshot`, `tap` as the intent, `state`) by
+  surface, family and props.
 - **The real extension in the async lane.** A simulator test loads the
-  extension through WidgetKit and compares its archive's render with the
+  extension through WidgetKit and compares its archived render with the
   gallery's.
+
+Each of the three is apparatus `rules/RULES.md` §Agents says needs a human's
+yes; §7, question 8 asks for it.
 
 ## 5. Stages
 
-0. **Probes**, throwaway, before any design is spent: §8's Q1 to Q5,
-   measured on a simulator and an iPhone.
-1. **The snapshot core and iOS widgets** for one app (Caltrain's next
-   departures, with a countdown element, is the proposed first consumer):
-   D2–D8, D14. StandBy, CarPlay and HomeView come with it, as iPhone widgets.
-2. **Live Activities and interactive widgets**: D7's intents and D9
-   (Caltrain's trip in progress).
-3. **The other WidgetKit platforms**: watch complications and the Smart
-   Stack, Mac widgets, visionOS widgets, by the same driver.
-4. **The live driver and the watch app**, if Charlie admits watchOS (D10).
+0. **Probes, as a decision gate.** Throwaway, on a simulator and the oldest
+   supported iPhone, against a hand-built SwiftUI widget for Caltrain as the
+   fidelity baseline (the reference for "would someone who knows the
+   platform notice?"). Q1 to Q5 (§8), each with its kill line (D4, D8). The
+   probes exercise a real archived widget and a minimal Live Activity
+   region, not the gallery. Past a kill line the stage ends with a report and
+   a fallback proposal, not a workaround.
+1. **The snapshot driver and iPhone widgets** for one app: D2–D8, D14.
+   StandBy, CarPlay, HomeView and the Mac show them with no other code.
+2. **Live Activities and interactive widgets**: D7's intents and D9, updated
+   by the running app. The watch's Smart Stack and the Mac's menu bar mirror
+   them.
+3. **A Mac app's own widgets**, by the same driver.
+4. **watchOS**, if Charlie admits it (D10): complications, then the live
+   driver and the watch app. visionOS widgets wait for a visionOS port.
 
-Templates (D11) and Android's snapshot surfaces (D13) are their own RFCs and
-can run beside stages 1 to 3.
+Templates (D11) and Android (D13) are their own RFCs.
 
-## 6. What stays out
+## 6. Alternatives
 
-- UIKit or AppKit views inside a snapshot (WidgetKit refuses them).
-- Custom animation on a snapshot: the platform's transitions and live text
-  only.
-- Network or timers during a snapshot's render (D3).
-- A SwiftUI presenter for the running app on iOS or macOS (D1).
-- A surface-specific renderer (D1).
+- **Author-written SwiftUI widgets over Exact's data seam** (what
+  `expo-widgets` does: the app ships Swift views that read the group
+  container; the bake gives them the shapes and the store). Highest fidelity
+  and no renderer. It loses on what this repository is for: the author (often
+  an agent) writes a second language and a second layout model, the agent
+  cannot drive what it wrote, and nothing ports to Android. It is D4's
+  fallback, and its hand-built Caltrain widget is stage 0's baseline.
+- **A render-only extension.** The app, or a refresh helper, writes a display
+  list; a Swift-only inflater draws it, and the extension links no kernel or
+  runner. It wins if Q3 fails. It loses otherwise: the system picks size,
+  rendering mode and text size at archive time, often with the app not
+  running, so a list baked for one environment is wrong in another, and
+  timeline refreshes and intents need the data and the store in the extension
+  anyway. It is D8's fallback.
+- **Translating CSS to SwiftUI stacks.** Rejected in D4.
+- **A picture by default.** Rejected in D4; kept for picture leaves.
 
 ## 7. Questions for Charlie
 
-1. **The shape.** Five classes, one SwiftUI core with a snapshot and a live
-   driver, templates separate. Proposed: yes.
-2. **LLP 1035.006 §11.10.** Reopen it for snapshot surfaces under this
-   RFC. Proposed: yes; `rules/DEFERRED.md` needs a take or a waiver.
-3. **watchOS.** Admit it now as stage 4's target, or decide at stage 4 with
-   stages 1 to 3 measured. Proposed: decide at stage 4.
-4. **The word.** "Surface" already names a Canvas surface (`ExactSurfaces`,
-   `fulfill_surface`) and a platform (`rules/DEFERRED.md` §Surfaces), and
-   LLP 1124 uses "extension" for something else. A name for these entries
-   is wanted before the manifest has a key.
-5. **The working set.** If this enters `llp/current/`, which document
-   leaves.
-6. **The first consumer.** Caltrain is proposed; an app that ships to users
-   (Expo Services, Interview) would test more.
+1. **The shape.** Three questions per surface; one SwiftUI renderer for
+   Apple's snapshots; templates and Android separate. Proposed: yes.
+2. **LLP 1035.006 §11.10.** Reopen it for snapshot surfaces drawn by the
+   iPhone's extension (stages 1 and 2) and the Mac's (stage 3). Proposed: yes,
+   with a take or a waiver under `rules/DEFERRED.md`.
+3. **watchOS.** Decide at stage 4, with stages 1 to 3 measured. Proposed: yes.
+4. **The word.** "Surface" already names a Canvas surface (`ExactSurfaces`)
+   and a platform (`rules/DEFERRED.md` §Surfaces); LLP 1124 uses "extension".
+   A name for these entries is wanted before the manifest has a key.
+5. **Live Activity pushes.** Admit ActivityKit push tokens, the app's own
+   backend sending and exact2 relaying nothing, as a scoped exception to the
+   push refusal. Proposed: decide at stage 2; stage 2 ships without it.
+6. **A widget's write and an open app.** Visible at the app's next
+   foreground (D8), not at once. Proposed: yes.
+7. **The first consumer.** Caltrain (public timetable, no secrets, a
+   countdown) is proposed for stages 0 and 1; an app that ships to users
+   (Expo Services, Interview) for stage 2.
+8. **Apparatus.** The gallery, the agent's surface addressing, and the
+   async-lane extension test (D14). Proposed: yes, at stage 1.
+9. **The working set.** If this enters `llp/current/`, which document leaves.
 
 ## 8. Open technical questions (stage 0)
 
-- **Q1. Placement inside an archive.** Does a custom `Layout` survive
-  WidgetKit's archive? If not, absolute placement by fixed frames and
-  offsets, and how content sizes itself in a Dynamic Island region the
-  system sizes.
-- **Q2. Text.** Do Core Text's measurement (the kernel's) and SwiftUI
-  `Text`'s drawing agree on line breaks for the same font and width, and
-  how does live text (D6) reserve width?
-- **Q3. A session in an extension.** Memory, cold time per timeline
-  request, and binary size of a headless session with a pruned plan, against
-  the widget extension's limits.
-- **Q4. One framework.** A dynamic framework shared by the app and its
-  extensions against today's static archive: launch cost for the app, size,
-  and link-by-use.
+- **Q1. The archive.** Is the archive a value evaluated in the extension per
+  variant (then `Layout` and `GeometryReader` may both survive), or a
+  description the system re-evaluates (then fixed frames only)? This first
+  finding decides much of Q1 to Q3. Then: fixed frames and offsets, content
+  margins, a Dynamic Island region sized by `fit_content_height`, a Dynamic
+  Type change.
+- **Q2. Text.** Per-line `Text` holding the kernel's breaks across fonts,
+  text sizes and the accented and vibrant modes; a ticking `time` in a
+  reserved width; VoiceOver reading the paragraph as one.
+- **Q3. A session in an extension.** Against the measured ceiling: peak
+  memory, cold refresh and cold intent time, for a pruned plan, with a
+  20-entry timeline times its variants, and for a TypeScript app's refresh
+  under Hermes as well as Caltrain's Rust; an app and an extension writing
+  the store at once.
+- **Q4. One framework.** The app's launch with the runtime in a shared
+  dynamic framework against today's static archive, and link-by-use (LLP
+  1047.001) for one cohort.
 - **Q5. Detecting an unsupported view.** Whether the archive's refusal can
-  be observed by a test, or only the bake's vocabulary check can catch it.
+  be observed by a test, or only the profile catches it.
+
+## 9. What this amends, at acceptance
+
+- LLP 1030's extension row: an extension takes the app's bundle, in the
+  app's cohort (D8).
+- LLP 1031 D1: the `plans` map's trigger is pulled (D2).
+- LLP 1035.006 §11.10: reopened for snapshot surfaces (§7, question 2).
+- `kernel/tables/schema.json`: a `snapshot` admission column (D2).
+- `rules/DEFERRED.md`: §Surfaces at stage 4 (watchOS); the notifications
+  entry's push refusal only if question 5 admits Live Activity pushes.
+  §Components is unchanged (D6 uses HTML's elements).
+
+## R. Round 1: what r2 took
+
+| Finding | From | r2 |
+|---|---|---|
+| Class alone does not decide the renderer or the packaging; separate execution, drawer and binary | Astra, Grok, Fable | Summary, D1, §3's binary column |
+| Watch complications need a watchOS binary; stage 3 decided watchOS early; "reaches the wrist" is not "runs on it" | Fable, Grok, Astra | D10, §1, §3, §5 (stage 4) |
+| visionOS widgets need a visionOS binary; immersive spaces are RealityKit; ornaments are islands | Grok, Astra, Fable | §3, D12, §5 |
+| D8 needs a cross-process owner: the update store's exclusive lock, LLP 1031 D4's snapshots, two writers | Astra, Fable, Grok | D8: the app owns updates, immutable generations, a counter and a re-ask |
+| One cohort per app, decided, not probed; amends LLP 1030's extension row | Fable | D8, §9 |
+| Generated per-app Swift is a binary contract; archived taps outlive plans | Astra | D9's envelope, D7's digest and stale-tap rule, D2's binary/bundle line |
+| Server push is refused by `rules/DEFERRED.md` | Grok | D9, §7 question 5 |
+| Take LLP 1101's entry shape and a schema admission column; pull LLP 1031 D1's trigger | Fable (Grok: one plan with a baked prune) | D2: a baked plan per root, one cohort; a load-time filter rejected |
+| Text: per-line `Text` from the kernel's breaks, roles not resolved colours, reserved width for live text | Grok, Fable, Astra | D4 |
+| D4 needs a kill line and a fallback; stage 0 is a decision gate | Grok, Astra | D4, D8, §5 |
+| A headless session must be extracted; extension-safe API | Astra, Fable | §2, D8 |
+| LLP 1113's settle procedure is not D3's contract | Astra | D3 |
+| The render touches no secret (Lock Screen before first unlock) | Grok | D8 |
+| D6 must use HTML's `time` and `progress` (§Components) | Fable | D6 |
+| Variants and timeline entries multiply the render; TypeScript refresh under Hermes; placeholder | Fable | D3, Q3 |
+| D4 decides Apple only; Android cells are hypotheses | Fable, Grok, Astra | D4, D13 |
+| CarPlay templates have a live lifecycle; the navigation map is hosted; App Clips are apps; Mac menu bar, Dock, Quick Look | Astra, Grok, Fable | §3, D7, D11, D12 |
+| The strongest alternatives: author-written SwiftUI; a render-only extension | Astra, Fable, Grok | §6, as D4's and D8's fallbacks; stage 0's baseline |
+| D14 adds apparatus needing a human's yes | Fable | D14, §7 question 8 |
+| "Snapshot first wastes nothing" overclaims | Fable | D1 |
+| A widget write's visibility in an open app | Astra | D8, §7 question 6 |
+
+Not taken: the reviewers' implementation-level notes (the exact 4 KB scope
+for local updates, the HomeView details none could verify) are the spec's.
