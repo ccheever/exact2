@@ -494,8 +494,10 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
 export const LARGEST = 'accessibility-extra-extra-extra-large', LARGEST_PX = 53;
 const LARGE_KINDS = new Set(['overflow', 'clipped', 'overlap', 'squeezed']), PAGES = 6;
 const WRAP = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
-/** The remedy for a finding at the largest size: never a smaller or fixed font. */
-export function largeRemedy(f) {
+/** The remedy for a finding at the largest size: never a smaller or fixed font. A text in a list's row (`inRow`) is cut by
+ * the row, which wrapping does not change: UIKit's cells truncate a label or grow taller with it. */
+export function largeRemedy(f, { inRow = false } = {}) {
+  if (f.kind === 'clipped' && inRow && !f.detail?.edge) return 'ask for an ellipsis (`line-clamp="1"`, or more lines), as a cell truncates its label, or let the row grow taller with its text (no px height on the row or what it holds)';
   if (f.kind === 'clipped') return f.detail?.edge ? 'let the page scroll there (a scroll with flex=1 min-height=0)'
     : f.detail?.need ? 'let its box grow with its text: no px width or height on it (a rem size, or none)' : `give the box that cuts it room (no px width or height on it), or ${WRAP}`;
   if (f.kind === 'squeezed') return `let it keep its words (no min-width: 0 or px width beside it), or ${WRAP}`;
@@ -568,9 +570,27 @@ async function largestText(s, screen) {
       }
       if (!moved) break;
     }
-    return { screen, size: [obs.viewport.w, obs.viewport.h], rootFontSize: web ? LARGEST_PX : await body(), lines: [...found.values()].map((f) => line({ ...f, hint: largeRemedy(f) }, nodes)), ms: Date.now() - started };
+    const parents = new Map((tree.nodes ?? []).flatMap((n) => (n.children ?? []).map((c) => [c, n.id])));
+    const inRow = (id) => { for (let at = parents.get(id); at != null; at = parents.get(at)) if (nodes.get(at)?.type === 'List') return true; return false; };
+    return { screen, size: [obs.viewport.w, obs.viewport.h], rootFontSize: web ? LARGEST_PX : await body(), lines: [...found.values()].map((f) => line({ ...f, hint: largeRemedy(f, { inRow: inRow(f.id) || (f.of != null && inRow(f.of)) }) }, nodes)), ms: Date.now() - started };
   } catch (e) { return { screen, error: e.message }; }
   finally { restore(); forget(); }
+}
+
+/** An iOS test end whose window the test sized (`size 1100x800`) is that window scaled to fit the phone (ExactViewIOS.swift):
+ * its text is drawn smaller than its points, so neither the pixels behind a label nor a control's size is what a person
+ * sees there. Its contrast and target findings are left out of `runs`, and one advice line says so. */
+export function scaledEnd(runs, size) {
+  const measured = (k) => k === 'contrast' || k === 'target';
+  for (const r of runs) {
+    if (!size || Math.abs(r.size[0] - size[0]) < 0.5) continue;
+    const lines = r.lines.filter((l) => !measured(l.trim().split(/\s/)[0]));
+    if (lines.length === r.lines.length) continue;
+    r.lines = lines;
+    r.findings = r.findings.filter((f) => !measured(f.kind));
+    r.advice = [...(r.advice ?? []), `  advice   the test's ${size.join('x')} window is shown scaled to fit the phone (${r.size.map(Math.round).join('x')}): contrast and target sizes are not measured there (verify web measures them at that size)`];
+  }
+  return runs;
 }
 
 /** runTests' `atEnd`: a test's last screen once its transitions end, checked in both schemes (the web: at both widths,
@@ -584,6 +604,7 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   const shot = (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === near[0]) ? path : undefined);
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
+  if (host === 'ios') scaledEnd(runs, t.size);
   const refusals = await refusalsIn(s);
   const reloaded = await reloadEnd(s, t, persisted);
   const large = await largestText(s, t.name);
