@@ -153,7 +153,9 @@
   // other `get…()` lists (docs/reference.md).
   if (global.Intl && typeof global.Intl.Locale !== 'function') (function () {
     // CLDR's tables are built at the first getWeekInfo(), not at boot: splitting
-    // them is about 90 KB of heap, half of it garbage, in every runtime.
+    // them is about 90 KB of heap, half of it garbage, in every runtime. Built
+    // after hardening, they have no prototype: a property bootstrap planted on
+    // Object.prototype is frozen by then and would refuse a write of its name.
     var week;
     function weekData() {
       if (week) return week;
@@ -175,13 +177,13 @@
         'und-TodrAL und-TotoIN und-TutgIN und-UgarSY und-VaiiLR und-VithAL und-WaraIN und-WchoIN und-XpeoIR und-XsuxIQ und-YeziGE und-YiiiCN ' +
         'und-ZanbMN';
       function table(source) {
-        var out = {};
+        var out = Object.create(null);
         keysOf(source).forEach(function (value) { source[value].split(' ').forEach(function (region) { out[region] = value; }); });
         return out;
       }
       // Deprecated regions Chrome replaces before it reads the week (`BU` is Myanmar's).
       var ALIAS = { BU: 'MM', JT: 'UM', MI: 'UM', NT: 'SA', PU: 'UM', PZ: 'PA', RH: 'ZW', WK: 'UM', YD: 'YE' };
-      var likely = {};
+      var likely = Object.create(null);
       LIKELY.split(' ').forEach(function (entry) { likely[entry.slice(0, -2)] = entry.slice(-2); });
       week = { first: table(FIRST), weekend: table(WEEKEND), likely: likely, alias: ALIAS };
       return week;
