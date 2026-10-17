@@ -2,7 +2,7 @@
 //! Store writes are covered in connections-routes.test.ts; native focus, spoken
 //! announcements and process replacement have separate attended qualifications.
 
-use super::composer_accessibility_tests::{measure, set, Replies};
+use super::composer_accessibility_tests::{first_frame, measure, set, Replies};
 use super::PLAN;
 use exact_apple::measure::CallbackMeasurer;
 use exact_plan::{Plan, TypesId};
@@ -15,7 +15,7 @@ fn initial(plan: &Plan, name: &str, path: &[&str]) -> (TypesId, Value) {
         .find(|row| plan.str(row.name) == name)
         .unwrap();
     let mut ty = resource.ty;
-    let mut value = Value::from_bytes(plan.bytes(resource.initial)).unwrap();
+    let mut value = first_frame(name);
     for name in path {
         let index = plan.field_index(ty, name).unwrap();
         let Value::Record(fields) = value else {
