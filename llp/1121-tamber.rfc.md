@@ -3037,23 +3037,6 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 - **Counts.** Every importer's count still holds (source = mapped + reported), and re-importing
   proposes nothing (`tamber/tests/it/import.rs`, `import_kinds.rs`).
 
-### Stage 6, commit H: the importers propose every kind (`636ff1263`..`7948bfc5f`)
-
-Values that stages 3a–3d reported as `kind pending (stage 6)` (lengths, numbers, type, families,
-shadows, motion) are now proposed. Each importer's count still holds, and re-importing proposes
-nothing.
-
-| Importer | Source values | Mapped | Reported |
-|---|---|---|---|
-| shadcn | 47 | 47 | 0 |
-| Tailwind's default theme | 419 | 364 | 55 |
-| Figma Variables | 104 | 101 | 3 |
-| Tokens Studio | 49 | 49 | 0 |
-| Astryx | 268 | 261 | 7 |
-
-Two items are queued: folding an import into its destination design, and an incoming colour set
-onto a token of another kind.
-
 ### Stage 6's gate: met (2026-10-17; the run is `~/x2theme/stage6-gate-run.txt`)
 
 The lines are §5 stage 6's, plus stage 9's for icons, brought forward.
