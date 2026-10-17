@@ -292,7 +292,7 @@ extension Presenter {
             if ExactEnv.agentFreezes { list.contentOffset.y = y } else { UIView.animate(withDuration: 0.25) { list.contentOffset.y = y } }
             carryRows(laying: list)
         }
-        next.focusedByTouch = false
+        chooseFocus(next)
         return field.becomeFirstResponder()
     }
 

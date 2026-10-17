@@ -25,7 +25,7 @@ extension ControlHost {
     /// ends and the keyboard does not stay behind the popover (LLP 1116.019 D5).
     @objc func dateBegan(_ picker: UIDatePicker) {
         guard let owner = presenter.views[UInt32(picker.tag)] else { return }
-        owner.focusForPress(target: owner)
+        owner.focusForPress(target: owner)?.dispatched()
     }
 
     func configureDate(_ picker: UIDatePicker, _ owner: NodeView, accent: UIColor?) {

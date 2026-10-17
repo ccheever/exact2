@@ -340,6 +340,7 @@ extension NodeView {
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     package override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        presenter?.supersedePress(touching: self)
         if touches.contains(where: { presenter?.cancelledPressTouches.contains($0) == true }) { cancelPressContact(); return }
         if canvasTouches(touches, phase: "down", event: event) { return }
         guard let touch = touches.first else { return }
@@ -410,8 +411,10 @@ extension NodeView {
         // node the touch landed in; a touch that presses nothing settles it
         // where it landed (`focusForPress`).
         let touched = Self.innermost(touches.first?.view ?? self) ?? self
+        var handoff: PressHandoff?
+        defer { handoff?.dispatched() }
         if ownsPress || (touched === self && !pressesAnAncestor && !contact.routesToCanvas) {
-            touched.focusForPress(target: ownsPress ? self : nil)
+            handoff = touched.focusForPress(target: ownsPress ? self : nil)
         }
         guard pressContact === contact, incarnation == contact.incarnation else { return }
         if let path = contact.path, let presenter, !path.isLive(in: presenter) { cancelPressContact(); return }
@@ -507,16 +510,22 @@ extension NodeView {
     /// focuses the nearest focusable ancestor; with none, the text editing under way ends, as a click on a button
     /// blurs a page's input, and any other focus stays, as UIKit's buttons leave the first responder. Under
     /// `retainFocus`, or past a disabled node, the press changes nothing.
-    func focusForPress(target: NodeView?) {
-        guard let presenter, !presenter.contextRetainsFocus(self) else { return }
+    /// The press's handoff begins first, so an autofocus its `focus` handler
+    /// mounts may take the focus; the caller tells it when the press's
+    /// dispatch has returned (PressHandoffIOS).
+    func focusForPress(target: NodeView?) -> PressHandoff? {
+        guard let presenter else { return nil }
+        let handoff = presenter.beginPress(control: target)
+        guard !presenter.contextRetainsFocus(self) else { return handoff }
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
         var at: UIView? = self
         while let view = at, view !== presenter.viewport {
             if let node = view as? NodeView {
-                if node.disabled { return }
+                if node.disabled { return handoff }
                 if node.focusesOnPress {
-                    if !node.isFirstResponder { node.takeTouchFocus() }
-                    return
+                    handoff.control = node
+                    if !node.isFirstResponder { node.becomeFirstResponder() }
+                    return handoff
                 }
                 if node === target { break }
             }
@@ -524,11 +533,12 @@ extension NodeView {
             // press bubbling out of a dialog cannot blur the page's field.
             if bubbled, presenter.listenerParent(of: view) !== view.superview {
                 view.endEditing(true)
-                return
+                return handoff
             }
             at = view.superview
         }
         if presenter.hasKeyboardEditor { presenter.endEditing() }
+        return handoff
     }
     /// A finger's touch bubbling from this node reaches a node it pressed
     private var pressesAnAncestor: Bool {

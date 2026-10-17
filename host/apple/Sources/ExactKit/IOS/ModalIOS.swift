@@ -544,6 +544,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                  preceding: NodeView?, owner: UIViewController) {
         let layer = Presentation(host: self, route: route, navigation: navigation,
                                  background: background)
+        // The press that opened the sheet may hand its control's focus to the
+        // route's autofocus until the sheet is up (PressHandoffIOS).
+        let pressWork = presenter.holdPress()
         // The presenting screen stays where it is, inert (HTML modal dialogs)
         background.view.isUserInteractionEnabled = false
         background.view.accessibilityElementsHidden = true
@@ -614,13 +617,14 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         zoomGuard = nil
         owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer, weak controller] in
             if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
-            guard let self, let layer else { return }
+            guard let self, let layer else { pressWork?(); return }
             layer.presenting = false
             #if os(iOS)
             // Up: what the bar sits over now (LLP 1105 D5).
             presenter.resolveStatusBar()
             #endif
             DispatchQueue.main.async { [weak self, weak layer] in
+                defer { pressWork?() }
                 guard let self, let layer else { return }
                 if layers.contains(where: { $0 === layer }) {
                     fit()

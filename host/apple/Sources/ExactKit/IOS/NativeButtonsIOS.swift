@@ -130,7 +130,8 @@ extension NodeView {
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
         let path = target.map { PressPath(from: self, to: $0, presenter: presenter) }, heldTarget = target.map(HeldNode.init)
         let lifetimes = bubbled ? [] : presenter.pressLifetimes(from: self, to: target)
-        focusForPress(target: target)
+        let handoff = focusForPress(target: target)
+        defer { handoff?.dispatched() }
         guard !bubbled || path?.isLive(in: presenter) == true,
               lifetimes.allSatisfy({ $0() }), let target = heldTarget?.live(in: presenter), target.takesPress(bubbled: bubbled) else { return }
         presenter.press(target.id, bubbled: bubbled)

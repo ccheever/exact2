@@ -327,20 +327,17 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
-    /// The focus came from a touch's press (PointerIOS, NativeButtonsIOS),
-    /// focus WebKit never gives a button on a tap: a button holding it does
-    /// not keep a later autofocus off (Accessibility). Tab and `focus(id)`
-    /// clear it (PresenterIOS); UIKit handing the focus back when the view
-    /// moves (into a presented sheet) keeps it.
-    package var focusedByTouch = false
-    /// The focus a touch's press takes (PointerIOS, NativeButtonsIOS, the
-    /// agent's tap), marked before `becomeFirstResponder` runs: its `focus`
-    /// handler can mount an autofocus field, whose pass must see the mark.
+    /// A surface control's focus from its touch (SurfaceInput), which the
+    /// author did not ask for: it does not keep a later autofocus off
+    /// (Accessibility). Tab and `focus(id)` clear it (`chooseFocus`).
+    package var focusedBySurfaceTouch = false
+    /// Marked before `becomeFirstResponder` runs: its `focus` handler can
+    /// mount an autofocus field, whose pass must see the mark.
     @discardableResult
-    func takeTouchFocus() -> Bool {
-        focusedByTouch = true
+    func takeSurfaceTouchFocus() -> Bool {
+        focusedBySurfaceTouch = true
         if becomeFirstResponder() { return true }
-        focusedByTouch = false
+        focusedBySurfaceTouch = false
         return false
     }
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives

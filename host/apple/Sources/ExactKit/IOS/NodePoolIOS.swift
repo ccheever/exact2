@@ -541,7 +541,7 @@ extension NodeView {
         id = newID
         incarnation = NodePool.issue()
         scrollEnd?.reset()
-        focusedByTouch = false
+        focusedBySurfaceTouch = false
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }

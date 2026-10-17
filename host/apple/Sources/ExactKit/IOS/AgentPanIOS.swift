@@ -234,10 +234,13 @@ extension Agent {
         }
         var f: UIView? = node
         var took = false
+        presenter.supersedePress(touching: node)
+        var handoff: PressHandoff?
+        defer { handoff?.dispatched() }
         while let cur = f {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
             // A node settles the press's focus as a finger's does
-            if let node = cur as? NodeView { node.focusForPress(target: reach.action?.live(in: presenter)); took = true; break }
+            if let node = cur as? NodeView { handoff = node.focusForPress(target: reach.action?.live(in: presenter)); took = true; break }
             // A native module's responder takes it, unless under `retainFocus`
             if cur.canBecomeFirstResponder {
                 if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }

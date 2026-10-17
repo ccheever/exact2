@@ -11,6 +11,7 @@ package final class Presenter {
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    var pressHandoff: PressHandoff? // the press whose work may hand its control's focus on (PressHandoffIOS)
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
     private var projectionSyncOwed = false
@@ -18,9 +19,8 @@ package final class Presenter {
     /// sync last looked, those applied after a batch among them: their lists
     /// redraw separators by them
     private var geometryApplied: [UInt32] = []
-    /// What the native projections show changed outside a batch (a subtree's
-    /// appearance or size traits, geometry applied after the batch, as a
-    /// flight's landing is).
+    /// What the native projections show changed outside a batch (a subtree's appearance or
+    /// size traits, geometry applied after the batch, as a flight's landing is).
     /// Run the projection steps an empty batch used to run, once, on the next
     /// turn, without waiting for a batch an idle app may never commit (LLP
     /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
@@ -475,7 +475,7 @@ package final class Presenter {
         let next = focused.map { (backward ? $0 - 1 + order.count : $0 + 1) % order.count } ?? (backward ? order.count - 1 : 0)
         let target = order[next]
         let responder: UIView = target.textArea ?? target.field ?? target
-        target.focusedByTouch = false
+        chooseFocus(target)
         let became = responder.becomeFirstResponder()
         if became, responder === target { target.showFocusRing(true) }
         return became
@@ -545,7 +545,7 @@ package final class Presenter {
             session?.log("selectText \"\(name)\" refused: not a text editor")
             return
         }
-        target.focusedByTouch = false
+        chooseFocus(target)
         if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
         if selectText, responder.isFirstResponder { fieldSelections.selectAll(target) }
     }
