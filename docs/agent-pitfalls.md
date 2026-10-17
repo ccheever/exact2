@@ -503,9 +503,10 @@ screen, 2026-10-16.)
   an `@expo/ui` slider did not bound the SwiftUI slider it hosts, which took about 32
   points; `height=28` on a ported `input type="range"` is 28. Fix: write the height the
   original's screenshot shows (UIKit's own slider, left unsaid, is taller than either).
-- **A bar pinned above the tab bar casts its shadow onto the tab bar's strip.** Cause: in
-  Expo's `NativeTabs` the bottom inset includes the tab bar, so the original's dock ran to
-  the screen's edge under the bar and the downward half of its shadow fell off-screen; an
+- **A bar pinned above the tab bar casts its shadow onto the tab bar's strip.** Cause: an
+  Expo `NativeTabs` screen draws under the tab bar, and the original's dock sat at the
+  screen's bottom edge with the bottom inset (which includes the bar) as its padding: its
+  background ran under the bar and the downward half of its shadow fell off-screen. An
   Exact tab's content ends at the bar's top (LLP 1123 C11), so that half shows. Fix: clip
   the shadow below the box, whose height you know:
   `clip-path="path('M -100 -60 L 4000 -60 L 4000 77 L -100 77 Z')"` on a 77-point dock.
@@ -517,18 +518,18 @@ screen, 2026-10-16.)
   `text " · usually kick"` showed `53· usually`. Cause: each text is a flex item, and CSS
   removes white space at the start and end of a line; React Native's `Text` keeps it.
   Fix: a `margin-left` on the second text the width of a space, or `gap` on the row.
-- **A colour a native component's props set is lost, or tints the whole app.** euxy's
-  dark search placeholder came out lighter, and its alert's caret black. Cause: the
-  original set `hintTextColor` on `Stack.SearchBar` and `tintColor` on `NativeTabs` and
-  its headers, each that one component's; the port wrote neither, and put the tabs' black
-  in the theme's `AccentColor`, which is the app's tint as an `AccentColor` asset is, so
-  every caret and alert field took it. Fix: port each where it is: `::placeholder` with
-  `color` under the search `input`, `accent-color` on the `tablist`, `color` on a header's
-  buttons.
+- **An alert's caret, and every other tinted thing, takes the tab bar's colour.** euxy's
+  rename prompt drew a black caret where the original's is blue. Cause: the original set
+  `tintColor` on `NativeTabs` and on its headers, each that one component's; the port put
+  that black in the theme's `AccentColor`, which is the app's tint as an `AccentColor`
+  asset is, so every caret and alert field took it. Fix: port each where it is:
+  `accent-color` on the `tablist`, `color` on a header's buttons. (`hintTextColor` on
+  `Stack.SearchBar` is Android's only; react-native-screens' iOS search bar ignores it.)
 - **A sheet's form stops 34 points short of the original's at its end.** Cause: React
   Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
-  row scrolls under the home indicator; Exact's last scroller, as UIKit's own with its
-  default `automatic`, rests above it (LLP 1116 D2). That is the platform's: keep it.
+  row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
+  sheet's outer one, to UIKit's `always`, so it rests above the indicator as a hand-built
+  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it.
 
 ## Actions
 
