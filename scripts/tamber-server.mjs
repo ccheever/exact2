@@ -366,9 +366,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         watchers.set(dir, { ino, watcher: watch(dir, (_, name) => {
           // A design file, or one that may be: `.tamber`, the design's own
           // name (app.json may name any), a directory a design is in, or a
-          // name the platform did not give.
+          // name the platform did not give; and the app's own Contract
+          // sources, whose state parts the server writes (LLP 1121 stage 8 D).
           const n = name && basename(String(name));
-          if (n && !n.endsWith('.tamber') && n !== design && !holders.has(n)) return;
+          if (n && !n.endsWith('.tamber') && !n.endsWith('.contract') && n !== design && !holders.has(n)) return;
           clearTimeout(timer); timer = setTimeout(rescan, settle);
         }) });
       } catch (e) { log(`tamber: cannot watch ${dir}: ${e.message}`); }
@@ -635,7 +636,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const designFile = relative(appDir, designPath(appDir) ?? resolve(appDir, design));
     let holds;
     try {
-      holds = session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).map(o => (typeof o?.file === 'string' ? o.file : designFile)));
+      // A state part's write without a `file` is the file that declares its
+      // style, which the server finds: every Contract source is held.
+      const contracts = [...known.keys()].filter(path => path.endsWith('.contract'));
+      const opFiles = o => (typeof o?.file === 'string' ? [o.file] : /^(un)?set-state$/.test(o?.op) ? contracts : [designFile]);
+      holds = session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).flatMap(opFiles));
     } catch (e) {
       return { status: 500, error: { message: `reading git before the write: ${e.message}` } };
     }

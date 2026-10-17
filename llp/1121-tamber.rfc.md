@@ -3386,3 +3386,28 @@ verifying build (not reproduced in three replays).
   resolve per node tuple and follow live (theme2's ruling (b), 17:37).
 - **Tests:** `state_parts.rs`'s `a_param_read_only_by_a_state_part_is_reached` (refused as unused
   before, `tamber-param-unused`).
+
+### Stage 8, commit D: the server owns `.contract` state parts (draft for theme2)
+
+- **Owned files.** The server's files are the design's, then the app's own Contract sources
+  (`tamber_contract::owned`: the source graph's `App` units inside the app, never a package's or
+  `node_modules`). `hello`, the snapshot, the journal and its recovery, a transaction's digests and
+  `commit`'s set take them as they take a design file; the JS wire's watcher announces a hand edit
+  of one with `client: null`, and a `set-state` without a `file` holds every Contract source for
+  `commit`'s guard. This is stage 7 C's infrastructure (its plan's points 1, 4 and 5), which
+  LLP 1122 T5's `add-param`, `remove-param` and `set-row` will use.
+- **`set-state {style, state, row, value, file?}`** writes `row = value` in the `style`'s `:state`
+  block (the block and the row made when absent; the row's value replaced where it is written);
+  **`unset-state`** removes the row, and the block's header with its last row. The file is the one
+  named, or the owned file declaring the style, refused where none or two do. `contract fmt` then
+  lays the file out, and the whole app is compiled in memory with it (`with_contract_texts`, beside
+  `with_design_text`) before anything is written: a refusal answers the build's diagnostics and
+  writes nothing. The class is `rebuild`, so there is no scrub.
+- **The inverse** is a line restore of the preimage (`exact_tamber::Op::Restore`, applied to the raw
+  text by `tamber_contract::restore`, bypassing fmt), so an unformatted file comes back byte for
+  byte (LLP 1122 D6).
+- **Wire:** under *1.10* for now (the stage 7 window); theme2 to say whether stage 8's opens the next.
+- **Tests:** `contract/cli/tests/it/tamber_serve_contract.rs` (set, replace, undo to the
+  unformatted bytes; unset with its block; a refused compile writes nothing; an unknown style;
+  `propose` says `rebuild`); `scripts/tamber-server.test.mjs` (a hand edit announced, `commit`
+  takes a written `.contract`, one dirty at its baseline refused).

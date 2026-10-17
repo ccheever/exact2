@@ -143,8 +143,11 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 ### Files and digests
 
 - **The design's files** are the app's design (`app.tamber`, or the file `app.json`'s `"tamber"`
-  names) and every other `*.tamber` file directly in the app's directory. Paths are relative to
-  the app's directory.
+  names) and every other `*.tamber` file directly in the app's directory, then the app's own
+  Contract sources (*1.10*, LLP 1121 stage 8 D: each `.contract` file its `app.contract` reads
+  from inside the app; a package's are read-only and not among them), whose state parts
+  `set-state` writes. Paths are relative to the app's directory. A hand edit of either kind is
+  announced, `commit` takes either, and the journal recovers either.
 - **`files`** in a read or write reply is `{path: digest}`, where a digest is SHA-256 hex of the
   file's bytes. It covers every design file. `commit` is the exception: there, `files` is a list
   of paths.
@@ -312,9 +315,16 @@ design.
 | `remove-axis-value` | `axis`, `value` | structure |
 | `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
 | `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
+| `set-state` | `style`, `state` (`active`, `hover`, `focus-visible`, `disabled`, `checked`, a `:` allowed), `row`, `value` (a string, written as a Contract string, or a number), `file?` | a row of a `style`'s state part in a `.contract` file (*1.10*, stage 8 D): the block and the row made if not there; `rebuild`, no scrub |
+| `unset-state` | `style`, `state`, `row`, `file?` | that row removed, and its block when it empties |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
+- **A `.contract` write** (`set-state`, `unset-state`) finds its `style` in the app's own Contract
+  sources when it names no `file` (refused where none or two declare it, naming them), goes
+  through `contract fmt`, and is refused, writing nothing, unless the whole app then builds (the
+  build's diagnostics answer it). Its inverse restores the file's bytes as they were, an
+  unformatted file's included.
 - **An edit splices only the lines it touches,** laid out as `tamber fmt` would, and leaves every
   other byte alone. So a value edit is a one-line diff, even in a file that wasn't formatted.
 - **The limits are the checker's:**
@@ -337,7 +347,6 @@ design.
   build, wherever its component is used), and a live one can be scrubbed. A token's rename renames
   the `params` values naming it.
 - **Not yet built:**
-  - state parts (`set-state`; stage 8);
   - `set-row` (LLP 1122 T5);
   - `preview` as an operation (it is a request instead: see the build channel).
 

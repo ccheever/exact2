@@ -44,7 +44,9 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{code_beside, design_path, with_design_text, Package, Source, SourceGraph};
+pub use sources::{
+    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+};
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
@@ -320,7 +322,8 @@ pub fn compile_path_mapped(path: &Path) -> Result<(Plan, SourceMap), CompileErro
     compile_path_source_mapped(path, &read_source(path)?)
 }
 fn read_source(path: &Path) -> Result<String, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
+    let read = sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok);
+    let src = read.map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
         message: e.to_string(),

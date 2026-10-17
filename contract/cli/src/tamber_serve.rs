@@ -548,7 +548,8 @@ impl Server {
 
     /// The design's files: the app's design first, then any other design
     /// beside it, as the directory has them now (a transaction may edit
-    /// several, committed as one set).
+    /// several, committed as one set), then the app's own Contract sources
+    /// (stage 8 D: a state part's row).
     fn files(&self) -> Result<Vec<String>, String> {
         let mut others: Vec<String> = std::fs::read_dir(&self.dir)
             .map_err(|e| format!("{}: {e}", self.dir.display()))?
@@ -560,7 +561,11 @@ impl Server {
             .filter(|n| n.ends_with(".tamber") && *n != self.design)
             .collect();
         others.sort();
-        Ok(std::iter::once(self.design.clone()).chain(others).collect())
+        let contract = crate::tamber_contract::owned(&self.dir);
+        Ok(std::iter::once(self.design.clone())
+            .chain(others)
+            .chain(contract)
+            .collect())
     }
 
     /// Every design file, read once: the text a plan edits is the text its
@@ -1013,7 +1018,8 @@ impl Server {
     /// must carry the digest the client saw (a `propose` checks the ones it
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
-        let mut ops = crate::tamber_ops::parse_ops(&request["ops"], &self.design)?;
+        let (rest, written) = crate::tamber_contract::split(&request["ops"])?;
+        let mut ops = crate::tamber_ops::parse_ops(&rest, &self.design)?;
         let seen = seen_files(request, "files")?;
         // Files it does not edit but was planned on (a revert's file already
         // as before), each as the plan read it.
@@ -1023,10 +1029,26 @@ impl Server {
             false => None,
         };
         let snap = self.snapshot()?;
+        // Each `.contract` write's file: the one it names, or the one that
+        // declares its style.
+        let texts: Vec<(String, String)> = snap
+            .iter()
+            .map(|(f, t, _)| (f.clone(), t.clone()))
+            .collect();
+        let mut contract_ops = Vec::new();
+        for (named, op) in written {
+            let file = crate::tamber_contract::file_of(named.as_deref(), &op, &texts)?;
+            if !file.ends_with(".contract") || !texts.iter().any(|(f, _)| *f == file) {
+                return Err(
+                    json!({"message": format!("`{file}` is no Contract source of the app's own")}),
+                );
+            }
+            contract_ops.push((file, op));
+        }
         let stale: Vec<&String> = snap
             .iter()
             .filter(|(p, _, d)| {
-                ops.iter().any(|(f, _)| f == p)
+                (ops.iter().any(|(f, _)| f == p) || contract_ops.iter().any(|(f, _)| f == p))
                     && match seen.get(p) {
                         Some(s) => s != d,
                         None => write,
@@ -1051,7 +1073,7 @@ impl Server {
         // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
         // a propose would write, which it asks for.
         let texts = !write && request["texts"] == json!(true);
-        self.run(&snap, &ops, client, false, texts)
+        self.run(&snap, &ops, &contract_ops, client, false, texts)
     }
 
     /// Apply an inverse this server issued, while each file it restores is
@@ -1079,7 +1101,7 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap), "stale": stale}),
             );
         }
-        let result = self.run(&snap, &issued.ops, Some(client), true, false);
+        let result = self.run(&snap, &issued.ops, &[], Some(client), true, false);
         if result.is_ok() {
             self.issued.remove(&id);
             self.order.retain(|i| *i != id);
@@ -1088,18 +1110,30 @@ impl Server {
     }
 
     /// Plan over `snap`; with a `client`, commit and issue the inverse.
+    #[allow(clippy::too_many_arguments)]
     fn run(
         &mut self,
         snap: &Snapshot,
-        ops: &[(String, Op)],
+        all_ops: &[(String, Op)],
+        contract_ops: &[(String, crate::tamber_contract::ContractOp)],
         client: Option<String>,
         undo: bool,
         with_texts: bool,
     ) -> Result<Value, Value> {
+        // The design's files are the crate's; a `.contract` file's writes
+        // (and an inverse's restores of one) are `tamber_contract`'s.
+        let contract = |p: &str| p.ends_with(".contract");
         let texts: Vec<(String, String)> = snap
             .iter()
+            .filter(|(f, _, _)| !contract(f))
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
+        let ops: Vec<(String, Op)> = all_ops
+            .iter()
+            .filter(|(f, _)| !contract(f))
+            .cloned()
+            .collect();
+        let ops = ops.as_slice();
         let known = self.synthetic(snap);
         let exprs = known.clone().unwrap_or_default();
         // The tokens the plan keeps (D7): an edit to one it does not keep
@@ -1112,9 +1146,23 @@ impl Server {
             retention: retention.as_ref(),
             params: &params,
         };
-        let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
+        let mut planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| located(f, d, &self.params.1)).collect::<Vec<_>>()})
         })?;
+        let restores: Vec<(String, Op)> = all_ops
+            .iter()
+            .filter(|(f, _)| contract(f))
+            .cloned()
+            .collect();
+        crate::tamber_contract::plan(
+            &self.dir,
+            &self.design,
+            snap,
+            contract_ops,
+            &restores,
+            undo,
+            &mut planned,
+        )?;
         // What the build refuses beyond the crate's check, a write refuses
         // too, so nothing is written that the app cannot build: a role
         // override that varies by an app axis (LLP 1121 D5, the compiler's
