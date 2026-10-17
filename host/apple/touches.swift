@@ -23,7 +23,8 @@
 //   {"op":"quit"}                ends the test
 // A tap's `screen`, the same point in the screen's fixed, portrait space,
 // sends it through XCTest's own event synthesizer (`Synthesizer`); without
-// it, or without that SPI, the public `XCUICoordinate` call makes it. A drag
+// it, or when that SPI is missing, refuses or does not complete, the public
+// `XCUICoordinate` call makes it. A drag
 // is always the public call's: a synthesized one reached the app with its
 // moves batched, faster than asked, and flung further than a finger would.
 // It never launches, activates or terminates the app: the driver launched it.
@@ -66,12 +67,14 @@ final class ExactTouches: XCTestCase {
                 guard let p = req["point"] as? [Double], p.count == 2, p.allSatisfy(\.isFinite) else { session.send(["error": "tap needs a finite point"]); continue }
                 guard target.state == .runningForeground else { session.send(["error": "the app is \(Self.name(target.state)), not in the foreground"]); continue }
                 let start = Date().timeIntervalSince1970 * 1000
-                var via = "coordinate"
-                if let at = (req["screen"] as? [Double]).flatMap({ $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil }),
-                   let ok = Synthesizer.tap(at) {
-                    guard ok else { session.send(["error": "XCTest's event synthesizer refused the tap"]); continue }
-                    via = "synthesizer"
-                } else { target.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p[0], dy: p[1])).tap() }
+                var via = "synthesizer"
+                // The public tap when the SPI is missing, refuses or never completes: a synthesized touch that did land
+                // after all makes two, which the driver's barrier refuses as ambiguous rather than passing.
+                if (req["screen"] as? [Double]).flatMap({ $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: $0[0], y: $0[1]) : nil })
+                    .flatMap(Synthesizer.tap) != true {
+                    via = "coordinate"
+                    target.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p[0], dy: p[1])).tap()
+                }
                 session.send(["done": true, "injected": ["start": start, "end": Date().timeIntervalSince1970 * 1000, "via": via]])
             case "drag":
                 guard let p = req["point"] as? [Double], p.count == 2, let q = req["to"] as? [Double], q.count == 2, (p + q).allSatisfy(\.isFinite),
@@ -130,8 +133,8 @@ enum Synthesizer {
     }
 
     /// A touch down at `at`, in portrait screen points, lifted 50 ms later.
-    /// True once injected, false when refused, nil when this Xcode has no
-    /// such SPI.
+    /// True once injected; false when refused or not completed in 2 s; nil
+    /// when this Xcode has no such SPI.
     static func tap(_ at: CGPoint) -> Bool? {
         let pathClass: AnyClass? = NSClassFromString("XCPointerEventPath"), recordClass: AnyClass? = NSClassFromString("XCSynthesizedEventRecord")
         guard let alloc = imp(pathClass, "alloc", Alloc.self, classMethod: true), let recordAlloc = imp(recordClass, "alloc", Alloc.self, classMethod: true),
@@ -147,8 +150,8 @@ enum Synthesizer {
         add.1(record, add.0, path)
         var result: Bool?
         unsafeBitCast(method_getImplementation(method), to: Synthesize.self)(device, syn, record) { ok, _ in DispatchQueue.main.async { result = ok } }
-        // The completion comes once the tap has been played.
-        let deadline = Date().addingTimeInterval(10)
+        // The completion comes once the tap has been played (0.3 s when it works).
+        let deadline = Date().addingTimeInterval(2)
         while result == nil, Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
         return result ?? false
     }
