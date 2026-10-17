@@ -154,6 +154,14 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
              available yet"
                 .into()
         }
+        // @ref LLP 1061 D7: no selectors, so no pressed block of any row;
+        // what the host can change under a finger, with no layout, is named.
+        None if a.name.starts_with("-exact-press-") => {
+            "; a pressed look is paint only, never layout: `-exact-press-opacity`, \
+             `-exact-press-background-color`, `-exact-press-color` and `-exact-press-scale` \
+             (and `-exact-press-haptic`), which the host shows while a pointer holds the node"
+                .into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }

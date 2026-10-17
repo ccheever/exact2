@@ -231,12 +231,13 @@ pub fn measure(text: &str, takes: impl Fn(Kind, bool) -> bool) -> Option<(Kind, 
 }
 
 /// The rows a number token may name (LLP 1121 D3).
-const NUMBER_ROWS: [crate::StyleId; 5] = [
+const NUMBER_ROWS: [crate::StyleId; 6] = [
     crate::StyleId::Opacity,
     crate::StyleId::LineHeight,
     crate::StyleId::FlexGrow,
     crate::StyleId::FontWeight,
     crate::StyleId::PressScale,
+    crate::StyleId::PressOpacity,
 ];
 
 /// Whether row `id` may name a token of `kind` (LLP 1121 D3): a colour a

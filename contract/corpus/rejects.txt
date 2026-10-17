@@ -1261,6 +1261,19 @@ component A
 == lower-attr-value
 component A
   view
+    button -exact-press-opacity=1.2
+      text "a"
+---
+== lower-keyframe-property
+keyframes wash
+  to -exact-press-background-color="#eee"
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
     view transform-origin="10px left"
       text "a"
 ---

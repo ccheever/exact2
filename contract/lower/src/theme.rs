@@ -1353,7 +1353,7 @@ pub(crate) fn measure_row(
             "a length"
         };
         let hint = match kind {
-            tamber::Kind::Number => ", and only `opacity`, `line-height`, `flex-grow`, `font-weight` and `-exact-press-scale` take one",
+            tamber::Kind::Number => ", and only `opacity`, `line-height`, `flex-grow`, `font-weight`, `-exact-press-scale` and `-exact-press-opacity` take one",
             _ => "",
         };
         return refuse(

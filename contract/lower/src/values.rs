@@ -722,6 +722,19 @@ fn style_value(
                 span,
             );
         }
+        // @ref LLP 1061 D7 — a fraction of the node's own opacity.
+        if rows.contains(&StyleId::PressOpacity)
+            && numeric_literal(value).is_some_and(|n| !(0.0..=1.0).contains(&n))
+        {
+            return err(
+                "lower-attr-value",
+                format!(
+                    "`{}` takes a fraction of the node's own opacity, from 0 to 1 (0.65 is iOS's dim, 1 is none)",
+                    a.name
+                ),
+                span,
+            );
+        }
         // @ref LLP 1064 D1 — a shadow is text; a number is no shadow.
         if rows.contains(&StyleId::BoxShadow)
             && (numeric_literal(value).is_some()
