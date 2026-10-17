@@ -824,3 +824,90 @@ fn every_kind_exports_as_its_type_and_round_trips() {
         "{set:?}"
     );
 }
+
+/// Review round 1 (stage 6 G): a tool that reprints whole numbers changes
+/// nothing; a weight the export left unsaid, once edited, is said; a shadow
+/// whose colours differ by scheme takes a new blur; a duration in seconds
+/// is read as the design writes it; an accepted edit proposes nothing more.
+#[test]
+fn reprints_unsaid_parts_scheme_shadows_and_units_read_back() {
+    const KINDS: &str = "tamber kinds\n\ntheme\n  size.title = -exact-title1\n  type.body = -exact-body/1.35 Inter\n  shadow.card: box-shadow = 0 1px 2px light-dark(#00000033, #ffffff22)\n  duration.fast = 150ms\n  easing.out = ease-out\n";
+    let (text, doc) = exported(KINDS);
+    // Whole floats as integers, as `JSON.stringify` writes them.
+    fn ints(v: &mut Value) {
+        match v {
+            Value::Number(n)
+                if n.as_f64()
+                    .is_some_and(|f| f.fract() == 0.0 && f.abs() < 1e15) =>
+            {
+                *v = serde_json::json!(n.as_f64().unwrap() as i64)
+            }
+            Value::Array(a) => a.iter_mut().for_each(ints),
+            Value::Object(o) => o.values_mut().for_each(ints),
+            _ => {}
+        }
+    }
+    let mut reprinted = doc.clone();
+    ints(&mut reprinted);
+    let import = reimport(
+        &reprinted.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(
+        import.ops.is_empty() && import.unmapped.is_empty(),
+        "{:?} {:?}",
+        import.ops,
+        import.unmapped
+    );
+    let mut edited = doc.clone();
+    for c in ["light", "dark"] {
+        let tree = &mut edited["modifiers"]["mode"]["contexts"][c][0];
+        tree["type"]["body"]["$value"]["fontWeight"] = serde_json::json!(600);
+        tree["shadow"]["card"]["$value"]["blur"] = serde_json::json!({"value": 6, "unit": "px"});
+        tree["duration"]["fast"]["$value"] = serde_json::json!({"value": 0.2, "unit": "s"});
+    }
+    let import = reimport(
+        &edited.to_string(),
+        std::slice::from_ref(&text),
+        KINDS,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(import.unmapped.is_empty(), "{:?}", import.unmapped);
+    let values: Vec<(String, String)> = import
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::SetToken { name, value, .. } => Some((name.clone(), value.clone())),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        values.contains(&("type.body".into(), "600 -exact-body/1.35 Inter".into())),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&("duration.fast".into(), "200ms".into())),
+        "{values:?}"
+    );
+    assert!(
+        values
+            .iter()
+            .any(|(n, v)| n == "shadow.card" && v.contains("6px") && v.contains("light-dark(")),
+        "{values:?}"
+    );
+    let accepted = exact_tamber::apply_all(KINDS, &import.ops, &vocab())
+        .unwrap()
+        .text;
+    let again = reimport(
+        &edited.to_string(),
+        std::slice::from_ref(&text),
+        &accepted,
+        &vocab(),
+    )
+    .unwrap();
+    assert!(again.ops.is_empty(), "{:?}", again.ops);
+}

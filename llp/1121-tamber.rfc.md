@@ -2940,9 +2940,12 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   the default root size, `lossy` its source); a number; a family a `fontFamily`; a type a
   `typography` with every property, what it leaves unsaid named (`unsaid`); a shadow; a duration; an
   easing a `cubicBezier` (a keyword as its curve, a `steps()`, `linear()` or spring `lossy`). Icons
-  stay outside it. Re-import reads each back as the design writes it, proposing per tuple the line
-  that wins where every tuple it wins in moved, else a `when` of the tuple's axes, and checks the
-  result exports as the file has it. An export and re-import of a design with every kind proposes
+  stay outside it. Re-import reads each back as the design writes it (numbers by their value, so a
+  tool's reprint changes nothing; the file's own `$extensions` where it kept them; a part the export
+  left unsaid becomes said once edited; a shadow whose colour differs by scheme as one value with
+  `light-dark()` colours), proposing per tuple the line that wins where every tuple it wins in
+  moved, else a `when` of the tuple's axes, and checks each changed tuple folds to the file's value
+  (`0.2s` is `200ms`); an edit the design already has proposes nothing. An export and re-import of a design with every kind proposes
   nothing. The vocabulary carries each named length's px (`Vocab::sizes`).
 - **Bindings.** Rust: `Token<Length>`, `Token<Number>`, `Token<Type>` beside `Token<Color>`
   (`tamber gen rust`), resolved per place (`Tamber::length`, `number`, `font`: a `Font` of points,
@@ -2953,5 +2956,6 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   text engine resolves), in the process and in a native module's library (over the same host
   table's JSON, a font as its face's name). Kotlin: `length` and `number`. TypeScript: a union per
   kind (`LengthToken`, `NumberToken`, `TypeToken`, `FamilyToken`, the shadows), bounded by
-  `exports`. `tamber gen` writes each kind; `tamber.css` writes a text style, an `em` and the
+  `exports`; a motion token has none, as it is written into its rows at build and no module names it
+  (D13). `tamber gen` writes each kind; `tamber.css` writes a text style, an `em` and the
   hairline as px at the default root size, saying so. Icons' `symbol(.icon…)` follows F.

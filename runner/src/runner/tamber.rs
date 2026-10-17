@@ -298,11 +298,16 @@ impl<D: DataSource> Tamber<'_, D> {
             true => exact_kernel::bolder(weight),
             false => weight,
         };
+        // A ratio, or a length whose `em` is the token's own size, as a
+        // `line-height` reads it beside the `font-size` it writes.
         let line_height = match parts.leading {
             Some("normal") | None => None,
             Some(l) => match exact_num::parse_f64(l) {
                 Ok(n) => Some(n * size),
-                Err(_) => self.points(l, place),
+                Err(_) => match exact_kernel::style::relative::parse(l) {
+                    Some((exact_kernel::style::relative::Unit::Em, n)) => Some(f64::from(n) * size),
+                    _ => self.points(l, place),
+                },
             },
         };
         Some(Font {
@@ -394,8 +399,11 @@ impl<D: DataSource> Tamber<'_, D> {
         self.dark(place).hash(&mut h);
         format!("{:?}", runner.viewport().preferences.contrast).hash(&mut h);
         runner.root_font_size().to_bits().hash(&mut h);
-        // Bold Text, which a font's weight reads (stage 6 G).
+        // Bold Text, which a font's weight reads, the place's own font size
+        // (an `em`) and a device pixel (the hairline), stage 6 G.
         runner.viewport().preferences.bold_text.hash(&mut h);
+        self.font_sizes(place).1.to_bits().hash(&mut h);
+        runner.kernel().device_pixel().to_bits().hash(&mut h);
         h.finish()
     }
 

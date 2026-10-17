@@ -303,7 +303,8 @@ pub(crate) fn read(ty: &str, v: &Json, base: &Json, exact: &Json) -> Option<Stri
                 .as_array()
                 .map(|a| a.iter().filter_map(Json::as_str).collect())
                 .unwrap_or_default();
-            let said = |p: &str| !unsaid.contains(&p);
+            // Unsaid in the export, unless the file moved it: then it is said.
+            let said = |p: &str| !unsaid.contains(&p) || !alike(&v[p], &base[p]);
             let mut out = Vec::new();
             if let Some(style) = exact["fontStyle"].as_str() {
                 out.push(style.to_string());
@@ -369,7 +370,7 @@ pub(crate) fn reimport_ops(
     tuples: &[(Modes, [String; 2])],
     under: &[&str],
     changed: &dyn Fn(&str) -> bool,
-    incoming: &dyn Fn(&str) -> Option<(String, Json)>,
+    incoming: &dyn Fn(&str) -> Option<(String, Json, Json)>,
     baseline: &dyn Fn(&str) -> (Json, Json),
     branch: &dyn Fn(&Modes) -> Option<usize>,
     current: &str,
@@ -390,18 +391,29 @@ pub(crate) fn reimport_ops(
         if !changed(&sides[0]) && !changed(&sides[1]) {
             continue;
         }
-        let (Some((ty, light)), Some((_, dark))) = (incoming(&sides[0]), incoming(&sides[1]))
+        let (Some((ty, light, theirs)), Some((_, dark, _))) =
+            (incoming(&sides[0]), incoming(&sides[1]))
         else {
             return Err(kind(&sides[0]));
         };
-        if light != dark {
+        // What the export kept beside the value: the file's where a tool
+        // kept `$extensions` (a style deleted there is gone), else the
+        // baseline's.
+        let (base, kept) = baseline(&sides[0]);
+        let exact = if theirs.is_object() { theirs } else { kept };
+        let text = if alike(&light, &dark) {
+            read(&ty, &light, &base, &exact)
+        } else if ty == "shadow" {
+            // A shadow's colour may differ by scheme: one value, its colours
+            // `light-dark()` pairs.
+            shadow_sides(&light, &dark, &exact)
+        } else {
             return Err((
                 sides[1].clone(),
                 "a token of this kind has one value in light and dark".into(),
             ));
-        }
-        let (base, exact) = baseline(&sides[0]);
-        let text = read(&ty, &light, &base, &exact).ok_or_else(|| kind(&sides[0]))?;
+        };
+        let text = text.ok_or_else(|| kind(&sides[0]))?;
         wants.push((i, text));
     }
     let want = |i: usize| wants.iter().find(|(j, _)| *j == i).map(|(_, t)| t);
@@ -452,7 +464,9 @@ pub(crate) fn reimport_ops(
             }
         }
     }
-    // As the design takes them: every tuple exports as the file has it.
+    // As the design takes them: every changed tuple reads back as the file
+    // has it (by its text, so `0.2s` is `200ms`); one the file left alone
+    // keeps what the design has now. Already the design's: nothing to do.
     let refused = |m: String| (String::new(), m);
     let edited = crate::apply_all(current, &ops, vocab).map_err(|all| {
         refused(format!(
@@ -475,7 +489,11 @@ pub(crate) fn reimport_ops(
         .find(|(_, t)| t.name.value == written)
         .map(|(c, _)| c)
         .ok_or_else(|| refused("the token is not in the design any more".into()))?;
-    for (modes, sides) in tuples {
+    if edited.text == current {
+        return Ok(Vec::new());
+    }
+    for (i, (modes, sides)) in tuples.iter().enumerate() {
+        let Some(want) = want(i) else { continue };
         let pins: Vec<(&str, &str)> = modes
             .iter()
             .map(|(a, v)| (a.as_str(), v.as_str()))
@@ -483,11 +501,7 @@ pub(crate) fn reimport_ops(
         let Some(value) = folding.tuple(&pins).and_then(|t| checked.values.get(t)) else {
             continue;
         };
-        let (Some(have), Some((_, target))) = (written_of(value, vocab), incoming(&sides[0]))
-        else {
-            continue;
-        };
-        if !alike(&have, &target) {
+        if value.css() != canonical(want, value, vocab) {
             return Err((
                 sides[0].clone(),
                 "no lines this design takes give every context its value".into(),
@@ -499,7 +513,7 @@ pub(crate) fn reimport_ops(
 
 /// Two DTCG values alike: numbers by their value (`6` is `6.0`), the rest
 /// exactly.
-fn alike(a: &Json, b: &Json) -> bool {
+pub(crate) fn alike(a: &Json, b: &Json) -> bool {
     match (a, b) {
         (Json::Number(x), Json::Number(y)) => x.as_f64() == y.as_f64(),
         (Json::Array(x), Json::Array(y)) => {
@@ -512,7 +526,62 @@ fn alike(a: &Json, b: &Json) -> bool {
     }
 }
 
-/// A value's DTCG `$value`, as the export writes it on the light side.
-fn written_of(v: &Value, vocab: &Vocab) -> Option<Json> {
-    written(v, false, vocab).map(|w| w.value)
+/// Text `want` folded as `like`'s kind, as the design would hold it (`0.2s`
+/// is `200ms`); `want` itself where it does not fold alone (it names a
+/// token, which the design's fold resolves).
+fn canonical(want: &str, like: &Value, vocab: &Vocab) -> String {
+    let src = format!("tamber w\n\ntheme\n  w: {} = {want}\n", like.kind().name());
+    crate::check(&src, vocab)
+        .ok()
+        .and_then(|f| {
+            f.tokens
+                .first()
+                .and_then(|t| t.values.first())
+                .map(Value::css)
+        })
+        .unwrap_or_else(|| want.to_string())
+}
+
+/// A shadow whose light and dark sides differ only in their colours, as
+/// one value with each colour a `light-dark()` pair; `None` otherwise.
+fn shadow_sides(light: &Json, dark: &Json, exact: &Json) -> Option<String> {
+    let list = |v: &Json| match v {
+        Json::Array(a) => a.clone(),
+        one => vec![one.clone()],
+    };
+    let (l, d) = (list(light), list(dark));
+    if l.len() != d.len() || exact["currentcolor"] == true {
+        return None;
+    }
+    let text = exact["kind"] == "text-shadow";
+    let mut parts = Vec::new();
+    for (a, b) in l.iter().zip(&d) {
+        let mut words = Vec::new();
+        if a["inset"] != b["inset"] {
+            return None;
+        }
+        if a["inset"] == true {
+            words.push("inset".to_string());
+        }
+        let keys: &[&str] = if text {
+            &["offsetX", "offsetY", "blur"]
+        } else {
+            &["offsetX", "offsetY", "blur", "spread"]
+        };
+        for k in keys {
+            if !alike(&a[*k], &b[*k]) || a[*k]["unit"] != "px" {
+                return None;
+            }
+            words.push(format!("{}px", num(a[*k]["value"].as_f64()?)));
+        }
+        let cl = crate::import::dtcg::colour(&a["color"])?;
+        let cd = crate::import::dtcg::colour(&b["color"])?;
+        words.push(if cl == cd {
+            cl
+        } else {
+            format!("light-dark({cl}, {cd})")
+        });
+        parts.push(words.join(" "));
+    }
+    Some(parts.join(", "))
 }

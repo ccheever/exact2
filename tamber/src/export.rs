@@ -636,7 +636,10 @@ fn alike(x: &Wide, y: &Wide) -> bool {
 /// Two colour values the same: as written, or as the colours they read as
 /// (a tool that drops `hex`, or prints the components again).
 fn same(a: &Value, b: &Value) -> bool {
-    a == b || matches!((read(a), read(b)), (Some(x), Some(y)) if alike(&x, &y))
+    a == b
+        || matches!((read(a), read(b)), (Some(x), Some(y)) if alike(&x, &y))
+        // Another kind's numbers by their value: a tool's `27` is `27.0`.
+        || crate::export_kinds::alike(a, b)
 }
 
 /// A tuple: every axis and its value.
@@ -890,7 +893,11 @@ pub fn reimport(
                     .rev()
                     .find(|(n, _)| n == name)
                     .map(|(_, t)| t.clone())?;
-                Some((t["$type"].as_str()?.to_string(), t["$value"].clone()))
+                Some((
+                    t["$type"].as_str()?.to_string(),
+                    t["$value"].clone(),
+                    t["$extensions"]["exact"].clone(),
+                ))
             };
             match crate::export_kinds::reimport_ops(
                 decl,

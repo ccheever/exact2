@@ -17,8 +17,8 @@ impl DataSource for NoData {
     }
 }
 
-const DESIGN: &str = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  space.row = 12px\n    when density=compact: 8px\n  space.rem = 1.5rem\n  opacity.faded: number = 0.5\n    when density=compact: 0.25\n  type.body = -exact-body/1.35 \"Inter\"\n    when density=compact: -exact-footnote/1.2 \"Inter\"\n  type.sys = 600 -exact-body system-ui\n";
-const VIEW: &str = "component App\n  view\n    column padding=\"space.row\" opacity=\"opacity.faded\" margin=\"space.rem\"\n      text \"a\" testId=\"outer\" font=\"type.body\"\n      text \"s\" font=\"type.sys\"\n      column testId=\"card\" -exact-mode=\"density=compact\" padding=\"space.row\"\n        text \"b\" testId=\"inner\" font=\"type.body\"\n";
+const DESIGN: &str = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  space.row = 12px\n    when density=compact: 8px\n  space.rem = 1.5rem\n  opacity.faded: number = 0.5\n    when density=compact: 0.25\n  type.body = -exact-body/1.35 \"Inter\"\n    when density=compact: -exact-footnote/1.2 \"Inter\"\n  type.sys = 600 -exact-body system-ui\n  type.em = 20px/2em system-ui\n";
+const VIEW: &str = "component App\n  view\n    column padding=\"space.row\" opacity=\"opacity.faded\" margin=\"space.rem\"\n      text \"a\" testId=\"outer\" font=\"type.body\"\n      text \"s\" font=\"type.sys\"\n      text \"e\" font=\"type.em\"\n      column testId=\"card\" -exact-mode=\"density=compact\" padding=\"space.row\"\n        text \"b\" testId=\"inner\" font=\"type.body\"\n";
 
 fn plan() -> Plan {
     let dir = std::env::temp_dir().join(format!("exact2-binding-kinds-{}", std::process::id()));
@@ -75,6 +75,9 @@ fn each_kind_resolves_for_its_place() {
     assert!(dense.size < body.size, "footnote under the pin: {dense:?}");
     assert!((dense.line_height.unwrap() - dense.size * 1.2).abs() < 1e-6);
     assert_eq!(t.get(Token::<Length>::new("no.such"), Place::Root), None);
+    // A leading in `em` is the token's own size's.
+    let em = t.get(Token::<Type>::new("type.em"), Place::Root).unwrap();
+    assert_eq!(em.line_height, Some(40.0), "{em:?}");
     // The window's mode moves the root's tuple.
     r.set_mode("density", "compact").unwrap();
     assert_eq!(r.tamber().get(ROW, Place::Root), Some(8.0));
