@@ -42,6 +42,9 @@ thread_local! {
     static USED: RefCell<(Vec<String>, bool)> = const { RefCell::new((Vec::new(), false)) };
 }
 
+/// An icon's SVG's most bytes.
+const MAX_SVG: usize = 64 * 1024;
+
 /// Whether a target draws SF Symbols.
 fn apple(target: &str) -> bool {
     matches!(target, "ios" | "macos" | "tvos")
@@ -51,15 +54,11 @@ fn apple(target: &str) -> bool {
 /// `deploy.binaries` keys. An app with none (no `app.json`) is checked for none.
 fn targets(root: Option<&Path>) -> Vec<String> {
     // A game's resolved manifest first, as the build reads it (`Manifest::read`).
-    let read = |r: &Path| {
-        std::fs::read_to_string(r.join(".shells/app.json"))
-            .or_else(|_| std::fs::read_to_string(r.join("app.json")))
-            .ok()
+    let read = |file: &str| {
+        let text = std::fs::read_to_string(root?.join(file)).ok()?;
+        serde_json::from_str::<serde_json::Value>(&text).ok()
     };
-    let Some(text) = root.and_then(read) else {
-        return Vec::new();
-    };
-    let Ok(app) = serde_json::from_str::<serde_json::Value>(&text) else {
+    let Some(app) = read(".shells/app.json").or_else(|| read("app.json")) else {
         return Vec::new();
     };
     let mut out: Vec<String> = Vec::new();
@@ -112,10 +111,15 @@ pub(crate) fn declare(
             }
             (Some(file), Some(root)) => {
                 let path = root.join("assets").join(file);
-                match std::fs::read_to_string(&path)
+                // Its path travels in the plan and in every literal source.
+                let text = std::fs::read_to_string(&path)
                     .map_err(|e| e.to_string())
-                    .and_then(|t| crate::icon_svg::read(&t))
-                {
+                    .and_then(|t| {
+                        (t.len() <= MAX_SVG)
+                            .then_some(t)
+                            .ok_or_else(|| format!("it is over {} KiB", MAX_SVG / 1024))
+                    });
+                match text.and_then(|t| crate::icon_svg::read(&t)) {
                     Ok(svg) => Some(svg),
                     Err(why) => {
                         errors.push(refuse(
@@ -190,6 +194,19 @@ pub(crate) fn named(name: &str) -> Option<Resolved> {
             None => icons.iter().find(|r| r.name == name).cloned(),
         }
     })
+}
+
+/// The role a grouped row's trailing symbol is: by any spelling, or an icon
+/// token's accessory by its SF Symbol as Apple draws it (a disclosure, a
+/// checkmark, an info button).
+pub(crate) fn role_or_accessory(name: &str) -> Option<&'static str> {
+    if let Some(role) = exact_kernel::generated::symbol_role(name) {
+        return Some(role);
+    }
+    let sf = named(name)?.sf;
+    ["forward-chevron", "checkmark", "info"]
+        .into_iter()
+        .find(|role| exact_kernel::generated::symbol(role).is_some_and(|s| s.0 == sf))
 }
 
 /// A literal named `icon`, which the plan keeps.

@@ -54,8 +54,12 @@ pub(crate) fn roles(e: &Expr) -> Option<Expr> {
             let arm = |new: Option<Expr>, old: &Expr| Box::new(new.unwrap_or_else(|| old.clone()));
             Some(Expr::Ternary(cond.clone(), arm(na, a), arm(nb, b), *span))
         }
-        // A template that starts with other text (`https://…`) names no icon.
-        Expr::Template(parts, _) if matches!(parts.first(), Some(TemplatePart::Text(t)) if !t.starts_with("symbol:")) => {
+        // A template that starts with other text (`https://…`) names no icon;
+        // one that starts with a part of `symbol:` may.
+        Expr::Template(parts, _)
+            if matches!(parts.first(), Some(TemplatePart::Text(t))
+                if !t.starts_with("symbol:") && !"symbol:".starts_with(t.as_str())) =>
+        {
             None
         }
         _ => {

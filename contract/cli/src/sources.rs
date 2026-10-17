@@ -334,7 +334,8 @@ pub struct SourceGraph {
     /// Every package reached, by each name it was reached by.
     pub packages: Vec<Package>,
     /// Every `package.json` resolution read, including one whose `exports`
-    /// then refused: what a fix would edit.
+    /// then refused: what a fix would edit; and an icon's SVG the build
+    /// looked for and did not find (LLP 1121 D10).
     pub consulted: Vec<PathBuf>,
     /// The loader's refusals; empty when every source loaded and scoped.
     pub errors: Vec<CompileError>,
@@ -393,10 +394,13 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
                 .icons
                 .iter()
                 .filter_map(|i| i.svg.as_ref().map(|f| assets.join(f)))
-                .filter(|p| p.is_file())
                 .collect()
         })
         .unwrap_or_default();
+    // One not there yet is looked for, as a hidden import is, so making it
+    // rebuilds.
+    let (icons, missing): (Vec<PathBuf>, Vec<PathBuf>) =
+        icons.into_iter().partition(|p| p.is_file());
     sources.extend(design.map(|path| Source {
         path,
         origin: Origin::App,
@@ -408,7 +412,12 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     SourceGraph {
         sources,
         packages: loader.sources.packages,
-        consulted: loader.sources.consulted,
+        consulted: loader
+            .sources
+            .consulted
+            .into_iter()
+            .chain(missing)
+            .collect(),
         errors,
     }
 }

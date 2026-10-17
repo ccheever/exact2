@@ -2887,11 +2887,13 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 
 - **The SVG** (`contract/lower/src/icon_svg.rs`) is read as XML (comments, CDATA and
   declarations skipped, entities decoded, attributes apart) for its viewBox (its own, or its width
-  and height) and its `<path>`s' `d` outside `defs`, joined as subpaths (a later path's leading
-  relative moveto made absolute). Fill and stroke follow SVG's cascade (a `style` declaration over
+  and height) and its `<path>`s' `d` outside `defs`, each filled on its own (nonzero), joined by
+  `;`, which no path data holds. Fill and stroke follow SVG's cascade (a `style` declaration over
   the attribute, inherited from groups). One whose paths fill in more than one colour, or are
-  stroked or unfilled, or with a transform, or anything but paths and groups (a gradient, an image,
-  text, a `<circle>`, a `<use>`) is no template; a `d` that is not path data is refused.
+  stroked or unfilled, or with what a filled template would lose (a transform, an even-odd
+  `fill-rule`, an opacity below 1, a clip, a mask, a filter), or with anything but paths and groups
+  (a gradient, an image, text, a `<circle>`, a `<use>`) is no template; a `d` that is not path data
+  is refused.
 - **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are its manifest's
   (`.shells/app.json` first, as the build reads it, else `app.json`) `host`, `deploy.store` and
   `deploy.binaries` keys; an app with no manifest is checked for none. The source graph names each
@@ -2917,8 +2919,9 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 ### Stage 6, commit F3: hosts draw icons (D10)
 
 - **One reading:** every host reads a symbol through the kernel: `apple_symbol_name` (Apple's SF
-  Symbol, an icon's `sf` included) and `symbol_path` (a role's path, an icon's path under its
-  viewBox, filled, or `sf/` a role's Apple name, which draws that role).
+  Symbol, an icon's `sf` included) and `symbol_path` (`SymbolPath`: a role's path, stroked or
+  filled even-odd in 24 units; an icon's paths under its viewBox, each filled nonzero; or `sf/` a
+  role's Apple name, which draws that role).
 - **Linux and Android's reader** (`paint/svg.rs`, `presenter/top/look.rs`) draw the path scaled by
   its viewBox, a role's stroke kept at its 24-unit width; paths are parsed once by their text.
 - **The web** (`element.rs`, `glue.js`) writes `data-symbol-viewbox` beside the path; an icon whose

@@ -150,13 +150,31 @@ impl<'a> Icon<'a> {
     }
 }
 
-/// A symbol's path for a host that draws paths: the name after `symbol:`
-/// (a role, an icon token's form, or `sf/<name>` that is a role's Apple
-/// name), its `d`, whether that is filled (else stroked), and its viewBox.
-/// `None` for a name no path draws.
-pub fn symbol_path(name: &str) -> Option<(&str, bool, &str)> {
+/// A symbol's path for a host that draws paths (LLP 1035.004 D1, LLP 1121
+/// D10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SymbolPath<'a> {
+    /// Its paths' `d`, joined by `;` (an icon's SVG may hold several, each
+    /// filled on its own).
+    pub d: &'a str,
+    /// Filled, else stroked (a role's outline).
+    pub filled: bool,
+    /// Filled even-odd (a `-fill` role's silhouette), else nonzero (an icon).
+    pub even_odd: bool,
+    /// Its viewBox, `min-x min-y width height`: a role's is `0 0 24 24`.
+    pub view_box: &'a str,
+}
+
+/// The path a name after `symbol:` draws: a role, an icon token's form, or
+/// `sf/<name>` that is a role's Apple name; `None` for a name no path draws.
+pub fn symbol_path(name: &str) -> Option<SymbolPath<'_>> {
     if let Some(icon) = Icon::parse(name) {
-        return (!icon.path.is_empty()).then_some((icon.path, true, icon.view_box));
+        return (!icon.path.is_empty()).then_some(SymbolPath {
+            d: icon.path,
+            filled: true,
+            even_odd: false,
+            view_box: icon.view_box,
+        });
     }
     let role = match name.strip_prefix("sf/") {
         Some(sf) => crate::generated::SYMBOL_ROLES
@@ -165,7 +183,12 @@ pub fn symbol_path(name: &str) -> Option<(&str, bool, &str)> {
             .find(|r| crate::generated::symbol(r).is_some_and(|s| s.0 == sf))?,
         None => name,
     };
-    crate::generated::symbol(role).map(|(_, d, filled)| (d, filled, "0 0 24 24"))
+    crate::generated::symbol(role).map(|(_, d, filled)| SymbolPath {
+        d,
+        filled,
+        even_odd: filled,
+        view_box: "0 0 24 24",
+    })
 }
 
 #[cfg(test)]
@@ -178,14 +201,19 @@ mod tests {
     fn an_icon_and_a_roles_apple_name_have_paths() {
         let icon = "icon|bubble.left|0 -960 960 960|M0 0h1Z|icons/reply.svg";
         assert_eq!(apple_symbol_name(icon), "bubble.left");
-        assert_eq!(symbol_path(icon), Some(("M0 0h1Z", true, "0 -960 960 960")));
+        let path = symbol_path(icon).unwrap();
+        assert_eq!(
+            (path.d, path.filled, path.even_odd, path.view_box),
+            ("M0 0h1Z", true, false, "0 -960 960 960")
+        );
         assert_eq!(symbol_path("icon||0 0 24 24||icons/two.svg"), None);
         let back = crate::generated::symbol("back").unwrap();
+        let role = symbol_path("back").unwrap();
         assert_eq!(
-            symbol_path(&format!("sf/{}", back.0)),
-            Some((back.1, back.2, "0 0 24 24"))
+            (role.d, role.filled, role.view_box),
+            (back.1, back.2, "0 0 24 24")
         );
-        assert_eq!(symbol_path("back"), Some((back.1, back.2, "0 0 24 24")));
+        assert_eq!(symbol_path(&format!("sf/{}", back.0)), Some(role));
         assert_eq!(symbol_path("sf/flag.checkered"), None);
         assert_eq!(apple_symbol_name("sf/flag.checkered"), "flag.checkered");
     }

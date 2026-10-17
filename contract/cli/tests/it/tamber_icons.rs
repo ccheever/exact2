@@ -188,6 +188,17 @@ fn a_button_a_url_template_binaries_and_the_graph() {
         graph.sources.iter().map(|s| &s.path).collect::<Vec<_>>()
     );
     let dir = path.parent().unwrap();
+    // One not there yet is looked for, so making it rebuilds.
+    std::fs::rename(dir.join("assets/icons/reply.svg"), dir.join("reply.svg")).unwrap();
+    let graph = contract::source_graph(&path);
+    assert!(
+        graph
+            .consulted
+            .iter()
+            .any(|p| p.ends_with("assets/icons/reply.svg")),
+        "{:?}",
+        graph.consulted
+    );
     std::fs::write(
         dir.join("app.json"),
         "{\"app\": {\"id\": \"dev.test.icons\", \"name\": \"Icons\"}, \"host\": {\"ios\": {}}, \"deploy\": {\"binaries\": {\"linux\": \"manual\"}}}",

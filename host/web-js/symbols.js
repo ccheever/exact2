@@ -29,6 +29,8 @@ const draw = (e, name) => {
   const [path, filled, box, file] = f ? [f[3], 1, f[2], f[3] ? "" : f[4]] : Table[name] ?? [""];
   if (file) { e.removeAttribute("data-symbol-path"); e.src = `assets/${file}`; return; }
   e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
+  // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`).
+  e.toggleAttribute("data-symbol-nonzero", !!box);
   if (box) e.setAttribute("data-symbol-viewbox", box); else e.removeAttribute("data-symbol-viewbox");
 };
 function everyRole() {
@@ -74,7 +76,7 @@ export function symbols(table) {
 }
 function unsymbol(e) {
   if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
-  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox"]) e.removeAttribute(a);
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source", "data-symbol-viewbox", "data-symbol-nonzero"]) e.removeAttribute(a);
   e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
   if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
   e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;
@@ -132,8 +134,8 @@ function refresh() {
     if (el.symbolKey !== key) {
       el.symbolKey = key;
       const point = size, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
-      const paint = filled ? 'fill="black" fill-rule="evenodd"' : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
-      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}"><path d="${path}" ${paint}/></svg>`)}")`;
+      const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;

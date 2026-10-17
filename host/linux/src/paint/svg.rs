@@ -82,9 +82,24 @@ fn parsed_symbol(d: &str) -> std::rc::Rc<Path> {
             return p.clone();
         }
         let p = std::rc::Rc::new(exact_kernel::svg::parse_d(d));
-        paths.borrow_mut().insert(d.to_string(), p.clone());
+        let mut paths = paths.borrow_mut();
+        // Bounded: a computed source's paths come and go.
+        if paths.len() >= 1024 {
+            paths.clear();
+        }
+        paths.insert(d.to_string(), p.clone());
         p
     })
+}
+
+/// The transform that draws a viewBox's units in `rect`, its aspect kept
+/// and centred (SVG's `xMidYMid meet`).
+pub(crate) fn fitted(view_box: &str, (x, y, w, h): Rect4) -> Transform {
+    let [bx, by, bw, bh] = self::view_box(view_box);
+    let scale = (w / bw).min(h / bh);
+    Transform::from_translate(x + (w - bw * scale) / 2.0, y + (h - bh * scale) / 2.0)
+        .pre_scale(scale, scale)
+        .pre_translate(-bx, -by)
 }
 
 /// A viewBox's `min-x min-y width height`; a role's 24-unit box when it
@@ -148,53 +163,45 @@ impl Painter {
         ts: Transform,
     ) {
         // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
-        let Some((d, filled, view_box)) = exact_kernel::symbol_path(role) else {
+        let Some(path) = exact_kernel::symbol_path(role) else {
             return;
         };
-        self.glyph_face(d, filled, view_box, style, rect, colour, ts);
+        self.glyph_face(path, style, rect, colour, ts);
     }
 
-    /// A path in `rect` under its viewBox (a role's 24 units), stroked as a
-    /// symbol role is at `style`'s weight, or filled.
-    #[allow(clippy::too_many_arguments)]
+    /// A symbol's paths in `rect` under its viewBox (a role's 24 units), each
+    /// stroked as a symbol role is at `style`'s weight, or filled.
     pub(super) fn glyph_face(
         &mut self,
-        d: &str,
-        filled: bool,
-        view_box: &str,
+        symbol: exact_kernel::SymbolPath<'_>,
         style: &exact_kernel::StyleProps,
         rect: Rect4,
         colour: [u8; 4],
         ts: Transform,
     ) {
         let (x, y, w, h) = rect;
-        let path = parsed_symbol(d);
         let weight = f32::from(style.font_weight).clamp(100.0, 900.0);
-        let paint = SvgPaint {
-            path: &path,
-            fill: filled.then_some(Ink::Solid(colour)),
-            even_odd: true,
-            stroke: (!filled).then_some(Ink::Solid(colour)),
-            order: [0, 1, 2],
-            width: 1.1 + (weight - 100.0) / 400.0,
-            cap: 1,
-            join: 1,
-            miter: 4.0,
-            dash: Vec::new(),
-            phase: 0.0,
-        };
-        let [bx, by, bw, bh] = self::view_box(view_box);
-        // The stroke is in the role's 24 units whatever the box.
-        let paint = SvgPaint {
-            width: paint.width * bw / 24.0,
-            ..paint
-        };
-        self.backend.svg_path(
-            &paint,
-            ts.pre_translate(x, y)
-                .pre_scale(w / bw, h / bh)
-                .pre_translate(-bx, -by),
-        );
+        let ts = ts.pre_concat(fitted(symbol.view_box, (x, y, w, h)));
+        let bw = self::view_box(symbol.view_box)[2];
+        // Each of an icon's paths filled on its own, as its SVG draws them.
+        for d in symbol.d.split(';') {
+            let path = parsed_symbol(d);
+            let paint = SvgPaint {
+                path: &path,
+                fill: symbol.filled.then_some(Ink::Solid(colour)),
+                even_odd: symbol.even_odd,
+                stroke: (!symbol.filled).then_some(Ink::Solid(colour)),
+                order: [0, 1, 2],
+                // The stroke is in the role's 24 units whatever the box.
+                width: (1.1 + (weight - 100.0) / 400.0) * bw / 24.0,
+                cap: 1,
+                join: 1,
+                miter: 4.0,
+                dash: Vec::new(),
+                phase: 0.0,
+            };
+            self.backend.svg_path(&paint, ts);
+        }
     }
 
     /// SVG text (LLP 1055.000 D11): each run shaped as a one-line paragraph

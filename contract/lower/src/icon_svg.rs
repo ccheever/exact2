@@ -1,6 +1,7 @@
 //! @ref LLP 1121 D10 (stage 6 F) — an icon token's SVG, read at build: for
-//! v1 one monochrome shape, its `<path>`s joined into one `d` (subpaths) and
-//! drawn as a template under its own viewBox, as the roles' paths are drawn.
+//! v1 one monochrome shape, its `<path>`s each filled (nonzero) under its own
+//! viewBox, as a template, as the roles' paths are drawn; their `d`s travel
+//! joined by `;`, which no path data holds.
 //! Anything else (several colours, a gradient, an image, text, a stroke, a
 //! transform, a shape that is not a path) is no template: the web may draw
 //! it as the file, and a shipped target that is not the web refuses it.
@@ -10,7 +11,7 @@
 pub(crate) struct Svg {
     /// Its viewBox, as written (`0 -960 960 960`).
     pub view_box: String,
-    /// Its paths' `d`, joined.
+    /// Its paths' `d`, joined by `;`.
     pub path: String,
     /// Why it is no one-colour shape, when it is not.
     pub not_template: Option<String>,
@@ -134,53 +135,6 @@ fn path_data(d: &str) -> bool {
     })
 }
 
-/// `d` to join after another path: a leading relative moveto is absolute
-/// (SVG's rule for a path's first command), its further pairs relative
-/// linetos, so `m2 2h1` is `M2 2h1` and `m2 2 3 3` is `M2 2 l3 3`.
-fn standalone(d: &str) -> String {
-    let d = d.trim_start();
-    let Some(rest) = d.strip_prefix('m') else {
-        return d.to_string();
-    };
-    // The first coordinate pair: two numbers.
-    let b = rest.as_bytes();
-    let (mut numbers, mut at) = (0, 0);
-    while numbers < 2 && at < b.len() {
-        while at < b.len() && (b[at].is_ascii_whitespace() || b[at] == b',') {
-            at += 1;
-        }
-        let start = at;
-        if at < b.len() && (b[at] == b'-' || b[at] == b'+') {
-            at += 1;
-        }
-        let mut dot = false;
-        while at < b.len() && (b[at].is_ascii_digit() || (b[at] == b'.' && !dot)) {
-            dot |= b[at] == b'.';
-            at += 1;
-        }
-        if at < b.len() && (b[at] == b'e' || b[at] == b'E') {
-            at += 1;
-            if at < b.len() && (b[at] == b'-' || b[at] == b'+') {
-                at += 1;
-            }
-            while at < b.len() && b[at].is_ascii_digit() {
-                at += 1;
-            }
-        }
-        if at == start {
-            break;
-        }
-        numbers += 1;
-    }
-    let (pair, tail) = rest.split_at(at);
-    let more = tail.trim_start().trim_start_matches(',').trim_start();
-    let implicit = more.starts_with(|c: char| c.is_ascii_digit() || "+-.".contains(c));
-    match implicit {
-        true => format!("M{pair} l{}", tail.trim_start().trim_start_matches(',')),
-        false => format!("M{pair}{tail}"),
-    }
-}
-
 /// Read `text` as an icon's SVG, or why it is none.
 pub(crate) fn read(text: &str) -> Result<Svg, String> {
     let (mut view_box, mut paths, mut fill, mut why) =
@@ -205,7 +159,24 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             rest = &rest[start.len() + close + end.len()..];
             continue;
         }
-        let end = rest.find('>').ok_or("an SVG tag is not closed")?;
+        // The tag ends at the first `>` outside its attributes' quotes.
+        let mut quote = None;
+        let end = rest
+            .char_indices()
+            .find(|&(_, c)| match quote {
+                Some(q) if c == q => {
+                    quote = None;
+                    false
+                }
+                Some(_) => false,
+                None if c == '"' || c == '\'' => {
+                    quote = Some(c);
+                    false
+                }
+                None => c == '>',
+            })
+            .map(|(i, _)| i)
+            .ok_or("an SVG tag is not closed")?;
         let raw = &rest[1..end];
         rest = &rest[end + 1..];
         let Some((name, attrs)) = tag(raw)? else {
@@ -218,8 +189,28 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
         let stroke_here = property(&attrs, "stroke").or(inherited_stroke);
         let in_defs =
             in_defs || matches!(name, "defs" | "symbol" | "clipPath" | "mask" | "pattern");
-        if attrs.iter().any(|(k, _)| *k == "transform") && !in_defs {
-            why.get_or_insert_with(|| format!("its `<{name}>` has a transform"));
+        // What a template drawn filled, nonzero, at full opacity would lose.
+        if !in_defs {
+            let lost = [
+                "transform",
+                "fill-rule",
+                "opacity",
+                "fill-opacity",
+                "clip-path",
+                "mask",
+                "filter",
+            ]
+            .into_iter()
+            .find(|p| {
+                property(&attrs, p).is_some_and(|v| match *p {
+                    "fill-rule" => v != "nonzero",
+                    "opacity" | "fill-opacity" => v.parse::<f64>().map_or(true, |o| o < 1.0),
+                    _ => v != "none",
+                })
+            });
+            if let Some(p) = lost {
+                why.get_or_insert_with(|| format!("its `<{name}>` has a `{p}`"));
+            }
         }
         match name {
             "svg" => {
@@ -240,6 +231,9 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     return Err("a `<path>`'s `d` is not path data".into());
                 }
                 let painted = fill_here.clone().unwrap_or_else(|| "black".into());
+                if painted.starts_with("url(") {
+                    why.get_or_insert_with(|| "it fills with a gradient or a pattern".to_string());
+                }
                 if stroke_here.as_deref().is_some_and(|s| s != "none") {
                     why.get_or_insert_with(|| "it has a stroke".to_string());
                 }
@@ -250,7 +244,7 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                 } else {
                     fill = Some(painted);
                 }
-                paths.push(if paths.is_empty() { d } else { standalone(&d) });
+                paths.push(d);
             }
             "path" | "g" | "title" | "desc" | "defs" | "metadata" => {}
             _ if in_defs => {}
@@ -283,14 +277,14 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
             .map(|n| exact_num::Shortest(*n).to_string())
             .collect::<Vec<_>>()
             .join(" "),
-        path: paths.join(" "),
+        path: paths.join(";"),
         not_template: why,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{read, standalone};
+    use super::read;
 
     #[test]
     fn a_material_symbol_is_one_path_under_its_viewbox() {
@@ -303,7 +297,7 @@ mod tests {
     #[test]
     fn several_paths_of_one_fill_join_and_others_are_no_template() {
         let svg = read(r##"<svg viewBox="0 0 24 24"><g fill="#000"><path d="M0 0h1"/><path d="m2 2h1"/></g></svg>"##).unwrap();
-        assert_eq!(svg.path, "M0 0h1 M2 2h1");
+        assert_eq!(svg.path, "M0 0h1;m2 2h1");
         assert_eq!(svg.not_template, None);
         let two = read(r#"<svg viewBox="0 0 24 24"><path fill="red" d="M0 0h1"/><path fill="blue" d="M2 2h1"/></svg>"#).unwrap();
         assert_eq!(
@@ -328,6 +322,8 @@ mod tests {
         assert_eq!(commented.path, "M0 0h1");
         let styled = read(r#"<svg viewBox="0 0 24 24"><path fill="red" style="fill:none;stroke:black" d="M0 0h1"/></svg>"#).unwrap();
         assert!(styled.not_template.is_some());
+        let gradient = read(r#"<svg viewBox="0 0 24 24"><defs><linearGradient id="g"/></defs><path fill="url(#g)" d="M0 0h1"/></svg>"#).unwrap();
+        assert!(gradient.not_template.is_some());
         let important = read(r#"<svg viewBox="0 0 24 24"><path style="fill : red !important" d="M0 0h1"/><path fill="red" d="M2 2h1"/></svg>"#).unwrap();
         assert_eq!(important.not_template, None);
         let nested = read(r#"<svg viewBox="0 0 24 24"><g fill="red"><g fill="blue"><path d="M0 0h1"/><path d="M2 2h1"/></g></g></svg>"#).unwrap();
@@ -336,6 +332,27 @@ mod tests {
             read(r#"<svg viewBox="0 0 24 24"><path transform="scale(2)" d="M0 0h1"/></svg>"#)
                 .unwrap();
         assert!(moved.not_template.unwrap().contains("transform"));
+        for lost in [
+            r#"fill-rule="evenodd""#,
+            r#"style="opacity:0.5""#,
+            r#"clip-path="url(#a)""#,
+            r#"style="transform:scale(2)""#,
+        ] {
+            let svg = read(&format!(
+                r#"<svg viewBox="0 0 24 24"><path {lost} d="M0 0h1"/></svg>"#
+            ))
+            .unwrap();
+            assert!(svg.not_template.is_some(), "{lost}");
+        }
+        let fine = read(
+            r#"<svg viewBox="0 0 24 24"><path fill-rule="nonzero" opacity="1" d="M0 0h1"/></svg>"#,
+        )
+        .unwrap();
+        assert_eq!(fine.not_template, None);
+        let quoted =
+            read(r#"<svg aria-label="A > B" viewBox="0 0 24 24"><path d="M0 0h1"/></svg>"#)
+                .unwrap();
+        assert_eq!(quoted.path, "M0 0h1");
         assert!(read(r#"<svg viewBox="0 0 24 24"><path d="M0 0|L24 24"/></svg>"#).is_err());
         let defs = read(
             r#"<svg viewBox="0 0 24 24"><defs><path d="M9 9h1"/></defs><path d="M0 0h1"/></svg>"#,
@@ -348,12 +365,5 @@ mod tests {
             ("0 0 24 24", "M0 0h1")
         );
         assert!(read(r#"<svg viewBox="0 0 24 24"><path d="M0 0"fill="red"/></svg>"#).is_err());
-    }
-
-    #[test]
-    fn a_relative_moveto_joins_as_absolute() {
-        assert_eq!(standalone("m2 2h1"), "M2 2h1");
-        assert_eq!(standalone("m2,2 3 3z"), "M2,2 l3 3z");
-        assert_eq!(standalone("M1 1"), "M1 1");
     }
 }

@@ -237,10 +237,20 @@ pub(in crate::presenter) fn symbol(
     color: [u8; 4],
 ) {
     // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
-    let Some((d, filled, view_box)) = exact_kernel::symbol_path(role) else {
+    let Some(path) = exact_kernel::symbol_path(role) else {
         return;
     };
-    glyph_in(backend, d, filled, view_box, rect, color);
+    for d in path.d.split(';') {
+        glyph_in(
+            backend,
+            d,
+            path.filled,
+            path.even_odd,
+            path.view_box,
+            rect,
+            color,
+        );
+    }
 }
 
 /// A 24-unit path in `rect`: stroked as a symbol role's is, or filled.
@@ -251,7 +261,7 @@ pub(in crate::presenter) fn glyph(
     rect: Rect4,
     color: [u8; 4],
 ) {
-    glyph_in(backend, d, filled, "0 0 24 24", rect, color);
+    glyph_in(backend, d, filled, true, "0 0 24 24", rect, color);
 }
 
 /// A path in `rect` under its viewBox, stroked in a role's 24 units, or filled.
@@ -259,16 +269,17 @@ fn glyph_in(
     backend: &mut dyn Backend,
     d: &str,
     filled: bool,
+    even_odd: bool,
     view_box: &str,
     rect: Rect4,
     color: [u8; 4],
 ) {
-    let [bx, by, bw, bh] = crate::paint::view_box(view_box);
+    let [_, _, bw, _] = crate::paint::view_box(view_box);
     let path = exact_kernel::svg::parse_d(d);
     let paint = SvgPaint {
         path: &path,
         fill: filled.then_some(Ink::Solid(color)),
-        even_odd: true,
+        even_odd,
         stroke: (!filled).then_some(Ink::Solid(color)),
         order: [0, 1, 2],
         width: (1.1 + 300.0 / 400.0) * bw / 24.0,
@@ -278,9 +289,7 @@ fn glyph_in(
         dash: Vec::new(),
         phase: 0.0,
     };
-    let ts = Transform::from_translate(rect.0, rect.1)
-        .pre_scale(rect.2 / bw, rect.3 / bh)
-        .pre_translate(-bx, -by);
+    let ts = crate::paint::fitted(view_box, rect);
     backend.svg_path(&paint, ts);
 }
 

@@ -331,8 +331,18 @@ impl super::Painter {
         };
         match icon {
             Icon::Calendar => self.symbol_face("calendar", node.style, at, tint, ts),
-            Icon::Clock => self.glyph_face(CLOCK, false, "0 0 24 24", node.style, at, tint, ts),
-            Icon::Menu => self.glyph_face(MENU, true, "0 0 24 24", node.style, at, tint, ts),
+            Icon::Clock => self.glyph_face(role_path(CLOCK, false), node.style, at, tint, ts),
+            Icon::Menu => self.glyph_face(role_path(MENU, true), node.style, at, tint, ts),
         }
+    }
+}
+
+/// A 24-unit path drawn as a role's is: stroked, or filled even-odd.
+fn role_path(d: &str, filled: bool) -> exact_kernel::SymbolPath<'_> {
+    exact_kernel::SymbolPath {
+        d,
+        filled,
+        even_odd: true,
+        view_box: "0 0 24 24",
     }
 }

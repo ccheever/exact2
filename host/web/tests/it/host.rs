@@ -160,10 +160,26 @@ fn an_icon_draws_its_path_under_its_viewbox_or_its_file() {
         "component App\n  view\n    column\n      image \"symbol:icon|star|0 -960 960 960|M0-960h960Z|icons/a.svg\"\n      image \"symbol:icon||0 0 24 24||icons/two.svg\"\n",
     )
     .unwrap();
-    let (_, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain, Default::default(), "/").unwrap();
-    assert!(first.contains("\"data-symbol-path\":\"M0-960h960Z\""), "{first}");
-    assert!(first.contains("\"data-symbol-viewbox\":\"0 -960 960 960\""), "{first}");
-    assert!(first.contains("\"src\":\"assets/icons/two.svg\""), "{first}");
+    let (_, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        first.contains("\"data-symbol-path\":\"M0-960h960Z\""),
+        "{first}"
+    );
+    assert!(
+        first.contains("\"data-symbol-viewbox\":\"0 -960 960 960\""),
+        "{first}"
+    );
+    assert!(first.contains("\"data-symbol-nonzero\":\"\""), "{first}");
+    assert!(
+        first.contains("\"src\":\"assets/icons/two.svg\""),
+        "{first}"
+    );
 }
 
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {

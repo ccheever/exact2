@@ -1249,7 +1249,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
             let symbol = exact_kernel::symbol_path(role);
             out.insert("data-symbol-source".into(), format!("symbol:{role}"));
-            match exact_kernel::Icon::parse(role).filter(|i| i.path.is_empty() && !i.svg.is_empty()) {
+            match exact_kernel::Icon::parse(role).filter(|i| i.path.is_empty() && !i.svg.is_empty())
+            {
                 // An icon's SVG that is no template: the page draws the file.
                 Some(icon) => {
                     out.insert("src".into(), format!("assets/{}", icon.svg));
@@ -1257,16 +1258,18 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                 None => {
                     out.insert(
                         "data-symbol-path".into(),
-                        symbol.map(|s| s.0).unwrap_or("").into(),
+                        symbol.map(|s| s.d).unwrap_or("").into(),
                     );
                 }
             }
-            // A filled path is a silhouette, drawn filled, not stroked.
-            if symbol.is_some_and(|s| s.1) {
+            // A filled path is a silhouette, drawn filled, not stroked: a
+            // role's even-odd, an icon's paths each nonzero (`d`s joined by `;`).
+            if symbol.is_some_and(|s| s.filled) {
                 out.insert("data-symbol-fill".into(), String::new());
             }
-            if let Some((_, _, view_box)) = symbol.filter(|s| s.2 != "0 0 24 24") {
-                out.insert("data-symbol-viewbox".into(), view_box.into());
+            if let Some(s) = symbol.filter(|s| s.filled && !s.even_odd) {
+                out.insert("data-symbol-nonzero".into(), String::new());
+                out.insert("data-symbol-viewbox".into(), s.view_box.into());
             }
             // Decorative unless the author named it (`alt`, `aria-label`).
             if !out.contains_key("alt") {
