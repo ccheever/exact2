@@ -48,10 +48,14 @@ struct ChipFace: Equatable {
     /// The face of `button`, or nil when what it shows is one symbol or one
     /// line of text in the platform's type: the bar's own title or image.
     /// `readout`: a header's `role="status"` (LLP 1075.003 §9.15), whose
-    /// face it is however plain, its unwritten type the platform's body.
-    init?(_ button: NodeView, engine: TextEngine? = nil, readout: Bool = false) {
+    /// face it is however plain, the readout itself its first part (a dot
+    /// alone, its opacity), its unwritten type the platform's body.
+    /// `traits`: the text size and Bold Text to draw for, the button's own
+    /// unless the view showing the face has newer ones.
+    init?(_ button: NodeView, engine: TextEngine? = nil, readout: Bool = false, traits: UITraitCollection? = nil) {
         guard !button.isNativeButton, let engine = engine ?? button.text else { return nil }
-        let bold = button.traitCollection.legibilityWeight == .bold
+        let traits = traits ?? button.traitCollection
+        let bold = traits.legibilityWeight == .bold
         var parts: [Part] = [], opacities: [CGFloat] = [], lineHeights: [CGFloat?] = [], dotted = false, typed = false, gap: CGFloat?
         func pair(_ node: NodeView, _ key: String) -> [[Double]] {
             [node.channels(key, dark: false) ?? [0, 0, 0, 1], node.channels(key, dark: true) ?? [1, 1, 1, 1]]
@@ -98,7 +102,7 @@ struct ChipFace: Equatable {
                 // font takes UIKit's step for Bold Text, regular to semibold.
                 let family = Int(child.number("font_family")), shipped = engine.catalog[family]?.isEmpty == false
                 let weight = Int(child.number("font_weight", 400)) + (bold && !shipped ? 200 : 0)
-                let font = readout && !fonted ? UIFont.preferredFont(forTextStyle: .body, compatibleWith: button.traitCollection)
+                let font = readout && !fonted ? UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
                     : engine.font(size: child.number("font_size", PageFacts.defaultRootFontSize), weight: min(900, weight),
                                   family: family, italic: child.style["font_style"]?.string == "italic")
                 parts.append(.text(text, font, inked ? pair(child, "text_color") : nil))
@@ -109,14 +113,16 @@ struct ChipFace: Equatable {
                 parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), tinted ? pair(child, "tint_color") : nil))
                 opacities.append(alpha)
                 lineHeights.append(nil)
-            } else if child.container.subviews.isEmpty, child.style["background_color"] != nil {
+            } else if (child.presenter?.flats.children(of: child.id) ?? child.container.subviews.compactMap { ($0 as? NodeView)?.id }).isEmpty,
+                      child.style["background_color"] != nil {
                 dot(child.style, alpha)
             } else {
                 walk(child, fonted: fonted, inked: inked, alpha: alpha)
             }
         }
-        // A readout may be one text (`text "Saved" role="status"`): its own face.
-        if readout, button.isParagraph { visit(button, fonted: false, inked: false, alpha: 1) }
+        // A readout is visited whole: one text (`text "Saved" role="status"`)
+        // or a dot alone is its face, and its own opacity is its parts'.
+        if readout { visit(button, fonted: false, inked: false, alpha: button.alpha) }
         else { walk(button, fonted: ["font_family", "font_size", "font_weight"].contains(where: button.wrote), inked: button.wrote("text_color"), alpha: 1) }
         guard !parts.isEmpty, readout || dotted || typed else { return nil }
         self.parts = parts

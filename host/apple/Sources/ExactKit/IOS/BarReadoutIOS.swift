@@ -12,11 +12,27 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+/// What a readout's view shows besides its face: its padding, direction,
+/// words and how they are spoken.
+struct ReadoutFacts: Equatable {
+    var padding: UIEdgeInsets = .zero
+    var rtl = false
+    var label = ""
+    /// Not `aria-live="off"`: a change is spoken.
+    var live = true
+    /// `aria-hidden` or `inert`, on it or around it: no accessibility element.
+    var hidden = false
+}
+
 /// A readout's custom view: its face's parts in a row.
 final class ReadoutView: UIView {
-    private let stack = UIStackView()
+    let stack = UIStackView()
     private(set) var face: ChipFace?
     private(set) var spoken: String?
+    private(set) var facts = ReadoutFacts()
+    /// The readout, whose face is read again for new text size or Bold Text.
+    weak var node: NodeView?
+    // Physical, as CSS's `padding-left` is in either direction.
     private var edges: [NSLayoutConstraint] = []
 
     init() {
@@ -25,23 +41,49 @@ final class ReadoutView: UIView {
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
-        edges = [stack.leadingAnchor.constraint(equalTo: leadingAnchor), trailingAnchor.constraint(equalTo: stack.trailingAnchor),
+        edges = [stack.leftAnchor.constraint(equalTo: leftAnchor), rightAnchor.constraint(equalTo: stack.rightAnchor),
                  stack.topAnchor.constraint(equalTo: topAnchor), bottomAnchor.constraint(equalTo: stack.bottomAnchor)]
         NSLayoutConstraint.activate(edges)
         isAccessibilityElement = true
         accessibilityTraits = .staticText
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self]) { (view: ReadoutView, _: UITraitCollection) in
+            guard let node = view.node, let face = ChipFace(node, readout: true, traits: view.traitCollection) else { return }
+            view.show(face, view.facts)
+        }
+        #if os(tvOS)
+        tintAdjustmentMode = .normal
+        #endif
     }
     required init?(coder: NSCoder) { nil }
+
+    #if os(tvOS)
+    // The item is disabled so focus passes it by (nothing presses a
+    // readout); its face is not dimmed for that.
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        if tintAdjustmentMode != .normal { tintAdjustmentMode = .normal }
+        if alpha != 1 { alpha = 1 }
+    }
+    #endif
 
     override var intrinsicContentSize: CGSize {
         let size = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         return CGSize(width: size.width + edges[0].constant + edges[1].constant, height: size.height + edges[2].constant + edges[3].constant)
     }
 
-    /// Show `face` inside `padding`, spoken as `label`. A change of what it
-    /// says is announced when `live` (the readout is not `aria-live="off"`)
-    /// and it is on screen.
-    func show(_ face: ChipFace, padding: UIEdgeInsets, label: String, live: Bool) {
+    /// Show `face` as `facts` say. A change of what it says is announced
+    /// when it is live, spoken, on screen and not VoiceOver's focus, which
+    /// reads its new label itself.
+    func show(_ face: ChipFace, _ facts: ReadoutFacts) {
+        let previous = self.facts
+        self.facts = facts
+        let padding = facts.padding
+        let direction: UISemanticContentAttribute = facts.rtl ? .forceRightToLeft : .forceLeftToRight
+        if semanticContentAttribute != direction { semanticContentAttribute = direction; stack.semanticContentAttribute = direction }
+        if facts.hidden != previous.hidden || accessibilityElementsHidden != facts.hidden {
+            isAccessibilityElement = !facts.hidden
+            accessibilityElementsHidden = facts.hidden
+        }
         let insets = [padding.left, padding.right, padding.top, padding.bottom]
         if zip(edges, insets).contains(where: { $0.constant != $1 }) {
             for (edge, inset) in zip(edges, insets) { edge.constant = inset }
@@ -61,8 +103,10 @@ final class ReadoutView: UIView {
             invalidateIntrinsicContentSize()
             frame.size = intrinsicContentSize
         }
+        let label = facts.label
         if label != spoken {
-            if spoken != nil, live, window != nil, !label.isEmpty {
+            let focused = UIAccessibility.focusedElement(using: .notificationVoiceOver) as AnyObject? === self
+            if spoken != nil, facts.live, !facts.hidden, !focused, window != nil, !label.isEmpty {
                 UIAccessibility.post(notification: .announcement, argument: NSAttributedString(string: label,
                     attributes: [.accessibilitySpeechQueueAnnouncement: true]))
             }
@@ -92,6 +136,8 @@ final class ReadoutView: UIView {
             let label = UILabel()
             label.text = text
             label.font = font
+            // The platform's body (no font written) follows the text size.
+            label.adjustsFontForContentSizeCategory = font.fontDescriptor.object(forKey: .textStyle) != nil
             label.textColor = ink(color)
             return label
         }
@@ -117,10 +163,23 @@ private final class ReadoutDot: UIView {
 }
 
 extension NavigationHost {
+    /// Whether `node` or a node around it is `aria-hidden` or `inert`.
+    static func ariaHidden(_ node: NodeView) -> Bool {
+        var at: UIView? = node
+        while let view = at {
+            if let n = view as? NodeView, n.props["inert"] == "true" || n.props["accessibilityElementsHidden"] == "true" { return true }
+            at = view.superview
+        }
+        return false
+    }
+
     /// The bar item of a readout: the route's own, kept across projections.
     func readoutItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
         if let item = c.readouts[i.id] { return item }
         let item = UIBarButtonItem(customView: ReadoutView())
+        #if os(tvOS)
+        item.isEnabled = false // no focus stop where Select does nothing
+        #endif
         c.readouts[i.id] = item
         return item
     }
@@ -131,8 +190,13 @@ extension NavigationHost {
         let shown = ((shape?.leading ?? []) + (shape?.trailing ?? [])).filter { $0.readout != nil }
         c.readouts = c.readouts.filter { id, _ in shown.contains { $0.id == id } }
         for i in shown {
-            guard let face = i.readout, let item = c.readouts[i.id], let view = item.customView as? ReadoutView else { continue }
-            view.show(face, padding: i.readoutPadding, label: i.label ?? "", live: presenter.views[i.id]?.props["accessibilityLive"] != "off")
+            guard let face = i.readout, let item = c.readouts[i.id], let view = item.customView as? ReadoutView,
+                  let node = presenter.views[i.id] else { continue }
+            view.node = node
+            // Off screen the view has no traits of its own yet: the node's face.
+            let drawn = view.window == nil ? face : ChipFace(node, readout: true, traits: view.traitCollection) ?? face
+            view.show(drawn, ReadoutFacts(padding: i.readoutPadding, rtl: (node.style["direction"]?.string ?? presenter.documentDirection) == "rtl",
+                                          label: i.label ?? "", live: node.props["accessibilityLive"] != "off", hidden: Self.ariaHidden(node)))
             view.accessibilityIdentifier = i.testId
             item.accessibilityIdentifier = i.testId
         }

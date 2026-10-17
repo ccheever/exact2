@@ -287,6 +287,10 @@ final class NavigationBasicsIOSTests: XCTestCase {
         for shown in ["readout-plain", "readout-text"] { XCTAssertNil(unshown[try node(session, shown).id], "\(shown) is the bar's") }
         // Nor the subtitle's: the first text after the heading still is.
         if #available(iOS 26.0, *) { XCTAssertEqual(plain.navigationItem.subtitle, "No Back control") }
+        // The agent's tap on it is a person's: it lands, and nothing is pressed.
+        let tap = Agent(session: session).tap(["id": Int(try node(session, "readout-text").id)])
+        XCTAssertNil(tap["error"], "\(tap)")
+        XCTAssertEqual(tap["native"] as? String, "bar-readout")
         try tapNode(session, "compose-plain")
         until("the readout follows the count") { labels().first?.text == "1 sent" }
         XCTAssertTrue(plain.navigationItem.rightBarButtonItems?.first === item, "the same item")

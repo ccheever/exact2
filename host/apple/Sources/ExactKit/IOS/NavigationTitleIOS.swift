@@ -90,6 +90,12 @@ struct HeaderTitle: Equatable {
                 if child === heading { passed = true; continue }
                 // A bar item, a readout among them, is not the title's to read.
                 if control(child) || apart.contains(where: { $0 === child }) { continue }
+                // A box holding one (a row of a symbol and a status) is no
+                // avatar or glyph line: what else it holds is read alone.
+                if apart.contains(where: { $0.isDescendant(of: child) }) {
+                    if !(passed && child.channels("background_color") != nil) { walk(child) }
+                    continue
+                }
                 if wrapper != nil, !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) {
                     avatar = face; placed.append(child); continue
                 }

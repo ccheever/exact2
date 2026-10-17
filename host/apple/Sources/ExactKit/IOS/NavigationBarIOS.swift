@@ -164,7 +164,16 @@ struct HeaderShape: Equatable {
         guard let rule = HeaderRule(route: route, back: back, backIsPlatforms: backIsUIKits, projected: projected) else { return nil }
         // Every role the header rule assigns can remain authored. In
         // particular the title's tap target is not one of its bar items.
-        let readouts = rule.readouts.filter { $0.style["display"]?.string != "none" }
+        // A readout hidden as authored, itself or by a box around it in the
+        // header, shows nothing (the bar's own hiding is `isHidden`, not this).
+        let readouts = rule.readouts.filter { readout in
+            var at: UIView? = readout
+            while let view = at, view !== rule.header {
+                if (view as? NodeView)?.style["display"]?.string == "none" { return false }
+                at = view.superview
+            }
+            return true
+        }
         let roles = rule.items + readouts + [rule.heading, rule.tap, rule.search, rule.segments].compactMap { $0 }
         let authored = projected ? roles.filter { $0.wrote("appearance") && $0.style["appearance"]?.string == "none" } : []
         self.authored = authored
@@ -180,7 +189,6 @@ struct HeaderShape: Equatable {
         let text = titleProjects ? heading.accessibleText : ""
         title = text.unicodeScalars.allSatisfy(\.properties.isWhitespace) ? "" : text
         level = titleProjects ? rule.level : 0
-        // A readout hidden as authored shows nothing.
         let item = { (node: NodeView) -> Item? in
             guard rule.readouts.contains(where: { $0 === node }) else { return Item(node) }
             guard readouts.contains(where: { $0 === node }) else { return nil }
@@ -197,7 +205,9 @@ struct HeaderShape: Equatable {
         // The title's pressable wrapper goes with the title it holds, unless
         // it holds an opted-out node, which stays where it is.
         let wrapper = titleProjects ? tap.flatMap { tap in authored.contains { $0.isDescendant(of: tap) } ? nil : tap } : nil
-        placed = ([heading] + rule.items + readouts + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
+        // A readout is the bar's when it drew something.
+        let drawn = (leading + trailing).filter { $0.readout != nil }.map(\.id)
+        placed = ([heading] + rule.items + readouts.filter { drawn.contains($0.id) } + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
     }
 
     /// The tabs of a header's tablist the segmented title shows (§9.8).
@@ -519,6 +529,11 @@ extension NavigationHost {
         guard shown.contains(where: { c in
             c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
         }) else { return nil }
+        // A readout the bar shows (§9.15) is tapped as a person taps it: nothing happens.
+        if shown.contains(where: { c in c.readouts.keys.contains { id in
+            id == node.id || presenter.views[id].map { node.isDescendant(of: $0) } == true } }) {
+            return ["tapped": id, "delivery": "host-activation", "native": "bar-readout"]
+        }
         // An item whose button only opens a menu is UIKit's pull-down, which
         // no public API opens and the agent does not paint over the bar.
         if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
