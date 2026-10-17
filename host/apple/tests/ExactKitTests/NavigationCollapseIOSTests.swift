@@ -143,7 +143,7 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertNil(route.node.props["navigationScroll"].flatMap { $0.isEmpty ? nil : $0 }, "the route names nothing")
         XCTAssertTrue(route.collapseScroll === tall, "the scroller after the header is the bar's")
         XCTAssertTrue(route.contentScrollView(for: .top) === sv)
-        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always, "UIKit insets it under the bar")
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .automatic, "UIKit insets it under the bar")
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains("collapses its title with its scroller"))
         XCTAssertEqual(tall.convert(tall.bounds, to: nil).minY, 0, accuracy: 0.5, "the scroller itself reaches the screen's top, under the bar")
         let top = try node(session, "tall-top"), bar = nav.navigationBar

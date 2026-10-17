@@ -950,7 +950,7 @@ extension NavigationHost {
         // scroller's 0, which left its content's top under the bar.
         let shown = shownScroll(target)
         let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-        shown?.contentInsetAdjustmentBehavior = .always
+        shown?.contentInsetAdjustmentBehavior = .automatic
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
         if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
@@ -1060,7 +1060,7 @@ extension NavigationHost {
            previous !== c.collapseScrollView { previous.contentInsetAdjustmentBehavior = .never }
         c.edgeScroll = target
         let shown = shownScroll(target)
-        shown?.contentInsetAdjustmentBehavior = .always
+        shown?.contentInsetAdjustmentBehavior = .automatic
         // tvOS has no bottom bar whose edge follows a scroller.
         #if !os(tvOS)
         c.setContentScrollView(shown, for: .bottom)
@@ -1107,8 +1107,8 @@ extension NavigationHost {
     /// The physical backend owned by a content node.
     func shownScroll(_ node: NodeView?) -> UIScrollView? { node?.scrollView }
 
-    /// Whether UIKit insets this scroller (`.always`): a route's collapse or
-    /// bottom-edge scroller.
+    /// Whether UIKit insets this scroller under its bars (`.automatic`): a
+    /// route's collapse or bottom-edge scroller.
     func insetByUIKit(_ node: NodeView) -> Bool {
         controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
     }
@@ -1460,7 +1460,7 @@ extension NavigationHost {
             if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
             #endif
         }
-        if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
+        if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .automatic : .never) { out.append("contentInsetAdjustmentBehavior") }
         if s !== node.scrollView || !node.ownsScrollDelegate { out.append("delegate") }
         if s.keyboardDismissMode != node.keyboardDismissal { out.append("keyboardDismissMode") }
         return out
