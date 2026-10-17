@@ -14,6 +14,7 @@ tested against it, differentially and at random.
 | `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatDay`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
+| `Contract/Tabs.lean` | Navigation tab eligibility and selection, shared by the flat and component interpreters. |
 | `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers (gated by `when` and `key=`), queued sends, events. |
 | `Contract/Big.lean` | The same semantics as inductive big-step relations, with proofs that the interpreter is sound and complete for them and that they are deterministic. |
 | `Contract/Axiomatic.lean` | An axiomatic semantics: a Hoare logic for action bodies, proved sound against the operational semantics, plus the transaction laws (a refused action changes nothing, reads see the pre-state, the last write wins). |
@@ -223,6 +224,11 @@ A tap goes to the element's `press` listener and a `type` to its `change`;
 an element without one is refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
+
+The driver currently sets `__exactRender`, which makes navigation tab panels
+use prerender's eager lifetime. The `corpus/components/tab-*.contract` cases
+therefore disagree with the runner under `--js`; they agree with Lean.
+The driver needs a runtime tab lifetime (tracked in `QUEUE.md`).
 
 A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
@@ -777,8 +783,23 @@ invalid router is refused; the host's `navigate` event, which the harness
 does not deliver, is not modelled, nor a router carried across a reload, nor
 the change the runner publishes to a host after a commit. A refused verb
 answers its input, and the runner journals the refusal in its log, which no
-observation shows. The router slot is observed like any other root slot. Presentation attributes are carried in the embedding but not
-evaluated. Only a `text`'s text and an element's `testId` are observed, and nothing
+observation shows. The router slot is observed like any other root slot.
+
+Navigation tabs are in (`Contract/Tabs.lean`, LLP 1075.003 §9.14): a literal
+`role="tabpanel"` below a navigation root waits for its first selection.
+Selection opens panels until a route holds the root's key, preferring an
+`aria-selected` tab, then tab order; a panel no tab names opens at once.
+Visited panels retain their contents and state until removed. The expander
+puts a panel's contents in one arm, so component state initializes when
+that panel first opens; a virtualized panel keeps its `for` as the owner.
+Both interpreters leave an unopened panel's descendants out of the tree,
+so they cannot be observed or receive events. Reload and prerender's
+`build_every_tab` are not modelled.
+
+Presentation attributes are carried in the embedding but not evaluated,
+except the six attributes tab selection reads (`role`, `id`,
+`navigationKey`, `navigationBack`, `aria-controls`, `aria-selected`).
+Only a `text`'s text and an element's `testId` are observed, and nothing
 inside a virtualized `list`: the runner builds only the rows its window lays
 out, which is layout, so both sides leave a virtualized list's descendants
 out of the observation (the list's own line stays). The

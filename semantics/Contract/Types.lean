@@ -21,7 +21,7 @@ has type `?` (`Contract.ValTy`), so such an operand never produces one.
 What the judgments leave to the Rust checker (it refuses more): `let`
 shadowing and reassignment rules, host command signatures (a command's
 arguments need only be well typed), presentation attributes (only a
-`text`'s text, `testId` and handlers are typed), placeholders and
+`text`'s text, `testId`, navigation attributes and handlers are typed), placeholders and
 `t(...)`, and cycles among derives and `fn`s (settlement and the fuel bound
 deal with those, not typing).
 -/
@@ -378,13 +378,14 @@ def ArmInits (p : Program) (G Γ : Scope) (owner : Nat × Nat) : Prop :=
   ∀ st ∈ p.states, st.owner = .some owner → ∃ t, HasTy p G Γ st.init t ∧ t.le st.ty = true
 
 /-- What a rendered element evaluates: a `text`'s text and a `testId`
-are displayable; a handler names an action, its curried arguments at most
+are displayable; navigation attributes are typed; a handler names an action, its curried arguments at most
 the action's leading parameters. -/
 def ElementTy (p : Program) (G Γ : Scope) (tag : String) (pos : List Expr)
     (props : List (String × Expr)) (hs : List (String × String × List Expr)) : Prop :=
   (tag == "text" || tag == "tspan" || tag == "option" →
     ∀ e ∈ pos.head?, ∃ t, HasTy p G Γ e t ∧ t.displayable = true) ∧
   (∀ e ∈ lookupField "testId" props, ∃ t, HasTy p G Γ e t ∧ t.displayable = true) ∧
+  (∀ prop ∈ tabProps props, ∃ t, HasTy p G Γ prop.2 t) ∧
   (∀ h ∈ hs, ∃ a, p.actions.find? (·.name == h.2.1) = .some a ∧
     ∃ ts, ListTy p G Γ h.2.2 ts ∧ Ty.lePrefix ts (a.params.map (·.2)) = true)
 

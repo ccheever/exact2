@@ -11,7 +11,7 @@ settlement that fails — leaves the configuration exactly as it was. A
 failure while rendering poisons the configuration: it keeps its state and
 refuses every later event (the runner's `poison`).
 -/
-import Contract.Eval
+import Contract.Tabs
 
 namespace Contract
 
@@ -322,6 +322,7 @@ structure VNode where
   /-- A `list` whose `virtualized` is literally `true`: the runner shows
   the rows its window lays out, which the observation leaves out. -/
   windowed : Bool := false
+  navigation : TabInfo := {}
   /-- The rows this element stands in, innermost first. -/
   rows : List RowId
   children : List VNode
@@ -331,6 +332,7 @@ structure RenderCx where
   env : Env
   store : RowStore
   rows : List RowId := []
+  tabs : TabCx := {}
 
 /-- A row key as the runner identifies it (`key_text`): a string, a bool,
 or a finite number with `-0` read as `0`. -/
@@ -380,17 +382,18 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
   | fuel + 1, cx, ls, n :: rest, live => do
     let (here, live) ← (match n with
       | .element tag pos props hs children => do
-        -- Only what a host observes here is forced: the text and the
-        -- `testId`. Every other attribute is presentation, kept
-        -- unevaluated (the runner evaluates it as it binds it; on a
-        -- well-typed program neither can fail).
         let text ← elementText fuel cx.env ls tag pos
         let testId ← elementTestId fuel cx.env ls props
-        let (kids, live) ← render fuel cx ls children live
+        let values ← (tabProps props).mapM fun (name, e) => do
+          pure (name, ← eval fuel cx.env false ls e)
+        let navigation := cx.tabs.element props values
+        let (kids, live) ← (if navigation.opened then
+          render fuel { cx with tabs := cx.tabs.children props } ls children live
+          else pure ([], live))
         pure ([{ tag, testId, text, handlers := hs, locals := ls, rows := cx.rows,
                  control := elementControl tag props,
-                 windowed := tag == "list" && (lookupField "virtualized" props matches .some (.bool true)),
-                 children := kids : VNode }], live)
+                 windowed := tag == "list" && ((lookupField "virtualized" props).map tabLiteral matches .some (.bool true)),
+                 navigation, children := kids : VNode }], live)
       | .when tag c thn els => do
         match ← eval fuel cx.env false ls c with
         | .bool true => renderArm fuel cx ls tag 0 thn live
@@ -404,7 +407,7 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
       | .each tag x ix list key body => do
         let items ← (← eval fuel cx.env false ls list).asList
         renderRows fuel cx ls tag x ix key body items 0 [] live : Result (List VNode × RowStore))
-    let (more, live) ← render fuel cx ls rest live
+    let (more, live) ← render fuel { cx with tabs := cx.tabs.next } ls rest live
     pure (here ++ more, live)
 where
   /-- The slots an arm instance owns: kept from `store`, or initialized in
@@ -430,7 +433,9 @@ where
     | fuel + 1, cx, ls, tag, arm, body, live => do
       let id : RowId := (cx.rows.head?.getD []) ++ [(tag, Value.num (F64.ofNat arm), 0)]
       let slots ← armSlots fuel cx ls id (tag, arm)
-      let cx' : RenderCx := { cx with env := { cx.env with rows := slots ++ cx.env.rows }, rows := id :: cx.rows }
+      let cx' : RenderCx := { cx with
+        env := { cx.env with rows := slots ++ cx.env.rows }, rows := id :: cx.rows,
+        tabs := cx.tabs.enter (.num (F64.ofNat arm)) }
       render fuel cx' ls body (live ++ [(id, slots)])
   /-- The rows of an `each`, in list order. `seen` holds the keys of the
   rows before this one, for `dup`. -/
@@ -449,10 +454,31 @@ where
       -- The row's slots: kept, or initialized from their initializers in
       -- the row's own scope (an initializer may read the item).
       let slots ← armSlots fuel cx ls' id (tag, 0)
-      let cx' : RenderCx := { cx with env := { cx.env with rows := slots ++ cx.env.rows }, rows := id :: cx.rows }
+      let cx' : RenderCx := { cx with
+        env := { cx.env with rows := slots ++ cx.env.rows },
+        rows := id :: cx.rows, tabs := cx.tabs.enter k dup }
       let (vs, live) ← render fuel cx' ls' body (live ++ [(id, slots)])
       let (more, live) ← renderRows fuel cx ls tag x ix key body items (i + 1) (seen ++ [k]) live
       pure (vs ++ more, live)
+
+/-- The selection sees the instance tree, without virtualized rows. -/
+def tabIndex : List VNode → Tabs.Index
+  | [] => []
+  | n@{ children, .. } :: rest => n.navigation ::
+      ((if n.windowed then [] else tabIndex children) ++ tabIndex rest)
+
+/-- Render empty waiting panels, then open the ones selection requires.
+Each pass retains the preceding pass's initialized slots. The bound only
+limits a render that keeps discovering more nested panels. -/
+def renderTabs : Nat → RenderCx → Result (List VNode × RowStore)
+  | 0, _ => .error outOfFuel
+  | n + 1, cx => do
+    let (view, live) ← render fuel cx [] cx.env.prog.view []
+    let opened := Tabs.toOpen (tabIndex view)
+    if opened.isEmpty then pure (view, live) else
+      renderTabs n { cx with
+        store := live,
+        tabs := { cx.tabs with opened := Tabs.visited (tabIndex view) ++ opened } }
 
 /-! ## Configurations and steps -/
 
@@ -543,11 +569,11 @@ def applyRowWrites (p : Program) (store : RowStore) (rows : List RowId)
 
 /-- Settle and render against new slots. -/
 def update (p : Program) (o : Oracle) (slots : List (String × Value)) (store : RowStore)
-    (now : F64) (prev : Settled := {}) (force : List String := []) :
+    (now : F64) (prev : Settled := {}) (force : List String := []) (view : List VNode := []) :
     Result (Settled × Result (List VNode × RowStore)) := do
   let st ← settle p o slots now prev force
   let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
-  .ok (st, render fuel { env, store } [] p.view [])
+  .ok (st, renderTabs fuel { env, store, tabs := { opened := Tabs.visited (tabIndex view) } })
 
 /-- Whether the router slot, if the program has one, holds a valid router
 (`Route.routerOf`). -/
@@ -790,7 +816,7 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
         -- runner's `router_change`): a forged value is refused.
         if !routerValid p slots then refuse (.refused "an invalid router value") else
         let store := applyRowWrites p c.store rows fx.rowWrites
-        match update p o slots store c.now c.settled fx.refreshes with
+        match update p o slots store c.now c.settled fx.refreshes c.view with
         | .error e => refuse e
         | .ok (st, r) =>
           -- D8's gate step, after settlement and inside the commit: a
@@ -843,7 +869,7 @@ def nextCommit (p : Program) (o : Oracle) (c : Config) (m : String) : Config × 
         ({ c with stalled := c.stalled ++ [(m, (c.slots, c.settled))] }.armNexts p, .refused e)
       let slots := setSlot c.slots m (.some v)
       if !routerValid p slots then stall (.refused "an invalid router value") else
-      match update p o slots c.store c.now c.settled [] with
+      match update p o slots c.store c.now c.settled [] c.view with
       | .error e => stall e
       | .ok (st, r) =>
         match gateStep p slots st c.now c.timers with
@@ -957,7 +983,7 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
       | .error e => (empty, .refused e)
       | .ok timers =>
       let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
-      match render fuel { env, store := [] } [] p.view [] with
+      match renderTabs fuel { env, store := [] } with
       | .ok (view, live) =>
         ({ slots, settled := st, store := live, view, now := 0, timers }, .ok)
       -- A view that fails to render at boot fails the boot: there is no

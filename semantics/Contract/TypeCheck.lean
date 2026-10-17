@@ -301,6 +301,7 @@ def checkElement (p : Program) (G Γ : Scope) (tag : String) (pos : List Expr)
   (match lookupField "testId" props with
     | .some e => inferShows p G Γ e
     | .none => true) &&
+  (tabProps props).all (fun (_, e) => (infer p G Γ e).isSome) &&
   hs.all (checkHandler p G Γ)
 
 def checkNodes (p : Program) (G : Scope) : Scope → List Node → Bool
@@ -780,8 +781,8 @@ theorem checkArm_sound {p : Program} {G Γ owner} (h : checkArm p G Γ owner = t
 theorem checkElement_sound {p : Program} {G Γ tag pos props hs}
     (h : checkElement p G Γ tag pos props hs = true) : ElementTy p G Γ tag pos props hs := by
   simp only [checkElement, Bool.and_eq_true] at h
-  obtain ⟨⟨htext, hid⟩, hh⟩ := h
-  refine ⟨fun ht e he => ?_, fun e he => ?_, fun hd hd' => ?_⟩
+  obtain ⟨⟨⟨htext, hid⟩, hnav⟩, hh⟩ := h
+  refine ⟨fun ht e he => ?_, fun e he => ?_, fun prop hp => ?_, fun hd hd' => ?_⟩
   · simp only [ht, Bool.not_true, Bool.false_or] at htext
     cases pos with
     | nil => simp at he
@@ -789,6 +790,9 @@ theorem checkElement_sound {p : Program} {G Γ tag pos props hs}
   · simp only [Option.mem_def] at he
     rw [he] at hid
     exact inferShows_sound hid
+  · have hn := (List.all_eq_true.mp hnav) prop hp
+    obtain ⟨t, ht⟩ := Option.isSome_iff_exists.mp hn
+    exact ⟨t, infer_sound _ ht⟩
   · simp only [List.all_eq_true] at hh
     have := hh hd hd'
     simp only [checkHandler] at this

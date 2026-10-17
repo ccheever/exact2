@@ -362,11 +362,10 @@ theorem boot_sound {p : Program} (hp : WellTyped p) (o : Oracle) : OutcomeOK (bo
   split
   · trivial
   · next e he =>
-    exact ofW ((render_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel).1
+    exact ofW (renderTabs_good hp (E := Strict) (fun _ h hn => ⟨h, hn⟩) fuel
       (cx := { env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 },
                store := [] })
-      ⟨rfl, hs, hpres.of_keys hkeys, RowsOK.nil, hok.1, hok.2⟩ (.inl hc) StoreOK.nil StoreOK.nil LocalsOK.nil
-      hp.view) he
+      ⟨rfl, hs, hpres.of_keys hkeys, RowsOK.nil, hok.1, hok.2⟩ (.inl hc) StoreOK.nil) he
 
 /-! ## Runs -/
 

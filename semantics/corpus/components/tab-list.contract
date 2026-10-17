@@ -1,0 +1,30 @@
+component App
+  state selected = "a"
+  state items = [1, 2, 3]
+  action pick
+    selected = "b"
+  view
+    main navigationKey=selected navigationBack="back" height=400
+      row role="tablist"
+        button "A" role="tab" aria-controls="a" aria-selected=(selected == "a")
+        button "B" role="tab" aria-controls="b" aria-selected=(selected == "b") press=pick testId="pick"
+      column role="tabpanel" id="a"
+        column navigationKey="a"
+          text "first" testId="first"
+      list role="tabpanel" id="b" testId="list" virtualized=true height=200
+        for item in items key=item
+          Row(value=item)
+
+component Row
+  props
+    value: number
+  state n = value
+  view
+    text `${n}` testId=`row-${value}`
+
+test "a virtualized panel keeps its for as its state owner"
+  expect tree has "list"
+  expect tree missing "row-1"
+  tap "pick"
+  expect state selected == "b"
+  expect tree has "list"
