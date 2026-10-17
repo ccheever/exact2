@@ -4,6 +4,8 @@
 // placement, deletion, pending formats, list Return, undo — is the shared
 // exact-markdown-editor crate, in markup-editor.wasm, fetched with this module
 // only when a Markdown textarea mounts.
+import { inertAncestor } from './navigation.js';
+
 const NONE = 0xffffffff, HANDLED = 1, SOURCE = 2, PLACE = 4;
 // beforeinput kinds, as `mde_before_input` numbers them; 0 runs natively.
 const KINDS = { historyUndo: 1, historyRedo: 2, formatBold: 3, formatItalic: 4, formatStrikeThrough: 5, insertParagraph: 7, insertLineBreak: 7,
@@ -106,7 +108,7 @@ function installMarkupEditor(textarea, host) {
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
   let nativeHidden = null;
   let tabIndex = el.getAttribute('tabindex');
-  const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !el.closest('[inert]');
+  const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !inertAncestor(el);
   const now = () => performance.now();
   const sel = () => [wasm.mde_sel(h, 0), wasm.mde_sel(h, 1)];
 

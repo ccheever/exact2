@@ -148,15 +148,20 @@ test('a mounted field never takes the focus from another field', () => {
 
 test('a hidden, disabled or inert field waits, and takes the focus once it is shown', () => {
   document.activeElement = body;
-  const hidden = field('hidden', { shown: false }), off = field('off', { disabled: true }), shown = field('shown');
-  mounted = [hidden, off, shown];
+  const hidden = field('hidden', { shown: false }), off = field('off', { disabled: true }), inert = field('inert', { inert: true }), shown = field('shown');
+  mounted = [hidden, off, inert, shown];
   autofocus(root);
   expect(shown.focused).toBe(1);
-  expect(hidden.focused + off.focused).toBe(0);
+  expect(hidden.focused + off.focused + inert.focused).toBe(0);
   document.activeElement = body;
   hidden.shown = true;
   autofocus(root);
   expect(hidden.focused).toBe(1);
+  document.activeElement = body;
+  inert.inert = false;
+  autofocus(root);
+  expect(inert.focused).toBe(1);
+  expect(off.focused).toBe(0);
 });
 
 test('a carried restart offers every rebuilt field: none takes the focus later', () => {

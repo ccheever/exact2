@@ -200,7 +200,7 @@ function pressBack(nav) {
   if (!route) return "no route is selected";
   if (closedNone(route)) return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
   if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
-  if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
+  if (control.matches(":disabled") || inertAncestor(control) || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
     return `its id="${control.id}" control is disabled, inert or not shown`;
   control.click();
 }
