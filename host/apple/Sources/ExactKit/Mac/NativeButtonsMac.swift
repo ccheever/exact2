@@ -105,6 +105,8 @@ final class NativeButtonMac: NSButton {
             return
         }
         if name == "Enter" { return }
+        // An authored radio group's arrows (Radios.swift, `ariaRadioKey`).
+        if owner.presenter?.controls.radioKey(owner, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
         super.keyDown(with: event)
     }
     /// Return's press of a dialog's default button: AppKit's own click, its

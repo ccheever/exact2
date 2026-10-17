@@ -49,6 +49,58 @@ final class SegmentsMacTests: XCTestCase {
         for (role, member) in [("tablist", "tab"), ("radiogroup", "radio")] { try appearanceNone(role, member) }
     }
 
+    /// An authored radio group of native buttons: an arrow at one's own
+    /// `NSButton` presses the next and gives that one's `NSButton` the focus;
+    /// a right-to-left group swaps Left and Right; a hidden radio is neither
+    /// the Tab stop nor an arrow's target.
+    func testAnAuthoredGroupOfNativeRadiosMovesTheirOwnFocus() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.buttonFace = { _ in var f = ButtonFace(); f.title = "Pick"; return f }
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = p.viewport
+        defer { p.reset(); w.close() }
+        var ops: [[String: Any]] = [["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "radiogroup"]]]
+        for id in [11, 12, 13] {
+            ops.append(["op": "create", "id": id, "kind": "control", "props": ["type": "button", "accessibilityRole": "radio"], "handlers": ["press"]])
+            ops.append(["op": "frame", "id": id, "x": Double(id - 11) * 100, "y": 0.0, "w": 90.0, "h": 30.0])
+        }
+        p.apply(wireBatch(ops + [
+            ["op": "children", "id": 10, "ids": [11, 12, 13]], ["op": "roots", "ids": [10]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 40.0],
+            ["op": "style", "id": 10, "style": ["appearance": "none", "written": ["appearance"]]],
+        ]))
+        XCTAssertNil(p.segments.control(of: 10))
+        let button = { (id: UInt32) in try XCTUnwrap(p.controls.controls[id] as? NativeButtonMac) }
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        func arrow(_ code: UInt16, at id: UInt32) throws {
+            let character = String(UnicodeScalar([123: 0xF702, 124: 0xF703, 125: 0xF701, 126: 0xF700][Int(code)]!)!)
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.numericPad, .function], timestamp: 0, windowNumber: w.windowNumber,
+                                         context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
+            try button(id).keyDown(with: event)
+        }
+        XCTAssertTrue(w.makeFirstResponder(try button(11)))
+        try arrow(124, at: 11)
+        XCTAssertEqual(pressed, [12])
+        XCTAssertTrue(w.firstResponder === (try button(12)), "the pressed radio's own NSButton takes the focus")
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["appearance": "none", "written": ["appearance"], "direction": "rtl"]]]))
+        pressed = []
+        try arrow(124, at: 12)
+        try arrow(123, at: 12)
+        XCTAssertEqual(pressed, [11, 13], "right-to-left: Right is the previous radio, Left the next")
+        p.apply(wireBatch([
+            ["op": "style", "id": 10, "style": ["appearance": "none", "written": ["appearance"]]],
+            ["op": "style", "id": 13, "style": ["visibility": "hidden"]],
+            ["op": "props", "id": 13, "set": ["accessibilityChecked": "true"]],
+        ]))
+        pressed = []
+        try arrow(125, at: 12)
+        XCTAssertEqual(pressed, [11], "the hidden radio is passed over")
+        XCTAssertEqual([11, 12, 13].map { p.views[$0]!.ariaRadioTabStop }, [true, false, false], "a hidden checked radio is not the stop")
+    }
+
     private func appearanceNone(_ role: String, _ member: String) throws {
         _ = NSApplication.shared
         let p = Presenter()

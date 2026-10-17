@@ -165,6 +165,20 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [3, 4], "the next radio, then the previous one wrapping")
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityChecked": "false"]], ["op": "props", "id": 3, "set": ["accessibilityChecked": "true"]]]))
         XCTAssertEqual([day, week, month].map(\.ariaRadioTabStop), [false, true, false])
+        // Right-to-left swaps Left and Right; a hidden radio is no target and no stop.
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "written": ["appearance"], "direction": "rtl"]]]))
+        pressed = []
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowRight", held: ""))
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowLeft", held: ""))
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowDown", held: ""))
+        XCTAssertEqual(pressed, [2, 4, 4])
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "written": ["appearance"]]],
+                           ["op": "style", "id": 4, "style": ["visibility": "hidden"]]]))
+        pressed = []
+        XCTAssertTrue(p.controls.radioKey(week, "ArrowDown", held: ""))
+        XCTAssertEqual(pressed, [2], "the hidden radio is passed over")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityChecked": "false"]], ["op": "props", "id": 4, "set": ["accessibilityChecked": "true"]]]))
+        XCTAssertEqual([day, week, month].map(\.ariaRadioTabStop), [true, false, false], "a hidden checked radio is not the stop")
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "auto", "written": ["appearance"]]]]))
         XCTAssertNil(day.ariaRadioGroup, "a projected group's keys are the segmented control's")
         XCTAssertNotNil(p.segments.control(of: 1))

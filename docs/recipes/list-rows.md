@@ -60,12 +60,10 @@ test "search, swipe to delete, delete from the menu"
 - The swipe deletes without asking, as iOS does where a deletion is routine or recoverable
   (Mail, Notes, Reminders). An irreversible loss confirms, as a detail screen's Delete or a
   bulk clear does: its action opens an alert (`contract vocab confirm`).
-- The search field querying a server (live, or on the keyboard's Search key): `contract
-  vocab search`.
+- Search querying a server, live or on the Search key: `contract vocab search`.
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list
-  ([persisted-setting](persisted-setting.md)): the platform's segmented control, or keys of
-  your own with `appearance="none"` on the group.
-- The bar's buttons: iOS 26 puts neighbours in one glass capsule; `buttonStyle="glass"` on a
-  header button gives it a capsule of its own.
+  ([persisted-setting](persisted-setting.md)): a segmented control; `appearance="none"` keeps
+  keys you paint, one Tab stop and the arrows. iOS 26 bar buttons share one glass
+  capsule; `buttonStyle="glass"` gives one its own.
 - One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`
   and hides it (iOS: a `UIMenu`). Test: `tap "note-1" contextmenu`.
