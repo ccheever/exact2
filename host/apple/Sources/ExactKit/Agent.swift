@@ -483,6 +483,7 @@ public final class Agent {
             }
         }
         var facts = PageFacts.agent
+        var boldText: Bool?
         #if os(macOS)
         var keyboardNavigation: Bool?
         #endif
@@ -501,6 +502,8 @@ public final class Agent {
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
+            // Bold Text (LLP 1115.000 D12.3), as the person's setting reaches the kernel.
+            case ("bold-text", "true"), ("bold-text", "false"): boldText = value == "true"
             // The display's scale as the kernel is told it (LLP 1115.000 D10.3): layout follows; the display draws at its own.
             case ("display-scale", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: PageFacts.agentDisplayScale = Double(value)!
             default:
@@ -522,6 +525,7 @@ public final class Agent {
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
+        if let boldText { DisplayPreferences.agentBoldText = boldText }
         if let mode {
             // An empty group asks again: the other facts' commits may have run a `setMode`.
             let batch = session.runtime.setModes(mode, check: mode.isEmpty)
@@ -533,7 +537,8 @@ public final class Agent {
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-share-files": PageFacts.canShareFiles,
                                        "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
-                                       "display-scale": PageFacts.displayScale(session.presenter.viewport)]
+                                       "display-scale": PageFacts.displayScale(session.presenter.viewport),
+                                       "bold-text": DisplayPreferences.boldText]
         #if os(macOS)
         if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
         pageFacts["keyboard-navigation"] = KeyboardNavigation.on

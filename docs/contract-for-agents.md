@@ -3106,7 +3106,8 @@ source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else.
 Bold Text (iOS's setting, Android's font weight adjustment) weights the system
 font one step heavier, a written weight included, as a hand-built app's text
 is, and leaves a family the app names alone: write the weight you mean, not one
-you expect the setting to add (LLP 1115.000 D12.3).
+you expect the setting to add (LLP 1115.000 D12.3). A drive turns it on, on
+Apple, with `prefer bold-text true`.
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB

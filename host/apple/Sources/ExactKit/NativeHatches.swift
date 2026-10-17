@@ -154,8 +154,9 @@ private typealias HatchTamberFn = @convention(c) (UnsafeMutableRawPointer?, Unsa
 /// stage 6 G optionally `"lengths"`, `"numbers"` and `"fonts"` lists; the
 /// answer, `{"inputs", "colors": {name: [[r, g, b, a] × 8] | null}}`, with
 /// `"lengths"` and `"numbers"` maps of numbers and a `"fonts"` map of
-/// `{size, name}` (the face's PostScript name, which the library opens as
-/// the host draws it) where asked, each colour
+/// `{size, name, weight, italic, system}` (the face's PostScript name, which
+/// the library opens as the host draws it, or for the system font, which no
+/// name opens, the system font at the weight) where asked, each colour
 /// resolved for the eight sides a view draws in (bit 0 dark, bit 1 more
 /// contrast, bit 2 elevated) under the view's tint, as extended sRGB
 /// (0–1, past it for a wide colour), as the library cannot read a row's
@@ -185,9 +186,12 @@ private let hatchTamber: HatchTamberFn = { host, view, request, length, out, cap
             switch (kind, value) {
             case (.fonts, .object(let f)?):
                 guard let size = f["size"]?.number else { return NSNull() }
-                let font = session.text.font(size: CGFloat(size), weight: Int(f["weight"]?.number ?? 400),
-                                             family: Int(f["family"]?.number ?? 0), italic: f["italic"] == .bool(true))
-                return ["size": size, "name": font.fontName]
+                let weight = Int(f["weight"]?.number ?? 400), italic = f["italic"] == .bool(true)
+                let font = session.text.font(size: CGFloat(size), weight: weight, family: Int(f["family"]?.number ?? 0), italic: italic)
+                // A system face's name is no name a font opens by: the
+                // library makes the system font at the weight instead.
+                return ["size": size, "name": font.fontName, "weight": weight, "italic": italic,
+                        "system": font.fontName.hasPrefix(".") || f["family"]?.number == nil]
             case (_, .number(let n)?): return n
             default: return NSNull()
             }

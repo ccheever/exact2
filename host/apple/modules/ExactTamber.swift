@@ -100,7 +100,18 @@ public struct ExactTamber {
     public func font(_ token: ExactTamberToken, fallback: ExactTamberFont) -> ExactTamberFont {
         guard let f = finder.place?.measure("fonts", token.name) as? [String: Any],
               let size = f["size"] as? Double, let name = f["name"] as? String else { return fallback }
-        return ExactTamberFont(name: name, size: CGFloat(size)) ?? fallback
+        if f["system"] as? Bool != true, let named = ExactTamberFont(name: name, size: CGFloat(size)) { return named }
+        // The system font, which no name opens: at the weight, italic where said.
+        let css = f["weight"] as? Double ?? 400
+        let weights: [(Double, ExactTamberFont.Weight)] = [(100, .ultraLight), (200, .thin), (300, .light), (400, .regular), (500, .medium), (600, .semibold), (700, .bold), (800, .heavy), (900, .black)]
+        let weight = weights.min { abs($0.0 - css) < abs($1.0 - css) }?.1 ?? .regular
+        let system = ExactTamberFont.systemFont(ofSize: CGFloat(size), weight: weight)
+        guard f["italic"] as? Bool == true else { return system }
+        #if os(macOS)
+        return ExactTamberFont(descriptor: system.fontDescriptor.withSymbolicTraits(.italic), size: CGFloat(size)) ?? system
+        #else
+        return system.fontDescriptor.withSymbolicTraits(.traitItalic).map { ExactTamberFont(descriptor: $0, size: CGFloat(size)) } ?? system
+        #endif
     }
 
     /// `body` after each batch that moved what this place's tokens read (a

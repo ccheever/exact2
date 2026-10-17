@@ -1,7 +1,9 @@
 // The Tamber binding's sample (LLP 1121 D12, stage 5): a native module
 // (`exact-swatch`, modules/apple) fills itself with the design's
-// `swatch.fill` through `ExactTamber(view).color(…)` and says each colour it
-// applies, which the texts below show, with how many times it applied. One
+// `swatch.fill` through `ExactTamber(view).color(…)`, and since stage 6 G
+// sets a label in `type.label` inset by `swatch.inset` (`font(…)`,
+// `length(…)`), and says each colour, inset and font it applies, which the
+// texts below show, with how many times it applied. One
 // swatch takes the window's mode, the other sits under a pin (`tone=cool`);
 // the button moves the window's mode. The stage 5 gate drives it: a mode, a
 // pin above, a Dynamic Type change and a live edit.
