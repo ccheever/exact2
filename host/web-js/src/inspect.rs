@@ -19,7 +19,7 @@ use crate::style;
 use exact_kernel::{StyleId, StyleProps};
 use exact_plan::{BindingKind, Plan, RegionKind};
 use exact_runner::{agent, bridge};
-use serde_json::{Map, Value as Json, json};
+use serde_json::{json, Map, Value as Json};
 
 fn row_value(row: StyleId, props: &StyleProps) -> Json {
     let mut s = String::new();
@@ -43,7 +43,12 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
     let axes: Vec<Json> = plan
         .axes
         .iter()
-        .map(|a| json!([plan.str(a.name), plan.str(a.values).split('|').collect::<Vec<_>>()]))
+        .map(|a| {
+            json!([
+                plan.str(a.name),
+                plan.str(a.values).split('|').collect::<Vec<_>>()
+            ])
+        })
         .collect();
     // The initial value of every inherited row (an empty style's).
     let empty = StyleProps::default();
@@ -55,7 +60,10 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
     }
     let order: Vec<&str> = StyleId::ALL.iter().map(|r| r.name()).collect();
     // Each row's CSS property, as the page writes it (style.rs).
-    let css: Map<String, Json> = StyleId::ALL.iter().map(|r| (r.name().to_string(), json!(style::css_property(*r)))).collect();
+    let css: Map<String, Json> = StyleId::ALL
+        .iter()
+        .map(|r| (r.name().to_string(), json!(style::css_property(*r))))
+        .collect();
     let mut out = Map::new();
     for (i, node) in plan.nodes.iter().enumerate() {
         let Some(view) = kernel.node(i as u32 + 1) else {
@@ -96,20 +104,30 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
             if !view.style.mask.has(row) {
                 if let Some(from) = view.style_source_of(row) {
                     // Its site, and the value it gives in each tuple.
-                    let vs: Vec<Json> = kernels.iter().map(|k| {
-                        k.node(i as u32 + 1).map_or(Json::Null, |n| {
-                            let mut s = String::new();
-                            agent::row_json(row, n.computed(row), &mut s);
-                            serde_json::from_str(&s).unwrap_or(Json::Null)
+                    let vs: Vec<Json> = kernels
+                        .iter()
+                        .map(|k| {
+                            k.node(i as u32 + 1).map_or(Json::Null, |n| {
+                                let mut s = String::new();
+                                agent::row_json(row, n.computed(row), &mut s);
+                                serde_json::from_str(&s).unwrap_or(Json::Null)
+                            })
                         })
-                    }).collect();
-                    let v = if vs.iter().all(|v| *v == vs[0]) { vs[0].clone() } else { json!({ "tuples": vs }) };
+                        .collect();
+                    let v = if vs.iter().all(|v| *v == vs[0]) {
+                        vs[0].clone()
+                    } else {
+                        json!({ "tuples": vs })
+                    };
                     given.insert(row.name().into(), json!([from - 1, v]));
                 }
             }
             // (An expression's row cleared falls back to these too.)
             if !view.style.mask.has(row) {
-                if view.style_source_of(row).is_none() && row.inherited() && view.source_of(row).is_none() {
+                if view.style_source_of(row).is_none()
+                    && row.inherited()
+                    && view.source_of(row).is_none()
+                {
                     // Nothing above sets it: its initial value, which a node's
                     // type can make its own (a button's weight); and kept even
                     // when it is the initial one where a node above sets the
@@ -142,7 +160,10 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                     for (t, k) in kernels.iter().enumerate() {
                         // The value the kernel resolved in that tuple; the
                         // tokens the text reads there.
-                        values.push(k.node(i as u32 + 1).map_or(Json::Null, |n| row_value(row, &n.style)));
+                        values.push(
+                            k.node(i as u32 + 1)
+                                .map_or(Json::Null, |n| row_value(row, &n.style)),
+                        );
                         let before = bridge::set_tuple(t as u32);
                         let mut patch = StyleProps::default();
                         let (_, read) = exact_kernel::style::theme::recorded(|| {
@@ -151,9 +172,11 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                         bridge::set_tuple(before);
                         for entry in read {
                             let token = plan.theme.iter().find(|tk| {
-                                *plan.str(tk.name) == *entry || plan.str(tk.role).eq_ignore_ascii_case(&entry)
+                                *plan.str(tk.name) == *entry
+                                    || plan.str(tk.role).eq_ignore_ascii_case(&entry)
                             });
-                            let name = token.map_or(entry.to_string(), |tk| plan.str(tk.name).to_string());
+                            let name =
+                                token.map_or(entry.to_string(), |tk| plan.str(tk.name).to_string());
                             if !names.contains(&name) {
                                 names.push(name);
                             }
@@ -164,7 +187,10 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                 // compiler): the static tree's own value in each tuple.
                 _ if !dynamic => {
                     for k in &kernels {
-                        values.push(k.node(i as u32 + 1).map_or(Json::Null, |n| row_value(row, &n.style)));
+                        values.push(
+                            k.node(i as u32 + 1)
+                                .map_or(Json::Null, |n| row_value(row, &n.style)),
+                        );
                     }
                 }
                 _ => {}
@@ -192,7 +218,15 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
             // the instance's. (A text style's size is its ramp at the 16 px
             // root: a limit.)
             let relative = literal.as_ref().and_then(|v| v.as_str()).is_some_and(|t| {
-                matches!(exact_kernel::style::relative::parse(t), Some((exact_kernel::style::relative::Unit::Em | exact_kernel::style::relative::Unit::Rem | exact_kernel::style::relative::Unit::Hairline, _)))
+                matches!(
+                    exact_kernel::style::relative::parse(t),
+                    Some((
+                        exact_kernel::style::relative::Unit::Em
+                            | exact_kernel::style::relative::Unit::Rem
+                            | exact_kernel::style::relative::Unit::Hairline,
+                        _
+                    ))
+                )
             });
             rows.push(json!({
                 "n": row.name(),
@@ -209,7 +243,13 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
         // A mode boundary (its `mode` or `color-scheme` row, as modes.rs
         // finds it): the inherited colour rows it does not set are its own
         // implied rows (LLP 1121 D7), the page's to find.
-        if node.bindings.iter().map(|b| plan.binding(b)).any(|b| b.kind == BindingKind::Style && matches!(StyleId::from_bit(b.id as u32), Some(StyleId::Mode | StyleId::ColorScheme))) {
+        if node.bindings.iter().map(|b| plan.binding(b)).any(|b| {
+            b.kind == BindingKind::Style
+                && matches!(
+                    StyleId::from_bit(b.id as u32),
+                    Some(StyleId::Mode | StyleId::ColorScheme)
+                )
+        }) {
             site.insert("b".into(), json!(true));
         }
         if !chain.is_empty() {
@@ -229,18 +269,43 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
     // Each token's custom property (a development build's every token): a
     // row an expression binds that names one reads it, which the page maps
     // back to the token.
-    let props: Map<String, Json> = crate::modes::properties(plan).into_iter().map(|(name, prop)| (prop, json!(name))).collect();
+    let props: Map<String, Json> = crate::modes::properties(plan)
+        .into_iter()
+        .map(|(name, prop)| (prop, json!(name)))
+        .collect();
     // The inherited colour rows a mode boundary writes again (LLP 1121 D7;
     // runner/src/instance/theme.rs `INHERITED`).
-    let implied = [StyleId::TextColor, StyleId::CaretColor, StyleId::Fill, StyleId::Stroke, StyleId::AccentColor, StyleId::TextShadow, StyleId::TextStrokeColor, StyleId::SymbolPalette].map(|r| r.name());
+    let implied = [
+        StyleId::TextColor,
+        StyleId::CaretColor,
+        StyleId::Fill,
+        StyleId::Stroke,
+        StyleId::AccentColor,
+        StyleId::TextShadow,
+        StyleId::TextStrokeColor,
+        StyleId::SymbolPalette,
+    ]
+    .map(|r| r.name());
     // The design the values were set in (dev-design.json's digest): a page
     // running another (a live edit since) takes a token's value from it.
     let built = crate::modes::design(plan);
     let design = built["digest"].clone();
     // Each token's value in each tuple in that design: a live edit since
     // that left a token as it was leaves its rows' values as the table says.
-    let tokens: Map<String, Json> = built["tokens"].as_array().map_or_else(Map::new, |ts| ts.iter().filter_map(|t| Some((t["name"].as_str()?.to_string(), json!([t["value"].clone(), t["slices"].clone()])))).collect());
+    let tokens: Map<String, Json> = built["tokens"].as_array().map_or_else(Map::new, |ts| {
+        ts.iter()
+            .filter_map(|t| {
+                Some((
+                    t["name"].as_str()?.to_string(),
+                    json!([t["value"].clone(), t["slices"].clone()]),
+                ))
+            })
+            .collect()
+    });
     // The colour channels a boundary's modes.js keeps (modes.rs CHANNELS), in its order.
-    let channels: Vec<&str> = crate::modes::CHANNELS.iter().map(|(r, _)| r.name()).collect();
+    let channels: Vec<&str> = crate::modes::CHANNELS
+        .iter()
+        .map(|(r, _)| r.name())
+        .collect();
     Ok(json!({ "axes": axes, "tuples": tuples, "order": order, "css": css, "channels": channels, "initial": initial, "implied": implied, "props": props, "design": design, "tokens": tokens, "plan": contract::plan_digest(&plan.encode()), "sites": out }).to_string())
 }
