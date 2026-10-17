@@ -203,10 +203,11 @@ fn the_bake_compiles_no_answer_asked_at_its_unknown_date() {
 /// The date reaches a resource's arguments by more than a derive: through
 /// another resource asked with it (and a field of its answer), a state an
 /// action assigns it (directly or through a `let`), and a state copied
-/// from another dated state. None of
-/// those answers is compiled. States that copy each other without the date
-/// terminate the analysis and keep theirs, as does a state the date only
-/// decided (a branch's condition).
+/// from another dated state, and a state the date only decides: written in
+/// either arm of a branch on it, or from a conditional expression on it.
+/// None of those answers is compiled. States that copy each other without
+/// the date terminate the analysis and keep theirs, as does a write after
+/// the dated branch has joined.
 #[test]
 fn the_bake_follows_the_date_through_resources_and_states() {
     const APP: &str = r#"shape Time
@@ -223,9 +224,17 @@ component App
   state a = 0
   state b = 0
   state flag = 0
+  state other = 0
+  state after = 0
+  state pick = 0
   action decide
     if time.epochAtZero > 0
       flag = 1
+    else
+      other = 1
+    after = 2
+  action choose
+    pick = time.epochAtZero > 0 ? 2 : 1
   action prime
     at = time.epochAtZero
     let t = time.epochAtZero + 1
@@ -242,9 +251,12 @@ component App
   resource viaCopy = answer(copied) as shape number
   resource cycle = answer(a + b) as shape number
   resource decided = answer(flag) as shape number
+  resource otherwise = answer(other) as shape number
+  resource joined = answer(after) as shape number
+  resource picked = answer(pick) as shape number
   resource plain = answer(1) as shape number
   view
-    text "{viaResource}{viaAction}{viaLet}{viaCopy}{cycle}{decided}{plain}"
+    text "{viaResource}{viaAction}{viaLet}{viaCopy}{cycle}{decided}{otherwise}{joined}{picked}{plain}"
 "#;
     struct Source;
     impl DataSource for Source {
@@ -269,13 +281,60 @@ component App
             .len
             > 0
     };
-    for dated in ["stamp", "viaResource", "viaAction", "viaLet", "viaCopy"] {
+    for dated in [
+        "stamp",
+        "viaResource",
+        "viaAction",
+        "viaLet",
+        "viaCopy",
+        "decided",
+        "otherwise",
+        "picked",
+    ] {
         assert!(
             !compiled(dated),
             "{dated} is asked at the bake's date: not compiled"
         );
     }
-    assert!(compiled("cycle") && compiled("decided") && compiled("plain"));
+    assert!(compiled("cycle") && compiled("joined") && compiled("plain"));
+}
+
+/// The runner says which resources read the date in one pass over the
+/// plan, which the bake asks once: here a chain of 300 resources, each
+/// asked with the one before, from the date, beside 300 that are not.
+#[test]
+fn the_resources_reading_the_date_are_found_in_one_pass() {
+    let mut src = String::from(
+        "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  resource d0 = answer(time.epochAtZero) as shape number\n  resource p0 = answer(0) as shape number\n",
+    );
+    for i in 1..300 {
+        src.push_str(&format!(
+            "  resource d{i} = answer(d{}) as shape number\n  resource p{i} = answer(p{}) as shape number\n",
+            i - 1,
+            i - 1
+        ));
+    }
+    src.push_str("  view\n    text \"{d299}{p299}\"\n");
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(args.first().cloned().unwrap_or(Value::Number(0.0)))
+        }
+    }
+    let plan = contract::compile(&src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let dated = r.resources_reading_clock();
+    for (i, row) in r.plan().resources.iter().enumerate() {
+        let name = r.plan().str(row.name);
+        assert_eq!(dated[i], name.starts_with('d'), "{name}");
+    }
 }
 
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
