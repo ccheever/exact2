@@ -71,8 +71,9 @@ component SettingsProviderAccounts
                     text account.label font-size=roles.headline.size line-height=`${roles.headline.line}px` font-weight=600 color=colors.foreground
                     text account.message aria-live="polite" font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                     if account.email.length > 0
-                      button press=action("reveal", account.key, account.emailToken) min-height=44 padding=0 text-align="left" aria-label=account.emailAction
-                        text account.email font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+                      for emailToken in [account.emailToken] key=emailToken
+                        button press=action("reveal", account.key, emailToken) min-height=44 padding=0 text-align="left" aria-label=account.emailAction
+                          text account.email font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                     if account.deviceCode.length > 0
                       text account.deviceCode font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground
                     if account.output.length > 0
