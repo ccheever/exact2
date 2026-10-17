@@ -1365,7 +1365,8 @@ there is the control's text, said.
 Inside a route's `header`, wrap related bar buttons in a `row role="group"`.
 iOS 26 keeps each explicit group's buttons on one shared glass background and
 separates adjacent groups with UIKit's fixed-space item. Ungrouped buttons keep
-the existing platform default. The wrappers remain ordinary layout on the web;
+the existing platform default. `buttonStyle="glass"` on a bar button gives it a
+glass capsule of its own (`sharesBackground = false`), one for each button so styled. The wrappers remain ordinary layout on the web;
 this adds no spacing value or custom button face.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
