@@ -4877,6 +4877,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tamber-host-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "tamber-host-data",
+]
+
+[[package]]
 name = "tamber-host-apple"
 version = "0.1.0"
 dependencies = [

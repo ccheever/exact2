@@ -27,3 +27,8 @@ component TamberHost
       column -exact-mode="tone=cool"
         exact-swatch testId="pinned" height=60 message=pinnedMessage
       text `${pinnedSaid} ×${pinnedTimes}` testId="pinned-said"
+      // Android's swatch (modules/android): a view the Kotlin hatch hosts,
+      // which draws with ExactTamber(view).color("swatch.fill").
+      column hatch="swatch" testId="android-window" height=60
+      column -exact-mode="tone=cool"
+        column hatch="swatch" testId="android-pinned" height=60
