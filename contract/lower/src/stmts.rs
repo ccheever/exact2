@@ -8,10 +8,11 @@
 //! (LLP 1005 §2).
 
 use crate::{expr, LowerError, Lowerer};
-use contract_syntax::Stmt;
+use contract_syntax::{Expr, Node, Span, Stmt};
 use contract_types::{Ref, Scope, Ty};
 use exact_plan::asm::Asm;
 use exact_plan::Opcode;
+use std::collections::BTreeSet;
 
 impl Lowerer<'_> {
     /// The slot a state's or a mutation's name writes.
@@ -102,6 +103,9 @@ impl Lowerer<'_> {
                 if name == "setMode" {
                     crate::theme::set_mode_args(args, *span)?;
                 }
+                if name == "share" {
+                    share_pictures(&self.root.view, args)?;
+                }
                 let args = expr::command_args(name, args);
                 for arg in &args {
                     expr::compile_or_none(self, asm, *arg, scope, locals)?;
@@ -155,5 +159,74 @@ impl Lowerer<'_> {
             }
         }
         Ok(())
+    }
+}
+
+/// `share(files=["#id"])` (LLP 1125 D12): a literal `#id` that no element of
+/// the whole expanded view carries is refused here. Where some element's id
+/// is computed, or a node is not expanded or draws elements of its own
+/// (Markdown's headings), any id may exist, and the runner refuses a
+/// missing one into the journal when the share runs.
+fn share_pictures(view: &[Node], args: &[Expr]) -> Result<(), LowerError> {
+    let wanted: Vec<(&str, Span)> = args
+        .iter()
+        .filter_map(|a| match a {
+            Expr::NamedArg(n, value, _) if n == "files" => match value.as_ref() {
+                Expr::List(items, _) => Some(items),
+                _ => None,
+            },
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|item| match item {
+            Expr::Str(s, at) => s.strip_prefix('#').map(|id| (id, *at)),
+            _ => None,
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let mut ids = BTreeSet::new();
+    let mut stack: Vec<&Node> = view.iter().collect();
+    while let Some(node) = stack.pop() {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                if tag == "markdown" {
+                    return Ok(());
+                }
+                match attrs
+                    .iter()
+                    .rev()
+                    .find(|a| a.name == "id")
+                    .map(|a| &a.value)
+                {
+                    Some(Expr::Str(id, _)) => {
+                        ids.insert(id.as_str());
+                    }
+                    Some(_) => return Ok(()),
+                    None => {}
+                }
+                stack.extend(children);
+            }
+            Node::When {
+                then, otherwise, ..
+            } => stack.extend(then.iter().chain(otherwise)),
+            Node::Each { body, .. } => stack.extend(body),
+            Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
+            Node::Use { .. } | Node::Children { .. } => return Ok(()),
+        }
+    }
+    match wanted.into_iter().find(|(id, _)| !ids.contains(id)) {
+        Some((id, at)) => crate::err(
+            "lower-share-picture",
+            format!("`files=[\"#{id}\"]` names no element: nothing in the view has `id=\"{id}\"`, so there is no element to draw. Give the element to share `id=\"{id}\"`"),
+            at,
+        ),
+        None => Ok(()),
     }
 }

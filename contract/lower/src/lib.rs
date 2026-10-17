@@ -309,7 +309,7 @@ fn lower_with_sites(
     // Bound before any style is parsed, the profiles first: an entry may be
     // a profile's colour.
     let _profiles = l.declare_color_profiles(file);
-    let _theme = l.declare_theme(file, root);
+    let _theme = l.declare_theme(file, root, names_tokens_outside_views(file, root_types));
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -1074,7 +1074,15 @@ impl<'a> Lowerer<'a> {
                     aria_disabled.as_ref().unwrap_or(&a.value)
                 };
                 let (mut asm, mut depth) = (Asm::new(), locals);
-                let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
+                let mut ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
+                // @ref LLP 1125 D8 — `midiinputs=[…]` as the prop carries it, joined by newlines.
+                if prop == exact_kernel::PropId::MidiInputs
+                    && matches!(&ty, Ty::List(t) if matches!(**t, Ty::String | Ty::Unknown))
+                {
+                    asm.str(self.b.str("\n"));
+                    asm.call(exact_plan::Stdlib::Join);
+                    ty = Ty::String;
+                }
                 values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
                 // ARIA's word-valued states; a bool is written as `true`/`false`.
                 if values::aria_words(prop).is_some() && ty == Ty::Bool {
@@ -1127,4 +1135,20 @@ impl<'a> Lowerer<'a> {
         }
         Ok(())
     }
+}
+
+/// @ref LLP 1121 D7, D12 — whether an app can name a design token outside its
+/// views, so its plan keeps every token (or its design's `exports`) for the
+/// bindings: the one test for "an app with generated bindings". It has a
+/// data module (an `app.ts` or a Rust data crate beside it, or a source of
+/// the seam it reads, not one the runner answers) or a native module (a
+/// custom element its views show, or modules or hatches its `app.json`
+/// declares). The driver finds what is on disk (`DesignSource::bindable`).
+pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentTypes) -> bool {
+    file.design.as_ref().is_some_and(|d| d.bindable)
+        || root
+            .sources
+            .keys()
+            .any(|s| !exact_plan::runner_owned_source(s))
+        || !native::module_tags(file).is_empty()
 }

@@ -11,7 +11,7 @@ the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
-| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Surfaces` (the top layer's windows: a `Dialog`, a `PopupWindow`), `Bars` (the top app bar and the navigation bar, each a view over the page), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
+| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Surfaces` (the top layer's windows: a `Dialog`, a `PopupWindow`), `Bars` (the top app bar and the navigation bar, each a view over the page), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it), `ExactTamber` (`Tamber.kt`: a native view's design tokens by name, LLP 1121 D12) |
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
@@ -40,8 +40,9 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
 (`rustup target add aarch64-linux-android`). It:
 
 1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev` (`--release`: at `release`, for
-   measuring). The crate is a cdylib whose source is `exact_linux::canvas_jni!(<the data source>)`, with a build
-   script that bakes the plan; `apps/caltrain/android` is the one to copy for an app whose data is Rust and
+   measuring). The crate is a cdylib whose source is `exact_linux::canvas_jni!(<the data source>, hatches =
+   crate::exact_hatches())`, with a build script that bakes the plan and calls `contract::native::android_entry`,
+   which writes the app's hatches' install (`hatches.rs`) and the plan's uses (`uses.txt`) beside it; `apps/caltrain/android` is the one to copy for an app whose data is Rust and
    `apps/shelf/android` for one whose data is TypeScript (three files each, and a line in the root `Cargo.toml`'s
    `members`). A game's is generated in its `.shells/` (`game/app/shells.mjs`). An app with a GPU module (LLP 1009;
    every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
@@ -50,7 +51,9 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    its own name, and the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`;
 3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here (a game's `.shells/`, whose
    `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
-   the module unstripped, since the host opens it by path and checks its digest,
+   the module unstripped, since the host opens it by path and checks its digest; with `-Pcompose=1` when the plan's
+   uses name `dates` (a date or time control), which links Compose Material 3 for its pickers; and with the Kotlin
+   in the app's `modules/android`, its hatches, compiled in,
 
 and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id and the label are the app's
 `app.json` (`app.id`, with `-` as `_`, which a package name cannot hold; `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
@@ -365,6 +368,8 @@ capability has a call of its own.
 | 6 | the software keyboard | two words: 0 hidden, 1 shown for an `input`, 3 for a `textarea`; then the hosted field it is for (D8), or 0 for a field exact2 paints | for a hosted field, that `EditText` takes the focus and shows its own keyboard (`Fields.focus`); else `Keys.show` | none |
 | 7 | the top layer's surface (D10, below) | its serial; what it is (0 it closed, 1 an alert, 2 a menu); flags (bit 0 Back and Escape dismiss it, bit 1 a tap outside does, bits 2 and 3 the corner a menu grows from: its right side, its bottom); where its window goes in the activity's window and its size (x, y, width, height, pixels; an alert's place is the platform's); its container's corner radius and elevation in pixels, as float bits; a count, then that many words: its picture, an op stream of its own | makes, repaints, moves or dismisses that surface's window (`Surfaces.told`) | none by id: what happens in the window is told by `Native.surface` |
 | 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
+| 9 | a date or time control's picker (LLP 1115.001.000 D1) | the control's node; then five strings: its kind (`date`, `time`, `datetime-local`), what it shows now, its `min`, `max` and `step`, each as HTML writes it; then its `accent-color`, opaque ARGB, or 0 for none | asks the node's Kotlin hatch (D3), then shows the activity's `pickers`: Compose Material 3's where the app links it, else the framework's dialogs ("Pickers and hatches", below) | the value chosen in HTML's form, which exact2 sets as a person's choice (`input`, then `change`), or null when dismissed; exact2 journals `picker: dismissed for <node>` |
+| 10 | the moments the app's Kotlin hatches hear, and what their clock and input call back (LLP 1115.001.000 D4) | for each, led by its scope: 1 the app or 3 a node, then its moment (0 built, 1 changed, 2 ended), the node, its box (four floats as bits, the document's points), its word and `id` as strings, the count of its `data-*` words and each name and value; 5 a tick, its ticket, the clock (an `f64`'s bits, high word first) and the commit; 6 an `after`, its ticket; 7 input, its ticket, the node, then 1 and a pointer's phase, points and whether it was handled, or 2 and a key's `key`, `code`, down, repeat and handled (`hatches/reader.rs`) | calls the app's `exact.app.Hatches` (`HatchReader.told`) | none: what a hatch asks goes by `Native.hatchAct` |
 
 Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
@@ -388,12 +393,51 @@ where it is asked (`Presenter::request`, which wakes the reader); with an answer
 row above. What layout needs while it runs (a field's metrics, D8) is not a request: a queue taken after the frame is
 too late for it.
 
-**Not on it yet:** notifications and the pickers (`showNotification`, `showPicker`, `saveFile`, the document
+**Not on it yet:** notifications and the file pickers (`showNotification`, `showPicker`, `saveFile`, the document
 pickers) are still refused, and the journal then says the channel does not carry them yet. Accessibility events
 (D13) will take it too.
 
 `x_log_requests=1` at launch (exact2's `EXACT_LOG_REQUESTS`) logs each request as exact2 queues it and as the reader
 acts on it, with what `performHapticFeedback` returned: a haptic and a clipboard write show nowhere else.
+
+## Pickers and hatches (LLP 1115.001.000)
+
+**A date or time control's picker** (D1, D2). A press on an `input type="date"`, `"time"` or `"datetime-local"` is
+request kind 9 (above). The reader asks the node's hatch first, then shows `ExactActivity.pickers`: the shell's
+`MainActivity` gives Compose Material 3's `DatePickerDialog` and `TimePickerDialog` (`app/src/compose`, on the
+device's dynamic colours, in a `ComposeView` added for as long as the dialog is up) when the APK links Compose, and
+the framework's `DatePickerDialog` and `TimePickerDialog` (`FrameworkPickers`) when it does not. `datetime-local` asks
+for the day, then the time. The APK links Compose only when the plan has such a control: `agent-android.mjs` reads
+the plan's uses and passes `-Pcompose=1`. The activity stays a plain `Activity`; the Compose picker brings the
+lifecycle and saved-state owners a `ComposeView` looks for. Both pickers offer Clear while the control holds a value
+(the string is the reader's, `res/values*/strings.xml`), and Material's is in the control's `accent-color` where it
+has one, its primary roles that colour's tones. Under the agent a press holds the picker instead (`type @date
+2026-10-23`, `tap @date clear`, `tap @date cancel`). `x_log_requests=1` logs each picker's first frame, from the
+request and from the touch (`Exact.touched`).
+
+**The field** (D6) is painted by exact2 as Material's filled text field, for a text field, a select and a date or
+time control alike. A date control shows its value as the device writes it: `Device.read` sends, with the other
+settings, the patterns `DateFormat.getBestDateTimePattern` picks for the locale and the person's clock, ICU's month
+and weekday names, eras and day periods, and the zero digit (`Device.dates`), and exact2 fills them in. A field's
+`placeholder` is its floating label, painted by exact2; a hosted `EditText` keeps it as its hint, in no colour, for
+TalkBack.
+
+**Hatches** (D4, D5). The app's Rust hatches (`modules/linux`, or Rust in `modules/android`) run on this host as on
+Linux: `canvas_jni!`'s `hatches` hands the host their install, they connect as the reader takes its first requests
+after a displayed frame, and an overlay is painted as a canvas is, as a picture. Beside them, Kotlin in the app's
+`modules/android` defines `class exact.app.Hatches : ExactHatches()` (`Hatches.kt`), which hears the same moments
+for the same words (`app.json`'s for `android`) as request kind 10: `app`, `element`, `elementEnded`, on the main
+thread. Its handle, `ExactElement`, has the node's word, `id`, box and `data-*` words; `click`, `focus`, `blur` and
+`input(text)`, which cross by the node's number (`Native.hatchAct`) and run between exact2's turns; and `view`, a
+text field's `EditText` where the reader hosts it; `host { context -> view }`, a view of the app's own in the node's
+box, made for each activity and shown by `Natives` as element kind 5 wherever the node is painted; and `diagnostics`. The module has exact2's clock and
+input: `frames`, `after` and `observe`, each a ticket that `stop()` ends, told back as scopes 5, 6 and 7 of kind 10.
+`picker(element, picker)` is asked as a hatched date or time
+control's picker opens: it may set the title, the text-entry mode, the mode toggle, the days allowed, the 24-hour
+clock, or show its own (`ExactPicker.show`). `apps/native-fixture/modules/android` is one: it logs every moment
+under `ExactHatch`, gives its `due` pickers titles, no weekends and a 24-hour clock, and hosts a dial at `spin` that
+turns on exact2's clock and stops at a tap. `bun scripts/exact.mjs hatch <word> <app>` writes the class for an app
+with an `android/` crate.
 
 ## Text fields (LLP 1115.001 D8)
 

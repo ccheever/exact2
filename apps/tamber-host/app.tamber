@@ -1,0 +1,9 @@
+tamber host
+
+axes
+  tone = warm | cool
+
+theme
+  swatch.fill = light-dark(#c8102e, #ff6b6b)
+    when tone=cool: light-dark(#0a7aff, #64b5f6)
+  page = light-dark(#ffffff, #000000)

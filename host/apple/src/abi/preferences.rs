@@ -3,12 +3,21 @@
 //! 1027.000.000) and where the viewer is, told to the running host, and
 //! before each boot for its first settle (`set_launch_time`, `set_launch_place`);
 //! and the host's live clock while it owns time (the timers RFC, D1), told to the
-//! running host and kept for every boot (`set_live_clock`).
+//! running host and kept for every boot (`set_live_clock`); and whether the
+//! running plan reads the page's `onLine` (LLP 1069.000 D2).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// 1 when the running plan reads `onLine`, and before boot: the host
+    /// watches the network only then.
+    pub fn reads_on_line(&self) -> u32 {
+        self.host
+            .as_ref()
+            .map_or(1, |h| u32::from(h.runner().reads_page_field("onLine")))
+    }
+
     /// The running session's role overrides (LLP 1121 stage 5), bound
     /// around each call to it (`registry::with_entry`).
     pub fn roles(&self) -> Option<std::rc::Rc<exact_kernel::style::roles::Roles>> {
@@ -56,6 +65,21 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The binding core's answer (LLP 1121 D12, stage 5) to the request in
+    /// the input buffer ([`Host::tamber_json`]), UTF-8 in the output buffer.
+    /// Not a batch: nothing changes.
+    pub fn tamber(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        self.output = match self.host.as_mut() {
+            Some(h) => h.tamber_json(&text),
+            None => exact_runner::agent::error("tamber: not booted"),
+        }
+        .into_bytes();
+        self.output.len() as u32
+    }
+
     /// The design digest the running app runs (its plan's, or the live
     /// table's applied since), UTF-8 in the output buffer; empty before
     /// boot. Not a batch: nothing changes.
@@ -66,6 +90,16 @@ impl<D: DataSource> Bridge<D> {
             .map(|h| h.runner().design())
             .unwrap_or_default()
             .into_bytes();
+        self.output.len() as u32
+    }
+
+    /// The running plan's digest, UTF-8 in the output buffer; empty before boot.
+    pub fn plan_digest(&mut self) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .map(|h| h.runner().inspection_digest().as_bytes().to_vec())
+            .unwrap_or_default();
         self.output.len() as u32
     }
 
@@ -132,6 +166,21 @@ impl<D: DataSource> Bridge<D> {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().set_live_clock(wall.map(sampler));
         }
+    }
+}
+
+impl<D: DataSource> Bridge<D> {
+    /// A MIDI message in the input buffer (LLP 1125 D6–D8): the arm's
+    /// report of the ports or the inputs, or the agent's (`Host::midi`).
+    pub fn midi(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.midi(&text));
+        self.emit(out)
     }
 }
 

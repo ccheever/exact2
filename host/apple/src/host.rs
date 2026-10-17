@@ -1,5 +1,4 @@
-//! The runner wrapped for a presenter: receipts → batches, with layout and
-//! motion.
+//! The runner wrapped for a presenter: receipts → batches, with layout and motion.
 //!
 //! @ref LLP 1008 §1
 //!
@@ -64,12 +63,16 @@ mod height_tests;
 mod holds;
 #[path = "live.rs"]
 mod live;
+#[path = "midi.rs"]
+mod midi;
 #[path = "paint.rs"]
 mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
 #[path = "presence.rs"]
 mod presence;
+#[path = "tamber.rs"]
+mod tamber;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
@@ -231,7 +234,6 @@ pub struct Host<D: DataSource> {
     facts_told: Option<(f64, Vec<(String, String)>)>,
     /// Whether the wake lock was held as a batch last said it (`Host::wakelock_moved`).
     wakelock_told: Option<bool>,
-    unopened: layout::unopened::Unopened,
     /// The top-layer boxes covered while closed (`closed.rs`).
     closed: layout::closed::Closed,
 }
@@ -444,8 +446,9 @@ impl<D: DataSource> Host<D> {
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
         runner.set_device_links(links.device);
-        // @ref LLP 1079 D1 — a development build measures its work.
-        runner.measure_unless_production(compat, true);
+        // @ref LLP 1079 D1 — a development build measures its work, a
+        // release build from the first ask (`Bridge::measure_work`).
+        crate::abi::measure_at_boot(&mut runner, compat);
         runner.admit_live(compat);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
@@ -538,12 +541,10 @@ impl<D: DataSource> Host<D> {
             colors_seen: None,
             facts_told: None,
             wakelock_told: None,
-            unopened: Default::default(),
             closed: Default::default(),
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
-        host.close_unopened_tabs();
         let order = host.preorder();
         host.close_top_layer(&order);
         let handlers = host.runner.handlers();
@@ -559,7 +560,9 @@ impl<D: DataSource> Host<D> {
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
         colors::emit_roles(&mut batch);
-        host.emit_surfaces(&mut batch);
+        for s in host.runner.take_surface_updates() {
+            batch.surface(&s);
+        }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             batch.router(&change);
@@ -567,7 +570,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
-        batch.sound(host.runner.take_sounds(), Some(host.runner.plan()));
+        batch.timed(&mut host.runner, true);
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
@@ -634,12 +637,11 @@ impl<D: DataSource> Host<D> {
     /// D6). `appFile` names the file behind an `app:/` path, what an export
     /// copies from (LLP 1069.010 D3); `appRoots` the three roots, which the
     /// Swift host resolves an image's `app:/` source against (LLP 1069.002
-    /// D7). `None` for an ordinary `tap` or `type`.
+    /// D7); `shareFile` a share's confined copy (LLP 1125 D12). `None` else.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         let op = exact_runner::agent::field_str(request, "op");
-        if op.as_deref() == Some("appFile") {
-            let path = exact_runner::agent::field_str(request, "path").unwrap_or_default();
-            return Some(crate::picker::app_file(&path));
+        if let Some(op @ ("appFile" | "shareFile")) = op.as_deref() {
+            return Some(crate::picker::file_op(op, request, self.runner.data_ref()));
         }
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());
@@ -1058,7 +1060,7 @@ impl<D: DataSource> Host<D> {
         self.commit(&receipts, error)
     }
 
-    /// that moved.
+    /// The viewport's new size, in one batch.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
         self.resize_inner(width, height, Batch::new(), None)
     }
@@ -1153,7 +1155,8 @@ impl<D: DataSource> Host<D> {
         mut batch: Batch,
         error: Option<String>,
     ) -> String {
-        // @ref LLP 1039 D2 — merge re-answer and relayout, once.
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
+                                               // @ref LLP 1039 D2 — merge re-answer and relayout, once.
         let receipt = match self.runner.set_viewport(width as f64, height as f64) {
             Ok(receipt) => receipt,
             Err(e) => return self.finish(batch, error.or(Some(format!("viewport: {e:?}")))),
@@ -1199,6 +1202,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
+        let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).
         crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
         let (mut batch, error) = self.resize_rounds(batch, error);
         self.state_onto(&mut batch);
@@ -1224,6 +1228,7 @@ impl<D: DataSource> Host<D> {
         error: Option<String>,
         mut batch: Batch,
     ) -> (Batch, Option<String>) {
+        let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).
         self.native_retire_removed_owner(&mut batch);
         self.native_note_receipts(receipts);
         let bulk_handlers = (receipts
@@ -1232,7 +1237,6 @@ impl<D: DataSource> Host<D> {
             .sum::<usize>()
             > 1)
         .then(|| self.runner.handlers());
-        self.close_new_tabs(receipts);
         self.close_new_top_layer(receipts);
         for t in receipts {
             let r = &t.receipt;
@@ -1285,7 +1289,6 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        self.open_selected_tabs(&mut batch);
         self.emit_paragraphs(&mut batch);
         let roots = self.runner.roots();
         if roots != self.roots {
@@ -1347,7 +1350,9 @@ impl<D: DataSource> Host<D> {
             self.emit_ranks(&mut batch);
         }
         self.canvas_turn(&mut batch);
-        self.emit_surfaces(&mut batch);
+        for s in self.runner.take_surface_updates() {
+            batch.surface(&s);
+        }
         // The capabilities the actions called, after their commits, in order.
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {
@@ -1356,7 +1361,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
-        batch.sound(self.runner.take_sounds(), None);
+        batch.timed(&mut self.runner, false);
         (batch, error.or(layout_error))
     }
 

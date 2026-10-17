@@ -87,7 +87,6 @@ component App
       nav = back(nav)
   view
     main testId="root" navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
-      accent-color="-exact-system-indigo"
       for e in stack(nav) key=e.id
         if e.name == "home"
           column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0

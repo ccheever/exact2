@@ -460,6 +460,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         // The feed where a driver's scrolls put it, then every scroller a finger moved where the reader has it, and
         // the hosted fields with their scrollers' rows.
         if (any) { placeFeed(); scrolling.place(); fields?.place() }
+        // A view lent to another element by these streams (a paint, or a move's `placeFeed`) is asked at its new place.
+        if (any) Tambers.placed()
         if (coverTrace && painted) traceNewRows()
         moved = !painted
         quiet = painted && allQuiet && move == null
@@ -616,6 +618,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             }
         }
         n.near(nearShow, nearKeep, nearKnown, nearSeen)
+        // A pooled view lent to another row as the feed scrolls is asked at its new place.
+        Tambers.placed()
     }
 
     /** Where the feed's group is drawn: the last stream's place, less the scrolls the owner has yet to apply; where a
@@ -820,6 +824,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         Native.fields()?.let { fields?.told(it) }
         Native.bars()?.let { bars?.told(it) }
         if (accessible) Native.access(accessAgain).also { accessAgain = false }?.let { access?.invoke(it) }
+        // exact2 runs on this thread (owner=0): its bindings are checked here, as the owner checks them after a turn.
+        Tambers.turned()
         fresh ?: return false
         Native.chrome()?.let(chrome)
         val told = Native.scrollers()
@@ -829,6 +835,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         told?.let { scrolling.told(it) }
         scrolling.place()
         fields?.place()
+        Tambers.placed()
         return true
     }
 

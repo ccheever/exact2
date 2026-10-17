@@ -15,6 +15,8 @@ pub struct Carried {
     pub keeps_answers: bool,
     /// Slot name → value.
     pub slots: Vec<(String, Value)>,
+    /// Tab panels' state (LLP 1075.003 §9.14): (panel `id`, slot name, value).
+    pub panels: crate::instance::tabs::CarriedPanels,
     /// Resource name → (source name, arguments, value).
     pub resources: Vec<(String, String, Vec<Value>, Value)>,
     /// (Resource name, source name) pairs whose answer depends on the store.

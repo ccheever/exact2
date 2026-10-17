@@ -14,17 +14,21 @@ impl<D: DataSource> Host<D> {
             return exact_runner::agent::error("live: not a tamber batch or snapshot");
         };
         let (batch, live, unsupported) = match self.runner.apply_live(&edit) {
-            Ok(applied) => (
-                self.commit(
-                    &[Timed {
-                        at_ms: self.now_ms,
-                        receipt: applied.receipt,
-                    }],
-                    None,
-                ),
-                "applied".to_string(),
-                applied.full,
-            ),
+            Ok(applied) => {
+                let mut batch = crate::batch::Batch::new();
+                if applied.roles {
+                    self.roles_moved(&mut batch);
+                }
+                let receipts = [Timed {
+                    at_ms: self.now_ms,
+                    receipt: applied.receipt,
+                }];
+                (
+                    self.commit_into(&receipts, None, batch),
+                    "applied".to_string(),
+                    applied.full,
+                )
+            }
             Err(refusal) => (
                 self.commit(&[], None),
                 match refusal {

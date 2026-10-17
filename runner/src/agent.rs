@@ -58,6 +58,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             },
             None => error("picker needs an id"),
         },
+        // Every view's plan site, and the plan's digest (LLP 1122 D5): what a
+        // development page outlines by, without a node's whole explanation.
+        Some("sites") => runner.view_sites_json(),
         Some("node") => match field_num(request, "id") {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
@@ -372,12 +375,12 @@ pub(crate) fn target<D: DataSource>(
     }
 }
 
-/// Every live root and node, in structural preorder.
 /// The tree: every live node in preorder — id, parent, depth, type, props by
 /// their schema names, the events it handles, `inactive` when it is under a
-/// route its navigation root has not selected, its children — plus the
-/// kernel's epoch and incarnation (the consistency token: nothing moves
-/// between two calls unless the agent moved it).
+/// route its navigation root has not selected, `unopened` on a tab panel not
+/// yet built (LLP 1075.003 §9.14), its children — plus the kernel's epoch
+/// and incarnation (the consistency token: nothing moves between two calls
+/// unless the agent moved it).
 pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
     tree::all(runner, false)
 }
@@ -510,6 +513,12 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         }
         s.push(']');
     }
+    // The app modes it is in (LLP 1121 D5): the window's, overridden by the
+    // pins above it (LLP 1122 D5's selected node's tuple).
+    if let Some(modes) = runner.modes_of_view_json(id) {
+        s.push_str(",\"modes\":");
+        s.push_str(&modes);
+    }
     // An own row the plan binds by an expression is `dynamic` (D5); one it
     // binds by a literal — or that a class expansion or the runner set — is
     // `authored`. The plan's bindings for this node's site say which.
@@ -549,7 +558,10 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         } else {
             match node.source_of(row) {
                 Some(from) => {
-                    let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}}}");
+                    // And the token the ancestor's own row read, its link.
+                    let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}");
+                    token_json(runner, from, row, &mut s);
+                    s.push('}');
                 }
                 None => s.push_str(",\"source\":\"initial\"}"),
             }
@@ -713,9 +725,10 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         runner.page(),
         runner.viewport().fold,
     );
+    let (files, pictures) = (page.can_share_files, page.can_share_pictures);
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canShareFiles\":{files},\"canSharePictures\":{pictures},\"canOpenFiles\":{},\"hasFocus\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -907,7 +920,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     s.push(']');
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner.kernel(), &mut s);
-    transport::state(runner, &mut s);
+    transport::state(runner, request, &mut s);
     // The store's names, never its values (LLP 1018 D5).
     s.push_str(",\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {

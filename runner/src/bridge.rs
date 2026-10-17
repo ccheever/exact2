@@ -294,11 +294,32 @@ thread_local! {
 
 /// A token's value from now on, over the plan's (LLP 1121 D13's edit): its
 /// default tuple's and, when it varies, every tuple's. The tables are built
-/// again when next bound.
-pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) {
+/// again when next bound. Whether it differs from what the token held.
+pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) -> bool {
     let at = plan_at(plan);
     EDITS.with(|edits| {
         let mut edits = edits.borrow_mut();
+        let held = match edits.iter().find(|(p, n, ..)| *p == at && n == name) {
+            Some((_, _, v, s)) => Some((v.clone(), s.clone())),
+            None => plan
+                .theme
+                .iter()
+                .find(|r| plan.str(r.name) == name)
+                .map(|r| {
+                    let slices =
+                        &plan.theme_slices[r.slices.start as usize..][..r.slices.len as usize];
+                    (
+                        plan.str(r.value).to_string(),
+                        slices
+                            .iter()
+                            .map(|s| plan.str(s.value).to_string())
+                            .collect(),
+                    )
+                }),
+        };
+        let moved = held.is_none_or(|(v, s): (String, Vec<String>)| {
+            v != value || s.iter().map(String::as_str).ne(slices.iter().copied())
+        });
         edits.retain(|(p, n, ..)| *p != at || n != name);
         edits.push((
             at,
@@ -306,8 +327,9 @@ pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&s
             value.into(),
             slices.iter().map(|s| (*s).into()).collect(),
         ));
-    });
-    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+        THEME_TABLE.with(|cache| cache.borrow_mut().take());
+        moved
+    })
 }
 
 /// A plan's buffers: which plan a cached table or an edit is.
@@ -429,13 +451,15 @@ pub fn role_overrides(plan: &exact_plan::Plan) -> Vec<(u8, exact_kernel::ColorVa
         .iter()
         .filter_map(|row| {
             let id = exact_kernel::style::roles::role(plan.str(row.role))?;
-            let value = plan.str(row.value);
-            let colour = exact_kernel::ColorValue::parse_light_dark(value).or_else(|| {
-                exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed)
-            })?;
-            Some((id, colour))
+            Some((id, role_colour(plan.str(row.value))?))
         })
         .collect()
+}
+
+/// A role override's colour from its row's value text (a pair, or one).
+pub fn role_colour(value: &str) -> Option<exact_kernel::ColorValue> {
+    exact_kernel::ColorValue::parse_light_dark(value)
+        .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed))
 }
 
 /// [`set_plan_style`] for one of `plan`'s style bindings, with what the

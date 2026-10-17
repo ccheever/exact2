@@ -140,7 +140,10 @@ pub unsafe fn attach(env: *mut JNIEnv, scale: f32) {
 }
 
 /// A Java string of `s` (UTF-16, so every scalar crosses whole).
-unsafe fn java(env: *mut JNIEnv, s: &str) -> jstring {
+///
+/// # Safety
+/// `env` is the JNI call's.
+pub unsafe fn java(env: *mut JNIEnv, s: &str) -> jstring {
     let units: Vec<u16> = s.encode_utf16().collect();
     ((**env).NewString.expect("jni"))(env, units.as_ptr(), units.len() as i32)
 }

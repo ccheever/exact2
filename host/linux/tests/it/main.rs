@@ -20,6 +20,7 @@ mod native_buttons;
 mod native_fields;
 mod presence;
 mod svg;
+mod tamber;
 mod timeline;
 mod transform_binding;
 mod transform_contact;

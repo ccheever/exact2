@@ -30,7 +30,7 @@ mod style;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload] [--app <dir>]\n       exact-web-js normalize-grants <file>\n       exact-web-js design <app.contract> <design text file, or - for stdin>";
 
 /// `design <app.contract> <file | ->` (LLP 1121 stage 4, commit 6): a scrub's
 /// design, the text (`-`: stdin) compiled in place of the app's design file, as a
@@ -88,9 +88,20 @@ fn main() -> ExitCode {
     }
     let sites = all.iter().any(|a| a == "--sites");
     let dev_reload = all.iter().any(|a| a == "--dev-reload");
+    // `--app <dir>`: the app a baked plan is of, whose design's `exports`
+    // bound the declarations' token union (LLP 1121 D7).
+    let app = all
+        .iter()
+        .position(|a| a == "--app")
+        .and_then(|i| all.get(i + 1).cloned());
+    let mut skip = false;
     let args: Vec<String> = all
         .into_iter()
-        .filter(|a| a != "--sites" && a != "--dev-reload")
+        .filter(|a| {
+            let dropped = skip || a == "--app";
+            skip = a == "--app";
+            !dropped && a != "--sites" && a != "--dev-reload"
+        })
         .collect();
     let (input, out, dump) = match args.as_slice() {
         [cmd, input, o, out] if cmd == "js" && o == "-o" => (input, out, false),
@@ -284,9 +295,17 @@ fn main() -> ExitCode {
             }
             // What `app.ts` is type-checked against, as the native bake
             // checks it (host/web-js/build.mjs; calendar F9).
-            if let Err(e) = contract::typescript(&plan).and_then(|d| {
-                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
-            }) {
+            let contract_path = match (&app, input.ends_with(".plan")) {
+                (Some(app), _) => Some(std::path::Path::new(app).join("app.contract")),
+                (None, false) => Some(std::path::PathBuf::from(input)),
+                (None, true) => None,
+            };
+            let exports = contract_path.and_then(|p| contract::design_exports(&p));
+            if let Err(e) =
+                contract::typescript_exporting(&plan, exports.as_deref()).and_then(|d| {
+                    std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+                })
+            {
                 eprintln!("app.contract.d.ts: {e}");
                 return ExitCode::from(1);
             }

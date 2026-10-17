@@ -54,6 +54,7 @@ fn boot(source: &str) -> Runner<NoData> {
 
 /// A box's own `background-color`, by test id: `None` where it paints nothing.
 fn fill(r: &Runner<NoData>, id: &str) -> Option<ColorValue> {
+    let _roles = r.bind_roles(); // Its own: the test's other runners live too.
     let key = r.kernel().find_by_test_id(id)[0];
     let fill = r.kernel().node_by_key(key).unwrap().style.background_color;
     fill.filter(|c| c.resolve(false).a() != 0)

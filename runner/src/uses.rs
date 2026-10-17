@@ -120,11 +120,16 @@ pub enum Capability {
     /// numeric text, whose framework an app links only for this (LLP
     /// 1115.003 D3). A plan uses it when it binds the row.
     Numerals,
+    /// A date or time control (`input type="date"`, `"time"` or
+    /// `"datetime-local"`): on Android its picker is Compose Material 3's,
+    /// which an app links only for it (LLP 1115.001.000 D2). Every other
+    /// host shows its platform's own picker and links nothing for it.
+    Dates,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 29] = [
+    pub const ALL: [Capability; 30] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -154,6 +159,7 @@ impl Capability {
         Capability::MediaPicker,
         Capability::AuthSession,
         Capability::Numerals,
+        Capability::Dates,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -188,6 +194,7 @@ impl Capability {
             Capability::MediaPicker => "media_picker",
             Capability::AuthSession => "auth_session",
             Capability::Numerals => "numerals",
+            Capability::Dates => "dates",
         }
     }
 
@@ -301,6 +308,13 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
                 Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
                     uses = uses.with(Capability::Picker);
+                }
+                Some(PropId::Type)
+                    if can_be(binding, &|v| {
+                        matches!(v, "date" | "time" | "datetime-local")
+                    }) =>
+                {
+                    uses = uses.with(Capability::Dates);
                 }
                 _ => {}
             },
@@ -535,6 +549,34 @@ pub fn runs_sounds(plan: &Plan) -> bool {
     !plan.sounds.is_empty()
         || !plan.sequences.is_empty()
         || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+}
+
+/// Whether `plan` asks for MIDI ports or hears an input (LLP 1125 D6–D8):
+/// it reads `exactMIDI`, runs `sendMIDI` or `requestMIDIAccess`, declares a
+/// `midimessage` handler, or plays a sequence with `clockOut=`. What loads a
+/// host's MIDI arm (rulings #10); a sequence's notes alone do not, since
+/// without access no note is sent.
+pub fn uses_midi(plan: &Plan) -> bool {
+    plan.resources
+        .iter()
+        .any(|r| plan.str(r.source) == crate::midi::SOURCE)
+        || runs_command(plan, &["sendMIDI", "requestMIDIAccess"])
+        || plan.nodes.iter().any(|n| {
+            n.handlers
+                .iter()
+                .any(|h| plan.handler(h).event == exact_plan::EventKind::Midimessage)
+        })
+        || plan.sequences.iter().any(|q| {
+            constant_str(plan, plan.code(q.clock_out)) != Some("")
+                || constant_str(plan, plan.code(q.clock)) != Some("")
+        })
+}
+
+/// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):
+/// for a plan that [`uses_midi`] or declares a sequence, whose notes and
+/// clock go on it. The JS target bundles midi.js then.
+pub fn keeps_midi(plan: &Plan) -> bool {
+    uses_midi(plan) || !plan.sequences.is_empty()
 }
 
 fn runs_command(plan: &Plan, names: &[&str]) -> bool {

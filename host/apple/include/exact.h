@@ -367,8 +367,10 @@ uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float w
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
  * A nonzero token supplies signed delivery facts. Identity and grants match
- * the binary; the caller admits the development origin or signed assets. */
-uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height);
+ * the binary; the caller admits the development origin or signed assets.
+ * Requests in flight refuse it (`"requests":true`) unless let_go, nonzero
+ * only for a dev generation past its settle window (LLP 1007 §6). */
+uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
 void exact_discard_plan(ExactRuntime rt);
@@ -567,15 +569,29 @@ uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
+/* @ref LLP 1125 D6-D8: a MIDI message, JSON in the input buffer: the MIDI
+ * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
+ * `tap midi`. Returns the batch length. */
+uint32_t exact_midi(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev
  * stream (JSON), applied in place; the batch says `live`: applied, stale,
  * structure or refused. Development builds only. */
 uint32_t exact_design_rows(ExactRuntime rt, size_t len);
+/* @ref LLP 1121 D12, stage 5: the binding core. A request
+ * `{"view": id, "names": [token, …]}` (view 0: the session's root) in the
+ * input buffer; answers `{"inputs": "…", "colors": {token: colour|null}}`,
+ * UTF-8 in exact_out, each colour as a row crosses it, null for a name the
+ * plan lacks or a value that is no colour (the binding keeps its fallback).
+ * `inputs` moves when anything the answer read does. A view that is not live,
+ * or names that are not strings, answer {"error"}. Not a batch. */
+uint32_t exact_tamber(ExactRuntime rt, size_t len);
 /* The design digest the running app runs (its plan's, or the live table's
  * applied since), UTF-8 in exact_out, length 0 before boot. Not a batch. */
 uint32_t exact_design_digest(ExactRuntime rt);
+/* The running plan's digest, UTF-8 in exact_out, length 0 before boot. */
+uint32_t exact_plan_digest(ExactRuntime rt);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
  * after boot and on each change — bit 0 reduced motion, bit 1 reduced
  * transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark system;
@@ -586,6 +602,9 @@ uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 /* @ref LLP 1069.000 D2: the page's facts, told after boot and on each change —
  * bit 0 hidden, bit 1 offline, bit 2 a share sheet. */
 uint32_t exact_set_page(ExactRuntime rt, uint32_t bits);
+/* 1 when the running plan reads `onLine`, and before boot: only then does
+ * the host watch the network. */
+uint32_t exact_reads_on_line(ExactRuntime rt);
 /* @ref LLP 1069.000 D3: the root font size `rem` follows, in points. */
 uint32_t exact_set_root_font_size(ExactRuntime rt, double px);
 /* @ref LLP 1115 D6, LLP 1115.000 D13.4: whether a confirmation's rows are an
@@ -611,6 +630,11 @@ void exact_canvas_held(ExactRuntime rt, uint32_t view, uint32_t held);
  * turn's batch says "canvasOwed" and exact_canvas_draw runs the draws, off the
  * turns main waits on; a tick draws in its own turn. */
 void exact_canvas_defer(ExactRuntime rt, uint32_t deferred);
+/* LLP 1079 D1: runtimes booted from now count each plan site's work for perf
+ * from the first ask, exact_measure_work, not from boot (a release build's
+ * choice). exact_measure_work starts this runtime's count; returns 0. */
+void exact_measure_work_later(void);
+uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */

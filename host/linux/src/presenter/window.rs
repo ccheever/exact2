@@ -192,6 +192,7 @@ impl<D: DataSource> Presenter<D> {
     /// What the shell draws around the page; on a host that told no window,
     /// the viewport at the origin.
     pub fn chrome(&self) -> Chrome {
+        let _roles = self.host.runner().bind_roles(); // Its session's (LLP 1121 stage 5).
         let dark = self.dark();
         let kernel = self.host.kernel();
         let authored = self

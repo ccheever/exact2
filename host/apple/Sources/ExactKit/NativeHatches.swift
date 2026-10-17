@@ -147,6 +147,35 @@ private let hatchRecord: HatchRecordFn = { host, kind, node, scope, scopeLength,
                         text: text.map { Data(bytes: $0, count: Int(textLength)) } ?? Data())
 }
 
+private typealias HatchTamberFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UInt32
+
+/// `tamber(host, view, request, len, out, cap) → len` (LLP 1121 D12): a
+/// native module's `ExactTamber`. `request` is `{"names": [..]}`; the answer,
+/// `{"inputs", "colors": {name: [[r, g, b, a] × 8] | null}}`, each colour
+/// resolved for the eight sides a view draws in (bit 0 dark, bit 1 more
+/// contrast, bit 2 elevated) under the view's tint, as extended sRGB
+/// (0–1, past it for a wide colour), as the library cannot read a row's
+/// value; `inputs` folds that tint in. Written into `out` when `cap` holds
+/// it; its length either way.
+private let hatchTamber: HatchTamberFn = { host, view, request, length, out, cap in
+    guard let session = hatchSession(host), let request,
+          let asked = try? JSONSerialization.jsonObject(with: Data(bytes: request, count: Int(length))) as? [String: Any] else { return 0 }
+    var at = view.map { Unmanaged<PlatformView>.fromOpaque($0).takeUnretainedValue() }
+    while let v = at, !(v is NodeView) { at = v.superview }
+    let node = at as? NodeView
+    guard let answer = Tambers.ask(session, view: node?.id ?? 0, names: asked["names"] as? [String] ?? []) else { return 0 }
+    let colors = answer.colors.mapValues { value -> Any in
+        guard let value else { return NSNull() }
+        return (0..<8).map { side in
+            value.textChannels(dark: side & 1 != 0, contrast: side & 2 != 0, elevated: side & 4 != 0, tint: answer.tints[side])
+                .map { ExactTamber.extended(TextEngine.color($0)) } ?? []
+        }
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: ["inputs": answer.inputs, "colors": colors]) else { return 0 }
+    if let out, data.count <= Int(cap) { data.copyBytes(to: out, count: data.count) }
+    return UInt32(data.count)
+}
+
 /// The diagnostics' call table, which a development build's host table names.
 private let hatchDiagnosticsTable: UnsafeRawPointer = {
     let t = UnsafeMutableRawPointer.allocate(byteCount: 16, alignment: 8)
@@ -159,7 +188,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 96
+    let size = 104
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -174,6 +203,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchAfter, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchOwns, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchParts, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchTamber, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 

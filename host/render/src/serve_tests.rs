@@ -97,7 +97,10 @@ fn a_page_carries_the_permissions_policy_its_grants_derive() {
     let policy = exact_runner::device::permissions_policy(
         "net.fetch https://x/\ndevice.microphone purpose.mic",
     );
-    assert_eq!(policy, "microphone=(self), camera=(), geolocation=()");
+    assert_eq!(
+        policy,
+        "microphone=(self), camera=(), geolocation=(), midi=()"
+    );
     for (content_type, expected) in [("text/html; charset=utf-8", true), ("text/plain", false)] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
@@ -111,7 +114,7 @@ fn a_page_carries_the_permissions_policy_its_grants_derive() {
         client.read_to_string(&mut received).unwrap();
         assert_eq!(
             received.contains(
-                "\r\nPermissions-Policy: microphone=(self), camera=(), geolocation=()\r\n"
+                "\r\nPermissions-Policy: microphone=(self), camera=(), geolocation=(), midi=()\r\n"
             ),
             expected,
             "{received}"

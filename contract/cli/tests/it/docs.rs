@@ -348,11 +348,6 @@ fn every_pattern_compiles_with_expected_diagnostics_and_its_tests_parse() {
             failures.extend(all.iter().map(at));
         }
         let warnings = contract::compile_path_all_warned(&path, false).1;
-        let warnings = if name == "one-screen" {
-            super::text_px_width::without_round_button_widths(warnings)
-        } else {
-            warnings
-        };
         failures.extend(warnings.iter().map(at));
         match std::fs::read_to_string(dir.join("app.test.contract")) {
             Ok(tests) => match contract::tests(&tests) {

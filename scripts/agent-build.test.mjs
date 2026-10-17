@@ -238,7 +238,10 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     // or to the declarations a web build writes beside app.ts, leaves it fresh (round 5's book-club rebuilt for server/index.ts).
     write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\nexport const port = 9610;\n");
     write('app.contract.d.ts', 'export type Answer = unknown;\n');
+    write('seed.json', '[{"table":"owners","row":{"person":"dev:alice"}}]\n');
+    write('.exact/seed-log.json', '{}\n');
     stamp('server/index.ts', 15); stamp('app.contract.d.ts', 15);
+    stamp('seed.json', 15); stamp('.exact/seed-log.json', 15);
     assert.deepEqual(nativeBuild('ios', app).changed, []);
     assert.equal(await drive(), 0);
     assert.deepEqual([said, builds, bakes, kept()], [[], [], [], null]);

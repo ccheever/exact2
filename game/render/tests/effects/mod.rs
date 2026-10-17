@@ -382,3 +382,145 @@ fn sky_gradient_sun_disc_and_height_fog() {
 }
 
 pub(super) mod shadow_quality;
+
+/// Occlusion culling (occlusion.rs) drops only what nothing would show: a wall
+/// hides the nine cubes behind it, not the nine beside them, and the frame is
+/// the frame drawn without it, pixel for pixel.
+#[test]
+fn occlusion_drops_only_what_the_wall_hides() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let (v, i) = shapes::cube();
+    let cube = r.add_mesh(&v, &i);
+    // The wall, one box, covers the left half of the view at 10 m; behind it at
+    // 20 m, nine cubes on the left and nine on the right.
+    let mut transforms = transform(
+        Vec3::new(-5.0, 0.0, -10.0),
+        Quat::IDENTITY,
+        Vec3::new(10.0, 16.0, 1.0),
+    )
+    .to_vec();
+    for k in 0..9 {
+        let (x, y) = ((k % 3) as f32 * 2.0, (k / 3) as f32 * 2.0 - 2.0);
+        transforms.extend(transform(
+            Vec3::new(-8.0 + x, y, -20.0),
+            Quat::IDENTITY,
+            Vec3::ONE,
+        ));
+        transforms.extend(transform(
+            Vec3::new(4.0 + x, y, -20.0),
+            Quat::IDENTITY,
+            Vec3::ONE,
+        ));
+    }
+    let n = transforms.len() as u32 / 10;
+    r.write_transforms_both(0, &transforms).unwrap();
+    r.write_materials(0, &material([0.6, 0.5, 0.4], 0.0).repeat(n as usize))
+        .unwrap();
+    r.set_batches(&[Batch::new(cube, 0..n)], &(0..n).collect::<Vec<_>>())
+        .unwrap();
+    let texture = target(&gpu, (256, 256), wgpu::TextureFormat::Rgba8Unorm);
+    let mut f = frame();
+    f.camera_position = Vec3::ZERO;
+    f.view = view::look_at_mat4(Vec3::ZERO, -Vec3::Z, Vec3::Y);
+    f.proj = directx::perspective(60f32.to_radians(), 1.0, 0.5, 100.0);
+    f.sun = Some(Sun {
+        direction: Vec3::new(-0.3, -0.5, -0.8).normalize(),
+        color: Vec3::ONE,
+        illuminance: 3.0,
+        shadows: None,
+    });
+    r.count_culled(true);
+    // The camera's count from a readback of this setting's frames.
+    let drawn = |r: &mut Renderer, items: usize| {
+        r.set_occlusion_items(items);
+        let mut pixels = render(&gpu, r, &texture, &f);
+        let mut camera = None;
+        for _ in 0..8 {
+            pixels = render(&gpu, r, &texture, &f);
+            camera = r.culled().map(|c| c[0]);
+        }
+        (pixels, camera.expect("a culling readback"))
+    };
+    let (plain, all) = drawn(&mut r, usize::MAX);
+    let (occluded, shown) = drawn(&mut r, 0);
+    occluded.save("occlusion-wall");
+    assert_eq!(all, u64::from(n));
+    assert_eq!(shown, all - 9, "the wall hides exactly the nine behind it");
+    assert!(plain.data == occluded.data, "occlusion changed the frame");
+}
+
+/// A grid of turned cubes with gaps between them, as the cubes bench draws:
+/// occlusion drops cubes no sample shows, however narrow the gaps between the
+/// cubes in front.
+#[test]
+fn occlusion_leaves_a_turned_grid_as_it_was() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let (v, i) = shapes::cube();
+    let cube = r.add_mesh(&v, &i);
+    let side = 16;
+    let mut transforms = Vec::new();
+    for k in 0..side * side * side {
+        let (x, y, z) = (k % side, k / side % side, k / (side * side));
+        let p = Vec3::new(x as f32, y as f32, z as f32) * 2.0 - Vec3::splat(side as f32 - 1.0);
+        let axis = Vec3::new(
+            0.37 * k as f32 % 1.0 - 0.5,
+            0.73 * k as f32 % 1.0 - 0.5,
+            0.5,
+        )
+        .normalize();
+        transforms.extend(transform(
+            p,
+            Quat::from_axis_angle(axis, k as f32 * 0.7),
+            Vec3::ONE,
+        ));
+    }
+    let n = (side * side * side) as u32;
+    r.write_transforms_both(0, &transforms).unwrap();
+    r.write_materials(0, &material([0.6, 0.5, 0.4], 0.0).repeat(n as usize))
+        .unwrap();
+    r.set_batches(&[Batch::new(cube, 0..n)], &(0..n).collect::<Vec<_>>())
+        .unwrap();
+    let texture = target(&gpu, (540, 1170), wgpu::TextureFormat::Rgba8Unorm);
+    let mut f = frame();
+    f.camera_position = Vec3::new(40.0, 14.0, 22.0);
+    f.view = view::look_at_mat4(f.camera_position, Vec3::ZERO, Vec3::Y);
+    f.proj = directx::perspective(60f32.to_radians(), 540.0 / 1170.0, 0.1, 200.0);
+    f.sun = Some(Sun {
+        direction: Vec3::new(-0.3, -0.5, -0.8).normalize(),
+        color: Vec3::ONE,
+        illuminance: 3.0,
+        shadows: None,
+    });
+    r.count_culled(true);
+    let drawn = |r: &mut Renderer, items: usize| {
+        r.set_occlusion_items(items);
+        let mut pixels = render(&gpu, r, &texture, &f);
+        let mut camera = None;
+        for _ in 0..8 {
+            pixels = render(&gpu, r, &texture, &f);
+            camera = r.culled().map(|c| c[0]);
+        }
+        (pixels, camera.expect("a culling readback"))
+    };
+    let (plain, all) = drawn(&mut r, usize::MAX);
+    let (occluded, shown) = drawn(&mut r, 0);
+    occluded.save("occlusion-grid");
+    let differing = plain
+        .data
+        .chunks(4)
+        .zip(occluded.data.chunks(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    eprintln!("occlusion grid: {shown} of {all} cubes drawn, {differing} pixels differ");
+    assert!(
+        shown < all * 9 / 10,
+        "occlusion dropped little: {shown} of {all}"
+    );
+    assert_eq!(differing, 0, "occlusion dropped a cube a pixel showed");
+}

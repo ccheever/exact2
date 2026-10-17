@@ -15,12 +15,13 @@
 //   change: the effective `scheme`, `contrast`, `mode` and `rootFontSize`,
 //   the `plan` and `design` digests, the pin `revision` applied),
 //   `unsupported` (a command or batch it cannot apply, by name), and
-//   `selected` (LLP 1122 D5; its sender is T2b's).
+//   `selected` (LLP 1122 D5: a node selected in inspect mode, or null when
+//   the page left inspect mode itself).
 // - **Commands down**, each a frame whose `kind` a host dispatches before any
 //   generation handling: `pin` `{revision, pin}` here (`{scheme?, contrast?,
 //   mode?: {axis: value}, rootFontSize?}`, or null to hand them back);
-//   `inspect`, `outline` and `hold` are reserved (T2b, stage 8), which a host
-//   answers `unsupported`.
+//   `inspect` `{on}` or `{refresh}` (T2b); `outline` and `hold` are reserved
+//   (T2b, stage 8), which a host answers `unsupported`.
 // - **Ownership.** A pin belongs to the client that set it. When that
 //   client's last subscription closes, its pins are cleared on every build.
 //   A build that registers again gets its pins replayed.
@@ -46,7 +47,7 @@ const POLL_BYTES = 32 * 1024;
 // A report's body: at most this many bytes, read within this long.
 const REPORT_BYTES = 64 * 1024, REPORT_MS = 10_000;
 const KINDS = new Set(['register', 'status', 'unsupported', 'selected']);
-const RESERVED = new Set(['inspect', 'outline', 'hold']);
+const RESERVED = new Set(['hold']);
 
 /** A pin as a client gives it: an object of the facts it pins, or null.
  * The refusal's text, or null. */
@@ -88,13 +89,14 @@ function reportRefused(r) {
     if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
     if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
   }
+  if (r.kind === 'selected' && !maybe(r.inspect, v => Number.isSafeInteger(v) && v >= 0)) return '`inspect` is a whole number';
   if (r.kind === 'unsupported' && (!maybe(r.what, v => text(v, 256)) || !maybe(r.detail, v => text(v, 4096)) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0))) return '`what` and `detail` are strings, and `revision` a whole number';
   return null;
 }
 
 /** One dev loop's builds. `send(event)` tells the design server's clients
  * (`builds`, `build-status`, `unsupported`, `selected`). */
-export function buildChannel({ send = () => {}, log = () => {} } = {}) {
+export function buildChannel({ send = () => {}, log = () => {}, selected = null } = {}) {
   const streams = new Map(); // nonce -> { write(frame), build: id | null, seen?, poll? }
   const builds = new Map(); // id -> { id, host, capabilities, plan, design, status, nonce }
   const pins = new Map(); // id -> { client, pin, revision }
@@ -102,6 +104,12 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
   // back, its pin again on registering): its status has caught up when it
   // reports that revision.
   const sent = new Map();
+  // id -> the client that turned inspect mode on there; id -> the number of
+  // the last on/off command it was sent, which a page's own exit names.
+  const inspectors = new Map(), inspectSeq = new Map();
+  // id -> the client whose outline a build shows.
+  const outliners = new Map();
+  let inspects = 0;
   let revision = 0, greeting = () => null;
   // A bearer credential for the report route: unguessable.
   const nonce = () => randomBytes(16).toString('hex');
@@ -142,6 +150,8 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         f = bounded(f);
         // Only the latest pin matters: it replaces the whole set.
         if (f.kind === 'pin') queue = queue.filter(q => q.f.kind !== 'pin');
+        // Likewise inspect: the latest on/off, and one refresh.
+        if (f.kind === 'inspect') queue = queue.filter(q => q.f.kind !== 'inspect' || !!q.f.refresh !== !!f.refresh);
         queue.push({ f, n: Buffer.byteLength(JSON.stringify(f)) });
         if (queue.length <= QUEUED && queue.reduce((sum, q) => sum + q.n, 0) <= QUEUE_BYTES) return;
         // Over its bound: the live-table frames pending are one notice of
@@ -199,18 +209,22 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).
         const f = pinFrame(r.id);
         sent.set(r.id, f.revision);
         s.write(f);
+        // And inspect mode as the server holds it: on when a present client
+        // turned it on, else off (a page that kept it across a reconnect
+        // whose owner went meanwhile leaves it).
+        if (r.capabilities?.includes('inspect')) s.write({ kind: 'inspect', on: inspectors.has(r.id), seq: inspectSeq.get(r.id) ?? 0 });
         announce();
         return { status: 200, body: { id: r.id } };
       }
@@ -240,6 +254,14 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
         if (!stale) b.unsupported = { what: r.what ?? '', detail: r.detail ?? null, ...(Number.isSafeInteger(r.revision) ? { revision: r.revision } : {}) };
         send({ event: 'unsupported', build: b.id, what: r.what ?? '', detail: r.detail ?? null });
       } else {
+        // A page that left inspect mode itself (Escape, its close control):
+        // no one owns it there any more.
+        // The exit names the command it left; a newer owner's stays.
+        if (r.selected == null && r.inspect === (inspectSeq.get(b.id) ?? 0)) inspectors.delete(b.id);
+        // A selection is the server's to join (`selected`): it may refuse a
+        // stale one, and ask the build again.
+        const refused = r.selected != null && selected ? selected(shown(b), r, f => frame(b.id, f)) : null;
+        if (refused) return refused;
         send({ event: 'selected', build: b.id, selected: r.selected ?? null });
       }
       return { status: 204, body: null };
@@ -257,8 +279,10 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       sweep();
       for (const s of streams.values()) if (s.seen !== undefined) s.write(frame);
     },
-    /** The clients that hold a pin. */
-    owners: () => [...new Set([...pins.values()].map(p => p.client))],
+    /** The client that owns inspect mode on build `id`, or undefined. */
+    inspector: id => inspectors.get(id),
+    /** The clients that hold a pin, inspect mode or an outline on a build. */
+    owners: () => [...new Set([...[...pins.values()].map(p => p.client), ...inspectors.values(), ...outliners.values()])],
     /** What a polled stream is told when it opens (`() => frame | null`). */
     greet(fn) { greeting = fn; },
     /** `client` pins `pin` on build `id`, or every build (`id` null); null
@@ -281,11 +305,43 @@ export function buildChannel({ send = () => {}, log = () => {} } = {}) {
       announce();
       return { builds: targets, revision };
     },
-    /** A command a host does not speak yet (`inspect`, `outline`, `hold`):
+    /** `client` turns inspect mode on or off (`refresh`: the selection
+     * reported again, under the digests now) on build `id`, or on every
+     * build that can (`id` null). The builds it went to, and those that
+     * cannot inspect; inspect mode is its client's, turned off when it goes
+     * (`clear`). */
+    inspect(client, id, { on = false, refresh = false } = {}) {
+      sweep();
+      if (id != null && !listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
+      const targets = id == null ? listed() : listed().filter(b => b.id === id);
+      const can = targets.filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
+      for (const t of can) {
+        if (refresh) frame(t, { kind: 'inspect', refresh: true });
+        else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, { kind: 'inspect', on: !!on, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
+      }
+      // Off everywhere is off on a build of this client's that is away too:
+      // its registration is told off, not replayed on.
+      if (id == null && !on && !refresh) for (const [t, owner] of inspectors) if (owner === client && !can.includes(t)) { inspectors.delete(t); inspectSeq.set(t, ++inspects); }
+      log(`tamber: ${client} ${refresh ? 'refreshed inspect' : `inspect ${on ? 'on' : 'off'}`} on ${can.join(', ') || 'no build'}`);
+      return { builds: can, unsupported: targets.map(b => b.id).filter(t => !can.includes(t)) };
+    },
+    /** `client` outlines the sites of plan `plan` on every build that can
+     * inspect (`outline {sites, plan}`); a build running another plan
+     * leaves it. The outlines are that client's: cleared on a build when it
+     * goes (`clear`), unless another client's came since. */
+    outline(client, sites, plan) {
+      sweep();
+      const to = listed().filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
+      for (const t of to) { frame(t, sites == null ? { kind: 'outline', clear: true } : { kind: 'outline', sites, plan }); outliners.set(t, client); }
+      return to;
+    },
+    /** A command a host does not speak yet (`hold`):
      * reserved, so a client is told, not ignored. */
     reserved: kind => RESERVED.has(kind),
     /** Client `client` is gone: its pins are cleared on every build. */
     clear(client) {
+      for (const [id, owner] of outliners) if (owner === client) { outliners.delete(id); frame(id, { kind: 'outline', clear: true }); }
+      for (const [id, owner] of inspectors) if (owner === client) { inspectors.delete(id); const seq = ++inspects; inspectSeq.set(id, seq); frame(id, { kind: 'inspect', on: false, seq }); }
       const mine = [...pins].filter(([, p]) => p.client === client).map(([id]) => id);
       if (!mine.length) return;
       revision += 1;

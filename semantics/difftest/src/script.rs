@@ -173,7 +173,7 @@ pub fn test_case(
             // The voice table is not in Lean (LLP 1096 D11): its commands
             // are, and those are compared; a step that reads the table is
             // the runner's tests' and conformance's.
-            Step::ExpectSound { .. } => continue,
+            Step::ExpectSound { .. } | Step::Midi { .. } => continue,
             // A control's `disabled` is read from the host's tree (LLP 1116.010 D3), which Lean has no model of.
             Step::ExpectDisabled { .. } => continue,
             // The media session is the host's (LLP 1098 D12): an assertion on

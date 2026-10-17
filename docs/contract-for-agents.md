@@ -723,12 +723,12 @@ component Water
 | --- | --- | --- |
 | `SummaryCard` | `label: string`, `value: string`, `detail: string`, `progress: option<number>`, `symbol: option<string>` | a card: the symbol and label, the value large in tabular figures, the detail beside it where the card is wide and under it where it is narrow, the fraction as `progress` |
 | `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
-| `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
+| `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it, at the default body's sizes at every text size; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
 | `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
-| `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue at low opacity under the label's ink; `none` is the neutral grey with the label's ink |
+| `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue on the hue at low opacity; `none` is the neutral grey with the label's ink; the title stays the default body size at every text size |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
 
 - Props have no defaults: pass `none` for an option. A symbol is an `image` source:
@@ -1253,7 +1253,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
 | `input type="range"` (as wide as what holds it; in a `row`, `flex=1 min-width=0` beside its label) | `UISlider` |
-| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` its pill shows your `placeholder` (`placeholder="Add a date"`) or, with none, no words, and a choice fills it (LLP 1115.000 D13.1; macOS's field likewise; the web shows the browser's own empty field) |
+| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` its pill shows your `placeholder` (`placeholder="Add a date"`) or, with none, no words, and a choice fills it (LLP 1115.000 D13.1; macOS's field likewise; the web shows the browser's own empty field). Android shows Material's filled field, the value as the phone writes dates and `placeholder` its floating label, and Material 3's picker, in the control's `accent-color` where it has one (LLP 1115.001.000) |
 | `select` of `option`s | a pop-up button with its menu |
 | `progress value=done max=goal` (a goal, an upload; as wide as what holds it) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
@@ -1498,7 +1498,31 @@ of `gain`, `ends`, `playbackRate`, `pan` and `by end|group|cut|stop|cancelled|ed
 `expect sound missing …`; a sequence's steps are voices like any other, so `clock
 +2000` then `expect sound has "assets/click.wav" at 1500` works with no audio, and
 `expect state transport.state == "playing"` reads the transport.
-`state sounds` lists the last 64 voices, `state transport` the transport. `audio` stays HTML's player for long media
+`state sounds` lists the last 64 voices, `state transport` the transport.
+
+MIDI is Web MIDI's, and the runner keeps its queue as it keeps the voices (LLP
+1125 D6–D8). Grant `device.midi purpose.midi` (the data source's `grants()`, the
+text in `strings/en.json`). Read the ports with `resource midi = exactMIDI() as
+shape MIDI` (`state`: `prompt`, `granted`, `denied`, `unavailable`; `outputs` and
+`inputs`, each `{id, name, manufacturer, state}`), ask for them from a press with
+`requestMIDIAccess()`, and let the person pick an output (a `select` of
+`midi.outputs` by `id`). Then a step's `note` plays on its track's `output` (a
+note-on, and a note-off `duration` beats later), `clockOut=output` on `play`
+sends clock, Start and Stop, and `sendMIDI(output, [144, 60, 100], at=…)` sends
+whole messages from an action. Hear a controller with `midimessage=heard
+midiinputs=[id]` (the action may take a `MIDIMessageEvent`: `input`, `data`,
+`timeStamp`, `beat`). To keep a device's time instead, `clock=input` on `play`
+(a `select` of `midi.inputs`): it waits (`transport.state == "waiting"`) until the
+device sends Start, then plays at the device's tempo (`transport.bpm`), and its
+Stop leaves it waiting again. Nothing to schedule by hand: a host hands each message to the
+device 50 ms before it is due, so an edit or a stop takes back what has not gone.
+Test it with no device: `prefer midi.outputs "OP-XY"` then `tap "connect"`, and
+`expect midi sent "OP-XY" 99 4c 7f at 0` (bytes in hex) or `expect midi missing …`;
+`tap midi "keys" 90 3c 64` is a message from an input, `tap midi "keys" clock 125
+1000` a second of its clock at 125 bpm; `state midi` lists the
+queue ([Metronome](../apps/metronome/app.contract) is whole).
+
+`audio` stays HTML's player for long media
 (a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 
 A media source is the string an `image` takes, `app:/data` files included: an
@@ -1746,6 +1770,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     button position="absolute" … // a root overlay: after the tablist, over everything
 ```
 
+- A tab is built the first time it is selected, as UIKit and SwiftUI load a tab: until
+  then its panel is empty (`unopened` in `tree`), and the components in it have no
+  state yet. Once built it stays, with its stack, drafts and scroll. Resources and tasks
+  are the root component's and run whichever tab shows. A drive or a test taps a tab
+  before it reads or presses anything inside it; a target in an unopened tab is
+  refused with the tap that opens it (LLP 1075.003 §9.14).
 - Each route starts with a `header` (its heading, and on a pushed route the
   `id="back"` control), which iOS makes the navigation bar. Leave the tablist's and the
   routes' backgrounds, heights and colours unsaid: the platform draws the bars and the
@@ -2218,6 +2248,8 @@ native hosts. Declare it on the resource's shape; `state.device.displayMode`
 reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
 browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
 `exactPage` answers `visibilityState`, `onLine`, `canShare`,
+`canShareFiles` and `canSharePictures` (whether `share(files=…)` takes
+`app:/` files and an element's `"#id"`; the web never takes a picture),
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
 choose an in-window message over a system notification). A reminder that should
@@ -2295,7 +2327,7 @@ agent operations below for Exact's native tree. Production builds
 (`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
 web-view inspection disabled.
 
-An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D, in a development build: a Mac build with production trust, `EXACT_UPDATE_TRUST=production`, or made by `exact release` has no Develop menu and takes none of its chords unless it is launched with `EXACT_DEV_MENU=1`) opens with the
+An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D, in a development build: a Mac build with production trust, `EXACT_UPDATE_TRUST=production`, or made by `exact release` has no Develop menu and takes none of its chords unless it is built or launched with `EXACT_DEV_MENU=1`, or a person runs `defaults write <bundle id> ExactDevMenu -bool YES` and the build did not say `0`; an iOS build, a release one too, has the menu unless it is built or launched with `EXACT_DEV_MENU=0`, LLP 1115 D9) opens with the
 build it is in: the app and version, when, where and with which Xcode it was
 built, the exact2 commit and the app's own (with branch and a dirty flag), the
 build kind, the device, and the app's release notes. `host/apple/build.mjs`
@@ -2443,7 +2475,9 @@ it is held and `state` lists it under `pending` with its capability. Answer it b
 the node its answer arrives at (the `id` the command names) or by its capability:
 `type @folder-input path/to/folder`, `type @pick photo.jpg`, `tap @open-directory
 cancel`. `@N`, its ticket, works too, but a ticket counts every request before it,
-so it differs between hosts and runs.
+so it differs between hosts and runs. On Linux, Windows and Android a tap on a date
+or time control holds its picker the same way, by the control's kind: `type @date
+2026-10-23`, `type @time 09:30`, `tap @date clear`, `tap @date cancel`.
 
 Authored tests are a smaller language over that API:
 
@@ -3004,6 +3038,14 @@ scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
 is reported once, at its line in the design. `pair=surface.page` after a
 foreground's value names what it is drawn on (a token or a role);
 `contract tamber check` warns when the two fall below 4.5:1 (`tamber-contrast`).
+Code outside a view names a token by its name too (LLP 1121 D12): a data module
+returns a `ColorToken` (`contract types` declares the design's, so an unknown
+one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into
+`.exact/tamber/` (never committed): `tamber.ts` and `tamber.css` (each token's
+CSS per mode), `tamber.rs` (`pub const SURFACE_CARD: Token<Color>`, which
+`session.tamber().get(SURFACE_CARD, place)` resolves in a running session), or
+`tamber.swift` (`ExactTamberToken.surfaceCard`, for a native view's
+`ExactTamber(view).color(.surfaceCard)`; Android's names a token by its name).
 Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve

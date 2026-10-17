@@ -183,7 +183,7 @@ const boundReasons = lines => lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filte
 // The voice table's journal (LLP 1096 D5): every `sound …` and `sounds …` line, stamped, the same on every target, and
 // a sequence's `sequence …`, `haptic …` and `haptics …` lines (LLP 1125 D3); the JS target never refuses one of its
 // three commands (they are the runtime's own, not a host's).
-const SOUND = /^t=\S+ (?:sounds?|sequence|haptics?) .*$|refused: (?:playSound|playSounds|stopSounds) .*$/;
+const SOUND = /^t=\S+ (?:sounds?|sequence|haptics?) .*$|^t=\S+ midi [^(].*$|refused: (?:playSound|playSounds|stopSounds) .*$/;
 const soundLines = lines => lines.flatMap(l => SOUND.exec(l)?.[0] ?? []);
 // A host's journal since its last read, read once for both filters: a read advances the cursor, so a second read
 // would see none of what the first consumed
@@ -255,7 +255,7 @@ function diffPng(a, b, sideBySide, masks = []) {
   return share;
 }
 // The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
-const STATE_KEYS = ['slots', 'derives', 'resources', 'writes', 'head', 'reorder', 'sounds', 'transport', 'sessionCore'];
+const STATE_KEYS = ['slots', 'derives', 'resources', 'writes', 'head', 'reorder', 'sounds', 'transport', 'midi', 'sessionCore'];
 // The media session (LLP 1098 D10) by testId (each target numbers its views its own way) and the artwork's path (each
 // page has its own port): what every host records (`sessionCore`, Linux's too), and what the pages publish (`session`).
 const addSession = s => {
@@ -731,7 +731,7 @@ async function bootPress(t, report, fail, dist, browser) {
 
 // ---------------------------------------------------------------- the Linux reference
 const linuxRef = argv.includes('--linux') && !crossBrowser;
-const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag', 'down', 'move', 'up', 'mediasession'];
+const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag', 'down', 'move', 'up', 'mediasession', 'midi'];
 // Where an app's drive reaches what only one host has, the Linux comparison
 // stops before that step (null: from the start), saying why (each is a host
 // difference, not the runner's).

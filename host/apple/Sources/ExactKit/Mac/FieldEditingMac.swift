@@ -35,11 +35,31 @@ extension NodeView {
         styleFieldEditor(editor)
     }
     @objc package func controlTextDidEndEditing(_ obj: Notification) {
+        if Self.restartingEditing === self { return }
+        editingEnded()
+    }
+    /// The end of a field's editing: its `change` commits and it blurs.
+    private func editingEnded() {
         presenter?.collections.pinsChanged()
         showFieldFocus(false)
         presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
         presenter?.blur(id)
     }
+    /// A write to a field that AppKit applies by ending the field editor's
+    /// editing and beginning it again
+    /// (`-[NSTextField setPlaceholderAttributedString:]` does, so the editor
+    /// shows the new placeholder). The field keeps the focus throughout, so
+    /// the app hears no blur and no `change` from it, as the web changes a
+    /// focused input's placeholder with neither. Editing that does not come
+    /// back ends as any does.
+    func keepingEditing(_ f: NSTextField, _ change: () -> Void) {
+        guard f.currentEditor() != nil, Self.restartingEditing == nil else { return change() }
+        Self.restartingEditing = self
+        change()
+        Self.restartingEditing = nil
+        if f.currentEditor() == nil { editingEnded() }
+    }
+    nonisolated(unsafe) private static weak var restartingEditing: NodeView?
     @objc package func controlTextDidChange(_ obj: Notification) {
         // What AppKit says of the app's own value going in is not typing.
         if writingValue { return }

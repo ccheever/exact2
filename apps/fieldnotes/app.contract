@@ -34,6 +34,7 @@ shape Page
   visibilityState: string
   onLine: bool
   canShare: bool
+  canShareFiles: bool
 // What the editor shows of a note.
 shape Fields
   title: string
@@ -140,6 +141,9 @@ component Fieldnotes
   action exportBackup
     exportNote = ""
     saveFile("export-file", "app:/data/backups/fieldnotes.json", "fieldnotes.json")
+  // The saved backup as a file in the share sheet (LLP 1125 D12).
+  action shareBackup
+    share(title="Fieldnotes backup", files=["app:/data/backups/fieldnotes.json"])
   action exported(name)
     exportNote = `Exported ${name}.`
   action exportCancelled
@@ -218,6 +222,9 @@ component Fieldnotes
             row gap=10 align-items="center" flex-wrap="wrap"
               button appearance="none" press=exportBackup disabled=busy testId="export-backup" padding=10
                 text "Export backup file…" color="#31554a"
+              if page.canShareFiles
+                button appearance="none" press=shareBackup disabled=busy testId="share-backup" padding=10
+                  text "Share backup file…" color="#31554a"
               if exportNote != ""
                 text exportNote font-size=13 color="#63766a" testId="export-note"
           textarea appearance="none" font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7

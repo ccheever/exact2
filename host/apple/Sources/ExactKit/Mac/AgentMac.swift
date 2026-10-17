@@ -420,11 +420,12 @@ extension Agent {
     /// `down`'s `modifiers` are held in every event of the contact, and a
     /// `move` or `up` that names others holds those from it on (#107).
     func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
-        guard let win = presenter.viewport.window else { return ["error": "no window"] }
+        guard let win = phase == "down" ? view(req)?.window : contactWindow else {
+            return ["error": phase == "down" ? "no view \(req["id"] ?? "?") on screen" : "no contact is down"]
+        }
         guard let named = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
         if req["modifiers"] != nil, phase == "hold" || phase == "cancel" { return ["malformed": true, "error": "tap \(phase): modifiers ride on down, move and up"] }
-        let clip = presenter.viewport.contentView
-        let toWindow = { (p: CGPoint) -> NSPoint in clip.convert(NSPoint(x: p.x + clip.bounds.origin.x, y: p.y + clip.bounds.origin.y), to: nil) }
+        let toWindow = { [self] (p: CGPoint) -> NSPoint in pointerPoint(p, in: win) }
         // The contact's own timeline (LLP 1057 §10.6): a timed move's events
         // are stamped at its declared pace and the lift one frame after the
         // last move, so the engine's tracker measures the driven flick, not
@@ -471,6 +472,7 @@ extension Agent {
             contactFlags = named
             let hit = win.contentView?.hitTest(toWindow(p))
             contactTracksNative = sequence(first: hit, next: { $0?.superview }).contains { $0 is NativeButtonMac }
+            contactWindow = win
             contact = p
             send(.leftMouseDown, p)
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
@@ -503,6 +505,7 @@ extension Agent {
             if req["modifiers"] != nil { contactFlags = named }
             send(.leftMouseUp, p)
             contact = nil
+            contactWindow = nil
             contactFlags = []
             contactTracksNative = false
             return ["phase": "up", "at": at(p), "delivery": "platform"]
@@ -515,6 +518,7 @@ extension Agent {
             if contactTracksNative { send(.leftMouseDragged, release) }
             send(.leftMouseUp, release)
             contact = nil
+            contactWindow = nil
             contactFlags = []
             contactTracksNative = false
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
@@ -613,14 +617,13 @@ extension Agent {
         // An inline run's `at` is from its first visible fragment's top left, as
         // `tapPoint` reads it (the run has no view; its paragraph's origin is another run's).
         let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
-        var p = inlineAt.map { clip.convert(NSPoint(x: $0.x + clip.bounds.origin.x, y: $0.y + clip.bounds.origin.y), to: nil) } ?? localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        var p = inlineAt.map { pointerPoint($0, in: win) } ?? localAt.map { v.convert($0, to: nil) }
+            ?? pointerPoint(CGPoint(x: req["x"] as? Double ?? center.x, y: req["y"] as? Double ?? center.y), in: win)
         var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         // A node in a window of its own (a dialog's sheet, AppKit's popover;
         // LLP 1115.002 D7): the point is that window's, and it may stand
         // outside the viewport, as a popover does.
         let page = clip.window, apart = page != nil && win !== page
-        let inWindow = { (q: NSPoint) -> NSPoint in apart ? win.convertPoint(fromScreen: page!.convertPoint(toScreen: q)) : q }
-        if apart, inlineAt != nil || localAt == nil { p = inWindow(p) }
         // A node in the detail's pane of a split (LLP 1115.002 D4) stands
         // beside the viewport, in its window: what shows of it is in its pane.
         let port: NSView = presenter.navigation.split.pane(holding: v) ?? clip
@@ -717,7 +720,7 @@ extension Agent {
         var avoided: PressReach?
         if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
            (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
-            let window = { (q: CGPoint) in inWindow(clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil)) }
+            let window = { [self] (q: CGPoint) in pointerPoint(q, in: win) }
             switch Agent.addressedAim(v, middle: center, area: apart ? b : b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
             case .refused(let refusal): return refusal.reply
             case .at(let q, let middle):

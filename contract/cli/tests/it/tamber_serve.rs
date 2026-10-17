@@ -105,7 +105,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.3");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.4");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -386,7 +386,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.3");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.4");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -642,12 +642,18 @@ fn propose_judges_live_or_rebuild_by_the_closure() {
         synthetic[0]["values"],
         json!([folded.tokens[1].values[0].css()])
     );
-    // A role override, and a token a role override names: the hosts take
-    // their role tables at boot.
+    // A role override's value, and a token one names: live (LLP 1121
+    // stage 5), each build re-presenting its session's overrides.
     let (role, _) = s.ask(set("CanvasText", "#101010"));
-    assert_eq!(role["ok"]["class"], "rebuild", "{role}");
+    assert_eq!(role["ok"]["class"], "live", "{role}");
     let (through, _) = s.ask(set("ink", "#222222"));
-    assert_eq!(through["ok"]["class"], "rebuild", "{through}");
+    assert_eq!(through["ok"]["class"], "live", "{through}");
+    // An override gained or lost is structure.
+    let (gained, _) = s.ask(json!({"method": "propose", "ops": [{"op": "add-token", "name": "AccentColor", "value": "#0a7aff"}]}));
+    assert_eq!(gained["ok"]["class"], "rebuild", "{gained}");
+    let (lost, _) =
+        s.ask(json!({"method": "propose", "ops": [{"op": "remove-token", "name": "CanvasText"}]}));
+    assert_eq!(lost["ok"]["class"], "rebuild", "{lost}");
     // Structure.
     let (added, _) = s.ask(json!({"method": "propose", "ops": [{"op": "add-token", "name": "fresh", "value": "#123456"}]}));
     assert_eq!(added["ok"]["class"], "rebuild", "{added}");
@@ -842,4 +848,42 @@ fn uses_follows_locals_and_role_spellings() {
     assert_eq!(sites.len(), 1, "{role}");
     assert_eq!(sites[0]["line"], 9, "{role}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn export_gives_the_dtcg_text_and_keeps_its_baseline_for_import() {
+    let dir = app("export", CLONE);
+    let mut s = Serve::start(&dir, &[]);
+    let (refused, _) = s.ask(json!({"method": "export", "kind": "figma"}));
+    assert!(refused["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("no exporter"));
+    let (exported, _) = s.ask(json!({"method": "export", "kind": "dtcg"}));
+    let text = exported["ok"]["text"].as_str().unwrap();
+    let digest = exact_tamber::export::digest(text).unwrap();
+    let kept = format!(".exact/tamber-dtcg/{digest}.json");
+    assert_eq!(exported["ok"]["baseline"], kept.as_str());
+    assert_eq!(std::fs::read_to_string(dir.join(&kept)).unwrap(), text);
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".exact/tamber-dtcg/.gitignore")).unwrap(),
+        "*\n"
+    );
+    // A link in the baseline's place is replaced, never written through.
+    let design = dir.join("app.tamber");
+    let before = std::fs::read_to_string(&design).unwrap();
+    std::fs::remove_file(dir.join(&kept)).unwrap();
+    std::os::unix::fs::symlink(&design, dir.join(&kept)).unwrap();
+    let (again, _) = s.ask(json!({"method": "export", "kind": "dtcg"}));
+    assert!(again["ok"]["text"].is_string(), "{again}");
+    assert_eq!(std::fs::read_to_string(&design).unwrap(), before);
+    // The unedited export, imported, plans nothing against its baseline.
+    let (planned, _) = s.ask(
+        json!({"method": "import-plan", "kind": "dtcg", "source": text, "name": "app.tokens.json"}),
+    );
+    assert_eq!(planned["ok"]["ops"], json!([]), "{planned}");
+    assert_eq!(
+        planned["ok"]["counted"]["source"],
+        planned["ok"]["counted"]["mapped"]
+    );
 }

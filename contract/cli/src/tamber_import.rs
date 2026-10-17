@@ -78,7 +78,13 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let imported = match import_with(&kind, &files, prefix.as_deref(), &design) {
+    // A Tamber export's baselines: kept by each export beside the design.
+    let kept = app
+        .as_deref()
+        .and_then(|a| crate::tamber::design(Path::new(a)))
+        .map(|p| crate::tamber_export::kept(&p))
+        .unwrap_or_default();
+    let imported = match import_with(&kind, &files, prefix.as_deref(), &design, &current, &kept) {
         Some(i) => i,
         None => {
             eprintln!(
@@ -101,16 +107,23 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
-/// The importer `kind` over the source's files, planned against `design`;
-/// `None` when there is no such importer.
+/// The importer `kind` over the source's files, planned against `design`
+/// (`current`'s text); `None` when there is no such importer. A Tamber DTCG
+/// export of its own is compared with the baseline it came from, one of
+/// `kept` or a fresh export of the design as it is (LLP 1121 D14).
 fn import_with(
     kind: &str,
     files: &[(String, String)],
     prefix: Option<&str>,
     design: &exact_tamber::Design,
+    current: &str,
+    kept: &[String],
 ) -> Option<Result<Import, Vec<exact_tamber::Diagnostic>>> {
     let text = files.first().map(|(_, t)| t.as_str()).unwrap_or_default();
     let vocab = contract_lower::tamber_vocab();
+    if kind == "dtcg" && files.len() == 1 && exact_tamber::export::is_own(text) {
+        return Some(exact_tamber::export::reimport(text, kept, current, &vocab));
+    }
     Some(match kind {
         "shadcn" => shadcn::import(text, prefix.unwrap_or("shadcn"), design, &vocab),
         "tailwind" => tailwind::import(text, prefix.unwrap_or("tw"), design),
@@ -127,7 +140,7 @@ fn import_with(
 /// `name` is the file's (a Figma export's `<Collection>.<Mode>.json` names
 /// its modes). Astryx is not taken here: resolving its package needs a Bun
 /// install, which its CLI does.
-pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
+pub fn plan(request: &Value, current: &str, kept: &[String]) -> Result<Value, Value> {
     let bad = |m: &str| json!({"message": m});
     let field = |k: &str| match &request[k] {
         Value::Null => Ok(None),
@@ -169,7 +182,14 @@ pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
     let design = exact_tamber::parse(current).map_err(|all| {
         json!({"message": "the design does not parse", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()})
     })?;
-    match import_with(&kind, &files, field("prefix")?.as_deref(), &design) {
+    match import_with(
+        &kind,
+        &files,
+        field("prefix")?.as_deref(),
+        &design,
+        current,
+        kept,
+    ) {
         None => Err(bad(&format!(
             "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
         ))),

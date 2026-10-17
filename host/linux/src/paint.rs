@@ -36,6 +36,7 @@ pub(crate) mod button;
 mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
+pub(crate) mod dates;
 pub mod gradient;
 pub use gradient::GradientPaint;
 mod field;
@@ -47,6 +48,7 @@ pub(crate) mod inline;
 mod layer;
 mod lift;
 pub(crate) mod look;
+pub(crate) mod material;
 pub(crate) use alert::Picture as AlertPicture;
 mod native;
 pub(crate) mod neutral;
@@ -500,6 +502,9 @@ pub struct Painter {
     /// what the app's `setScheme` last said, else the system's, which the
     /// device's shell or an agent tells the presenter; `light` until one does.
     pub dark: bool,
+    /// How the device writes dates, where its shell told it: what a date
+    /// control shows (`dates.rs`).
+    pub(crate) dates: Option<dates::Dates>,
     backend: Box<dyn Backend>,
     #[cfg(test)]
     pub(crate) rank_passes: usize,
@@ -546,6 +551,8 @@ pub struct Painter {
     boxes_hint: usize,
     /// Numeric text rolling (LLP 1077 D15), and the clock it rolls by.
     pub(crate) numerals: numerals::Numerals,
+    /// Material's fields' labels, floated or resting (`material.rs`).
+    pub(crate) labels: material::Labels,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -620,6 +627,7 @@ impl Painter {
             text,
             scale,
             dark: false,
+            dates: None,
             backend,
             #[cfg(test)]
             rank_passes: 0,
@@ -648,6 +656,7 @@ impl Painter {
             boxes_hint: 0,
             svg_layers: Vec::new(),
             numerals: Default::default(),
+            labels: Default::default(),
         }
     }
 
@@ -674,6 +683,12 @@ impl Painter {
     #[cfg(windows)]
     pub(crate) fn take_window_underlay(&mut self) -> Option<WindowLayer> {
         self.backend.take_window_underlay()
+    }
+
+    /// Something the painter animates owes a frame: a number rolling, a
+    /// field's label floating.
+    pub(crate) fn moving(&self) -> bool {
+        self.numerals.rolling() || self.labels.moving()
     }
 
     #[cfg(windows)]
@@ -867,6 +882,7 @@ impl Painter {
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
         self.numerals.painted();
+        self.labels.painted();
         if finished.is_ok() {
             self.accepted_text = walk.text;
         } else {
@@ -1116,18 +1132,22 @@ impl Painter {
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
                 let label =
                     control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
-                self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
+                let focused = walk.scene.focus == Some(node.id);
+                let label = label.as_deref().unwrap_or("");
+                self.field_control(node, content, focused, ts, label, true);
             }
             // @ref LLP 1069.001 D7 — a date control is a field showing its
-            // ISO value, HTML's placeholder form when empty; `type` sets it.
+            // value (`control::date_text`); `type` sets it.
             NodeType::Control
                 if matches!(
                     node.props.str(PropId::Type),
                     Some("date" | "time" | "datetime-local")
                 ) =>
             {
-                let shown = control::date_text(node, walk.scene.chosen.get(&node.id));
-                self.field_control(node, content, ts, shown, false);
+                let chosen = walk.scene.chosen.get(&node.id);
+                let shown = control::date_text(node, chosen, self.dates.as_ref());
+                let focused = walk.scene.focus == Some(node.id);
+                self.field_control(node, content, focused, ts, &shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
@@ -1223,6 +1243,7 @@ impl Painter {
             let clips = [Shape::rect(rect), surface.outer];
             self.backend.canvas(&pixels, rect, &clips, ts);
         }
+        self.hosted_view(node, rect, ts);
     }
 }
 

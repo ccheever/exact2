@@ -198,6 +198,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         under.accessibilityElementsHidden = true
         dialog.accessibilityViewIsModal = true
         entries.append(entry)
+        presenter.controls.syncShown()
         previous?.resignFirstResponder()
         controller.loadViewIfNeeded()
         #if os(iOS)

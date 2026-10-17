@@ -663,6 +663,8 @@ package final class Presenter {
     private var waiting: [(UInt32?, () -> Void)] = []
     /// Paragraphs whose presented colour a batch changed, painted as it ends.
     var presentedText: Set<UInt32> = []
+    /// Paragraphs whose words the batch being applied changed (`paintChangedText`)
+    var changedText: Set<UInt32> = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
         guard textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
@@ -789,6 +791,7 @@ package final class Presenter {
                 applying = false
                 reaimFixedGradients()
                 paintPresentedText()
+                paintChangedText()
                 if !boxFilters.isEmpty { boxFilters.render() }
                 videoVisibility?.changed()
                 let q = waiting

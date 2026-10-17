@@ -563,7 +563,7 @@ fn candidate_delivery_precedes_initial_and_carried_resource_queries() {
 }
 
 #[test]
-fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
+fn module_replacement_keeps_pending_requests_unless_the_dev_loop_lets_them_go() {
     #[derive(Clone)]
     struct Held(Arc<Mutex<usize>>);
     impl DataSource for Held {
@@ -610,7 +610,13 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
         .contains("retry after they settle"));
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
     bridge.input_write(&plan);
-    let count = bridge.prepare_module([plan.len(), 0, 0], source, Hooks::none(), 390.0, 844.0);
+    let count = bridge.prepare_module(
+        [plan.len(), 0, 0],
+        source.clone(),
+        Hooks::none(),
+        390.0,
+        844.0,
+    );
     assert!(
         String::from_utf8_lossy(bridge.output_bytes(count as usize)).contains("pending requests")
     );
@@ -620,6 +626,27 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
         "refusal precedes loading candidate code"
     );
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(count as usize))
+        .starts_with("{\"requests\":true,"));
+    // The dev loop's generation past its settle window lets the POST go (LLP 1007 §6).
+    bridge.input_write(&plan);
+    let count = bridge.prepare_module_with_delivery(
+        [plan.len(), 0, 0],
+        source,
+        Hooks::none(),
+        390.0,
+        844.0,
+        None,
+        true,
+    );
+    assert!(
+        bridge.prepared.is_some(),
+        "{}",
+        String::from_utf8_lossy(bridge.output_bytes(count as usize))
+    );
+    let count = bridge.commit_plan();
+    assert!(!String::from_utf8_lossy(bridge.output_bytes(count as usize)).contains("\"error\":\""));
+    assert!(bridge.host.as_ref().unwrap().runner().pending().is_empty());
 }
 
 #[test]

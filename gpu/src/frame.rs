@@ -187,8 +187,10 @@ impl Module {
         let _ = gpu.device.poll(wgpu::PollType::Poll);
         let ring = inst.ring.as_mut()?;
         ring.settle();
-        // As many frames on the GPU as it may hold: this one waits a display frame.
+        // As many frames on the GPU as it may hold: this one waits a display
+        // frame, and the surface takes this one's share of its work now.
         if !self.seekable && ring.in_flight() >= crate::buffers::IN_FLIGHT {
+            inst.surface.advance(frame, &gpu.device, &gpu.queue);
             return Some(true);
         }
         let format = crate::buffers::FORMAT;

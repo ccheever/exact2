@@ -262,168 +262,11 @@ pub fn references(macos: bool) -> Vec<(ColorValue, Box<str>)> {
     out
 }
 
-/// A session's role overrides (LLP 1095 D4): the roles its design replaces,
-/// and with what (an existing form), with the wide colours they hold kept
-/// from the table's sweep while the session holds them. Each session has
-/// its own (LLP 1121 stage 5): a runner builds one from the plan it boots.
-#[derive(Default)]
-pub struct Roles {
-    table: Vec<(u8, ColorValue)>,
-    /// Held for its life, never read.
-    #[allow(dead_code)]
-    kept: super::wide::Keep,
-    generation: u64,
-}
-
-/// Every [`Roles`] made, numbered: what a host compares to re-present.
-static ROLES_MADE: AtomicU64 = AtomicU64::new(1);
-
-impl Roles {
-    /// A session's overrides from `next`: an unknown role, and a role
-    /// replaced by itself, are left out.
-    pub fn new(next: Vec<(u8, ColorValue)>) -> std::rc::Rc<Roles> {
-        let table: Vec<(u8, ColorValue)> = next
-            .into_iter()
-            .filter(|(id, c)| {
-                role_of(*id).is_some() && !matches!(c, ColorValue::Role(r) if r == id)
-            })
-            .collect();
-        let kept = super::wide::Keep::of(|m| {
-            for (_, c) in &table {
-                m.color(*c);
-            }
-        });
-        std::rc::Rc::new(Roles {
-            table,
-            kept,
-            generation: ROLES_MADE.fetch_add(1, Ordering::AcqRel),
-        })
-    }
-
-    /// The overridden roles as set.
-    pub fn overrides(&self) -> &[(u8, ColorValue)] {
-        &self.table
-    }
-}
-
-thread_local! {
-    /// The session whose roles resolve now: bound by a host around what it
-    /// does for one session ([`bind`]), else the one the thread installed
-    /// last ([`install`]) that still lives, then the one before.
-    static BOUND: std::cell::RefCell<Option<std::rc::Rc<Roles>>> = const { std::cell::RefCell::new(None) };
-    static INSTALLED: std::cell::RefCell<Vec<std::rc::Weak<Roles>>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// The roles that resolve now ([`BOUND`]); none when no session is.
-pub fn bound() -> std::rc::Rc<Roles> {
-    BOUND
-        .with(|b| b.borrow().clone())
-        .or_else(|| INSTALLED.with(|i| i.borrow().iter().rev().find_map(std::rc::Weak::upgrade)))
-        .unwrap_or_default()
-}
-
-/// A host's scope for one session: its roles resolve until the scope ends,
-/// the ones before after (a host driving several sessions on one thread
-/// binds each around what it does for it).
-pub struct RolesScope {
-    previous: Option<std::rc::Rc<Roles>>,
-    thread: std::marker::PhantomData<std::rc::Rc<()>>,
-}
-
-/// Bind `roles` for the scope.
-pub fn bind(roles: &std::rc::Rc<Roles>) -> RolesScope {
-    RolesScope {
-        previous: BOUND.with(|b| b.replace(Some(roles.clone()))),
-        thread: std::marker::PhantomData,
-    }
-}
-
-impl Drop for RolesScope {
-    fn drop(&mut self) {
-        let _ = BOUND.try_with(|b| {
-            b.replace(self.previous.take());
-        });
-    }
-}
-
-/// Make `roles` the thread's outside any [`bind`] (a build that emits one
-/// plan), while its holder keeps it alive; the ones installed before resolve
-/// again once it ends. A scope a host bound stays its own: a session that
-/// boots inside one binds its roles itself.
-pub fn install(roles: &std::rc::Rc<Roles>) {
-    INSTALLED.with(|i| {
-        let mut i = i.borrow_mut();
-        i.retain(|w| w.strong_count() > 0 && !std::ptr::eq(w.as_ptr(), std::rc::Rc::as_ptr(roles)));
-        i.push(std::rc::Rc::downgrade(roles));
-    });
-}
-
-/// A session's roles, installed as its thread's once it has booted
-/// ([`Installed::install`]), and no longer once it ends: a candidate its
-/// host refused leaves the live session's resolving, not none, whatever
-/// order candidates end in.
-pub struct Installed {
-    roles: std::rc::Rc<Roles>,
-}
-
-impl Installed {
-    /// `roles`, not yet installed.
-    pub fn new(roles: std::rc::Rc<Roles>) -> Installed {
-        Installed { roles }
-    }
-
-    /// The roles.
-    pub fn roles(&self) -> &std::rc::Rc<Roles> {
-        &self.roles
-    }
-
-    /// Install them on this thread, over the ones before (a session that
-    /// moved here installs again).
-    pub fn install(&mut self) {
-        install(&self.roles);
-    }
-
-    /// No longer this thread's: the ones installed before resolve again (a
-    /// session that leaves the thread, or ends).
-    pub fn uninstall(&mut self) {
-        let roles = std::rc::Rc::as_ptr(&self.roles);
-        // Nothing to take back on a thread that is ending (a session its
-        // thread-locals drop).
-        let _ = INSTALLED.try_with(|i| i.borrow_mut().retain(|w| !std::ptr::eq(w.as_ptr(), roles)));
-    }
-}
-
-impl Drop for Installed {
-    fn drop(&mut self) {
-        self.uninstall();
-    }
-}
-
-/// The overridden roles that resolve now, for a caller that puts them back.
-pub fn overrides() -> Vec<(u8, ColorValue)> {
-    bound().overrides().to_vec()
-}
-
-/// What a host compares to know it must re-present what it resolved from
-/// roles: moves when the reported table changes, and differs for another
-/// set of the session's overrides.
-pub fn generation() -> u64 {
-    reported_generation().wrapping_add(bound().generation.wrapping_mul(1 << 20))
-}
-
-/// Install `next` as the thread's overrides, held by the thread (tests and
-/// one-plan tools); `true` when a different, non-empty set is replaced.
-pub fn set_overrides(next: Vec<(u8, ColorValue)>) -> bool {
-    thread_local! {
-        static HELD: std::cell::RefCell<std::rc::Rc<Roles>> = std::cell::RefCell::new(std::rc::Rc::default());
-    }
-    let roles = Roles::new(next);
-    let before = bound();
-    let replaced = !before.table.is_empty() && before.table != roles.table;
-    install(&roles);
-    HELD.with(|h| *h.borrow_mut() = roles);
-    replaced
-}
+mod session;
+pub use session::{
+    bind, bound, generation, install, installed, overrides, set_overrides, Installed, Roles,
+    RolesScope,
+};
 
 impl ColorValue {
     /// What a host is sent for this colour: a role the theme replaces is
@@ -433,6 +276,7 @@ impl ColorValue {
     /// `LinkText`, a symbol's default) stays itself: a host makes the theme's
     /// colour the app's tint, under which an authored `accent-color` still
     /// wins for its subtree (LLP 1095 D1, the author over the design).
+    #[track_caller]
     pub fn themed(self) -> ColorValue {
         match self {
             ColorValue::Role(id) if tint(id) => self,
@@ -448,28 +292,13 @@ impl ColorValue {
 /// `--exact-accent`, which an authored `accent-color` redeclares below),
 /// and the page's colour and ground where `CanvasText` and `Canvas` are
 /// replaced. Empty without overrides.
+#[track_caller]
 pub fn theme_css() -> String {
     let mut out = String::new();
     for id in 0..=u8::MAX {
         let Some(role) = role_of(id) else { break };
         let Some(o) = overridden(id) else { continue };
-        // A CSS system colour's in kebab case, as the look's sheets spell
-        // them (`--exact-gray-text`).
-        let name = match role.name {
-            "AccentColor" => "accent".to_string(),
-            n if is_css_system(role) => {
-                n.chars().enumerate().fold(String::new(), |mut k, (i, c)| {
-                    if c.is_ascii_uppercase() && i > 0 {
-                        k.push('-');
-                    }
-                    k.push(c.to_ascii_lowercase());
-                    k
-                })
-            }
-            n => n.to_string(),
-        };
-        out.push_str("--exact-");
-        out.push_str(&name);
+        out.push_str(&theme_property(role));
         out.push(':');
         crate::gradient::color_css(&mut out, o);
         out.push(';');
@@ -520,8 +349,49 @@ pub fn scheme_classes(classes: &[String]) -> String {
     }
 }
 
+/// The custom property a host's own sheet declares `role`'s override as
+/// ([`theme_css`]): `--exact-accent` for `AccentColor`, a CSS system
+/// colour's in kebab case as the look's sheets spell them
+/// (`--exact-gray-text`), an Exact role's by its name.
+pub fn theme_property(role: &ColorRole) -> String {
+    let name = match role.name {
+        "AccentColor" => "accent".to_string(),
+        n if is_css_system(role) => n.chars().enumerate().fold(String::new(), |mut k, (i, c)| {
+            if c.is_ascii_uppercase() && i > 0 {
+                k.push('-');
+            }
+            k.push(c.to_ascii_lowercase());
+            k
+        }),
+        n => n.to_string(),
+    };
+    format!("--exact-{name}")
+}
+
+thread_local! {
+    static LIVE_PROPERTIES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While the guard lives, an overridden role crosses into CSS as its sheet
+/// property over its value (`var(--exact-label, #…)`), so a development
+/// build's live edit of the override, which sets the property, reaches it
+/// (the JS target, LLP 1121 stage 5). A release build crosses the value.
+pub fn live_properties(on: bool) -> LiveProperties {
+    LiveProperties(LIVE_PROPERTIES.with(|l| l.replace(on)))
+}
+
+/// [`live_properties`]' scope: the setting before, restored when dropped.
+pub struct LiveProperties(bool);
+
+impl Drop for LiveProperties {
+    fn drop(&mut self) {
+        let _ = LIVE_PROPERTIES.try_with(|l| l.set(self.0));
+    }
+}
+
 /// What an authored colour writes beside itself under a theme that replaces
 /// `CanvasText`: [`SCHEME_COLOR`] unset, so its subtree inherits it.
+#[track_caller]
 pub fn scheme_color(style: &super::StyleProps) -> &'static str {
     match style.mask.has(super::StyleId::TextColor) && overridden_canvas_text() {
         true => "--exact-scheme-color:initial;",
@@ -530,6 +400,7 @@ pub fn scheme_color(style: &super::StyleProps) -> &'static str {
 }
 
 /// Whether the theme replaces `CanvasText`, the page's unsaid text.
+#[track_caller]
 pub fn overridden_canvas_text() -> bool {
     static ID: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     overridden(*ID.get_or_init(|| role("CanvasText").unwrap_or(u8::MAX))).is_some()
@@ -613,6 +484,7 @@ pub(crate) fn painted_accent(c: ColorValue, dark: bool) -> Option<super::Color> 
 /// What a painting host resolves for `c` under the theme: a replaced
 /// role's colour, and for a tint role the theme's `AccentColor` (an
 /// authored accent is the host's to apply).
+#[track_caller]
 pub fn painted_override(c: ColorValue) -> Option<ColorValue> {
     let ColorValue::Role(id) = c else { return None };
     let accent = accent();
@@ -642,23 +514,16 @@ pub fn accent() -> u8 {
 }
 
 /// What the theme replaces a role with, if it does.
+#[track_caller]
 pub fn overridden(id: u8) -> Option<ColorValue> {
     let roles = bound();
-    {
-        let table = &roles.table;
-        if table.is_empty() {
-            return None;
-        }
-        let c = table.iter().find(|(r, _)| *r == id).map(|(_, c)| *c)?;
-        // One step: an override naming another overridden role reads that one's.
-        match c {
-            ColorValue::Role(next) => table
-                .iter()
-                .find(|(r, _)| *r == next)
-                .map(|(_, c)| *c)
-                .or(Some(c)),
-            other => Some(other),
-        }
+    if roles.is_empty() {
+        return None;
+    }
+    // One step: an override naming another overridden role reads that one's.
+    match roles.find(id)? {
+        ColorValue::Role(next) => roles.find(next).or(Some(ColorValue::Role(next))),
+        other => Some(other),
     }
 }
 
@@ -798,6 +663,7 @@ pub fn parse_platform(text: &str) -> Option<ColorValue> {
 /// reads back as itself and not as `AccentColor`, which another platform
 /// resolves differently (the Mac's `linkColor` is not its accent, nor its
 /// symbols' colour).
+#[track_caller]
 pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
     match c {
         ColorValue::Role(id) => {
@@ -819,6 +685,14 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                     return reference_css(out, ColorValue::Role(next), mode)
                 }
                 Some(ColorValue::Role(_)) | None => {}
+                Some(o) if mode == ColorText::Css && LIVE_PROPERTIES.with(|l| l.get()) => {
+                    out.push_str("var(");
+                    out.push_str(&theme_property(r));
+                    out.push_str(", ");
+                    crate::gradient::color_text(out, o, mode);
+                    out.push(')');
+                    return;
+                }
                 Some(o) => return crate::gradient::color_text(out, o, mode),
             }
             if accent {
@@ -858,6 +732,7 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
 impl ColorValue {
     /// What a host without the platform's colour, or with only sRGB, shows:
     /// a reference's fallback (LLP 1095 D1), a wide colour's sRGB clip.
+    #[track_caller]
     pub fn fallback(self) -> ColorValue {
         match self {
             ColorValue::Role(id) => overridden(id).map_or_else(

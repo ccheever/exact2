@@ -1,0 +1,53 @@
+// data: metronome
+// Synthetic conformance plan: one action that asks for MIDI and starts a
+// sequence (LLP 1125 D3, D6), so `exactTransport()` and `exactMIDI()` are
+// both answered again at that commit's time, each by a commit of its own:
+// the transport's first, then MIDI's, on the wasm runner, the JS runtime
+// and the Linux host alike. A derive reads both answers, so the order shows
+// in the state each commit leaves. (No slot shares a name with the
+// metronome's.)
+
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+
+shape Track
+  beats: number
+  loops: number
+  offset: number
+  output: string
+  steps: Step[]
+
+shape Transport
+  state: string
+  bpm: number
+
+shape MIDI
+  state: string
+
+component MidiOrder
+  state orderOn = false
+  state seen = ""
+  resource transport = exactTransport() as shape Transport
+  resource ports = exactMIDI() as shape MIDI
+  derive both = `${transport.state} ${ports.state}`
+  action go
+    requestMIDIAccess()
+    orderOn = true
+  action note
+    seen = both
+  sequence pulse when orderOn
+    play([Track(beats=1, loops=0, offset=0, output="synth", steps=[Step(beat=0, src="", gain=1, group="", note=60, velocity=100, channel=0, duration=0.5, haptic="")])], bpm=120)
+  view
+    column testId="root"
+      text both testId="both"
+      text seen testId="seen"
+      button "go" press=go testId="go"
+      button "note" press=note testId="note"

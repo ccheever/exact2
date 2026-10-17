@@ -599,6 +599,9 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     fn submitted(&mut self) {
         self.frame_submitted();
     }
+    fn advance(&mut self, frame: &Frame, _: &wgpu::Device, _: &wgpu::Queue) {
+        self.advance_frame(frame);
+    }
     fn children_mode(&self) -> exact_gpu::ChildrenMode {
         if self.sim.as_ref().is_some_and(|sim| {
             sim.world()

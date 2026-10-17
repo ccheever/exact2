@@ -368,6 +368,18 @@ const configuredLibrary=(file)=>{
     || Boolean(es && Number(es[1])<=year);
 };
 
+/** On Snapback, a successful mutation record says ok:true; refusals throw.
+ * Narrow the captured seam, so TypeScript checks aliases and helpers without
+ * interpreting application code. Ordinary resource records retain boolean ok. */
+export function snapbackMutationTypes(declarations) {
+  const original="export type Result<S extends Source> = SourceMap[S]['result'];";
+  if(!declarations.includes(original)) return declarations;
+  if(!declarations.includes('export type MutationSource =')) throw new Error('Snapback mutation types need regenerated Contract declarations; rebuild the Contract compiler');
+  return declarations.replace(original,
+    "type SnapbackMutationSuccess<R> = R extends {ok: boolean} ? R & {ok: true} : R;\n"+
+    "export type Result<S extends Source> = S extends MutationSource ? SnapbackMutationSuccess<SourceMap[S]['result']> : SourceMap[S]['result'];");
+}
+
 export function configure(stage, incremental=false, parse) {
   const app=capturedOrigins(stage).at(-1)[1], modulePath=resolve(stage,'app.ts');
   if (existsSync(modulePath)) {
@@ -435,6 +447,11 @@ export function configure(stage, incremental=false, parse) {
     ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts']};
   const path=resolve(stage,'__exact_tsconfig.json'), bytes=JSON.stringify(config);
   if (!existsSync(path) || readFileSync(path,'utf8')!==bytes) writeFileSync(path,bytes);
+  if(capturedOrigins(stage).slice(0,-1).some(([,from])=>/(?:^|[/\\])snapback4[/\\](?:ts|online)$/.test(from))) {
+    const declaration=resolve(stage,'app.contract.d.ts');
+    const before=readFileSync(declaration,'utf8'), after=snapbackMutationTypes(before);
+    if(before!==after) writeFileSync(declaration,after);
+  }
   stagePackages(stage);
 }
 
@@ -473,7 +490,10 @@ export function check(stage, tsc, libraries) {
     {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024}, (error, stdout, stderr) => {
       if (error) {
         const diagnostics=String(stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
-        return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+String(stderr??'') || String(error.message)));
+        const mutationFailure=/Type '(?:false|boolean)' is not assignable to type 'true'|SnapbackMutationSuccess/.test(diagnostics)
+          && readFileSync(resolve(stage,'app.contract.d.ts'),'utf8').includes('type SnapbackMutationSuccess<');
+        const refusal=mutationFailure ? "\nnote: a Snapback mutation returning {ok:false} leaves failure(slot) empty; throw refused({code: 'YOUR_CODE', message: 'Explain the refusal'}) instead. Annotate successful helpers with Result<'source'>, or keep ok:true literal with `as const`.\n" : '';
+        return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+refusal+String(stderr??'') || String(error.message)));
       }
       for(const path of stdout.trim().split(/\r?\n/)) {
         if(path && !allowed(realpathSync(path)))return fail(new Error('module outside captured app: '+path));

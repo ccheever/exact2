@@ -14,10 +14,16 @@ URL>` if that app's dev loop is running. A second `tamber tool` for the same
 app reuses the running one; for another app it is refused, naming the app
 whose design the port serves.
 
-- The canvas (T2, LLP 1122 D3) frames the running app at its dev loop's own
-  URL (`hello.page`), at a phone, tablet or desktop size, with a link to open
-  it in a tab. The frame is sandboxed short of navigating the tool, and the
-  tool never scripts it; only a loopback origin is framed. A dev loop's HTML
+- The canvas (T2, LLP 1122 D3) frames the running app on its dev loop's
+  port as `localhost`, at a phone, tablet or desktop size, with a link that
+  opens it in a tab at the URL the dev loop prints (`hello.page`). The frame is sandboxed short of navigating the tool, and the
+  tool never scripts it; only a loopback origin is framed, 127.0.0.1 as
+  `localhost` on its port, which the dev loops answer on [::1] too. That is
+  another site than the tool's, so a browser with site isolation (Chrome's
+  desktop default) runs the page in its own process, and a busy one cannot
+  stall the tool. It is another origin, too: the canvas keeps its own
+  cookies and storage, apart from a tab at the printed 127.0.0.1 URL, which
+  "Open in a tab" opens. A dev loop's HTML
   may be framed by the tool's origin and its own, no other. With no dev loop
   (`tamber tool` alone), it says how to start one and open the tool through
   it (`--via`, after stopping this tool).
@@ -39,6 +45,20 @@ whose design the port serves.
   `scrub-cancel`; an end the server makes (another write, idle 30 s, the
   tool gone) is said. An edit that rebuilds, or a tool with no dev loop,
   offers no scrub, and says why.
+- The inspector (T2b, LLP 1122 D5): Inspect turns inspect mode on every
+  build that can (the wasm page now); a click in one selects a view, and the
+  server's `selection` shows here: its source and component call sites, its
+  modes, and each row with where its value comes from. A row the node itself
+  sets to a token offers that token's cell in the grid, on the branch that
+  won for the selected copy (its modes, and the node's own `color-scheme`,
+  else its build's scheme), with T1's edits and T2's scrubs; an inherited or
+  derived row links its token; a style's or the tag's row says it comes with
+  template editing (T5). A selection stops being current, and offers
+  nothing, when its build goes, reloads or moves on (a pin, a mode, a new
+  plan or design), its page leaves inspect mode, or the design's axes
+  change; it stays so until a new selection. A token's impact is its
+  `uses`, static source sites, and Outline shows them on every build in
+  inspect mode, naming the builds told.
 - `app.ts` is the `tamber/1` client: the token from `GET /__tamber/token`
   once, every request a `POST /__tamber`, and changes followed by the long
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.

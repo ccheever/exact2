@@ -569,6 +569,16 @@ final class MenuHost {
             stack.append(contentsOf: view.subviews)
         }
     }
+    /// Whether `node` is inside a `dialog` or popover covered while closed:
+    /// the kernel has not laid it out, and nothing in it shows.
+    func inClosedBox(_ node: NodeView) -> Bool {
+        var at: UIView? = node
+        while let view = at {
+            if let box = view as? NodeView, box.props["popover"] != nil || isDialog(box) { return !laidOut.contains(box.id) && !showsInViews(box) }
+            at = view.superview
+        }
+        return false
+    }
     /// The `input`s `batch` makes inside a closed `dialog` or popover: the
     /// kernel lays out neither, and their UIKit fields wait for it to show
     /// (`NodeView.makeWaitingField`). Their boxes are found from the batch's
@@ -771,6 +781,7 @@ final class MenuHost {
         agentOpen[name] = entry
         presenter?.popoverEvents.changed(pop, open: true)
         lift(entry)
+        presenter?.controls.syncShown()
         if let field = Self.autofocus(in: pop) { presenter?.focusNode(field) }
     }
     /// Under the agent, a context menu (LLP 1021 §5.1) is its popover painted

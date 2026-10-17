@@ -242,6 +242,53 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, ["pick 4", "next turn"])
     }
 
+    /// The menu a right press opens takes the button's release: the view
+    /// never hears its `rightMouseUp`. The press's hold ends as the menu
+    /// closes, with `pointerup` to the ancestor that heard its down, and
+    /// hover follows the pointer again. A hold left behind kept every row's
+    /// hover from following until a left click (realinput-1017l, failure 3).
+    func testTheHoldOfTheRightPressThatOpenedAMenuEndsAsItCloses() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "handlers": ["hover"]],
+            ["op": "children", "id": 9, "ids": [1, 2, 20]],
+            ["op": "frame", "id": 20, "x": 20, "y": 100, "w": 120, "h": 30],
+        ]))
+        p.views[9]?.handlers = ["pointerdown", "pointerup"]
+        source.handlers.insert("hover")
+        let row = try XCTUnwrap(p.views[20])
+        window.orderFrontRegardless()
+        var heard: [String] = []
+        p.onPointer = { id, kind, _ in heard.append("\(id) \(kind)") }
+        p.onHover = { id, over in heard.append("hover \(id) \(over)") }
+        var closed = false
+        let center = NotificationCenter.default
+        let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        let ended = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in closed = true }
+        defer { center.removeObserver(began); center.removeObserver(ended) }
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: source.convert(NSPoint(x: 10, y: 10), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 1, pressure: 1))
+        source.rightMouseDown(with: down)
+        XCTAssertEqual(heard, ["9 down"])
+        XCTAssertTrue(p.pointerHolds)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !closed && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertTrue(closed, "the menu tracked and closed")
+        turn()
+        XCTAssertFalse(p.pointerHolds, "the menu took the release; the hold ends with it")
+        XCTAssertEqual(heard, ["9 down", "9 up"])
+        let moved = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: row.convert(NSPoint(x: 10, y: 10), to: nil),
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 2, clickCount: 0, pressure: 0))
+        p.viewport.mouseMoved(with: moved)
+        XCTAssertEqual(heard.last, "hover 20 true", "hover follows the pointer once the menu has closed")
+    }
+
     func testContextMenuHonorsKeyCancellationAndOnlyTheUnmodifiedKeyDown() throws {
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
         source.props.removeValue(forKey: "contextPopover")

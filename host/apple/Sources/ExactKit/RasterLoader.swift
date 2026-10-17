@@ -96,6 +96,7 @@ private final class RasterBackend: @unchecked Sendable {
     }
 
     func acquire(_ name: String, resolver: AssetResolver) -> RasterAcquire {
+        RasterWorkers.shared.start()
         lock.lock(); defer { lock.unlock() }
         guard !stopped, name.utf8.count <= (name.hasPrefix("data:") ? RasterInput.dataLimit : 4096) else { return .refused }
         pruneLocked()
@@ -306,7 +307,12 @@ final class RasterWorkers: @unchecked Sendable {
         lock.unlock()
     }
     var single: Bool { lock.lock(); defer { lock.unlock() }; return !fast.isEmpty }
-    private init() {
+    private var started = false
+    /// The workers start with the process's first image source: an app that
+    /// shows no picture keeps no decode threads.
+    func start() {
+        lock.lock(); let first = !started; started = true; lock.unlock()
+        guard first else { return }
         for i in 0..<2 { Thread.detachNewThread { [self] in run(i) } }
     }
     fileprivate func add(_ backend: RasterBackend) { lock.lock(); backends[backend.id] = WeakRasterBackend(backend); lock.unlock() }

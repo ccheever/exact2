@@ -16,7 +16,7 @@ use exact_kernel::motion::{layout_presented, motion_node, node_key, MotionSync, 
 use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
 use exact_motion::{Engine, Property};
 use exact_plan::Plan;
-use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
+use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, Timed};
 use std::collections::BTreeMap;
 
 #[path = "activation.rs"]
@@ -29,6 +29,8 @@ mod back;
 mod bars;
 #[path = "content_region/host.rs"]
 mod content;
+#[path = "host_error.rs"]
+mod error;
 #[path = "hatches/host.rs"]
 mod hatch;
 #[path = "height.rs"]
@@ -39,6 +41,8 @@ mod height_binding;
 mod holds;
 #[path = "lower.rs"]
 pub mod lower;
+#[path = "midi.rs"]
+mod midi;
 #[path = "paint_motion.rs"]
 mod paint_motion;
 #[path = "presence.rs"]
@@ -53,26 +57,9 @@ mod system;
 mod transform_binding;
 #[path = "value_watch.rs"]
 mod value_watch;
+pub use error::{HostError, LET_GO_AFTER};
 
 use system::{persist_store_writes, physical_memory, store_snapshot};
-
-/// Why the host refused to boot.
-#[allow(missing_docs)]
-#[derive(Debug)]
-pub enum HostError {
-    Plan(exact_plan::PlanError),
-    Runner(RunnerError),
-    Painter(String),
-    Layout(String),
-    Asset(String),
-    PreparingModule,
-}
-
-impl std::fmt::Display for HostError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
 
 /// Caller-owned plan bytes, or linked bytes whose data pool stays in place.
 #[derive(Clone, Copy)]
@@ -388,9 +375,7 @@ impl<D: DataSource> Host<D> {
     /// The commands the last commits' actions asked for, in order (LLP 1005
     /// §3): `deliveryCheck`, `deliveryActivate`, `setScheme`.
     pub fn take_commands(&mut self) -> Vec<exact_runner::Command> {
-        // The voice table's ops are drained with them and play nothing: this
-        // host keeps the record and has no output (LLP 1096 D9).
-        drop(self.runner.take_sounds());
+        self.drain_outputs();
         self.runner.take_commands()
     }
 

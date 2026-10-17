@@ -311,6 +311,12 @@ impl<D: DataSource> Host<D> {
         self.runner.kernel()
     }
 
+    /// Its session's role overrides resolve until the scope ends (LLP 1121
+    /// stage 5): a reader beside other sessions on the thread binds them.
+    pub fn bind_roles(&self) -> exact_kernel::style::roles::RolesScope {
+        self.runner.bind_roles()
+    }
+
     /// The grid size.
     pub fn size(&self) -> (usize, usize) {
         (self.cols, self.rows)
@@ -491,6 +497,7 @@ impl<D: DataSource> Host<D> {
     /// The current full-screen frame, painted once per change.
     pub fn frame(&mut self) -> &Painted {
         if self.painted.is_none() {
+            let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
             let roots = self.runner.roots();
             let painted = paint(&self.scene(), &roots, self.cols, self.rows, 0);
             if self.mode == Mode::Fullscreen {
@@ -503,6 +510,7 @@ impl<D: DataSource> Host<D> {
 
     /// Rows `top..top + count` of the whole document, painted (inline mode).
     pub fn render(&self, top: usize, count: usize) -> Painted {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let roots = self.runner.roots();
         paint(&self.scene(), &roots, self.cols, count, top)
     }
@@ -512,6 +520,7 @@ impl<D: DataSource> Host<D> {
     /// printed into the transcript over it (LLP 1101.002, Astra's code
     /// review).
     pub fn render_settled(&self, top: usize, count: usize) -> Painted {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let roots = self.runner.roots();
         let mut scene = self.scene();
         scene.layers.clear();

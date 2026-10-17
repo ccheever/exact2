@@ -187,13 +187,16 @@ component App
           text "Second"
 "#;
 
-/// A tab not selected stays mounted, hidden by every host: it holds nothing.
+/// A tab not yet selected is not built (LLP 1075.003 §3.7); one selected
+/// once stays mounted, hidden by every host when another is selected: it
+/// holds nothing then.
 #[test]
 fn a_tab_not_selected_holds_nothing() {
     let mut r = boot_source(TABS);
-    let id = player(&r).expect("the second tab is mounted");
+    assert_eq!(player(&r), None, "the second tab waits for its selection");
     assert!(super::holders(r.kernel()).is_empty());
     press(&mut r, "tab-second");
+    let id = player(&r).expect("the second tab is built");
     assert_eq!(super::holders(r.kernel()), vec![id]);
     press(&mut r, "tab-first");
     assert_eq!(player(&r), Some(id));

@@ -24,6 +24,8 @@ public struct Batch {
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
+    /// A module generation refused while requests are in flight: ask again (LLP 1007 §6).
+    public var requests = false
     /// What moves changes place or size: the panel's full rate (LLP 1061 D4).
     public var spatial = false
     /// A 2D canvas wants the next display frame (LLP 1056 D5).
@@ -223,13 +225,14 @@ package final class Runtime {
         }
     }
     func commitPlan() -> Batch { islands(on { read(exact_commit_plan(rt)) }) }
-    func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat) -> Batch {
+    /// `letGo`: the dev loop's, past its settle window: requests in flight do not refuse it (LLP 1007 §6).
+    func prepareModule(_ plan: Data, module: ExactModule, token: UInt64 = 0, width: CGFloat, height: CGFloat, letGo: Bool = false) -> Batch {
         return on {
             var payload = plan
             payload.append(module.receipt)
             payload.append(module.bytecode)
             _ = write(payload)
-            return read(exact_prepare_module(rt, token, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height)))
+            return read(exact_prepare_module(rt, token, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height), letGo ? 1 : 0))
         }
     }
     func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
@@ -358,6 +361,8 @@ package final class Runtime {
             done(read(exact_collection_feedback(rt, n, now)))
         }
     }
+    /// Count each plan site's work for `perf` from now, if not yet (LLP 1079 D1).
+    func measureWork() { on { _ = exact_measure_work(rt) } }
     /// Canvas draws in a turn of their own (LLP 1072 §8.5).
     func canvasDefer(_ deferred: Bool) { on { exact_canvas_defer(rt, deferred ? 1 : 0) } }
     /// The owed canvas draws on the owner, not waited for (LLP 1072 §8.5).
@@ -551,6 +556,8 @@ package final class Runtime {
     func setLaunchPlace(locale: String, timeZone: String, seed: UInt64) { on { () -> Void in _ = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) } }
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
+    /// Whether the running plan reads `onLine`; true when the owner is busy.
+    func readsOnLine() -> Bool { on(busy: true) { exact_reads_on_line(rt) != 0 } }
     func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
     /// A live design batch or snapshot frame (LLP 1121 stage 4), applied in place.
     func designRows(_ frame: String) -> Batch { on { read(exact_design_rows(rt, write(frame))) } }
@@ -561,6 +568,14 @@ package final class Runtime {
             return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    func planDigest() -> String? {
+        on(busy: nil) {
+            let len = exact_plan_digest(rt)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
+    /// A MIDI message (LLP 1125 D6–D8): the arm's ports or inputs, or the agent's `prefer midi` and `tap midi`.
+    func midi(_ json: String) -> Batch { on { read(exact_midi(rt, write(json))) } }
     func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }

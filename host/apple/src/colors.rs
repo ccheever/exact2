@@ -99,6 +99,7 @@ impl<D: DataSource> Host<D> {
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {
         let mut batch = Batch::new();
+        let _roles = self.runner.bind_roles();
         roles::set_reported(report);
         // The reported table's and this session's roles' (LLP 1121 stage 5).
         let mut generation = roles::generation();
@@ -151,8 +152,21 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+impl<D: DataSource> Host<D> {
+    /// The session's role overrides moved (a live edit, LLP 1121 stage 5):
+    /// the presenter's table again (its tint, its own surfaces), and what
+    /// the kernel resolved from the old ones re-presented (each node's rows
+    /// cross again: the runner's receipt touches every node).
+    pub(crate) fn roles_moved(&mut self, batch: &mut Batch) {
+        let _roles = self.runner.bind_roles();
+        emit_roles(batch);
+        self.re_present_colors(batch, false);
+        self.colors_seen = Some(roles::generation());
+    }
+}
+
 /// The roles the plan's theme replaces (LLP 1095 D4), for the presenter's
-/// own surfaces: one message at boot.
+/// own surfaces: a message at boot, and after a live edit moves them.
 pub(crate) fn emit_roles(batch: &mut Batch) {
     use exact_kernel::style::roles;
     let entries: Vec<(&str, String)> = (0..=u8::MAX)

@@ -11,6 +11,12 @@ pub(crate) use scene::snap as trace_snap;
 use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
+/// Pages in one transform write: 2 MiB, so the queue's staging buffer fits a
+/// block its allocator keeps. A larger one is allocated alone and freed after
+/// the frame, its pages faulted in and zeroed by the kernel each tick (Android's
+/// `MemoryHints::MemoryUsage` keeps 4 MiB host blocks).
+const RUN_PAGES: usize = 2 * 1024 * 1024 / (PAGE * 40);
+
 pub(crate) trait Writes {
     fn attachments(
         &mut self,
@@ -59,6 +65,17 @@ pub(crate) trait Writes {
     fn max_slots(&self) -> u32;
     fn begin_tick(&mut self);
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError>;
+    /// `transforms` of `len` floats that `fill` writes as bytes, where the writer
+    /// can take them without a copy of its own.
+    fn transforms_with(
+        &mut self,
+        first: u32,
+        len: usize,
+        both: bool,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        self.transforms(first, &crate::buffers::filled(len, fill), both)
+    }
     fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn materials(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn mesh(&mut self, vertices: &[Vertex], indices: &[u32]) -> MeshId;
@@ -189,6 +206,18 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         } else {
             self.write_transforms(first, floats)
         }
+    }
+    fn transforms_with(
+        &mut self,
+        first: u32,
+        len: usize,
+        both: bool,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        if both {
+            return self.write_transforms_both(first, &crate::buffers::filled(len, fill));
+        }
+        self.write_transforms_with(first, len, fill)
     }
     fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError> {
         self.write_previous_transforms(first, floats)
@@ -412,6 +441,8 @@ pub struct Feed {
     page_scratch: Box<[f32; PAGE * 12]>,
     dimensions: Vec<[f32; 3]>,
     scratch: Vec<f32>,
+    /// The transform pages a feed writes: first entity, floats, overrides.
+    changed: Vec<(u32, usize, std::ops::Range<usize>)>,
     previous: Vec<(u32, [f32; 10])>,
     transforms: [upload::Pages; 2],
     materials: upload::Pages,
@@ -455,6 +486,7 @@ impl Default for Feed {
             page_scratch: Box::new([0.0; PAGE * 12]),
             dimensions: Vec::new(),
             scratch: Vec::new(),
+            changed: Vec::new(),
             previous: Vec::new(),
             transforms: Default::default(),
             materials: Default::default(),
@@ -717,8 +749,9 @@ impl Feed {
                 }
             }
             let pages = w.pages::<Transform>();
-            let mut run = 0;
-            self.scratch.clear();
+            // The changed pages, then each run of adjacent ones written straight
+            // into the queue's staging memory: 64,000 moving entities are 2.5 MB a tick.
+            self.changed.clear();
             for page in pages.iter() {
                 let len = page_len(page.first, r.max_slots()) * 10;
                 let index = page.first as usize / PAGE;
@@ -731,24 +764,45 @@ impl Feed {
                 let mut values = &page.floats()[..len];
                 if parented {
                     self.page_scratch[..len].copy_from_slice(values);
-                    for pose in &self.overrides[range] {
+                    for pose in &self.overrides[range.clone()] {
                         let at = (pose.entity.index() - page.first) as usize * 10;
                         self.page_scratch[at..at + 10].copy_from_slice(&pose.values);
                     }
                     values = &self.page_scratch[..len];
                 }
                 if self.transforms[self.current].dirty(index, page.generation, values, true) {
-                    if !self.scratch.is_empty()
-                        && run + (self.scratch.len() / 10) as u32 != page.first
-                    {
-                        r.transforms(run, &self.scratch, initial)?;
-                        self.scratch.clear();
-                    }
-                    if self.scratch.is_empty() {
-                        run = page.first;
-                    }
-                    self.scratch.extend_from_slice(values);
+                    self.changed.push((page.first, len, range));
                 }
+            }
+            // Walked beside `changed`, both ascending.
+            let mut walk = pages.iter();
+            let mut start = 0;
+            while start < self.changed.len() {
+                let mut end = start + 1;
+                while end < self.changed.len()
+                    && end - start < RUN_PAGES
+                    && self.changed[end - 1].0 + (self.changed[end - 1].1 / 10) as u32
+                        == self.changed[end].0
+                {
+                    end += 1;
+                }
+                let run = &self.changed[start..end];
+                let floats = run.iter().map(|(_, len, _)| len).sum();
+                let overrides = &self.overrides;
+                r.transforms_with(run[0].0, floats, initial, &mut |put| {
+                    let mut at = 0;
+                    for (first, len, range) in run {
+                        let page = walk.by_ref().find(|p| p.first == *first).unwrap();
+                        let bytes = crate::buffers::bytes(&page.floats()[..*len]);
+                        put(at, bytes);
+                        for pose in &overrides[range.clone()] {
+                            let o = at + (pose.entity.index() - first) as usize * 40;
+                            put(o, crate::buffers::bytes(&pose.values));
+                        }
+                        at += bytes.len();
+                    }
+                })?;
+                start = end;
             }
             self.buffer_cursors[self.current] = Some(w.pose_cursor());
             if initial {
@@ -759,9 +813,6 @@ impl Feed {
                 } else {
                     a[0].clone_from(&b[0]);
                 }
-            }
-            if !self.scratch.is_empty() {
-                r.transforms(run, &self.scratch, initial)?;
             }
             // A slot whose occupant changed since the last swap has no history of
             // its own: an entity spawned in an earlier tick of a multi-tick

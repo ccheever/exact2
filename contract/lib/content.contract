@@ -80,6 +80,9 @@ component StatBar
 // tabular figures and the label under it. One progress bar to a reader, its
 // label and value spoken. 200 points across, down to 120 in a narrower
 // container; the ring is drawn over the square, so it adds no width of its own.
+// The text inside is the default body's sizes at every text size: the ring
+// keeps its size, and text that followed Dynamic Type ran out of it
+// (habit-tracker, LLP 1116.019 D1).
 // Call: RingProgress(label="Steps", value="6,200", fraction=0.62, tint=none)
 component RingProgress
   props
@@ -98,8 +101,8 @@ component RingProgress
           circle cx=50 cy=50 r=45 fill="none" stroke="currentcolor" stroke-width=8 stroke-linecap="round"
             pathLength=100 stroke-dasharray=`${min(1, fraction) * 100} 100` transform="rotate(-90 50 50)"
       column position="absolute" inset=0 align-items="center" justify-content="center" gap=2 padding="0 18%"
-        text value font-size="2rem" font-variant-numeric="tabular-nums" white-space="nowrap" aria-hidden=true
-        text label font="-exact-subheadline" color="-exact-secondary-label" text-align="center" aria-hidden=true
+        text value font-size=34 font-variant-numeric="tabular-nums" white-space="nowrap" aria-hidden=true
+        text label font-size=15 color="-exact-secondary-label" text-align="center" aria-hidden=true
 
 // Done or not, at a glance: a filled check in the system green, or an empty
 // circle in grey, with `caption` under it: short, a day's name (`""` for
@@ -201,8 +204,10 @@ component Badge
 // under white (green is 2.2:1) and look off-platform under black (LLP
 // 1116.007 D3.3, then trivia's teal Start, round 10), so they draw the
 // platform's tinted style as the Clock's Start does: the hue at low opacity
-// under the label's own ink, black in light and white in dark, which reads on
-// every one of them (LLP 1116.008 D6). Two sit at the ends of a
+// under the hue itself, as UIKit draws it (LLP 1116.008 D6; LLP 1116.019 D1).
+// Its title is the default body size at every text size, as the Clock's
+// stays within its circle: scaled with Dynamic Type it was "L…" at the
+// largest (LLP 1116.019 D1). Two sit at the ends of a
 // `row justify-content="space-between"` under the readout.
 // Call: RoundButton(label="Start", tint=some("-exact-system-green"), press=toggle, disabled=false, testId="start")
 component RoundButton
@@ -217,19 +222,18 @@ component RoundButton
       case some(t)
         if ["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"].includes(t)
           button press=press disabled=disabled testId=testId buttonStyle="tinted"
-            accent-color=t color=(disabled ? "-exact-tertiary-label" : "-exact-label")
-            -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
-            text label white-space="nowrap"
+            accent-color=t -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+            text label white-space="nowrap" font-size=17
         else
           button press=press disabled=disabled testId=testId buttonStyle="filled"
             accent-color=(t == "AccentColor" ? "inherit" : t)
             -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
-            text label white-space="nowrap"
+            text label white-space="nowrap" font-size=17
       case none
         button press=press disabled=disabled testId=testId buttonStyle="gray"
           color=(disabled ? "-exact-tertiary-label" : "-exact-label")
           -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
-          text label white-space="nowrap"
+          text label white-space="nowrap" font-size=17
 
 // One answer of a quiz or a poll: a tile as wide as its column, the label at
 // its start in the headline style. `status` is one of five: "idle" (a
@@ -237,8 +241,9 @@ component RoundButton
 // told), "correct" (the system green and a check), "wrong" (the system red
 // and a cross) or "dimmed" (the rest, once told). The green takes dark ink
 // and the red white, in either scheme, and a mark beside the label says
-// what the colour says. Told and dimmed tiles are disabled. A reader hears
-// the label and its status ("Paris, correct").
+// what the colour says; the mark grows with the text (`rem`), as a symbol
+// beside a UIKit button's title does. Told and dimmed tiles are disabled. A
+// reader hears the label and its status ("Paris, correct").
 // Call: AnswerTile(label="Paris", status="idle", press=pick("Paris"), testId="answer-paris")
 component AnswerTile
   props
@@ -253,7 +258,7 @@ component AnswerTile
         border="2px solid transparent" color="-exact-label" color-scheme=(status == "correct" ? "light" : "dark")
         background-color=(status == "correct" ? "-exact-system-green" : "-exact-system-red")
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
-        image (status == "correct" ? "symbol:checkmark" : "symbol:close") width=22 height=22
+        image (status == "correct" ? "symbol:checkmark" : "symbol:close") width="1.375rem" height="1.375rem"
           object-fit="contain" flex-shrink=0 aria-hidden=true -exact-tint-color="-exact-label"
     else
       button appearance="none" press=press disabled=(status == "dimmed") testId=testId
@@ -263,5 +268,5 @@ component AnswerTile
         background-color="-exact-tertiary-fill" color=(status == "dimmed" ? "-exact-secondary-label" : "-exact-label")
         text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
         if status == "selected"
-          image "symbol:select-fill" width=22 height=22 object-fit="contain" flex-shrink=0
+          image "symbol:select-fill" width="1.375rem" height="1.375rem" object-fit="contain" flex-shrink=0
             aria-hidden=true -exact-tint-color="AccentColor"

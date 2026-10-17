@@ -114,6 +114,23 @@ final class SurfaceRecordTests: XCTestCase {
         XCTAssertEqual(c.worldInput.bytes, Data([1]), "refusal keeps bytes for a later capable surface")
         entry.id = 0
     }
+    func testModuleDigestSurvivesReSigningButNotACodeChange() {
+        // A 64-bit Mach-O: __LINKEDIT, the signature command, code, and the signature at 160 (bake/src/receipt.rs).
+        func signed(_ signature: String, code: UInt8) -> Data {
+            var b = [UInt8](repeating: 0, count: 160)
+            func put<T: FixedWidthInteger>(_ v: T, _ at: Int) { withUnsafeBytes(of: v.littleEndian) { b.replaceSubrange(at..<(at + MemoryLayout<T>.size), with: $0) } }
+            put(UInt32(0xfeedfacf), 0); put(UInt32(2), 16)
+            put(UInt32(0x19), 32); put(UInt32(72), 36); b.replaceSubrange(40..<50, with: Array("__LINKEDIT".utf8))
+            put(UInt64(signature.utf8.count), 64); put(UInt64(signature.utf8.count + 8), 80)
+            put(UInt32(0x1d), 104); put(UInt32(16), 108); put(UInt32(160), 112); put(UInt32(signature.utf8.count), 116)
+            b[150] = code
+            return Data(b + Array(signature.utf8))
+        }
+        let ours = GpuModule.codeDigest(signed("ad-hoc", code: 1))
+        XCTAssertEqual(ours, GpuModule.codeDigest(signed("a recipient's longer signature", code: 1)))
+        XCTAssertNotEqual(ours, GpuModule.codeDigest(signed("ad-hoc", code: 2)))
+        XCTAssertEqual(GpuModule.codeDigest(Data("not Mach-O".utf8)), SHA256.hash(data: Data("not Mach-O".utf8)).map { String(format:"%02x", $0) }.joined())
+    }
     func testModuleIdentityAndDevelopmentOnlyPathOverride() throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dylib")
         let bytes = Data("a GPU product".utf8)

@@ -42,6 +42,7 @@ enum Lease<'a> {
     },
 }
 impl Drop for Lease<'_> {
+    #[inline]
     fn drop(&mut self) {
         match *self {
             Self::Hold { holds, slot } => holds.release(slot),

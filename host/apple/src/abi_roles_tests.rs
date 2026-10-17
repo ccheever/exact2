@@ -163,3 +163,42 @@ fn a_boxed_gradient_carries_its_sessions_accent() {
         "{resolved}"
     );
 }
+
+/// The binding core through the export's path (LLP 1121 D12, stage 5): each
+/// runtime answers a token from its own design, a name its plan lacks is
+/// `null`, and `inputs` is the same until something it read moves.
+#[test]
+fn the_binding_core_answers_each_runtime_from_its_own_design() {
+    let (first, _) = boot(None, "#010101");
+    let (second, _) = boot(None, "#020202");
+    let ask = |rt: u32| {
+        crate::abi::registry::with_runtime(
+            &RUNTIMES,
+            rt,
+            false,
+            |b, _| {
+                let len = b.input_write(br#"{"view": 0, "names": ["CanvasText", "nonesuch"]}"#);
+                let n = b.tamber(len) as usize;
+                String::from_utf8(b.output_bytes(n).to_vec()).unwrap()
+            },
+            |_| String::new(),
+        )
+    };
+    let (a, b) = (ask(first), ask(second));
+    assert!(a.contains(r#""CanvasText":[1,1,1,255]"#), "{a}");
+    assert!(b.contains(r#""CanvasText":[2,2,2,255]"#), "{b}");
+    assert!(a.contains(r#""nonesuch":null"#), "{a}");
+    assert_eq!(ask(first), a, "nothing moved");
+    let refused = crate::abi::registry::with_runtime(
+        &RUNTIMES,
+        first,
+        false,
+        |b, _| {
+            let len = b.input_write(br#"{"view": 4294967297, "names": ["CanvasText"]}"#);
+            let n = b.tamber(len) as usize;
+            String::from_utf8(b.output_bytes(n).to_vec()).unwrap()
+        },
+        |_| String::new(),
+    );
+    assert!(refused.contains("no live view id"), "{refused}");
+}

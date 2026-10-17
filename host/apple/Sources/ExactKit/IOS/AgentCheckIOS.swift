@@ -243,6 +243,11 @@ extension Agent {
                     // pixels there are the page's (LLP 1116.010 D2: trivia's Badge below the viewport was "a card that does not show").
                     if item["text"] != nil || item["control"] != nil || item["fill"] != nil { presented(n, b, into: &item) }
                     if item.keys.contains(where: { ["text", "control", "fill", "outX", "padded"].contains($0) }) { items.append(item) }
+                } else if n.isParagraph, b.width < 1, b.height > 0, b.minX >= port.minX - 1, b.minX <= port.maxX + 1, b.maxY > port.minY, b.minY < port.maxY {
+                    // Text squeezed to no width (a flex item that may shrink to nothing beside siblings that will not): none of it shows.
+                    var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }
+                    paragraph(n, b, alpha: a, into: &item)
+                    if item["text"] != nil { item["squeezed"] = true; items.append(item) }
                 } else if b.width > 0, b.height > 0, b.maxX > port.minX, b.minX < port.maxX {
                     // Off the screen: only a control out of reach (past its top or bottom, and nothing scrolls to it) is anything.
                     var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }
@@ -359,7 +364,13 @@ extension Agent {
             while let cur = held, !(cur is NodeView), !(cur is UIButton) { held = cur.superview }
             var up: UIView? = held is UIButton ? held : label.superview
             while let cur = up {
-                if let button = cur as? NativeButtonIOS { if let o = button.owner { item["of"] = Int(o.id) }; item["label"] = true; break }
+                if let button = cur as? NativeButtonIOS {
+                    if let o = button.owner { item["of"] = Int(o.id) }
+                    item["label"] = true
+                    // UIKit's white on a fill of the accent (LLP 1116.019 D3): what reads on it is the accent's choice.
+                    if ButtonConfigurationIOS.filledStyles.contains(button.drawn), button.configuration?.baseForegroundColor == nil { item["onAccent"] = true }
+                    break
+                }
                 if cur is UIButton {
                     var owner = cur.superview
                     while let o = owner, !(o is NodeView) {

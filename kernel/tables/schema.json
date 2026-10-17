@@ -1560,6 +1560,12 @@
       "name": "wakelock",
       "kind": "str",
       "_comment": "@ref LLP 1125 D11: `screen` or `none` (the default), on any element. While any node that is mounted and displayed (neither it nor an ancestor `display: none`, nor under a route its navigation hides) says `screen`, the display does not dim or lock for idleness; `exact_runner::wakelock` is the rule every host reads."
+    },
+    {
+      "id": 269,
+      "name": "midiInputs",
+      "kind": "str",
+      "_comment": "@ref LLP 1125 D8: the MIDI inputs an element with a `midimessage` handler hears, by `MIDIPort.id`, newline-joined from the `string[]` the author writes as `midiinputs=`. The runner reads it (`exact_runner::midi`) to open inputs and choose each message's handlers; no presenter draws it."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -5578,6 +5584,7 @@
     ["grouped-symbol-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-checkmark-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-destructive-color", "style", "-exact-system-red", "-exact-label", "-exact-system-red", "-exact-system-red"],
+    ["grouped-action-color", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-section-width", "style", "unset", "100%", "unset", "unset"],
     ["grouped-section-max-width", "style", "unset", 744, "unset", "unset"],
     ["grouped-section-margin-inline", "style", "unset", "auto", "unset", "unset"],

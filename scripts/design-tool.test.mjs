@@ -4,15 +4,33 @@
 // --url`). The tool shows the server's hello, and an agent's write arrives
 // on its long poll attributed. Its stub-server tests are
 // apps/design-tool/app.test.contract.
-import { expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import { request } from 'node:http';
 import { TOOL_DIST, TOOL_ORIGIN } from './tamber-server.mjs';
+import { takePort } from './port-lock.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+
+// The tool's port, in turn with other runs (the contract tests' stub, other
+// checkouts'): each test takes it, and a tool that took no turn there (one
+// run by hand) is said by its pid.
+let givePort = () => {};
+beforeEach(async () => {
+  const port = Number(new URL(TOOL_ORIGIN).port);
+  givePort = await takePort(port, { label: `scripts/design-tool.test.mjs in ${ROOT}` });
+  const pid = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).stdout.trim().split('\n')[0];
+  if (pid) {
+    givePort();
+    const command = spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout.trim().slice(0, 80);
+    throw new Error(`${TOOL_ORIGIN} already answers (pid ${pid}: ${command}), and took no turn (a design tool run by hand?): stop it (kill ${pid}) and run these again`);
+  }
+}, 25 * 60_000); // as long as the turn may take (its wait is 20 minutes)
+afterEach(() => givePort());
 
 /** Lines of `child`'s stdout as they come; `until(pass)` waits for one. */
 function lines(child) {
@@ -61,7 +79,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.3', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.4', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -724,7 +742,8 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     const closed = Date.now();
     const [tree] = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {})));
     const of = id => tree.nodes.find(n => n.props.testId === id);
-    expect(of('canvas-frame')).toMatchObject({ type: 'WebView', url: base });
+    // Framed as localhost: another site than the tool's, its own process.
+    expect(of('canvas-frame')).toMatchObject({ type: 'WebView', url: base.replace('127.0.0.1', 'localhost') });
     expect(of('canvas-open').type).toBe('Pressable');
     // Its size, inside a 1px border: a phone's, a tablet's, a desktop's.
     const sizes = replies.filter(r => r.nodes?.some(n => 'x' in n)).map(r => r.nodes.find(n => n.testId === 'canvas-frame')).map(n => [n.w - 2, n.h - 2]);
@@ -737,8 +756,13 @@ test('T2: the canvas frames the dev loop\'s page, sandboxed, at the size chosen;
     await devSaid.until(l => l.startsWith('page connected'), 1);
     // The page itself lets the tool's origin frame it.
     expect((await fetch(`${base}/`, { headers: { accept: 'text/html' } })).headers.get('content-security-policy')).toBe(`frame-ancestors 'self' ${TOOL_ORIGIN}`);
+    // It answers on [::1] too, where `localhost` (the canvas's) goes first.
+    // (A request there names localhost, as the browser's does.)
+    // (Where this machine has IPv6.)
+    const viaSix = await new Promise((ok, fail) => request({ host: '::1', port, path: '/', headers: { host: `localhost:${port}`, accept: 'text/html' } }, res => { res.resume(); ok([res.statusCode, res.headers['content-security-policy']]); }).on('error', e => (['EADDRNOTAVAIL', 'EAFNOSUPPORT', 'ENETUNREACH'].includes(e.code) ? ok(null) : fail(e))).end());
+    if (viaSix) expect(viaSix).toEqual([200, `frame-ancestors 'self' ${TOOL_ORIGIN}`]);
     const states = replies.filter(r => r.resources);
-    expect(states[0].resources.hello.page).toBe(base);
+    expect(states[0].resources.hello).toMatchObject({ page: base, frame: base.replace('127.0.0.1', 'localhost') });
     // The frame's build and the other, each with the facts it reports.
     const builds = states[0].resources.changes.builds;
     const frame = builds.find(b => b.host === 'web-js');
@@ -829,11 +853,10 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       // Again, cancelled.
       'tap cell-accent.fill-0-light', 'clock data', 'type branch-value #00ff00', 'type branch-value key Enter', 'clock data',
       'tap scrub-start', 'clock data', 'tree scrub', 'clock +6000 real', 'tap scrub-cancel', 'clock data', ...wait, 'state',
-      // AccentColor is a role override: its edit rebuilds, and offers no scrub.
-      'tap cell-AccentColor-0-light', 'clock data', 'type branch-value #ff0000', 'type branch-value key Enter', 'clock data', 'state',
+      // A token added is structure: it rebuilds, and offers no scrub. (A
+      // role override's value is live since LLP 1121 stage 5.)
+      'type new-name accent.extra', 'type new-value #ff0000', 'tap add-token', 'clock data', 'state',
       'tree proposal', 'clock +6000 real',
-      // Applied, it reloads the frame.
-      'tap apply', 'clock data', ...wait,
     ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
     drive.stderr.on('data', d => { driveSaid = (driveSaid + d).slice(-4000); });
@@ -885,15 +908,76 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     expect(after.frame.design).toBe(before.frame.design);
     expect([cancelling.frame.id, after.frame.id]).toEqual([before.frame.id, before.frame.id]);
     expect(after.connects).toBe(before.connects);
-    // The role override: rebuilds, and Scrub live is not offered (said
-    // why); applied, the frame's page reloads (it connects again).
+    // The token added: rebuilds, and Scrub live is not offered. (A set-token
+    // edit that rebuilds says why it has no scrub: the stub's contract test.
+    // Not applied: the dev loop sends a token no page reads as a batch.)
     expect(states[5].resources.proposal).toMatchObject({ ok: true, chip: 'rebuild' });
-    expect(trees[4].nodes.some(n => n.props.testId === 'scrub-unavailable' || n.props.text === "This edit rebuilds the app, so it can't be scrubbed: Apply writes it.")).toBe(true);
-    await devSaid.until(() => connects() > after.connects, 60_000);
+    expect(trees[4].nodes.some(n => n.props.testId === 'chip' && n.props.text === 'Rebuilds')).toBe(true);
+    expect(trees[4].nodes.some(n => n.props.testId === 'scrub-start')).toBe(false);
   } finally {
     if (tool) await stop(tool);
     await stop(dev);
     rmSync(app, { recursive: true, force: true });
+    rmSync(dist, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('T2b: inspect from the tool selects a view in the canvas frame, shows its source and rows, and opens its token on the branch that won', async () => {
+  const listener = (await import('node:http')).createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  await new Promise(ok => listener.close(ok));
+  const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
+  const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  let tool;
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const devSaid = lines(dev);
+    await devSaid.until(l => l.includes('plan ready'), 600_000);
+    tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', resolve(ROOT, 'apps/theme-fixture'), '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
+    await page.goto(url);
+    await page.locator('[data-testid="name"]').fill('Ada');
+    await page.locator('[data-testid="save-name"]').click();
+    await page.locator('[data-testid^="build-web-"]').first().waitFor({ timeout: 60_000 });
+    await page.locator('[data-testid="inspect-toggle"]').click();
+    await page.locator('[data-testid="inspect-result"]').waitFor();
+    expect(await page.locator('[data-testid="inspect-result"]').innerText()).toMatch(/^Inspecting on 1 build\(s\)/);
+    // The frame shows the banner; a click on Swap pins there (through the
+    // page's cover, at its place) selects it.
+    const frame = page.frames().find(f => f.url().startsWith(base.replace('127.0.0.1', 'localhost')));
+    await frame.locator('#exact-inspect').waitFor();
+    // Another site than the tool's: the browser runs it out of the tool's
+    // process (an iframe target of its own).
+    const { targetInfos } = await (await page.context().newCDPSession(page)).send('Target.getTargets');
+    expect(targetInfos.some(t => t.type === 'iframe' && t.url.startsWith(base.replace('127.0.0.1', 'localhost')))).toBe(true);
+    const at = await frame.locator('[data-testid="swap"]').boundingBox();
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+    const line = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.contract'), 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;
+    await page.locator('[data-testid="selection-source"]').waitFor({ timeout: 60_000 });
+    expect(await page.locator('[data-testid="selection-source"]').innerText()).toBe(`app.contract:${line} · App`);
+    // Its colour is inherited: a link to the page's token, not its edit;
+    // opened, the grid's cell for it, in the column the copy shows.
+    expect(await page.locator('[data-testid="selrow-link-color"]').innerText()).toBe('Open text.primary');
+    expect(await page.locator('[data-testid="selrow-edit-color"]').count()).toBe(0);
+    // The page is light (headless Chrome's default) in Black: the light
+    // column, its default branch.
+    expect(await page.locator('[data-testid="selection-build"]').innerText()).toMatch(/ · Light$/);
+    await page.locator('[data-testid="selrow-link-color"]').click();
+    await page.waitForFunction(() => /source site\(s\)/.test(document.querySelector('[data-testid="impact-count"]')?.innerText ?? ''), null, { timeout: 60_000 });
+    expect(await page.locator('[data-testid="impact-count"]').innerText()).toMatch(/^text\.primary: read at [1-9]\d* source site\(s\), statically/);
+    await page.locator('[data-testid="branch-label"]').waitFor();
+    expect(await page.locator('[data-testid="branch-label"]').innerText()).toBe('text.primary · default (Light)');
+    // Stop: the frame leaves inspect mode.
+    await page.locator('[data-testid="inspect-toggle"]').click();
+    await frame.locator('#exact-inspect').waitFor({ state: 'detached' });
+  } finally {
+    await browser.close();
+    if (tool) await stop(tool);
+    await stop(dev);
     rmSync(dist, { recursive: true, force: true });
   }
 }, 900_000);

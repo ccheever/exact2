@@ -3,7 +3,7 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { pieces, pageHistory, Head, navigateRoot, Tasks, journal } from './rt.js';
+import { pieces, pageHistory, Head, navigateRoot, Tasks, journal, unopened } from './rt.js';
 import * as perf from './perf.js';
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
@@ -11,7 +11,7 @@ import { displayMode, environment, navigation, unselected, foldEnv, preferFold, 
 import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll } from './input-glue.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 /** The view an operation names: its id, else the first node with that testId on an active screen, a covered
  * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
@@ -81,10 +81,11 @@ export function install(exact) {
     }
     return n;
   };
-  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16).
+  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16);
+  // `unopened`: a tab panel whose tab has never been selected, empty until it is (LLP 1075.003 §3.7).
   const all = () => {
     const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(nav => unselected(nav)));
-    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
+    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; if (unopened(el)) n.unopened = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
     kids(root).forEach(el => walk(el, 0, false));
     return out;
   };
@@ -473,16 +474,18 @@ export function install(exact) {
         const faults = faultsJson();
         // Why each failed resource failed, as the runner's `state.failed` (app farm round 1).
         const failed = Object.fromEntries(exact.resources.filter(r => r.failed).map(r => [r.name, r.error ?? 'it failed']));
+        const mutationFailures = Object.fromEntries(exact.mutations.flatMap(m => { const failure = m.e(); return failure ? [[m.name, {code: failure[0], message: failure[1]}]] : []; }));
         // The writes shown over resources until they end or are answered (overlay.js), as the runner's `state.writes`.
         const writes = exact.writes?.() ?? [];
-        return { slots, derives, resources, mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
+        return { slots, derives, resources, ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
       // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
       // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
       // The driver's fetch faults (LLP 1103 D3), a form of `prefer`: the page's table, as glue.js answers it.
-      case 'prefer': { if (req.faults) return faultOp(req.faults); const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}), fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
+      case 'midi': return exact.midi ? exact.midi.tap(req) : { error: 'tap midi: this plan hears no MIDI (no midimessage handler)' }; // @ref LLP 1125 §4
+      case 'prefer': { if (req.faults) return faultOp(req.faults); if (req.midi) return exact.midi ? exact.midi.prefer(req.midi) : { error: 'prefer midi: this plan keeps no MIDI queue' }; const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}), fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

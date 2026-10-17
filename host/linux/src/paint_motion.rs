@@ -22,6 +22,7 @@ impl<D: DataSource> Host<D> {
 
     /// Adopt a commit's paint, after its `motion_sync` set the rows.
     pub(super) fn sync_paint(&mut self, receipt: &CommitReceipt) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let retired = self
             .paint
             .sync(self.runner.kernel(), receipt, &mut self.engine);
@@ -30,6 +31,7 @@ impl<D: DataSource> Host<D> {
 
     /// Adopt the whole tree's paint at boot.
     pub(super) fn boot_paint(&mut self) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         self.paint.adopt(
             self.runner.kernel(),
             self.keys.keys().copied(),
@@ -53,6 +55,7 @@ impl<D: DataSource> Host<D> {
     /// Report the session's appearance: first quietly, then transitioning
     /// `light-dark()` targets under their rows (LLP 1062 D4).
     pub fn set_scheme(&mut self, dark: bool) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         if let Some(retired) = self.paint.set_scheme(
             self.runner.kernel(),
             &mut self.engine,
@@ -70,6 +73,7 @@ impl<D: DataSource> Host<D> {
     /// under its appearance, as the Apple host's does (LLP 1095 D6).
     /// `first`: the first report, a correction in place without motion.
     pub(crate) fn colors_changed(&mut self, first: bool) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         if let Some(retired) = self.paint.colors_changed(
             self.runner.kernel(),
             &mut self.engine,
@@ -85,6 +89,7 @@ impl<D: DataSource> Host<D> {
     /// Report a view's own appearance, following the same first-report
     /// correction and later transitions as the session's.
     pub fn set_view_scheme(&mut self, view: ViewId, dark: bool) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let Some(key) = self.runner.kernel().node(view).map(|n| n.key) else {
             return;
         };

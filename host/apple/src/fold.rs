@@ -65,6 +65,7 @@ impl<D: DataSource> Host<D> {
     /// `env` set, and when it changed, what reads it re-sent into `batch`,
     /// not yet laid out.
     fn environment_into(&mut self, env: Env, batch: &mut Batch) -> Result<bool, String> {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let changed = self
             .runner
             .kernel_mut()
@@ -130,6 +131,7 @@ impl<D: DataSource> Host<D> {
         rows: u32,
         rects: Vec<exact_kernel::Rect>,
     ) -> String {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let (Ok(c), Ok(r)) = (u8::try_from(cols), u8::try_from(rows)) else {
             return self.finish(
                 Batch::new(),

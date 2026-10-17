@@ -320,6 +320,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         owner.controller = controller
         controller.view.addSubview(row)
         place(owner)
+        presenter?.controls.syncShown()
         return controller
     }
 

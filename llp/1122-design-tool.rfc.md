@@ -257,7 +257,9 @@ and behaviour stay with Contract source (D14).
 ### D3 — The canvas: the app, running
 
 - **The web build, embedded.** The tool shows the app's web development build in one
-  `iframe` (LLP 1020) at the dev loop's URL.
+  `iframe` (LLP 1020) at the dev loop's URL, framed as `localhost` on its port: another site
+  than the tool's 127.0.0.1, so a browser with site isolation runs it in its own process
+  (amended after T2's gate; the dev loops answer on [::1] too).
   - **It is the real app:** it runs, takes input, navigates, and reloads on a structural edit
     as it does in a browser tab.
   - **An `iframe` is a second document, not a second session in the tool's runtime.** That
@@ -268,7 +270,8 @@ and behaviour stay with Contract source (D14).
   - **Origins.** The tool and the dev loop are different origins, so the tool never
     scripts the frame. Every control goes through the server (D4). A node selected or
     outlined off screen is scrolled into view by the host, not by the tool.
-  - **One frame in v1.** Two frames of one dev URL would share storage; several copies are
+  - **One frame in v1.** Two frames of one dev URL would share storage (the canvas's
+    `localhost` origin keeps its own, apart from a tab at the printed URL); several copies are
     T7. An "open in a tab" button covers what an embed cannot do (LLP 1020 defers
     permission delegation and navigation control). Web content the app itself embeds is a
     leaf to inspect.
@@ -1024,8 +1027,10 @@ T1 and T1a are complete.
 
 ### T2, steps 1–3: the canvas, builds and pins, scrubs (`9bfa9f50f`, `952302694`, `694df527b`)
 
-- **The canvas** is one sandboxed `iframe` at `hello.page` (*1.3*, the dev loop's own origin, or
-  null with no loop), with phone, tablet and desktop sizes and "open in a tab". The dev loops'
+- **The canvas** is one sandboxed `iframe` on `hello.page`'s port (*1.3*, the dev loop's own
+  origin, or null with no loop), framed as `localhost` since the follow-up below (the dev loops
+  answer on [::1] too), with phone, tablet and desktop sizes and "open in a tab", which opens
+  `hello.page` as printed. The canvas's cookies and storage are its own. The dev loops'
   HTML carries `frame-ancestors 'self' http://127.0.0.1:7740`. `'self'` is there because the
   directive checks the whole ancestor chain, so an app framing its own pages needs it.
 - **Builds and pins:** the build list comes from the server, with each build's effective facts from
@@ -1060,5 +1065,52 @@ the iOS simulator and the Mac.
   Being same-site with the tool, it stalled the tool's renderer, so the live lines were driven over
   the wire there, and they reached iOS and the Mac.
 - **Follow-ups before T2b:**
-  - frame the page at a different site (`localhost`), so a heavy app can't stall the tool;
-  - serialize the canvas host's refusal and status posts.
+  - frame the page at a different site (`localhost`), so a heavy app can't stall the tool (done
+    after T2b step 6: "The canvas frames a 127.0.0.1 page as localhost, in its own process");
+  - serialize the canvas host's refusal and status posts (done: `5f9e9fd75`).
+
+### T2b (web, wasm): inspect mode, the server's join, outline, the inspector (`ed60a4824`, `b7955343e`, `30a4e1da9`; report order `5f9e9fd75`; framing `169407db1`)
+
+- **Inspect mode on the wasm page** (`host/web/dev.js`, development only):
+  - `inspect {client, build?, on | refresh}` (*1.3*) is numbered, owned by a present client, and
+    replayed to a build that registers again;
+  - a banner with a close control, and Escape;
+  - a pointer cover plus a gate on keys, focus, change, scroll and drag, so the app gets no input,
+    and guest frames none either;
+  - a released press selects what the **browser's own hit test** finds. That is the wasm page's
+    real tap path, in place of D5's "the runtime's own hit test, `geometry-glue.js`", which is the
+    app's `elementFromPoint` import.
+- **The `selected` report** carries the plan, design and pin revision, plus the node, site,
+  instance, the node's own tuple, and its rows (value, source, token), trimmed to 64 KiB and said so.
+  Reports go one at a time per stream, in order.
+- **The server's join** (`scripts/tamber-inspect.mjs`):
+  - **Currency:** a report whose plan, design or pin revision isn't the build's latest status is a
+    409, and the build is asked again once per status.
+  - **The map:** the site is looked up in the named plan's source map, verified by digest. The
+    compiler now records each source's SHA-256 in the map, and a changed or missing file makes the
+    selection read-only, with the reason.
+  - **Editability fails closed:** the token rung is offered only where the row's own whole value
+    is one declared token. Every other row says why and links its token.
+- **`outline {sites, plan}`** goes to inspecting builds, each drawing one box per mounted copy.
+  Outlines are owned by their client.
+- **The inspector:** a selection is pinned to its build's facts, the design's axes and its scheme,
+  and goes stale on any move. The token rung opens the winning branch's cell with its column's full
+  place. Impact shows `uses` for its own token.
+- **The canvas frames the page as `localhost:<port>`,** a different site from the tool's, so the
+  browser runs it in its own process. The dev loops also answer on `[::1]`.
+- **Known limits:**
+  - the server keeps one map, the running generation's, so a build on another plan gets no outline
+    and a read-only selection (T2c needs a map per plan);
+  - a popover's light dismiss happens before inspect can stop it;
+  - a gesture already under way isn't cancelled.
+
+### T2b's gate, the wasm half: met (2026-10-16; the run is `~/x2theme/t2b-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A click in the frame selects the node the browser hit-tests, and shows its source, rows, sources and token chain | **Met** on the clone, e.g. "Feeds ✨" at `home.contract:203 · HomeScreen`. |
+| Every copy of the node is outlined | **Met:** 3 marks on the 3 mounted posts' author names. |
+| Inherited, dynamic and boundary rows are read-only, with their reason | **Met** for inherited and dynamic on the clone. Boundary rows are met on the theme fixture by tests, since the clone's signed-out screens have no boundary. |
+| Taps don't reach the app while inspect is on | **Met.** |
+
+The JS target's half follows, with the same gate on the clone's JS loop.

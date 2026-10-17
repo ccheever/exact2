@@ -539,3 +539,47 @@ component App
     assert!(js.contains("data-exact-router-press"), "{js}");
     assert!(js.contains("data-exact-list"), "{js}");
 }
+
+/// LLP 1075.003 §9.14: a tab panel's contents are built when it is first
+/// selected (`tp`), a virtualized list's rows too; the dev loop carries a
+/// panel component's state by the panel's `id`.
+#[test]
+fn a_tab_panel_waits_and_its_state_is_carried_by_its_id() {
+    let source = r#"routes nav
+  tab a "/"
+  tab b "/b"
+
+component App
+  state items = [1, 2]
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for t in nav.tabs key=t.name
+        if t.name == "a"
+          column role="tabpanel" id="panel-a"
+            Editor()
+            for e in t.stack key=e.id
+              column navigationKey=`${e.id}`
+                text e.name
+        else
+          list role="tabpanel" id="panel-b" virtualized=true height=200
+            for item in items key=item
+              text `${item}`
+      row role="tablist"
+        button press=pick("a") role="tab" aria-controls="panel-a"
+          text "A"
+        button press=pick("b") role="tab" aria-controls="panel-b"
+          text "B"
+
+component Editor
+  state draft = ""
+  view
+    text draft
+"#;
+    let plan = contract::compile(source).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert_eq!(js.matches("tp(").count(), 2, "{js}");
+    let dev = crate::emit::emit(&plan, false, true).unwrap().js;
+    assert!(dev.contains(r#"$devSig("draft#1"+"@"+e"#), "{dev}");
+}

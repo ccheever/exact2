@@ -313,6 +313,8 @@ impl Parser {
         };
         self.next();
         let step = match word.as_str() {
+            "tap" if self.at_ident("midi") => return self.tap_midi(span),
+            "prefer" => return self.prefer_midi(span),
             "tap" => {
                 let target = self.str_lit("a testId")?;
                 if self.at_ident("drag") {
@@ -811,6 +813,7 @@ impl Parser {
                         }
                     }
                     "sound" => self.expect_sound(span)?,
+                    "midi" => self.expect_midi(span)?,
                     "mediasession" => self.expect_media_session(span)?,
                     "state" => {
                         let (mut name, _) = self.ident()?;

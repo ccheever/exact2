@@ -1,7 +1,8 @@
 # Recipe: a number field
 
 `inputmode="decimal"` is the iPhone's number pad with a decimal point, `"numeric"` digits only;
-without one the field gets the full keyboard. The field holds raw text; a derive parses it.
+without one the field gets the full keyboard. `type="number"` gets the number pad when its
+`step` and `min` are whole or unsaid, the decimal pad for `step="any"` or a fraction. The field holds raw text; a derive parses it.
 
 ```contract
 fn amount(s: string): number = match parseNumber(s) { case some(n) => n, case none => -1 }
@@ -56,14 +57,14 @@ test "a bad amount says so, and people commit on Enter"
   expect text "share" == "28.00"
 ```
 
-- `input` writes the raw text on every keystroke; normalize only in `change` (Enter or blur),
+- `input` writes the raw text at each keystroke; normalize only in `change` (Enter or blur),
   never as the person types: rewriting the text mid-edit puts the next keystroke in the wrong
-  place. `parseNumber` answers `none` for `""`, `"12px"`, `"1.2.3"`: show a hint in words and
+  place. `parseNumber` answers `none` for `""`, `"12px"`: say so in words and
   leave the text as typed.
 - The number pad has no Return key, so iOS gives it a Done bar that puts it away (and fires
-  `change`); a drag on the scroller that reaches the keyboard does too.
+  `change`), as does a drag that reaches the keyboard.
 - A value that can be negative: the decimal pad has no minus key, so say the range: `min=-273.15`
   (bare, a number as `min=0` is) gives iOS a ± key in the keyboard's bar. Never `inputmode="text"` for a number.
 - A number in a form that saves: `submit=save` on the field (Enter saves; there is no `form`),
-  `aria-invalid` while the text is bad and `aria-describedby` naming the error, `disabled` on Save
+  `aria-invalid` while the text is bad, `disabled` on Save
   ([grouped-form](grouped-form.md)). Money: [money](money.md); a big result: [numeric-readout](numeric-readout.md).

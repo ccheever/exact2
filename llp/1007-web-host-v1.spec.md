@@ -516,14 +516,22 @@ carry, resources are asked again by the new runner (an answer carries only
 under the same data-module revision, which a module edit changes), a write's
 fetch is aborted as every request's is (the server may or may not have
 seen it, and its `then` does not run), and a late answer from the old
-incarnation never lands. The journal says how many were let go.
+incarnation never lands. The journal says how many were let go and names
+each HTTP write it aborted (not GET or HEAD) by method and URL, the ones to
+check on the server; a page-native call or a socket is only counted.
 The settle window lets a write that answers within a second land in the old
 runner, and its result carry; a `then` it scheduled for a later advance can
 still be lost to the swap. Only the dev loop lets go (`reloadGeneration`'s
 `letGo`, `Bridge::boot_module`'s `let_go`): a deployed update (`rust-glue.js`)
 still waits up to 20 s and is refused, keeping the running generation. A
 picker left open across the swap answers nothing: its view id is the old
-runner's. The native hosts still refuse such a swap (QUEUE).
+runner's. The native hosts do the same for a dev generation (2026-10-16):
+Apple's `PlanURL` asks again every 50 ms while the module preparation answers
+`"requests":true`, then passes `letGo` (`exact_prepare_module`'s `let_go`)
+a second after requests first held it (a module still preloading does not
+start that clock); a newer generation waits its own second; Linux's dev poll and `EXACT_DEV_PLAN` reload hold
+the generation on `HostError::RequestsPending` and pass `reload_module`'s
+`let_go` after `LET_GO_AFTER`. A deployed update refuses on every host.
 
 **The Rust side (2026-08-30).** `dev.mjs` also watches the crates the wasm
 is built from — `kernel`, `plan`, `motion`, `runner`, `host/web`, `gpu`,

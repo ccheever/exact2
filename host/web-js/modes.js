@@ -184,6 +184,15 @@ function tupleRules() {
   }
   return Rules;
 }
+/** The theme's own `:root` rule that declares `prop` (roles.rs `theme_css`). */
+function themeRule(prop) {
+  for (const sheet of document.styleSheets ?? []) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const r of rules) if (r.selectorText === ":root" && r.style?.getPropertyValue(prop)) return r;
+  }
+  return null;
+}
 /** Full tuple `t`'s key (mixed radix over the axes, the first most
  * significant), as modes.rs `key` writes it. */
 const tupleKey = t => {
@@ -201,6 +210,9 @@ function design(frame) {
   const rules = tupleRules();
   for (const t of frame.tokens) {
     if (!t.prop || !Array.isArray(t.css)) continue;
+    // The tint's override: the theme's `:root` rule, under an authored
+    // `accent-color`'s redeclaration (LLP 1121 stage 5).
+    if (t.root) { themeRule(t.prop)?.style.setProperty(t.prop, t.css[0]); continue; }
     t.css.forEach((css, i) => {
       rules.get(tupleKey(i))?.style.setProperty(t.prop, css);
       // Its accent companion: the token's colour where it is one, else the

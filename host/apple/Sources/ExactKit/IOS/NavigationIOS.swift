@@ -78,6 +78,7 @@ final class RouteController: UIViewController {
         view = UIView()
         paintBackdrop()
         view.addSubview(node)
+        host?.presenter.session?.natives.routeLoaded(node)
     }
 
     /// The backdrop's colours last written, light and dark.
@@ -158,6 +159,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
     }
     private(set) var presentedNavigations: [UINavigationController] = []
+    /// The theme's title ink each bar was last given (`titleInk`), held no
+    /// longer than its bar.
+    let titleInks = NSMapTable<UINavigationBar, UIColor>.weakToStrongObjects()
     var modalNavigation: UINavigationController? { presentedNavigations.last }
     private var navigation: UINavigationController? { modalNavigation ?? primaryNavigation }
     /// The route on top of the stack in front: the one the person sees.

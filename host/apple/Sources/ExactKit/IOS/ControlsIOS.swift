@@ -11,7 +11,7 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// The checklist mark: an SF Symbol circle at the body text's size, filled
+/// The checklist mark: an SF Symbol circle scaled with the body text, filled
 /// and checked when on (tvOS: a 16×16 rounded square). A radio is drawn on
 /// it, with its own symbols (`ExactRadio`, RadioIOS.swift). VoiceOver reads
 /// a checkbox as it reads UIKit's own toggles (`updateAccessibility`).
@@ -33,18 +33,22 @@ class ExactCheckbox: UIControl {
     #if os(tvOS)
     override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
     #else
-    /// The mark's symbol at the reader's body size, Dynamic Type included;
-    /// on, its checkmark white over the accent.
+    /// The mark's side: UIKit's 22-point circle at the default text size,
+    /// scaled with the body style by `UIFontMetrics` to 44 at most, about
+    /// where UIKit's own list checkmark stops (48 by 43 at the largest
+    /// size). At the body font's `.large` symbol scale it had grown to 80
+    /// points there and outweighed its row (LLP 1116.019 D1).
+    var side: CGFloat {
+        min(44, ceil(UIFontMetrics(forTextStyle: .body).scaledValue(for: 22, compatibleWith: traitCollection)))
+    }
+    /// The mark's symbol, drawn fitted to `side`; on, its checkmark white
+    /// over the accent.
     func mark(on: Bool, tint: UIColor) -> UIImage? {
-        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
-        let size = UIImage.SymbolConfiguration(font: font, scale: .large)
+        let size = UIImage.SymbolConfiguration(pointSize: side)
         guard on else { return UIImage(systemName: "circle", withConfiguration: size)?.withTintColor(tint, renderingMode: .alwaysOriginal) }
         return UIImage(systemName: "checkmark.circle.fill", withConfiguration: size.applying(UIImage.SymbolConfiguration(paletteColors: [.white, tint])))
     }
-    override var intrinsicContentSize: CGSize {
-        let s = mark(on: false, tint: .label)?.size ?? CGSize(width: 22, height: 22)
-        return CGSize(width: ceil(s.width), height: ceil(s.height))
-    }
+    override var intrinsicContentSize: CGSize { CGSize(width: side, height: side) }
     /// A finger's target is 44 points each way at least (Apple's minimum),
     /// whatever the mark's size: the touch reaches past the mark's box,
     /// which stays the mark's for layout (LLP 1115.000 D13.2). Where two
@@ -105,7 +109,7 @@ class ExactCheckbox: UIControl {
         // smaller than the mark.
         let tint = isOn ? fill.withAlphaComponent(alpha) : (isEnabled ? UIColor.tertiaryLabel : .quaternaryLabel)
         guard let image = mark(on: isOn, tint: tint) else { return }
-        let scale = min(1, side / max(image.size.width, image.size.height))
+        let scale = min(side, self.side) / max(image.size.width, image.size.height)
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         image.draw(in: CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height))
         #endif
@@ -184,6 +188,34 @@ final class ControlHost: NSObject {
         return made
     }
 
+    /// Whether a native button's control could not show: it is in a closed
+    /// `dialog` or popover (`MenuHost.inClosedBox`), which UIKit's menu and
+    /// alert present from its face, or in what a native bar stands for (a
+    /// lifted header, an adopted tablist: `NavigationHost.covers`), whose
+    /// items are made from faces too, while the host hides it: the cover
+    /// leaves after the box shows again. It gets one when that changes, as
+    /// a field in a closed box waits for it to show.
+    private func unshown(_ node: NodeView) -> Bool {
+        if presenter.menus.inClosedBox(node) { return true }
+        let covers = presenter.navigation.covers
+        guard covers.values.contains(.whole) else { return false }
+        var at: UIView? = node
+        while let view = at {
+            if let box = view as? NodeView, covers[box.id] == .whole, box.hiddenByHost { return true }
+            at = view.superview
+        }
+        return false
+    }
+
+    /// The native buttons the last sync left without a control (`unshown`).
+    private var waiting: Set<UInt32> = []
+    /// A closed box now shows in Exact's views (the agent's top layer, a
+    /// sheet, a context menu's preview): its buttons get their controls now,
+    /// whether or not a batch laid it out.
+    func syncShown() {
+        if waiting.contains(where: { presenter.views[$0].map { !unshown($0) } ?? false }) { sync(contents: false) }
+    }
+
     /// Asks for the face of `id` again at the next sync.
     func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
 
@@ -192,8 +224,10 @@ final class ControlHost: NSObject {
     /// the batch changed.
     func sync(contents: Bool = true, touched: [UInt32] = []) {
         if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
-        let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
+        let all = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
+        let owners = all.filter { !($0.isNativeButton && unshown($0)) }
         let live = Set(owners.map(\.id))
+        waiting = Set(all.map(\.id)).subtracting(live)
         // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
         let leaving = Set(presenter.leaving.values.flatMap { $0.members.map(\.id) })
         for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {

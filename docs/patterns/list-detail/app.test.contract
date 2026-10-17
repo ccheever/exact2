@@ -90,3 +90,26 @@ test "an id that names nothing says so, and Back returns to the list"
   clock settle
   expect tree has "add-item"
   expect tree missing "missing-back"
+
+test "a row deletes by swipe after asking, and its long-press menu locks it"
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1" contextmenu
+  tap "menu-lock"
+  clock data
+  expect state lib.0 .locked == true
+  tap "item-1" contextmenu
+  tap "menu-lock"
+  clock data
+  expect state lib.0 .locked == false
+  tap "swipe-1"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect state lib == []
+  expect tree has "add-item"

@@ -1,10 +1,15 @@
 //! `state.transport` (LLP 1125 D5): the transport record as the driver
 //! reads it — what `exactTransport()` answers, the sequence that last
 //! played, how far its hits are issued, the last 16 segments and how many
-//! the record ever held, and the last 64 timed haptics with their states.
-//! Only for a plan that declares a sequence.
+//! the record ever held, and the last 64 timed haptics with their states;
+//! while a sequence follows a MIDI clock (LLP 1125 D9), what the clock has
+//! said (`follow`). Only for a plan that declares a sequence.
 
 use super::{num, quote};
+
+// `state.midi` (LLP 1125 D5–D8), written after the transport's.
+#[path = "midi.rs"]
+mod midi;
 use crate::{DataSource, Runner};
 use std::fmt::Write as _;
 
@@ -14,7 +19,13 @@ const SEGMENTS: usize = 16;
 const HAPTICS: usize = 64;
 
 /// `,"transport":{…}`, for a plan that declares a sequence.
-pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
+/// Then `,"midi":{…}`, for a plan that uses MIDI.
+pub(super) fn state<D: DataSource>(runner: &Runner<D>, request: &str, s: &mut String) {
+    transport(runner, s);
+    midi::state(runner, request, s);
+}
+
+fn transport<D: DataSource>(runner: &Runner<D>, s: &mut String) {
     let plan = runner.plan();
     if plan.sequences.is_empty() {
         return;
@@ -34,12 +45,28 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
     }
     let _ = write!(
         s,
-        ",\"bpm\":{},\"anchorAt\":{},\"anchorBeat\":{},\"clock\":\"internal\",\"issuedTo\":{},\"segments\":[",
+        ",\"bpm\":{},\"anchorAt\":{},\"anchorBeat\":{},\"clock\":\"{}\",",
         num(a.bpm),
         num(a.anchor_at),
         num(a.anchor_beat),
-        num(t.issued_to())
+        a.clock
     );
+    // The clock followed (LLP 1125 D9), while a sequence follows one.
+    if let Some(f) = t.follower() {
+        s.push_str("\"follow\":{\"input\":");
+        quote(&f.input, s);
+        let opt = |v: Option<f64>| num(v.unwrap_or(f64::NAN));
+        let _ = write!(
+            s,
+            ",\"ticks\":{},\"window\":{},\"estimate\":{},\"next\":{},\"held\":{}}},",
+            f.ticks,
+            f.window(),
+            opt(f.estimate),
+            num(f.next),
+            opt(f.held)
+        );
+    }
+    let _ = write!(s, "\"issuedTo\":{},\"segments\":[", num(t.issued_to()));
     let (segments, recorded) = t.segments();
     let skip = segments.len().saturating_sub(SEGMENTS);
     for (i, g) in segments.skip(skip).enumerate() {

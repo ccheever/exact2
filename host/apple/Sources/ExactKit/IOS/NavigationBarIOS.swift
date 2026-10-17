@@ -160,7 +160,10 @@ struct HeaderShape: Equatable {
         let segments = rule.segments.flatMap { projects($0) ? $0 : nil }
         let tap = rule.tap.flatMap { projects($0) ? $0 : nil }
         header = rule.header
-        title = titleProjects ? heading.accessibleText : ""
+        // A heading of only white space names nothing (accname trims it);
+        // UIKit would take it as a title and show a pair of quotes
+        let text = titleProjects ? heading.accessibleText : ""
+        title = text.unicodeScalars.allSatisfy(\.properties.isWhitespace) ? "" : text
         level = titleProjects ? rule.level : 0
         leading = rule.leading.filter(projects).map { Item($0) }
         trailing = rule.trailing.filter(projects).map { Item($0) }
@@ -326,6 +329,18 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         controller.obscuresBackgroundDuringPresentation = false
         controller.hidesNavigationBarDuringPresentation = true
     }
+    /// The navigation item the controller is on.
+    weak var item: UINavigationItem?
+    /// The field scrolls away with the content only while it is empty
+    /// (`NavigationHost.searchField`).
+    func applyHiding() {
+        #if os(iOS)
+        guard let item else { return }
+        let hides = (field?.props["value"] ?? "").isEmpty
+        if item.hidesSearchBarWhenScrolling != hides { item.hidesSearchBarWhenScrolling = hides }
+        #endif
+    }
+    func didDismissSearchController(_ search: UISearchController) { applyHiding() }
     func updateSearchResults(for search: UISearchController) {
         let text = search.searchBar.text ?? ""
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
@@ -501,6 +516,35 @@ extension NavigationHost {
     /// whether its title is large, so a level-1 heading pushed over an
     /// inline one is large; `prefersLargeTitles` is the app's from the
     /// hatch on (§3.5).
+    /// The theme's label colour on `nav`'s titles (LLP 1095 D4); its glyphs
+    /// take the app's tint, which the theme's `AccentColor` sets. Set again
+    /// when a live edit moves the roles (LLP 1121 stage 5).
+    /// Only the colour is the theme's: what a native hatch set beside it (a
+    /// font, spacing) stays, and so does a colour it set over the theme's.
+    func titleInk(_ nav: UINavigationController) {
+        guard let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) else { return }
+        let bar = nav.navigationBar, before = titleInks.object(forKey: bar)
+        func themed(_ attributes: [NSAttributedString.Key: Any]?) -> [NSAttributedString.Key: Any] {
+            var attributes = attributes ?? [:]
+            let now = attributes[.foregroundColor] as? UIColor
+            if now == nil || now === before { attributes[.foregroundColor] = ink }
+            return attributes
+        }
+        bar.titleTextAttributes = themed(bar.titleTextAttributes)
+        #if !os(tvOS)
+        bar.largeTitleTextAttributes = themed(bar.largeTitleTextAttributes)
+        #endif
+        titleInks.setObject(ink, forKey: bar)
+    }
+
+    /// Every bar this host made, its titles' ink set again, and each rich
+    /// title's subtitle.
+    func retheme() {
+        var seen = Set<ObjectIdentifier>()
+        for nav in [primaryNavigation].compactMap({ $0 }) + presentedNavigations + tabNavigations.values where seen.insert(ObjectIdentifier(nav)).inserted { titleInk(nav) }
+        for c in controllers.values { c.titleView?.retheme() }
+    }
+
     func makeNavigation(first: NodeView?) -> UINavigationController {
         let nav = UINavigationController()
         stackCount += 1
@@ -511,14 +555,7 @@ extension NavigationHost {
         #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
         #endif
-        // The theme's label colour on the bar's titles (LLP 1095 D4); its
-        // glyphs take the app's tint, which the theme's `AccentColor` sets.
-        if let ink = ThemeRoles.color("label", in: presenter.root) ?? ThemeRoles.color("CanvasText", in: presenter.root) {
-            nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
-            #if !os(tvOS)
-            nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
-            #endif
-        }
+        titleInk(nav)
         if presenter.session?.natives.hatchesConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true
@@ -635,6 +672,8 @@ extension NavigationHost {
     /// button's title read from the route beneath, as UIKit reads it.
     private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
         let item = c.navigationItem
+        // A header the bar stops standing for shows its native buttons.
+        defer { presenter.controls.syncShown() }
         // The host's hiding goes; CSS's `display` decides (`NodeView.isHidden`
         // keeps the host's word apart: writing CSS's answer kept it hidden).
         for node in c.barNodes { node.isHidden = false }
@@ -767,7 +806,12 @@ extension NavigationHost {
         // UIKit hides the field as the content scrolls and keeps an active
         // search's in view. A search in effect that UIKit did not start (a
         // value the app or the agent wrote) keeps its field in view too.
-        if c.navigationItem.hidesSearchBarWhenScrolling != value.isEmpty { c.navigationItem.hidesSearchBarWhenScrolling = value.isEmpty }
+        // Changed while UIKit presents or dismisses the search, the item
+        // leaves the active field and its Close button drawn over the bar
+        // (round 17's contacts: Close clears the text, so the app's empty
+        // value lands mid-dismissal), so it waits for the dismissal's end.
+        search.item = c.navigationItem
+        if !searching(c) { search.applyHiding() }
         // The field itself, which XCUITest finds as a search field and a
         // person types in, carries the test id (LLP 1116 D2).
         if bar.searchTextField.accessibilityIdentifier != field.props["testId"] { bar.searchTextField.accessibilityIdentifier = field.props["testId"] }

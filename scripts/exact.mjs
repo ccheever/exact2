@@ -607,7 +607,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
                                fetch the crates every bake reads offline
-  exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds
+  exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds (Kotlin for android/)
                                (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
@@ -632,6 +632,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
   exact tamber import shadcn|tailwind|dtcg|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
+  exact tamber export dtcg <app> [-o <file>]  the design as DTCG 2025.10; its baseline in .exact/
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -882,7 +883,60 @@ fn ${snake}_hatch_ended<H: Hatches>(_element: &Element, _context: &mut Context<'
       mark(main, '// exact:element ', `            ${JSON.stringify(word)} => ${snake}_hatch(element, context),`, 'call it from your element');
     }
   }
-  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for (apple/, web/ or linux/)`);
+  if (existsSync(resolve(dir, 'android'))) {
+    // Android's reader runs the app's Kotlin beside its Rust (LLP 1115.001.000 D4): one class, exact.app.Hatches,
+    // compiled into the APK from modules/android. The app's Android crate writes its install (android_entry).
+    platforms.push('android');
+    const main = resolve(dir, 'modules/android/Hatches.kt');
+    write(main, `package exact.app
+
+import dev.exact.canvas.ExactApp
+import dev.exact.canvas.ExactElement
+import dev.exact.canvas.ExactHatches
+
+/**
+ * ${title}'s hatches on Android. Written by \`exact hatch\`; yours from here. Called on the main thread. A node is
+ * painted by exact2: a hatch has its box and words, acts on it as a person would (click, focus, blur, input), hears
+ * its input (observe), shows a view of its own in its box (host), and keeps time by exact2's clock (frames, after).
+ */
+class Hatches : ExactHatches() {
+    override fun element(element: ExactElement) {
+        when (element.hatch) {
+            // exact:element (exact hatch adds a word's arm above this one)
+        }
+    }
+
+    override fun elementEnded(element: ExactElement) {
+        when (element.hatch) {
+            // exact:elementEnded
+        }
+    }
+
+    override fun app(app: ExactApp) {
+        // exact:app
+    }
+
+    // exact:functions (exact hatch adds a word's functions above this line)
+}
+`);
+    if (scope === 'element') {
+      mark(main, '// exact:functions', `    /** The \`${word}\` hatch: built (\`element.isNew\`) and changed (a \`data-*\` word or the box's size moved). */
+    private fun ${camel}(element: ExactElement) {
+        if (element.isNew) element.diagnostics.log("built")
+    }
+
+    /** The node has left: stop what the hatch started for it. */
+    private fun ${camel}Ended(element: ExactElement) {}
+`, 'add its functions to your Hatches class');
+      mark(main, '// exact:elementEnded', `            ${JSON.stringify(word)} -> ${camel}Ended(element)`, 'call it from your elementEnded');
+      mark(main, '// exact:element ', `            ${JSON.stringify(word)} -> ${camel}(element)`, 'call it from your element');
+    }
+    const build = resolve(dir, 'android/build.rs');
+    if (!/\bandroid_entry\b/.test(existsSync(build) ? readFileSync(build, 'utf8') : '')) {
+      todo.push(`${build}: write the hatches' install, as apps/caltrain/android/build.rs does\n    contract::native::android_entry(&app_dir, &manifest, &plan, &out_dir), then canvas_jni!(Data, hatches = crate::exact_hatches())`);
+    }
+  }
+  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for (apple/, web/, linux/ or android/)`);
   if (scope === 'element') {
     // The declaration (§5): the word, with the platforms a stub was written for. A list means every platform.
     const had = manifest.hatches;

@@ -34,7 +34,7 @@ final class NumberStepperIOSTests: XCTestCase {
         XCTAssertFalse(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 0), replacementString: "4a4"))
         XCTAssertEqual(field.text, "44")
         XCTAssertTrue(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 2), replacementString: "-1.5e+2"))
-        XCTAssertEqual(field.keyboardType, .decimalPad)
+        XCTAssertEqual(field.keyboardType, .numberPad, "a paste is filtered as typing is; the pad is the step's")
     }
 
     func testNumericSignsFollowChromesEditorIncludingIncompleteValues() throws {
@@ -54,7 +54,7 @@ final class NumberStepperIOSTests: XCTestCase {
             if node.textField(field, shouldChangeCharactersIn: range, replacementString: typed) { field.text = typed }
             XCTAssertEqual(field.text, expected, "inserting \(typed)")
         }
-        XCTAssertEqual(field.keyboardType, .decimalPad)
+        XCTAssertEqual(field.keyboardType, .numberPad)
     }
 
     /// The plus or the minus: the stepper's value moves a step, as UIKit's
@@ -86,7 +86,7 @@ final class NumberStepperIOSTests: XCTestCase {
         XCTAssertEqual(text.maxX, stepper.frame.minX - NodeView.stepperGap, accuracy: 0.001, "the text ends a gap short of the stepper")
         XCTAssertEqual(field.editingRect(forBounds: field.bounds), text)
         XCTAssertEqual(field.placeholderRect(forBounds: field.bounds), text)
-        XCTAssertEqual(field.keyboardType, .decimalPad, "direct entry works as before")
+        XCTAssertEqual(field.keyboardType, .numberPad, "step 1 from min 1: whole numbers, the number pad (LLP 1116.019 D5)")
         XCTAssertEqual(field.text, "3")
         XCTAssertEqual(stepper.accessibilityLabel, "Quantity", "the stepper is named as the field is")
         XCTAssertEqual(field.accessibilityLabel, "Quantity")

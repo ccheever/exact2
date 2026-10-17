@@ -1,0 +1,28 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Tamber Host",
+  "short_name": "Tamber Host",
+  "id": "com.exact.tamberhost",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": {
+    "id": "com.exact.tamberhost",
+    "name": "Tamber Host"
+  },
+  "modules": ["exact-swatch"],
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": ["iphone", "ipad"]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": { "width": 402, "height": 700, "minWidth": 320, "minHeight": 420 }
+    }
+  },
+  "deploy": {
+    "store": { "macos": "0", "ios": "0" }
+  }
+}

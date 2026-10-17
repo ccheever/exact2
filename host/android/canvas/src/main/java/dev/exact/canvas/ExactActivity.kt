@@ -34,6 +34,19 @@ open class ExactActivity : Activity() {
     protected open val startPitchDp = 0f
     /** The app has text fields: keys and the software keyboard reach it ([Keys]). */
     protected open val input = false
+    /** What shows a date or time control's picker (LLP 1115.001.000 D1): the framework's dialogs, unless the app
+     * links a library's (the shell's Compose Material 3 pickers, linked when the plan has such a control). */
+    open val pickers: Pickers get() = FrameworkPickers
+
+    /** The app's Kotlin hatches (LLP 1115.001.000 D4), made the first time exact2 tells a moment, which is after
+     * first pixel; one for the process, as exact2's host is, and given each activity made again. */
+    internal fun hatches(): HatchReader? {
+        if (!hatchesLooked) { hatchesLooked = true; hatchReader = HatchReader.make(this) }
+        return hatchReader
+    }
+
+    /** Hosted field [node]'s `EditText`, where the reader hosts it now (main thread). */
+    internal fun hostedField(node: Int): android.view.View? = fields?.text(node)
     /**
      * The seam a driver attaches at ([Drive]); the default attaches none. Called once, as the activity is made, when
      * the host has begun to boot and before the view is made: a driver sets the window up and reads its own launch
@@ -59,6 +72,7 @@ open class ExactActivity : Activity() {
         // once (decoded pictures otherwise stay held).
         if (!again) android.system.Os.setenv("MIMALLOC_PURGE_DELAY", "0", false)
         super.onCreate(state)
+        hatchReader?.activity = this
         // The starting window goes the moment the first frame is drawn, not after its exit fade (splashfade=1: the
         // platform's fade, to compare): the first frame is what shows.
         if (intent.getStringExtra("splashfade") != "1") splashScreen.setOnExitAnimationListener { it.remove() }
@@ -239,6 +253,7 @@ open class ExactActivity : Activity() {
         if (input) view.keys = Keys(view)
         val elements = Natives(this, File(storage, "app"), modules, video)
         natives = elements
+        elements.hatched = { node, context -> hatchReader?.made(node, context) }
         view.natives = elements
         // The app's text fields (LLP 1115.001 D8) outlive a reader made again: a field keeps its view, and with it
         // its selection and its undo, while its node lives. Under the view, which takes every touch and hands a
@@ -425,6 +440,7 @@ open class ExactActivity : Activity() {
     /** This activity's reader lets go of the host: its hosted views and their surfaces go, and the owner stops
      * telling its view. Once: at [onDestroy], or sooner when the activity that replaces it is made first. */
     private fun release() {
+        hatchReader?.takeIf { it.activity === this }?.activity = null
         requests.surfaces?.destroy()
         natives?.destroyAll()
         natives = null
@@ -497,5 +513,10 @@ open class ExactActivity : Activity() {
         if (assets.list("app").isNullOrEmpty()) return
         copy("app", to)
         done.writeText(stamp)
+    }
+
+    private companion object {
+        var hatchesLooked = false
+        var hatchReader: HatchReader? = null
     }
 }

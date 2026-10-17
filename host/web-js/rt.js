@@ -1,12 +1,11 @@
 import { renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
+import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
-//
 // Semantics kept from the runner (LLP 1005 §6):
 // - an action's writes land together at its commit (the VM collects
 //   `StoreSlot`s), then one synchronous flush updates the DOM, then its
@@ -206,10 +205,10 @@ export function commit(f, what = "commit") {
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
-    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    try { flush(); openTabs(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); Sounds.midiApply?.(cmds); Sounds.stood?.(); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = armedAt(); if (!clock.agent) drive(); }
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
@@ -269,8 +268,7 @@ export const Hosts = {
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = document.getElementById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
 };
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
-/** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2). */
-export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]), gate: null, stood: null, seq: null };
+export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess"]), gate: null, stood: null, seq: null, midi: null, midiApply: null, beatAt: null }; // The voice table's and the MIDI queue's commands (LLP 1096 D5, LLP 1125 D7): the runtime's own, never a host's; sounds.js and midi.js apply a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2).
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
@@ -931,6 +929,7 @@ export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); re
 export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f([ev.target?.exactExitId ?? ev.target?.id ?? "", ev.relatedTarget?.exactExitId ?? ev.relatedTarget?.id ?? null]); } finally { KeyEvent = outer; } });
 // `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last).
 export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }, kind === "keycapture"); };
+export const onMIDI = (e, kind, f) => { (Sounds.midi ??= new Set()).add([e, f]); }; // a MIDI input's message (LLP 1125 D8), heard by every connected element whose `midiinputs` lists the input (midi.js)
 // The window's, heard by every connected element that declares it (studio diary R17).
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)

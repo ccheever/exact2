@@ -13,10 +13,15 @@
 
 /// Define the JNI for an app over `CanvasHost<$data>` with the plan and
 /// compat the app's build script writes to `OUT_DIR` (`app.plan`,
-/// `compat.json`).
+/// `compat.json`). `hatches = …` is the app's [`crate::hatches::Install`]
+/// when it has hatches (`hatches::install_with_reader`, so the reader's
+/// Kotlin ones hear them too).
 #[macro_export]
 macro_rules! canvas_jni {
     ($data:ty) => {
+        $crate::canvas_jni!($data, hatches = None);
+    };
+    ($data:ty, hatches = $hatches:expr) => {
         #[global_allocator]
         static EXACT_ALLOCATOR: $crate::canvas::jni::Allocator = $crate::canvas::jni::Allocator;
 
@@ -33,6 +38,10 @@ macro_rules! canvas_jni {
             const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
             type Host = $crate::canvas::CanvasHost<$data>;
+
+            fn hatches() -> Option<$crate::hatches::Install> {
+                $hatches
+            }
 
             /// How long after boot the library's read-only pages are let go of
             /// (boot's own work is done; see `release_library_pages_after`).
@@ -53,11 +62,16 @@ macro_rules! canvas_jni {
                 HOST.with(|h| h.borrow_mut().as_mut().map(f))
             }
 
+            /// A Java string's UTF-16, as Rust's: JNI's UTF-8 functions give
+            /// modified UTF-8, which writes a character beyond the first plane
+            /// as two surrogates and a NUL as two bytes.
             unsafe fn string(env: *mut JNIEnv, s: jstring) -> String {
-                let get = (**env).GetStringUTFChars.expect("jni");
-                let release = (**env).ReleaseStringUTFChars.expect("jni");
+                let get = (**env).GetStringChars.expect("jni");
+                let release = (**env).ReleaseStringChars.expect("jni");
+                let length = (**env).GetStringLength.expect("jni")(env, s);
                 let p = get(env, s, std::ptr::null_mut());
-                let out = CStr::from_ptr(p).to_string_lossy().into_owned();
+                let units = std::slice::from_raw_parts(p, length.max(0) as usize);
+                let out = String::from_utf16_lossy(units);
                 release(env, s, p);
                 out
             }
@@ -120,7 +134,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });
-                match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale) {
+                match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale, hatches()) {
                     Ok(h) => {
                         HOST.with(|slot| *slot.borrow_mut() = Some(h));
                         RUNNING.store(true, std::sync::atomic::Ordering::Release);
@@ -183,7 +197,7 @@ macro_rules! canvas_jni {
                     .name("exact-boot".into())
                     .spawn(move || {
                         let booted = $crate::android::trace(c"exact boot", || {
-                            Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale).map(
+                            Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale, hatches()).map(
                                 |mut h| {
                                     h.set_borrowed(true);
                                     let first = h.frame();
@@ -247,6 +261,7 @@ macro_rules! canvas_jni {
                 high_contrast: jboolean,
                 touch: jboolean,
                 touch_slop: jfloat,
+                dates: jstring,
             ) {
                 let device = $crate::presenter::Device {
                     night: night == JNI_TRUE,
@@ -259,6 +274,7 @@ macro_rules! canvas_jni {
                     high_contrast: high_contrast == JNI_TRUE,
                     touch: touch == JNI_TRUE,
                     touch_slop,
+                    dates: string(env, dates),
                 };
                 $crate::canvas::configure(&device);
                 // What a hosted field measured was under the old settings.
@@ -753,6 +769,22 @@ macro_rules! canvas_jni {
                 flag(with(|h| h.access_act(id, action, value)).unwrap_or(false))
             }
 
+            /// What the reader's hatches ask for node `node`, 0 for their
+            /// module (LLP 1115.001.000 D4; `hatches::reader::act` names
+            /// each kind): its answer, a ticket for a registration, -1
+            /// when refused.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_hatchAct(
+                env: *mut JNIEnv,
+                _class: jclass,
+                node: jint,
+                kind: jint,
+                text: jstring,
+            ) -> jlong {
+                let text = (!text.is_null()).then(|| string(env, text));
+                with(|h| h.hatch_act(node as u32, kind, text.as_deref())).unwrap_or(-1)
+            }
+
             /// No accessibility service is on any more: the presenter
             /// forgets the tree it told and builds none.
             #[no_mangle]
@@ -1013,6 +1045,21 @@ macro_rules! canvas_jni {
                 _class: jclass,
             ) -> jint {
                 with(|h| h.feed().map_or(0, |v| v as jint)).unwrap_or(0)
+            }
+
+            /// What `ExactTamber(view)` asks (LLP 1121 D12), a JSON request,
+            /// and its answer (`Host::tamber_json`, `host/linux/src/tamber.rs`),
+            /// on the host's thread; both by UTF-16, so a name crosses whole.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_tamber(
+                env: *mut JNIEnv,
+                _class: jclass,
+                request: jstring,
+            ) -> jstring {
+                let request = $crate::canvas::field::text(env, request);
+                let reply = with(|h| h.tamber_json(&request));
+                let reply = reply.unwrap_or_else(|| r#"{"error":"no host on this thread"}"#.into());
+                $crate::canvas::field::java(env, &reply)
             }
 
             /// System Back: whether the app took it.

@@ -776,7 +776,8 @@ pub(crate) fn xyz_d50_to_lab(xyz: [f64; 3]) -> [f64; 3] {
     [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
 }
 
-pub(crate) fn linear_to_oklab([r, g, b]: [f64; 3]) -> [f64; 3] {
+/// Extended linear sRGB as Oklab `[L, a, b]`, unclipped.
+pub fn linear_to_oklab([r, g, b]: [f64; 3]) -> [f64; 3] {
     let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
     let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
     let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();

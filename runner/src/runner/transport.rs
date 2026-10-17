@@ -5,9 +5,10 @@
 //! Its own wakes (a fill, the count-in's end) run no action and make no
 //! commit; its end runs `ended=` as a timer runs; and what `exactTransport`
 //! answers is published by a commit of its own, as an answer's `then` is.
+//! A clock in's deliveries (LLP 1125 D9) come through `midi_input`.
 
 use super::*;
-use crate::transport::{Answer, Seen, SOURCE};
+use crate::transport::{Answer, Out, Seen, SOURCE};
 
 impl<D: DataSource> Runner<D> {
     /// The gate step's part (LLP 1092 D8): each sequence's gate, its key's
@@ -63,13 +64,17 @@ impl<D: DataSource> Runner<D> {
         let before = self.transport.answer();
         let (now, live) = (self.now_ms, self.clock_live());
         let mut lines = Vec::new();
+        let mut out = Out {
+            sounds: &mut self.sounds,
+            midi: &mut self.midi,
+        };
         if let Some(seen) = seen {
             self.transport
-                .stood(&self.plan, &mut self.sounds, now, live, seen, &mut lines);
+                .stood(&self.plan, &mut out, now, live, seen, &mut lines);
         }
         if suspend {
             self.transport
-                .suspend(&self.plan, &mut self.sounds, now, &mut lines);
+                .suspend(&self.plan, &mut out, now, &mut lines);
         }
         self.transport_said(lines, before);
     }
@@ -78,6 +83,7 @@ impl<D: DataSource> Runner<D> {
     /// when what it answers changed.
     fn transport_said(&mut self, lines: Vec<String>, before: Answer) {
         lines.into_iter().for_each(|l| self.log(l));
+        self.transport.publish();
         if !self.transport.readers.is_empty() && self.transport.answer() != before {
             self.transport.answer_due = self.transport.answer_due.min(self.now_ms);
         }
@@ -89,8 +95,27 @@ impl<D: DataSource> Runner<D> {
         let before = self.transport.answer();
         let live = self.clock_live();
         let mut lines = Vec::new();
+        let mut out = Out {
+            sounds: &mut self.sounds,
+            midi: &mut self.midi,
+        };
         self.transport
-            .wake(&self.plan, &mut self.sounds, at, live, &mut lines);
+            .wake(&self.plan, &mut out, at, live, &mut lines);
+        self.transport_said(lines, before);
+    }
+
+    /// One delivery's clock messages from the followed input (LLP 1125 D9),
+    /// `(stamp, bytes)` each in arrival order: no action, no commit.
+    pub(super) fn transport_clock(&mut self, msgs: &[(f64, Vec<u8>)]) {
+        let before = self.transport.answer();
+        let (now, live) = (self.now_ms, self.clock_live());
+        let mut lines = Vec::new();
+        let mut out = Out {
+            sounds: &mut self.sounds,
+            midi: &mut self.midi,
+        };
+        self.transport
+            .follow(&self.plan, &mut out, now, live, msgs, &mut lines);
         self.transport_said(lines, before);
     }
 
@@ -99,7 +124,10 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn transport_end(&mut self) -> Option<ActionsId> {
         let before = self.transport.answer();
         let mut lines = Vec::new();
-        let action = self.transport.end(&self.plan, &mut lines);
+        let now = self.now_ms;
+        let action = self
+            .transport
+            .end(&self.plan, &mut self.midi, now, &mut lines);
         self.transport_said(lines, before);
         action
     }
@@ -150,11 +178,16 @@ impl<D: DataSource> Runner<D> {
     /// End every live voice before this runner is replaced (a dev reload,
     /// LLP 1096 D5); the host drains `take_sounds` before the restart.
     pub fn end_sounds(&mut self) {
-        if self.plan.sounds.is_empty() {
-            return;
-        }
+        // The host's time now, not the last commit's: what its output has
+        // handed since is handed here too, so no note-off it needs is taken
+        // back.
+        self.sample();
         let mut lines = Vec::new();
-        self.sounds.reload(self.now_ms, &mut lines);
+        if !self.plan.sounds.is_empty() {
+            self.sounds.reload(self.now_ms, &mut lines);
+        }
+        // The MIDI queue as at a stop: every note ends (LLP 1125 D4).
+        self.midi.reload(self.now_ms, &mut lines);
         lines.into_iter().for_each(|l| self.log(l));
     }
 }

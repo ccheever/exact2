@@ -10,8 +10,8 @@ use exact_plan::asm::Asm;
 use exact_plan::{Opcode, Stdlib};
 
 /// A host command's arguments in the order its hosts read them. `share`'s
-/// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
-/// for an absent one, so the plan's `Command` op stays positional.
+/// are named (LLP 1069.003 D1) and lower as `(title, text, url, files)`,
+/// `None` for an absent one, so the plan's `Command` op stays positional.
 pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     let named = |want: &str| {
         args.iter().find_map(|a| match a {
@@ -54,11 +54,16 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
             .chain(["at", "gain", "group", "playbackRate", "pan"].map(named))
             .collect();
     }
+    // @ref LLP 1125 D7 — the output and the data, then `at` (`none` for now).
+    if name == "sendMIDI" {
+        let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
+        return vec![positional.next(), positional.next(), named("at")];
+    }
     // The Web Share API's members, the Notification API's title and
     // options, and `stopSounds`' group, in a fixed order, `none` where the
     // author gave none.
     let order: &[&str] = match name {
-        "share" => &["title", "text", "url"],
+        "share" => &["title", "text", "url", "files"],
         "showNotification" => &["title", "body", "tag", "showTrigger", "navigate"],
         "stopSounds" => &["group"],
         _ => return args.iter().map(Some).collect(),

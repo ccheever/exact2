@@ -717,11 +717,14 @@ fn main() {
     let _ = writeln!(w, "    }}");
 
     // structure: the canonical bytes without the design's values
-    let _ = writeln!(w, "    /// The plan's structure (LLP 1121 stage 4, commit 3): its canonical bytes with the design's values left out (`theme` rows' `value`, `theme_slices`' `value`, but a role override's or a profile colour's, which a host takes at boot), so two plans that differ only in token values have equal structures (the builder interns the values after every other string, so none moves another's id). A dev loop compares them to send a value-only edit as a batch instead of a new plan.");
+    let _ = writeln!(w, "    /// The plan's structure (LLP 1121 stage 4, commit 3): its canonical bytes with the design's values left out (`theme` rows' `value`, `theme_slices`' `value`, but a profile colour's, which a host takes at boot; a role override's is a value too, LLP 1121 stage 5), so two plans that differ only in token values have equal structures (the builder interns the values after every other string, so none moves another's id). A dev loop compares them to send a value-only edit as a batch instead of a new plan.");
     let _ = writeln!(w, "    pub fn structure(&self) -> Vec<u8> {{");
     // Strings only the design's values name are left out of the pool; code
     // names strings by id, so the rest stay, in place.
-    let _ = writeln!(w, "        let design = |r: &ThemeRow| self.str(r.role).is_empty() && !self.str(r.value).contains(\"(--\");");
+    let _ = writeln!(
+        w,
+        "        let design = |r: &ThemeRow| !self.str(r.value).contains(\"(--\");"
+    );
     let _ = writeln!(
         w,
         "        let mut values = vec![false; self.strings.len()];"
@@ -786,10 +789,10 @@ fn main() {
         let _ = writeln!(w, "        w.u32(self.{}.len() as u32);", t.name);
         let _ = writeln!(w, "        for r in &self.{} {{", t.name);
         for f in &t.fields {
-            // A token's value is the design's, unless it overrides a role
-            // (hosts take role tables at boot) or names a profile's colour.
+            // A token's value is the design's, a role override's too (LLP
+            // 1121 stage 5), unless it names a profile's colour.
             if f.name == "value" && t.name == "theme" {
-                let _ = writeln!(w, "            if !self.str(r.role).is_empty() || self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}");
+                let _ = writeln!(w, "            if self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}");
                 continue;
             }
             if f.name == "value" && t.name == "theme_slices" {

@@ -52,6 +52,35 @@ pub enum Request {
     /// the shell keeps the screen on while it does. A statement, told when it
     /// changes.
     KeepScreenOn(bool),
+    /// A date or time control's picker (LLP 1115.001 D9, as amended by
+    /// 1115.001.000): the shell shows the platform's dialog for it and
+    /// answers with the value chosen, in HTML's form, or cancels.
+    Pick(Pick),
+    /// The moments the reader's own hatches hear (LLP 1115.001.000 D4), as
+    /// `hatches/reader.rs` writes them. Queued with no wake: the reader
+    /// takes them with its requests after each turn.
+    Hatch(Vec<i32>),
+}
+
+/// What a picker is opened with, each value as HTML writes it and empty
+/// where the author gave none.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pick {
+    /// The control.
+    pub node: ViewId,
+    /// `date`, `time` or `datetime-local`.
+    pub kind: &'static str,
+    /// What the control shows now.
+    pub value: String,
+    /// Its `min`.
+    pub min: String,
+    /// Its `max`.
+    pub max: String,
+    /// Its `step`.
+    pub step: String,
+    /// Its `accent-color`, where it or an ancestor sets one: the picker's
+    /// colours are made from it, as the author's word over the device's.
+    pub accent: Option<[u8; 4]>,
 }
 
 impl Request {
@@ -65,6 +94,8 @@ impl Request {
             Request::Keyboard(..) => 6,
             Request::Surface(_) => 7,
             Request::KeepScreenOn(_) => 8,
+            Request::Pick(_) => 9,
+            Request::Hatch(_) => 10,
         }
     }
 }
@@ -130,6 +161,8 @@ impl Haptic {
 enum Waiting {
     /// The share sheet: its outcome is a journal line (LLP 1069.003 D2).
     Share,
+    /// A date or time control's picker: its answer is the control's value.
+    Pick(ViewId),
 }
 
 /// What the presenter keeps of its shell's requests.
@@ -189,6 +222,19 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
         Request::Back(goes) | Request::KeepScreenOn(goes) => out.push(i32::from(*goes)),
         Request::Keyboard(kind, field) => out.extend([*kind as i32, *field as i32]),
         Request::Surface(surface) => surface.encode(out),
+        Request::Hatch(words) => out.extend(words),
+        // The node, then the kind and the four values.
+        Request::Pick(pick) => {
+            out.push(pick.node as i32);
+            for text in [pick.kind, &pick.value, &pick.min, &pick.max, &pick.step] {
+                string(out, text);
+            }
+            // Opaque ARGB, or 0 for none.
+            out.push(
+                pick.accent
+                    .map_or(0, |[r, g, b, _]| i32::from_be_bytes([0xff, r, g, b])),
+            );
+        }
     }
     out[at + 2] = (out.len() - at - 3) as i32;
 }
@@ -367,20 +413,163 @@ impl<D: DataSource> Presenter<D> {
                 None | Some("dismissed") => "share: dismissed".to_string(),
                 Some(reason) => format!("share: refused: {reason}"),
             }),
+            // A choice is the person's, as a select's row is: `input`, then
+            // `change`. A dismissed picker changes nothing.
+            Waiting::Pick(node) => match answer {
+                // The control may have become one a person cannot change
+                // while its picker was up.
+                Some(_) if self.pickable(node).is_none() => self
+                    .host
+                    .log(format!("picker: {node} no longer takes a choice")),
+                Some(value) => {
+                    if let Err(e) = self.set_control_value(node, value) {
+                        self.host.log(format!("picker: {e}"));
+                    }
+                }
+                None => self.host.log(format!("picker: dismissed for {node}")),
+            },
         }
         true
     }
 
     /// The shell was made again (`reader_replaced`): it is told the app's
     /// state anew, and what the last one was asked and never answered is
-    /// cancelled, since nothing will answer it.
+    /// cancelled, since nothing will answer it. A picker is the exception:
+    /// it is the activity's, which answers it as it closes, whether the
+    /// person chose or the activity went (`Requests.destroy`), and a reader
+    /// made again over the same activity leaves it up.
     pub(super) fn requests_reset(&mut self) {
         (self.requests.back, self.requests.back_epoch) = (None, None);
         self.requests.keyboard = None;
         (self.requests.wakelock, self.requests.wakelock_epoch) = (None, None);
-        let waiting: Vec<u32> = self.requests.waiting.keys().copied().collect();
+        let waiting: Vec<u32> = (self.requests.waiting.iter())
+            .filter(|(_, w)| !matches!(w, Waiting::Pick(_)))
+            .map(|(id, _)| *id)
+            .collect();
         for id in waiting {
             self.answer_request(id, None);
+        }
+    }
+
+    /// Views a commit renewed (LLP 1078): one whose picker is up is another
+    /// item now, so that picker's answer is not its (a list's row given
+    /// another item while it was up).
+    pub(crate) fn picks_renewed(&mut self, renewed: &[ViewId]) {
+        let stale: Vec<(u32, ViewId)> = (self.requests.waiting.iter())
+            .filter_map(|(id, w)| match w {
+                Waiting::Pick(node) if renewed.contains(node) => Some((*id, *node)),
+                _ => None,
+            })
+            .collect();
+        for (id, node) in stale {
+            self.requests.waiting.remove(&id);
+            self.host.log(format!(
+                "picker: {node} was made again; its answer is dropped"
+            ));
+        }
+        // And one held for the agent.
+        let kinds = ["date", "time", "datetime-local"];
+        self.host.runner_mut().retire_holds_on(renewed, &kinds);
+    }
+
+    /// `id`'s kind, where it is a date or time control a person can change:
+    /// not disabled, not read-only.
+    fn pickable(&self, id: ViewId) -> Option<&'static str> {
+        let node = self.host.kernel().node(id)?;
+        if node.props.bool(PropId::Disabled) == Some(true)
+            || node.props.bool(PropId::Editable) == Some(false)
+        {
+            return None;
+        }
+        match exact_kernel::ControlKind::of(node.node_type, node.props)? {
+            exact_kernel::ControlKind::Date => Some("date"),
+            exact_kernel::ControlKind::Time => Some("time"),
+            exact_kernel::ControlKind::DateTimeLocal => Some("datetime-local"),
+            _ => None,
+        }
+    }
+
+    /// What the reader's hatches heard since it last took its requests.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn tell_reader_hatches(&mut self) {
+        if let Some(words) = crate::hatches::reader::take() {
+            self.queue(Request::Hatch(words));
+        }
+    }
+
+    /// A press on a date or time control where a shell takes requests: its
+    /// picker, with what the control shows now (the person's choice while
+    /// the bound value is the one it was made at, else the bound value).
+    /// A read-only control opens none, and one whose picker is up opens no
+    /// second.
+    pub(super) fn pick(&mut self, id: ViewId) {
+        let Some(kind) = self.pickable(id) else {
+            return;
+        };
+        if (self.requests.waiting.values()).any(|w| matches!(w, Waiting::Pick(n) if *n == id)) {
+            return;
+        }
+        let Some(node) = self.host.kernel().node(id) else {
+            return;
+        };
+        let text = |prop| node.props.str(prop).unwrap_or_default().to_owned();
+        let value = crate::paint::control::choice(&node, self.chosen.get(&id))
+            .map(str::to_owned)
+            .unwrap_or_else(|| text(PropId::Value));
+        let pick = Pick {
+            node: id,
+            kind,
+            value,
+            min: text(PropId::Min),
+            max: text(PropId::Max),
+            step: text(PropId::Step),
+            accent: crate::paint::control::accent(&node, self.brush.dark),
+        };
+        // Under the agent the picker is held for it, on every host (LLP
+        // 1069.007 D4): `type @date 2026-10-23`, `tap @date clear` or
+        // `tap @date cancel` answer it, by the control's kind.
+        if self.agent {
+            let held = (self.host.runner().device_holds().iter())
+                .any(|h| h.node == Some(id) && h.capability == kind);
+            if !held {
+                let args = serde_json::json!({
+                    "value": pick.value, "min": pick.min, "max": pick.max, "step": pick.step,
+                });
+                (self.host.runner_mut()).hold(kind, Some(id), &args.to_string(), &["clear"], true);
+                self.dirty = true;
+            }
+            return;
+        }
+        let request = self.request(Request::Pick(pick));
+        self.requests.waiting.insert(request, Waiting::Pick(id));
+    }
+
+    /// The agent's answer to a held date or time picker, after the runner
+    /// consumed it: the value typed, empty for `clear`, nothing for
+    /// `cancel`. It lands as a person's choice does.
+    pub(crate) fn answer_date(&mut self, request: &str, reply: &str) {
+        let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
+        let kind = r["capability"].as_str().unwrap_or_default();
+        if !matches!(kind, "date" | "time" | "datetime-local") {
+            return;
+        }
+        let Some(node) = r["node"].as_u64().map(|n| n as ViewId) else {
+            return;
+        };
+        let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+        let value = match r["answered"].as_str() {
+            Some("cancel") => {
+                self.host.log(format!("picker: dismissed for {node}"));
+                return;
+            }
+            Some("clear") => "",
+            _ => q["text"].as_str().unwrap_or_default().trim(),
+        };
+        if self.pickable(node) != Some(kind) {
+            self.host
+                .log(format!("picker: {node} no longer takes a choice"));
+        } else if let Err(e) = self.set_control_value(node, value) {
+            self.host.log(format!("picker: {e}"));
         }
     }
 
@@ -452,13 +641,21 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// `share(…)`: the runner's rule, then the shell's sheet where there
-    /// is one. Its outcome arrives by the request's id.
+    /// is one. Its outcome arrives by the request's id. The request carries
+    /// no files: Android's sheet would take them as content URIs from a
+    /// `FileProvider`, which the shell does not have (LLP 1125 D12).
     pub(super) fn share(&mut self, args: &[exact_plan::Value], source: Option<ViewId>) {
+        const ANDROID: &str = "files are not carried to Android's share sheet yet";
         let share = Share::from_args(args);
         let (agent, shell) = (self.agent, self.requests.shell);
+        let reach = exact_runner::share::Reach {
+            sheet: shell,
+            files: shell.then_some(ANDROID),
+            pictures: shell.then_some(ANDROID),
+        };
         let runner = self.host.runner_mut();
-        if let exact_runner::share::Arm::Present(share) =
-            exact_runner::share::arm(runner, share, source, agent, shell)
+        if let exact_runner::share::Arm::Present(share, _) =
+            exact_runner::share::arm(runner, share, source, agent, reach)
         {
             let id = self.request(Request::Share(share));
             self.requests.waiting.insert(id, Waiting::Share);

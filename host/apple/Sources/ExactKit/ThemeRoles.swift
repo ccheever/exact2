@@ -65,6 +65,12 @@ package enum ThemeRoles {
         own(view, table)
     }
 
+    /// The surfaces the presenter at `root` adopted (its sheets), alive.
+    static func adopted(by root: PlatformView) -> [PlatformView] {
+        guard let owner = owners[ObjectIdentifier(root)], owner.view === root else { return [] }
+        return owners.values.compactMap { $0.table === owner.table && $0.view !== root ? $0.view : nil }
+    }
+
     /// The table `view` resolves by: its presenter's, the nearest owner
     /// above it; else the applying presenter's; else the last to apply.
     private static func style(in view: PlatformView?) -> NodeStyle {
@@ -113,9 +119,49 @@ extension Presenter {
     func applyThemeTint() {
         #if os(iOS) || os(tvOS)
         root.tintColor = ThemeRoles.color("AccentColor", in: root)
+        // Its sheets sit outside the root, and its bars' titles were set
+        // once: a live edit sets them again (LLP 1121 stage 5).
+        for sheet in ThemeRoles.adopted(by: root) {
+            sheet.tintColor = root.tintColor
+            #if os(iOS)
+            sheet.backgroundColor = ThemeRoles.color("background", in: sheet) ?? ThemeRoles.color("Canvas", in: sheet, or: .systemBackground)
+            #endif
+        }
+        navigation.retheme()
         #else
         // The page's ground where the app sets none (LLP 1115 D2).
         viewport.backgroundColor = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
+        // AppKit has no tint: what names it, here and in what the presenter
+        // shows outside its root, resolves the theme's `AccentColor` again
+        // (a live edit, LLP 1121 stage 5).
+        for view in [root] + ThemeRoles.adopted(by: root) {
+            for case let node as NodeView in view.subviews {
+                node.retint(changed: true)
+                node.accentChanged()
+            }
+        }
+        #endif
+        // What resolved a role into a surface it keeps (a field's placeholder
+        // or ground) sets it again: no style op says so, as the rows did not
+        // change (a live edit, LLP 1121 stage 5).
+        func retheme(_ view: PlatformView) {
+            (view as? NodeView)?.rethemeSurfaces()
+            view.subviews.forEach(retheme)
+        }
+        ([root] + ThemeRoles.adopted(by: root)).forEach(retheme)
+    }
+}
+
+extension NodeView {
+    /// A field's placeholder and ground, and what draws from the theme's
+    /// roles, set again from the presenter's table.
+    func rethemeSurfaces() {
+        #if os(macOS)
+        if field != nil || textArea != nil { reapplyColors() }
+        #else
+        if field != nil { applyFieldStyle() }
+        textArea?.setNeedsDisplay()
+        setNeedsLayout()
         #endif
     }
 }

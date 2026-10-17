@@ -76,12 +76,12 @@ impl<D: DataSource> Presenter<D> {
         preferences.dark = dark;
         preferences.contrast = pin.contrast.unwrap_or(before.contrast);
         if let Some(e) = self.set_preferences(preferences) {
-            self.report_unsupported("pin", Some(&e));
+            self.report_refused("pin", Some(&e), Some(revision));
         }
         self.set_system_scheme(dark);
         let px = pin.root_font_size.unwrap_or(before.root_font_size);
         if let Some(e) = self.set_root_font_size(px) {
-            self.report_unsupported("pin.rootFontSize", Some(&e));
+            self.report_refused("pin.rootFontSize", Some(&e), Some(revision));
         }
         let mut modes = before.modes.clone();
         for (axis, value) in pin.mode {
@@ -114,7 +114,7 @@ impl<D: DataSource> Presenter<D> {
                     eprintln!("exact url: pin.mode: {e}");
                 }
             }
-            self.report_unsupported("pin.mode", Some(&e));
+            self.report_refused("pin.mode", Some(&e), Some(revision));
         }
     }
 
@@ -229,9 +229,20 @@ impl<D: DataSource> Presenter<D> {
 
     /// Queue `unsupported` for `what`; with no channel, a line to stderr.
     pub(super) fn report_unsupported(&mut self, what: &str, detail: Option<&str>) {
+        self.report_refused(what, detail, None);
+    }
+
+    /// [`Self::report_unsupported`], naming the pin `revision` refused when
+    /// it is a pin's (*1.3*: the server binds it to that pin, not the next
+    /// status).
+    fn report_refused(&mut self, what: &str, detail: Option<&str>, revision: Option<u64>) {
         match self.dev.as_mut().and_then(|dev| dev.link.as_mut()) {
             Some(link) => {
-                link.report(json!({"kind": "unsupported", "what": what, "detail": detail}))
+                let mut report = json!({"kind": "unsupported", "what": what, "detail": detail});
+                if let Some(revision) = revision {
+                    report["revision"] = revision.into();
+                }
+                link.report(report)
             }
             None => eprintln!("exact url: {what}: {}", detail.unwrap_or("unsupported")),
         }
@@ -337,6 +348,7 @@ mod tests {
             vec![json!({"kind": "pin", "revision": 5, "pin": {"mode": {"dark-style": "grey"}}})],
         ));
         assert_eq!(reports[0]["what"], "pin.mode");
+        assert_eq!(reports[0]["revision"], 5, "the refused pin's (1.3)");
         assert_eq!(reports[1]["mode"]["dark-style"], "black");
         // Refused right after a pin that applied: that pin's mode does not
         // stay under the new facts.

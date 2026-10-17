@@ -7,6 +7,7 @@
 // body whole, so it cannot follow the server-sent stream. A failure is
 // words in the answer, never a throw.
 import type { Answer, Result, Sources } from './app.contract.d.ts';
+import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
 
 export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
@@ -82,11 +83,18 @@ async function call(path: string, body: unknown, timeout = 15000, bound?: string
 }
 
 // A dev loop's page the canvas may frame: a loopback origin, no path
-// (hello's `page`), never the tool's own (a frame of its own origin could
-// lift its sandbox); anything else is none.
+// (hello's `page`), never the tool's own port (a frame of its own origin
+// could lift its sandbox); anything else is none. Its URL as the dev loop
+// prints it (127.0.0.1, an address its gate admits), for "Open in a tab"
+// and --via, and the canvas's: localhost on that port (the dev loop answers
+// on both loopback addresses), another site than the tool's, so a browser
+// with site isolation runs the page in its own process and a busy one
+// cannot stall the tool.
 const pageOf = (page: unknown) => {
-  if (typeof page !== 'string' || !/^http:\/\/(127\.0\.0\.1|\[::1\]):\d{1,5}$/.test(page)) return '';
-  try { return new URL(page).origin !== new URL(API).origin ? page : ''; } catch { return ''; }
+  const m = typeof page === 'string' ? /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})$/.exec(page) : null;
+  const port = m ? Number(m[2]) : 0;
+  if (!m || port < 1 || port > 65535 || port === Number(new URL(API).port)) return { page: '', frame: '' };
+  return { page: `http://127.0.0.1:${port}`, frame: `http://localhost:${port}` };
 };
 const files = (digests: Record<string, string> = {}) => Object.entries(digests).map(([path, digest]) => ({ path, digest }));
 
@@ -94,7 +102,8 @@ type Change = Result<'waitChanges'>['recent'][number];
 // The session's changes, newest first, as the long poll brought them.
 let recent: Change[] = [];
 let answers = 0;
-let place = { seq: 0, epoch: '' };
+// The place read to, and the run (its token) that answered there.
+let place = { seq: 0, epoch: '' }, placeRun = '';
 
 /** An event from the long poll as the view lists it. */
 function change(e: any): Change | null {
@@ -333,7 +342,9 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
 type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string };
 const snapshots = new Map<number, Snapshot>();
-let issued = 0;
+// Design reads, and reads of the app design's axes (either kind): only the
+// newest of the second sets the axes a selection is placed by.
+let issued = 0, axesReads = 0;
 // Whether running apps take a value edit with no reload: a server says so
 // in its hello once it has the live table (LLP 1121 stage 4). Until then
 // every edit reaches them through the dev loop's reload.
@@ -481,9 +492,15 @@ const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
 /** The stacks emptied: another run of the server has none of their
  * inverses. `session` counts these, and an operation that began before one
- * changes neither stack when it ends. */
-function forget() {
+ * changes neither stack when it ends. Once per run gone (by the token it
+ * gave): a restart found by a refused write, then by the poll's new epoch,
+ * forgets once, so the refusal's answer stays; unless (`still`) the stacks
+ * hold another run's entries meanwhile. */
+const forgotRuns = new Set<string>();
+function forget(run: string, still = false) {
+  if (run && forgotRuns.has(run) && !still) return;
   undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1;
+  if (run) forgotRuns.add(run);
 }
 const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[] });
 /** Who moved a file a refused write or undo found moved: its client, or
@@ -525,8 +542,16 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; status: any; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
+type BuildState = { id: string; host: string; status: any; plan: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null };
 let buildsNow = new Map<string, BuildState>();
+// The latest selection (the server's join, LLP 1122 D5) with what it was
+// made under; a stale one stays stale until a fresh selection (a reload back
+// to the same facts is another document). And the builds this tool turned
+// inspect mode on, as the server and the pages tell it.
+let selectionNow: Selected | null = null;
+let designAxes: Axis[] = [];
+const inspectOn = new Set<string>();
+const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stale = staleness(selectionNow, buildsNow.get(String(selectionNow.e.build)), designAxes); };
 // The poll now (a newer one replaces it), and whether the build list must
 // be read again from hello (the poll started again, and no read has
 // succeeded since).
@@ -547,7 +572,7 @@ const buildRows = () => [...buildsNow.values()].map(b => {
     unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
   };
 });
-const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
+const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[]) => {
   buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b)]));
@@ -763,16 +788,16 @@ const plain = (n: Noted) => n.gap ? 'Some changes were missed here (the server k
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
-    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', live: false };
+    if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false };
     const ok = reply.ok ?? {};
     liveTable = ok.live === true;
     designFile = String(ok.design ?? '');
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
-    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), page: pageOf(ok.page), live: liveTable };
+    return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...pageOf(ok.page), live: liveTable };
   },
   loadDesign: async ([file]) => {
-    const number = ++issued;
+    const number = ++issued, axesAt = !file || file === designFile ? ++axesReads : -1;
     try {
       const read = await readDesign(file);
       if (read.error) return noDesign(read.error);
@@ -839,6 +864,8 @@ const sources: Sources = {
       for (const g of panel) for (const [list, more] of [[g.dials, false], [g.more, true]] as const) for (const c of list) dials.set(c.name, { group: g.name, more });
       // Overtaken: never shown, so nothing to keep.
       if (number === issued) {
+        // The app design's axes, of the newest read only.
+        if (axesAt === axesReads) designAxes = axes;
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
         reads.set(`${named(file)}|${read.files?.[named(file)] ?? ''}`, { stored, axes, columns });
@@ -856,7 +883,7 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', column: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
+    const none = { ok: true, error: '', token: '', column: '', place: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
@@ -874,7 +901,7 @@ const sources: Sources = {
     // A dial with no control (`control=none`) is said, not offered.
     const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
-      ok: true, error: '', token, column, label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
+      ok: true, error: '', token, column, place: placeOf(snap.axes, col), label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
       expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
     };
   },
@@ -900,8 +927,8 @@ const sources: Sources = {
     const op = opOf(file, kind, target, when, value);
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, read.token);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
@@ -955,11 +982,11 @@ const sources: Sources = {
     scrubEnded = '';
     const op = kept, [file, kind, target, when] = s.of.split('␟');
     const value = draftValue;
-    const { error, reply } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
+    const { error, reply, used } = await call('/__tamber', { method: 'scrub-release', client: s.client, scrub: s.id }, WRITE_WAIT, s.token);
     // No answer from the server (not a refusal): the scrub may still be
     // open there, so it stays, to keep or cancel again.
     if (error && !reply.error && error !== RESTARTED) { s.releasing = false; if (!scrubbing) scrubbing = s; return stacks(false, `Keep did not reach the server (${error}): keep or cancel again.`, ''); }
-    if (error === RESTARTED) forget();
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since the scrub opened; the running copies have the committed value back.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
@@ -985,8 +1012,8 @@ const sources: Sources = {
     const at = session;
     const top = undoStack.at(-1);
     if (!top) return stacks(false, 'Nothing to undo.', '');
-    const { error, reply } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse }, WRITE_WAIT, top.token);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       // Refused for a conflict, it can't apply while the file stays as it
@@ -1014,11 +1041,11 @@ const sources: Sources = {
     // The original transaction again, against the files as they are now,
     // on the run of the server it was undone on (its token).
     const hello = await call('/__tamber', { method: 'hello' }, 15000, top.token);
-    if (hello.error === RESTARTED) forget();
+    if (hello.error === RESTARTED) forget(hello.used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (hello.error) return stacks(false, hello.error, '');
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client: top.client ?? client, files: hello.reply.ok?.files ?? {}, ops: top.ops }, WRITE_WAIT, top.token);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'transaction', client: top.client ?? client, files: hello.reply.ok?.files ?? {}, ops: top.ops }, WRITE_WAIT, top.token);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       if (!conflict(reply)) return stacks(false, `Can't redo ${top.label}: ${error}`, '');
@@ -1076,9 +1103,11 @@ const sources: Sources = {
     // changeset starts again with it.
     // Another run of the server has none of this run's scrub: it ended
     // there, and a new one is chosen again.
-    if (place.epoch && r.epoch !== place.epoch) { forget(); changeset = []; reads.clear(); buildsNow = new Map(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+    if (place.epoch && r.epoch !== place.epoch) { forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); buildsNow = new Map(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
     // Events missed: an end among them would be lost, so a scrub open is
     // ended here (cancelled, if the server still has it).
+    // Missed, inspect mode's state is not known either: Inspect sends it again.
+    if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); }
     if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
       const s = scrubbing;
       endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
@@ -1098,15 +1127,29 @@ const sources: Sources = {
     if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
     // The builds, as their events tell them.
     for (const e of (r.events ?? []) as any[]) {
-      if (e.event === 'builds') takeBuilds(e.builds);
-      else if (e.event === 'build-status' && e.build?.id) buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id))));
+      // Each as it comes, so a reload told in one answer still ends a
+      // selection (a build that went keeps its inspect mode at the server,
+      // which tells it again when it is back).
+      if (e.event === 'builds') { takeBuilds(e.builds); latch(); }
+      else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); latch(); }
       // This tool's scrub, ended by the server (another write, idle, the
       // tool gone, the server lost): said, and a new one is chosen again.
       else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
         if (e.client === client) { endedIds.set(String(e.scrub), String(e.reason)); if (endedIds.size > 32) endedIds.delete(endedIds.keys().next().value!); }
         if (scrubbing?.id && e.scrub === scrubbing.id) endScrub(scrubbing, scrubEndText(String(e.reason)));
       }
-      else if (e.event === 'unsupported') { const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null }; }
+      else if (e.event === 'unsupported') {
+        const b = buildsNow.get(String(e.build)); if (b) b.unsupported = { what: String(e.what ?? ''), detail: e.detail ?? null };
+        if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
+      }
+      // A selection joined to source, with what it was made under.
+      else if (e.event === 'selection') { const b = buildsNow.get(String(e.build)); selectionNow = { e, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '' }; }
+      // A page that left inspect mode itself: its selection is no longer
+      // current, and the tool no longer inspects there.
+      else if (e.event === 'selected' && e.selected === null) {
+        inspectOn.delete(String(e.build));
+        if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = 'its page left inspect mode';
+      }
     }
     // Starting again, the builds are the server's list now (its events
     // before this answer are not sent): read at once, not a poll later, and
@@ -1115,11 +1158,12 @@ const sources: Sources = {
     if (resync) {
       const now = await call('/__tamber', { method: 'hello' });
       if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
-      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? []); resync = false; }
+      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? []); latch(); resync = false; }
     }
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
+    placeRun = used;
     return { ok: true, error: '', missed: r.missed === true, ...state() };
   },
   loadLit: async ([file, answer, faded]) => {
@@ -1212,7 +1256,7 @@ const sources: Sources = {
     const refusedOf = (reply: Reply) => ((reply.error as { refused?: { file: string; why: string }[] } | undefined)?.refused ?? []).map(r => ({ file: String(r.file), why: String(r.why) }));
     const fail = (error: string, refused: { file: string; why: string }[]) => ({ ok: false, error: refused.length ? 'Not committed: these files are not only the session\'s. Commit them by hand.' : error, commit: '', files: [], refused, edits: [] });
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
-    if (dry.error === RESTARTED) forget();
+    if (dry.error === RESTARTED) forget(dry.used);
     if (session !== at) return fail(RESTARTED, []);
     if (dry.error) return fail(dry.error, refusedOf(dry.reply));
     type Edit = { file: string; client: string; tokens: string[]; write?: number };
@@ -1225,8 +1269,8 @@ const sources: Sources = {
     const authors = [...new Set(scope.edits.map(e => e.client))];
     const message = `design: ${scope.edits.length} change${scope.edits.length === 1 ? '' : 's'} by ${authors.join(', ')}\n\n${lines.map(l => `- ${l}`).join('\n')}`;
     const sent = changeset[0]?.seq ?? 0;
-    const { error, reply } = await call('/__tamber', { method: 'commit', client, message, scope: scope.scope }, WRITE_WAIT, dry.used);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'commit', client, message, scope: scope.scope }, WRITE_WAIT, dry.used);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return fail(RESTARTED, []);
     if (error) return fail((reply.error as { stale?: boolean } | undefined)?.stale ? 'Something was written while the commit was being composed: nothing was committed. Commit again.' : error, refusedOf(reply));
     const ok = reply.ok as { commit: string; files: string[] };
@@ -1265,14 +1309,14 @@ const sources: Sources = {
     const at = session, some = items ? items.split(',').map(Number) : undefined, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[];
     const proposer = held.find(h => h.proposal === proposal)?.client;
     // To the server run that listed it.
-    const { error, reply } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, WRITE_WAIT, heldToken || undefined);
-    if (error === RESTARTED) forget();
+    const { error, reply, used } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, WRITE_WAIT, heldToken || undefined);
+    if (error === RESTARTED) forget(used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '' };
     if (error) return { ...stacks(false, error, ''), note: '' };
     const ok = reply.ok as { recomputed?: boolean; proposal?: string; inverse?: string | null; changed?: { token: string }[] };
     if (ok.recomputed) return { ...stacks(true, '', 'recomputed'), note: `${proposal} was recomputed on the files as they are now, as ${ok.proposal}: review its diff and accept it again.` };
     // Accepted: written as its proposer's, and one step of this session's undo.
-    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: heldToken, client: proposer ?? (reply.ok as { client?: string }).client }); redoStack.length = 0; }
+    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops, label: `the proposal ${proposal}`, token: used, client: proposer ?? (reply.ok as { client?: string }).client }); redoStack.length = 0; }
     return { ...stacks(true, '', 'accepted'), note: `Accepted ${proposal}.` };
   },
   importFiles: async ([client, kind, paths, names], _store, storage) => {
@@ -1332,7 +1376,7 @@ const sources: Sources = {
       offers: (r.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })),
     };
     const made = await call('/__tamber', { method: 'propose', hold: true, client, ops: keep.map(i => ops[i]), review }, WRITE_WAIT, heldToken || undefined);
-    if (made.error === RESTARTED) forget();
+    if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
@@ -1346,9 +1390,43 @@ const sources: Sources = {
     // read again as the changes move (the open file's read is the app's
     // when none is open).
     if (!file) return { axes: [] };
-    const { error, reply } = await call('/__tamber', { method: 'describe' });
+    const axesAt = ++axesReads, { error, reply } = await call('/__tamber', { method: 'describe' });
     const axes = error ? [] : (((reply.ok as { ir?: { axes?: Axis[] } })?.ir?.axes) ?? []);
+    // Also the axes a selection is placed by, while this file is open.
+    if (!error && axesAt === axesReads) designAxes = axes;
     return { axes: axes.map(a => ({ name: a.name, values: a.values })) };
+  },
+  loadSelection: async () => { latch(); return selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0); },
+  sendInspect: async ([client, on]) => {
+    // Inspect mode on every build that can (LLP 1122 D4), or off.
+    const { error, reply } = await call('/__tamber', { method: 'inspect', client, on });
+    if (error) return { ok: false, error, note: '' };
+    const ok = reply.ok as { builds: string[]; unsupported: string[] };
+    // Off is off on every build this client had, one gone included (the
+    // server forgets it there too, so it is not replayed on).
+    if (on) for (const id of ok.builds ?? []) inspectOn.add(id); else inspectOn.clear();
+    const none = ok.unsupported?.length ? ` ${ok.unsupported.join(', ')} cannot inspect.` : '';
+    return { ok: true, error: '', note: on ? `Inspecting on ${ok.builds.length} build(s): click a view in one.${none}` : `Inspect mode off on ${ok.builds.length} build(s).` };
+  },
+  loadUses: async ([token, answer]) => {
+    // Where the app reads a token, statically (the server's `uses`): the
+    // impact of an edit to it, as source sites, not mounted copies.
+    if (!token) return { ok: true, error: '', token: '', sites: [] };
+    const { error, reply } = await call('/__tamber', { method: 'uses', token });
+    if (error) return { ok: false, error, token, sites: [] };
+    const via = (v: any) => !v ? '' : v.token ? ` · through ${v.token}` : v.synthetic ? ` · through ${v.synthetic}` : v.slot ? ` · through the slot ${v.slot}` : v.derive ? ` · through the derive ${v.derive}` : '';
+    const sites = ((reply.ok as { sites?: any[] }).sites ?? []).map(x => ({ file: String(x.file), line: Number(x.line), col: Number(x.col), text: `${String(x.file).split('/').pop()}:${x.line} · ${x.component}${via(x.via)}` }));
+    return { ok: true, error: '', token, sites };
+  },
+  outlineUses: async ([client, token]) => {
+    // A token's sites outlined on every build in inspect mode (`outline`).
+    const { error, reply } = await call('/__tamber', { method: 'uses', token });
+    if (error) return { ok: false, error, note: '' };
+    const at = ((reply.ok as { sites?: any[] }).sites ?? []).map(x => ({ file: x.file, line: x.line, col: x.col }));
+    const out = await call('/__tamber', { method: 'outline', client, at });
+    if (out.error) return { ok: false, error: out.error, note: '' };
+    const done = out.reply.ok as { sites: number[]; builds: string[] };
+    return { ok: true, error: '', note: done.builds?.length ? `Sent ${token}'s ${done.sites.length} site(s) to ${done.builds.join(', ')}; a build in inspect mode on that plan outlines them.` : `No build can inspect: ${token}'s sites were outlined nowhere.` };
   },
   sendPin: async ([client, build, scheme, contrast, mode, rootFontSize, preview, handBack]) => {
     // A pin on one build ("" every build): the facts `prefer` pins, each

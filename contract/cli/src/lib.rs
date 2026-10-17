@@ -17,6 +17,7 @@ pub mod lean;
 mod logic;
 mod manifest;
 mod map;
+mod midi;
 pub mod native;
 pub mod picker;
 mod resolve;
@@ -43,7 +44,7 @@ pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{design_path, with_design_text, Package, Source, SourceGraph};
 pub use symbols::symbols_json;
-pub use typescript::typescript;
+pub use typescript::{design_exports, typescript, typescript_exporting};
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
 /// `strings` directory, every refusal in one message: the bake reads grant
 /// purposes from them (LLP 1069.008 D1).
@@ -946,6 +947,13 @@ fn first_frame<D: DataSource>(
     answered: bool,
 ) -> Result<Runner<D>, BakeError> {
     use exact_runner::{delivery, page, transport, viewport};
+    fact_shape(
+        plan,
+        exact_runner::midi::SOURCE,
+        exact_runner::midi::FIELDS,
+        "bake-midi-field",
+    )?;
+    midi::shape(plan)?;
     fact_shape(
         plan,
         delivery::SOURCE,

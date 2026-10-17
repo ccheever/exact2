@@ -72,6 +72,42 @@ final class BuildChannelTests: XCTestCase {
         XCTAssertFalse(Batch.decode(Data(#"{"ops":[]}"#.utf8)).facts)
     }
 
+    func testRegistrationKnowsTheRunningPlanBeforeFetchingAGeneration() throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let app = ExactApp.shared
+        let session = app.makeSession(label: "build-channel-plan")
+        defer { app.disconnect(); session.destroy(); BuildChannel.design = nil }
+        XCTAssertNil(session.runtime.planDigest())
+        XCTAssertNil(session.boot(size: CGSize(width: 400, height: 300)).error)
+        let tree = try XCTUnwrap(session.runtime.agent(#"{"op":"tree","plan":true}"#).data(using: .utf8))
+        let digest = try XCTUnwrap((JSONSerialization.jsonObject(with: tree) as? [String: Any])?["planDigest"] as? String)
+        XCTAssertEqual(digest.count, 64)
+        // No run-loop turn or network response precedes either registration's identity read.
+        for _ in 0..<2 {
+            app.connect("http://127.0.0.1:1")
+            XCTAssertEqual(app.connection?.plan, digest)
+            app.disconnect()
+        }
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_BUTTONS_PLAN"])
+        let replacement = try Data(contentsOf: URL(fileURLWithPath: path))
+        XCTAssertNil(session.boot(plan: replacement, size: CGSize(width: 400, height: 300)).error)
+        let replacedTree = try XCTUnwrap(session.runtime.agent(#"{"op":"tree","plan":true}"#).data(using: .utf8))
+        let replacedDigest = try XCTUnwrap((JSONSerialization.jsonObject(with: replacedTree) as? [String: Any])?["planDigest"] as? String)
+        XCTAssertNotEqual(replacedDigest, digest)
+        app.connect("http://127.0.0.1:1")
+        XCTAssertEqual(app.connection?.plan, replacedDigest)
+        XCTAssertFalse(session.apply(Data("invalid plan".utf8)))
+        XCTAssertEqual(app.connection?.plan, replacedDigest, "a refused plan keeps the running identity")
+    }
+
+    func testRegistrationUsesTheAcceptedGenerationIdentity() throws {
+        let connection = try XCTUnwrap(PlanURL.open("http://127.0.0.1:1", acceptProgram: { _ in true }, current: { "accepted-generation" }, plan: { "running-plan" }, apply: { _, _, _ in false }))
+        defer { connection.close() }
+        XCTAssertEqual(connection.plan, "accepted-generation")
+    }
+
     #if os(macOS)
     /// A boot, as a generation, reports its plan's own design: the server's
     /// `/__dev/design` answers 204 when its design is the plan's, so no

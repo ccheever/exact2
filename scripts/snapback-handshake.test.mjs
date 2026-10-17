@@ -2,7 +2,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createServer } from 'node:net';
 import { listenOn } from './agent-launch.mjs';
@@ -10,6 +10,76 @@ const sdk = resolve(import.meta.dirname, '..');
 const installedBinary = process.env.SNAPBACK4_BIN ?? resolve(sdk, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
 const pinnedVersion=JSON.parse(readFileSync(resolve(sdk,'package.json'),'utf8')).devDependencies.snapback4;
 const packageDir = process.env.SNAPBACK4_PACKAGE ?? resolve(sdk, 'node_modules/snapback4');
+
+test('fresh roster refusals are diagnosed from the actual mutation journal and seeded fresh repairs them', async () => {
+  const project = mkdtempSync(join(sdk, 'target/hs-roster-')), app = join(project, 'app');
+  const env = {...process.env,CARGO_INCREMENTAL:'0',CARGO_PROFILE_DEV_DEBUG:'0',CARGO_PROFILE_TEST_DEBUG:'0'};
+  const run = (args, cwd = project, status = 0) => {
+    const result = spawnSync(process.execPath,args,{cwd,env,encoding:'utf8',timeout:300_000});
+    assert.equal(result.status,status,`${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result;
+  };
+  let server;
+  try {
+    symlinkSync(join(sdk,'node_modules'),join(project,'node_modules'),'dir');
+    mkdirSync(join(project,'snapback'));
+    writeFileSync(join(project,'snapback/schema.q'),`use personas alice
+table owners:
+  person: principal
+  unique person
+  read <- .person = viewer
+  insert <- deny
+  update <- deny
+  delete <- deny
+  online only
+table notes:
+  body: text 1..80
+  public 'test notes'
+  insert <- exists owners[person = viewer]
+  update <- deny
+  delete <- deny
+  online only
+query mine():
+  return owners[person = viewer]
+mutation privileged():
+  require exists owners[person = viewer] else NOT_OWNER 'Only owners may approve.'
+  row = insert notes {body: 'approved'}
+  return {ok: true}
+`);
+    const reservation = createServer(); await listenOn(reservation,0);
+    const port = reservation.address().port; await new Promise(ok=>reservation.close(ok));
+    run([join(sdk,'scripts/exact.mjs'),'new',app,'--snapback','--online','--port',String(port)]);
+    const seeds = JSON.parse(readFileSync(join(app,'seed.json'),'utf8'));
+    assert.equal(seeds[0].table,'owners'); assert.equal(seeds[0].row.person,'dev:alice');
+    assert.match(seeds[0].row.id,/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
+    const rebuilt = run(['exact.mjs','snapback','--rebuild'],app);
+    assert.match(rebuilt.stdout,/^Snapback rebuilt: \.\/snapback4 → .+; \.\/backend → \.\.\/snapback\/generated \(online\)\.\n$/);
+    server=spawn(installedBinary,['dev','--port',String(port),'--no-watch'],{cwd:project,env,stdio:['ignore','pipe','pipe']});
+    await new Promise((ok,fail)=>{
+      let log=''; const timer=setTimeout(()=>fail(new Error(log)),30_000);
+      const read=bytes=>{log+=bytes;if(/SNAPBACK4_READY|^http:\/\/127\.0\.0\.1:\d+\s*$/m.test(log)){clearTimeout(timer);ok();}};
+      server.stdout.on('data',read);server.stderr.on('data',read);server.once('error',fail);server.once('exit',code=>{clearTimeout(timer);fail(new Error(`backend exited ${code}: ${log}`));});
+    });
+    const test=`epoch now
+test "an owner approves"
+  tap "send"
+  clock data
+  expect text "mutation-result" == "{\\"ok\\":true}"
+`;
+    writeFileSync(join(app,'app.test.contract'),`fresh\n${test}`);
+    const refused = run(['exact.mjs','test','web'],app,1);
+    assert.match(refused.stdout + refused.stderr,/every privileged operation refused after `fresh`: seed roster tables/);
+    assert.match(refused.stdout + refused.stderr,/NOT_OWNER/);
+    writeFileSync(join(app,'app.test.contract'),`fresh "seed.json"\n${test}`);
+    const seeded = run(['exact.mjs','test','web'],app);
+    assert.match(seeded.stdout,/1 passed, 0 failed/);
+    assert.doesNotMatch(seeded.stdout + seeded.stderr,/every privileged operation refused/);
+  } finally {
+    if(server && server.exitCode===null){const ended=new Promise(ok=>server.once('exit',ok));server.kill('SIGTERM');await ended;}
+    rmSync(project,{recursive:true,force:true});
+  }
+},600_000);
+
 for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`npm Exact ${online ? 'online write' : 'guestbook syncs, writes offline and reconnects'} against ${mode}`, async () => {
   const project = mkdtempSync(join(sdk, 'target/hs-guestbook-'));
   const app = join(project, 'app'); let server, binary = installedBinary;

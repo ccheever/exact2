@@ -165,6 +165,7 @@ fn a_tap_that_drifts_inside_the_systems_slop_still_presses() {
         high_contrast: false,
         touch: true,
         touch_slop: 8.0,
+        dates: String::new(),
     };
     let drift = |p: &mut Presenter<()>, by: f32, at: f64| {
         let (x, y) = middle(p, "bare");

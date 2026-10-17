@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -41,6 +41,31 @@ async function ask(tamber, gate, { path, method = 'GET', headers = {}, peer = '1
   const handled = await tamber.handle(req, res, new URL(path, 'http://x'), gate.check(req));
   return { handled, status, body: text ? JSON.parse(text) : null };
 }
+
+test('a stale selection asks its build again once per status, its status first; a current one is joined with the map the dev loop gives', async () => {
+  const map = { digest: 'p1', sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [{ file: 'exact:app', line: 3, col: 5, end_col: 9, component: 'App', chain: [], bindings: [{ row: 'background_color', origin: 'own' }] }] };
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, sourceMap: () => Buffer.from(JSON.stringify(map)) });
+  const frames = [];
+  const { nonce } = tamber.channel.open(f => frames.push(f));
+  const report = body => tamber.channel.report(JSON.stringify({ nonce, ...body }));
+  report({ kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'], plan: 'g1', design: 'd1' });
+  report({ kind: 'status', scheme: 'light', revision: 0 });
+  const selected = { node: 2, site: 0, instance: [], planDigest: 'p1', tuple: {}, rows: [{ name: 'background_color', value: '#fff', source: 'authored', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }] };
+  const asks = () => frames.filter(f => f.kind === 'inspect' && f.refresh).length;
+  // Stale twice under one status: asked again once, status first.
+  expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd0', revision: 0 }).status).toBe(409);
+  expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd0', revision: 0 }).status).toBe(409);
+  expect(asks()).toBe(1);
+  expect(frames.find(f => f.kind === 'inspect' && f.refresh)).toEqual({ kind: 'inspect', refresh: true, status: true });
+  // Its status moves: asked again under it.
+  report({ kind: 'status', scheme: 'dark', revision: 0, design: 'd2' });
+  expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd0', revision: 0 }).status).toBe(409);
+  expect(asks()).toBe(2);
+  // Current: joined, the token rung offered, every copy outlined.
+  expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd2', revision: 0 }).status).toBe(204);
+  expect(frames.at(-1)).toEqual({ kind: 'outline', sites: [0], plan: 'p1' });
+  await tamber.close();
+});
 
 test('the token goes only to a local request, and every request needs it', async () => {
   const port = 8800;
@@ -341,7 +366,7 @@ async function devLoop(flags = [], app = 'theme-fixture') {
       dev.on('exit', code => fail(new Error(`the dev loop exited ${code}: ${out}${err}`)));
     });
   } catch (e) { await stop(); throw e; }
-  return { base: `http://127.0.0.1:${port}`, stop };
+  return { base: `http://127.0.0.1:${port}`, stop, said: () => out };
 }
 
 const helloOf = async base => {
@@ -381,6 +406,140 @@ test('frameOnlyByTool: every HTML head carries frame-ancestors, however it is wr
 });
 
 // The wasm loop's HTML (caltrain: the theme fixture has no wasm build).
+// LLP 1122 T2b: inspect is a development page's only: no file a web build
+// ships (every host file, `webHostFiles`) carries it; dev.js, which does, is
+// served by the dev loop alone.
+test('no web build ships inspect: it lives in dev.js, which no build copies', async () => {
+  const { webHostFiles } = await import('./app.mjs');
+  const shipped = webHostFiles();
+  expect(Object.keys(shipped)).not.toContain('dev.js');
+  for (const [name, source] of Object.entries(shipped)) if (name.endsWith('.js')) expect([name, readFileSync(resolve(ROOT, source), 'utf8').includes('exact-inspect')]).toEqual([name, false]);
+  expect(readFileSync(resolve(ROOT, 'host/web/dev.js'), 'utf8')).toContain('exact-inspect');
+});
+
+// LLP 1122 T2b: inspect mode in the wasm host, on the theme fixture's page.
+test('inspect on the wasm page: no tap reaches the app, a click selects the node the hit test finds and reports its site, instance and rows, a refresh reports it again, and Escape leaves', async () => {
+  const { base, stop, said } = await devLoop(['--wasm'], 'theme-fixture');
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  let polling = true;
+  try {
+    const { token } = await (await fetch(`${base}/__tamber/token`)).json();
+    const post = async (body, path = '/__tamber') => (await fetch(`${base}${path}`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(body) })).json();
+    // The client, present by its long poll; the events it is told.
+    const events = [];
+    const poll = (async () => { let after = 0, epoch; while (polling) { const r = await post(epoch ? { after, epoch, client: 'tool' } : { after: 0, wait: false, client: 'tool' }, '/__tamber/events'); events.push(...(r.events ?? [])); after = r.seq ?? after; epoch = r.epoch; } })();
+    const until = async (pass, ms = 30_000) => { const end = Date.now() + ms; for (;;) { const got = await pass(); if (got) return got; if (Date.now() > end) throw new Error('not seen'); await new Promise(ok => setTimeout(ok, 200)); } };
+    const page = await browser.newPage({ viewport: { width: 420, height: 900 }, hasTouch: true });
+    await page.goto(`${base}/`);
+    const build = await until(async () => (await post({ method: 'hello' })).ok.builds.find(b => b.host === 'web'));
+    // The resident compiler's first plan, and its source map, are in.
+    await until(() => said().includes('plan ready'), 300_000);
+    expect(build.capabilities).toContain('inspect');
+    const dim = () => page.locator('[data-testid="dim-preview"]').evaluate(e => getComputedStyle(e).backgroundColor);
+    const before = await dim();
+    expect((await post({ method: 'inspect', client: 'tool', on: true })).ok).toEqual({ builds: [build.id], unsupported: [] });
+    await page.locator('#exact-inspect').waitFor();
+    // No control takes focus while inspecting (its keys would reach the app).
+    expect(await page.locator('[data-testid="swap"]').evaluate(e => { e.focus(); return document.activeElement === e; })).toBe(false);
+    // A hovered node is outlined.
+    const card = page.locator('[data-testid="card"]');
+    const box = await card.boundingBox();
+    await page.mouse.move(box.x + 4, box.y + 4);
+    await until(async () => (await page.evaluate(() => [...document.body.children].some(e => e.style?.outline?.includes('solid') && e.style.display === 'block'))));
+    // A click on Swap pins: the app never hears it, and the node the hit
+    // test finds there is selected and reported.
+    const swap = page.locator('[data-testid="swap"]');
+    const at = await swap.boundingBox();
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+    const selected = await until(() => events.find(e => e.event === 'selected'));
+    expect(await dim()).toBe(before);
+    const hit = await page.evaluate(([x, y]) => document.elementsFromPoint(x, y).find(e => e.closest('[data-view]'))?.closest('[data-view]').dataset.view, [at.x + at.width / 2, at.y + at.height / 2]);
+    expect(selected.build).toBe(build.id);
+    expect(selected.selected).toMatchObject({ node: Number(hit), trimmed: false });
+    expect(typeof selected.selected.site).toBe('number');
+    expect(Array.isArray(selected.selected.instance)).toBe(true);
+    expect(selected.selected.rows.length).toBeGreaterThan(0);
+    // Each row as the runner's `layout` gives it: its value and source.
+    expect(selected.selected.rows.every(r => typeof r.name === 'string' && ['authored', 'dynamic', 'inherited', 'initial'].includes(r.source))).toBe(true);
+    // The server joins it to source (the theme fixture's `text "Swap
+    // pins"`), says each row's editability, and outlines every copy.
+    const contract = resolve(ROOT, 'apps/theme-fixture/app.contract');
+    const line = readFileSync(contract, 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;
+    const selection = await until(() => events.find(e => e.event === 'selection'));
+    expect(selection).toMatchObject({ build: build.id, node: Number(hit), readOnly: null, source: { line, component: 'App' } });
+    expect(realpathSync(selection.source.file)).toBe(realpathSync(contract));
+    expect(selection.rows.every(r => r.editable && (r.editable.rung === 'token' || typeof r.editable.reason === 'string'))).toBe(true);
+    // Its colour is the page's, inherited: read-only, a link to the token
+    // the page's own row reads.
+    const color = selection.rows.find(r => r.name === 'text_color');
+    expect(color).toMatchObject({ source: 'inherited', editable: { rung: null, link: 'text.primary' } });
+    await until(async () => (await page.locator('[data-exact-outline]').count()) >= 1);
+    // Selecting from the tool: a token's uses outline their views (the
+    // card's surface, each row reading surface.card).
+    const uses = (await post({ method: 'uses', token: 'surface.card' })).ok;
+    expect(uses.sites.length).toBeGreaterThan(0);
+    const outlined = (await post({ method: 'outline', client: 'tool', at: uses.sites })).ok;
+    expect(outlined.builds).toEqual([build.id]);
+    expect(outlined.sites.length).toBeGreaterThan(0);
+    // Every copy: one box per view at those sites, on that view's box.
+    const boxes = () => page.evaluate(sites => {
+      const x = globalThis.exact, want = new Set(sites);
+      const views = JSON.parse(x.readOut(x.wasm.exact_agent(x.writeIn(JSON.stringify({ op: 'sites' })))));
+      const at = e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join(','); };
+      return {
+        views: views.sites.filter(([, site]) => want.has(site)).map(([id]) => x.views.get(id)).filter(e => e?.isConnected).map(at).sort(),
+        marks: [...document.querySelectorAll('[data-exact-outline]')].map(at).sort(),
+      };
+    }, outlined.sites);
+    await until(async () => { const b = await boxes(); return b.views.length > 0 && JSON.stringify(b.marks) === JSON.stringify(b.views); });
+    // An outline of nothing clears them.
+    await post({ method: 'outline', client: 'tool', at: [] });
+    await until(async () => (await page.locator('[data-exact-outline]').count()) === 0);
+    // The window's modes: the app starts in Black (`dark-style`'s first).
+    expect(selected.selected.tuple).toEqual({ 'dark-style': 'black' });
+    // No key, no finger reaches the app either: Enter and Space on the
+    // button focused before, and a tap, leave the previews as they were.
+    await page.keyboard.press('Enter');
+    expect(await dim()).toBe(before);
+    await page.keyboard.press(' ');
+    expect(await dim()).toBe(before);
+    await page.touchscreen.tap(at.x + at.width / 2, at.y + at.height / 2);
+    await until(() => events.filter(e => e.event === 'selected').length >= 2);
+    expect(await dim()).toBe(before);
+    // A tap on the Dim preview selects it, in the modes it is in: Dim, its
+    // pin, while the window is in Black.
+    const pinned = await page.locator('[data-testid="dim-preview"]').boundingBox();
+    await page.touchscreen.tap(pinned.x + 6, pinned.y + 6);
+    const inDim = await until(() => events.filter(e => e.event === 'selected').find(e => e.selected.testId === 'dim-preview' || e.selected.tuple?.['dark-style'] === 'dim'));
+    expect(inDim.selected.tuple).toEqual({ 'dark-style': 'dim' });
+    // A refresh reports the selection again.
+    const count = events.filter(e => e.event === 'selected').length;
+    expect((await post({ method: 'inspect', client: 'tool', refresh: true })).ok.builds).toEqual([build.id]);
+    await until(() => events.filter(e => e.event === 'selected').length > count);
+    // A reload keeps it: the page registers again and is told it is on.
+    await page.reload();
+    await page.locator('#exact-inspect').waitFor();
+    // Escape leaves: the banner goes, the server's clients are told (a
+    // selection of none), and a tap reaches the app again.
+    await page.keyboard.press('Escape');
+    await page.locator('#exact-inspect').waitFor({ state: 'detached' });
+    await until(() => events.find(e => e.event === 'selected' && e.selected === null));
+    // And keys again: focused, Enter swaps (the positive control for the
+    // keys inspect mode took).
+    await swap.focus();
+    expect(await swap.evaluate(e => e.contains(document.activeElement) || document.activeElement?.contains(e))).toBe(true);
+    await page.keyboard.press('Enter');
+    await until(async () => (await dim()) !== before);
+    polling = false;
+    await poll.catch(() => {});
+  } finally {
+    polling = false;
+    await browser.close();
+    await stop();
+  }
+}, 900_000);
+
 test('the wasm loop\'s HTML, its page, install page and /__dev/open, may be framed only by the design tool\'s origin and its own', async () => {
   const { base, stop } = await devLoop(['--wasm'], 'caltrain');
   try {
@@ -399,7 +558,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.3');
+      expect(hello.protocol).toBe('tamber/1.4');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.

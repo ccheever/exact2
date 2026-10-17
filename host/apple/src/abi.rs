@@ -115,6 +115,7 @@ struct PreparedHost<D: DataSource> {
     bindings: Option<ibex2::host::Bindings>,
     hooks: Hooks,
     module: bool,
+    let_go: bool,
 }
 
 fn not_booted() -> String {
@@ -589,7 +590,7 @@ impl<D: DataSource> Bridge<D> {
                 }
                 self.presenter_hooks(&mut host, &hooks);
                 self.executor = executor;
-                self.host = Some(host);
+                let batch = Host::ending(self.host.replace(host), batch);
                 self.parked.clear();
                 Ok(batch)
             }
@@ -661,7 +662,7 @@ impl<D: DataSource> Bridge<D> {
         width: f32,
         height: f32,
     ) -> u32 {
-        self.prepare_module_with_delivery(lengths, admitted, hooks, width, height, None)
+        self.prepare_module_with_delivery(lengths, admitted, hooks, width, height, None, false)
     }
 
     /// Prepare a verified signed generation with its candidate delivery facts.
@@ -674,19 +675,14 @@ impl<D: DataSource> Bridge<D> {
         width: f32,
         height: f32,
         delivery: Option<exact_runner::Delivery>,
+        let_go: bool,
     ) -> u32 {
         if let Some(refusal) = self.refuse_analysis() {
             return refusal;
         }
         self.discard_plan();
-        if self
-            .host
-            .as_ref()
-            .is_some_and(|host| host.runner().has_pending())
-        {
-            return self.refuse_preparation(
-                "Rust/module replacement waits for pending requests; retry after they settle",
-            );
+        if !let_go && self.host.as_ref().is_some_and(|h| h.runner().has_pending()) {
+            return self.refuse_pending();
         }
         let [plan_len, receipt_len, module_len] = lengths;
         let total = plan_len
@@ -764,6 +760,7 @@ impl<D: DataSource> Bridge<D> {
             self.prepare_plan_carried(plan_len, data, hooks, width, height, delivery, validated);
         if let Some(prepared) = &mut self.prepared {
             prepared.module = true;
+            prepared.let_go = let_go;
         }
         length
     }
@@ -882,6 +879,7 @@ impl<D: DataSource> Bridge<D> {
                     bindings,
                     hooks,
                     module: false,
+                    let_go: false,
                 });
                 self.output.len() as u32
             }
@@ -905,6 +903,16 @@ impl<D: DataSource> Bridge<D> {
         self.prepare_error(reason)
     }
 
+    /// Requests in flight hold a module replacement back; `requests` says ask
+    /// again, and a dev generation lets them go (`let_go`) after its window (LLP 1007 §6).
+    fn refuse_pending(&mut self) -> u32 {
+        self.prepared = None;
+        let refusal = self
+            .refusal("Rust/module replacement waits for pending requests; retry after they settle");
+        self.output = format!("{{\"requests\":true,{}", &refusal[1..]).into_bytes();
+        self.output.len() as u32
+    }
+
     fn prepare_error(&mut self, reason: &str) -> u32 {
         self.output = self.refusal(reason).into_bytes();
         self.output.len() as u32
@@ -913,19 +921,12 @@ impl<D: DataSource> Bridge<D> {
     /// Commit the already-accepted candidate, without decoding or laying it
     /// out again. The app calls this only after every session prepared.
     pub fn commit_plan(&mut self) -> u32 {
-        if self
+        let module = self
             .prepared
             .as_ref()
-            .is_some_and(|candidate| candidate.module)
-            && self
-                .host
-                .as_ref()
-                .is_some_and(|host| host.runner().has_pending())
-        {
-            self.discard_plan();
-            return self.refuse_preparation(
-                "Rust/module replacement waits for pending requests; retry after they settle",
-            );
+            .is_some_and(|c| c.module && !c.let_go);
+        if module && self.host.as_ref().is_some_and(|h| h.runner().has_pending()) {
+            return self.refuse_pending();
         }
         let Some(mut candidate) = self.prepared.take() else {
             return self.prepare_error("no prepared plan");
@@ -946,10 +947,10 @@ impl<D: DataSource> Bridge<D> {
         }
         self.presenter_hooks(&mut candidate.host, &candidate.hooks);
         self.executor = executor;
-        self.host = Some(candidate.host);
+        let batch = Host::ending(self.host.replace(candidate.host), candidate.batch);
         self.adopt_app_module();
         self.parked.clear();
-        self.emit(candidate.batch)
+        self.emit(batch)
     }
 
     /// Drop an uncommitted candidate and retain the live host and executor.
@@ -1474,7 +1475,7 @@ use registry::REFUSAL;
 pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};
 #[path = "abi/commands.rs"]
 mod commands;
-pub use commands::confirmation_is_alert;
+pub use commands::{confirmation_is_alert, measure_at_boot, measure_work_later};
 mod exports;
 pub use exports::{gesture_constant, header_shape, route_bar};
 pub use preferences::LiveClockFn;

@@ -86,7 +86,7 @@ structs! {
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
-    DesignSource { path, text, source_id }
+    DesignSource { path, text, source_id, bindable }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
@@ -135,7 +135,12 @@ record_variants! {
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
+        Midi { step, span },
     }
+}
+// MIDI's test steps carry no spans of their own.
+impl VisitSpans for crate::MidiStep {
+    fn visit_spans(&mut self, _: &mut impl FnMut(&mut Span)) {}
 }
 record_variants! {
     Stmt {

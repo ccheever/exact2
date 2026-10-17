@@ -349,6 +349,8 @@ impl<D: DataSource> Presenter<D> {
         modal: bool,
         now_ms: f64,
     ) -> bool {
+        // Its session's roles (LLP 1121 stage 5): the surface's look resolves them.
+        let _roles = self.host.runner().bind_roles();
         if self.neutral_alerts() {
             if modal {
                 return self.alert_present(target, name, invoker, now_ms);

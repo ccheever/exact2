@@ -95,7 +95,12 @@ impl<D: DataSource> Presenter<D> {
     /// a colour the full wide table refused is reported on the build
     /// channel (LLP 1122 D4), or to stderr with none.
     pub fn apply_live(&mut self, frame: &str) -> Option<String> {
-        let (error, full) = self.host.apply_live(frame);
+        let (error, full, roles) = self.host.apply_live(frame);
+        // Nothing kept from a paint under the old overrides stands (LLP 1121 stage 5).
+        if roles {
+            self.brush.colors_changed();
+            self.dirty = true;
+        }
         if full {
             self.report_unsupported(
                 "batch",
@@ -188,5 +193,30 @@ impl<D: DataSource> Presenter<D> {
     /// The scheme a `light-dark()` colour resolves to now.
     pub fn dark(&self) -> bool {
         self.brush.dark
+    }
+
+    /// A request for MIDI on the display's clock: this host has none (LLP
+    /// 1125 D6). Under the agent's clock the runner answered it already.
+    pub(super) fn midi_unavailable(&mut self) {
+        if self.live_clock.is_none() {
+            return;
+        }
+        let error = self
+            .host
+            .midi_host(r#"{"ports":{"state":"unavailable"}}"#)
+            .or_else(|| self.after_commit());
+        if let Some(e) = error {
+            self.host.log(format!("midi: {e}"));
+        }
+    }
+
+    /// The agent's `prefer midi.*` and `tap midi` (LLP 1125 §4): `None` for
+    /// another request, else the reply or the refusal.
+    pub fn midi_agent(&mut self, request: &str) -> Option<Result<String, String>> {
+        let reply = self.host.midi_agent(request)?;
+        Some(match self.after_commit() {
+            Some(e) => Err(e),
+            None => reply,
+        })
     }
 }

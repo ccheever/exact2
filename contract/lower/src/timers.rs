@@ -73,25 +73,14 @@ impl Lowerer<'_> {
 
     /// Every sequence of the root (LLP 1125 D2), in declaration order: its
     /// gate and key as a task's, and each `play` argument as plan code, an
-    /// omitted one a constant. Clock in and clock out are later stages'.
+    /// omitted one a constant: `bpm=` 120, the prior that clock in (`clock=`,
+    /// D9) plays at until it has heard enough ticks.
     pub(crate) fn sequences(
         &mut self,
         sequences: &[Sequence],
         scope: &Scope,
     ) -> Result<(), Vec<LowerError>> {
         for q in sequences {
-            for (option, stage, id) in [
-                ("clock", 4, "lower-sequence-clock"),
-                ("clockOut", 3, "lower-sequence-clock-out"),
-            ] {
-                if let Some((_, _, at)) = q.options.iter().find(|o| o.0 == option) {
-                    return Err(err_one(
-                        id,
-                        format!("`{option}=` is not built yet (LLP 1125 stage {stage}); a sequence keeps its own time from `bpm=`"),
-                        *at,
-                    ));
-                }
-            }
             let code = |l: &mut Self, e: Option<&Expr>, default: Value| match e {
                 Some(e) => l.expr_code(e, scope, 0).map_err(|e| vec![e]),
                 None => Ok(l.b.constant(&default)),
@@ -101,11 +90,11 @@ impl Lowerer<'_> {
             let gate = code(self, q.gate.as_ref(), always.clone())?;
             let key = code(self, q.key.as_ref(), always)?;
             let tracks = code(self, Some(&q.tracks), Value::Number(0.0))?;
-            let bpm = code(self, q.option("bpm"), Value::Number(0.0))?;
+            let bpm = code(self, q.option("bpm"), Value::Number(120.0))?;
             let from = code(self, q.option("from"), Value::Number(0.0))?;
             let count_in = code(self, q.option("countIn"), Value::list(Vec::new()))?;
-            let clock = code(self, None, Value::str(""))?;
-            let clock_out = code(self, None, Value::str(""))?;
+            let clock = code(self, q.option("clock"), Value::str(""))?;
+            let clock_out = code(self, q.option("clockOut"), Value::str(""))?;
             let ended = q.ended.as_ref().map(|(name, _)| {
                 self.actions[self
                     .root

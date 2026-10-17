@@ -3061,6 +3061,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "metronome-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "metronome-data",
+]
+
+[[package]]
 name = "metronome-web"
 version = "0.1.0"
 dependencies = [
@@ -3217,6 +3228,16 @@ dependencies = [
  "indexmap",
  "rustc-hash",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "native-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "native-fixture-data",
 ]
 
 [[package]]
@@ -4441,10 +4462,12 @@ dependencies = [
 name = "shelf-android"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-js",
  "exact-js-bake",
  "exact-linux",
  "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]
@@ -4452,6 +4475,7 @@ name = "shelf-apple"
 version = "0.1.0"
 dependencies = [
  "exact-apple",
+ "exact-apple-update",
  "exact-js",
  "exact-js-bake",
  "exact-logic",
@@ -4853,6 +4877,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "tamber-host-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "tamber-host-data",
+]
+
+[[package]]
+name = "tamber-host-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "tamber-host-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "tamber-host-data",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4953,6 +5008,18 @@ version = "0.1.0"
 dependencies = [
  "exact-plan",
  "exact-runner",
+]
+
+[[package]]
+name = "theme-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "theme-fixture-data",
 ]
 
 [[package]]
@@ -5095,6 +5162,16 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "typetour-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "typetour-data",
+]
 
 [[package]]
 name = "typetour-apple"

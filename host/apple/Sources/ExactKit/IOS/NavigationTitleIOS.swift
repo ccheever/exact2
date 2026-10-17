@@ -195,12 +195,19 @@ final class HeaderTitleView: UIControl {
     private lazy var avatarWidth = avatar.widthAnchor.constraint(equalToConstant: BadgeFace.size)
     private lazy var avatarHeight = avatar.heightAnchor.constraint(equalToConstant: BadgeFace.size)
 
+    /// The theme's `secondary-label` on the subtitle, set again when a live
+    /// edit moves the roles (LLP 1121 stage 5).
+    func retheme() {
+        guard let host else { return }
+        subtitle.textColor = ThemeRoles.color("secondary-label", in: host.presenter.root, or: .secondaryLabel)
+    }
+
     init(host: NavigationHost) {
         self.host = host
         super.init(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
         title.font = .preferredFont(forTextStyle: .headline)
         subtitle.font = .preferredFont(forTextStyle: .footnote)
-        subtitle.textColor = ThemeRoles.color("secondary-label", in: host.presenter.root, or: .secondaryLabel)
+        retheme()
         for label in [title, subtitle] { label.adjustsFontForContentSizeCategory = true; label.lineBreakMode = .byTruncatingTail }
         avatar.contentMode = .scaleAspectFit
         texts.axis = .vertical

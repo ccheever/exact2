@@ -13,6 +13,7 @@ mod decls;
 mod expr;
 mod keyframes;
 mod media_session;
+mod midi;
 mod names;
 mod parts;
 #[path = "routes.rs"]

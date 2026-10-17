@@ -165,6 +165,14 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
 - **D8. Each platform's own conventions** (the Mac's Help and Edit menus, frame autosave,
   non-selectable UI labels, `NSSearchField`; Windows's IME and accessibility) are in scope on the
   same test.
+- **D9. The iOS dev menu is the exception** (Charlie, 2026-10-16). A release iOS build keeps it
+  by default, as a shipped page keeps its browser's developer tools: the build's info and
+  release notes are worth more to the people testing it than the gesture costs anyone else.
+  `EXACT_DEV_MENU=0` removes it, set when building (`ExactDevMenu` in `Info.plist`, which an
+  installed app needs: it is launched with no environment) or when launching. A release Mac
+  build ships its Develop menu hidden (LLP 1115.000 D7.8), since there it is a menu-bar item
+  every person sees and its chords take ⌘R and ⌘D: `defaults write <bundle id> ExactDevMenu
+  -bool YES` shows it, as Safari's settings show Safari's, unless the build said `0`.
 
 ## 6. Waves
 

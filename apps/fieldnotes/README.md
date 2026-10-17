@@ -13,7 +13,9 @@ either screen. Escape clears/closes search or returns from Backups. New note
 clears the search and focuses the title; selecting a saved note focuses its body.
 Drafts remain protected: New note stays disabled until saved or discarded.
 Share… hands the note's title and text to the system share sheet; it shows
-only where the host has one (`exactPage().canShare`, LLP 1069.003).
+only where the host has one (`exactPage().canShare`, LLP 1069.003). Share
+backup file… hands the saved backup to the sheet as a file where the host
+takes files (`canShareFiles`, LLP 1125 D12).
 
 ```sh
 bun host/web/dev.mjs --app fieldnotes

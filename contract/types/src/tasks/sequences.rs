@@ -9,7 +9,7 @@ use contract_syntax::{Component, Expr, Span, UnOp};
 
 const TRACK: &str = "a track is a shape whose fields are, in order, `beats: number` (its length, which it loops at), `loops: number`, `offset: number`, `output: string` and `steps: Step[]`";
 const STEP: &str = "a step is a shape whose fields are, in order, `beat: number`, `src: string`, `gain: number`, `group: string`, `note: number`, `velocity: number`, `channel: number`, `duration: number` (beats until the note-off) and `haptic: string`, then optionally `playbackRate: number` and then `pan: number`";
-const PLAY: &str = "`play(tracks, bpm=120, from=-4, countIn=clicks, ended=finished)`: a list of tracks, then `bpm=` (beats a minute), `from=` (the beat at the start; below 0 a count-in), `countIn=` (steps played once over `[from, 0)`) and `ended=` by name";
+const PLAY: &str = "`play(tracks, bpm=120, from=-4, countIn=clicks, ended=finished)`: a list of tracks, then `bpm=` (beats a minute), `from=` (the beat at the start; below 0 a count-in), `countIn=` (steps played once over `[from, 0)`), `clock=` (a MIDI input to follow instead: `bpm=` is then its tempo until enough ticks came), `clockOut=` and `ended=` by name";
 
 /// Every sequence of `c`; `root` is whether `c` is the root component.
 pub(crate) fn check(c: &Component, root: bool, scope: &Scope, shapes: &Shapes, sink: &mut Sink) {
@@ -125,7 +125,10 @@ fn play(q: &contract_syntax::Sequence, scope: &Scope, shapes: &Shapes) -> Result
         }
     }
     if !seen.contains(&"bpm") && !seen.contains(&"clock") {
-        return err(format!("`play` needs `bpm=`: {PLAY}"), q.tracks.span());
+        return err(
+            format!("`play` needs `bpm=` or `clock=`: {PLAY}"),
+            q.tracks.span(),
+        );
     }
     Ok(())
 }

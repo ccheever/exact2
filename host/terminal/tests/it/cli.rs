@@ -775,6 +775,7 @@ fn native_cell_look_keeps_bare_fields_and_authored_ink() {
         .kernel()
         .node_by_key(host.kernel().find_by_test_id("native")[0])
         .unwrap();
+    let _roles = host.bind_roles(); // Its own: other sessions live too.
     let s = n.computed_style(exact_kernel::StyleMask::INHERITED);
     assert_eq!(s.font_family, 5);
     assert_eq!(s.font_size, 16.0);

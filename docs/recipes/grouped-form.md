@@ -38,7 +38,7 @@ component Profile
               row
                 column flex=1 min-width=0 gap=4
                   input value=name input=editName submit=save placeholder="Name" aria-label="Name"
-                    autocomplete="name" aria-invalid=(submitted and nameError != "") testId="name"
+                    autocomplete="name" autocapitalize="words" aria-invalid=(submitted and nameError != "") testId="name"
                   if submitted and nameError != ""
                     text nameError font="-exact-footnote" color="-exact-system-red" testId="name-error"
             section
