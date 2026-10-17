@@ -51,12 +51,13 @@ class T3ComposerChipElement: NSAccessibilityElement {
         return NSAccessibility.unignoredAncestor(of: container) ?? super.accessibilityParent()
     }
 
-    /// A citation's source link leads to itself. VoiceOver follows a link it pressed (VO-Space) to the link's linked
-    /// elements; with none, it took the element that appeared within about half a second of the press, the 'Scroll to
-    /// end' pill as the press scrolled the timeline off its end, and the keyboard focus followed (measured; a button's
-    /// press, another client's AXPress, or the pill appearing later kept it). The reference keeps VoiceOver on the link.
+    /// A link (a citation's source link, a thread chip) leads to itself. VoiceOver follows a link it pressed (VO-Space) to
+    /// the link's linked elements; with none, it took the element that appeared within about half a second of the press,
+    /// the 'Scroll to end' pill as a citation's press scrolled the timeline off its end, and the keyboard focus followed
+    /// (measured; a button's press, another client's AXPress, or the pill appearing later kept it). The reference keeps
+    /// VoiceOver on the citation's link; its thread chip is a link too (ThreadContextChip.tsx), whose press opens the thread.
     override func accessibilityLinkedUIElements() -> [Any]? {
-        part == .citationLink ? [self] : super.accessibilityLinkedUIElements()
+        accessibilityRole() == .link ? [self] : super.accessibilityLinkedUIElements()
     }
 
     override func accessibilityFrame() -> NSRect {

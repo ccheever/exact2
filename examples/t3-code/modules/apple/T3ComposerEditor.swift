@@ -63,7 +63,7 @@ final class T3ComposerEditor {
     private var lastEditKind = ""
     private var lastEditAt: TimeInterval = 0
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-    /// Set while ⇧⌘V pastes, so a large paste stays inline.
+    /// Set while Paste as Text (⇧⌘V) pastes, so a large paste stays inline (T3ComposerPasteHook).
     var pastingAsText = false
     /// Whether an insertion is a paste (injectable for tests, which never touch the pasteboard).
     var pasteDetector: (String) -> Bool = T3ComposerEditor.isPaste
@@ -90,10 +90,12 @@ final class T3ComposerEditor {
         }
         guard element.hatch == hatch else { return }
         self.element = element
+        let previous = owner
         owner = element.data[.snapshotOwner] ?? ""
         guard let view = element.textView else { return }
         if textView !== view { attach(view) }
         refresh()
+        if owner != previous { styler.press.ownerChanged(to: owner) }
     }
 
     func remove(_ element: ExactElement) {
@@ -466,8 +468,9 @@ final class T3ComposerEditor {
 
     // MARK: Pasted files (ChatComposer onComposerPaste)
 
-    /// Files a paste took from the pasteboard, held until TypeScript stages and attaches them (`composerPasteTake`).
-    private(set) var pastedFiles: [URL] = []
+    /// Files a paste took from the pasteboard, held until TypeScript stages and attaches them (`composerPasteTake`);
+    /// `asText` for Paste as Text's.
+    private(set) var pastedFiles: [(url: URL, asText: Bool)] = []
     /// The pasteboard a paste reads (injectable for tests).
     var pasteboard: () -> NSPasteboard = { .general }
     /// Where a pasted image with no file of its own is written before it is staged.
@@ -500,8 +503,9 @@ final class T3ComposerEditor {
     var takesPastedFiles: Bool { hatch == .t3Composer }
 
     /// A paste with files or an image on `pasteboard` (T3ComposerPasteHook): they are held for TypeScript and the text
-    /// view pastes nothing. False leaves the paste to the text view.
-    func pasteFiles(from pasteboard: NSPasteboard) -> Bool {
+    /// view pastes nothing. False leaves the paste to the text view. Paste as Text (`asText`) attaches them too; its
+    /// images get no inline chip (onComposerPaste's `skipImageInlineChip`, read in composer-controls-attach.ts).
+    func pasteFiles(from pasteboard: NSPasteboard, asText: Bool = false) -> Bool {
         guard takesPastedFiles, let claim = Self.pasteClaim(pasteboard) else { return false }
         var urls = claim.urls
         if let image = claim.image {
@@ -511,17 +515,21 @@ final class T3ComposerEditor {
                   (try? image.write(to: file, options: .atomic)) != nil else { return false }
             urls = [file]
         }
-        pastedFiles += urls
+        pastedFiles += urls.map { ($0, asText) }
         changed("t3.editor")
         return true
     }
 
     /// The held pasted files, once; a written image's folder is removed once `stage` has copied it.
     func takePastedFiles(_ stage: (URL) -> [String: Any]) -> [[String: Any]] {
-        let urls = pastedFiles
+        let held = pastedFiles
         pastedFiles.removeAll()
-        let files = urls.prefix(100).map(stage)
-        for url in urls where url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path == pasteDirectory.standardizedFileURL.path {
+        let files = held.prefix(100).map { file in
+            var staged = stage(file.url)
+            if file.asText { staged["asText"] = true }
+            return staged
+        }
+        for url in held.map(\.url) where url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path == pasteDirectory.standardizedFileURL.path {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
         return Array(files)
@@ -539,9 +547,11 @@ final class T3ComposerEditor {
     deinit { destroy() }
 }
 
-/// ⌘V, Edit › Paste and the text menu's Paste each reach the text view's `paste:`. It is wrapped once per class, as
-/// T3ComposerAccessibleTextHooks wraps the accessibility answers: on the composer's text view a paste with files or an
-/// image attaches them (`T3ComposerEditor.pasteFiles`); any other paste, and any other text view's, is the text view's own.
+/// ⌘V, Edit › Paste and the text menu's Paste each reach the text view's `paste:`; ⇧⌘V and Edit › Paste as Text its
+/// `pasteAsPlainText:`. Both are wrapped once per class, as T3ComposerAccessibleTextHooks wraps the accessibility
+/// answers: on the composer's text view a paste with files or an image attaches them (`T3ComposerEditor.pasteFiles`), as
+/// the reference's paste event attaches them whether or not Paste as Text armed it (ChatComposer.tsx onComposerPaste);
+/// any other paste, and any other text view's, is the text view's own, Paste as Text's keeping a large paste inline.
 /// AppKit enables those Paste items only for a pasteboard the view can read, and a plain-text view reads no image, so the
 /// composer's `readablePasteboardTypes` also name PNG and TIFF: without them an image alone left Paste disabled and ⌘V
 /// never sent `paste:`.
@@ -559,18 +569,22 @@ enum T3ComposerPasteHook {
     private static func editor(of view: NSTextView) -> T3ComposerEditor? { (objc_getAssociatedObject(view, &key) as? Owner)?.editor }
 
     private static func install(on view: NSTextView) {
-        let selector = #selector(NSText.paste(_:))
-        guard let cls = T3ComposerAccessibleTextHooks.baseClass(view), !installed.contains(ObjectIdentifier(cls)),
-              let method = class_getInstanceMethod(cls, selector) else { return }
+        guard let cls = T3ComposerAccessibleTextHooks.baseClass(view), !installed.contains(ObjectIdentifier(cls)) else { return }
         installed.insert(ObjectIdentifier(cls))
-        typealias Paste = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
-        let own = unsafeBitCast(method_getImplementation(method), to: Paste.self)
-        let block: @convention(block) (AnyObject, AnyObject?) -> Void = { object, sender in
-            if let view = object as? NSTextView, let editor = editor(of: view), editor.textView === view, view.isEditable, !view.hasMarkedText(),
-               editor.pasteFiles(from: editor.pasteboard()) { return }
-            own(object, selector, sender)
+        for (selector, asText) in [(#selector(NSText.paste(_:)), false), (#selector(NSTextView.pasteAsPlainText(_:)), true)] {
+            guard let method = class_getInstanceMethod(cls, selector) else { continue }
+            typealias Paste = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
+            let own = unsafeBitCast(method_getImplementation(method), to: Paste.self)
+            let block: @convention(block) (AnyObject, AnyObject?) -> Void = { object, sender in
+                guard let view = object as? NSTextView, let editor = editor(of: view), editor.textView === view else { return own(object, selector, sender) }
+                if view.isEditable, !view.hasMarkedText(), editor.pasteFiles(from: editor.pasteboard(), asText: asText) { return }
+                let was = editor.pastingAsText
+                editor.pastingAsText = was || asText
+                own(object, selector, sender)
+                editor.pastingAsText = was
+            }
+            replace(cls, selector, method, imp_implementationWithBlock(block))
         }
-        replace(cls, selector, method, imp_implementationWithBlock(block))
         let readable = #selector(getter: NSTextView.readablePasteboardTypes)
         guard let types = class_getInstanceMethod(cls, readable) else { return }
         typealias Readable = @convention(c) (AnyObject, Selector) -> NSArray

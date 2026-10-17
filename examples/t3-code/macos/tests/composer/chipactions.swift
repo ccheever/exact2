@@ -110,6 +110,78 @@ final class ComposerChipActionTests: XCTestCase {
         XCTAssertEqual(fixture.press.state["act"] as? String, "thread")
     }
 
+    /// The thread chip is a link, as the citation's source link is (citationpress.swift): it leads to itself, so VoiceOver,
+    /// which follows a link it pressed to the link's linked elements, does not take an element its press made appear.
+    /// A chip of another kind names none.
+    func testAThreadChipLeadsToItselfAndOtherChipsNameNoLinkedElements() {
+        let fixture = ActionFixture("\(thread) \(pull) \(file) now ")
+        let elements = fixture.press.accessibilityElements
+        XCTAssertEqual(elements.map { $0.accessibilityRole() }, [.link, .button, .button])
+        XCTAssertTrue((elements[0].accessibilityLinkedUIElements() ?? []).elementsEqual([elements[0]]) { $0 as AnyObject === $1 })
+        XCTAssertTrue(elements.dropFirst().allSatisfy { ($0.accessibilityLinkedUIElements() ?? []).isEmpty })
+        XCTAssertTrue(axPress(elements[0]))
+        fixture.base.tick()
+        XCTAssertEqual(fixture.press.state["act"] as? String, "thread")
+        let after = fixture.press.accessibilityElements
+        XCTAssertTrue(after[0] === elements[0], "the pressed link stays")
+        XCTAssertTrue((after[0].accessibilityLinkedUIElements() ?? []).elementsEqual([after[0]]) { $0 as AnyObject === $1 })
+    }
+
+    /// The thread a chip's VoiceOver press opens brings its own draft, without the chip, and the prompt keeps the focus:
+    /// the prompt is told focused once that thread's draft is in (ChatView.tsx:6569-6577 focuses the composer on a new
+    /// thread, and VoiceOver reads it there). Another thread's draft, a pointer press, and a prompt without the focus
+    /// tell nothing.
+    func testAThreadChipsVoiceOverPressTellsThePromptFocusedOnTheOpenedThread() {
+        let fixture = ActionFixture("\(thread) now ")
+        var told: [NSView] = []
+        fixture.press.tellFocus = { told.append($0) }
+        // client.ts `snapshotOwner`: [origin, environment, project, thread].
+        func owner(_ thread: String) -> String { "[\"http://127.0.0.1:1\",\"env\",\"project\",\"\(thread)\"]" }
+        func switchDraft(to thread: String) {
+            fixture.view.string = ""
+            fixture.base.element.data = ExactData(["snapshot-owner": owner(thread)])
+            fixture.base.composer.install(fixture.base.element)
+            fixture.base.tick()
+        }
+        func voiceOverPress() {
+            fixture.base.type("\(thread) now ")
+            XCTAssertTrue(axPress(fixture.press.accessibilityElements[0]))
+            fixture.base.tick()
+            XCTAssertEqual(fixture.press.state["act"] as? String, "thread")
+            fixture.press.close(seq: fixture.press.seq)
+        }
+        XCTAssertTrue(axPress(fixture.press.accessibilityElements[0]))
+        fixture.base.tick()
+        fixture.press.close(seq: fixture.press.seq)
+        fixture.base.composer.install(fixture.base.element)
+        fixture.base.tick()
+        XCTAssertTrue(told.isEmpty, "nothing before the draft changes")
+        switchDraft(to: "t9")
+        XCTAssertTrue(told.isEmpty, "another thread's draft")
+        switchDraft(to: "t2")
+        XCTAssertTrue(fixture.press.accessibilityElements.isEmpty, "the chip went with the old draft")
+        XCTAssertEqual(told.count, 1)
+        XCTAssertTrue(told.first === fixture.view)
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view)
+        switchDraft(to: "t9")
+        switchDraft(to: "t2")
+        XCTAssertEqual(told.count, 1, "once per press")
+
+        // A pointer press after a VoiceOver press is the one that counts.
+        voiceOverPress()
+        fixture.mouseDown(fixture.center(fixture.chip("thread")))
+        XCTAssertEqual(fixture.press.state["act"] as? String, "thread")
+        switchDraft(to: "t9")
+        switchDraft(to: "t2")
+        XCTAssertEqual(told.count, 1, "a pointer press tells nothing")
+
+        voiceOverPress()
+        fixture.base.window.makeFirstResponder(nil)
+        switchDraft(to: "t9")
+        switchDraft(to: "t2")
+        XCTAssertEqual(told.count, 1, "a prompt without the focus is not told focused")
+    }
+
     /// FileContextChip: a button "File attachment, <name>, <size>" whose press is `openFile`, by pointer and by VoiceOver.
     func testAFileChipOpensItsPreviewByPointerAndVoiceOver() {
         let fixture = ActionFixture("\(file) now ")
