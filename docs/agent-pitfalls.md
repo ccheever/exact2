@@ -536,11 +536,23 @@ screen, 2026-10-16.)
   `accent-color` is the window's tint, which alerts take), and `color` on a header's
   buttons. (`hintTextColor` on `Stack.SearchBar` is Android's only; react-native-screens'
   iOS search bar ignores it.)
+- **A glyph sits at the left of its round button.** euxy's clear and dice glyphs and its
+  BPM − and + sat 10 points left of centre in buttons with `align-items="center"
+  justify-content="center"`. Cause: every React Native `View` is a flex container; a
+  `button` is `inline-block` and a `view` is `block`, as on the web, so those two do
+  nothing there (a button centres its content vertically on its own, as browsers do).
+  Fix: `display="flex"` on the button or view.
+- **A control sits at the top of its row.** euxy's Metronome segments, in a 52-point row
+  with `align-items="center"`. Cause: the original's `Segmented` carried `alignSelf:
+  'flex-start'`, and it centred only because the original wrapped it in a plain `View`,
+  which the port dropped as noise. Fix: keep the wrapper (`view`), or drop the
+  `align-self`.
 - **A sheet's form stops 34 points short of the original's at its end.** Cause: React
   Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
   row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
   sheet's outer one, to UIKit's `always`, so it rests above the indicator as a hand-built
-  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it.
+  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it. (euxy's UIKit
+  port matched the original only by setting `.never` on that scroll view by hand.)
 
 ## Actions
 
