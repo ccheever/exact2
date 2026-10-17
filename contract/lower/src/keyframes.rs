@@ -127,6 +127,41 @@ fn text(c: Constant) -> String {
     }
 }
 
+/// A colour keyframe with the app's design tokens (LLP 1121 D3) replaced by
+/// the colours they stand for, a `light-dark()` pair whole, so the frames
+/// follow the scheme as a row's colour does. `Err` names a token that
+/// varies by an app axis, which a keyframe folded once cannot follow.
+pub(crate) fn tokens(value: &str, theme: &[crate::theme::ThemeEntry]) -> Result<String, String> {
+    let mut out = String::with_capacity(value.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| -> Result<(), String> {
+        match theme
+            .iter()
+            .find(|e| e.name == *word || e.role.as_deref() == Some(word.as_str()))
+        {
+            Some(e) if !e.slices.is_empty() => {
+                return Err(format!(
+                    "`{word}` varies by an app axis, and a keyframe is folded once"
+                ))
+            }
+            Some(e) => out.push_str(&e.value),
+            None => out.push_str(word),
+        }
+        word.clear();
+        Ok(())
+    };
+    for c in value.chars() {
+        if c.is_whitespace() || matches!(c, ',' | '(' | ')') {
+            flush(&mut word, &mut out)?;
+            out.push(c);
+        } else {
+            word.push(c);
+        }
+    }
+    flush(&mut word, &mut out)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

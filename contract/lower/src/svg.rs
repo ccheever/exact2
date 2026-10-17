@@ -436,6 +436,30 @@ impl Lowerer<'_> {
                         Property::from_author_name(n)
                             .is_some_and(|p| p.is_color() || p == Property::BoxShadow)
                     });
+                    if a.name == "scale" && value.split_whitespace().nth(1).is_some() {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!("`scale=\"{value}\"` in `keyframes {}`: exact2's `scale` is one factor for both axes, here and on a row; a per-axis scale is not built. A bar can grow by `translate` inside a box that clips (`overflow=\"hidden\"`)", decl.name),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    // A design token is the colour it stands for (LLP 1121 D3).
+                    let value = match colour.then(|| crate::keyframes::tokens(&value, &self.theme))
+                    {
+                        None => value,
+                        Some(Ok(resolved)) => resolved,
+                        Some(Err(why)) => {
+                            ok = false;
+                            errors.push(LowerError {
+                                id: "lower-keyframes",
+                                message: format!("`{}=\"{value}\"` in `keyframes {}`: {why}; animate an opacity layer of each colour instead", a.name, decl.name),
+                                span: a.span,
+                            });
+                            continue;
+                        }
+                    };
                     let hint = crate::style_names::renamed_token(&value, rows)
                         .map(|(old, new)| format!("`{old}` is spelled `{new}` (LLP 1081)"))
                         .or_else(|| {
