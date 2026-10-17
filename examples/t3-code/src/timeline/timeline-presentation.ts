@@ -17,7 +17,7 @@ import { treeRows } from './timeline-tree';
 import { cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
-import { diagramPreviewAction, diagramPreviewView, messageDiagrams, retryMermaid } from './timeline-mermaid';
+import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
 import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
 import { chippedAttachmentIds, markdownEnv, messageChips } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
@@ -25,6 +25,7 @@ import { gitChatLocal } from '../details/git-route';
 import { openFileSurface, surfaceLocal } from '../panel/panel-surfaces';
 import { mediaLocal } from '../media/media-views'; // the media menu, a video's error and Retry
 import { closeTableMenu, tableMenuAction } from './table-menu'; // the table Copy popup
+import { noteRefScrollEnd } from '../composer/ref-paging';
 import { preparationFailureRunId, retryableActivities } from './workspace-retry'; // Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
@@ -87,6 +88,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)
+  if (op === 'ref-scroll-end') { noteRefScrollEnd(client, id); return ''; } // a ref list scrolled toward its end (ref-paging.contract)
   if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // a reply's web link menu (external-link-menu.ts)
   if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // the detail header's number's menu choice
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // a pull request link's hover card
@@ -111,11 +113,12 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
-  if (op === 'diagram-retry') return retryMermaid(value);
+  if (op === 'diagram-retry') return retryMermaid(value, id); // id: the theme whose page failed
+  if (op === 'diagram-frame') return noteMermaidFrame(value); // a Mermaid page's report (assets/mermaid/render.js)
   if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
   // A table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
-  if (op === 'table-menu' || op === 'table-menu-close') return tableMenuAction(client, op, id, value, native);
+  if (op === 'table-menu' || op === 'table-menu-close') return tableMenuAction(client, op, id, value);
   if (op === 'copy-table') {
     closeTableMenu(client);
     if (!value) throw new ClientError('That table is unavailable.');

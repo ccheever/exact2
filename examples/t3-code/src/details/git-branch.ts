@@ -13,7 +13,7 @@ import { arr, obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { canOverrideServerEnv, composerBranches, draftContext, refBadge, sanitizeNewRefName, selectBranch, serverEnvBranch, serverEnvMode, serverOrigin, toggleServerOrigin } from '../composer/composer-controls-branch';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
-import { REF_PAGE, firstPage, morePages, refsStatus, scrollEnds } from '../composer/ref-paging';
+import { REF_PAGE, firstPage, morePages, refScrollEnds, refsStatus, scrollEnds } from '../composer/ref-paging';
 import { checkoutItems, type CheckoutItem } from '../composer/pr-checkout'; // the picker's checkout item
 import { peekVcsStatus } from './shell-vcs';
 
@@ -63,9 +63,9 @@ async function loadRefs(client: T3Client, native: Native, cwd: string, query: st
   const list = (cursor?: number) => client.restAccess(native).read('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
   // A scroll toward the list's end loads the next page (ref-paging.ts).
   if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale)
-    return Object.assign(current, await morePages(current, client.presentation, 'details-refs', list));
+    return Object.assign(current, await morePages(current, refScrollEnds(client), 'details-refs', list));
   const result = await list();
-  const next: Refs = { cwd, query, ...firstPage(result, scrollEnds(client.presentation, 'details-refs')), loaded: true, generation: client.generation, stale: false };
+  const next: Refs = { cwd, query, ...firstPage(result, scrollEnds(refScrollEnds(client), 'details-refs')), loaded: true, generation: client.generation, stale: false };
   state.refs = next;
   return next;
 }

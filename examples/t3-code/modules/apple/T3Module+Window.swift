@@ -1,13 +1,12 @@
-// T3Module's window ops (T3Module.swift routes them): drawn frames for
-// window-level popups, the appearance, send shortcut and quit mode, Open in
-// Finder's folder picker, copying text, and the shell's menu for a link's click.
+// T3Module's window ops (T3Module.swift routes them): the installed fonts, the
+// appearance, send shortcut and quit mode, Open in Finder's folder picker,
+// copying text, and the shell's menu for a link's click.
 import Foundation
 import AppKit
 
 extension T3Module {
-    /// Window-level popup frames (T3Measure.swift), device presentation, the folder picker and the clipboard.
+    /// The installed fonts, device presentation, the folder picker and the clipboard.
     func windowOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        if request["op"] as? String == "measureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return }
         if request["op"] as? String == "installedFonts" {
             DispatchQueue.main.async {
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0,

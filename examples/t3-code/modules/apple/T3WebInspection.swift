@@ -4,7 +4,7 @@ import WebKit
 
 /// Safari's Web Inspector on the clone's own web views (exact2 #101; Charlie's
 /// decision of 2026-10-08). A development build marks every WKWebView this module creates
-/// `isInspectable` (the terminal, the rendered-HTML preview and the offscreen Mermaid renderer),
+/// `isInspectable` (the terminal and the rendered-HTML preview; a Mermaid diagram is an `iframe`),
 /// so Safari's Develop menu lists them; a release build never does. Exact's own inspector stays
 /// deferred (DEFERRED "no devtools UI"), so the reference's View › Toggle Developer Tools item
 /// stays absent, a declared difference. Exact's `iframe` web views get the same opt-in from the

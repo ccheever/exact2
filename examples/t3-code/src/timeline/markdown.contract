@@ -76,45 +76,27 @@ shape CodeToken
   id: string
   text: string
   cls: string
-// A Mermaid diagram flattened by the app module (timeline-mermaid.ts): paths
-// and text runs in the diagram's own user space, painted per theme.
-shape MermaidItem
-  id: string
-  kind: string
-  d: string
-  transform: string
-  fill: string
-  fillDark: string
-  stroke: string
-  strokeDark: string
-  width: number
-  dash: string
-  cap: string
-  join: string
-  text: string
-  x: number
-  y: number
-  size: number
-  weight: number
-  slant: string
-  baseline: string
 shape CodeHighlight
   id: string
   code: string
   icon: string
   tokens: CodeToken[]
-// A settled ```mermaid fence, matched to its parsed block by text: `diagram`
-// is "loading", "rendered" or "error" (Mermaid's message, whether Retry may help).
-shape MermaidDiagram
-  id: string
-  code: string
+// What a fence's Mermaid page reported in one theme (timeline-mermaid.ts): `diagram` is "loading", "rendered" (its
+// natural size) or "error" (Mermaid's message, whether Retry may help).
+shape MermaidFrame
   diagram: string
   message: string
   retryable: bool
   width: number
   height: number
-  viewBox: string
-  items: MermaidItem[]
+// A settled ```mermaid fence, matched to its parsed block by text: its page (assets/mermaid/) in each theme.
+shape MermaidDiagram
+  id: string
+  code: string
+  srcLight: string
+  srcDark: string
+  light: MermaidFrame
+  dark: MermaidFrame
 
 // pierre-light / pierre-dark, the reference's Shiki themes, by token class.
 // A class ends in "+i" where the pierre theme sets italic (shiki-highlight.ts).
@@ -971,6 +953,8 @@ component CodeBlock
 // "Show code" turns it back into the code block, its toolbar led by "Show
 // diagram". While the diagram renders the space says so; a failure shows
 // Mermaid's message (with Retry when loading failed) above the source.
+// MermaidDiagram renders it with the reference's Mermaid in the Mermaid page,
+// the fence's own frame; the page posts what came of it (MermaidFrameView).
 component MermaidBlock
   props
     block: ChatBlock
@@ -984,6 +968,7 @@ component MermaidBlock
   state showCode = false
   state flipped = false
   derive wrap = flipped ? not wrapDefault : wrapDefault
+  derive frame = scheme == "dark" ? diagram.dark : diagram.light
   action toggleCode
     showCode = not showCode
   action toggleWrap
@@ -1009,20 +994,24 @@ component MermaidBlock
             text block.text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
     else
       column width="100%" testId=`mermaid-${block.id}`
-        if diagram.diagram == "rendered"
-          button press=local("diagram-open", block.id, block.text) aria-label="Expand diagram" testId=`mermaid-expand-${block.id}` width="100%" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" justify-content="center" title="" id=`mermaid-expand-${block.id}`
-            MermaidSvg(diagram=diagram, width=diagram.width)
-        if diagram.diagram == "loading"
-          column width="100%" min-height="9rem" align-items="center" justify-content="center" role="status"
-            text "Rendering diagram" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-        if diagram.diagram == "error"
+        if frame.diagram == "error"
           column width="100%"
             row width="100%" align-items="center" justify-content="space-between" gap="0.5rem"
-              text `Unable to render diagram: ${diagram.message}` min-width=0 font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#fb2c36, #fb414a)" role="alert"
-              if diagram.retryable
-                button press=local("diagram-retry", block.id, block.text) testId=`mermaid-retry-${block.id}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              text `Unable to render diagram: ${frame.message}` min-width=0 font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#fb2c36, #fb414a)" role="alert"
+              if frame.retryable
+                button press=local("diagram-retry", scheme, block.text) testId=`mermaid-retry-${block.id}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
                   text "Retry" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
             text block.text width="100%" margin-top="0.5rem" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" font-family="ui-monospace" font-size=12 line-height="16px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+        else
+          box position="relative" width="100%"
+            MermaidFrameView(src=(scheme == "dark" ? diagram.srcDark : diagram.srcLight), frame=frame, width=frame.width, local=local, testId=`mermaid-frame-${block.id}`)
+            if frame.diagram == "rendered"
+              // MermaidDiagram's button: the whole lane wide and as tall as the diagram, so a press beside a narrow
+              // diagram expands it too.
+              button press=local("diagram-open", block.id, block.text) aria-label="Expand diagram" testId=`mermaid-expand-${block.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" title="" id=`mermaid-expand-${block.id}`
+            else
+              column position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" role="status" pointer-events="none"
+                text "Rendering diagram" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         row width="100%" margin-top="0.125rem" align-items="center" justify-content="space-between"
           Tip(label="Show code", side="top", align="start", offset=28)
             DiagramToggle(label="Show code", icon="code", press=toggleCode)
@@ -1042,18 +1031,24 @@ component DiagramToggle
     button press=press hover=hover aria-label=label width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       TimelineIcon(name=icon, size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
 
-// The flattened diagram at its natural size, scaled down to fit (h-auto, max-w-full).
-component MermaidSvg
+// One fence's Mermaid page (assets/mermaid/index.html) at the diagram's natural `width`, scaled down to fit
+// (h-auto, max-w-full) and centred. It loads hidden in the "Rendering diagram" space and shows once it reports;
+// its report goes to timeline-mermaid.ts, which keeps it for the fence's next mount. The frame takes no input: the
+// expand button over it does, as the reference's button holds the SVG.
+component MermaidFrameView
   props
-    diagram: MermaidDiagram
+    src: string
+    frame: MermaidFrame
     width: number
+    local: action
+    testId: string
+  derive rendered = frame.diagram == "rendered"
+  action reported(payload: string)
+    local("diagram-frame", "", payload)
   view
-    svg width=width max-width="100%" viewBox=diagram.viewBox flex-shrink=1 aria-hidden=true
-      for item in diagram.items key=item.id
-        if item.kind == "text"
-          text item.text x=item.x y=item.y transform=item.transform fill=`light-dark(${item.fill}, ${item.fillDark})` font-size=item.size font-weight=item.weight font-style=item.slant dominant-baseline=item.baseline
-        else
-          path d=item.d transform=item.transform fill=`light-dark(${item.fill}, ${item.fillDark})` stroke=`light-dark(${item.stroke}, ${item.strokeDark})` stroke-width=item.width stroke-dasharray=item.dash stroke-linecap=item.cap stroke-linejoin=item.join
+    row width="100%" min-height=(rendered ? 0 : "9rem") justify-content="center"
+      box width=(rendered ? width : "100%") max-width="100%" aspect-ratio=(rendered ? `${frame.width} / ${frame.height}` : "auto") height=(rendered ? "auto" : "9rem") flex-shrink=1 position="relative"
+        iframe src=src message=reported aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" border-width=0 opacity=(rendered ? 1 : 0) testId=testId
 
 // MarkdownCodeBlock's copy button: MorphIcon Copy ↔ Check (#123): the check from a copy until
 // the root clears it 1.2 s later (codeCopyDone, app.contract), both ways on morphicons' spring (shell-morph.contract).
@@ -1252,7 +1247,7 @@ component TableCopyButton
       else
         pressFirst()
   view
-    button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId hatch="t3-measure" data-frame=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+    button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=still)
 
 component TableMenuItem

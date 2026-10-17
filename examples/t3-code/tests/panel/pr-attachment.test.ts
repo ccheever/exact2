@@ -12,7 +12,7 @@ import { prRowsView, prTarget, rowAction, checksRollup, statusTooltip, providerO
 import { previewKind, previewDelimiter, findAttachment } from '../../src/panel/attachment-surface';
 import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
 import { surfaces } from '../../src/shell/shell';
-import { diagramPreviewAction, diagramPreviewView } from '../../src/timeline/timeline-mermaid';
+import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../../src/timeline/timeline-mermaid';
 import { decodeClientPrefs } from '../../src/settings/settings-core';
 
 type Call = { method: string; payload: Record<string, unknown> };
@@ -207,17 +207,15 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     const flow = 'graph TD\n  Attachment --> Preview', text = `# Notes\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;
     replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
     replies.attachmentText = () => ({ ok: true, text, truncated: false });
-    let json = '';
-    replies.mermaidRender = () => ({ items: ['light', 'dark'].map(theme => ({ key: `${theme}\n${flow}`, json })) });
     await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
     let view = await panelView(client, native, 1);
     expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: text }]);
     expect(view.attachment.code.map(block => block.code)).toContain('const x = 1;');
     expect(view.attachment.md.chips).toEqual([]);
-    expect(view.attachment.diagrams.map(diagram => [diagram.code, diagram.diagram])).toEqual([[flow, 'loading']]);
-    json = JSON.stringify({ status: 'rendered', width: 120, height: 80, viewBox: '0 0 120 80', items: [] });
+    expect(view.attachment.diagrams.map(diagram => [diagram.code, diagram.dark.diagram])).toEqual([[flow, 'loading']]);
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'dark', source: flow }));
     view = await panelView(client, native, 1);
-    expect(view.attachment.diagrams[0]).toMatchObject({ code: flow, diagram: 'rendered', width: 120 });
+    expect(view.attachment.diagrams[0]).toMatchObject({ code: flow, dark: { diagram: 'rendered', width: 120 } });
     diagramPreviewAction(client, 'diagram-open', flow);
     expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });

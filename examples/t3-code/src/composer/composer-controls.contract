@@ -12,12 +12,13 @@ use ComposerBranches from "./composer-shapes.contract"
 use KmItem, kmTarget, kmReturn from "../shared/menu-keys.contract"
 use Tip from "../shell/shell-tip.contract"
 use TipBubble from "../shell/shell-tip.contract"
-use RowTip from "../timeline/row-tips.contract"
+use StillRowTip from "../timeline/row-tips.contract"
 use StripPrBadge from "./strip-pr-badge.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
 use NoticeMachines from "./auto-balance.contract"
 use UsageLimitsBody, UsageAccountLabel from "../usage/usage-bars.contract"
 use heldModifiers from "../shared/press-modifiers.contract" // Send's ⌘-click is its own press's
+use RefPageScroll from "./ref-paging.contract"
 
 // The composer footer and its docked banners: the
 // toolbar controls (ComposerControl.tsx "sm"/"xs"), the primary actions
@@ -421,13 +422,13 @@ component PrimaryActions
               CcIcon(name="chevron-down", size=14, color="#ffffff", weight=2)
       else
         if data.canStop and not sendable and data.composer.queueEditing == ""
-          RowTip(label="Interrupt", side="top", align="center", offset=36, shown=(over == "stop" and overThread == data.threadId), hover=hover("stop"))
+          StillRowTip(label="Interrupt", side="top", align="center", offset=36, shown=(over == "stop" and overThread == data.threadId), hover=hover("stop"))
             button press=stop disabled=busy testId="stop" aria-label="Stop generation" width="2rem" height="2rem" border-radius="1rem" background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
               svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true
                 rect x=2 y=2 width=8 height=8 rx=1.5
         else
           if data.composer.canResume and not sendable
-            RowTip(label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread"), side="top", align="center", offset=36, shown=(over == "resume" and overThread == data.threadId), hover=hover("resume"))
+            StillRowTip(label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread"), side="top", align="center", offset=36, shown=(over == "resume" and overThread == data.threadId), hover=hover("resume"))
               button press=command("cc:resume", "", "", 0) disabled=(blocked or data.composer.sendSpinner) opacity=(blocked ? 0.64 : 1) testId="resume-thread" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread") width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 box-shadow=(blocked ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff" title=""
                 SendArt()
                 SendGlyph(icon="play", spinner=data.composer.sendSpinner)
@@ -696,7 +697,7 @@ component ComposerMenus
                   if branchQuery == ""
                     text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true
                   input id="branch-search" value=branchQuery input=searchBranches submit=command(branches.enterOp, "", branches.enterValue, 0) focus=searchFocus(true) blur=searchFocus(false) aria-label="Search refs" testId="branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
-              scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:strip-refs"
+              RefPageScroll(name="strip-refs")
                 column width="100%" gap=0 padding-left="0.5rem" padding-right="0.625rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box"
                   // A local draft's pull request reference leads (pr-checkout.ts).
                   for item in branches.checkout key=item.reference

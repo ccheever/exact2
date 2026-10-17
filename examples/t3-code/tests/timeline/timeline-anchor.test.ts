@@ -21,7 +21,7 @@ const rowsOf = (prefix: string, count = 6) => Array.from({ length: count }, (_, 
 /** The chat column over one window: the open thread's rows, a pending command, the end jumps, host commands. */
 function chat() {
   const calls: unknown[][] = [];
-  const state: Env = { firstKey: '', anchors: [], anchor: TimelineAnchor({ owner: '', key: '', offset: 0, top: 0, end: true }), fallbackTop: 0, fallbackJump: -1, turnsSeen: [], turnsOwner: '' };
+  const state: Env = { firstKey: '', anchors: [], anchor: TimelineAnchor({ owner: '', key: '', offset: 0, top: 0, end: true }), fallbackTop: 0, fallbackJump: -1, turnsSeen: [], turnsOwner: '', tipEpoch: 0, tipArmed: false };
   const scope: Env = { ...anchorFns, ...minimapFns, TimelineAnchor, min: Math.min, max: Math.max, composerOwner: A, commandPending: false, jumpRequest: 1,
     canvas: { ready: false }, conversationWidth: 1024, rem: 16,
     data: { messages: rowsOf('a'), minimap: [], citing: false, threadId: 't-a', look: { chatMax: 768 } },

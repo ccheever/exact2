@@ -39,13 +39,10 @@
     "t3-terminal-key",
     "t3-frame",
     "t3-turn",
-    "t3-video",
     "t3-file-editor",
     "t3-media",
     "t3-launcher",
-    "t3-measure",
     "t3-tool-icon",
-    "t3-timeline-tip",
     "t3-row-drop"
   ],
   "rust": {

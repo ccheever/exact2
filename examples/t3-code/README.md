@@ -82,7 +82,7 @@ no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T
 (the driver then skips its stale-build check, so rebuild after every source change).
 
 Safari's Web Inspector (exact2 #101): in a development build the app's own web views (the
-terminal, the browser surface, the rendered-HTML preview, the offscreen Mermaid renderer) are
+terminal, the browser surface, the rendered-HTML preview) are
 `isInspectable`, so Safari's Develop menu lists them. A release build's are not: the packaged
 build (that marker), a production-trust bake or a distributed bundle (`--distribution`, what
 `exact release` signs), as main #309 decides for Exact's own `iframe` web views
@@ -126,7 +126,9 @@ server to come back on the new version and shares that state with Settings › C
 - Conversation: bounded history with older-page loading, streaming assistant and
   tool rows, work-log inspector, checkpoints and changed files, fork dividers, answered
   questions, mention and file chips, Markdown with code blocks (wrap, copy) and Mermaid
-  diagrams rendered by the connected server's own Mermaid build. A failed workspace
+  diagrams: each fence renders in the Mermaid page (`assets/mermaid/`, an `iframe` per fence,
+  LLP 1020.001) with the Mermaid and DOMPurify builds the reference locks, which
+  `tools/generate/` vendors into `assets/mermaid/vendor/`. A failed workspace
   preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
   supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
   every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
@@ -258,7 +260,7 @@ Edit › Undo sends ⌘Z to thread.undo when no editable text has the focus, and
 active right-panel surface tab (its neighbour becomes active; the last tab closes the panel;
 on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts (`autofocus`), and
 its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which Exact presses before type-to-focus; a Markdown table's Copy
-menu is a window-level popup, placed from the trigger's drawn frame (`T3Measure.swift`),
+menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
 that Escape and an outside press close (`table-menu.*`). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
@@ -876,7 +878,7 @@ for d in examples/t3-code/macos/tests/*/; do
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift $T "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
+  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests"
 done
 ```
 
@@ -901,8 +903,7 @@ target/t3-tests/timeline-keyboard-tests
 `terminal` needs `bun examples/t3-code/terminal-host/build.mjs` first (it loads the page from
 `assets/`); `T3_TERMINAL_SCALE=1` adds the 1/4/11/44-view cost table, and
 `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
-`mermaid` needs `T3_SERVER` set to a running T3 server's origin (it loads that server's
-Mermaid build into an offscreen web view). The live transport tests skip unless
+The live transport tests skip unless
 `T3_TRANSPORT_PAIRING_FILE` points at a fresh disposable pairing JSON file and
 `T3_TRANSPORT_ORIGIN` names its server; `reconnect.swift` serves its own loopback WebSocket peer
 for the reconnect policy, stream retries and outdated-host updates. The SSH tests read

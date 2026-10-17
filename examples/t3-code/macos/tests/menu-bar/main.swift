@@ -259,29 +259,6 @@ final class MenuBarTests: XCTestCase {
         XCTAssertEqual(text.string, "xfd")
         composer.destroy()
     }
-    func testMeasureReportsTheDrawnFrame() {
-        _ = NSApplication.shared
-        let hooks = makeHooks()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let scroll = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        window.contentView!.addSubview(scroll)
-        let button = NSView(frame: NSRect(x: 300, y: 200, width: 24, height: 24))
-        scroll.addSubview(button)
-        let measure = T3Measure()
-        let element = ExactElement(hatch: .t3Measure, id: "", node: 9, hatches: hooks)
-        element.view = button
-        element.data = ExactData(["frame": "table-copy-1"])
-        measure.install(element)
-        let first = measure.perform(["name": "table-copy-1", "generation": 3])
-        XCTAssertEqual(first["ok"] as? Bool, true)
-        let box = first["value"] as? [String: Double] ?? [:]
-        XCTAssertEqual(box["x"], 300); XCTAssertEqual(box["y"], 300 - 224); XCTAssertEqual(box["width"], 24); XCTAssertEqual(box["windowHeight"], 300)
-        scroll.setFrameOrigin(NSPoint(x: 0, y: 46)) // the transcript scrolled: the drawn position moves
-        XCTAssertEqual((measure.perform(["name": "table-copy-1"])["value"] as? [String: Double])?["y"], 300 - 270)
-        measure.remove(element)
-        XCTAssertEqual(measure.perform(["name": "table-copy-1"])["ok"] as? Bool, false)
-    }
     /// #298 bug 3, issues/closed/20261009-macos-textarea-native-undo.md: ⌘Z, ⇧⌘Z and Edit › Undo and Redo undo typing in an Exact
     /// textarea, whose text view keeps its own history (host TextAreaMac.swift `textUndo`), as the composer and the prompt
     /// preview are. Since exact2 #327 the textarea answers `undo:` and `redo:` itself, so the clone's Edit › Undo sends it
@@ -373,4 +350,4 @@ let suite = XCTestSuite(forTestCaseClass: MenuBarTests.self)
 suite.run()
 let run = suite.testRun!
 print("Menu bar tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
-exit(run.executionCount == 5 && run.totalFailureCount == 0 ? 0 : 1)
+exit(run.executionCount == 4 && run.totalFailureCount == 0 ? 0 : 1)

@@ -83,7 +83,7 @@ describe('the shelf\'s references and videos in the client', () => {
     rememberVideoFrame(client, { id: vid, videoWidth: 1080, videoHeight: 1920 });
     expect(composerVideoSnapshot(client)).toEqual({ composerVideos: [{ id: vid, name: 'clip.mov' }], composerVideoPreview: [] });
     await videoOp(client, native, 'shelf-video-play', vid);
-    expect(composerVideoSnapshot(client).composerVideoPreview).toEqual([{ open: true, id: vid, name: 'clip.mov', width: 1080, height: 1920 }]);
+    expect(composerVideoSnapshot(client).composerVideoPreview).toEqual([{ open: true, id: vid, name: 'clip.mov', width: 1080, height: 1920, src: `app:/data/composer-files/${vid}.mov` }]);
     await videoOp(client, native, 'shelf-video-close', '');
     expect(composerVideoSnapshot(client).composerVideoPreview).toEqual([]);
     await videoOp(client, native, 'shelf-video-remove', vid);

@@ -8,6 +8,7 @@ import type { Native } from '../../src/client/protocol';
 import { initialShell, obj, type Obj } from '../../src/client/domain';
 import { watchLive } from '../../src/client/live-streams';
 import { scheduledPage, scheduledRefsWanted, pickerOf } from '../../src/settings/scheduled-view';
+import { noteRefScrollEnd } from '../../src/composer/ref-paging';
 import { effectiveMode, palette, themeRoles } from '../../src/appearance/settings-appearance';
 import { look, windowAppearanceMode } from '../../src/appearance/settings-appearance-look';
 import { applyDeviceSetting, decodeClientPrefs, DEVICE_DEFAULTS } from '../../src/settings/settings-core';
@@ -37,7 +38,7 @@ function listRefs(payload: Obj): Obj {
 function fakeClient(projects: Obj[] = [{ id: 'p1', title: 'many-refs', workspaceRoot: '/many' }]) {
   const reads: Obj[] = [];
   const client = {
-    environmentId: 'env', threadId: '', projectId: 'p1', ready: true, writable: true, revision: 0, generation: 1, busy: false, presentation: { scrollEnds: {} as Record<string, number> },
+    environmentId: 'env', threadId: '', projectId: 'p1', ready: true, writable: true, revision: 0, generation: 1, busy: false, presentation: {},
     config: { environment: { label: 'Laptop', capabilities: {} }, providers: [{ instanceId: 'codex', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, models: [{ slug: 'gpt', name: 'GPT' }] }], settings: {} },
     local: { drafts: {} as Record<string, string> },
     shell: { ...initialShell(), projects, threads: [] },
@@ -72,9 +73,9 @@ describe('the scheduled task\'s base-branch picker', () => {
     expect(reads).toEqual([{ cwd: '/many', limit: 100 }, { cwd: '/many', query: 'main', limit: 10 }]);
     expect(group.selected.map(ref => [ref.value, ref.remote])).toEqual([['main', false]]);
     expect(scheduledRefsWanted(client)).toBe(false);
-    // T3RefPaging counts a scroll within 96pt of the list's end: the page is wanted, "Loading more refs..." first,
+    // RefPageScroll reports a scroll within 96pt of the list's end: the page is wanted, "Loading more refs..." first,
     // then the shell clock's next look reads it (cursor 100).
-    client.presentation.scrollEnds['scroll:task-refs'] = 1;
+    noteRefScrollEnd(client, 'task-refs');
     expect(scheduledRefsWanted(client)).toBe(true);
     group = await open();
     expect([group.refs.length, group.status, reads.length]).toEqual([100, 'Loading more refs...', 2]);
@@ -122,7 +123,7 @@ describe('the scheduled task\'s base-branch picker', () => {
     await open();
     expect(reads.filter(read => read.limit === 100).map(read => read.cwd)).toEqual(['/many', '/more']); // each project's first page
     // P1 scrolled to its end: its second page.
-    client.presentation.scrollEnds['scroll:task-refs'] = 1;
+    noteRefScrollEnd(client, 'task-refs');
     await open();
     expect(of(await open(), 'p1').refs.length).toBe(122);
     // P2 chosen: its first page and "Showing 100 of 122 refs", no "Loading more refs...", no read of its cursor.
@@ -138,7 +139,7 @@ describe('the scheduled task\'s base-branch picker', () => {
     await open(picker('topic', '', 'p1'));
     groups = await open(picker('topic', '', 'p1'));
     expect([of(groups, 'p1').refs.length, of(groups, 'p1').status]).toEqual([100, 'Showing 100 of 120 refs']);
-    client.presentation.scrollEnds['scroll:task-refs'] = 2;
+    noteRefScrollEnd(client, 'task-refs');
     await open(picker('topic', '', 'p1'));
     expect(of(await open(picker('topic', '', 'p1')), 'p1').refs.length).toBe(120);
     const cleared = reads.length;

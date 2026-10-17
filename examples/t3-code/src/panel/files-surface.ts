@@ -469,7 +469,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   const signs = markdownMediaChips(text, folder, scope).some(chip => chip.icon === 'environment');
   const threadId = client.threadId || (signs && client.draftKey && client.ready ? await ensureDraftThreadId(client, native).catch(error => { if (letGo(error)) throw error; return ''; }) : '');
   const urls = await markdownMediaUrls(client, native, folder, now, [text], { ...scope, threadId });
-  const diagrams = await filesMermaid(client, native, text);
+  const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
     md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope) }, // the owner names the document

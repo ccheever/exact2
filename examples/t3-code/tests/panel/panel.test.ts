@@ -14,7 +14,7 @@ import { platformSetupStatus, hubStatusLabel, configureInput, deviceStateEvent, 
 import { parseDelimited } from '../../src/panel/rendered-previews';
 import { surfaces } from '../../src/shell/shell';
 import { decodeClientPrefs } from '../../src/settings/settings-core';
-import { diagramPreviewAction, diagramPreviewView } from '../../src/timeline/timeline-mermaid';
+import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../../src/timeline/timeline-mermaid';
 import type { Native } from '../../src/client/protocol';
 import { value } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
@@ -257,23 +257,17 @@ describe('Files surface', () => {
   test('a rendered Markdown file draws its Mermaid fences as diagrams', async () => {
     const { client, calls, replies } = fakeClient({ origin: 'http://127.0.0.1:1', local: { clientSettings: decodeClientPrefs({}) } });
     const flow = 'graph LR\n  Files --> Preview', text = `# Flow\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;
-    let json = '';
-    const base = client.restAccess.bind(client);
-    Object.assign(client, { restAccess: (n: Native) => ({ ...base(n), call: async (request: Record<string, unknown>) => {
-      calls.push({ method: String(request.op), payload: request, write: false });
-      return { items: ['light', 'dark'].map(theme => ({ key: `${theme}\n${flow}`, json })) };
-    } }) });
     replies['projects.listEntries'] = payload => ({ entries: payload.directoryPath === '' ? [{ path: 'docs', kind: 'directory' }] : [{ path: 'docs/flow.md', kind: 'file' }], truncated: false });
     replies['projects.readFile'] = () => ({ relativePath: 'docs/flow.md', contents: text, byteLength: text.length, truncated: false });
     await surfaceLocal(client, native, 'file', 'docs/flow.md', '');
     let files = (await panelView(client, native, 0)).files;
     if (files.preview !== 'markdown') { await surfaceLocal(client, native, 'files-render', 'docs/flow.md', ''); files = (await panelView(client, native, 0)).files; }
-    expect(files.diagrams.map(diagram => [diagram.code, diagram.diagram])).toEqual([[flow, 'loading']]);
-    expect(calls.find(call => call.method === 'mermaidRender')?.payload.diagrams).toEqual([{ source: flow, theme: 'light' }, { source: flow, theme: 'dark' }]);
-    // The module announces the finished render; the next view carries the diagram, and its expand opens it.
-    json = JSON.stringify({ status: 'rendered', width: 120, height: 80, viewBox: '0 0 120 80', items: [] });
+    expect(files.diagrams.map(diagram => [diagram.code, diagram.light.diagram, diagram.dark.diagram])).toEqual([[flow, 'loading', 'loading']]);
+    expect(calls.some(call => call.method === 'mermaidRender')).toBe(false); // the page renders it, no native module
+    // The light page reports its render; the next view carries the diagram, and its expand opens it.
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'light', source: flow }));
     files = (await panelView(client, native, 0)).files;
-    expect(files.diagrams[0]).toMatchObject({ code: flow, diagram: 'rendered', width: 120, viewBox: '0 0 120 80' });
+    expect(files.diagrams[0]).toMatchObject({ code: flow, light: { diagram: 'rendered', width: 120, height: 80 } });
     diagramPreviewAction(client, 'diagram-open', flow);
     expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });

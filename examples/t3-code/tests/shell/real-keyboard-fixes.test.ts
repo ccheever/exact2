@@ -150,7 +150,7 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     expect(tableMenuSnapshot(c).tableMenu).toEqual([{ id: 'tbl-1', x: 764, y: 228, triggerX: 900, triggerY: 200, markdown: '| a | b |\n|---|---|', csv: 'a,b', keyed: 0 }]);
     await chatLocal(c, native, 'table-menu', 'tbl-1', value);
     expect(tableMenuSnapshot(c).tableMenu).toEqual([]);
-    await tableMenuAction(c, 'table-menu', 'tbl-1', value);
+    tableMenuAction(c, 'table-menu', 'tbl-1', value);
     c.threadId = 't2';
     expect(tableMenuSnapshot(c).tableMenu).toEqual([]);
     c.threadId = 't1';
@@ -158,13 +158,12 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     await chatLocal(c, native, 'copy-table', 'tbl-1', 'a,b');
     expect(tableMenuSnapshot(c).tableMenu).toEqual([]);
     expect(native.calls.some(call => call.op === 'copyText' && call.text === 'a,b')).toBe(true);
-    await tableMenuAction(c, 'table-menu', 'tbl-1', value);
+    tableMenuAction(c, 'table-menu', 'tbl-1', value);
     await chatLocal(c, native, 'table-menu-close', 'tbl-1', '');
     expect(tableMenuSnapshot(c).tableMenu).toEqual([]);
-    await expect(tableMenuAction(c, 'table-menu', 'tbl-1', '0|0|0|0|1280|840|x')).rejects.toThrow('That table is unavailable.');
-    // The drawn frame wins over the layout's when the module measures it (a scrolled transcript).
-    const measuring: Native = { available: true, watch() {}, async later(input: unknown) { return obj(input).op === 'measureFrame' ? { ok: true, value: { x: 900, y: 150, width: 24, height: 24, windowWidth: 1280, windowHeight: 840 } } : { ok: true, value: {} }; } } as unknown as Native;
-    await chatLocal(c, measuring, 'table-menu', 'tbl-1', value);
+    expect(() => tableMenuAction(c, 'table-menu', 'tbl-1', '0|0|0|0|1280|840|x')).toThrow('That table is unavailable.');
+    // The popup is placed from the frame Contract reports: frame() is the trigger as drawn, scroll offsets applied.
+    tableMenuAction(c, 'table-menu', 'tbl-1', value.replace('900|200|', '900|150|'));
     expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ triggerY: 150, y: 178 });
   });
 });

@@ -126,6 +126,15 @@ component ChatColumn
     // The composer notice sliding out and its delayed dismissal (app.contract noticeDismiss).
     noticeExit: string
     noticeDismiss: action
+  // The transcript's tooltips (shell-tip.contract TimelineTip): a scroll after one was hovered or moved over moves the
+  // epoch, which closes every open one until the pointer moves again (TooltipScrollDismissArea).
+  state tipEpoch = 0
+  state tipArmed = false
+  action tipArm
+    tipArmed = true
+  provide
+    tipEpoch
+    tipArm
   // The transcript's hovered row (message.hoverKey) and its hovered tooltip part.
   state dismissedProviderBanner = "" // moved from app.contract: only the chat column reads or writes it
   action dismissProviderBanner
@@ -161,6 +170,9 @@ component ChatColumn
   state fallbackJump = -1
   action transcriptScrolled(left: number, top: number, e: ScrollEvent)
     citeScrolled(left, top)
+    if tipArmed
+      tipEpoch = tipEpoch + 1
+      tipArmed = false
     // A turn whose row the virtual window let go sends no leave: its box is gone.
     turnsSeen = turnsSeen.filter((seen) => not frame(`turn-${seen}`).unavailable)
     let key = anchorKey(e.firstVisibleKey)

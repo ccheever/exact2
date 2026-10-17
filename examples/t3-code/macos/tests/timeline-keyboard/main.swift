@@ -59,9 +59,9 @@ precondition(window.firstResponder === before, "Shift-Tab must return to disclos
 print("PASS: Tab and Shift-Tab traverse disclosure/output/next control; focus, blur and scroll keys delivered")
 
 // The mounted tool row (timeline-work.contract WorkRow): the disclosure button
-// holds the tool-icon hook (t3-tool-icon) and the timestamp, which holds the
-// tooltip-dismiss hook (t3-timeline-tip). Both hooks carry a `press` handler
-// for their native owner, so without `tabindex=-1` each is an invisible Tab
+// holds the tool-icon hook (t3-tool-icon) and the timestamp. A hook carries a
+// `press` handler for its native owner (`tip` stands for a second one, as the
+// tooltip-dismiss hook was), so without `tabindex=-1` each is an invisible Tab
 // stop between the disclosure and the output: Tab appears to skip the output.
 // The reference timestamp is a plain span (TimelineRowTimestamp, Base UI's
 // trigger adds no tabIndex), so it is not a stop either.
