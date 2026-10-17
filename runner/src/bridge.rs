@@ -532,16 +532,26 @@ pub fn inherited_varying(
             && r.slices.len > 0
             && plan.str(r.name) == text
     });
-    if b.kind == exact_plan::BindingKind::Style
-        && varying
-        && plan.nodes.iter().any(|n| n.parent == Some(node))
-    {
+    // Its children: its own nodes, and a choice's or a list's under it.
+    let children = plan.nodes.iter().any(|n| n.parent == Some(node))
+        || plan.regions.iter().any(|r| r.parent == Some(node));
+    if b.kind == exact_plan::BindingKind::Style && varying && children {
         return Err(BridgeError::StyleKind {
             style: row,
             value: value.clone(),
         });
     }
     Ok(())
+}
+
+/// The stack of `plan`'s whose members `family` names, as the compiler
+/// declared a family token's (stage 6 C).
+pub fn plan_stack(plan: &exact_plan::Plan, family: &str) -> Option<u16> {
+    let key = exact_kernel::style::theme::typeface::family_key_of(family);
+    plan_stacks(plan)
+        .into_iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, id)| id)
 }
 
 /// `plan`'s font stacks by their members' key
@@ -687,9 +697,9 @@ pub fn set_style(
         // token's stack (stage 6 C).
         if value
             .as_str()
-            .is_some_and(exact_kernel::style::theme::names)
+            .is_some_and(|t| exact_kernel::style::theme::names(t.trim()))
         {
-            let text = value.as_str().unwrap_or_default();
+            let text = value.as_str().unwrap_or_default().trim();
             patch
                 .set_dynamic(style, &StyleValue::Text(text.into()))
                 .map_err(|_| BridgeError::StyleKind {

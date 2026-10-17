@@ -149,11 +149,11 @@ const GENERICS: [&str; 8] = [
     "ui-rounded",
 ];
 
-/// A family stack's text as a key ([`family_key`]), its members split at
-/// the commas outside quotes. A member is generic only unquoted, as the
-/// compiler reads it (`-apple-system` is `system-ui`); a quoted one, or
-/// any other name, is a family.
-pub fn family_key_of(text: &str) -> String {
+/// A family stack's members, split at the commas outside quotes: each a
+/// family (`true`) or a generic family by its name. A member is generic
+/// only unquoted, as the compiler reads it (`-apple-system` is
+/// `system-ui`); a quoted one, or any other name, is a family.
+pub fn family_members(text: &str) -> Vec<(bool, String)> {
     let (mut members, mut start, mut quote) = (Vec::new(), 0, None);
     for (i, c) in text.char_indices() {
         match (quote, c) {
@@ -167,7 +167,7 @@ pub fn family_key_of(text: &str) -> String {
         }
     }
     members.push(&text[start..]);
-    let members: Vec<(bool, String)> = members
+    members
         .into_iter()
         .map(|m| {
             let m = m.trim();
@@ -184,7 +184,13 @@ pub fn family_key_of(text: &str) -> String {
                 _ => (true, m.to_string()),
             }
         })
-        .collect();
+        .collect()
+}
+
+/// A family stack's text as a key ([`family_key`]), by its members
+/// ([`family_members`]).
+pub fn family_key_of(text: &str) -> String {
+    let members = family_members(text);
     family_key(members.iter().map(|(f, n)| (*f, n.as_str())))
 }
 
@@ -246,6 +252,10 @@ mod tests {
         assert_eq!(parts("Inter"), None);
         assert_ne!(family_key_of("\"serif\""), family_key_of("serif"));
         assert_ne!(family_key_of("\"A,B\""), family_key_of("A, B"));
+        assert_eq!(
+            family_members("\"A,B\", serif"),
+            [(true, "A,B".to_string()), (false, "serif".to_string())]
+        );
         assert_eq!(
             family_key_of("-apple-system, Georgia"),
             family_key_of("system-ui, \"georgia\"")

@@ -93,9 +93,10 @@ impl Lowerer<'_> {
         a: &Attr,
         scope: &Scope,
         locals: u16,
+        font: &[FontUse],
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<bool, LowerError> {
-        let Some(rows) = self.tokens_named(a, tamber::Kind::Type)? else {
+        let Some(rows) = self.tokens_named(a, tamber::Kind::Type, font)? else {
             return Ok(false);
         };
         let (code, _) = self.typed_code(&a.value, scope, locals)?;
@@ -120,7 +121,7 @@ impl Lowerer<'_> {
         locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<bool, LowerError> {
-        if self.tokens_named(a, tamber::Kind::Family)?.is_none() {
+        if self.tokens_named(a, tamber::Kind::Family, &[])?.is_none() {
             return Ok(false);
         }
         let (code, _) = self.typed_code(&a.value, scope, locals)?;
@@ -128,28 +129,42 @@ impl Lowerer<'_> {
         Ok(true)
     }
 
-    /// A type token's written style and weight, where its family names a
-    /// font the app ships: a face of it, as `font-weight` and `font-style`
-    /// beside `font-family` are checked (v1 never synthesizes one).
-    fn bundled_faces(&self, name: &str, value: &str, span: Span) -> Result<(), LowerError> {
+    /// A type token's written style and weight, where its family, or the
+    /// node's `font-family` when it names none (`font`), is a font the app
+    /// ships: a face of it, as `font-weight` and `font-style` beside
+    /// `font-family` are checked (v1 never synthesizes one).
+    fn bundled_faces(
+        &self,
+        name: &str,
+        value: &str,
+        font: &[FontUse],
+        span: Span,
+    ) -> Result<(), LowerError> {
         let Some(p) = typeface::parts(value) else {
-            return Ok(());
-        };
-        let Some(family) = p.family else {
             return Ok(());
         };
         let italic = p.style == Some("italic");
         let weight: u16 = p.weight.and_then(|w| w.parse().ok()).unwrap_or(400);
-        let key = typeface::family_key_of(family);
-        for member in key.split(',').filter(|m| m.starts_with('"')) {
-            let member = member.trim_matches('"');
-            let Some((_, font)) = self
-                .declared_fonts
+        let shipped: Vec<(String, &DeclaredFont)> = match p.family {
+            Some(family) => typeface::family_members(family)
+                .into_iter()
+                .filter(|(family, _)| *family)
+                .filter_map(|(_, m)| {
+                    self.declared_fonts
+                        .iter()
+                        .find(|(declared, _)| declared.eq_ignore_ascii_case(&m))
+                        .map(|(declared, f)| (format!("`{declared}`"), f))
+                })
+                .collect(),
+            // Only what the token writes: an unwritten style or weight is
+            // the node's, checked where it is written.
+            None if p.style.is_some() || p.weight.is_some() => font
                 .iter()
-                .find(|(declared, _)| declared.eq_ignore_ascii_case(member))
-            else {
-                continue;
-            };
+                .map(|u| ("its `font-family`".to_string(), &u.font))
+                .collect(),
+            None => Vec::new(),
+        };
+        for (member, font) in shipped {
             let face = font
                 .faces
                 .iter()
@@ -157,7 +172,7 @@ impl Lowerer<'_> {
             if !face {
                 return err(
                     "lower-font-face",
-                    format!("`{name}` is `{value}`: `{member}` has no real {}{} face; v1 never synthesizes one", if weight >= 600 { "bold " } else { "" }, if italic { "italic" } else { "normal" }),
+                    format!("`{name}` is `{value}`: {member} has no real {}{} face; v1 never synthesizes one", if weight >= 600 { "bold " } else { "" }, if italic { "italic" } else { "normal" }),
                     span,
                 );
             }
@@ -176,6 +191,7 @@ impl Lowerer<'_> {
         &mut self,
         a: &Attr,
         kind: tamber::Kind,
+        font: &[FontUse],
     ) -> Result<Option<Vec<StyleId>>, LowerError> {
         let mut leaves = Vec::new();
         crate::theme::leaves(&a.value, &mut Vec::new(), &mut leaves);
@@ -215,7 +231,7 @@ impl Lowerer<'_> {
                             *span,
                         );
                     }
-                    self.bundled_faces(name, value, *span)?;
+                    self.bundled_faces(name, value, font, *span)?;
                     if rows.is_some() && written != rows {
                         return err(
                             "tamber-type-longhands",

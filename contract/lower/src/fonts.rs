@@ -192,8 +192,8 @@ impl Lowerer<'_> {
             self.family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
         }
         for stack in tokens.iter().flatten() {
-            let key = exact_kernel::style::theme::typeface::family_key_of(stack);
-            names.extend(key.split(',').map(|m| m.trim_matches('"').to_string()));
+            let members = exact_kernel::style::theme::typeface::family_members(stack);
+            names.extend(members.into_iter().filter(|(f, _)| *f).map(|(_, m)| m));
         }
         let italic = match attrs.iter().find(|a| a.name == "font-style") {
             None => Some(false),

@@ -427,7 +427,7 @@ impl Lowerer<'_> {
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<(), LowerError> {
         // Type tokens write only their longhands (stage 6 C).
-        if a.name == "font" && self.type_font(a, scope, locals, bindings)? {
+        if a.name == "font" && self.type_font(a, scope, locals, font, bindings)? {
             return Ok(());
         }
         for (index, row) in rows(&a.name).iter().copied().enumerate() {

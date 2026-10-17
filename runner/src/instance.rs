@@ -1080,25 +1080,33 @@ impl NodeInst {
                     let p = patch.get_or_insert_with(Box::default);
                     let (family_value, family_id) =
                         bridge::family_binding(plan, u.fonts.as_deref(), binding, &value);
+                    // A row a runtime family or a refusal sets reads no token:
+                    // the index forgets what it read before.
+                    let row = exact_kernel::StyleId::from_bit(binding.id as u32);
                     let styled = if let Some(id) = family_id {
+                        if let (true, Some(row)) = (themed_plan, row) {
+                            self.unthemed(u, i, row);
+                        }
                         bridge::set_runtime_font_style(
                             p,
                             binding,
                             id,
                             plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
                         )
+                    } else if let Err(e) =
+                        bridge::inherited_varying(plan, binding, family_value, self.node)
+                    {
+                        if let (true, Some(row)) = (themed_plan, row) {
+                            self.unthemed(u, i, row);
+                        }
+                        Err(e)
                     } else {
-                        bridge::inherited_varying(plan, binding, family_value, self.node).and_then(
-                            |()| {
-                                exact_kernel::style::theme::take_named();
-                                let styled =
-                                    bridge::set_binding_style(p, binding, family_value, plan);
-                                if themed_plan {
-                                    self.index(u, i, binding, family_value, styled.is_ok());
-                                }
-                                styled
-                            },
-                        )
+                        exact_kernel::style::theme::take_named();
+                        let styled = bridge::set_binding_style(p, binding, family_value, plan);
+                        if themed_plan {
+                            self.index(u, i, binding, family_value, styled.is_ok());
+                        }
+                        styled
                     };
                     match styled {
                         // Unlinked, the plan names no rule: it was refused at

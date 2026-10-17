@@ -47,19 +47,29 @@ pub fn css(kind: Kind, value: &str) -> String {
 }
 
 /// Row `id`'s part of type token `value`, or family token `value`'s stack,
-/// as CSS; `None` where it writes none.
-fn font_part(kind: Kind, id: StyleId, value: &str) -> Option<String> {
+/// as the bound row's own map reads it; `None` where it writes none. A
+/// family is its plan stack's CSS, as a literal's (a bundled font's
+/// `ExactPlanStack<n>` alias with its fallbacks); a text style stays its
+/// name, which the size's map turns into its `rem` and the weight and
+/// leading the style gives (`rows.rs`).
+fn font_part(plan: &Plan, kind: Kind, id: StyleId, value: &str) -> Option<String> {
     use exact_kernel::style::theme::typeface;
+    let family = |text: &str| {
+        let stack = exact_runner::bridge::plan_stack(plan, text)?;
+        exact_web::css::font_family_names(plan)
+            .get(usize::from(stack))
+            .cloned()
+    };
     if kind == Kind::Family {
-        return Some(value.trim().to_string());
+        return family(value);
     }
     let p = typeface::parts(value)?;
     Some(match id {
         StyleId::FontStyle => p.style?.to_string(),
         StyleId::FontWeight => p.weight?.to_string(),
-        StyleId::FontSize => css(Kind::Length, p.size),
+        StyleId::FontSize => p.size.to_string(),
         StyleId::LineHeight => p.leading?.to_string(),
-        StyleId::FontFamily => p.family?.to_string(),
+        StyleId::FontFamily => family(p.family?)?,
         _ => return None,
     })
 }
@@ -240,7 +250,7 @@ pub fn map(
             // template writes the literal's (stage 6 C); a part it does not
             // write stands, for the browser to refuse, as the kernel leaves it.
             if matches!(kind, Kind::Type | Kind::Family) {
-                let css = font_part(kind, id, plan.str(r.value))?;
+                let css = font_part(plan, kind, id, plan.str(r.value))?;
                 return Some(format!(
                     "{}:{}",
                     serde_json::to_string(name).unwrap(),

@@ -2842,7 +2842,8 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   node with element children, which would inherit its rows (`tamber-inherited-axis`, "write it on the
   text, not its container"). On a text with none it is read again per tuple, as a colour is: the
   kernel lets a varying type or family token reach an inherited row. A name computed at run time
-  is held to the same rule by the runner, which refuses it as an invalid value there. A mode can't rescale a whole
+  is held to the same rule by the runner, which refuses it as an invalid value there (a child is
+  the node's own, or a choice's or a list's under it). A mode can't rescale a whole
   subtree's type through a container; boundary re-specification is a later stage's, if an app needs
   it.
 - **Live and rebuild (the lead's ruling):** an edit that changes only a type token's style, weight,
@@ -2852,7 +2853,9 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 - **Bold Text** applies through D12.3's rule: a type token naming a system family is stepped, an
   authored weight included, and a family the app names is not.
 - **The JS target** writes a type or family token as the kernel resolves each longhand, a literal,
-  never a property (`measures::inline_tokens`); a bound row maps a name to that row's part (`$ty<row>`).
+  never a property (`measures::inline_tokens`); a bound row maps a name to that row's part (`$ty<row>`):
+  a family as its plan stack's CSS (a bundled font's `ExactPlanStack<n>` alias), a text style as its
+  name, which the size's own map turns into its `rem` and the style's weight and leading.
   So one that varies by an app axis is refused there (`QUEUE.md`); a development build rebuilds on an
   edit to one.
 - **The wire** (under `tamber/1.9`, the window's one version): the kinds, and `resolve`'s type and

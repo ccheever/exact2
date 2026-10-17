@@ -359,13 +359,44 @@ fn a_type_token_is_its_parts_and_a_varying_one_is_refused() {
         out.css
     );
     for part in [
-        "\"type.a\":\"1.6875rem\"",
+        "\"type.a\":\"-exact-title1\"",
         "\"type.b\":\"1.25rem\"",
         "\"type.a\":\"1.2\"",
         "\"type.b\":\"system-ui\"",
     ] {
         assert!(out.js.contains(part), "{part}\n{}", out.js);
     }
+    // A family is its plan stack's CSS: a bundled font's alias.
+    let dir = std::env::temp_dir().join(format!("exact-web-js-type-font-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::copy(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../apps/expose/assets/Exciting-Black.ttf"
+        ),
+        dir.join("assets/E.ttf"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!("{design}  family.shipped = \"Exciting\", serif\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "font \"Exciting\"\n  900 = \"assets/E.ttf\"\n\ncomponent App\n  state on = false\n  view\n    text \"s\" font-weight=900 font-family=(on ? \"family.shipped\" : \"family.mono\")\n",
+    )
+    .unwrap();
+    let shipped =
+        contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    let out = crate::emit::emit(&shipped, false, false).unwrap();
+    assert!(
+        out.js.contains("\"family.shipped\":\"\\\"ExactPlanStack"),
+        "{}",
+        out.js
+    );
+    let _ = std::fs::remove_dir_all(&dir);
     let varying = plan(
         "type-vary",
         design,
