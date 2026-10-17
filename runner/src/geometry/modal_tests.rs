@@ -48,6 +48,34 @@ fn fixture(parent: &str, dialog: &str) -> Runner<NoData> {
     r
 }
 
+#[test]
+fn structural_reads_mark_only_the_first_candidate_even_when_all_are_refused() {
+    use std::cell::RefCell;
+    thread_local! { static FIRST: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) }; }
+    let r = fixture("", "");
+    for value in ["missing", "accent", "accent"] {
+        let hits = data_matches(
+            r.kernel(),
+            &Scrolled::default(),
+            |_, _, _, first| {
+                FIRST.with_borrow_mut(|calls| calls.push(first));
+                false
+            },
+            "paint",
+            value,
+        );
+        assert!(hits.is_empty());
+        let calls = FIRST.take();
+        if value == "missing" {
+            assert!(calls.is_empty());
+        } else {
+            assert!(calls.len() > 1);
+            assert!(calls[0]);
+            assert!(calls[1..].iter().all(|first| !first));
+        }
+    }
+}
+
 fn open(r: &mut Runner<NoData>, names: &[&str]) {
     let frames: Vec<_> = names
         .iter()

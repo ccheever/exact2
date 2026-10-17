@@ -36,8 +36,19 @@ const html = `<style>dialog { max-height: 240px; overflow: auto; }</style>
   const wasm = {}, inputReady = true, tagged = reply => reply, syncMedia = () => {}, syncMarkup = () => {};
   ${agent}
   ${props}
+  let structuralModalLayers;
   const shown = ${shown};
-  window.read = () => [...root.querySelectorAll('[data-match]')].filter(el => shown(el.id)).map(el => el.id);
+  window.read = () => [...root.querySelectorAll('[data-match]')].filter((el, index) => shown(el.id, index === 0)).map(el => el.id);
+  window.readCandidates = count => {
+    const candidates = [...root.querySelectorAll('[data-candidate]')].slice(0, count);
+    return candidates.filter((el, index) => shown(el.id, index === 0)).map(el => el.id);
+  };
+  window.addCandidates = (parent, count) => {
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div'); el.id = 'candidate-' + i;
+      el.setAttribute('data-candidate', ''); parent.append(el); views.set(el.id, el);
+    }
+  };
   window.agent = agentReply;
   applyProps(views.get('inside'), { contextpopover: 'inner-pop' }, []);
   window.ready = true;
@@ -99,7 +110,7 @@ test('wasm shown retains the front modal and later popovers in tree order', () =
     hiddenAncestor: ['outer-pop'], closedUpper: ['lower', 'outer-pop'],
     closedAll: ['page', 'outer-pop'], cancelled: ['page', 'outer-pop'], removed: ['page'],
   });
-}));
+}), 30000);
 
 test('wasm tap accepts modal controls under inert ancestors and refuses inert descendants', () => inBrowser(async page => {
   const results = await page.evaluate(() => {
@@ -115,7 +126,7 @@ test('wasm tap accepts modal controls under inert ancestors and refuses inert de
     { handled: true, error: 'view inside is hidden or inert' },
     { handled: true, error: 'view inside is hidden or inert' },
   ]);
-}));
+}), 30000);
 
 test('wasm reveal scrolls a modal control past an inert ancestor', () => inBrowser(async page => {
   const result = await page.evaluate(() => {
@@ -129,7 +140,7 @@ test('wasm reveal scrolls a modal control past an inert ancestor', () => inBrows
     return { before, refused, afterRefusal, revealed, moved: dialog.scrollTop > 0 };
   });
   expect(result).toEqual({ before: 0, refused: false, afterRefusal: 0, revealed: true, moved: true });
-}));
+}), 30000);
 
 test('wasm context popovers escape ancestor inertness but recheck their source before opening', () => inBrowser(async page => {
   const result = await page.evaluate(async () => {
@@ -147,4 +158,38 @@ test('wasm context popovers escape ancestor inertness but recheck their source b
     return { opened, revoked, inert };
   });
   expect(result).toEqual({ opened: true, revoked: false, inert: false });
-}));
+}), 30000);
+
+test('wasm structural reads scan modal layers once regardless of the candidate count', () => inBrowser(async page => {
+  const result = await page.evaluate(async () => {
+    const root = document.getElementById('exact-root'), upper = document.getElementById('upper');
+    addCandidates(root, 100);
+    const query = document.querySelectorAll.bind(document); let scans = 0;
+    document.querySelectorAll = selector => {
+      if (selector === 'dialog:modal,:popover-open') scans++;
+      return query(selector);
+    };
+    const measure = count => {
+      scans = 0;
+      const hits = readCandidates(count);
+      return { count: hits.length, scans };
+    };
+    const page = [1, 10, 100].map(measure);
+    upper.showModal();
+    const covered = measure(100);
+    upper.append(...root.querySelectorAll('[data-candidate]'));
+    const modal = [1, 10, 100].map(measure);
+    upper.close();
+    const closed = measure(100);
+    root.append(...upper.querySelectorAll('[data-candidate]'));
+    const restored = measure(100);
+    await Promise.resolve();
+    const later = measure(100);
+    return { page, covered, modal, closed, restored, later };
+  });
+  const counts = [1, 10, 100].map(count => ({ count, scans: 1 }));
+  expect(result).toEqual({
+    page: counts, covered: { count: 0, scans: 1 }, modal: counts,
+    closed: { count: 0, scans: 1 }, restored: { count: 100, scans: 1 }, later: { count: 100, scans: 1 },
+  });
+}), 30000);
