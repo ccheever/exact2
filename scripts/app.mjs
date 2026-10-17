@@ -1400,12 +1400,12 @@ export function developmentCandidate(build, plan, assets, surfaces) {
 
 /** Source staleness is provisional until the next actual bake. These paths
  * came from the previous compiler receipt, including absent watched inputs. */
-export function pendingBuildInputs(build) {
+export function pendingBuildInputs(build, since = -Infinity) { // `since`: a file last modified before it is taken as built (a drive's check hashed 116 MB, twice)
   const changed=[];
   try {if(build.binary.assetCatalogApp && canonicalBuild(appleAssetCatalogInventory(build.binary.assetCatalogApp, build.binary.assetCatalogApp.platform)) !== canonicalBuild(build.binary.metadata.appleAssetCatalogs ?? [])) changed.push('Apple asset catalogs');} catch {changed.push('Apple asset catalogs');}
   try {if(build.binary.nativeResourceApp && canonicalBuild(macResourceInventory(build.binary.nativeResourceApp)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push('host.macos.resources');} catch {changed.push('host.macos.resources');}
   for(const file of build.binary.inputs) {
-    try {if(!statSync(file.path).isFile()||buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
+    try {const stat=statSync(file.path); if(!stat.isFile()||stat.mtimeMs>=since&&buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
     catch {changed.push(file.name);}
   }
   for(const path of build.binary.missing)if(existsSync(path))changed.push(path);

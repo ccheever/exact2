@@ -715,7 +715,7 @@ export function receiptChanges(receipt, app) {
   // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
   const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
   const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
-  return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
+  return [...new Set([...(build?.binary ? pendingBuildInputs(build, since) : []), ...own, ...tools])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.

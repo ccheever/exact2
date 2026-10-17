@@ -1,7 +1,7 @@
 // Simulators, phones, signing identities and provisioning profiles: the
 // device side of host/apple/build.mjs, shared with scripts/agent.mjs and the
 // smokes, which launch the same bundles.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
@@ -88,10 +88,10 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
   }
   dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
-  if (dev.state !== 'Booted') {
-    const b = read('xcrun', ['simctl', 'boot', dev.udid]);
-    if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
-  }
+  // Booted is a boot finished (Booting is its own state): only another waits, which costs a booted one 0.2–0.5 s.
+  if (dev.state === 'Booted') return dev;
+  const b = read('xcrun', ['simctl', 'boot', dev.udid]);
+  if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
   if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
   return dev;
@@ -105,8 +105,24 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EX
  *  arguments never reach a Device Hub that is already running, and its main
  *  window shows whichever device was last picked in its list). */
 export function showSimulator(dev, background = false) {
-  const g = background ? ['-g'] : [];
-  if (spawnSync('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).status !== 0) spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
+  const g = background ? ['-g'] : [], fallback = () => spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
+  // In the background nothing waits on the window: `open` takes up to a second, a drive's whole launch about two.
+  if (background) { spawn('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).on('exit', (code) => { if (code !== 0) fallback(); }).unref(); return; }
+  if (spawnSync('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).status !== 0) fallback();
+}
+
+/** Whether the simulator's installed `id` is the bundle at `bundle` as built: its executable, receipt and signature
+ *  the same size and time (simctl install keeps both). A drive then skips the install, 0.3–0.5 s of each launch. */
+export function installedAlready(udid, id, bundle, executable) {
+  const r = read('xcrun', ['simctl', 'get_app_container', udid, id, 'app']);
+  if (r.status !== 0) return false;
+  const installed = r.stdout.trim();
+  try {
+    return [executable, 'receipt.json', '_CodeSignature/CodeResources'].every((file) => {
+      const a = statSync(resolve(installed, file)), b = statSync(resolve(bundle, file));
+      return a.size === b.size && a.mtimeMs === b.mtimeMs;
+    });
+  } catch { return false; }
 }
 
 /** Crash reports macOS wrote since `since` (ms) for an executable named
