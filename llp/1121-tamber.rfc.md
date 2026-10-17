@@ -3213,13 +3213,17 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     One layout does it everywhere (`tamber::params::laid`): the compiler, the motion rows written
     at load, the source graph, the CLI's checks, `plan`, the edits' check, `resolve` and
     `describe`. An icon naming another icon takes its sources after the lines are laid, so an
-    alias follows the value set. A range is checked on each folded value, at the line, and on each
-    value written, a `when` line's too, at its own line.
+    alias follows the value set. A range is checked on each value written, the line's own and
+    each `when` line's, folded on its own in its param's place (a token's, a `calc()`, a `when`
+    no tuple picks), at its own line.
   - A line naming no param of the app is a warning, `tamber-param-unknown`: a moved or renamed
     declaring file must not break the build, and the value no longer applies.
   - A short name two components share is `tamber-param-ambiguous`, whichever has the param or
     neither: one rule (`tamber::params::named`), which `contract_lower::params::resolve` delegates
-    to. A second line naming the same param is `tamber-param-twice`.
+    to. A second line naming the same param is `tamber-param-twice`. The compiler and the design
+    server refuse both alike (`params::entry_errors`): the server's reads refuse such a design, and
+    its writes refuse to leave one, except `unset-param` by the line's own spelling, which repairs
+    it.
 - **`set-param` and `unset-param`** (`tamber::edit`, *tamber/1.10*):
   - `set-param` writes the param's line, making the block at the end when there is none, or sets
     one `when` line. A `when` needs the line first.
@@ -3231,8 +3235,11 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     used. After every write to an app with params, not only a `set-param`, it refuses a design
     whose params do not fold or fall out of range (`tamber_ops::param_values`), each at its line.
   - The block is found as the parser finds it (a trailing comment allowed), a new line takes the
-    block's indent and goes after its last line, comments included. A token's rename renames the
-    values naming it, a param's name never.
+    block's indent and goes after its last line, comments included; the last line removed takes
+    the block with it, comments too. A token's rename renames the values naming it, a param's name
+    never, and is proved folded with the params, so a literal word it would change is refused.
+  - An icon param's SVG must be the app's file when a write sets it (`tamber-icon-svg`); the
+    build's per-target check (`tamber-icon-missing`) stays the build's.
 - **The closure** (`tamber::params`). `plan` folds the design with the app's params, each in its
   `params` line's place (`Synthetic::params`; the server reads the app's params by its Contract
   sources' key), and checks an edit laid out with them (`apply_all_with`), so a dial only a param
@@ -3244,8 +3251,9 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   full name, their errors too, folded with every param (so a design token's `uses` follows it
   through a param). An ambiguous short name is refused, never read as a design token. `uses` gives
   every instance's row; a motion param's sites are its source literals, as a motion token's are.
-  An icon param, like an icon, is read by `describe` and `resolve`. `describe`'s `components` gives
-  `set`, the app's value. It gives `pinned`, each token or icon the default names that the set
-  value and its `when` values no longer read, directly or through another token: D14's mark, "no
-  longer follows `radius.md`".
+  An icon param, like an icon, is read by `describe` and `resolve` (QUEUE: an icon's `explain` and
+  image sites in `uses`). `describe`'s `components` gives `set`, the app's value. It gives
+  `pinned`, each token or icon the default names that some value set (the line's own or a `when`
+  line's) no longer reads, directly or through another token, an icon's alias or a param: D14's
+  mark, "no longer follows `radius.md`".
 

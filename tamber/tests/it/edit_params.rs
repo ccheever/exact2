@@ -176,3 +176,56 @@ fn set_param_finds_a_commented_or_indented_block_and_a_rename_follows_its_values
         renamed.text
     );
 }
+
+#[test]
+fn a_rename_is_proved_with_the_params_and_an_emptied_block_goes_whole() {
+    use exact_tamber::params::{Param, Params};
+    use exact_tamber::{apply_all_with, Op};
+    let param = |full: &str, kind: &str, default: &str| Param {
+        token: format!("param.fabc.{}", full.rsplit_once('#').unwrap().1),
+        full: full.into(),
+        kind: kind.into(),
+        default: default.into(),
+    };
+    // A literal family that is also a token's name: renaming the token
+    // would change the param's stack, so it is refused.
+    let face = Params {
+        list: vec![param("app.contract#App.face", "family", "system-ui")],
+        components: vec!["app.contract#App".into()],
+    };
+    let family = "tamber app\n\ntheme\n  serif = 1px\n\nparams\n  App.face = serif, sans-serif\n";
+    let rename = Op::RenameToken {
+        from: "serif".into(),
+        to: "mono".into(),
+    };
+    assert!(apply_all_with(family, std::slice::from_ref(&rename), &vocab(), &face).is_err());
+    // A dial only a param reads: a rename elsewhere is proved, laid out.
+    let pad = Params {
+        list: vec![param("post.contract#PostButton.radius", "length", "4px")],
+        components: vec!["post.contract#PostButton".into()],
+    };
+    let dialed = "tamber app\n\ndials\n  pad: length = 8px  in 0px..32px\n\ntheme\n  radius.md = 12px\n\nparams\n  PostButton.radius = pad\n";
+    let renamed = apply_all_with(
+        dialed,
+        &[Op::RenameToken {
+            from: "radius.md".into(),
+            to: "radius.lg".into(),
+        }],
+        &vocab(),
+        &pad,
+    )
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(renamed.text.contains("radius.lg = 12px"));
+    // The last line goes, and the block with its comment.
+    let commented = format!("{BASE}\nparams\n  // radius\n  PostButton.radius = 8px\n");
+    let unset = Op::UnsetParam {
+        name: "PostButton.radius".into(),
+        when: Vec::new(),
+    };
+    let gone = apply(&commented, &unset, &vocab()).unwrap();
+    assert_eq!(gone.text, BASE);
+    assert_eq!(
+        undo(&gone.text, &gone.inverse, &vocab()).unwrap().text,
+        commented
+    );
+}

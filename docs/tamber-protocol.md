@@ -192,7 +192,7 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     range, step, control, options, label, help, group, priority}`. `name` is its full name
     (`post.contract#PostButton.radius`), `short` the `Component.param` form or null where the app has
     another component of that name (with params or none), `token` its name below the IR
-    (`param.f<hash>.…`, which no author or tool writes; `uses` takes it), `default` as written and
+    (`param.f<hash>.…`, which no author or tool writes), `default` as written and
     `options` each with a param named in full, and `values` per tuple, folded with the design and
     the app's value. `control` defaults to `token`, `priority` to 2. `set` is the app's value,
     `{value, line, whens}` of its `params` line, or null; `pinned` names the tokens the default

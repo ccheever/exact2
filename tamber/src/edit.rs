@@ -170,7 +170,7 @@ pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diag
     let mut text = src.to_string();
     let mut undone = Vec::new();
     for op in inverse {
-        let (next, back) = step(&text, op, vocab)?;
+        let (next, back) = step(&text, op, vocab, &crate::params::NONE)?;
         text = next;
         undone.insert(0, back);
     }
@@ -181,7 +181,14 @@ pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diag
 }
 
 /// One edit, unchecked: the new text and the `restore` that undoes it.
-fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnostic>> {
+/// One operation on `src`; a rename is proved folded with the app's
+/// `params` (LLP 1121 D15), as the build folds the design.
+fn step(
+    src: &str,
+    op: &Op,
+    vocab: &Vocab,
+    params: &crate::params::Params,
+) -> Result<(String, Op), Vec<Diagnostic>> {
     valid(op)?;
     let design = crate::parse(src)?;
     if let Op::RenameToken { from, to } = op {
@@ -229,9 +236,13 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
     // that was no use (a channel, a colour space, a platform selector) would.
     if let Op::RenameToken { .. } = op {
         let folded = |text: &str| {
-            crate::check(text, vocab)
-                .ok()
-                .map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
+            let folding = match params.list.is_empty() {
+                true => crate::check(text, vocab).ok(),
+                false => crate::parse(text)
+                    .ok()
+                    .and_then(|d| crate::check_design(crate::params::laid(&d, params), vocab).ok()),
+            };
+            folding.map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
         };
         // Proved only where both sides check and fold the same.
         match (folded(src), folded(&doc.text())) {
@@ -434,7 +445,7 @@ fn run(
     let mut text = src.to_string();
     let mut inverse = Vec::new();
     for op in ops {
-        let (next, undo) = step(&text, op, vocab)?;
+        let (next, undo) = step(&text, op, vocab, params)?;
         text = next;
         inverse.insert(0, undo);
     }

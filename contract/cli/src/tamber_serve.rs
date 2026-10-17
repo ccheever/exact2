@@ -1163,7 +1163,7 @@ impl Server {
                     .filter(|(p, _, _)| *p == self.design)
                     .map(|(p, t, _)| (p.clone(), t.clone()))
                     .collect();
-                crate::tamber_ops::param_values(&set, &self.params.1, &self.vocab)?;
+                crate::tamber_ops::param_values(&set, &self.params.1, &self.vocab, &self.dir)?;
             }
         }
         let mut out = json!({

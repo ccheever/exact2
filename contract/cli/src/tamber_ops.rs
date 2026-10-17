@@ -137,6 +137,20 @@ pub(crate) fn param_names(
 ) -> Result<(), Value> {
     let mut written: Vec<(String, String, String)> = Vec::new();
     for (file, op) in ops.iter_mut() {
+        // A line written as the design has it may always be removed: the
+        // repair of one the build refuses (a short name grown ambiguous).
+        if let Op::UnsetParam { name, .. } = &*op {
+            let written = snap
+                .iter()
+                .find(|(f, _, _)| f == file)
+                .and_then(|(_, text, _)| exact_tamber::parse(text).ok())
+                .is_some_and(|d| d.params.iter().any(|e| e.name.value == *name));
+            if written
+                && contract_lower::params::resolve(&app.tokens, &app.identities, name).is_err()
+            {
+                continue;
+            }
+        }
         let name = match op {
             Op::SetParam { name, .. } | Op::UnsetParam { name, .. } => name,
             _ => continue,
@@ -173,6 +187,7 @@ pub(crate) fn param_values(
     files: &[(String, String)],
     app: &contract::tamber_params::AppParams,
     vocab: &exact_tamber::Vocab,
+    dir: &std::path::Path,
 ) -> Result<(), Value> {
     let list = &app.tokens;
     for (file, text) in files {
@@ -181,9 +196,17 @@ pub(crate) fn param_values(
         };
         let message = |m: &str| contract_lower::params::shown(m, list);
         let at = |line: u32, col: u32, id: &str, m: &str| json!({"file": file, "line": line, "col": col, "id": id, "message": message(m)});
+        // A line the build refuses (ambiguous, or a second for one param),
+        // then each value written out of its range.
         let mut refused: Vec<Value> =
-            contract_lower::params::written_ranges(&design, list, &app.identities)
+            contract_lower::params::entry_errors(&design, list, &app.identities)
                 .iter()
+                .chain(&contract_lower::params::written_ranges(
+                    &design,
+                    list,
+                    &app.identities,
+                    vocab,
+                ))
                 .map(|(line, col, e)| at(*line, *col, e.id, &e.message))
                 .collect();
         let laid = contract::tamber_params::laid(&design, app);
@@ -196,6 +219,13 @@ pub(crate) fn param_values(
                 }
             })),
             Ok(folding) if refused.is_empty() => {
+                // An icon param's SVG is the app's file (D10), as the build
+                // reads it.
+                for i in folding.icons.iter().filter(|i| i.name.starts_with(contract_lower::params::PREFIX)) {
+                    if let Some(svg) = i.svg.as_ref().filter(|f| !dir.join("assets").join(f).is_file()) {
+                        refused.push(json!({"file": file, "id": "tamber-icon-svg", "message": message(&format!("`{}`: `assets/{svg}` is no file of the app", i.name))}));
+                    }
+                }
                 // A value set charged to its line, a default to its own.
                 let overridden: Vec<(String, contract_syntax::Span)> = design
                     .params
@@ -206,7 +236,7 @@ pub(crate) fn param_values(
                     })
                     .collect();
                 refused.extend(
-                    contract_lower::params::folded(list, &folding, &overridden)
+                    contract_lower::params::folded(list, &folding, &overridden, None)
                         .iter()
                         .map(|e| match overridden.iter().any(|(_, s)| *s == e.span) {
                             true => at(e.span.line, e.span.col, e.id, &e.message),

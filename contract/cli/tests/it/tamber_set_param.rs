@@ -411,3 +411,90 @@ fn a_param_may_read_a_dial_only_params_read() {
     let out = s.ask(json!({"method": "propose", "ops": [{"op": "set-param", "name": "PostButton.radius", "value": "calc(pad + 1px)"}]}));
     assert!(out["ok"].is_object(), "{out}");
 }
+
+#[test]
+fn round_two_a_dominated_token_an_ambiguous_line_branch_pins_and_an_icon_file() {
+    // A `when` naming a token out of range, though no tuple picks it: at
+    // its own line.
+    let dir = app("dominated");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  density = regular | compact\n  size = small | large\n\ntheme\n  radius.md = 12px\n  radius.big = 80px\n  duration.fast = 150ms\n\nparams\n  PostButton.radius = 8px\n    when density=compact: radius.big\n    when density=compact size=small: 8px\n    when density=compact size=large: 8px\n",
+    )
+    .unwrap();
+    let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(
+        (e.id.as_ref(), e.span.line),
+        ("tamber-param-range", 14),
+        "{e:?}"
+    );
+    // A conditional literal no longer follows the default's token there.
+    std::fs::write(
+        dir.join("app.tamber"),
+        format!(
+            "{DESIGN}\nparams\n  PostButton.radius = radius.md\n    when density=compact: 8px\n"
+        ),
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir);
+    let described = s.ask(json!({"method": "describe"}));
+    let radius = &described["ok"]["ir"]["components"][0]["params"][0];
+    assert_eq!(radius["pinned"], json!(["radius.md"]), "{radius}");
+    drop(s);
+    // A short line grown ambiguous: another write is refused until it is
+    // removed, which its own spelling may always do.
+    let amb = std::env::temp_dir().join(format!("exact2-set-param-amb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&amb);
+    std::fs::create_dir_all(amb.join("b")).unwrap();
+    std::fs::write(amb.join("a.contract"), "component Card\n  params\n    inset: length = \"4px\"\n  view\n    column padding=\"param.inset\"\n      text \"a\"\n").unwrap();
+    std::fs::write(
+        amb.join("b/c.contract"),
+        "component Card\n  view\n    column\n      text \"b\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        amb.join("app.contract"),
+        "use Card from \"./a.contract\"\nuse Card as Other from \"./b/c.contract\"\n\ncomponent App\n  view\n    column\n      Card()\n      Other()\n",
+    )
+    .unwrap();
+    std::fs::write(
+        amb.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n\nparams\n  Card.inset = 9px\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&amb);
+    let other = s.write(
+        &amb,
+        json!([{"op": "set-param", "name": "a.contract#Card.inset", "value": "4px"}]),
+    );
+    assert_eq!(
+        other["error"]["diagnostics"][0]["id"], "tamber-param-ambiguous",
+        "{other}"
+    );
+    let repair = s.write(&amb, json!([{"op": "unset-param", "name": "Card.inset"}]));
+    assert!(repair["ok"].is_object(), "{repair}");
+    drop(s);
+    // An icon param set to an SVG the app lacks is refused.
+    let icons = std::env::temp_dir().join(format!("exact2-set-param-svg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&icons);
+    std::fs::create_dir_all(&icons).unwrap();
+    std::fs::write(
+        icons.join("app.contract"),
+        "component App\n  params\n    glyph: icon = \"icon(sf \\\"star\\\")\"\n  view\n    column\n      image \"symbol:param.glyph\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        icons.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&icons);
+    let svg = s.write(
+        &icons,
+        json!([{"op": "set-param", "name": "App.glyph", "value": "icon(svg \"missing.svg\")"}]),
+    );
+    assert_eq!(
+        svg["error"]["diagnostics"][0]["id"], "tamber-icon-svg",
+        "{svg}"
+    );
+}

@@ -113,26 +113,20 @@ impl Doc {
         for l in lines.into_iter().rev() {
             self.lines.remove(l as usize - 1);
         }
-        // The block emptied: its header and the blank lines before it go.
+        // The block emptied: it goes whole, the comments in it too (an
+        // undo restores the bytes), and the blank lines before it.
         if design.params.len() == 1 {
-            if let Some(header) = self.params_header() {
-                let empty = self.lines[header + 1..]
-                    .iter()
-                    .take_while(|l| !l.trim().is_empty() && l.starts_with(' '))
-                    .count()
-                    == 0;
-                if empty {
+            if let (Some(header), Some(end)) = (self.params_header(), self.block_end("params")) {
+                self.lines.drain(header..end);
+                // One blank line separates blocks: the one after it, or
+                // at the end, those before it.
+                if self.lines.get(header).is_some_and(|l| l.trim().is_empty()) {
                     self.lines.remove(header);
-                    // One blank line separates blocks: the one after it, or
-                    // at the end, those before it.
-                    if self.lines.get(header).is_some_and(|l| l.trim().is_empty()) {
-                        self.lines.remove(header);
-                    } else {
-                        let mut at = header;
-                        while at > 0 && self.lines[at - 1].trim().is_empty() {
-                            self.lines.remove(at - 1);
-                            at -= 1;
-                        }
+                } else {
+                    let mut at = header;
+                    while at > 0 && self.lines[at - 1].trim().is_empty() {
+                        self.lines.remove(at - 1);
+                        at -= 1;
                     }
                 }
             }

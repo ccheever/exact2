@@ -326,22 +326,26 @@ pub fn declared(params: &[ParamToken]) -> (Vec<LowerError>, Vec<usize>) {
 /// Each param checked as it folds, for every tuple: a ranged length is px
 /// (`tamber-range-unit`) and every value is inside its range; a `select`'s
 /// options name tokens of its kind. A param the design sets (`overridden`,
-/// each token with its line's span) is refused at that line.
+/// each token with its line's span) has its range checked as each value is
+/// written ([`written_ranges`], which passes that value's span as
+/// `written`), and the rest refused at its line.
 pub fn folded(
     params: &[ParamToken],
     folding: &exact_tamber::Folding,
     overridden: &[(String, Span)],
+    written: Option<Span>,
 ) -> Vec<LowerError> {
     use exact_tamber::{Length, Value};
     let mut errors = Vec::new();
     for t in params {
         let p = &t.param;
-        let span = overridden
-            .iter()
-            .find(|(token, _)| *token == t.token)
-            .map_or(p.default_span, |(_, span)| *span);
+        let set = overridden.iter().find(|(token, _)| *token == t.token);
+        let span = written.or(set.map(|(_, s)| *s)).unwrap_or(p.default_span);
         let refuse = |id: &'static str, message: String| LowerError { id, message, span };
-        if let Some(Ok((low, high))) = range(p) {
+        // A value the design sets is checked as written, each at its line
+        // ([`written_ranges`]).
+        let ranged = written.is_some() || set.is_none();
+        if let (true, Some(Ok((low, high)))) = (ranged, range(p)) {
             let Some(token) = folding.tokens.iter().find(|c| c.name == t.token) else {
                 continue;
             };
@@ -407,55 +411,81 @@ pub fn folded(
     errors
 }
 
-/// Each literal value a line of the design's `params` block writes (its
-/// own and each `when` line's) outside its param's range, at that value's
-/// line and column: a `when` value no tuple picks is checked too, as the
-/// author wrote it. A value naming tokens is checked as it folds
-/// ([`folded`]).
+/// Each value a line of the design's `params` block writes (its own and
+/// each `when` line's) that folds outside its param's range in some tuple,
+/// or to a length that is no px (`tamber-range-unit`), at that value's line
+/// and column: each is folded on its own in its param's place, so a `when`
+/// value no tuple picks is checked too, as written, a token's or a `calc()`
+/// as well as a literal. A value that does not fold is the fold's to say.
 pub fn written_ranges(
     design: &exact_tamber::Design,
     params: &[ParamToken],
     identities: &[String],
+    vocab: &exact_tamber::Vocab,
 ) -> Vec<(u32, u32, LowerError)> {
     let mut out = Vec::new();
-    for entry in &design.params {
+    for (index, entry) in design.params.iter().enumerate() {
         let Ok(t) = resolve(params, identities, &entry.name.value) else {
             continue;
         };
-        let Some(Ok((low, high))) = range(&t.param) else {
+        if range(&t.param).is_none() {
             continue;
-        };
+        }
         let values = std::iter::once(&entry.value).chain(entry.whens.iter().map(|w| &w.value));
         for v in values {
-            let text = v.value.trim();
-            let n = match t.param.kind.as_str() {
-                "length" => text
-                    .strip_suffix("px")
-                    .and_then(|n| n.trim().parse::<f64>().ok()),
-                "duration" => text
-                    .strip_suffix("ms")
-                    .and_then(|n| n.trim().parse::<f64>().ok())
-                    .or_else(|| {
-                        text.strip_suffix('s')
-                            .and_then(|n| n.trim().parse::<f64>().ok())
-                            .map(|s| s * 1000.0)
-                    }),
-                _ => text.parse::<f64>().ok(),
+            let mut probe = design.clone();
+            probe.params[index].value = v.clone();
+            probe.params[index].whens.clear();
+            add_to(&mut probe, params, identities);
+            crate::theme::stand_in_profiles(&mut probe);
+            let Ok(folding) = exact_tamber::check_design(probe, vocab) else {
+                continue;
             };
-            if n.is_some_and(|n| n < low || n > high) {
-                out.push((
-                    v.line,
-                    v.col,
-                    LowerError {
-                        id: "tamber-param-range",
-                        message: format!(
-                            "param `{}` is set to {text}, outside its range {low}..{high}",
-                            t.full
-                        ),
-                        span: Span::default(),
-                    },
-                ));
+            let span = Span {
+                line: v.line,
+                col: v.col,
+                end_col: v.col,
+                source_id: 0,
+            };
+            for e in folded(std::slice::from_ref(t), &folding, &[], Some(span)) {
+                if matches!(e.id, "tamber-param-range" | "tamber-range-unit") {
+                    out.push((v.line, v.col, e));
+                }
             }
+        }
+    }
+    out
+}
+
+/// Each line of the design's `params` block the build refuses, at its
+/// name: a short name two components share (`tamber-param-ambiguous`),
+/// and a second line for one param (`tamber-param-twice`). The compiler and
+/// the design server both refuse a design with one.
+pub fn entry_errors(
+    design: &exact_tamber::Design,
+    params: &[ParamToken],
+    identities: &[String],
+) -> Vec<(u32, u32, LowerError)> {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut out = Vec::new();
+    for entry in &design.params {
+        let at = (entry.name.line, entry.name.col);
+        match resolve(params, identities, &entry.name.value) {
+            Ok(p) if seen.contains(&p.token.as_str()) => out.push((
+                at.0,
+                at.1,
+                LowerError {
+                    id: "tamber-param-twice",
+                    message: format!(
+                        "`{}`: the design's `params` block already gives `{}` a value; one line a param (its `when` lines under it)",
+                        entry.name.value, p.full
+                    ),
+                    span: Span::default(),
+                },
+            )),
+            Ok(p) => seen.push(&p.token),
+            Err(e) if e.id == "tamber-param-ambiguous" => out.push((at.0, at.1, e)),
+            Err(_) => {}
         }
     }
     out

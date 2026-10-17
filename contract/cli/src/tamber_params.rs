@@ -98,7 +98,8 @@ pub fn laid(design: &exact_tamber::Design, app: &AppParams) -> exact_tamber::Des
 
 /// `text`, a design, folded with the app's params, its `params` lines in
 /// their places, and the design as parsed, without them; a refusal as the
-/// fold gives it ([`relocate`] it).
+/// fold gives it ([`relocate`] it), and one for a `params` line the build
+/// refuses.
 pub fn fold_with(
     text: &str,
     app: &AppParams,
@@ -106,27 +107,70 @@ pub fn fold_with(
 ) -> Result<(exact_tamber::Folding, exact_tamber::Design), Vec<exact_tamber::Diagnostic>> {
     let design = exact_tamber::parse(text)?;
     let folding = exact_tamber::check_design(laid(&design, app), vocab)?;
+    // A `params` line the build refuses (ambiguous, or a param's second).
+    let refused: Vec<exact_tamber::Diagnostic> =
+        params::entry_errors(&design, &app.tokens, &app.identities)
+            .into_iter()
+            .map(|(line, col, e)| exact_tamber::Diagnostic {
+                id: e.id,
+                message: e.message,
+                line,
+                col,
+            })
+            .collect();
+    if !refused.is_empty() {
+        return Err(refused);
+    }
     Ok((folding, design))
 }
 
+/// The words of `text` a token name may be.
+fn words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
+        .filter(|w| !w.is_empty())
+}
+
 /// The names `text` reads that are tokens or icons of `folding`, and every
-/// token those read in turn.
-fn reads(text: &str, folding: Option<&exact_tamber::Folding>) -> Vec<String> {
+/// one those read in turn: a token's names, and an icon's alias as the
+/// design writes it (`design`, before aliases are resolved), a param's by
+/// its value (the design's `params` line, else its default).
+fn reads(
+    text: &str,
+    folding: Option<&exact_tamber::Folding>,
+    design: &exact_tamber::Design,
+    app: &AppParams,
+) -> Vec<String> {
     let Some(f) = folding else {
         return Vec::new();
     };
-    let mut out: Vec<String> = text
-        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-        .filter(|w| f.tokens.iter().any(|t| t.name == *w) || f.icons.iter().any(|i| i.name == *w))
+    let known =
+        |w: &str| f.tokens.iter().any(|t| t.name == w) || f.icons.iter().any(|i| i.name == w);
+    let mut out: Vec<String> = words(text)
+        .filter(|w| known(w))
         .map(str::to_string)
         .collect();
     let mut i = 0;
     while i < out.len() {
-        if let Some(t) = f.tokens.iter().find(|t| t.name == out[i]) {
-            for n in &t.names {
-                if !out.contains(n) {
-                    out.push(n.clone());
-                }
+        let name = out[i].clone();
+        let mut next: Vec<String> = f
+            .tokens
+            .iter()
+            .find(|t| t.name == name)
+            .map_or(Vec::new(), |t| t.names.clone());
+        if let Some(icon) = design.icons.iter().find(|t| t.name.value == name) {
+            next.extend(words(&icon.value.value).map(str::to_string));
+        }
+        if let Some(p) = app.tokens.iter().find(|p| p.token == name) {
+            let set = design.params.iter().find(|e| {
+                params::resolve(&app.tokens, &app.identities, &e.name.value)
+                    .is_ok_and(|r| r.token == p.token)
+            });
+            let value = set.map_or(p.param.default.clone(), |e| e.value.value.clone());
+            next.extend(words(&value).map(str::to_string));
+        }
+        for n in next {
+            if known(&n) && !out.contains(&n) {
+                out.push(n);
             }
         }
         i += 1;
@@ -195,18 +239,26 @@ pub fn components(
                 // Each token or icon the default names that the set value
                 // and its `when` values no longer read, directly or through
                 // another token.
+                // Each token or icon the default names that a value set
+                // (the line's own, or a `when` line's) no longer reads,
+                // directly or through another: D14's mark, per branch.
                 let pinned: Vec<String> = match set {
                     Some(e) => {
-                        let mut written = vec![e.value.value.clone()];
-                        written.extend(e.whens.iter().map(|w| w.value.value.clone()));
-                        let kept = reads(&written.join(" "), folding.as_ref());
-                        let mut direct = reads(&q.param.default, folding.as_ref());
-                        direct.retain(|w| q.param.default.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))).any(|d| d == w));
-                        direct
+                        let direct: Vec<String> = reads(&q.param.default, folding.as_ref(), &design, app)
                             .into_iter()
-                            .filter(|w| !kept.contains(w))
-                            .map(|w| params::shown(&w, all))
-                            .collect()
+                            .filter(|w| words(&q.param.default).any(|d| d == w))
+                            .collect();
+                        let branches = std::iter::once(&e.value.value).chain(e.whens.iter().map(|w| &w.value.value));
+                        let mut lost: Vec<String> = Vec::new();
+                        for b in branches {
+                            let kept = reads(b, folding.as_ref(), &design, app);
+                            for w in direct.iter().filter(|w| !kept.contains(w)) {
+                                if !lost.contains(w) {
+                                    lost.push(w.clone());
+                                }
+                            }
+                        }
+                        lost.iter().map(|w| params::shown(w, all)).collect()
                     }
                     None => Vec::new(),
                 };

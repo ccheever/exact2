@@ -261,26 +261,19 @@ impl Lowerer<'_> {
         let identities = crate::params::identities(file);
         let mut overridden: Vec<(String, Span)> = Vec::new();
         for entry in &design.params {
-            let span = self.token_span(&origin, entry.name.line, entry.name.col);
-            match crate::params::resolve(&kinded, &identities, &entry.name.value) {
-                Ok(p) if overridden.iter().any(|(t, _)| *t == p.token) => {
-                    self.push(LowerError {
-                        id: "tamber-param-twice",
-                        message: format!(
-                            "`{}`: the design's `params` block already gives `{}` a value; one line a param (its `when` lines under it)",
-                            entry.name.value, p.full
-                        ),
-                        span,
-                    });
+            if let Ok(p) = crate::params::resolve(&kinded, &identities, &entry.name.value) {
+                if !overridden.iter().any(|(t, _)| *t == p.token) {
+                    let span = self.token_span(&origin, entry.name.line, entry.name.col);
+                    overridden.push((p.token.clone(), span));
                 }
-                Ok(p) => overridden.push((p.token.clone(), span)),
-                Err(e) if e.id == "tamber-param-ambiguous" => {
-                    self.push(LowerError { span, ..e });
-                }
-                Err(_) => {}
             }
         }
-        for (line, col, e) in crate::params::written_ranges(&design, &kinded, &identities) {
+        for (line, col, e) in crate::params::entry_errors(&design, &kinded, &identities) {
+            let span = self.token_span(&origin, line, col);
+            self.push(LowerError { span, ..e });
+        }
+        for (line, col, e) in crate::params::written_ranges(&design, &kinded, &identities, &vocab())
+        {
             let span = self.token_span(&origin, line, col);
             self.push(LowerError { span, ..e });
         }
@@ -385,7 +378,7 @@ impl Lowerer<'_> {
                 }
             }
         };
-        for e in crate::params::folded(&kinded, &folding, &overridden) {
+        for e in crate::params::folded(&kinded, &folding, &overridden, None) {
             self.push(e);
         }
         // @ref LLP 1121 D10 — the icons' SVGs, and a source per shipped target.
