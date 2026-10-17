@@ -400,7 +400,7 @@ As of 2026-10-17, after merging main's macOS fixes (exact2 PRs #636 to #640, #64
 closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view loop's first stop
 and a placeholder change keeping a field's focus, failure 2, then #712, a context menu's item chosen
 by typing its name and Return pressing it), a session with real keys on the terminal, the
-real-input and VoiceOver sessions G to K, an agent drive and real-input session on the bundle
+real-input and VoiceOver sessions G to L, an agent drive and real-input session on the bundle
 of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2`, `c067957ad`, `966bb0d79`,
 `ea15f98f0` with `571d07c17`, and `6b1fc7dde`, each with the fixtures below. Each item says what is
 wrong or missing; the open framework issues that someone using the app runs into are in the section
@@ -466,8 +466,20 @@ above.
 - The font picker and Add Environment name their dialog after the focused field or radio, about
   0.5 s later (H-10, J18, J21, FN32), the order exact2 PRs #664 and #679 chose; a caption window
   shorter than that misses the name.
-- ⌘Z after snoozing a background row from another environment once left it snoozed (FN29); it
-  did not reproduce, and the input tool could not choose the submenu item again.
+- ⌘Z after snoozing a background row from another environment undoes it while the undo notice
+  lasts, 5 s (`sidebar-commands.ts`); a ⌘Z after that leaves the row snoozed (FN29).
+- A composer pull request chip is named 'Open Open pull request #132: …': the reference's own
+  template, `Open ${kindLabel} …` with the kind label 'Open pull request' (contextChipParts.tsx:113).
+- With Reduce motion on, a legacy project's rows jump as it collapses but its chevron still turns,
+  as the reference's (`transition-transform duration-150` with no motion-reduce variant,
+  LegacySidebar.tsx:2405-2409).
+- Return on a focused button that is not the default one, such as 'Edit Echo test', does nothing
+  and Space presses it, as in any AppKit window (Return presses the default button).
+- A press outside a chip's popover closes it and still does what it lands on (a press on a
+  timeline image opens its preview), as Base UI's outside press lets the press through.
+- Interface fonts: a picked family's bold face draws the bold text (Georgia Bold for the PR title
+  and project names) and persists across a relaunch; no fixture has italic text, so the italic
+  face was not seen (N17).
 - Pull Requests in the lane: 'GitHub CLI returned no login for the authenticated account' and a
   first click on #144 that did not open it come from the github-lane fixture's `gh` stand-in;
   the list loaded and the second click opened it. The timeline's 'Image unavailable' for a table
@@ -496,16 +508,17 @@ above.
   `!terminalFocus && !editableFocus`).
 - The right panel toggle moves from the chat header into the panel when the panel opens, as the
   reference's does.
-- Session K did not run some rows, for want of fixture data or because the task left them out;
-  none is a failure. Since checked (below): H-2's reset-credit confirm, the diff Turn submenu, the
-  approval menu (FN5), a diff comment (FN7), and the linked pull request's actions menu and Reply.
-  Still not run: FN8's Usage part (the confirm covers
-  'Toggle main sidebar'; the driver does not read `inert`), FN17 (no real-input path makes a
-  focused control disabled), G-5's Remove project (a native menu choice, real input only; the
-  fixture now has `empty-project`), the project scope search, and realinput-1015c row 24.
-  J9, J11, J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran on the
-  T3 lane instead of PR #676's test app (58 of 58 outside presses closed the popovers), and J19's
-  NSPopover path does not exist in the clone.
+- Sessions K and L did not run some rows, for want of fixture data or because the task left them
+  out; none is a failure. Since checked (below): H-2's reset-credit confirm, the diff Turn submenu,
+  the approval menu (FN5), a diff comment (FN7), the linked pull request's actions menu and Reply,
+  and G-5's Remove project on an empty project (session L). Still not run: FN8's Usage part (the
+  confirm covers 'Toggle main sidebar'; the driver does not read `inert`), FN17 (no real-input path
+  makes a focused control disabled), the project scope search, FN32's dialog over Add Environment
+  (none opens there), a zoomed image's drag that reverses within one press, and realinput-1015c
+  row 24. J9, J11, J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran
+  on the T3 lane instead of PR #676's test app (58 of 58 outside presses closed the popovers, and 9
+  of 9 on the linked pull request's menu in session L), and J19's NSPopover path does not exist in
+  the clone.
 
 **Checked with real pointer** (2026-10-17, bundle of `6b1fc7dde`, the flat sidebar, a lane copy): with
 the prompt focused, a right press on a draft row focuses the row ('draft for the row check, Unsent draft,
@@ -557,6 +570,20 @@ buttons; the Snoozed header and Wake; and Tab through the legacy Rename project 
 `aria-modal` row with no role, is served by its field. VO-Space on 'Edit shortcut for Chat: New'
 reads 'Keybinding for Chat: New Press shortcut, edit text', and VO-F3 'Keybinding for Chat: New,
 edit text, is in the VoiceOver cursor' (2 of 2; before, 'scroll area'). The clone needed no change.
+
+**Checked with real keys, pointer and VoiceOver** (session L, 2026-10-17, bundle of
+`9ee4e4e88`): each Settings page opening at its top after another was scrolled, and the search
+jump landing from General (L1); Remove project on an empty project and Project grouping, read as
+dialogs from an empty prompt (N3, G-5); light dismiss of the linked pull request's actions menu
+and the script and Git menus (N5, J10); Reduce motion (N12, with the note above); the thread, pull
+request, review comment and annotation chips by pointer (N14); the branch PR glyph, flat and
+legacy (N16); Tab and Shift-Tab in the file and image previews (N20); an HTML preview's
+own-section, `target=_top` and `target=_blank` links (N21); the image preview refitting after a
+window resize (N22, FN23); Escape on 'Remove from this device…' and 'Delete action?' by keys
+(N23); Escape on a git dialog over the thread-details popover in a narrow window (N24); a flat
+sidebar drag (FN13); the shortcut recorder read as a text field (FN15); ⌘Z after a snooze from
+another environment (FN29); and 한글 typed as the first word in an app the input method had not
+met, in the terminal and the composer.
 
 **Checked by real input** (2026-10-17, bundle of `ea15f98f0` with `571d07c17`, `second` seeded with
 `--turns`; a lane copy with Lane Second paired in Settings › Connections, quit by holding ⌘Q): relaunched as
@@ -655,6 +682,30 @@ Inspect and the inspector each counts as an outside press, as the window's other
 window's count went 8 to 13, one per press). Escape in a new binding's recorder after a real
 click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeholder fix).
 
+**Fixed, not checked with real input or VoiceOver:**
+
+- Context another panel adds to the composer (a review comment, a terminal excerpt, a thread
+  dropped from the sidebar, a citation, a Browser annotation, an attached file or image) goes in
+  at the start of the selection and deletes nothing, as the reference's `insertComposerText` at
+  "cursor" (ChatComposer.tsx:6041-6120): a chip left selected after its preview closes stays in
+  the draft. It replaced the selected chip before (session L, 3 of 3).
+- A chip's details popover (a skill, a review comment, a preview annotation, a terminal excerpt)
+  takes the focus as it opens, by pointer or VO-Space: its first tabbable (View instructions, the
+  terminal output) or the popup, so VoiceOver reads '<label>, dialog'. Escape gives the prompt
+  back the focus with the chip selected, and an outside press leaves the focus where the press
+  put it. Measured on T3 Code (an isolated copy, VoiceOver, the Settings prompt sample): VO-Space
+  or a click on 'Skill Frontend Design. Show details' reads 'Skill Frontend Design, dialog,
+  Skill Frontend Design, and 2 more items, group' with the popup focused; Escape returns to the
+  chip; a press on the Typography heading leaves the focus on the page. Before, VoiceOver kept
+  reading the prompt (N11, N25).
+- Mark unread shows nothing when the server refuses it, from every menu and environment, as the
+  reference's `useMarkThreadUnread` (`reportFailure: false`): the flat row, multi-selection and
+  More actions menus showed 'Failed to mark thread unread' before (`sidebar-mark-unread.test.ts`).
+- Pairing a saved environment again reconnects it with the new credential, as the reference's
+  `EnvironmentRegistry.register` restarts its connection: a background environment that failed for
+  want of a credential connects and its row stops saying 'Connection failed'. Before, it kept the
+  failure (`connections-repair.test.ts`).
+
 **Checked with real keys** (2026-10-16):
 
 - Light dismiss on macOS (exact2 PR #676, rows H-6 and H-7): a real click in the composer, Search
@@ -701,23 +752,24 @@ Real-input sessions should type IME rows with held keys: orca's zero-dwell press
 input method commit a jamo at once. They should switch input sources with the system shortcut or
 menu, not TISSelectInputSource, before they judge IME rows.
 
-**Not checked yet:** the thread, pull request, review comment and annotation chips by pointer,
-the context popover and progress bars under VoiceOver (the ACP stand-in's threads now have a
-context meter), the branch's PR glyph, and bold and italic font faces. Also:
+**Not checked yet:** the context popover and progress bars under VoiceOver (the ACP stand-in's
+threads now have a context meter), and an italic font face (no fixture has italic text). Also:
 
-- In an HTML preview a `target="_blank"` link opens the default browser, a `_top` link does nothing
-  and a link to the page's own section scrolls the frame; the image preview refitting after a window
-  resize.
-- Escape on a git dialog or the Merge confirmation over the thread-details popover in a narrow
-  window.
+- Escape on the Merge confirmation over the thread-details popover in a narrow window.
 - VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf, the
   citation and the thread chip pass).
+- Once, in session L, VO-Right from Message skipped every composer chip; after the caret moved it
+  read them in text order, every later time. Not isolated.
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** G-5's Remove project by its native menu, and the list above.
+**Next real-input session:** the fixes under "Fixed, not checked" (in the composer, a selected
+file, image or review comment chip kept when a review comment, an image or an annotation is added;
+VO-Space and a click on a review comment, annotation and the Settings sample's skill chip reading
+the dialog, then Escape back to the prompt with the chip selected), and the rows under "Not
+checked yet".
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.

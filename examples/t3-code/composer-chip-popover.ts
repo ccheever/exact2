@@ -123,7 +123,7 @@ export async function chipPopoverView(client: T3Client, native: Native | null | 
 }
 
 /**
- * `editorlocal:chip-close` (a press outside, Escape on the window) and `editorlocal:chip-instructions` (View instructions);
+ * `editorlocal:chip-close` (a press outside; Escape on the window, value `escape`) and `editorlocal:chip-instructions` (View instructions);
  * a citation's comment's `chip-cite-…` (citation-comment.ts).
  */
 export async function chipPopoverLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
@@ -133,7 +133,8 @@ export async function chipPopoverLocal(client: T3Client, native: Native, op: str
   if (op.startsWith('chip-image-')) return composerImageStep(client, op); // the expanded image preview's close and steps
   if (op === 'chip-file') return composerFileLocal(client, native, id, value); // a file chip's preview (composer-chip-file.ts)
   if (op !== 'chip-close' && op !== 'chip-instructions') throw new ClientError(`Unknown editor action: ${op}`);
-  await bridgeReply(native, { op: 'editorChipClose', seq: Number(id) || 0 }).catch(() => undefined);
+  // Escape gives the prompt the focus back with the chip selected (PopoverPopup's finalFocus: the chip, its trigger).
+  await bridgeReply(native, { op: 'editorChipClose', seq: Number(id) || 0, ...(op === 'chip-close' && value === 'escape' ? { escape: true } : {}) }).catch(() => undefined);
   if (op === 'chip-instructions' && value) await openFileSurface(client, native, value, 0);
   return '';
 }
