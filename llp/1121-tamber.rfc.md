@@ -3346,7 +3346,7 @@ verifying build (not reproduced in three replays); and the iOS tamber smoke's re
   `looks` table, `{state, bindings}` (0 `:active`, 1 `:hover`, 2 `:focus-visible`), and the nodes'
   `looks` range, one look a state with the class's and the node's rows composed by longhand, each a
   literal style row as a static row's (a token's name stays a name, for a live batch and a mode).
-  No host reads it until B. FORMAT_DIGEST moves to `0x37d8_94cf_b482_a257`: every host takes a new
+  No host reads it until B. FORMAT_DIGEST moves to `0x3d64_575c_f08b_0862`: every host takes a new
   binary (plan decode is generated), and none applies looks yet.
 - **LLP 1001** declares the `:checked` deviation.
 - **Tests:** `contract/cli/tests/it/state_parts.rs`: `:checked` under `:disabled` on a checked,
