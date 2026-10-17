@@ -91,6 +91,32 @@ export async function mobilePreferencesResource(native?: Native | null) {
   const snapshot = await mobileSettingsPreferences(native);
   return { ready: snapshot.ready, error: snapshot.error, revision: snapshot.revision, serialized: JSON.stringify(snapshot) };
 }
+type PreferenceChoiceWrite = {
+  readonly mutation: string; readonly source: string; readonly args: readonly unknown[];
+  readonly reply?: unknown; readonly answered: boolean;
+};
+const preferenceChoiceValues: Readonly<Record<string, readonly string[]>> = {
+  composerEnterBehavior: ['send', 'newline'], followUpBehavior: ['queue', 'steer'],
+  projectGroupingMode: ['repository', 'repository_path', 'separate'],
+};
+/** Pending choice intents share the effective preferences consumed by Root, without changing read metadata. */
+export function overlayMobilePreferenceChoices(answer: unknown, writes: readonly PreferenceChoiceWrite[]) {
+  const resource = obj(answer);
+  if (typeof resource.serialized !== 'string') return undefined;
+  let snapshot: unknown;
+  try { snapshot = JSON.parse(resource.serialized); } catch { return undefined; }
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return undefined;
+  const patch: Record<string, string> = {};
+  for (const write of writes) {
+    if (write.mutation !== 'choicePreferenceChanged' || write.source !== 'preferenceChange' || write.answered) continue;
+    if (write.reply !== undefined && obj(write.reply).message !== '') continue;
+    const [key, value] = write.args;
+    if (typeof key !== 'string' || typeof value !== 'string' || !Object.hasOwn(preferenceChoiceValues, key)
+      || !preferenceChoiceValues[key]!.includes(value)) continue;
+    patch[key] = value;
+  }
+  return Object.keys(patch).length ? { ...resource, serialized: JSON.stringify({ ...snapshot, ...patch }) } : undefined;
+}
 /** Root runs on initial preference load and after themeMode changes using its existing presentation op. */
 export async function mobileApplyAppearance(input: unknown, native?: Native | null) {
   if (!native?.available) return { revision: 0, message: 'Open T3 Code on your iPhone or iPad.' };
