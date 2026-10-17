@@ -581,7 +581,7 @@ fn compare_revert_plan_and_import_plan() {
     let (imported, _) = s.ask(json!({"method": "import-plan", "kind": "shadcn", "source": css}));
     assert_eq!(
         imported["ok"]["counted"],
-        json!({"source": 47, "mapped": 46, "reported": 1})
+        json!({"source": 47, "mapped": 47, "reported": 0})
     );
     assert_eq!(imported["ok"]["offers"].as_array().unwrap().len(), 5);
     // A DTCG export of several files, each named as the file picker gave it.
@@ -597,7 +597,7 @@ fn compare_revert_plan_and_import_plan() {
     let (figma, _) = s.ask(json!({"method": "import-plan", "kind": "dtcg", "sources": sources}));
     assert_eq!(
         figma["ok"]["counted"],
-        json!({"source": 104, "mapped": 40, "reported": 64}),
+        json!({"source": 104, "mapped": 101, "reported": 3}),
         "{figma}"
     );
     // A file name of any characters is no way to stop the server.

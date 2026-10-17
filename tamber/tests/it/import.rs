@@ -37,40 +37,53 @@ fn token_value<'a>(text: &'a str, name: &str) -> &'a str {
 fn shadcn_default_theme_imports_counted_and_again_proposes_nothing() {
     let css = fixture("shadcn-neutral.css");
     let first = shadcn::import(&css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
-    // 24 in :root (23 colours, --radius) and 23 in .dark.
+    // 24 in :root (23 colours, --radius) and 23 in .dark: every one mapped
+    // (stage 6 H made `--radius` a length).
     assert_eq!(
         (
             first.counted.source,
             first.counted.mapped,
             first.counted.reported
         ),
-        (47, 46, 1)
+        (47, 47, 0)
     );
-    let radius = first
+    // The derived sizes as shadcn computes them: `lg` is the radius, and
+    // the rest, a `rem` in `calc()`, are reported outside the count with
+    // the fold's reason and the token each would be.
+    let derived: Vec<(&str, &str)> = first
         .unmapped
         .iter()
-        .find(|u| u.name == "--radius" && u.block.ends_with(":root"))
-        .unwrap();
-    assert_eq!(radius.why, "kind pending (stage 6): length");
-    assert_eq!(radius.token.as_deref(), Some("shadcn.radius"));
-    // The derived sizes are reported with it, outside the count.
+        .filter(|u| u.block == "(derived)")
+        .map(|u| (u.name.as_str(), u.token.as_deref().unwrap_or_default()))
+        .collect();
     assert_eq!(
-        first
-            .unmapped
-            .iter()
-            .filter(|u| u.block == "(derived)")
-            .count(),
-        4
+        derived,
+        [
+            ("--radius-sm", "shadcn.radius.sm"),
+            ("--radius-md", "shadcn.radius.md"),
+            ("--radius-xl", "shadcn.radius.xl")
+        ]
     );
+    assert!(first.unmapped[0].why.starts_with(
+        "derived from --radius, and not a length Tamber folds: `shadcn.radius` in `calc(shadcn.radius - 4px)`: the kernel takes only px"
+    ), "{}", first.unmapped[0].why);
     assert_eq!(
         first
             .ops
             .iter()
             .filter(|o| matches!(o, Op::AddToken { .. }))
             .count(),
-        23
+        25
     );
     let text = accepted(EMPTY, &first);
+    assert!(
+        text.contains("  shadcn.radius: length = 0.625rem\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  shadcn.radius.lg: length = shadcn.radius\n"),
+        "{text}"
+    );
     assert_eq!(
         token_value(&text, "shadcn.background"),
         "light-dark(oklch(1 0 0), oklch(0.145 0 0))"
@@ -207,13 +220,11 @@ html.dark .theme-blue { --primary: #000088; }
     assert_eq!(import.counted.source, 20);
     assert_eq!(
         why("--font"),
-        ["not a colour, and no other kind is built yet (stage 6)"]
+        ["not a colour, nor a length, shadow or family by its name and value"]
     );
-    assert_eq!(why("--gap"), ["kind pending (stage 6): length"]);
-    assert_eq!(
-        why("--space"),
-        ["`--gap` is no colour where this block reads it"]
-    );
+    // A length, and a reference to it the token it names (stage 6 H).
+    assert!(why("--gap").is_empty());
+    assert!(why("--space").is_empty());
     assert_eq!(why("--loop-a").len() + why("--loop-b").len(), 2);
     assert_eq!(
         why("--chart-s1"),
@@ -245,6 +256,11 @@ html.dark .theme-blue { --primary: #000088; }
         "hsl(222.2deg, 84%, 4.9%)"
     );
     assert_eq!(token_value(&text, "shadcn.ring"), "shadcn.foreground");
+    assert!(text.contains("  shadcn.gap: length = 0.5rem\n"), "{text}");
+    assert!(
+        text.contains("  shadcn.space: length = shadcn.gap\n"),
+        "{text}"
+    );
     assert_eq!(token_value(&text, "shadcn.muted"), "#444444");
     assert_eq!(token_value(&text, "shadcn.accent"), "#666666");
     assert_eq!(token_value(&text, "shadcn.card"), "#777777");
@@ -308,36 +324,37 @@ fn shadcn_winners_nesting_and_recovery() {
         import.counted.source
     );
     assert_eq!(import.counted.source, 15);
+    // The later `--z` wins, a length.
     assert_eq!(
         why("--z"),
-        [
-            "declared again later for the same theme block, which wins",
-            "kind pending (stage 6): length"
-        ]
+        ["declared again later for the same theme block, which wins"]
     );
     // `--x` is a length on the dark side: no token, rather than white there.
     assert_eq!(
         why("--x"),
         [
             "`--x` is no colour in `.dark`, where it is set too, so it makes no token",
-            "kind pending (stage 6): length"
+            "a length here and a colour in another block: a token is one kind"
         ]
     );
-    assert_eq!(why("--y"), ["`--x` is no colour where this block reads it"]);
+    assert_eq!(why("--y"), ["`--x` makes no token for it to name"]);
     assert_eq!(
         why("--cc"),
         ["a colour Tamber does not fold yet: `currentcolor` is the element's own colour, which no token can hold"]
     );
     assert_eq!(
         why("--config"),
-        ["not a colour, and no other kind is built yet (stage 6)"]
+        ["not a colour, nor a length, shadow or family by its name and value"]
     );
     assert_eq!(
         why("--d"),
         ["declared again later for the same theme block, which wins"]
     );
     let text = accepted(EMPTY, &import);
-    assert!(!text.contains("shadcn.x ="), "{text}");
+    assert!(!text.contains("shadcn.x"), "{text}");
+    assert!(text.contains("  shadcn.z: length = 1rem\n"), "{text}");
+    // A length only the blue theme sets: its value the default.
+    assert!(text.contains("  shadcn.radius: length = 1rem\n"), "{text}");
     assert_eq!(token_value(&text, "shadcn.ml"), "oklch(0.5 0.1 200)");
     assert_eq!(token_value(&text, "shadcn.after"), "#121212");
     assert_eq!(token_value(&text, "shadcn.d"), "#222222");
@@ -485,10 +502,11 @@ fn tailwinds_default_theme_imports_counted_and_again_proposes_nothing() {
     let css = fixture("tailwind-theme.css");
     let first = tailwind::import(&css, "tw", &parse(EMPTY).unwrap()).unwrap();
     // 419 variables: the 288 colours mapped (13 with a `none` component,
-    // written as the zero CSS reads it as); every other kind pending or
-    // reported.
-    assert_eq!((first.counted.source, first.counted.mapped), (419, 288));
-    assert_eq!(first.counted.reported, 131);
+    // written as the zero CSS reads it as), and 76 of the other kinds (stage
+    // 6 H): spacing, radii, families, type with its leading, weights,
+    // leading, tracking, shadows and easings; the rest reported.
+    assert_eq!((first.counted.source, first.counted.mapped), (419, 364));
+    assert_eq!(first.counted.reported, 55);
     let why = |name: &str| {
         first
             .unmapped
@@ -498,41 +516,19 @@ fn tailwinds_default_theme_imports_counted_and_again_proposes_nothing() {
             .unwrap()
     };
     assert_eq!(
-        why("--spacing"),
-        (
-            "kind pending (stage 6): length".into(),
-            Some("tw.space.base".into())
-        )
-    );
-    assert_eq!(
-        why("--text-xs--line-height"),
-        (
-            "kind pending (stage 6): type".into(),
-            Some("tw.type.xs".into())
-        )
-    );
-    assert_eq!(
-        why("--font-weight-bold"),
-        (
-            "kind pending (stage 6): number".into(),
-            Some("tw.weight.bold".into())
-        )
-    );
-    assert_eq!(
-        why("--ease-in-out"),
-        (
-            "kind pending (stage 6): easing".into(),
-            Some("tw.ease.in-out".into())
-        )
-    );
-    assert_eq!(
         why("--breakpoint-sm").0,
         "no Tamber kind: a breakpoint is layout, CSS's own"
     );
+    // A text shadow is one shadow: Tailwind's lists are reported, with the
+    // fold's reason and the token each would be.
     assert_eq!(
-        why("--inset-shadow-xs").0,
-        "kind pending (stage 6): box-shadow (inset)"
+        why("--text-shadow-sm"),
+        (
+            "not a text-shadow Tamber folds: a text shadow is one shadow, not a list".into(),
+            Some("tw.text-shadow.sm".into())
+        )
     );
+    // Each kind's tokens: `import_kinds.rs`.
     let text = accepted(EMPTY, &first);
     assert_eq!(
         token_value(&text, "tw.red.s500"),
@@ -540,6 +536,7 @@ fn tailwinds_default_theme_imports_counted_and_again_proposes_nothing() {
     );
     assert_eq!(token_value(&text, "tw.black"), "#000");
     assert_eq!(token_value(&text, "tw.neutral.s50"), "oklch(98.5% 0 0)");
+    assert!(text.contains("tw.type.base: type = 1rem/1.5\n"), "{text}");
     let again = tailwind::import(&css, "tw", &parse(&text).unwrap()).unwrap();
     assert_eq!(again.ops, []);
 }
@@ -640,13 +637,11 @@ fn tailwind_reads_defaults_inline_keys_resets_and_whole_blocks_as_tailwind_does(
     }
     // A theme value under a dark media query is still the theme's.
     assert_eq!(token_value(&text, "tw.y"), "#121212");
-    // Resets clear pending rows too; --font-* keeps the weights.
+    // Resets clear the other kinds too; --font-* keeps the weights.
     assert_eq!(why("--spacing-4"), ["reset by `--spacing-*: initial`"]);
     assert_eq!(why("--font-sans"), ["reset by `--font-*: initial`"]);
-    assert_eq!(
-        why("--font-weight-bold"),
-        ["kind pending (stage 6): number"]
-    );
+    assert!(why("--font-weight-bold").is_empty());
+    assert!(text.contains("tw.weight.bold: number = "), "{text}");
 }
 
 #[test]
@@ -778,9 +773,22 @@ fn a_figma_variables_export_imports_counted_with_light_and_dark() {
         first.counted.source
     );
     assert_eq!(first.counted.source, 31 + 31 + 4 + 19 + 19);
-    // 11 + 11 primitive colours (two themes) and 9 + 9 token colours (light, dark).
-    assert_eq!(first.counted.mapped, 40);
+    // 11 + 11 primitive colours (two themes) and 9 + 9 token colours (light,
+    // dark), and 61 numbers (stage 6 H): the strings and booleans reported.
+    assert_eq!(first.counted.mapped, 101);
     let text = accepted(EMPTY, &first);
+    // A number per theme: the default's, and a `when` line for the other.
+    assert!(
+        text.contains(
+            "  figma.radius.lg: number = 0\n    when primitives-completed=modern-theme: 16\n"
+        ),
+        "{text}"
+    );
+    // An alias is written out.
+    assert!(
+        text.contains("  figma.spacing.spacing-sm: number = 8\n"),
+        "{text}"
+    );
     assert!(
         text.contains("  primitives-completed = brutal-theme | modern-theme\n"),
         "{text}"
@@ -805,14 +813,19 @@ fn a_tokens_studio_sample_imports_counted_its_groups_proposed_axes() {
             first.counted.mapped,
             first.counted.reported
         ),
-        (49, 44, 5)
+        (49, 49, 0)
     );
-    assert!(first
-        .unmapped
-        .iter()
-        .any(|u| u.why == "kind pending (stage 6): length"
-            && u.token.as_deref() == Some("ts.borderRadius.lg")));
     let text = accepted(EMPTY, &first);
+    // Tokens Studio's `borderRadius` is a length, a bare number px; each
+    // brand's its `when` line.
+    assert!(
+        text.contains("  ts.borderRadius.lg: length = 8px\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  ts.button.borderRadius: length = 8px\n    when brand=business: 0px\n"),
+        "{text}"
+    );
     assert!(text.contains("  color = green | blue | purple\n"), "{text}");
     assert!(
         text.contains("when color=blue: ts.colors.blue.s600"),
@@ -1281,14 +1294,15 @@ fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
     use exact_tamber::import::astryx;
     let json = fixture("astryx-neutral.json");
     let first = astryx::import(&json, "astryx", &parse(EMPTY).unwrap(), &vocab()).unwrap();
-    // 258 Astryx tokens and the theme's 10 own: 160 colours, 108 reported.
+    // 258 Astryx tokens and the theme's 10 own: 160 colours and 101 of the
+    // other kinds mapped (stage 6 H), 7 reported.
     assert_eq!(
         (
             first.counted.source,
             first.counted.mapped,
             first.counted.reported
         ),
-        (268, 160, 108)
+        (268, 261, 7)
     );
     // The probe: what Tamber's kinds cannot hold yet.
     let tiers: Vec<&str> = first
@@ -1308,19 +1322,28 @@ fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
             "--duration-slow-min"
         ]
     );
-    assert!(
-        first
-            .unmapped
-            .iter()
-            .any(|u| u.name == "--duration-fast"
-                && u.token.as_deref() == Some("astryx.duration.fast"))
-    );
-    assert!(first
+    let rest: Vec<&str> = first
         .unmapped
         .iter()
-        .any(|u| u.name == "--shadow-inset-hover"
-            && u.why == "kind pending (stage 6): box-shadow (inset)"));
+        .filter(|u| !u.why.starts_with("a duration's min or max tier"))
+        .map(|u| u.why.as_str())
+        .collect();
+    assert_eq!(rest, ["no Tamber kind: a line style"]);
     let text = accepted(EMPTY, &first);
+    for line in [
+        "astryx.duration.fast: duration = 125ms",
+        "astryx.ease.standard: easing = cubic-bezier(0.24, 1, 0.4, 1)",
+        "astryx.radius.element: length = 0.625rem",
+        "astryx.weight.bold: number = 700",
+        // A text style's size, weight and leading: one type token.
+        "astryx.type.heading-1: type = 600 1.5rem/1.3333",
+        "astryx.family.code: family = ui-monospace, \"SF Mono\", Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
+        // A ring is an inset box shadow; a shadow's colours keep their sides.
+        "astryx.ring.hover: box-shadow = inset 0px 0px 0px 2px #0074e24D",
+        "astryx.shadow.low: box-shadow = 0 2px 4px light-dark(oklch(0 0 0 / 5%), oklch(0 0 0 / 25%)), 0 4px 8px light-dark(oklch(0 0 0 / 10%), oklch(0 0 0 / 40%)), inset 0 0 0 1px light-dark(transparent, oklch(1 0 0 / 8%))",
+    ] {
+        assert!(text.contains(&format!("  {line}\n")), "{line}\n{text}");
+    }
     assert_eq!(
         token_value(&text, "astryx.accent"),
         "light-dark(#1b1b1b, #f1f1f1)"

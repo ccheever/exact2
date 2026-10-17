@@ -32,15 +32,19 @@
 //! there. A token is a colour in every tuple or makes no token; its default
 //! is the default tuple's (a `light-dark()` of the scheme's sides), and each
 //! other tuple Tamber would not otherwise select its value in is a `when`
-//! line. Other `$type`s are `kind pending (stage 6)` with the token each
-//! would become; borders, transitions, gradients and stroke styles are
-//! reported, as are strings and booleans. Names come from group paths, each
+//! line. A dimension, a number, a family, a duration, a curve, a shadow or
+//! a typography is its kind's token alike, written out (`kinds`), with one
+//! value on both sides of the scheme; borders, transitions, gradients and
+//! stroke styles are reported, as are strings and booleans. Names come from group paths, each
 //! segment made an identifier (`$root` is `root`); collisions are reported.
 
 use super::{colour_literal, counted, reconcile, Import, Mapped, Unmapped};
+use crate::import::kinds as other;
 use crate::{Design, Diagnostic};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+mod kinds;
 
 /// Where a layer applies.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -847,7 +851,8 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
 /// What Tamber makes of a `$type`.
 enum Kind {
     Colour,
-    Pending(&'static str),
+    /// Another kind, by the name `add-token` writes.
+    Other(&'static str),
     Reported(&'static str),
 }
 
@@ -855,15 +860,15 @@ fn kind(ty: Option<&str>) -> Kind {
     match ty.unwrap_or("") {
         "color" => Kind::Colour,
         "dimension" | "borderRadius" | "spacing" | "sizing" | "borderWidth" | "fontSizes"
-        | "letterSpacing" | "paragraphSpacing" => Kind::Pending("length"),
-        "fontFamily" | "fontFamilies" => Kind::Pending("family"),
+        | "letterSpacing" | "paragraphSpacing" => Kind::Other("length"),
+        "fontFamily" | "fontFamilies" => Kind::Other("family"),
         "fontWeight" | "fontWeights" | "number" | "lineHeights" | "opacity" => {
-            Kind::Pending("number")
+            Kind::Other("number")
         }
-        "duration" => Kind::Pending("duration"),
-        "cubicBezier" => Kind::Pending("easing"),
-        "shadow" | "boxShadow" => Kind::Pending("box-shadow"),
-        "typography" => Kind::Pending("type"),
+        "duration" => Kind::Other("duration"),
+        "cubicBezier" => Kind::Other("easing"),
+        "shadow" | "boxShadow" => Kind::Other("box-shadow"),
+        "typography" => Kind::Other("type"),
         "border" => Kind::Reported("no Tamber kind: a border"),
         "transition" => Kind::Reported("no Tamber kind: a transition"),
         "gradient" => Kind::Reported("no Tamber kind: a gradient (its stops stay where they are)"),
@@ -1220,6 +1225,8 @@ pub fn import(
     // Every path's colour in every tuple, or why it makes no token.
     let paths: Vec<&str> = names.keys().map(String::as_str).collect();
     let mut values: BTreeMap<&str, Vec<Colour>> = BTreeMap::new();
+    // Each path's kind besides colour.
+    let mut kinds_of: BTreeMap<&str, &'static str> = BTreeMap::new();
     let mut fates: BTreeMap<&str, String> = BTreeMap::new();
     let mut resolvers: Vec<Resolve> = winners
         .iter()
@@ -1233,6 +1240,7 @@ pub fn import(
     for &path in &paths {
         let mut per = Vec::new();
         let mut failure: Option<String> = None;
+        let mut first: Option<&'static str> = None;
         for ((t, w), r) in tuples.iter().zip(&winners).zip(resolvers.iter_mut()) {
             let label = tuple_name(t, has_scheme, &axes);
             if !w.contains_key(path) {
@@ -1241,16 +1249,54 @@ pub fn import(
                 ));
                 continue;
             }
-            match kind(type_of(defs, w, path).as_deref()) {
+            let ty = type_of(defs, w, path);
+            let k = match kind(ty.as_deref()) {
+                Kind::Colour => "colour",
+                Kind::Other(k) => k,
+                Kind::Reported(_) => "",
+            };
+            if let Some(f) = first.replace(k).filter(|f| *f != k) {
+                let one = match (f, k) {
+                    ("colour", _) | (_, "colour") => "colour",
+                    ("", k) => k,
+                    (f, _) => f,
+                };
+                failure.get_or_insert(format!("a {one} in some modes, another kind in others"));
+            }
+            match kind(ty.as_deref()) {
                 Kind::Colour => match r.seen(path, &mut BTreeSet::from([path.to_string()])) {
                     Ok(v) => per.push(v),
                     Err(why) => {
                         failure.get_or_insert(format!("{why} ({label})"));
                     }
                 },
+                Kind::Other(k) => {
+                    let found = r
+                        .raw(path, &mut BTreeSet::from([path.to_string()]))
+                        .and_then(|v| kinds::text(ty.as_deref().unwrap_or_default(), &v));
+                    match found {
+                        Ok(v) => per.push((v.clone(), v, None)),
+                        Err(why) => {
+                            failure.get_or_insert(format!("{why} ({label})"));
+                        }
+                    }
+                    kinds_of.insert(path, k);
+                }
                 _ => {
                     failure.get_or_insert(String::new());
                 }
+            }
+        }
+        // One value on both sides of the scheme, but for a colour.
+        if failure.is_none() && kinds_of.contains_key(path) {
+            let sided = tuples.iter().zip(&per).any(|(t, v)| {
+                tuples
+                    .iter()
+                    .zip(&per)
+                    .any(|(u, x)| u.1 == t.1 && u.0 != t.0 && x.0 != v.0)
+            });
+            if sided {
+                failure = Some(other::SIDED.to_string());
             }
         }
         match failure {
@@ -1329,6 +1375,7 @@ pub fn import(
     // ones naming fewer leave the value wrong or ambiguous.
     combos.sort_by_key(|c| c.iter().zip(&default_combo).filter(|(a, b)| a != b).count());
     let mut tokens = Vec::new();
+    let mut made: Vec<&str> = Vec::new();
     for (path, per) in &values {
         let value = value_at(per, &default_combo);
         let mut whens: Vec<(Vec<(String, String)>, String)> = Vec::new();
@@ -1363,8 +1410,26 @@ pub fn import(
             name: names[*path].clone(),
             value,
             whens,
+            kind: kinds_of.get(path).map(|k| other::written(k)),
         });
+        made.push(path);
     }
+    // Each of another kind that does not fold makes no token.
+    let why = other::unfolded(&tokens, &axes, &crate::Vocab::default());
+    for (path, why) in made.iter().zip(&why) {
+        if let Some(why) = why {
+            fates.insert(
+                path,
+                format!("not a {} Tamber folds: {why}", kinds_of[path]),
+            );
+            values.remove(path);
+        }
+    }
+    let mut at = 0;
+    tokens.retain(|_| {
+        at += 1;
+        why[at - 1].is_none()
+    });
     // Each def: mapped when it wins a tuple of a token made, else reported.
     let wins: BTreeSet<usize> = winners.iter().flat_map(|w| w.values().copied()).collect();
     let mut unmapped = Vec::new();
@@ -1408,12 +1473,11 @@ pub fn import(
                 .or_else(|| winners.iter().find_map(|w| type_of(defs, w, &d.path)));
         let why = match (&d.refused, kind(ty.as_deref())) {
             (Some(why), _) => why.clone(),
-            (None, Kind::Pending(k)) => format!("kind pending (stage 6): {k}"),
             (None, Kind::Reported(why)) => {
                 unmapped.push(report(why.to_string(), None));
                 continue;
             }
-            (None, Kind::Colour) => fates
+            (None, Kind::Colour | Kind::Other(_)) => fates
                 .get(d.path.as_str())
                 .cloned()
                 .filter(|w| !w.is_empty())

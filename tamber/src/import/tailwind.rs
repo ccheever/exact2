@@ -13,9 +13,12 @@
 //!   key that names it reads its colour on each side. An `inline` key's
 //!   redefinition is reported: its utilities read its value.
 //! - Spacing, radii, fonts, type, weights, leading, tracking, the three
-//!   shadow kinds and easings are `kind pending (stage 6)`, each with the
-//!   token it would become (`space.<n>`, `radius.<n>`, `family.<n>`,
-//!   `type.<n>`, `weight.<n>` …).
+//!   shadow kinds and easings are their kinds' tokens (stage 6 H):
+//!   `space.<n>`, `radius.<n>`, `family.<n>`, `type.<n>` (`--text-<n>` and
+//!   its `--line-height` and `--font-weight`, one type token), `weight.<n>`
+//!   …, a `var()` the token it names. One that does not fold (a text
+//!   shadow list), a sub-property a token holds no part of, and a key the
+//!   stylesheet redefines outside `@theme` are reported.
 //! - Breakpoints, containers, blur, drop shadows, perspective, aspect and
 //!   animations are reported: no Tamber kind (breakpoints are layout, CSS's
 //!   own).
@@ -33,8 +36,8 @@ use crate::{Design, Diagnostic};
 enum Kind {
     /// A colour token, by these segments under the prefix.
     Colour(Vec<String>),
-    /// A token of a kind stage 6 builds: the kind and the token's segments.
-    Pending(&'static str, Vec<String>),
+    /// A token of another kind: the kind and the token's segments.
+    Other(&'static str, Vec<String>),
     /// No Tamber kind: why.
     Reported(&'static str),
 }
@@ -74,13 +77,13 @@ fn kind(var: &str) -> Kind {
         ("--text-", "type", "type"),
     ] {
         if let Some(r) = after(prefix) {
-            return Kind::Pending(kind, seg(group, &base(r)));
+            return Kind::Other(kind, seg(group, &base(r)));
         }
     }
     match var {
-        "--spacing" => return Kind::Pending("length", seg("space", "base")),
-        "--radius" => return Kind::Pending("length", vec!["radius".into()]),
-        "--shadow" => return Kind::Pending("box-shadow", vec!["shadow".into()]),
+        "--spacing" => return Kind::Other("length", seg("space", "base")),
+        "--radius" => return Kind::Other("length", vec!["radius".into()]),
+        "--shadow" => return Kind::Other("box-shadow", vec!["shadow".into()]),
         _ => {}
     }
     for (prefix, why) in [
@@ -474,6 +477,8 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
         (false, false) => vec![(None, false), (None, true)],
     };
     let mut decls: Vec<(usize, Decl)> = Vec::new();
+    let mut others: Vec<Other> = Vec::new();
+    let mut redefined: Vec<(String, String)> = Vec::new();
     let at_theme = first_theme.unwrap_or(0);
     for (_, k) in &keys {
         let e = &theme[*k];
@@ -505,17 +510,15 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                     both(&e.name, false),
                 ),
             )),
-            Kind::Pending(kind, segs) => {
+            Kind::Other(kind, segs) => {
                 let refs: Vec<&str> = segs.iter().map(String::as_str).collect();
-                let token = tamber_name(prefix, &refs);
-                report(
-                    &mut unmapped,
-                    &e.block,
-                    &e.name,
-                    &e.value,
-                    format!("kind pending (stage 6): {kind}"),
-                    Some(token),
-                );
+                others.push(Other {
+                    block: e.block.clone(),
+                    name: e.name.clone(),
+                    value: e.value.clone(),
+                    kind,
+                    token: tamber_name(prefix, &refs),
+                });
             }
             Kind::Reported(why) => report(
                 &mut unmapped,
@@ -553,9 +556,10 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                 &e.block,
                 &e.name,
                 &e.value,
-                "a redefinition of a theme key of a kind not built yet (stage 6)".into(),
+                "a redefinition of a theme key that is no colour: its utilities follow it, which one token value cannot (and only a colour has a dark side)".into(),
                 None,
             );
+            redefined.push((e.name.clone(), e.block.clone()));
             continue;
         }
         // The root's variable is what the dark side inherits: a root
@@ -629,6 +633,14 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
         };
         report(&mut unmapped, label, var, value, why, token);
     }
+    let mut tokens = tokens;
+    mapped += other_kinds(
+        &others,
+        &named.names,
+        &redefined,
+        &mut tokens,
+        &mut unmapped,
+    );
     let ops = reconcile(design, &[], &[], &tokens);
     let reported = unmapped.len();
     let counted = counted(source, mapped, reported)?;
@@ -638,4 +650,200 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
         unmapped,
         counted,
     })
+}
+
+/// A theme key of a kind besides colour, as the theme leaves it.
+struct Other {
+    block: String,
+    name: String,
+    value: String,
+    kind: &'static str,
+    token: String,
+}
+
+/// The theme keys of the kinds besides colour as tokens, beside the colour
+/// `tokens` (`colours` names each colour's variable's): a key and the
+/// sub-properties beside it (`--text-xs--line-height`, a type's leading)
+/// one token, each `var()` the token it names. Each key is mapped (the
+/// count returned) or reported.
+fn other_kinds(
+    others: &[Other],
+    colours: &std::collections::BTreeMap<String, String>,
+    redefined: &[(String, String)],
+    tokens: &mut Vec<crate::import::Mapped>,
+    unmapped: &mut Vec<Unmapped>,
+) -> usize {
+    use super::kinds;
+    let report = |unmapped: &mut Vec<Unmapped>, o: &Other, why: String| {
+        unmapped.push(Unmapped {
+            block: o.block.clone(),
+            name: o.name.clone(),
+            value: o.value.clone(),
+            why,
+            token: Some(o.token.clone()),
+        });
+    };
+    // `--text-xs--line-height` → `--text-xs`, `line-height`.
+    let split = |name: &str| match name[2..].split_once("--") {
+        Some((base, sub)) => (format!("--{base}"), Some(sub.to_string())),
+        None => (name.to_string(), None),
+    };
+    let base_of: std::collections::BTreeMap<&str, &str> = others
+        .iter()
+        .filter(|o| split(&o.name).1.is_none())
+        .map(|o| (o.name.as_str(), o.token.as_str()))
+        .collect();
+    let value_of = |var: &str| {
+        others
+            .iter()
+            .find(|o| o.name == var)
+            .map(|o| o.value.trim())
+    };
+    let made_colours: Vec<String> = tokens.iter().map(|t| t.name.clone()).collect();
+    let token_of = |var: &str| {
+        colours
+            .get(var)
+            .filter(|n| made_colours.contains(n))
+            .cloned()
+            .or_else(|| base_of.get(var).map(|t| t.to_string()))
+    };
+    // Each token: its kind, its value, and the keys it carries.
+    let mut made: Vec<(&'static str, Vec<&Other>)> = Vec::new();
+    let start = tokens.len();
+    // Each token's key, in the theme's order: a second key to one token is
+    // reported.
+    let mut owners: Vec<(&str, String)> = Vec::new();
+    for o in others {
+        let (base, _) = split(&o.name);
+        if tokens[..start].iter().any(|t| t.name == o.token) {
+            report(unmapped, o, format!("its name is a colour's ({})", o.token));
+            continue;
+        }
+        match owners.iter().find(|(t, _)| *t == o.token) {
+            Some((_, b)) if *b != base => {
+                report(unmapped, o, format!("its token is `{b}`'s ({})", o.token));
+            }
+            Some(_) => {}
+            None => owners.push((&o.token, base)),
+        }
+    }
+    for (token, base) in owners {
+        let keys: Vec<&Other> = others
+            .iter()
+            .filter(|o| o.token == token && split(&o.name).0 == base)
+            .collect();
+        let Some(head) = keys.iter().find(|o| o.name == base) else {
+            for o in &keys {
+                report(
+                    unmapped,
+                    o,
+                    format!("beside `{base}`, which the theme does not declare"),
+                );
+            }
+            continue;
+        };
+        if let Some((_, block)) = redefined.iter().find(|(n, _)| *n == base) {
+            for o in &keys {
+                report(unmapped, o, format!("`{base}` is redefined in `{block}`, which its utilities follow and one token value cannot"));
+            }
+            continue;
+        }
+        let mut carried = vec![*head];
+        let mut value = kinds::bare(&head.value, token_of);
+        if head.kind == "type" {
+            let (mut weight, mut leading) = (None, None);
+            for o in keys.iter().filter(|o| o.name != base) {
+                match split(&o.name).1.as_deref() {
+                    Some("line-height") => {
+                        leading = Some(kinds::bare(&o.value, token_of).and_then(|l| {
+                            match l.contains(char::is_whitespace) || l.contains('(') {
+                                true => kinds::folded("number", &l),
+                                false => Ok(l),
+                            }
+                        }));
+                        carried.push(o);
+                    }
+                    // A weight is a number in a type value, not a token.
+                    Some("font-weight") => {
+                        let w = o.value.trim();
+                        weight = Some(match engine::reference(w) {
+                            Some(r) => value_of(r)
+                                .map(str::to_string)
+                                .ok_or(format!("`{r}` is no key of the theme's other kinds")),
+                            None => Ok(w.to_string()),
+                        });
+                        carried.push(o);
+                    }
+                    _ => report(
+                        unmapped,
+                        o,
+                        format!(
+                            "a type token holds no `{}`",
+                            split(&o.name).1.unwrap_or_default()
+                        ),
+                    ),
+                }
+            }
+            value = (|| {
+                let size = value?;
+                let mut out = weight
+                    .transpose()?
+                    .map_or(String::new(), |w| format!("{w} "));
+                out.push_str(&size);
+                if let Some(l) = leading.transpose()? {
+                    out.push_str(&format!("/{l}"));
+                }
+                Ok(out)
+            })();
+        } else {
+            for o in keys.iter().filter(|o| o.name != base) {
+                report(
+                    unmapped,
+                    o,
+                    format!(
+                        "a {} token holds no `{}`",
+                        head.kind,
+                        split(&o.name).1.unwrap_or_default()
+                    ),
+                );
+            }
+        }
+        match value {
+            Ok(value) => {
+                tokens.push(crate::import::Mapped {
+                    name: token.to_string(),
+                    value,
+                    whens: Vec::new(),
+                    kind: Some(kinds::written(head.kind)),
+                });
+                made.push((head.kind, carried));
+            }
+            Err(why) => {
+                for o in carried {
+                    report(unmapped, o, why.clone());
+                }
+            }
+        }
+    }
+    let why = kinds::unfolded(tokens, &[], &crate::Vocab::default());
+    let mut mapped = 0;
+    let mut gone = Vec::new();
+    for (i, why) in why.into_iter().enumerate().skip(start) {
+        let (kind, carried) = &made[i - start];
+        match why {
+            None => mapped += carried.len(),
+            Some(why) => {
+                for o in carried {
+                    report(unmapped, o, format!("not a {kind} Tamber folds: {why}"));
+                }
+                gone.push(i);
+            }
+        }
+    }
+    let mut i = 0;
+    tokens.retain(|_| {
+        i += 1;
+        !gone.contains(&(i - 1))
+    });
+    mapped
 }

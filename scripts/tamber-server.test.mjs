@@ -837,23 +837,25 @@ test("an import is held as proposals: the tokens as one, each role override apar
   try {
     expect(await importTheme(['shadcn', css, origin, '--app', dir])).toBe(0);
   } finally { console.log = log; }
-  expect(said[0]).toBe('shadcn: 47 source values, 46 mapped, 1 reported');
+  expect(said[0]).toBe('shadcn: 47 source values, 47 mapped, 0 reported');
   await stream.until(e => e.some(x => x.event === 'proposal' && x.client === 'import:shadcn'));
   const held = stream.events.find(x => x.event === 'proposal' && x.client === 'import:shadcn');
-  expect(held.ops.length).toBe(28);
-  expect(held.review.tokens).toBe(23);
-  expect(held.review.offers.map(o => [o.role, o.items])).toEqual([['-exact-background', [23]], ['-exact-label', [24]], ['-exact-secondary-background', [25]], ['-exact-separator', [26]], ['AccentColor', [27]]]);
-  expect(held.review.unmapped.map(u => u.name)).toContain('--radius');
+  // 23 colours, `--radius` a length and its derived `lg` (stage 6 H).
+  expect(held.ops.length).toBe(30);
+  expect(held.review.tokens).toBe(25);
+  expect(held.review.offers.map(o => [o.role, o.items])).toEqual([['-exact-background', [25]], ['-exact-label', [26]], ['-exact-secondary-background', [27]], ['-exact-separator', [28]], ['AccentColor', [29]]]);
+  expect(held.review.unmapped.map(u => u.name)).toContain('--radius-sm');
   // The overrides left off: the tokens alone, recomputed, then accepted.
-  const part = await post({ method: 'accept', client: 'person', proposal: held.proposal, items: [...Array(23).keys()] });
+  const part = await post({ method: 'accept', client: 'person', proposal: held.proposal, items: [...Array(25).keys()] });
   expect(part.ok.recomputed).toBe(true);
   // Its review kept, the overrides' items gone with them.
-  expect(part.ok.review.unmapped.map(u => u.name)).toContain('--radius');
+  expect(part.ok.review.unmapped.map(u => u.name)).toContain('--radius-sm');
   expect(part.ok.review.offers.every(o => o.items.length === 0)).toBe(true);
   expect((await post({ method: 'accept', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
   const text = readFileSync(join(dir, 'app.tamber'), 'utf8');
   expect(text).toContain('shadcn.background = light-dark(oklch(1 0 0), oklch(0.145 0 0))');
   expect(text).not.toContain('-exact-background');
+  expect(text).toContain('shadcn.radius: length = 0.625rem');
   said.length = 0;
   console.log = line => said.push(line);
   try {

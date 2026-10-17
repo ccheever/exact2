@@ -604,15 +604,16 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     ]);
     const states = replies.filter(r => r.resources);
     const review = states[0].resources.changes.held.find(h => h.importer === 'shadcn');
-    expect(review.counted).toBe('47 source values = 46 mapped + 1 reported');
+    expect(review.counted).toBe('47 source values = 47 mapped + 0 reported');
     expect(review.countOk).toBe(true);
-    expect(review.mapped).toHaveLength(23);
+    // 23 colours, `--radius` a length and its derived `lg` (stage 6 H).
+    expect(review.mapped).toHaveLength(25);
     expect(review.mapped[0]).toMatchObject({ name: 'shadcn.background', modes: [{ label: 'default', light: 'oklch(1 0 0)', dark: 'oklch(0.145 0 0)' }] });
     // Every override off until ticked, every unmapped value with its reason.
     expect(review.offers.map(o => [o.role, o.on])).toEqual([['-exact-background', false], ['-exact-label', false], ['-exact-secondary-background', false], ['-exact-separator', false], ['AccentColor', false]]);
     expect(states[0].slots.picked).toEqual([]);
-    expect(review.unmapped.map(u => u.name)).toEqual(['--radius', '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl']);
-    expect(review.unmapped[0].why).toBe('kind pending (stage 6): length');
+    expect(review.unmapped.map(u => u.name)).toEqual(['--radius-sm', '--radius-md', '--radius-xl']);
+    expect(review.unmapped.every(u => u.derived && u.why.startsWith('derived from --radius, and not a length Tamber folds'))).toBe(true);
     const id = review.proposal, nth = k => id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + k}`);
     const [edited, kept] = [nth(1), nth(2)];
     // Tick AccentColor, leave shadcn.foreground out, and edit one value: the
@@ -655,16 +656,18 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     expect(tailwind.countOk).toBe(true);
     expect(tailwind.mapped.length).toBeGreaterThan(200);
     const dtcg = later[5].resources.changes.held.find(h => h.importer === 'dtcg');
-    expect(dtcg.counted).toBe('104 source values = 40 mapped + 64 reported');
-    expect(dtcg.unmapped).toHaveLength(64);
+    // Its numbers are tokens too (stage 6 H): only the strings and booleans
+    // are reported.
+    expect(dtcg.counted).toBe('104 source values = 101 mapped + 3 reported');
+    expect(dtcg.unmapped).toHaveLength(3);
     // Its axis is said as an axis; a reference is painted as the token it
     // names, in the same mode.
     expect(dtcg.mapped[0]).toMatchObject({ kind: 'axis', modes: [] });
     const byName = new Map(dtcg.mapped.map(m => [m.name, m]));
     const ref = dtcg.mapped.find(m => m.kind === 'token' && byName.has(m.modes[0].value));
     expect(ref.modes[0].light).toBe(byName.get(ref.modes[0].value).modes[0].light);
-    // A token's other mode, edited and accepted, is written.
-    const moded = dtcg.mapped.find(m => m.modes.length > 1);
+    // A colour token's other mode, edited and accepted, is written.
+    const moded = dtcg.mapped.find(m => m.modes.length > 1 && m.modes[1].light);
     const figmaId = dtcg.proposal, figmaEdited = figmaId.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`);
     const last = await drive(tool.url, `design-tool-import-${process.pid}`, [
       'clock data', 'clock +1', 'clock data',

@@ -1054,8 +1054,13 @@ What every importer shares:
   item the person can decline, never folded into the token itself. A design stays the
   platform's unless the person chooses otherwise (D1).
 - **Kinds not built yet are reported, not dropped.** Before stage 6, length, type, shadow
-  and motion values are reported as `kind pending (stage 6)`, with the token each would
-  become, and are proposed once that stage lands.
+  and motion values were reported as `kind pending (stage 6)`, with the token each would
+  become. **As built (stage 6 H, 2026-10-17):** they are proposed, each as its kind's token
+  (`add-token` writes the kind), when it folds as that kind beside the import's other
+  tokens; a `var()` in one is the token it names. One that does not fold, or that differs
+  between light and dark (only a colour has a dark side), is reported with why. shadcn's
+  derived `radius.sm/md/xl` (`calc()` over a `rem` radius) are reported, outside the count,
+  until QUEUE's "`rem`/`em` where the kernel still takes only `px`".
 - **Components and utility classes from these libraries are out of scope** (§4).
 
 **1. shadcn/ui** (first: the most common). Source: the `:root` and `.dark` blocks of a
@@ -2965,3 +2970,49 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   `exports`; a motion token has none, as it is written into its rows at build and no module names it
   (D13). `tamber gen` writes each kind; `tamber.css` writes a text style, an `em` and the
   hairline as px at the default root size, saying so. Icons' `symbol(.icon…)` follows F.
+
+### Stage 6, commit H: the importers propose every kind
+
+- **What changed.** shadcn, Tailwind, DTCG and Astryx no longer report lengths, numbers, type,
+  families, shadows and motion as `kind pending (stage 6)`. Each is proposed as its kind's token,
+  and `add-token` writes the kind (`tw.radius.lg: length = 0.5rem`). A value is proposed when it
+  folds as its kind beside the import's other tokens. The check is one design of them, plus the
+  colours they name and the axes their `when` lines name (`import/kinds.rs`). It also says why a
+  value does not fold, and that reason goes in the report: `not a <kind> Tamber folds: <why>`.
+- **References.** A `var(--x)` is the token `--x` becomes, named bare (D3). A Tailwind shadow
+  over `var(--color-ring)` names `tw.ring`. A DTCG alias is written out as its value, inside a
+  composite too (a shadow's `{size.sm}`, a typography's `{font.body}`).
+- **One value on both sides.** A value of these kinds that differs between light and dark is
+  reported: only a colour has a dark side. A theme class (shadcn) or a mode (DTCG) still gives a
+  `when` line.
+- **Each importer:**
+  - **Tailwind.** `--text-<n>` with its `--line-height` and `--font-weight` is one type token.
+    A `calc()` leading is folded to its number. A weight `var()` is the key's number.
+    Reported:
+    - a sub-property a token holds no part of (`--letter-spacing`, a family's
+      `--font-feature-settings`);
+    - a sub-property whose key the theme lacks;
+    - a key the stylesheet redefines outside `@theme` (its utilities follow the redefinition);
+    - a text shadow list.
+
+    The default theme is now 419 = 364 mapped + 55 reported.
+  - **shadcn.** A declaration that is no colour is a length by its value. It is a shadow or a
+    family by its name (`--shadow-*`, `--font-*`), or a reference the kind of what it names.
+    One that is a colour in another block is reported. Neutral is 47 = 47 + 0.
+    - `--radius`'s derived sizes are proposed when they fold: `lg` is `shadcn.radius`.
+    - `sm`, `md` and `xl` are `calc()` over a `rem` radius. They are reported outside the
+      count until QUEUE's "`rem`/`em` where the kernel still takes only `px`".
+    - A px radius derives all four.
+  - **DTCG.** These `$type`s map (`import/dtcg/kinds.rs`):
+    - `dimension` and Tokens Studio's length types (a bare number is px);
+    - `fontFamily`;
+    - `fontWeight` (a weight's name too) and `number` (a `lineHeights` percentage is a ratio);
+    - `duration`, `cubicBezier`, `shadow` (an `innerShadow` is inset);
+    - `typography`. A typography whose letter spacing, paragraph spacing, case or decoration
+      says anything is refused: a type token holds none.
+
+    Figma's fixture is 104 = 101 + 3; Tokens Studio's sample is 49 = 49 + 0.
+  - **Astryx.** A text style's size, weight and leading is one type token. Font sizes are lengths
+    and weights are numbers. 268 = 261 + 7: the six duration tiers and the line style.
+- **Counts.** Every importer's count still holds (source = mapped + reported), and re-importing
+  proposes nothing (`tamber/tests/it/import.rs`, `import_kinds.rs`).

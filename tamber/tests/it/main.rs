@@ -7,5 +7,6 @@ mod expected;
 mod export;
 mod fmt;
 mod import;
+mod import_kinds;
 mod pair;
 mod parity;

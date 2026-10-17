@@ -324,6 +324,7 @@ pub fn assemble(
             name: names.names[var].clone(),
             value,
             whens,
+            kind: None,
         });
     }
     (tokens, fates)

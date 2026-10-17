@@ -14,6 +14,7 @@ use crate::{Design, Diagnostic};
 pub mod astryx;
 pub mod dtcg;
 mod engine;
+mod kinds;
 pub mod shadcn;
 pub mod tailwind;
 
@@ -55,7 +56,7 @@ pub struct Unmapped {
     pub name: String,
     /// Its value as written.
     pub value: String,
-    /// Why (`kind pending (stage 6)` …).
+    /// Why (`no Tamber kind: a breakpoint …`).
     pub why: String,
     /// The token it would become, when there is one.
     pub token: Option<String>,
@@ -94,6 +95,9 @@ pub struct Mapped {
     pub value: String,
     /// Its `when` lines: conditions and value.
     pub whens: Vec<(Vec<(String, String)>, String)>,
+    /// Its kind as `add-token` writes it (`length`), or `None` for a
+    /// colour, which its value says.
+    pub kind: Option<&'static str>,
 }
 
 /// The operations that bring `design` to carry each of `tokens` (and each
@@ -129,7 +133,7 @@ pub fn reconcile(
         let Some(have) = design.tokens.iter().find(|d| d.name.value == t.name) else {
             ops.push(Op::AddToken {
                 name: t.name.clone(),
-                kind: None,
+                kind: t.kind.map(str::to_string),
                 value: t.value.clone(),
                 meta: Vec::new(),
                 whens: t
