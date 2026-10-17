@@ -48,7 +48,9 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
    every game) is built as a Linux bake is (`buildBake`): the module first, then the crate, whose bake records the
    module's SHA-256;
 2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so`, the GPU module beside it under
-   its own name, and the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`;
+   its own name, the app's `assets/` to `app/build/<app>/rust/assets/app/assets/`, and a GPU module's shaders
+   (`gpu/shaders/*.wgsl`, as a Linux bake packs them) to `app/build/<app>/rust/assets/app/shaders/`, where the host
+   registers them from before a canvas is made;
 3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here (a game's `.shells/`, whose
    `app.json` is resolved), with `-PgpuModule=<file>` for a module: the APK then extracts its libraries and leaves
    the module unstripped, since the host opens it by path and checks its digest; with `-Pcompose=1` when the plan's
