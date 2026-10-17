@@ -234,3 +234,21 @@ fn a_target_crate_is_a_shipped_target() {
     let e = contract::compile_path(&path).unwrap_err();
     assert!(e.message.contains("no source for web"), "{e:?}");
 }
+
+/// A template of literals alone (a component's argument, inlined) is the
+/// literal it folds to: `symbol:sf/${symbol}` with `symbol="bubble.left"`
+/// is the icon, on every host, the JS target's literal rows included.
+#[test]
+fn a_template_of_literals_is_its_literal() {
+    let design = "  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n";
+    let view = "component App\n  view\n    Row(symbol=\"bubble.left\")\n\ncomponent Row\n  props\n    symbol: string\n  view\n    image `symbol:sf/${symbol}`\n";
+    let path = app("template", "\"ios\": {}, \"web\": {}", design, view);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        plan.strings
+            .iter()
+            .any(|s| s.starts_with("symbol:icon|bubble.left|")),
+        "{:?}",
+        plan.strings
+    );
+}

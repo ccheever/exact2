@@ -54,6 +54,13 @@ pub(crate) fn roles(e: &Expr) -> Option<Expr> {
             let arm = |new: Option<Expr>, old: &Expr| Box::new(new.unwrap_or_else(|| old.clone()));
             Some(Expr::Ternary(cond.clone(), arm(na, a), arm(nb, b), *span))
         }
+        // A template of literals alone (a component's argument, inlined, as
+        // `symbol:sf/${symbol}` with `symbol="paintpalette"`) is the literal
+        // it folds to.
+        Expr::Template(parts, span) if constant(parts).is_some() => {
+            let text = constant(parts)?;
+            literal(&text).map(|s| Expr::Str(s, *span))
+        }
         // A template that starts with other text (`https://…`) names no icon;
         // one that starts with a part of `symbol:` may.
         Expr::Template(parts, _)
@@ -67,6 +74,18 @@ pub(crate) fn roles(e: &Expr) -> Option<Expr> {
             None
         }
     }
+}
+
+/// A template's text when every part of it is a literal.
+fn constant(parts: &[TemplatePart]) -> Option<String> {
+    parts.iter().try_fold(String::new(), |mut out, part| {
+        match part {
+            TemplatePart::Text(t) => out.push_str(t),
+            TemplatePart::Expr(Expr::Str(s, _)) => out.push_str(s),
+            TemplatePart::Expr(_) => return None,
+        }
+        Some(out)
+    })
 }
 
 /// `lower-symbol-alias`: a literal source that names a role by another spelling builds as the
