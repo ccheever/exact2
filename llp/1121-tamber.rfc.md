@@ -2628,7 +2628,7 @@ D12's runtime side, under every language's generated names.
 - **Observe** doesn't follow Bold Text yet: colours don't depend on it. It comes with stage 6's
   `font` accessor.
 
-### After stage 5's commits: one retention question for `propose` and the dev loops (`9aa5bfd4f`..`e35fd9d9c`)
+### After stage 5's commits: one retention question for `propose` and the dev loops (`8f1445777`, records `2e27c920b`)
 
 `propose` judged its own design shape, which counts every token and ignores `when` lines, so it
 classed every `add-token` as `rebuild` and a first `when` as `live`. The dev loops already decided
@@ -2638,6 +2638,8 @@ compares the retained shape: axes, dials, and each kept token's name, kind, role
 variance, per-tuple accent flags, and any value carrying a platform `var`.
 - An app with generated bindings (bindable) rebuilds on `add-token` and on a first `when`.
 - A plain app's unnamed `add-token` is `live`, since nothing changes.
+- `keeps` takes the token's kind: since stage 6 B, a computed length or number row keeps every
+  token of those kinds (`Retention::computed_measure`).
 
 ### Stage 5's gate: met (2026-10-17; the run is `~/x2theme/stage5-gate-run.txt`)
 
