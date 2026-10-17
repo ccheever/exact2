@@ -457,6 +457,11 @@ What the original's style objects say is not always what its iOS screen shows. P
 what the screenshot shows. (euxy port against its Expo original, judged screen by
 screen, 2026-10-16.)
 
+- **Skia and Reanimated drawings port to Contract, not Swift.** Step strips, LED glows, rings
+  and animated capsules are boxes, SVG, `box-shadow`, keyframes and transitions, which run on
+  every platform and the agent can drive and compare. A native view is per-platform code to
+  write and debug, and one added at launch slows it: keep it for platform APIs (video, maps).
+
 - **Compare each screen with its reference, not by eye:** `"screenshot .exact/x.png compare
   ref/x.png"` names each differing region's node and source line, a box's size measured in
   both pictures, and a wrong colour ([iOS driving](recipes/ios-driving.md)).

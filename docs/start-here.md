@@ -256,7 +256,7 @@ bun exact.mjs contract vocab rest-backend fetch-loading-error after-a-write   # 
 |a chat that opens at its newest message|`chat-thread`|
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
-|a view only Swift can draw|`native-views`|
+|video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
