@@ -184,37 +184,58 @@ pub(crate) fn load(
     }
 }
 
-/// A source's file as a component's identity names it (LLP 1121 D15): an
-/// app's relative to the app's directory, a package's under its declared
-/// name.
+/// A source's file as a component's identity names it (LLP 1121 D15),
+/// whatever route a `use` reached it by: a package's file (one under a
+/// `node_modules` directory, or the package root a `use` named) under the
+/// package's own name (its `package.json`'s), else the file relative to the
+/// app's directory. A package with no name is named by where it is.
 fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
-    let shown = |root: &Path| {
-        let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        path.strip_prefix(&canonical)
-            .or_else(|_| path.strip_prefix(root))
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let relative = |root: &Path| {
+        path.strip_prefix(root)
+            .ok()
             .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| {
-                path.file_name()
-                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
-            })
     };
+    let named = |root: &Path| {
+        std::fs::read_to_string(root.join("package.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|m| m["name"].as_str().map(str::to_string))
+    };
+    let routed = match origin {
+        Origin::Package { root, .. } => Some(canonical(root)),
+        _ => None,
+    };
+    for dir in path.ancestors().skip(1) {
+        let packaged = routed.as_deref() == Some(dir)
+            || dir.parent().is_some_and(|p| {
+                p.ends_with("node_modules")
+                    || (p
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with('@'))
+                        && p.parent().is_some_and(|g| g.ends_with("node_modules")))
+            });
+        if packaged {
+            if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
+                return format!("{name}/{rest}");
+            }
+        }
+    }
+    let app = app_root
+        .canonicalize()
+        .unwrap_or_else(|_| app_root.to_path_buf());
+    if let Some(rest) = relative(&app) {
+        return rest;
+    }
     match origin {
-        Origin::App => shown(app_root),
-        // By the package's own name (its `package.json`'s), not the name
-        // one `use` reached it by, so two aliases of one package are one.
-        Origin::Package {
-            name,
-            root,
-            manifest,
-            ..
-        } => {
-            let declared = std::fs::read_to_string(manifest)
-                .ok()
-                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-                .and_then(|m| m["name"].as_str().map(str::to_string));
-            format!("{}/{}", declared.as_deref().unwrap_or(name), shown(root))
+        Origin::Package { root, name, .. } => {
+            format!("{name}/{}", relative(&canonical(root)).unwrap_or_default())
         }
         Origin::Builtin => path.to_string_lossy().into_owned(),
+        Origin::App => path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
     }
 }
 
@@ -424,7 +445,11 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         motion: Vec::new(),
     };
     let loaded = loader.load_source(&root_key, src, 0);
-    // The components' params (LLP 1121 D15): an icon param's SVG is read too.
+    // The components' params (LLP 1121 D15), named as the build names them
+    // (an icon param naming another): an icon param's SVG is read too.
+    for unit in &mut loader.units {
+        let _ = contract_lower::params::rewrite(&mut unit.file);
+    }
     let params: Vec<_> = loader
         .units
         .iter()

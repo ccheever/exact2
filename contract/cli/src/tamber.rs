@@ -84,7 +84,8 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     // The app's components' params (LLP 1121 D15) fold with its design; an
     // app with params and no design has them alone.
-    let params = contract::tamber_params::params_of(&app_contract(Path::new(&input)));
+    let app = contract::tamber_params::params_of(&app_contract(Path::new(&input)));
+    let params = app.tokens.as_slice();
     let (path, src) = match design(Path::new(&input)) {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(src) => (path, src),
@@ -111,7 +112,7 @@ pub fn run(args: &[String]) -> ExitCode {
     let folded = match params.is_empty() {
         true => exact_tamber::check(&src, &contract_lower::tamber_vocab()),
         false => exact_tamber::parse(&src).and_then(|mut d| {
-            contract_lower::params::add_to(&mut d, &params);
+            contract_lower::params::add_to(&mut d, params);
             exact_tamber::check_design(d, &contract_lower::tamber_vocab())
         }),
     };
@@ -119,8 +120,7 @@ pub fn run(args: &[String]) -> ExitCode {
         Ok(folding) => folding,
         Err(all) => {
             for d in &all {
-                let shown = contract_lower::params::shown(&d.to_string(), &params);
-                eprintln!("{}:{shown}", path.display());
+                eprintln!("{}", contract::tamber_params::located(d, params, &path));
             }
             // A profile's colour is the compiler's to resolve, with the
             // declarations in the app's Contract (LLP 1100 D3).
@@ -139,7 +139,10 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     // What the compiler refuses of a design beyond the crate's check (a
     // CSS word as a name, a role that varies by an axis …), as a build would.
-    let refused = match admission(&src) {
+    let refused = match admission(
+        &src,
+        (!params.is_empty()).then(|| app_contract(Path::new(&input))),
+    ) {
         Ok(refused) => refused,
         Err(why) => {
             eprintln!("contract tamber: {why}");
@@ -147,8 +150,9 @@ pub fn run(args: &[String]) -> ExitCode {
         }
     };
     if !refused.is_empty() {
-        for (line, col, id, message) in &refused {
-            eprintln!("{}:{line}:{col}: {id}: {message}", path.display());
+        for (file, line, col, id, message) in &refused {
+            let file = file.clone().unwrap_or_else(|| path.clone());
+            eprintln!("{}:{line}:{col}: {id}: {message}", file.display());
         }
         return ExitCode::from(1);
     }
@@ -156,14 +160,21 @@ pub fn run(args: &[String]) -> ExitCode {
         ("check", []) => {
             // The author's information, never a refusal (LLP 1121 D3).
             for w in &folding.warnings {
-                eprintln!("{}:{w}", path.display());
+                eprintln!("{}", contract::tamber_params::located(w, params, &path));
             }
             let design = &folding.design;
+            // A param is its component's, counted apart (D15).
+            let tokens =
+                folding.tokens.len() - params.iter().filter(|p| p.param.kind != "icon").count();
+            let counted = match params.len() {
+                0 => String::new(),
+                n => format!(", {n} param{}", if n == 1 { "" } else { "s" }),
+            };
             println!(
-                "{}: {} token{}, {} ax{} ({} tuple{}): checked",
+                "{}: {} token{}{counted}, {} ax{} ({} tuple{}): checked",
                 path.display(),
-                folding.tokens.len(),
-                if folding.tokens.len() == 1 { "" } else { "s" },
+                tokens,
+                if tokens == 1 { "" } else { "s" },
                 design.axes.len(),
                 if design.axes.len() == 1 { "is" } else { "es" },
                 folding.tuples,
@@ -174,11 +185,11 @@ pub fn run(args: &[String]) -> ExitCode {
         ("eval", []) => eval(&folding, ""),
         ("eval", [flag, modes]) if flag == "--mode" => eval(&folding, modes),
         ("ir", []) => {
-            println!("{}", ir(&src, &params, &folding));
+            println!("{}", ir(&src, &app, &folding));
             ExitCode::SUCCESS
         }
         ("ir", [flag, out]) if flag == "-o" => {
-            match std::fs::write(out, ir(&src, &params, &folding) + "\n") {
+            match std::fs::write(out, ir(&src, &app, &folding) + "\n") {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("contract tamber: {out}: {e}");
@@ -196,10 +207,33 @@ pub fn run(args: &[String]) -> ExitCode {
 /// The compiler's refusals of design `src`, read as the design of an app
 /// with one empty view and nothing else (no manifest: nothing in one but
 /// `"tamber"` reaches a design, and its other files would stop the build
-/// first): each `(line, col, id, message)` in the design. An `Err` when the
-/// build could not be made, or stopped before the design.
+/// first): each `(file, line, col, id, message)`, the file `None` for the
+/// design's. An app with params (`app`, its `app.contract`) is built
+/// itself, since its params read the design (a dial only a param reads is
+/// read), and each refusal is its own file's. An `Err` when the build could
+/// not be made, or stopped before the design.
 #[allow(clippy::type_complexity)]
-fn admission(src: &str) -> Result<Vec<(u32, u32, String, String)>, String> {
+fn admission(
+    src: &str,
+    app: Option<PathBuf>,
+) -> Result<Vec<(Option<PathBuf>, u32, u32, String, String)>, String> {
+    if let Some(app) = app {
+        return Ok(match contract::compile_path_all(&app, false) {
+            Ok(_) => Vec::new(),
+            Err(all) => all
+                .into_iter()
+                .map(|e| {
+                    (
+                        e.file.map(PathBuf::from),
+                        e.span.line,
+                        e.span.col,
+                        e.id,
+                        e.message,
+                    )
+                })
+                .collect(),
+        });
+    }
     let dir = std::env::temp_dir().join(format!("contract-tamber-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let made = std::fs::create_dir_all(&dir)
@@ -228,7 +262,7 @@ fn admission(src: &str) -> Result<Vec<(u32, u32, String, String)>, String> {
                 )),
                 _ => Ok(design
                     .into_iter()
-                    .map(|e| (e.span.line, e.span.col, e.id, e.message))
+                    .map(|e| (None, e.span.line, e.span.col, e.id, e.message))
                     .collect()),
             }
         }
@@ -269,7 +303,12 @@ fn eval(folding: &exact_tamber::Folding, modes: &str) -> ExitCode {
         eprintln!("contract tamber eval: `{modes}` names an axis or value the design lacks");
         return ExitCode::from(2);
     };
-    for token in &folding.tokens {
+    // A param is read by its full name, in `ir`'s `components` (D15).
+    let tokens = folding
+        .tokens
+        .iter()
+        .filter(|t| !t.name.starts_with(contract_lower::params::PREFIX));
+    for token in tokens {
         if let Some(value) = folding.value(&token.name, tuple) {
             println!("{} = {}", token.name, value.css());
         }
@@ -313,10 +352,10 @@ fn fmt(path: &Path, src: &str, check: bool) -> ExitCode {
 /// tokens by their names below the IR.
 fn ir(
     src: &str,
-    params: &[contract_lower::params::ParamToken],
+    app: &contract::tamber_params::AppParams,
     folding: &exact_tamber::Folding,
 ) -> String {
-    if params.is_empty() {
+    if app.tokens.is_empty() {
         return folding.ir();
     }
     let Ok(mut ir) = serde_json::from_str::<serde_json::Value>(&folding.ir()) else {
@@ -324,11 +363,8 @@ fn ir(
     };
     contract::tamber_params::hide(&mut ir);
     let design = exact_tamber::parse(src).ok();
-    ir["components"] = contract::tamber_params::components(
-        params,
-        design.as_ref(),
-        &contract_lower::tamber_vocab(),
-    );
+    ir["components"] =
+        contract::tamber_params::components(app, design.as_ref(), &contract_lower::tamber_vocab());
     serde_json::to_string_pretty(&ir).unwrap_or_else(|_| folding.ir())
 }
 

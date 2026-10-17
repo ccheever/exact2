@@ -190,9 +190,10 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     component `{identity, name, params}`, its identity its declaring file and name
     (`post.contract#PostButton`); each param `{name, short, param, token, kind, default, values,
     range, step, control, options, label, help, group, priority}`. `name` is its full name
-    (`post.contract#PostButton.radius`), `short` the `Component.param` form or null where another
-    component of that name has params, `token` its name below the IR (`param.f<hash>.…`, which no
-    author or tool writes), `default` as written with each param named in full, and `values` per
+    (`post.contract#PostButton.radius`), `short` the `Component.param` form or null where the app has
+    another component of that name (with params or none), `token` its name below the IR
+    (`param.f<hash>.…`, which no author or tool writes; `uses` takes it), `default` as written and
+    `options` each with a param named in full, and `values` per
     tuple, folded with the design. `control` defaults to `token`, `priority` to 2. Moving the
     declaring file is a new identity, so an override keyed by the old one no longer applies.
 

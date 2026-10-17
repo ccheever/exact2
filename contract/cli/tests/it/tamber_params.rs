@@ -118,17 +118,26 @@ fn a_short_name_two_components_share_is_ambiguous() {
     );
     contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     let params = contract::tamber_params::params_of(&path);
-    assert_eq!(params.len(), 2);
-    let e = contract_lower::params::resolve(&params, "Card.inset").unwrap_err();
+    assert_eq!(params.tokens.len(), 2);
+    let e = contract_lower::params::resolve(&params.tokens, &params.identities, "Card.inset")
+        .unwrap_err();
     assert_eq!(e.id, "tamber-param-ambiguous");
     assert!(
         e.message.contains("`a.contract#Card`") && e.message.contains("`b/c.contract#Card`"),
         "{}",
         e.message
     );
-    let full = contract_lower::params::resolve(&params, "b/c.contract#Card.inset").unwrap();
+    let full = contract_lower::params::resolve(
+        &params.tokens,
+        &params.identities,
+        "b/c.contract#Card.inset",
+    )
+    .unwrap();
     assert_eq!(full.identity, "b/c.contract#Card");
-    assert_ne!(params[0].token, params[1].token, "two files, two tokens");
+    assert_ne!(
+        params.tokens[0].token, params.tokens[1].token,
+        "two files, two tokens"
+    );
 }
 
 #[test]

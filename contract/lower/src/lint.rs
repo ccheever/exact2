@@ -303,5 +303,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
         walk(&c.view, &mut errors);
     }
     errors.truncate(MAX_REFUSALS);
+    // A param by its full name, never its token's (LLP 1121 D15).
+    let params = crate::params::tokens(file);
+    for e in &mut errors {
+        e.message = crate::params::shown(&e.message, &params);
+    }
     errors
 }

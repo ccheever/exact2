@@ -11,23 +11,61 @@ use contract_syntax::params::ParamValue;
 use serde_json::{json, Value};
 use std::path::Path;
 
+/// The app's params, and the identity of every component it has, with
+/// params or none (a short name is ambiguous when two share a name).
+#[derive(Debug, Clone, Default)]
+pub struct AppParams {
+    /// Every param, as a token.
+    pub tokens: Vec<ParamToken>,
+    /// Every component's identity.
+    pub identities: Vec<String>,
+}
+
 /// The app's params, loaded from `app_contract`; none when it has no
 /// Contract, or it does not load (the build says why).
-pub fn params_of(app_contract: &Path) -> Vec<ParamToken> {
+pub fn params_of(app_contract: &Path) -> AppParams {
     let Ok(src) = std::fs::read_to_string(app_contract) else {
-        return Vec::new();
+        return AppParams::default();
     };
     let Ok(root) = crate::app_root(app_contract) else {
-        return Vec::new();
+        return AppParams::default();
     };
     match crate::sources::load(app_contract, &src, &root) {
-        Ok((file, _)) => params::tokens(&file),
-        Err(_) => Vec::new(),
+        Ok((file, _)) => AppParams {
+            tokens: params::tokens(&file),
+            identities: params::identities(&file),
+        },
+        Err(_) => AppParams::default(),
     }
 }
 
-/// `text`, a design, folded with `params` (each refusal naming a param in
-/// full), and the design as parsed, without them.
+/// Diagnostic `d` of a design folded with `params` where an author finds
+/// it: one of a param's (on [`params::LINE`] and after) at its default, in
+/// its declaring file, which is returned; every name in full.
+pub fn relocate(d: &mut exact_tamber::Diagnostic, params: &[ParamToken]) -> Option<String> {
+    d.message = params::shown(&d.message, params);
+    let p = params.get(d.line.checked_sub(params::LINE)? as usize)?;
+    d.line = p.param.default_span.line;
+    d.col = p.param.default_span.col;
+    Some(
+        p.identity
+            .rsplit_once('#')
+            .map_or(p.identity.clone(), |(f, _)| f.to_string()),
+    )
+}
+
+/// [`relocate`]d, as a line a terminal prints: `file:line:col: id: message`,
+/// the design's file `design` unless a param's.
+pub fn located(d: &exact_tamber::Diagnostic, params: &[ParamToken], design: &Path) -> String {
+    let mut d = d.clone();
+    match relocate(&mut d, params) {
+        Some(file) => format!("{file}:{d}"),
+        None => format!("{}:{d}", design.display()),
+    }
+}
+
+/// `text`, a design, folded with `params`, and the design as parsed,
+/// without them; a refusal as the fold gives it ([`relocate`] it).
 pub fn fold_with(
     text: &str,
     params: &[ParamToken],
@@ -36,14 +74,7 @@ pub fn fold_with(
     let design = exact_tamber::parse(text)?;
     let mut laid = design.clone();
     params::add_to(&mut laid, params);
-    let folding = exact_tamber::check_design(laid, vocab).map_err(|all| {
-        all.into_iter()
-            .map(|mut d| {
-                d.message = params::shown(&d.message, params);
-                d
-            })
-            .collect::<Vec<_>>()
-    })?;
+    let folding = exact_tamber::check_design(laid, vocab)?;
     Ok((folding, design))
 }
 
@@ -62,28 +93,28 @@ pub fn hide(ir: &mut Value) {
 }
 
 /// A param's short name, `Component.param`, when no other component of
-/// that name declares params.
-fn short(p: &ParamToken, all: &[ParamToken]) -> Option<String> {
-    let component = p
-        .identity
-        .rsplit_once('#')
-        .map_or(p.identity.as_str(), |(_, c)| c);
-    let ambiguous = all.iter().any(|o| {
-        o.identity != p.identity
-            && o.identity
-                .rsplit_once('#')
-                .is_some_and(|(_, c)| c == component)
-    });
-    (!ambiguous).then(|| format!("{component}.{}", p.param.name))
+/// that name is in the app (`identities`), with params or none.
+fn short(p: &ParamToken, identities: &[String]) -> Option<String> {
+    let component = |identity: &str| {
+        identity
+            .rsplit_once('#')
+            .map_or(identity.to_string(), |(_, c)| c.to_string())
+    };
+    let name = component(&p.identity);
+    let ambiguous = identities
+        .iter()
+        .any(|o| *o != p.identity && component(o) == name);
+    (!ambiguous).then(|| format!("{name}.{}", p.param.name))
 }
 
 /// The `components` block for `all`, each param's value per tuple folded
 /// with `design` (the app's, or none).
 pub fn components(
-    all: &[ParamToken],
+    app: &AppParams,
     design: Option<&exact_tamber::Design>,
     vocab: &exact_tamber::Vocab,
 ) -> Value {
+    let all = app.tokens.as_slice();
     let mut folded = design.cloned().unwrap_or_default();
     params::add_to(&mut folded, all);
     let folding = exact_tamber::check_design(folded, vocab).ok();
@@ -114,7 +145,7 @@ pub fn components(
                 });
                 json!({
                     "name": q.full,
-                    "short": short(q, all),
+                    "short": short(q, &app.identities),
                     "param": q.param.name,
                     "token": q.token,
                     "kind": q.param.kind,
@@ -123,7 +154,7 @@ pub fn components(
                     "range": params::range(&q.param).and_then(Result::ok).map(|(lo, hi)| json!([lo, hi])),
                     "step": num("step"),
                     "control": attr("control").unwrap_or_else(|| "token".into()),
-                    "options": attr("options").map(|o| o.split('|').map(|s| s.trim().to_string()).collect::<Vec<_>>()),
+                    "options": attr("options").map(|o| params::shown(&o, all).split('|').map(|s| s.trim().to_string()).collect::<Vec<_>>()),
                     "label": attr("label"),
                     "help": attr("help"),
                     "group": attr("group"),

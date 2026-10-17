@@ -4,13 +4,14 @@
 //! the fold, the live table, `uses`, the JS target's properties) it is a
 //! dotted token name derived from that identity,
 //! `param.f<file hash>.<Component>.<param>` (theme2's ruling, 2026-10-17).
-//! The driver rewrites `param.<name>` in a component's rows, its uses'
-//! arguments and its params' defaults to that name before anything reads
-//! them, so a param is read, folded, retained and bound as any token is.
+//! The driver rewrites `param.<name>` where a component's rows take their
+//! value, its uses' arguments and its params' defaults to that name before
+//! anything reads them, so a param is read, folded, retained and bound as
+//! any token is ([`rewrite`]'s module says where).
 
 mod rewrite;
 
-pub use rewrite::{rewrite, unused};
+pub use rewrite::{reached, rewrite, unused};
 
 use crate::LowerError;
 use contract_syntax::params::{ComponentParam, ParamValue};
@@ -67,6 +68,14 @@ pub fn tokens(file: &File) -> Vec<ParamToken> {
                 param: p.clone(),
             })
         })
+        .collect()
+}
+
+/// Every component's identity in `file`, with params or none.
+pub fn identities(file: &File) -> Vec<String> {
+    file.components
+        .iter()
+        .map(|c| c.params.identity.clone().unwrap_or_else(|| c.name.clone()))
         .collect()
 }
 
@@ -338,7 +347,11 @@ pub fn folded(params: &[ParamToken], folding: &exact_tamber::Folding) -> Vec<Low
 /// (`post.contract#PostButton.radius`), or its short one (`PostButton.radius`)
 /// where one component of that name declares it; where two do, the short
 /// name is refused (`tamber-param-ambiguous`), naming both.
-pub fn resolve<'a>(params: &'a [ParamToken], name: &str) -> Result<&'a ParamToken, LowerError> {
+pub fn resolve<'a>(
+    params: &'a [ParamToken],
+    identities: &[String],
+    name: &str,
+) -> Result<&'a ParamToken, LowerError> {
     let refuse = |id: &'static str, message: String| LowerError {
         id,
         message,
@@ -348,12 +361,14 @@ pub fn resolve<'a>(params: &'a [ParamToken], name: &str) -> Result<&'a ParamToke
         return Ok(p);
     }
     // A short name is a component's: two components of that name (two
-    // identities) make it ambiguous, whichever of them has the param.
-    let component = |p: &ParamToken| {
-        p.identity
+    // identities, `identities` every one of the app's) make it ambiguous,
+    // whichever of them has the param, or none.
+    let named = |identity: &str| {
+        identity
             .rsplit_once('#')
-            .map_or(p.identity.clone(), |(_, c)| c.to_string())
+            .map_or(identity.to_string(), |(_, c)| c.to_string())
     };
+    let component = |p: &ParamToken| named(&p.identity);
     let found: Vec<&ParamToken> = params
         .iter()
         .filter(|p| format!("{}.{}", component(p), p.param.name) == name)
@@ -361,8 +376,9 @@ pub fn resolve<'a>(params: &'a [ParamToken], name: &str) -> Result<&'a ParamToke
     if let Some(p) = found.first() {
         let mut owners: Vec<&str> = params
             .iter()
-            .filter(|q| component(q) == component(p))
             .map(|q| q.identity.as_str())
+            .chain(identities.iter().map(String::as_str))
+            .filter(|q| named(q) == component(p))
             .collect();
         owners.dedup();
         owners.sort_unstable();

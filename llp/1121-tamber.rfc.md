@@ -3107,20 +3107,32 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   - Below the IR (the reference table, the fold, the live table, `uses`, the JS target), a param is
     the dotted token `param.f<hash>.<Component>.<param>`. The hash is FNV-1a of the file's path, as
     eight hex digits after an `f`, since a name's segment starts with a letter.
-  - The loader rewrites `param.<name>` to that token before anything reads it, in a component's
-    rows (a style, shorthand or motion row, an image's source, named or positional), anywhere in
-    the row's expression (a call's argument, a branch, a template), and in its params' defaults and
-    `select` options. A quoted word, one after `#` (`url(#…)`) and one touching a template's `${…}`
-    are left as written, as is text that is no row (a `text`'s content, a `testId`). So a param is
-    read, folded, retained (D7) and bound as any token is, and an import alias never redirects it.
+  - The loader rewrites `param.<name>` to that token before anything reads it, where a
+    component's row takes its value (a style, shorthand or motion row, an image's `symbol:`
+    source, named or positional): a string or a template, through `?:` branches, `match` arms,
+    `let` and `+`, the places a motion token is written into. Also in its params' defaults and
+    `select` options. A quoted word (the quote carried across a template's holes), one after `#`
+    (`url(#…)`) and one touching a template's `${…}` are left as written, as is text that is no
+    row (a `text`'s content, a `testId`, an image's URL). So a param is read, folded, retained
+    (D7) and bound as any token is, and an import alias never redirects it.
+  - An argument to another component passes the param: the child's row reads it as its value
+    (round 2's change; round 1 refused it). After inlining, a param's token anywhere but a row's
+    value (a text, an attribute that is no row, a function's argument, a condition, a state, a
+    derive, an action) is refused (`tamber-param-scope`), naming the param.
   - A param named where no component owns it is refused (`tamber-param-scope`): in a `style` or a
-    `keyframes`, which any component may apply; in an argument to another component; in a state's
-    or a derive's value. A package's file is named by the package's declared name, so two aliases
-    of one package are one identity. A source text with no path is `app.contract`.
+    `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
+    what a row computes (a function's argument, a condition, a comparison, a callback): what it
+    computes is data the param's value never reaches, and a duration there would never be written
+    in. A package's file (one under `node_modules`, or the root a `use` named) is named by the
+    package's declared name, however a `use` reached it, so two routes or aliases to one package
+    are one identity. A package with no name is named by its place under the app. A source text
+    with no path is `app.contract`.
   - Every refusal names the full name, never the hash: the lowering's errors pass through
     `params::shown`, every param's (a bad kind's too). `contract types` names no param, and
     `describe`, `contract tamber ir` and the design's checks fold the params with the design but
-    list them only under `components`.
+    list them only under `components` (`eval` lists none; `check` counts them apart, and admits
+    the design by building the app itself when it has params). A refusal or a warning on a param
+    is charged to its default, in its declaring file. An option names a param in full.
 - **Folded with the design.** The compiler adds each param to the design it checks, as a token
   of its kind (an icon param among the icons), on lines past the design's own. A refusal on one is
   charged to its default's span. An app with params and no design folds them alone. A duration or
@@ -3147,6 +3159,6 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   full and short names, token, kind, default (params named in full), values per tuple, range,
   step, control (default `token`), options, label, help, group and priority (default 2).
   `params::resolve` reads a full or short name, and refuses a short name of a component name two
-  components share, whichever has the param (`tamber-param-ambiguous`), naming both. B's
+  components share, whichever has the param or neither (`tamber-param-ambiguous`), naming both. B's
   `set-param` and `resolve` take it. A param's name is a field's, so a reserved word may be one.
 - **No digest moves.** A param is a token in the reference table.

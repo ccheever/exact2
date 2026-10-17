@@ -1,17 +1,23 @@
-//! Where a component names its params (LLP 1121 D15): `param.<name>` in its
-//! rows (a style, shorthand or motion row, an image's source, named or
-//! positional), anywhere in the row's expression (a call's argument, a
-//! branch, a template), and in its params' defaults and `select` options,
-//! is the param's token name. A quoted word, one after `#` (`url(#…)`), and
-//! one touching a template's `${…}` are left as written, as a motion token's
-//! are. Text that is no row (a `text`'s content, a `testId`) is left alone.
-//! A param named where no component owns it (a `style` or `keyframes`, which
-//! any component may apply; an argument to another component; a state's or
-//! a derive's value) is refused, by its own id.
+//! Where a component names its params (LLP 1121 D15): `param.<name>` where
+//! one of its rows (a style, shorthand or motion row, an image's `symbol:`
+//! source, named or positional) takes its value, and in its params' defaults
+//! and `select` options, is the param's token name. A row takes its value
+//! from a string or a template, through a `?:` branch, a `match` arm, a
+//! `let` and a `+`, as a motion token's row does; a param named in the
+//! row's computation (a function's argument, a condition, a comparison, a
+//! callback) is refused, since what it computes is data the param's value
+//! never reaches. A quoted word (across a template's holes too), one after
+//! `#` (`url(#…)`), and one touching a template's `${…}` are left as
+//! written, as a motion token's are. Text that is no row (a `text`'s
+//! content, a `testId`, an image's URL) is left alone. An argument to
+//! another component passes the param to it, and [`reached`] refuses it
+//! where the child reads it otherwise than as a row's value. A param named
+//! where no component owns it (a `style` or `keyframes`, which any component
+//! may apply; a state's or a derive's value) is refused, by its own id.
 
-use super::{full_name, token_name, PREFIX};
+use super::{full_name, token_name, ParamToken, PREFIX};
 use crate::LowerError;
-use contract_syntax::{Component, Expr, File, Node, Span, TemplatePart};
+use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart};
 
 /// Whether attribute `name` of an element tagged `tag` is a row a param may
 /// stand in.
@@ -29,14 +35,31 @@ fn sourced(tag: &str) -> bool {
     tag == "image"
 }
 
+/// Whether an image's source `e` is a symbol's (`symbol:…`), the one source
+/// a token names; a URL or an asset's path is no row.
+fn symbolic(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s.starts_with("symbol:"),
+        Expr::Template(parts, _) => {
+            matches!(parts.first(), Some(TemplatePart::Text(s)) if s.starts_with("symbol:"))
+        }
+        Expr::Ternary(_, a, b, _) => symbolic(a) || symbolic(b),
+        _ => false,
+    }
+}
+
 /// Each `param.<name>` whole word of `text` outside quotes, not after `#`,
 /// and (`glued`) not touching a template hole at its start or end, with its
-/// byte range and name.
-fn found(text: &str, glued: (bool, bool)) -> Vec<(usize, usize, String)> {
+/// byte range and name; and the quote `text` leaves open, starting in
+/// `quote` (a template's earlier text's).
+fn found(
+    text: &str,
+    glued: (bool, bool),
+    mut quote: Option<char>,
+) -> (Vec<(usize, usize, String)>, Option<char>) {
     let ident = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-');
     let bytes: Vec<(usize, char)> = text.char_indices().collect();
     let mut out = Vec::new();
-    let mut quote: Option<char> = None;
     let mut k = 0;
     while k < bytes.len() {
         let (i, c) = bytes[k];
@@ -76,21 +99,45 @@ fn found(text: &str, glued: (bool, bool)) -> Vec<(usize, usize, String)> {
         }
         k += 1;
     }
-    out
+    (out, quote)
 }
+
+/// Where a text is: its hole sides, the quote it starts in, its literal's
+/// span, and whether it supplies a row's value (else it is data a
+/// computation reads).
+#[derive(Clone, Copy)]
+struct At {
+    glued: (bool, bool),
+    quote: Option<char>,
+    span: Span,
+    value: bool,
+}
+
+/// A text on its own: a param's default, a `select`'s options.
+const PLAIN: At = At {
+    glued: (false, false),
+    quote: None,
+    span: Span {
+        line: 0,
+        col: 0,
+        end_col: 0,
+        source_id: 0,
+    },
+    value: true,
+};
 
 /// `text` with each `param.<name>` [`found`] in it written by `named`; a name
 /// `named` does not know is pushed to `bad`.
 fn written(
     text: &str,
-    glued: (bool, bool),
+    at: At,
     named: &dyn Fn(&str) -> Option<String>,
     bad: &mut Vec<String>,
 ) -> String {
     let mut out = String::new();
-    let mut at = 0;
-    for (start, end, name) in found(text, glued) {
-        out.push_str(&text[at..start]);
+    let mut from = 0;
+    for (start, end, name) in found(text, at.glued, at.quote).0 {
+        out.push_str(&text[from..start]);
         match named(&name) {
             Some(token) => out.push_str(&token),
             None => {
@@ -98,51 +145,62 @@ fn written(
                 out.push_str(&text[start..end]);
             }
         }
-        at = end;
+        from = end;
     }
-    out.push_str(&text[at..]);
+    out.push_str(&text[from..]);
     out
 }
 
-/// Visit each string literal and template text in `e`, everywhere in it,
-/// with whether a template hole touches it at its start or end.
-/// What [`texts`] calls with each text: it, its hole sides, its span.
-type Visit<'a> = dyn FnMut(&mut String, (bool, bool), Span) + 'a;
+/// What [`texts`] calls with each text and where it is.
+type Visit<'a> = dyn FnMut(&mut String, At) + 'a;
 
-fn texts(e: &mut Expr, f: &mut Visit<'_>) {
+/// Visit each string literal and template text in `e`, everywhere in it;
+/// `value`: whether `e` supplies a row's value, which its strings and
+/// templates do through `?:` branches, `match` arms, `let` and `+` (as
+/// [`crate::motion`] writes a motion token in), and nothing else does.
+fn texts(e: &mut Expr, value: bool, f: &mut Visit<'_>) {
     match e {
-        Expr::Str(s, span) => f(s, (false, false), *span),
+        Expr::Str(s, span) => f(
+            s,
+            At {
+                glued: (false, false),
+                quote: None,
+                span: *span,
+                value,
+            },
+        ),
         Expr::Template(parts, span) => {
             let n = parts.len();
             let holes: Vec<bool> = parts
                 .iter()
                 .map(|p| matches!(p, TemplatePart::Expr(_)))
                 .collect();
+            let mut quote = None;
             for (i, p) in parts.iter_mut().enumerate() {
                 match p {
                     TemplatePart::Text(s) => {
                         let glued = (i > 0 && holes[i - 1], i + 1 < n && holes[i + 1]);
-                        f(s, glued, *span);
+                        let start = quote;
+                        quote = found(s, glued, start).1;
+                        f(
+                            s,
+                            At {
+                                glued,
+                                quote: start,
+                                span: *span,
+                                value,
+                            },
+                        );
                     }
-                    TemplatePart::Expr(x) => texts(x, f),
+                    // A hole inside quotes is part of a quoted name.
+                    TemplatePart::Expr(x) => texts(x, value && quote.is_none(), f),
                 }
             }
         }
-        Expr::List(items, _) => items.iter_mut().for_each(|a| texts(a, f)),
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _)
-        | Expr::Unary(_, x, _) => texts(x, f),
-        Expr::Call(_, args, _) => args.iter_mut().for_each(|a| texts(a, f)),
-        Expr::Binary(_, a, b, _) => {
-            texts(a, f);
-            texts(b, f);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            texts(a, f);
-            texts(b, f);
-            texts(c, f);
+        Expr::Ternary(c, a, b, _) => {
+            texts(c, false, f);
+            texts(a, value, f);
+            texts(b, value, f);
         }
         Expr::Match {
             subject,
@@ -150,26 +208,36 @@ fn texts(e: &mut Expr, f: &mut Visit<'_>) {
             none,
             ..
         } => {
-            texts(subject, f);
-            texts(some, f);
-            texts(none, f);
+            texts(subject, false, f);
+            texts(some, value, f);
+            texts(none, value, f);
         }
-        Expr::Let { value, body, .. } => {
-            texts(value, f);
-            texts(body, f);
+        Expr::Let { value: v, body, .. } => {
+            texts(v, value, f);
+            texts(body, value, f);
         }
-        _ => {}
+        Expr::Binary(op, a, b, _) => {
+            let joined = value && matches!(op, BinOp::Add);
+            texts(a, joined, f);
+            texts(b, joined, f);
+        }
+        Expr::List(items, _) => items.iter_mut().for_each(|a| texts(a, false, f)),
+        Expr::Call(_, args, _) => args.iter_mut().for_each(|a| texts(a, false, f)),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
+        | Expr::Unary(_, x, _) => texts(x, false, f),
+        Expr::Arrow { body, .. } => texts(body, false, f),
+        Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
     }
 }
 
-/// The places a param may be named in a component's view: each row's value
-/// and each image's positional source, by `visit`; and each other place a
-/// view writes a string (another component's argument), by `elsewhere`.
-fn view(
-    list: &mut [Node],
-    visit: &mut dyn FnMut(&mut Expr),
-    elsewhere: &mut dyn FnMut(&mut Expr, &str),
-) {
+/// The places a param may be named in a component's view: each row's value,
+/// each image's `symbol:` source, and each argument to another component
+/// (the param passes to it: [`reached`] refuses one the child reads
+/// otherwise than as a row's value).
+fn view(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr)) {
     for node in list {
         match node {
             Node::Element {
@@ -180,40 +248,142 @@ fn view(
                 ..
             } => {
                 for a in attrs.iter_mut().filter(|a| row(tag, &a.name)) {
-                    visit(&mut a.value);
+                    if !sourced(tag) || symbolic(&a.value) {
+                        visit(&mut a.value);
+                    }
                 }
                 if sourced(tag) {
-                    if let Some(p) = positional.first_mut() {
+                    if let Some(p) = positional.first_mut().filter(|p| symbolic(p)) {
                         visit(p);
                     }
                 }
-                view(children, visit, elsewhere);
+                view(children, visit);
             }
             Node::When {
                 then, otherwise, ..
             } => {
-                view(then, visit, elsewhere);
-                view(otherwise, visit, elsewhere);
+                view(then, visit);
+                view(otherwise, visit);
             }
-            Node::Each { body, .. } => view(body, visit, elsewhere),
+            Node::Each { body, .. } => view(body, visit),
             Node::Match { some, none, .. } => {
-                view(&mut some.1, visit, elsewhere);
-                view(none, visit, elsewhere);
+                view(&mut some.1, visit);
+                view(none, visit);
             }
-            Node::Use {
-                name,
-                args,
-                children,
-                ..
-            } => {
+            Node::Use { args, children, .. } => {
                 for a in args.iter_mut() {
-                    elsewhere(&mut a.value, name);
+                    visit(&mut a.value);
                 }
-                view(children, visit, elsewhere);
+                view(children, visit);
             }
             Node::Children { .. } => {}
         }
     }
+}
+
+/// Every expression of the expanded view `list`, with whether it is a
+/// row's value ([`view`]'s places) or anything else the view reads (a
+/// text's content, an attribute that is no row, a condition, a list).
+fn everything(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr, bool)) {
+    for node in list {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                positional,
+                children,
+                ..
+            } => {
+                for a in attrs.iter_mut() {
+                    let at = row(tag, &a.name) && (!sourced(tag) || symbolic(&a.value));
+                    visit(&mut a.value, at);
+                }
+                for (i, p) in positional.iter_mut().enumerate() {
+                    let at = sourced(tag) && i == 0 && symbolic(p);
+                    visit(p, at);
+                }
+                everything(children, visit);
+            }
+            Node::When {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                visit(cond, false);
+                everything(then, visit);
+                everything(otherwise, visit);
+            }
+            Node::Each {
+                list, key, body, ..
+            } => {
+                visit(list, false);
+                visit(key, false);
+                everything(body, visit);
+            }
+            Node::Match {
+                subject,
+                some,
+                none,
+                ..
+            } => {
+                visit(subject, false);
+                everything(&mut some.1, visit);
+                everything(none, visit);
+            }
+            Node::Use { args, children, .. } => {
+                for a in args.iter_mut() {
+                    visit(&mut a.value, true);
+                }
+                everything(children, visit);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+/// Each place in the expanded `root` (every component inlined, its
+/// declarations lifted) where a param's token, passed through a prop,
+/// reached something other than a row's value: a text's content, an
+/// attribute that is no row, a computation in a row (a function's
+/// argument, a condition), a state, a derive or an action. Refused
+/// (`tamber-param-scope`), naming the param in full.
+pub fn reached(root: &Component, params: &[ParamToken]) -> Vec<LowerError> {
+    if params.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<(String, Span)> = Vec::new();
+    let mut list = root.view.clone();
+    everything(&mut list, &mut |e, row| {
+        texts(e, row, &mut |s, at| {
+            if !at.value {
+                found.push((s.clone(), at.span));
+            }
+        })
+    });
+    let mut out = Vec::new();
+    for (text, span) in found {
+        if let Some(p) = params.iter().find(|p| text.contains(&p.token)) {
+            out.push(LowerError {
+                id: "tamber-param-scope",
+                message: format!("param `{}` reaches a place no row takes its value from (a text's content, an attribute that is no row, a function's argument or a condition), through an argument that passed it: pass it only to a prop the component writes a row's value with", p.full),
+                span,
+            });
+        }
+    }
+    // What the expansion lifted out of the view (states, derives, actions).
+    let mut rest = root.clone();
+    rest.view.clear();
+    rest.params = Default::default();
+    let rest = format!("{rest:?}");
+    for p in params.iter().filter(|p| rest.contains(&p.token)) {
+        out.push(LowerError {
+            id: "tamber-param-scope",
+            message: format!("param `{}` reaches a state, a derive or an action, through an argument that passed it: pass it only to a prop the component writes a row's value with", p.full),
+            span: p.param.span,
+        });
+    }
+    out
 }
 
 /// A refusal of a param named where no component owns it.
@@ -230,8 +400,13 @@ fn scoped(span: Span, name: &str, place: String, fix: &str) -> LowerError {
 /// The `param.` words a string in `e` writes, each with its literal's span.
 fn named_in(e: &mut Expr) -> Vec<(String, Span)> {
     let mut out = Vec::new();
-    texts(e, &mut |s, glued, span| {
-        out.extend(found(s, glued).into_iter().map(|(_, _, n)| (n, span)));
+    texts(e, false, &mut |s, at| {
+        out.extend(
+            found(s, at.glued, at.quote)
+                .0
+                .into_iter()
+                .map(|(_, _, n)| (n, at.span)),
+        );
     });
     out
 }
@@ -274,26 +449,19 @@ fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
     };
     let mut bad: Vec<(String, Span)> = Vec::new();
     let mut scope: Vec<LowerError> = Vec::new();
-    view(
-        &mut c.view,
-        &mut |e| {
-            texts(e, &mut |s, glued, span| {
+    view(&mut c.view, &mut |e| {
+        texts(e, true, &mut |s, at| {
+            if at.value {
                 let mut found = Vec::new();
-                *s = written(s, glued, &named, &mut found);
-                bad.extend(found.into_iter().map(|n| (n, span)));
-            })
-        },
-        &mut |e, to| {
-            for (n, span) in named_in(e) {
-                scope.push(scoped(
-                    span,
-                    &n,
-                    format!("an argument to `{to}`"),
-                    &format!("pass a token, or give `{to}` a param of its own"),
-                ));
+                *s = written(s, at, &named, &mut found);
+                bad.extend(found.into_iter().map(|n| (n, at.span)));
+            } else {
+                for (_, _, n) in found(s, at.glued, at.quote).0 {
+                    scope.push(scoped(at.span, &n, format!("a computation in a row of `{}`", c.name), "a param is a row's value, written as a string, a template, a `?:` branch, a `match` arm or a `+`; what a function, a condition or a comparison computes from it is data its value never reaches"));
+                }
             }
-        },
-    );
+        })
+    });
     // A state's, a derive's or an action's value is the runtime's.
     for b in c.states.iter_mut().chain(c.derives.iter_mut()) {
         for (n, span) in named_in(&mut b.expr) {
@@ -302,12 +470,12 @@ fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
     }
     for p in &mut c.params.list {
         let mut found = Vec::new();
-        p.default = written(&p.default, (false, false), &named, &mut found);
+        p.default = written(&p.default, PLAIN, &named, &mut found);
         bad.extend(found.into_iter().map(|n| (n, p.default_span)));
         for a in p.attrs.iter_mut().filter(|a| a.name == "options") {
             if let contract_syntax::params::ParamValue::Str(s) = &mut a.value {
                 let mut found = Vec::new();
-                *s = written(s, (false, false), &named, &mut found);
+                *s = written(s, PLAIN, &named, &mut found);
                 bad.extend(found.into_iter().map(|n| (n, a.span)));
             }
         }
@@ -333,19 +501,17 @@ fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
 /// The param token names a component's rows read.
 fn read(c: &mut Component) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    view(
-        &mut c.view,
-        &mut |e| {
-            texts(e, &mut |s, _, _| {
+    view(&mut c.view, &mut |e| {
+        texts(e, true, &mut |s, at| {
+            if at.value {
                 out.extend(
                     s.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
                         .filter(|w| w.starts_with(PREFIX))
                         .map(str::to_string),
                 )
-            })
-        },
-        &mut |_, _| {},
-    );
+            }
+        })
+    });
     out
 }
 
@@ -406,7 +572,8 @@ mod tests {
     #[test]
     fn a_param_is_a_whole_word_outside_quotes_fragments_and_holes() {
         let names = |t: &str, glued| {
-            found(t, glued)
+            found(t, glued, None)
+                .0
                 .into_iter()
                 .map(|(_, _, n)| n)
                 .collect::<Vec<_>>()
@@ -422,15 +589,15 @@ mod tests {
         assert!(names("url(#param.fill)", (false, false)).is_empty());
         assert!(names("param.fill", (true, false)).is_empty());
         assert!(names("x param.fill", (false, true)).is_empty());
+        // A template's text after `"${face} ` is still inside the quote.
+        assert!(found("param.fill\", x", (true, false), Some('"'))
+            .0
+            .is_empty());
+        assert_eq!(found("\"${", (false, true), None).1, Some('"'));
         let named = |n: &str| (n == "fill").then(|| "T".to_string());
         let mut bad = Vec::new();
         assert_eq!(
-            written(
-                "a param.fill b param.nope",
-                (false, false),
-                &named,
-                &mut bad
-            ),
+            written("a param.fill b param.nope", PLAIN, &named, &mut bad),
             "a T b param.nope"
         );
         assert_eq!(bad, ["nope"]);

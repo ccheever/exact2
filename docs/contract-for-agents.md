@@ -3162,17 +3162,24 @@ an expression over tokens and the component's other params), and its rows and
 defaults name it `param.radius`. Every instance shares it. Its full name is the
 component's declaring file and name, `post.contract#PostButton.radius` (an import
 alias never changes it; moving the file makes it a new param), and
-`PostButton.radius` where no other component has that name. A param is named in
-its component's own rows (a style, shorthand or motion row, an image's source)
-and defaults; one in a `style`, a `keyframes`, another component's argument or a
-state's value is refused (`tamber-param-scope`). A param no
+`PostButton.radius` where no other component has that name (a package's file
+is its package's however a `use` reaches it). A param is a row's value in its
+component's own rows (a style, shorthand or motion row, an image's `symbol:`
+source): a string or a template, through `?:` branches, `match` arms and `+`,
+as a motion token is; and its defaults. Passed in a component's argument, it is
+the child's row's value. One in a `style`, a `keyframes` or a state's value,
+or in what a row computes (a function's argument, a condition, a comparison,
+a callback), or that a child reads otherwise than as a row's value, is refused
+(`tamber-param-scope`). A param no
 row of its component reads, directly or through another param, is refused
 (`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
 default must be inside the range in every mode; `control` follows the kind
 (`color`, `slider`, `stepper`, `token`, `select` with `options="a|b"`, `none`),
 and `priority` is 1 to 3. A design token may not be named `param.…`.
 `contract tamber ir` and the design server's `describe` list them under
-`components`.
+`components`; `contract tamber check` builds an app with params to admit its
+design (a dial only a param reads is read), counts them apart, and charges a
+refusal or warning on one to its default.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust .` writes bindings into

@@ -699,7 +699,9 @@ impl Server {
             .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
             .1;
         let (folding, design) = contract::tamber_params::fold_with(text, params, &self.vocab)
-            .map_err(|all| refused(&file, all))?;
+            .map_err(|all| {
+                json!({"message": "the design is refused", "diagnostics": all.iter().map(|d| located(&file, d, params)).collect::<Vec<_>>()})
+            })?;
         Ok((snap, folding, design))
     }
 
@@ -737,14 +739,15 @@ impl Server {
     fn describe(&self, request: &Value) -> Result<Value, Value> {
         // The app's components' params (LLP 1121 D15) fold with the design,
         // so a dial only a param reads is read; listed by full name.
-        let all = contract::tamber_params::params_of(&self.dir.join("app.contract"));
-        let (snap, folding, design) = self.design_with(request, &all)?;
+        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let all = app.tokens.as_slice();
+        let (snap, folding, design) = self.design_with(request, all)?;
         let mut ir: Value =
             serde_json::from_str(&folding.ir()).map_err(|e| json!({"message": e.to_string()}))?;
         if !all.is_empty() {
             contract::tamber_params::hide(&mut ir);
             ir["components"] =
-                contract::tamber_params::components(&all, Some(&design), &self.vocab);
+                contract::tamber_params::components(&app, Some(&design), &self.vocab);
         }
         let meta =
             |m: &[(String, String)]| m.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>();
@@ -783,7 +786,7 @@ impl Server {
         let warnings: Vec<Value> = folding
             .warnings
             .iter()
-            .map(|d| diagnostic(&file, d))
+            .map(|d| located(&file, d, all))
             .collect();
         Ok(
             json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
@@ -909,7 +912,9 @@ impl Server {
     /// joins the spans through its own source map (LLP 1122 T2b's
     /// `outline`).
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
+        // A param's token (the IR's `components` names it) is one too (D15).
+        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        let (snap, folding, _) = self.design_with(request, &app.tokens)?;
         let name = required(request, "token")?;
         if !folding.tokens.iter().any(|t| t.name == name) {
             return Err(json!({"message": format!("no token `{name}`")}));
@@ -1387,6 +1392,18 @@ fn files_json(files: &[(String, String, String)]) -> Value {
 
 fn diagnostic(file: &str, d: &exact_tamber::Diagnostic) -> Value {
     json!({"file": file, "line": d.line, "col": d.col, "id": d.id, "message": d.message})
+}
+
+/// [`diagnostic`], one of a param's (D15) in its declaring file, at its
+/// default, every name in full.
+fn located(
+    file: &str,
+    d: &exact_tamber::Diagnostic,
+    params: &[contract_lower::params::ParamToken],
+) -> Value {
+    let mut d = d.clone();
+    let declaring = contract::tamber_params::relocate(&mut d, params);
+    diagnostic(declaring.as_deref().unwrap_or(file), &d)
 }
 
 fn refused(file: &str, all: Vec<exact_tamber::Diagnostic>) -> Value {

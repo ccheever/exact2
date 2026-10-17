@@ -234,6 +234,10 @@ impl Lowerer<'_> {
                 });
             }
         }
+        // A param passed through a prop to a place no row reads (D15).
+        for e in crate::params::reached(root, &params) {
+            self.push(e);
+        }
         // Each param as declared, then those of a kind, into the design.
         let (refused, unkinded) = crate::params::declared(&params);
         // (Whether each is read is the driver's, before a motion param is
