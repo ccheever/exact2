@@ -934,15 +934,8 @@ extension NavigationHost {
         let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let physical = target?.scrollView
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
-        if let old = c.collapseScroll, let sv = c.collapseScrollView {
-            old.retainScrollPosition(from: sv)
-            let top = sv.contentOffset.y + old.scrollTopInset(sv)
-            // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
-            if old !== c.edgeScroll || sv !== old.scrollView { sv.contentInsetAdjustmentBehavior = .never }
-            old.scrollOrigin = 0
-            old.scrollCollapsed = 0
-            sv.contentOffset.y = top - old.scrollTopInset(sv)
-        }
+        let old = c.collapseScroll, oldView = c.collapseScrollView
+        if let old, let sv = oldView { old.retainScrollPosition(from: sv) }
         c.collapseScroll = target
         c.collapseScrollView = physical
         // A scroller at its start (CSS scrollTop 0) stays there as UIKit
@@ -954,10 +947,24 @@ extension NavigationHost {
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
         if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
-        let left = c.contentScrollView(for: .top)
         c.setContentScrollView(shown, for: .top)
-        if let left, left !== shown, left.window != nil { retitle(c) }
-        if atStart, let sv = shown { rest(sv, in: c) }
+        // The scroller left behind gets the page's offsets back only once the
+        // bar follows the new one: UIKit reads its inset taken away while the
+        // bar still follows it as a scroll, and closes an open large title.
+        if let old, let sv = oldView, sv !== shown {
+            let top = sv.contentOffset.y + old.scrollTopInset(sv)
+            // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
+            if old !== c.edgeScroll || sv !== old.scrollView { sv.contentInsetAdjustmentBehavior = .never }
+            old.scrollOrigin = 0
+            old.scrollCollapsed = 0
+            sv.contentOffset.y = top - old.scrollTopInset(sv)
+        }
+        // UIKit keeps a pushed route's large title inside the scroller the bar
+        // follows and moves it only on the bar's next layout, which handing
+        // the bar another scroller does not ask for: a scroller left in the
+        // window below a reason keeps the title, clipped from sight (LLP
+        // 1116.005 D4; UIKit alone does the same on iOS 27).
+        c.navigationController?.navigationBar.setNeedsLayout()
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
@@ -975,73 +982,6 @@ extension NavigationHost {
             }
             responder = current.next
         }
-    }
-
-    /// UIKit moves a large title into the content scroll view it follows and
-    /// takes it back only when that one leaves the window: handed another, or
-    /// none, while the old one stays (chat-rooms' rooms list, moved below a
-    /// failed load's reason), it left the title in the old one, at that one's
-    /// top, clipped from sight: a blank band under the bar (LLP 1116.005 D4).
-    /// The title made again goes where UIKit now looks, the new scroller or
-    /// the bar itself. One turn, unanimated: no frame shows the inline title
-    /// between, and the covers it moves are reported once, after.
-    private func retitle(_ c: RouteController) {
-        // tvOS has no large titles.
-        #if !os(tvOS)
-        let item = c.navigationItem
-        guard item.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil, let nav = c.navigationController,
-              nav.topViewController === c, nav.transitionCoordinator == nil, !nav.isNavigationBarHidden else { return }
-        UIView.performWithoutAnimation {
-            item.largeTitleDisplayMode = .never
-            nav.navigationBar.layoutIfNeeded()
-            item.largeTitleDisplayMode = .always
-            nav.navigationBar.layoutIfNeeded()
-        }
-        #endif
-    }
-
-    /// A route's new collapsing scroller at its start (`collapse`): its
-    /// content's top just below the bar, where UIKit's inset puts it, and a
-    /// large title expanded, as a new screen opens. A header and scroller
-    /// replaced in place (trivia-quiz's results after its questions) find
-    /// the bar as the content before left it, collapsed or inline. UIKit
-    /// opens a large title as its scroller's offset passes above its top, so
-    /// the scroller is pulled past its top, as a finger pulls it, and put at
-    /// rest there in the same turn: no frame shows the pull. Exact asked the
-    /// bar to `sizeToFit` before, which opens a title only on the first
-    /// screen of a stack that has pushed nothing yet and closes one anywhere
-    /// else (measured on iOS 27, in UIKit alone): a pushed route's scroller
-    /// replaced in place lost its title.
-    func rest(_ sv: UIScrollView, in c: RouteController) {
-        if sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
-        // tvOS has no large titles.
-        #if !os(tvOS)
-        guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
-              let nav = c.navigationController, nav.topViewController === c, nav.transitionCoordinator == nil,
-              !nav.isNavigationBarHidden else { return }
-        UIView.performWithoutAnimation {
-            // By the bar's height at a time, while the title still opens:
-            // UIKit grows the inset by what the pull opened of it.
-            for _ in 0..<4 {
-                let top = sv.adjustedContentInset.top
-                sv.contentOffset.y = -top - nav.navigationBar.frame.height
-                nav.view.layoutIfNeeded()
-                if sv.adjustedContentInset.top <= top + 0.5 { break }
-            }
-            sv.contentOffset.y = -sv.adjustedContentInset.top
-        }
-        #endif
-    }
-
-    /// A shown route whose collapsing scroller is still at its start gets
-    /// the title a new screen has, expanded (`rest`). A stack's first route
-    /// at launch needs it: its scroller was attached before its view had a
-    /// window, where `rest` cannot open the title, and UIKit then showed a
-    /// level-1 title inline over content that had not moved. Seen in a
-    /// single stack; under a tab bar UIKit fits it itself.
-    func restAtStart(_ c: RouteController) {
-        guard let node = c.collapseScroll, let sv = shownScroll(node), sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top else { return }
-        rest(sv, in: c)
     }
 
     /// The bottom edge, as `collapse` is the top's (LLP 1116 D2): a route
