@@ -592,6 +592,11 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::TintColor => return out.push_str("--exact-tint"),
         // @ref LLP 1104 D3 — `::placeholder`'s colour, read by index.html.
         StyleId::PlaceholderColor => return out.push_str("--exact-placeholder-color"),
+        // @ref LLP 1061 D7 — the pressed paint: custom properties input-glue.js
+        // reads from the pressed element's own style, as `--exact-press`.
+        StyleId::PressOpacity => return out.push_str("--exact-press-opacity"),
+        StyleId::PressBackgroundColor => return out.push_str("--exact-press-background-color"),
+        StyleId::PressColor => return out.push_str("--exact-press-color"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
@@ -702,6 +707,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             StyleId::FlexGrow
             | StyleId::FlexShrink
             | StyleId::Opacity
+            | StyleId::PressOpacity
             | StyleId::Order
             | StyleId::ColumnCount
             | StyleId::Widows
@@ -1417,6 +1423,34 @@ mod declaration_tests {
         assert_eq!(text, "rotate:3deg;--exact-press-haptic:impact-medium;");
         assert!(skipped.is_empty(), "{skipped:?}");
         assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
+    }
+
+    /// The pressed paint is three custom properties input-glue.js reads from
+    /// the pressed element's own style (LLP 1061 D7); a written 1 is still
+    /// the author's, and a clear writes nothing.
+    #[test]
+    fn the_pressed_paint_is_the_glues_properties() {
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::PressOpacity, StyleValue::Number(0.5)),
+                    (StyleId::PressBackgroundColor, t("light-dark(#eeeeee, #333333)")),
+                    (StyleId::PressColor, t("#ff0000")),
+                ],
+                &[]
+            ),
+            "--exact-press-opacity:0.5;--exact-press-background-color:light-dark(rgba(238,238,238,1), rgba(51,51,51,1));--exact-press-color:rgba(255,0,0,1);"
+        );
+        assert_eq!(
+            css(&[(StyleId::PressOpacity, StyleValue::Number(1.0))], &[]),
+            "--exact-press-opacity:1;"
+        );
+        let mut cleared = StyleProps::default();
+        cleared.written.set(StyleId::PressColor);
+        assert_eq!(css_text(&cleared, &[]).0, "");
     }
 
     /// `-exact-fit` is the custom property navigation.js `fitText` reads

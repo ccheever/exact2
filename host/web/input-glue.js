@@ -167,9 +167,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
     // when the browser clicks it. A press it declares shows meanwhile, as under
-    // a pointer: a native button's highlight, a `-exact-press-scale`. (The
+    // a pointer: a native button's highlight, a `-exact-press-scale`, a pressed paint. (The
     // unsaid dim needs nothing here: it is the browser's own `:active`.)
-    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || el.style.getPropertyValue("--exact-press"))) return keyed(el);
+    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || declaresPress(el))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
@@ -188,7 +188,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return el.toggleAttribute("data-exact-surface", r.width >= page.clientWidth && r.height >= page.clientHeight * .9);
   };
   // Space held on a pressable this piece presses by key shows its press (its
-  // `-exact-press-scale`, else the shell's dim) until the key comes up or the
+  // `-exact-press-scale` and pressed paint, else the shell's dim) until the key comes up or the
   // focus leaves, as the browser holds a `<button>` `:active` under Space; so
   // does a `<button>` whose press is declared.
   const keyed = el => {
@@ -210,8 +210,45 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // native button is pressed by the same rule with or without a row or a
   // handler of its own, as a UIButton highlights (the shell dims its face).
   const feedback = new WeakMap();
+  // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
+  // and on the same ease as the scale: the opacity as a fraction of the
+  // node's own, added to whatever the page gives it (a transition, a class,
+  // an inline row), and the background and text colours in place of its
+  // own, eased back to whatever they are by then. Its `color` reaches the
+  // subtree as CSS's does.
+  const PAINT = ["--exact-press-opacity", "--exact-press-background-color", "--exact-press-color"];
+  const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
+  const paints = new WeakMap();
+  const showPaint = (el, down) => {
+    const old = paints.get(el);
+    if ((old?.down ?? false) === down) return;
+    const [opacity, background, color] = PAINT.map(p => el.style.getPropertyValue(p).trim());
+    if (!old && !(opacity || background || color)) return;
+    const timing = { duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
+    const now = getComputedStyle(el);
+    // The opacity's share, from what shows: the underlying opacity is the
+    // computed one less the delta already added.
+    const shown = old?.dim ? parseFloat(now.opacity) - old.base : 0;
+    const base = old?.dim ? old.base : parseFloat(now.opacity);
+    const fraction = Number(opacity.includes("var(") ? now.getPropertyValue("--exact-press-opacity") : opacity);
+    const target = down && opacity && Number.isFinite(fraction) ? -base * (1 - Math.min(1, Math.max(0, fraction))) : 0;
+    const from = { offset: 0 }, to = { offset: 1 };
+    if (background || old?.inks?.backgroundColor) { from.backgroundColor = now.backgroundColor; if (down && background) to.backgroundColor = "var(--exact-press-background-color)"; }
+    if (color || old?.inks?.color) { from.color = now.color; if (down && color) to.color = "var(--exact-press-color)"; }
+    old?.dim?.cancel(); old?.inks?.animation.cancel();
+    const dim = (opacity || old?.dim) && (shown || target) ? el.animate([{ opacity: shown }, { opacity: target }], { ...timing, composite: "add" }) : null;
+    // A colour missing from the last frame eases to the element's own (an implicit keyframe).
+    const inks = Object.keys(from).length > 1 ? { animation: el.animate([from, to], timing), backgroundColor: !!from.backgroundColor, color: !!from.color } : null;
+    const state = { down, base, dim, inks };
+    paints.set(el, state);
+    const done = inks?.animation ?? dim;
+    if (!down && done) done.onfinish = () => { if (paints.get(el) === state) { dim?.cancel(); inks?.animation.cancel(); paints.delete(el); } };
+    else if (!down) paints.delete(el);
+    if (agentMode) { dim?.finish(); inks?.animation.finish(); }
+  };
   const showPress = (el, down) => {
     el.toggleAttribute("data-pressed", down);
+    showPaint(el, down);
     // A design token's scale is its property's `var()`: the computed value
     // is the token's (LLP 1121 D7).
     const press = el.style.getPropertyValue("--exact-press");
@@ -260,7 +297,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // Safari), with `haptic()`'s two lengths (workout F4).
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();
     if (haptic && haptic !== "none") navigator.vibrate?.(haptic === "selection" ? 5 : 12);
-    if (!(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]") || touch)) return;
+    if (!(declaresPress(el) || el.matches("button[data-button-style]") || touch)) return;
     const r = unpressedBox(el);
     press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
     showPress(el, true);

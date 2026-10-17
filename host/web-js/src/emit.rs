@@ -949,6 +949,9 @@ impl Em<'_> {
         // tablist and a menu theirs (LLP 1115.000 D4.5).
         if presence.contains("--exact-press:")
             || presence.contains("--exact-press-haptic:")
+            || presence.contains("--exact-press-opacity:")
+            || presence.contains("--exact-press-background-color:")
+            || presence.contains("--exact-press-color:")
             || attrs.iter().any(|a| {
                 a.0 == "data-button-style"
                     || (a.0 == "role" && ["radiogroup", "tablist", "menu"].contains(&a.1.as_str()))

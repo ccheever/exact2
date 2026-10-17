@@ -97,12 +97,34 @@ const unsaid = sheet + `
   window.ready = true;
 </script>`;
 
+// LLP 1061 D7, the pressed paint as both web targets write it: a card holding
+// a box that dims to half its own opacity and turns blue with red text (one
+// span inheriting the colour, one writing its own), a box that only recolours
+// its text, a button that also scales, and a row of a cell list. `?agent`
+// is the agent's clock.
+const paint = sheet + `
+<div id="exact-root" style="padding:20px">
+  <div id="paintcard" data-exact-on="press" style="--exact-press-opacity:0.5;width:320px;padding:20px">
+    <div id="painted" data-exact-on="press" style="--exact-press-opacity:0.5;--exact-press-background-color:rgb(0, 0, 255);--exact-press-color:rgb(255, 0, 0);background-color:rgb(255, 255, 255);color:rgb(0, 0, 0);opacity:0.8;width:200px;height:60px"><span id="label">label</span> <span id="kept" style="color:rgb(0, 128, 0)">kept</span></div>
+  </div>
+  <div id="inked" data-exact-on="press" style="--exact-press-color:rgb(255, 0, 0);width:200px;height:40px">ink</div>
+  <button id="both" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;--exact-press-opacity:0.5;width:100px;height:40px">both</button>
+  <div role="list" data-listrows="true"><div id="paintrow" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);height:40px">row</div></div>
+  <div id="away" style="height:60px"></div>
+</div>
+<script type="module">
+  import { createInputHandlers } from './input-glue.js';
+  const root = document.getElementById('exact-root');
+  createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {}, agentMode: location.search === '?agent' });
+  window.ready = true;
+</script>`;
+
 // One server and one browser for the file; each test opens a page of its own.
 let server, profile, child, cdp;
 beforeAll(async () => {
   if (unavailable) return;
   server = createServer((req, res) => {
-    const html = { '/': page, '/unsaid': unsaid }[req.url];
+    const html = { '/': page, '/unsaid': unsaid, '/paint': paint, '/paint?agent': paint }[req.url];
     if (html) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'input-glue.js')));
   });
@@ -423,5 +445,83 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     await finger('touchEnd');
   } finally {
     await close();
+  }
+}, 60000);
+
+check('the pressed paint shows by the press rule, eased, and replaces the platform default', async () => {
+  const { call, evaluate, centre, mouse, close } = await open('/paint');
+  try {
+    const look = (id) => evaluate(`(() => { const s = getComputedStyle(document.getElementById('${id}')); return [s.opacity, s.backgroundColor, s.color].join(' '); })()`);
+    const ink = (id) => evaluate(`getComputedStyle(document.getElementById('${id}')).color`);
+    const settle = () => evaluate(`document.getAnimations().forEach(a => { if (Number.isFinite(a.effect.getComputedTiming().endTime)) a.finish(); })`);
+    const rest = '0.8 rgb(255, 255, 255) rgb(0, 0, 0)';
+    expect(await look('painted')).toBe(rest);
+
+    // Held: half its own opacity, its background and text colours; a span
+    // writing its own colour keeps it, and the card it is in shows nothing.
+    const painted = await centre('painted');
+    await mouse('mousePressed', painted);
+    // Eased in on the press's curve: part way at 20 ms.
+    await evaluate(`document.getElementById('painted').getAnimations().forEach(a => { a.pause(); a.currentTime = 20; })`);
+    const part = parseFloat(await evaluate(`getComputedStyle(document.getElementById('painted')).opacity`));
+    expect(part).toBeLessThan(0.8);
+    expect(part).toBeGreaterThan(0.4);
+    await settle();
+    expect(await look('painted')).toBe('0.4 rgb(0, 0, 255) rgb(255, 0, 0)');
+    expect([await ink('label'), await ink('kept')]).toEqual(['rgb(255, 0, 0)', 'rgb(0, 128, 0)']);
+    expect(await evaluate(`getComputedStyle(document.getElementById('paintcard')).opacity`)).toBe('1');
+    // Off the box it goes, and back it comes, as the scale does.
+    await mouse('mouseMoved', [painted[0] + 150, painted[1]]);
+    await settle();
+    expect(await look('painted')).toBe(rest);
+    await mouse('mouseMoved', painted);
+    await settle();
+    expect(await look('painted')).toBe('0.4 rgb(0, 0, 255) rgb(255, 0, 0)');
+    // The dim is the share taken at the press, added to whatever the node's own is: it moves under a change.
+    await evaluate(`document.getElementById('painted').style.opacity = '0.6'`);
+    expect(await evaluate(`getComputedStyle(document.getElementById('painted')).opacity`)).toBe('0.2');
+    await evaluate(`document.getElementById('painted').style.opacity = '0.8'`);
+    await mouse('mouseReleased', painted);
+    await settle();
+    expect(await look('painted')).toBe(rest);
+    expect(await ink('label')).toBe('rgb(0, 0, 0)');
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    expect(await evaluate(`document.getElementById('painted').getAnimations().length`)).toBe(0);
+
+    // A colour alone is the author's press too: no unsaid dim under it.
+    const inked = await centre('inked');
+    await mouse('mousePressed', inked);
+    await settle();
+    expect([await evaluate(`getComputedStyle(document.getElementById('inked')).opacity`), await ink('inked')]).toEqual(['1', 'rgb(255, 0, 0)']);
+    await mouse('mouseReleased', inked);
+    // It composes with the scale.
+    const both = await centre('both');
+    await mouse('mousePressed', both);
+    await settle();
+    expect(await evaluate(`(() => { const s = getComputedStyle(document.getElementById('both')); return s.opacity + ' ' + parseFloat(s.scale); })()`)).toBe('0.5 0.5');
+    await mouse('mouseReleased', both);
+    await settle();
+    // A row's own press replaces the cell's pressed wash (what the pointer
+    // over it shows is its hover's).
+    const [x, y] = await centre('paintrow');
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 });
+    const hovered = await evaluate(`getComputedStyle(document.getElementById('paintrow')).backgroundImage`);
+    await mouse('mousePressed', [x, y]);
+    await settle();
+    expect(await evaluate(`(() => { const s = getComputedStyle(document.getElementById('paintrow')); return s.backgroundColor + ' ' + s.backgroundImage; })()`)).toBe(`rgb(0, 0, 255) ${hovered}`);
+    await mouse('mouseReleased', await centre('paintrow'));
+  } finally {
+    await close();
+  }
+  // Under the agent's clock it lands at once, both ways.
+  const agent = await open('/paint?agent');
+  try {
+    const at = await agent.centre('painted');
+    await agent.mouse('mousePressed', at);
+    expect(await agent.evaluate(`getComputedStyle(document.getElementById('painted')).opacity`)).toBe('0.4');
+    await agent.mouse('mouseReleased', at);
+    expect(await agent.evaluate(`getComputedStyle(document.getElementById('painted')).opacity`)).toBe('0.8');
+  } finally {
+    await agent.close();
   }
 }, 60000);

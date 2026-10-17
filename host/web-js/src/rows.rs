@@ -311,6 +311,22 @@ impl Em<'_> {
                 let _ = write!(self.out, "{press}();");
                 one("--exact-press-haptic", Some("v=>v==null||v===\"none\"?null:v".into()))
             }
+            // @ref LLP 1061 D7 — the pressed paint: the custom properties
+            // input-glue.js reads from the element's own style (css.rs).
+            StyleId::PressOpacity | StyleId::PressBackgroundColor | StyleId::PressColor => {
+                let press = self.uses.rt("pressFeedback");
+                let _ = write!(self.out, "{press}();");
+                let name = match id {
+                    StyleId::PressOpacity => "--exact-press-opacity",
+                    StyleId::PressBackgroundColor => "--exact-press-background-color",
+                    _ => "--exact-press-color",
+                };
+                let none = "v==null||/^\\s*unset\\s*$/i.test(v)?null:";
+                one(name, Some(match &cm {
+                    Some(cm) => format!("v=>{none}{cm}(v)"),
+                    None => format!("v=>{none}v"),
+                }))
+            }
             // @ref LLP 1116.001 D1.4 — what navigation.js `fitText` reads, inline.
             StyleId::Fit => {
                 let fit = self.uses.rt("fitTexts");
@@ -652,6 +668,10 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",
             "--exact-press-haptic:",
+            // The pressed paint (LLP 1061 D7), read the same way.
+            "--exact-press-opacity:",
+            "--exact-press-background-color:",
+            "--exact-press-color:",
             // A fitted text's (LLP 1116.001 D1.4), which navigation.js finds by it.
             "--exact-fit:",
         ]
