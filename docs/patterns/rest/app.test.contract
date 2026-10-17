@@ -62,9 +62,11 @@ test "an item is added for everyone, and another person's arrives on the next po
   back
   clock settle
   expect state persona == "ada"
+  expect text "persona" == "Ada Lovelace"
   tap "persona"
   tap "persona-grace"
   expect state persona == "grace"
+  expect text "persona" == "Grace Hopper"
   expect text "persona-grace" == "Grace Hopper"
   reload
   expect state persona == "grace"
