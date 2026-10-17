@@ -1252,3 +1252,58 @@ fn a_bare_role_overrides_edit_sets_the_rows_that_spell_the_role() {
     assert!(r.apply_live(&batch).unwrap().roles);
     assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#222222"));
 }
+
+/// A token a colour keyframe names is folded into its `@keyframes` rule when
+/// the app compiles, so an edit to it changes the design's shape: the batch
+/// is refused as a structure change, and the dev loop rebuilds, rather than
+/// leave the rule's old colour. A token no keyframe names stays live.
+#[test]
+fn a_token_a_keyframe_names_is_a_rebuild_not_a_live_edit() {
+    use exact_runner::design;
+    let view = "keyframes lit\n  from background-color=\"chip\"\ncomponent App\n  view\n    column background-color=\"chip\" color=\"ink\" testId=\"page\" animation=\"lit 1s\"\n      text \"a\"\n";
+    let plan = |name: &str, design: &str| {
+        let path = app(name, &[("app.tamber", design), ("app.contract", view)]);
+        contract::compile_path(&path).unwrap()
+    };
+    let a = plan(
+        "kf-a",
+        "tamber t\n\ntheme\n  chip = #cfced4\n  ink = #111111\n",
+    );
+    let chip = plan(
+        "kf-chip",
+        "tamber t\n\ntheme\n  chip = #45454b\n  ink = #111111\n",
+    );
+    let ink = plan(
+        "kf-ink",
+        "tamber t\n\ntheme\n  chip = #cfced4\n  ink = #222222\n",
+    );
+    assert_ne!(
+        design::shape(&chip),
+        design::shape(&a),
+        "a keyframe's token is shape"
+    );
+    assert_eq!(
+        design::shape(&ink),
+        design::shape(&a),
+        "a row's token is a value"
+    );
+    let mut r = booted(a.clone());
+    r.admit_live(None);
+    let refused = design::batch(
+        &design::shape(&chip),
+        &design::tokens(&a),
+        &design::tokens(&chip),
+    )
+    .unwrap();
+    assert!(matches!(
+        r.apply_live(&refused),
+        Err(exact_runner::LiveRefusal::Structure)
+    ));
+    let live = design::batch(
+        &design::shape(&a),
+        &design::tokens(&a),
+        &design::tokens(&ink),
+    )
+    .unwrap();
+    r.apply_live(&live).unwrap();
+}

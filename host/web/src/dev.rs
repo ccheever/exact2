@@ -167,18 +167,23 @@ impl Session {
         // By fingerprint (bytes and which file it is), not time: a used file
         // re-saved with identical bytes is no change, as the root is not.
         let print = |s: Option<(SystemTime, u64)>| s.map(|s| s.1);
-        let changed: Vec<&Path> = self
+        let changed: Vec<(&Path, Option<SystemTime>)> = self
             .uses
             .iter()
-            .filter(|(path, seen)| print(stamp_of(path)) != print(*seen))
-            .map(|(path, _)| path.as_path())
+            .filter_map(|(path, seen)| {
+                let now = stamp_of(path);
+                (print(now) != print(*seen)).then(|| (path.as_path(), now.map(|s| s.0)))
+            })
             .collect();
+        // When the edit was saved: its newest file, a used one (a design)
+        // included, not only the root's.
+        let edited = changed.iter().filter_map(|(_, at)| *at).max();
         let uses_changed = !changed.is_empty();
         // Only design files: a value-only edit, if the structure agrees.
         let design_only = uses_changed
             && changed
                 .iter()
-                .all(|p| p.extension().is_some_and(|e| e == "tamber"));
+                .all(|(p, _)| p.extension().is_some_and(|e| e == "tamber"));
         let surfaces_changed = self.surfaces_stamp != surfaces_stamp || uses_changed;
         // A failed compile may have observed a file while an editor was
         // replacing its bytes. Until a good plan lands, re-read even when
@@ -203,7 +208,9 @@ impl Session {
             && self.surfaces_stamp == surfaces_stamp;
         self.last = Some(src.clone());
         self.surfaces_stamp = surfaces_stamp;
-        let saved = surfaces_stamp.map_or(stamp.0, |s| s.0.max(stamp.0));
+        let saved = surfaces_stamp
+            .map_or(stamp.0, |s| s.0.max(stamp.0))
+            .max(edited.unwrap_or(stamp.0));
         let built = self.build::<D>(&src, unix_ms(saved), design_only);
         self.failed = built.is_err();
         self.uses = uses(&self.source);

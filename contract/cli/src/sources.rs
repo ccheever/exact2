@@ -27,6 +27,9 @@ pub(crate) struct Sources {
     /// source map says them, so a reader knows a file has not moved since
     /// (LLP 1122 D5, D6's fail-closed rule).
     pub(crate) digests: Vec<String>,
+    /// The literals a motion token was written into, or that a component's
+    /// argument names one in (LLP 1121 D3): what `uses` reports for one.
+    pub(crate) motion: Vec<contract_lower::motion::Site>,
 }
 
 /// One name a `use` brought: where it is written, and the declaration it
@@ -120,6 +123,7 @@ pub(crate) fn load(
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -127,6 +131,7 @@ pub(crate) fn load(
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -136,9 +141,16 @@ pub(crate) fn load(
     if let Err(all) = loader.load_source(&root_key, src, 0) {
         return Err(resolve(&loader.sources, all));
     }
+    // The design, read before scoping: its motion tokens are written into
+    // the views first (`contract_lower::motion`).
+    let design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+    loader.motion = design
+        .as_ref()
+        .map(|d| contract_lower::motion::tokens(&d.text))
+        .unwrap_or_default();
     match loader.scope() {
         Ok(mut file) => {
-            file.design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+            file.design = design;
             Ok((file, loader.sources))
         }
         Err(all) => Err(resolve(&loader.sources, all)),
@@ -222,7 +234,7 @@ fn design(
 /// data module (`app.ts`), a Rust data crate (`data/Cargo.toml`), or native
 /// modules or hatches its `app.json` declares. The driver's half of
 /// `contract_lower::names_tokens_outside_views`.
-fn code_beside(root: &Path) -> bool {
+pub fn code_beside(root: &Path) -> bool {
     let dir = root.parent().unwrap_or(Path::new("."));
     if dir.join("app.ts").is_file() || dir.join("data/Cargo.toml").is_file() {
         return true;
@@ -258,6 +270,7 @@ pub(crate) fn use_fixes(
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -265,6 +278,7 @@ pub(crate) fn use_fixes(
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -337,6 +351,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -344,6 +359,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let errors = match loader.load_source(&root_key, src, 0) {
         Err(all) => all,
@@ -399,6 +415,9 @@ struct Loader<'a> {
     /// Each unit's declarations as written, before renaming, for §21's
     /// fixes to judge what a `use` would bring.
     declared: Vec<Vec<(Kind, String)>>,
+    /// The app's duration and easing tokens (LLP 1121 D3), written into the
+    /// motion rows before scoping.
+    motion: Vec<(String, String)>,
 }
 impl Loader<'_> {
     /// Parse `src` as unit `source_id`, then every file its uses name, depth
@@ -493,6 +512,7 @@ impl Loader<'_> {
     fn scope(&mut self) -> Result<File, Vec<CompileError>> {
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
+            self.sources.motion = contract_lower::motion::substitute(&mut file, &self.motion);
             contract_syntax::resolve_clock_timelines(&mut file).map_err(|e| vec![e.into()])?;
             file.uses.clear();
             return Ok(file);
@@ -537,6 +557,14 @@ impl Loader<'_> {
                 })
             })
             .collect();
+        // @ref LLP 1121 D3 — the design's duration and easing tokens are
+        // written into each motion row before scoping reads an animation's
+        // keyframes name (the root's design, the app's).
+        let motion = std::mem::take(&mut self.motion);
+        for unit in self.units.iter_mut() {
+            let sites = contract_lower::motion::substitute(&mut unit.file, &motion);
+            self.sources.motion.extend(sites);
+        }
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
             scope.elsewhere = elsewhere

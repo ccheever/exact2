@@ -36,7 +36,7 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unwatchFile, watch, watchFile } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unwatchFile, watch, watchFile, writeSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
@@ -366,8 +366,28 @@ const installer = localInstaller({ app: () => app, origins, port: servedAs ?? po
 // the TypeScript producer's. A Rust-data app's own producer publishes every
 // plan, so its design edits reload.
 // `page`: this loop's own origin, which the design tool frames (LLP 1122 T2);
-// `sourceMap`: the current generation's map, which a selection is joined to.
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: () => current?.files.get('app.plan.map.json') ?? readMap(), designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
+// `sourceMap(digest)`: the map of the plan with that digest, among the last
+// generations' (a build still on an older plan joins with its own), else the
+// current generation's.
+const plannedMaps = new Map(), mapsBySha = new Map();
+function keepMap(digest, bytes) {
+  plannedMaps.delete(digest); plannedMaps.set(digest, bytes);
+  while (plannedMaps.size > 8) plannedMaps.delete(plannedMaps.keys().next().value);
+  mapsBySha.set(createHash('sha256').update(bytes).digest('hex'), bytes);
+  while (mapsBySha.size > 16) mapsBySha.delete(mapsBySha.keys().next().value);
+}
+// A resident loop (`--serve-as`) tells its parent, the JS loop, each plan it
+// publishes and its map's card (`{plan, map: {sha256, bytes, url} | null}`),
+// on the pipe the parent gave it for that alone (EXACT_MAP_FD): nothing a
+// request makes is written there. The parent fetches the bytes
+// (`/__dev/map/<sha256>`) and keeps them only when they match (LLP 1122 T2c).
+const mapFd = servedAs != null && /^\d+$/.test(process.env.EXACT_MAP_FD ?? '') ? Number(process.env.EXACT_MAP_FD) : null;
+function announcePlan(plan, bytes) {
+  if (mapFd == null) return;
+  const sha = bytes && createHash('sha256').update(bytes).digest('hex');
+  try { writeSync(mapFd, JSON.stringify({ plan, map: bytes ? { sha256: sha, bytes: bytes.length, url: `/__dev/map/${sha}` } : null }) + '\n'); } catch { /* the parent went */ }
+}
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
 // The resident compiler's map beside the plan it wrote (a generation from a
 // Rust producer carries none); the server checks its digest.
 function readMap() { try { return readFileSync(resolve(dist, 'app.plan.map.json')); } catch { return null; } }
@@ -412,7 +432,8 @@ function captureGeneration(reuseCurrentAssets = false) {
   files.delete('app.plan.map.json');
   if (mapBytes && mapBytes.length <= 64 * 1024 * 1024) {
     try {
-      if (JSON.parse(mapBytes.toString('utf8')).digest === createHash('sha256').update(planBytes).digest('hex')) files.set('app.plan.map.json', mapBytes);
+      const planDigest = createHash('sha256').update(planBytes).digest('hex');
+      if (JSON.parse(mapBytes.toString('utf8')).digest === planDigest) files.set('app.plan.map.json', mapBytes);
     } catch { /* Unavailable metadata must not prevent a valid app reload. */ }
   }
   const module = currentModule ? moduleCards(files, app.id) : null;
@@ -474,6 +495,10 @@ function captureGeneration(reuseCurrentAssets = false) {
   const revision = { epoch, seq, generation, envelope, files, prefix, url: prefix + 'exact.json' };
   const classification=classifyGeneration(planBytes,assets);
   current = revision;
+  // Published: its map kept, and its plan (with its map's card, or none)
+  // said to a parent loop. A refused candidate changes neither.
+  if (files.has('app.plan.map.json')) keepMap(envelope.plan.sha256, files.get('app.plan.map.json'));
+  announcePlan(envelope.plan.sha256, files.get('app.plan.map.json') ?? null);
   console.log(classification.map(line=>`  ${line}`).join('\n'));
 }
 
@@ -714,6 +739,17 @@ function startModuleCompiler() {
         if (reply.design) moduleDesign = reply.design;
         if (live && moduleScrubbed) continue;
         if (live) {
+          // No generation, but the map may have moved (an edit of locations
+          // only, under the same plan): the fresh one is kept and said.
+          // Only for the plan the builds run: a value edit changes the plan
+          // bytes (the batch carries it), so its candidate's map is no one's.
+          const freshMap = candidate.get('app.plan.map.json'), freshPlan = candidate.get('app.plan');
+          if (freshMap && freshPlan && current) {
+            try {
+              const digest = createHash('sha256').update(freshPlan).digest('hex');
+              if (digest === current.envelope.plan.sha256 && JSON.parse(freshMap.toString('utf8')).digest === digest) { currentModule?.set('app.plan.map.json', freshMap); keepMap(digest, freshMap); announcePlan(digest, freshMap); }
+            } catch { /* no map: the last one stays */ }
+          }
           if (live.batch.tokens.length) {
             console.log(`edit → batch ready ${Date.now() - request.saved} ms · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no generation`);
             pushDesign(live);
@@ -1317,6 +1353,12 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': name === 'exact.json' ? 'application/vnd.exact.envelope+json' : webContentType('/' + name), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : body);
     return;
+  }
+  // A plan's source map by its SHA-256, for a parent loop that was told the card (above).
+  if (url.pathname.startsWith('/__dev/map/') && req.method === 'GET') {
+    const bytes = mapsBySha.get(url.pathname.slice('/__dev/map/'.length));
+    if (!bytes) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(bytes); return;
   }
   if (url.pathname === '/__dev/design') {
     // The design builds should run: the last value-only edit's, or (204) the

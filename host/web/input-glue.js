@@ -212,7 +212,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const feedback = new WeakMap();
   const showPress = (el, down) => {
     el.toggleAttribute("data-pressed", down);
-    const to = down ? Number(el.style.getPropertyValue("--exact-press") || 1) : 1;
+    // A design token's scale is its property's `var()`: the computed value
+    // is the token's (LLP 1121 D7).
+    const press = el.style.getPropertyValue("--exact-press");
+    const to = down ? Number((press.includes("var(") ? getComputedStyle(el).getPropertyValue("--exact-press") : press) || 1) : 1;
     const old = feedback.get(el);
     if (old?.to === to || !old && to === 1) return;
     const progress = old?.animation.effect.getComputedTiming().progress ?? 0;

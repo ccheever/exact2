@@ -152,8 +152,8 @@ pub(crate) unsafe extern "C" fn host_door(
             state.journal.push(a.into_owned());
             Ok(Some("1".into()))
         }
-        // A socket operation the answer's mutation source staged on the
-        // stream of fetch ticket `a` (LLP 1016.000 D7; `socket.rs`).
+        // A socket operation a mutation's source or a mapper call staged on
+        // the stream of fetch ticket `a` (LLP 1016.000 D7; `socket.rs`).
         14 => match (a.parse::<u64>(), super::socket::op_from_json(&b)) {
             (Ok(ticket), Ok(op)) => {
                 state.socket_ops.push((ticket, op));

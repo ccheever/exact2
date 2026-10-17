@@ -6,11 +6,11 @@ import { webCompiler } from './module.mjs';
 
 // Uses the already-built exact-web-js compiler. The fixture and peer are
 // private to this test; all input goes through the ordinary browser driver.
-test('JS target socket mutations echo ordered frames and obey commits and resource lifetime', async () => {
+test('JS target socket mutations and mapper replies echo ordered frames and obey commits and resource lifetime', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/socket-test-'));
-  const received = [], connections = new Set();
-  let counted = 0;
+  const received = [], connections = new Set(), acks = [], unowned = [];
+  let counted = 0, ackedClosed = false;
   const peer = Bun.serve({ hostname: '127.0.0.1', port: 0,
     fetch(req, server) {
       if (new URL(req.url).pathname === '/count') { counted++; return new Response('counted', { headers: { 'access-control-allow-origin': '*' } }); }
@@ -18,16 +18,25 @@ test('JS target socket mutations echo ordered frames and obey commits and resour
       if (new URL(req.url).pathname === '/events') return new Response(new ReadableStream({
         start(controller) { controller.enqueue(new TextEncoder().encode('data: initial\n\n')); },
       }), { headers: { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' } });
-      return server.upgrade(req) ? undefined : new Response('websocket only');
+      return server.upgrade(req, { data: { path: new URL(req.url).pathname } }) ? undefined : new Response('websocket only');
     },
     websocket: {
-      open(ws) { connections.add(ws); },
+      open(ws) { if (!['/acked', '/mutation'].includes(ws.data.path)) connections.add(ws); },
       message(ws, data) {
+        if (ws.data.path === '/mutation') { unowned.push(String(data)); return; }
+        // `/acked` waits for a subscribe, then sends each frame only once the
+        // last is acknowledged; its fourth frame the mapper's snapshot refuses.
+        if (ws.data.path === '/acked') {
+          acks.push(String(data));
+          const n = data === 'subscribe' ? 0 : Number(/^Ack (\d+)$/.exec(data)?.[1]);
+          if (n < 3) ws.send(`frame ${n + 1}`); else if (n === 3) ws.send('refuse');
+          return;
+        }
         // A large frame fills the browser's buffer; it is counted, not echoed.
         if (typeof data === 'string' && data.startsWith('xx')) { received.push(`x${data.length}`); return; }
         received.push(typeof data === 'string' ? data : [...data]); ws.send(data);
       },
-      close(ws) { connections.delete(ws); },
+      close(ws) { connections.delete(ws); if (ws.data.path === '/acked') ackedClosed = true; },
     },
   });
   const url = `ws://127.0.0.1:${peer.port}`;
@@ -38,8 +47,10 @@ test('JS target socket mutations echo ordered frames and obey commits and resour
   resource denied = denied() as shape string else empty()
   resource cancelSocket = cancellable("socket") as shape string else empty()
   resource cancelEvents = cancellable("events") as shape string else empty()
+  resource acked = acked() as shape string else empty()
   mutation sent as shape string queue
   mutation second as shape string
+  mutation watched as shape string
   action write(mode: string)
     send sent = write(mode)
   action rollback
@@ -51,6 +62,8 @@ test('JS target socket mutations echo ordered frames and obey commits and resour
   action twice
     send sent = write("first")
     send sent = write("second")
+  action watch
+    send watched = watched()
   view
     column
       text feed testId="feed"
@@ -90,6 +103,8 @@ test('JS target socket mutations echo ordered frames and obey commits and resour
         text "fetch then send"
       button press=write("captured") testId="captured"
         text "captured"
+      button press=watch testId="watch"
+        text "watch"
 `);
   writeFileSync(resolve(dir, 'app.ts'), `export const appId = 'test.socket';
 export const grants = ${JSON.stringify(`net.websocket ${url}\nnet.fetch http://127.0.0.1:${peer.port}`)};
@@ -103,13 +118,32 @@ export function answer(name: string, args: any): any {
       exactStream: (event: any) => event.type === 'error' ? event.type + ':' + event.kind : event.type === 'open' ? 'open' : event.data,
     });
   }
+  if (name === 'acked') {
+    // Replies from the mapper: subscribe on open, an Ack for each frame.
+    let log = '';
+    return fetch(${JSON.stringify(`${url}/acked`)}, { exactStream(event: any, socket?: any) {
+      if (event.type === 'open') { socket.send('subscribe'); return 'subscribed'; }
+      if (event.type !== 'message') return event.type;
+      if (event.data === 'refuse') { socket.send('Ack refuse'); return 123; }
+      socket.send('Ack ' + event.data.slice('frame '.length));
+      return log += event.data + '|';
+    }});
+  }
+  if (name === 'watched') return fetch(${JSON.stringify(`${url}/mutation`)}, { exactStream(event: any, socket?: any) {
+    if (event.type === 'open') socket.send('subscribe');
+    return event.type;
+  }});
   if (name === 'feed') {
     const id = args[0]; let log = '';
     return fetch(${JSON.stringify(url)}, { exactStream(event: any, socket?: any) {
       if (event.type === 'open') {
         if (id === 1) previous = sockets.get(id);
+        // Its mapper cannot send on another socket's handle, from a
+        // continuation, or fetch: none of these reaches the peer.
+        for (const [other, kept] of sockets) if (other !== id) try { kept.send('stray'); return 'stray unexpectedly sent'; } catch {}
+        Promise.resolve().then(() => socket.send('late')).catch(() => {});
+        fetch(${JSON.stringify(`http://127.0.0.1:${peer.port}/count`)}).catch(() => {});
         sockets.set(id, socket);
-        try { socket.send('mapper'); return 'mapper unexpectedly sent'; } catch {}
         return 'open';
       }
       if (event.type === 'close') return event.code + ':' + event.reason + ':' + event.wasClean;
@@ -173,6 +207,22 @@ export function answer(name: string, args: any): any {
     await browser.clock('data');
     const ready = await until(s => s.resources.feed === 'open' && s.resources.other === 'open');
     expect(ready.resources.denied).toBe('Refused');
+    // An Ack per frame from the mapper, each sent once its frame's commit
+    // stood; the refused snapshot's Ack never leaves.
+    const acked = await until(s => ackedClosed && !s.streams.some(x => x.name === 'acked'));
+    expect(acks).toEqual(['subscribe', 'Ack 1', 'Ack 2', 'Ack 3']);
+    expect(acked.resources.acked).toBe('frame 1|frame 2|frame 3|');
+    const ackLogs = (await browser.logs()).lines.join('\n');
+    expect(ackLogs).toContain('mapper acked failed: ');
+    expect(ackLogs).toContain('; socket frames were refused');
+    // A socket no resource owns (a mutation's stream) takes none of its
+    // mapper's replies, as natively.
+    await browser.tap('watch');
+    for (let i = 0; !(await browser.logs()).lines.some(l => l.includes('mapper watched failed: the socket is not open; socket frames were refused')); i++) {
+      if (i > 100) throw new Error('no refusal for the mutation stream: ' + (await browser.logs()).lines.join('\n'));
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(unowned).toEqual([]);
     await until(s => s.resources.cancelSocket === 'open' && s.resources.cancelEvents === 'initial');
     await browser.tap('cancel');
     const cancelled = await until(s => !s.streams.some(x => ['cancelSocket', 'cancelEvents'].includes(x.name)));
@@ -199,7 +249,7 @@ export function answer(name: string, args: any): any {
     const echoed = await until(s => s.resources.feed === 'subscribe|Ack|Ping|8,9|');
     expect(received).toEqual(oracle.messages);
     expect(echoed.resources.other).toBe('open');
-    expect(echoed.streams.find(s => s.name === 'feed')).toMatchObject({ sent: 4, bufferedAmount: 0, coalesced: 0 });
+    expect(echoed.streams.find(s => s.name === 'feed')).toMatchObject({ sent: 4, bufferedAmount: 0, coalesced: 0, grant: `net.websocket ${url}` });
     await browser.tap('twice');
     await browser.clock('settle');
     await until(s => s.resources.feed === 'subscribe|Ack|Ping|8,9|first|second|');

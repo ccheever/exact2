@@ -117,7 +117,9 @@ pub(crate) fn write(f: &Folding) -> String {
             ",\n    {\"name\": "
         });
         string(&t.name, &mut body);
-        body.push_str(", \"kind\": \"color\", \"role\": ");
+        body.push_str(", \"kind\": \"");
+        body.push_str(t.kind.name());
+        body.push_str("\", \"role\": ");
         match &t.role {
             Some(r) => string(r, &mut body),
             None => body.push_str("null"),

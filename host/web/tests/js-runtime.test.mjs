@@ -830,6 +830,39 @@ test('decimal, currency and percent numbers are Intl\'s', async () => {
     .toEqual(Array(9).fill(''));
 });
 
+// LLP 1116.020 D8: format.js's `formatDay` against Bun's own Intl at a fixed-offset `timeZone`: the medium and short
+// dates, the short time and the long weekday are Intl's; the day count is the offset's calendar days.
+test('formatDay\'s dates, times and weekdays are Intl\'s', async () => {
+  const { x_formatDay } = await import(webJs('format.js'));
+  const pad = n => String(n).padStart(2, '0');
+  const dtf = (off, options) => new Intl.DateTimeFormat('en-US',
+    { timeZone: `${off < 0 ? '-' : '+'}${pad(Math.abs(off) / 60 | 0)}:${pad(Math.abs(off) % 60)}`, ...options });
+  const expected = (then, now, off, mode) => {
+    const day = ms => Math.floor((Math.trunc(ms) + off * 6e4) / 864e5), apart = day(then) - day(now);
+    const at = options => dtf(off, options).format(new Date(then)), time = at({ timeStyle: 'short' });
+    if (mode === 'list') return apart === 0 ? time : apart === -1 ? 'Yesterday'
+      : apart >= -6 && apart <= -2 ? at({ weekday: 'long' }) : at({ dateStyle: 'short' });
+    const label = ({ 0: 'Today', '-1': 'Yesterday', 1: 'Tomorrow' })[apart] ?? at({ dateStyle: 'medium' });
+    return mode === 'day-time' ? `${label} at ${time}` : label;
+  };
+  let seed = 7;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const wrong = [];
+  for (let i = 0; i < 3000; i++) {
+    const now = 1e12 + next() * 1.5e12, then = now + Math.round((next() - 0.75) * 12 * 864e5);
+    const off = [0, 60, -60, 330, 345, -420, -480, 840, -720, 1080, -1080][Math.floor(next() * 11)];
+    for (const mode of ['day', 'day-time', 'list'])
+      if (x_formatDay(then, now, off, mode) !== expected(then, now, off, mode)) wrong.push([then, now, off, mode]);
+  }
+  expect(wrong.slice(0, 10)).toEqual([]);
+  // 2026-12-31T23:59 and 2027-01-01T00:01 in UTC; a Thursday a week back; invalid instants and offsets.
+  const eve = Date.UTC(2026, 11, 31, 23, 59), dawn = eve + 2 * 6e4;
+  expect([x_formatDay(eve, dawn, 0, 'day'), x_formatDay(eve, dawn, 0, 'day-time'), x_formatDay(eve, dawn, 0, 'list'),
+    x_formatDay(dawn, eve, 0, 'day'), x_formatDay(eve, dawn, 60, 'day'), x_formatDay(eve - 7 * 864e5, dawn, 0, 'list'),
+    x_formatDay(eve - 2 * 864e5, dawn, 0, 'list'), x_formatDay(NaN, dawn, 0, 'day'), x_formatDay(eve, dawn, 1081, 'list')])
+    .toEqual(['Yesterday', 'Yesterday at 11:59 PM', 'Yesterday', 'Tomorrow', 'Today', '12/24/26', 'Tuesday', '', '']);
+});
+
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
 // SameValueZero), on the caller's budget: each takes its `$s`, traps where the runner's `list_call` does — before it
 // builds — and leaves its own steps in `ST` (one an item kept, or scanned up to the match); text takes none.

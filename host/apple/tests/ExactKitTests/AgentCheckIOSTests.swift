@@ -126,6 +126,31 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertNil(title["label"], "a text of the row's own stays body text: \(title)")
     }
 
+    /// LLP 1116.020 D7: a text on a fill of the accent (a sent bubble) is observed as on it, so the judge
+    /// holds white there to a filled button's 3:1; on a fill of its own colour it is not.
+    func testATextOnTheAccentsFillIsObservedSo() throws {
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["background_color": tint]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Sent"], "style": ["text_color": [255, 255, 255, 255], "font_size": 17]],
+            ["op": "create", "id": 4, "kind": "view", "style": ["background_color": [0, 136, 255, 255]]],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Painted"], "style": ["text_color": [255, 255, 255, 255], "font_size": 17]],
+            ["op": "children", "id": 1, "ids": [2, 4]], ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 4, "ids": [5]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 16.0, "y": 20.0, "w": 120.0, "h": 36.0],
+            ["op": "frame", "id": 3, "x": 12.0, "y": 8.0, "w": 96.0, "h": 20.0],
+            ["op": "frame", "id": 4, "x": 16.0, "y": 80.0, "w": 120.0, "h": 36.0],
+            ["op": "frame", "id": 5, "x": 12.0, "y": 8.0, "w": 96.0, "h": 20.0],
+        ])
+        let items = try XCTUnwrap(agent.check([:])["items"] as? [[String: Any]])
+        let sent = try XCTUnwrap(items.first { $0["text"] as? String == "Sent" }, "\(items)")
+        XCTAssertEqual(sent["onAccentFill"] as? Bool, true, "\(sent)")
+        let painted = try XCTUnwrap(items.first { $0["text"] as? String == "Painted" }, "\(items)")
+        XCTAssertNil(painted["onAccentFill"], "\(painted)")
+    }
+
     func testCheckObservesInkFitCoverTargetsOverflowCardsAndOverlap() throws {
         let white: [Double] = [255, 255, 255, 255]
         let agent = mounted([
@@ -233,6 +258,36 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertNil(padded["width"], "the presenter is told no width")
         XCTAssertEqual((items.first { $0["id"] as? Int == 8 }?["padded"] as? [String: Any])?["by"] as? Int, 13, "#8 in \(items)")
         for id in [3, 4, 5, 6, 7] { XCTAssertNil(items.first { $0["id"] as? Int == id }?["padded"], "#\(id) is not padding past its parent") }
+    }
+
+    /// LLP 1116.020 D4 (focus-timer and trivia-quiz, round 18): a vertical scroll view holds no sideways overflow, its x
+    /// `auto` by CSS's rule and not its author's, so a box past the screen's side inside it is observed; a scroll whose
+    /// author wrote its `overflow-x` (a carousel, a swipe row) and an authored clip hold theirs.
+    func testABoxPastTheScreenInAVerticalScrollIsObserved() throws {
+        func box(_ id: Int, _ style: [String: Any]) -> [String: Any] { ["op": "create", "id": id, "kind": "view", "handlers": ["press"], "style": style] }
+        let agent = mounted([
+            box(1, [:]),
+            box(10, ["overflow_x": "auto", "overflow_y": "auto"]), box(2, [:]),
+            box(11, ["overflow_x": "auto", "overflow_y": "hidden", "written": ["overflow_x", "overflow_y"]]), box(3, [:]),
+            box(12, ["overflow_x": "hidden", "written": ["overflow_x"]]), box(4, [:]),
+            ["op": "children", "id": 1, "ids": [10, 11, 12]],
+            ["op": "children", "id": 10, "ids": [2]],
+            ["op": "children", "id": 11, "ids": [3]],
+            ["op": "children", "id": 12, "ids": [4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 16.0, "y": 0.0, "w": 430.0, "h": 40.0],   // 46 past the screen in a vertical scroll
+            ["op": "frame", "id": 11, "x": 0.0, "y": 220.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 3, "x": 16.0, "y": 0.0, "w": 430.0, "h": 40.0],   // in a strip that scrolls sideways
+            ["op": "frame", "id": 12, "x": 0.0, "y": 300.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 4, "x": 16.0, "y": 0.0, "w": 430.0, "h": 40.0],   // in an authored clip
+        ])
+        let reply = agent.check([:])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
+        XCTAssertEqual(items.first { $0["id"] as? Int == 2 }?["outX"] as? Double, 46, "#2 in \(items)")
+        for id in [3, 4] { XCTAssertNil(items.first { $0["id"] as? Int == id }?["outX"], "#\(id) is held: \(items)") }
     }
 
     /// LLP 1116.006 D5: a text stands on the nearest fill painted under it —

@@ -290,6 +290,157 @@ final class ElementScrollTests: XCTestCase {
         XCTAssertTrue(completed, "the scroll completes")
         return (first, intermediate, offset())
     }
+    #else
+    /// A strip of chips in a horizontal scroller (euxy's New Pattern icons):
+    /// `chip-a` at x 300, `chip-b` at 600, and `chip-c`, made but not yet
+    /// attached (a sheet's subtree before UIKit mounts it).
+    private func strip() throws -> (Presenter, UIScrollView) {
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "chip-a"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["id": "chip-b"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["id": "chip-c"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 60.0],
+            ["op": "frame", "id": 2, "x": 300.0, "y": 0.0, "w": 56.0, "h": 56.0],
+            ["op": "frame", "id": 3, "x": 600.0, "y": 0.0, "w": 56.0, "h": 56.0],
+        ]))
+        let sv = try XCTUnwrap(p.views[1]?.scrollView)
+        sv.contentSize = CGSize(width: 1000, height: 60)
+        return (p, sv)
+    }
+
+    /// A sheet's views enter the window a turn after the batch that made
+    /// them: a request waits for its target's window, and one per element
+    /// is kept; a target that loses its id meanwhile cancels its own.
+    func testAScrollAskedBeforeItsTargetIsInAWindowLandsWhenItIs() throws {
+        let (p, sv) = try strip()
+        p.scrollElementIntoView(["chip-a", "nearest", "start", "instant"])
+        p.scrollElementIntoView(["chip-b", "nearest", "start", "instant"])
+        XCTAssertEqual(sv.contentOffset.x, 0, "nothing to scroll outside a window")
+        XCTAssertEqual(p.elementScrolls.names, ["chip-a", "chip-b"])
+        let window = UIWindow(frame: p.viewport.frame)
+        defer { withExtendedLifetime(window) {} }
+        window.addSubview(p.viewport)
+        XCTAssertEqual(sv.contentOffset.x, 600, accuracy: 0.5, "each request lands, in order, as its target enters the window")
+        XCTAssertEqual(p.elementScrolls.names, [])
+
+        p.viewport.removeFromSuperview()
+        sv.setContentOffset(.zero, animated: false)
+        p.scrollElementIntoView(["chip-a", "nearest", "start", "instant"])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["id": "other"]]]))
+        window.addSubview(p.viewport)
+        XCTAssertEqual(sv.contentOffset.x, 0, "a target that lost its id is not scrolled to")
+        XCTAssertEqual(p.elementScrolls.names, [])
+    }
+
+    /// A target mounted by a batch is scrolled to when that batch ends (its
+    /// own `didMoveToWindow` comes mid-batch), and one in a window with no
+    /// size yet waits for its frame; a request for another element, which
+    /// lands at once, leaves the held one be.
+    func testAHeldScrollLandsAtTheEndOfTheBatchThatLaysItsTargetOut() throws {
+        let (p, sv) = try strip()
+        let window = UIWindow(frame: p.viewport.frame)
+        defer { withExtendedLifetime(window) {} }
+        window.addSubview(p.viewport)
+        p.scrollElementIntoView(["chip-c", "nearest", "start", "instant"])
+        p.scrollElementIntoView(["chip-a", "nearest", "start", "instant"])
+        XCTAssertEqual(sv.contentOffset.x, 300, accuracy: 0.5)
+        XCTAssertEqual(p.elementScrolls.names, ["chip-c"], "another element's scroll keeps the held one")
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 3, 4]]]))
+        XCTAssertEqual(p.elementScrolls.names, ["chip-c"], "mounted with no size: it still waits")
+        sv.contentSize = CGSize(width: 1000, height: 60)
+        p.apply(wireBatch([["op": "frame", "id": 4, "x": 800.0, "y": 0.0, "w": 56.0, "h": 56.0]]))
+        XCTAssertEqual(sv.contentOffset.x, 800, accuracy: 0.5, "laid out by a batch: scrolled to as it ends")
+        XCTAssertEqual(p.elementScrolls.names, [])
+    }
+
+    /// The person taking the scroller a request would move drops it, and
+    /// it stays dropped: the target laid out after the gesture is not
+    /// scrolled to.
+    func testAHeldScrollYieldsToThePersonsDrag() throws {
+        let (p, sv) = try strip()
+        let window = UIWindow(frame: p.viewport.frame)
+        defer { withExtendedLifetime(window) {} }
+        window.addSubview(p.viewport)
+        // In the strip, with no size yet: held.
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 3, 4]]]))
+        p.scrollElementIntoView(["chip-c", "nearest", "start", "instant"])
+        XCTAssertEqual(p.elementScrolls.names, ["chip-c"])
+        try XCTUnwrap(p.views[1]).scrollViewWillBeginDragging(sv)
+        XCTAssertEqual(p.elementScrolls.names, [], "the drag drops it")
+        sv.contentSize = CGSize(width: 1000, height: 60)
+        p.apply(wireBatch([["op": "frame", "id": 4, "x": 800.0, "y": 0.0, "w": 56.0, "h": 56.0]]))
+        XCTAssertEqual(sv.contentOffset.x, 0, accuracy: 0.5, "nothing scrolls the strip back after the gesture")
+    }
+
+    /// A navigation's settle carries out a held request, as a sheet's fit
+    /// does, rather than leaving it to some later, unrelated batch.
+    func testANavigationSettleCarriesOutAHeldScroll() throws {
+        let session = ExactApp.shared.makeSession(label: "element-scroll-navigation")
+        defer { session.destroy() }
+        let view = ExactView(session: session), host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 400))
+        window.rootViewController = host
+        window.isHidden = false
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        defer { window.isHidden = true }
+        // The view finishes mounting (its navigation's `mounted`) at layout.
+        view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "chip-a"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["id": "chip-c"]],
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 60.0],
+            ["op": "frame", "id": 2, "x": 300.0, "y": 0.0, "w": 56.0, "h": 56.0],
+        ]))
+        let sv = try XCTUnwrap(p.views[1]?.scrollView)
+        sv.contentSize = CGSize(width: 1000, height: 60)
+        let chip = try XCTUnwrap(p.views[4])
+        XCTAssertNotNil(chip.window, "the strip is in the window")
+        p.scrollElementIntoView(["chip-c", "nearest", "start", "instant"])
+        XCTAssertEqual(p.elementScrolls.names, ["chip-c"], "no size yet: held")
+        // Laid out with no batch, as UIKit's own layout at a transition's end.
+        chip.frame = CGRect(x: 800, y: 0, width: 56, height: 56)
+        XCTAssertNotNil(p.session?.view?.window, "the session's view is in the window")
+        XCTAssertTrue(p.canScrollIntoView(chip), "laid out")
+        XCTAssertFalse(p.settlesElementScroll, "nothing is settling")
+        let calls = p.navigation.syncCalls
+        p.navigation.sync(wireBatch([]))
+        XCTAssertEqual(p.navigation.syncCalls, calls + 1)
+        XCTAssertEqual(sv.contentOffset.x, 800, accuracy: 0.5, "the settle carries it out")
+        XCTAssertEqual(p.elementScrolls.names, [])
+    }
+
+    /// A held request goes with its target: recycled into another row (a
+    /// new incarnation, LLP 1068 §4.9), inside a sheet or dialog that
+    /// closes, or a presenter that resets; none of them scrolls.
+    func testAHeldScrollIsCancelledWithItsTarget() throws {
+        let (p, sv) = try strip()
+        p.scrollElementIntoView(["chip-b", "nearest", "start", "instant"])
+        try XCTUnwrap(p.views[3]).incarnation = NodePool.issue()
+        let window = UIWindow(frame: p.viewport.frame)
+        defer { withExtendedLifetime(window) {} }
+        window.addSubview(p.viewport)
+        XCTAssertEqual(sv.contentOffset.x, 0, "a recycled target is not scrolled to")
+        XCTAssertEqual(p.elementScrolls.names, [])
+
+        p.scrollElementIntoView(["chip-c", "nearest", "start", "instant"])
+        XCTAssertEqual(p.elementScrolls.names, ["chip-c"])
+        p.elementScrolls.cancel(inside: try XCTUnwrap(p.views[4]))
+        XCTAssertEqual(p.elementScrolls.names, [], "a closing sheet's requests go with it")
+        p.scrollElementIntoView(["chip-c", "nearest", "start", "instant"])
+        p.reset()
+        XCTAssertEqual(p.elementScrolls.names, [], "a new document holds none of the old one's")
+    }
     #endif
 }
 

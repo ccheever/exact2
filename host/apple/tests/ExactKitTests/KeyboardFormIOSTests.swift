@@ -5,7 +5,8 @@ import XCTest
 @testable import ExactGroupedLists
 
 /// Keyboard avoidance and Next-field navigation in native grouped lists
-/// (LLP 1116.003 D2), including pinned controls (LLP 1116.008 D8).
+/// (LLP 1116.003 D2), including pinned controls (LLP 1116.008 D8), and the
+/// caret of a text area that grows as it is typed into.
 final class KeyboardFormIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -23,8 +24,8 @@ final class KeyboardFormIOSTests: XCTestCase {
 
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
-    private func fixture() throws -> ExactSession {
-        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_KEYBOARD_PLAN"], "build.mjs --test --ios compiles the keyboard form")
+    private func fixture(_ plan: String = "EXACT_KEYBOARD_PLAN") throws -> ExactSession {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment[plan], "build.mjs --test --ios compiles \(plan)")
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "keyboard-form")
         self.session = session
@@ -175,6 +176,61 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentInset.bottom, base, accuracy: 0.5, "the room goes back with the keyboard")
         let high = max(-scroll.adjustedContentInset.top, scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height)
         XCTAssertLessThanOrEqual(scroll.contentOffset.y, high + 0.5, "and the offset is within the content again")
+    }
+
+    func testTheCaretOfAGrowingTextAreaStaysAboveTheKeyboard() throws {
+        let session = try fixture("EXACT_CARET_REVEAL_PLAN")
+        let p = session.presenter
+        let note = try node("note"), text = try XCTUnwrap(note.textArea)
+        // Told it is edited, not made first responder: the viewport would
+        // follow the test host's own keyboard guide, which has no keys
+        note.textViewDidBeginEditing(text)
+        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        spin(0.3)
+        XCTAssertEqual(box(p.viewport).maxY, keys, accuracy: 0.5, "the viewport ends at the keys")
+        let start = box(note).height
+        // Typed as keys type: UIKit tells the delegate of each insertion
+        for i in 1...14 {
+            text.insertText(i == 1 ? "Line 1" : "\nLine \(i)")
+            let end = try XCTUnwrap(text.selectedTextRange?.end)
+            let caret = text.convert(text.caretRect(for: end), to: nil)
+            XCTAssertLessThanOrEqual(caret.maxY, keys + 0.5, "line \(i)'s caret above the keys: \(caret)")
+            XCTAssertGreaterThanOrEqual(caret.minY, box(p.viewport).minY - 0.5, "and inside the viewport: \(caret)")
+            let hit = window?.hitTest(CGPoint(x: caret.midX, y: caret.midY), with: nil)
+            XCTAssertTrue(hit?.isDescendant(of: note) == true, "nothing covers line \(i)'s caret: \(String(describing: hit))")
+        }
+        XCTAssertGreaterThan(box(note).height, start + 200, "the text area grew with its text: \(box(note))")
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+    }
+
+    /// As in a browser, which shows the selection once an edit's `input`
+    /// handlers have run: a handler that moves the focus elsewhere, or hides
+    /// the text area, keeps the scroll it leaves.
+    func testAnInputHandlerThatMovesTheFocusOrHidesTheTextAreaKeepsTheScroll() throws {
+        let session = try fixture("EXACT_CARET_REVEAL_PLAN")
+        let p = session.presenter
+        let list = try XCTUnwrap(p.navigation.shownScroll(try node("list")))
+        let jumper = try node("jumper"), far = try node("far"), jumping = try XCTUnwrap(jumper.textArea)
+        jumper.textViewDidBeginEditing(jumping)
+        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        spin(0.3)
+        // The text area scrolled above the port, the far field still under the keys
+        list.contentOffset.y += box(jumper).maxY - box(p.viewport).minY + 20
+        XCTAssertLessThan(box(jumper).maxY, box(p.viewport).minY, "the text area starts above the port")
+        XCTAssertGreaterThan(box(far).minY, keys, "the far field starts under the keys")
+        jumping.insertText("x")
+        XCTAssertTrue(p.editor === far, "the handler moved the focus to the far field")
+        XCTAssertLessThan(box(jumper).maxY, box(p.viewport).minY, "the list is not scrolled back to the text area's caret: \(box(jumper))")
+        far.field?.resignFirstResponder()
+        let vanisher = try node("vanisher"), vanishing = try XCTUnwrap(vanisher.textArea)
+        vanisher.textViewDidBeginEditing(vanishing)
+        list.contentOffset.y += box(vanisher).maxY - box(p.viewport).minY + 20
+        let offset = list.contentOffset.y
+        XCTAssertLessThan(box(vanisher).maxY, box(p.viewport).minY, "the other text area starts above the port")
+        vanishing.insertText("x")
+        XCTAssertTrue(vanishing.isHidden, "the handler hid the text area (`visibility: hidden`)")
+        XCTAssertEqual(list.contentOffset.y, offset, accuracy: 0.5, "the list is not scrolled to a hidden caret")
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
     }
 }
 #endif

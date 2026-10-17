@@ -110,10 +110,22 @@ pub fn runtime_family_members(list: &str) -> Vec<RuntimeFamilyMember> {
 pub enum BridgeError {
     UnknownProp(u16),
     UnknownStyle(u16),
-    PropKind { prop: PropId, value: Value },
+    PropKind {
+        prop: PropId,
+        value: Value,
+    },
+    /// A value that says the row has none (`backgroundMaterial="none"`):
+    /// cleared, with nothing refused.
+    Unset(PropId),
     Style(StyleValueError),
-    StyleKind { style: StyleId, value: Value },
-    FontStack { index: u32, stacks: usize },
+    StyleKind {
+        style: StyleId,
+        value: Value,
+    },
+    FontStack {
+        index: u32,
+        stacks: usize,
+    },
 }
 
 /// A prop value by the prop's declared kind.
@@ -142,6 +154,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
         (exact_kernel::PropKind::Float, Value::Number(n)) => PropValue::Float(*n),
         _ => return Err(mismatch()),
     };
+    // `none` is no material, as CSS's `backdrop-filter: none` is no backdrop.
+    if prop == PropId::BackgroundMaterial
+        && matches!(&out, PropValue::Str(s) if s.as_str() == "none")
+    {
+        return Err(BridgeError::Unset(prop));
+    }
     // A computed `wakelock` outside its two words is refused here, so the
     // row is unset (`none`) and journaled (LLP 1125 D11).
     if prop == PropId::Wakelock
@@ -392,30 +410,174 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
                 .cloned()
                 .collect()
         });
-        let table = exact_kernel::style::theme::table(plan.theme.iter().flat_map(|row| {
-            let (name, role) = (plan.str(row.name), plan.str(row.role));
-            let edit = edits.iter().find(|(_, n, ..)| n == name);
-            let value = match (edit, row.slices.len) {
-                (Some((_, _, value, slices)), _) => {
-                    slices.get(tuple as usize).unwrap_or(value).as_str()
-                }
-                (None, 0) => plan.str(row.value),
-                (None, len) => plan
-                    .str(plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value),
-            };
-            // A tint role stays the role in its row (`ColorValue::themed`).
-            let tint = roles::role(role).is_some_and(roles::tint);
-            (!tint)
-                .then_some((name, value, false))
-                .into_iter()
-                .chain((!role.is_empty() && !tint).then_some((role, value, true)))
-        }));
+        use exact_kernel::style::theme::Kind;
+        // A type or family token's family as the plan's stack (stage 6 C):
+        // the compiler declared one for each tuple's.
+        let stacks = plan_stacks(plan);
+        let stack = |family: &str| {
+            let key = exact_kernel::style::theme::typeface::family_key_of(family);
+            stacks.iter().find(|(k, _)| *k == key).map(|(_, id)| *id)
+        };
+        let entries: Vec<_> = plan
+            .theme
+            .iter()
+            .flat_map(|row| {
+                // A kind this build does not know is no entry: its rows stand.
+                let kind = Kind::of(row.kind);
+                let (name, role) = (plan.str(row.name), plan.str(row.role));
+                let edit = edits.iter().find(|(_, n, ..)| n == name);
+                let value = match (edit, row.slices.len) {
+                    (Some((_, _, value, slices)), _) => {
+                        slices.get(tuple as usize).unwrap_or(value).as_str()
+                    }
+                    (None, 0) => plan.str(row.value),
+                    (None, len) => plan.str(
+                        plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value,
+                    ),
+                };
+                // A tint role stays the role in its row (`ColorValue::themed`).
+                let tint = roles::role(role).is_some_and(roles::tint);
+                // Whether it varies by an app axis, as edited (D7: no inherited
+                // row reads such a length or number).
+                let varies =
+                    edit.map_or(row.slices.len > 0, |(_, _, _, slices)| !slices.is_empty());
+                let value: std::borrow::Cow<str> = match kind {
+                    Some(k @ (Kind::Type | Kind::Family)) => {
+                        exact_kernel::style::theme::typeface::entry(k, value, stack)
+                            .map_or(std::borrow::Cow::Borrowed(value), std::borrow::Cow::Owned)
+                    }
+                    _ => std::borrow::Cow::Borrowed(value),
+                };
+                kind.filter(|_| !tint)
+                    .map(|kind| (name, value.clone(), false, kind, varies))
+                    .into_iter()
+                    .chain(
+                        (!role.is_empty() && !tint && kind == Some(Kind::Color)).then_some((
+                            role,
+                            value,
+                            true,
+                            Kind::Color,
+                            varies,
+                        )),
+                    )
+            })
+            .collect();
+        let table = exact_kernel::style::theme::kinded(
+            entries
+                .iter()
+                .map(|(n, v, r, k, va)| (*n, v.as_ref(), *r, *k, *va)),
+        );
         if tables.len() <= slot {
             tables.resize(slot + 1, None);
         }
         tables[slot] = Some(table.clone());
         table
     })
+}
+
+/// Whether `text` names one of `plan`'s type or family tokens (stage 6 C):
+/// a `font-family` row's string the kernel reads as the token's stack,
+/// never interned as an installed family.
+pub fn names_font_token(plan: &exact_plan::Plan, text: &str) -> bool {
+    use exact_kernel::style::theme::Kind;
+    let text = text.trim();
+    plan.theme.iter().any(|r| {
+        matches!(Kind::of(r.kind), Some(Kind::Type | Kind::Family)) && plan.str(r.name) == text
+    })
+}
+
+/// Binding `b`'s value as a `font-family` row reads it (an option's
+/// inner value), and the runtime stack it names: a family list interned
+/// for the session, but never a type or family token's name, which the
+/// kernel reads as the token's stack (stage 6 C).
+pub fn family_binding<'v>(
+    plan: &exact_plan::Plan,
+    fonts: Option<&std::cell::RefCell<RuntimeFonts>>,
+    b: &exact_plan::BindingsRow,
+    value: &'v Value,
+) -> (&'v Value, Option<u16>) {
+    if b.id != StyleId::FontFamily as u16 {
+        return (value, None);
+    }
+    let value = match value {
+        Value::Option(Some(inner)) => inner.as_ref(),
+        _ => value,
+    };
+    let id = value
+        .as_str()
+        .filter(|n| !names_font_token(plan, n))
+        .and_then(|name| fonts?.borrow_mut().intern(name, plan.stacks.len()));
+    (value, id)
+}
+
+/// A refusal when binding `b`'s `value` on site `node` names a type or
+/// family token that varies by an app axis on a node whose children
+/// inherit its rows (stage 6 C, theme2's ruling): the compiler refuses a
+/// literal so; a value computed at run time is refused here, as invalid.
+pub fn inherited_varying(
+    plan: &exact_plan::Plan,
+    b: &exact_plan::BindingsRow,
+    value: &Value,
+    node: exact_plan::NodesId,
+) -> Result<(), BridgeError> {
+    use exact_kernel::style::theme::{typeface, Kind};
+    let Some(row) = StyleId::from_bit(u32::from(b.id)).filter(|r| typeface::admits_type(*r)) else {
+        return Ok(());
+    };
+    let Some(text) = value.as_str().map(str::trim) else {
+        return Ok(());
+    };
+    let varying = plan.theme.iter().any(|r| {
+        matches!(Kind::of(r.kind), Some(Kind::Type | Kind::Family))
+            && r.slices.len > 0
+            && plan.str(r.name) == text
+    });
+    // Its children: its own nodes, and a choice's or a list's under it.
+    let children = plan.nodes.iter().any(|n| n.parent == Some(node))
+        || plan.regions.iter().any(|r| r.parent == Some(node));
+    if b.kind == exact_plan::BindingKind::Style && varying && children {
+        return Err(BridgeError::StyleKind {
+            style: row,
+            value: value.clone(),
+        });
+    }
+    Ok(())
+}
+
+/// The stack of `plan`'s whose members `family` names, as the compiler
+/// declared a family token's (stage 6 C).
+pub fn plan_stack(plan: &exact_plan::Plan, family: &str) -> Option<u16> {
+    let key = exact_kernel::style::theme::typeface::family_key_of(family);
+    plan_stacks(plan)
+        .into_iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, id)| id)
+}
+
+/// `plan`'s font stacks by their members' key
+/// (`typeface::family_key`), each with its id.
+fn plan_stacks(plan: &exact_plan::Plan) -> Vec<(String, u16)> {
+    plan.stacks
+        .iter()
+        .enumerate()
+        .map(|(id, stack)| {
+            let names: Vec<(bool, &str)> = stack
+                .members
+                .iter()
+                .map(|m| {
+                    let member = plan.stack_member(m);
+                    match member.family {
+                        Some(f) => (true, plan.str(plan.familie(f).name)),
+                        None => (false, member.kind.name()),
+                    }
+                })
+                .collect();
+            (
+                exact_kernel::style::theme::typeface::family_key(names),
+                id as u16,
+            )
+        })
+        .collect()
 }
 
 /// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, for the session
@@ -530,6 +692,21 @@ pub fn set_style(
         {
             let initial = StyleProps::default().font_family;
             return set_style(patch, id, &Value::Number(f64::from(initial)), stacks);
+        }
+        // A type or family token's name, which the kernel reads as the
+        // token's stack (stage 6 C).
+        if value
+            .as_str()
+            .is_some_and(|t| exact_kernel::style::theme::names(t.trim()))
+        {
+            let text = value.as_str().unwrap_or_default().trim();
+            patch
+                .set_dynamic(style, &StyleValue::Text(text.into()))
+                .map_err(|_| BridgeError::StyleKind {
+                    style,
+                    value: value.clone(),
+                })?;
+            return Ok(style);
         }
         let index = match value {
             Value::Number(n) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n as u32,
@@ -808,5 +985,52 @@ mod tests {
         )
         .unwrap();
         assert_eq!(style.rare.grid_template_columns.css(), "100%");
+    }
+
+    /// A computed `none` is no material: the row cleared, nothing journaled
+    /// (euxy's capsule, glass at rest and none while a charge holds).
+    #[test]
+    fn a_computed_none_material_clears_the_row() {
+        use crate::{DataError, DataSource, Event, Runner};
+        struct NoData;
+        impl DataSource for NoData {
+            fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+                Err(DataError::UnknownSource(source.into()))
+            }
+        }
+        let plan = contract::compile("component App\n  state on = false\n  action flip\n    on = not on\n  view\n    button press=flip testId=\"cap\" backgroundMaterial=(on ? \"none\" : \"glass\")\n      text \"x\"\n").unwrap();
+        let mut r = Runner::boot(
+            plan,
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let material = |r: &Runner<NoData>| {
+            let k = r.kernel();
+            let node = k.node_by_key(k.find_by_test_id("cap")[0]).unwrap();
+            (
+                node.id,
+                node.props
+                    .str(PropId::BackgroundMaterial)
+                    .map(str::to_owned),
+            )
+        };
+        let (id, glass) = material(&r);
+        assert_eq!(glass.as_deref(), Some("glass"));
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(material(&r).1, None);
+        assert!(
+            !r.journal().any(|l| l.contains("invalid")),
+            "{:?}",
+            r.journal().collect::<Vec<_>>()
+        );
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(material(&r).1.as_deref(), Some("glass"));
+        assert_eq!(
+            prop_value(PropId::BackgroundMaterial as u16, &Value::str("none")),
+            Err(BridgeError::Unset(PropId::BackgroundMaterial))
+        );
     }
 }

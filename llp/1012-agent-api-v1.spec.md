@@ -774,8 +774,9 @@ deterministic and a smoke against real credentials leaves nothing behind.
   under `--timing platform` `<ms>` of real time passes (the main run loop
   turns on iOS and macOS), so the platform's own motion runs on. A drag's
   `press` and `hold` already were; Linux's always were.
-- **iOS holds a contact.** Off a `pan` node, `tap … down` is a recognized
-  finger (`delivery: recognized`, `AgentPanIOS.swift`): its `pointerdown` as
+- **iOS holds a contact.** Off a `pan` node, where no swipe or other drag
+  could take it, `tap … down` is a recognized finger (`delivery: recognized`,
+  `AgentPanIOS.swift`): its `pointerdown` as
   it lands, `pointermove`s as it moves (nothing scrolls: `tap <scroller>
   drag` does), its `pointerup` (to every node its down reached that is
   still that node, though one disabled itself) and then the press a finger
@@ -868,3 +869,56 @@ The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
   real touch as before. The dispatch log records a touch a system
   recognizer took without a view (iOS 26's tab bar) where the window's hit
   test put it.
+
+## Amended (2026-10-16: a screenshot compared with a reference)
+
+An agent porting an app matches each screen to a screenshot of the original.
+Three ports of the euxy Expo app were judged against its screenshots; most
+of the exact2 port's deficits were authoring a pixel comparison would have
+named (note pads 8 pt too tall, a share card centred instead of left-aligned,
+a swipe action's text white instead of black), and the UIKit porter, who
+diffed its screenshots with scripts of its own, scored highest. So the
+driver compares, as a form of `screenshot` (a question about the picture,
+not an eleventh operation): `screenshot <png> compare <reference.png>`
+(`compareScreenshot`, `scripts/agent-compare.mjs`). It says only what the
+pixels show.
+
+- **The capture.** On an iOS simulator, the window with its status bar
+  (`window status`); the rows of the window's safe area (`safeArea` in the
+  screenshot reply: the status bar and the home indicator, whatever the
+  page's `viewport-fit`) are never scored. Nodes are placed where the window
+  has the viewport (a node's `space.window` less its `space.viewport`); a
+  viewport drawn at another size than its points (`--size`) is refused.
+  Elsewhere the viewport, the only capture `layout`'s boxes are in; macOS
+  says the windows its capture leaves out (`notShown`). On the web `layout`
+  is read with `picture: true`, which holds a transition under way where the
+  screenshot shows it. The reference must have the screen's shape and at
+  least its size in points on each axis. The capture's notes follow the
+  report as `capture:` lines.
+- **Regions.** On a grid of one cell a point (each the area mean of the
+  pixels it covers, flattened on white), two cells match when each is within
+  40 (of 255) in every channel of the other's 3×3 neighbourhood, so
+  anti-aliasing and sub-point offsets do not count. The differing cells,
+  merged into boxes, are the regions, the six largest reported: each with
+  the innermost node whose box holds its centre and the smallest named one
+  (`under`; a shown screen's before a covered one's), and either a hint or
+  the colours. The hint is given when the region's content plainly sits
+  elsewhere in the reference: one vertical or horizontal offset of 2 to 64 pt
+  at which the region matches the reference both ways, leaving at most a
+  tenth of its differences, with no other offset close. Otherwise the fill
+  and ink of its differing cells on each side, where they differ.
+- **Boxes.** A node over a region whose four edges both pictures show (a
+  fill at least 12 unlike what is around it) is measured in each; one 2 pt
+  or more apart in size or place is given at both sizes. No size is derived
+  from a move, and none is given for an edge not found.
+- **The picture.** `<png>.diff.png`: the reference, the screen, and the
+  screen faded with what differs in red and the regions boxed.
+
+On the euxy port the four screens the judge marked down came out as the
+judge saw them: the note pads (`pad-57 (View "A2") [146,361 25×48]: 25×40 at
+146,353 in the reference`), the share card (`share-card [36,237 330×452]:
+344×470 at 23,237 in the reference`), the lane editor's values (a region
+under `listen`: `its content sits 4 pt left in the reference`), and the swipe
+action's text (`under Text "Delete": here #ddd on #f42, in the reference
+#000 on #f42`). A row a third of a point short (the judge's "rows slightly
+shorter") is under the grid's resolution.

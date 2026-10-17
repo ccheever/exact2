@@ -58,6 +58,10 @@ final class DialogHost {
     /// its sheet; nil for any other node. A modal route's is navigation's.
     func authoredParent(of node: NodeView) -> NSView? { entries.first { $0.dialog === node && !$0.route }?.parent }
     func presentsRoute(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node && $0.route } }
+    func isBehindModal(_ source: NSView) -> Bool {
+        guard let active else { return false }
+        return presenter?.menus.contains(active, source) != true
+    }
     func blocks(_ node: NSView) -> Bool {
         guard let active else { return false }
         // An alert over the dialog is the top modal: its rows are its own.
@@ -86,12 +90,15 @@ final class DialogHost {
     }
     /// What activating `source` does to a dialog once its own handler has
     /// run: the surviving button's invocation then (`Invocation`).
-    func command(_ source: NodeView, fromNativeMenu: Bool = false) -> (() -> Void)? {
-        guard !source.disabled, !source.inert, (fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter?.toolbar.contains(source) == true),
+    func command(_ source: NodeView, fromNativeMenu: Bool = false, bubbled: Bool = false) -> (() -> Void)? {
+        guard !source.disabled, !(bubbled ? source.authoredInert : source.inert), (fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter?.toolbar.contains(source) == true),
               source.isButton, dialogInvocation(source) != nil || source.handlers.contains("press") else { return nil }
         return { [weak self, weak source] in
-            guard let self, let source, self.live(source), !source.disabled, !source.inert,
-                  let invocation = self.dialogInvocation(source), self.live(invocation.target) else { return }
+            guard let self, let source else { return }
+            let bubbled = bubbled && self.isBehindModal(source)
+            guard self.live(source), !source.disabled, !(bubbled ? source.authoredInert : source.inert),
+                  let invocation = self.dialogInvocation(source), self.live(invocation.target),
+                  !bubbled || !invocation.target.inert else { return }
             if invocation.action == .showModal { self.show(invocation.target) }
             // HTML's `close` does nothing to a dialog showing as a popover.
             else if self.presenter?.menus.showsAsPopover(invocation.target) == false {
@@ -151,6 +158,7 @@ final class DialogHost {
     func close(_ dialog: NodeView, restoreFocus: Bool = true, notify: Bool = true) {
         if presenter?.alerts.close(dialog) == true { return }
         guard entries.contains(where: { $0.dialog === dialog }) else { return }
+        presenter?.mouseChain.bubbledPress?.cancel(in: dialog)
         // What stands on its sheet leaves first: an alert, a dialog opened over it.
         clear(above: dialog)
         guard let i = entries.firstIndex(where: { $0.dialog === dialog }) else { return }

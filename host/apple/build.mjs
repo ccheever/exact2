@@ -169,12 +169,12 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
   const executable = host ? product : executableName(app);
   const products = resolve(namespace, host ? 'host' : 'standalone');
   // The Swift host is the same code for every app, so its compile is shared:
-  // one SwiftPM scratch per destination and deployment target, whatever the
-  // app, its composition or its trust (a per-app scratch recompiled ExactKit
-  // for each app: 45–56 s on an M4, 100 s under load). Only the link is the
-  // app's, made under `swiftLock` and copied out to the app's private stage
-  // before the lock is released. `scratch` keeps what is the app's alone.
-  const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}${optimize === 'size' ? '-size' : ''}`);
+  // one SwiftPM scratch per destination, deployment target and trust, whatever
+  // the app or its composition (one per app recompiled ExactKit for each: 45–56 s
+  // on an M4; one shared by trust, at each switch to or from the production
+  // whole-module build: 92 s). Only the link is the app's, made under `swiftLock`
+  // and copied out to its private stage before the lock is released (`scratch`).
+  const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}${optimize === 'size' ? '-size' : trust === 'production' ? '-whole' : ''}`);
   return { owner, namespace, target, product, executable, products, composition, scratch: resolve(namespace, 'link'), swift, swiftLock: `${swift}.lock`,
     lock: resolve(owner, '.apple-build.lock'), capture: resolve(namespace, 'capture'),
     binary: resolve(products, executable), bundle: destination === 'macos'
@@ -1403,7 +1403,7 @@ async function test(args) {
   // The fixtures tests boot (scripts/fixtures), compiled at this commit and named in `env` as `<prefix>_<KEY>_PLAN`:
   // a plan carries the kernel schema's digest, so one compiled once and kept in a test goes stale.
   const compileFixtures = (env, dir, prefix) => {
-    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW']]) {
+    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL']]) {
       const plan = env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`);
       run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]);
     }

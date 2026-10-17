@@ -2,8 +2,9 @@
 //! text the kernel parses to the same `ColorValue` as the literal itself,
 //! and every value the corpus folds parses in the kernel.
 
-use exact_kernel::{Color, ColorValue};
-use exact_tamber::{check, Vocab};
+use exact_kernel::style::StyleValue;
+use exact_kernel::{Color, ColorValue, StyleId, StyleProps};
+use exact_tamber::{check, Kind, Vocab};
 
 use crate::common;
 
@@ -65,12 +66,58 @@ fn every_corpus_value_parses_in_the_kernel() {
         for token in &folding.tokens {
             for value in &token.values {
                 let text = value.css();
-                assert!(
-                    kernel(&text).is_some(),
-                    "{}: {}: {text}",
-                    path.display(),
-                    token.name
-                );
+                let read = match token.kind {
+                    Kind::Color => kernel(&text).is_some(),
+                    // A length in some length row the kernel has (a text
+                    // style only as a font size, a hairline not as one).
+                    Kind::Length => [StyleId::PaddingTop, StyleId::FontSize].iter().any(|row| {
+                        StyleProps::default()
+                            .set_dynamic(*row, &StyleValue::Text(text.as_str().into()))
+                            .is_ok()
+                    }),
+                    Kind::Number => text.parse::<f64>().is_ok(),
+                    // Each part in its row, the family as a stack's id
+                    // stands in a bound table (`typeface::entry`).
+                    Kind::Type => exact_kernel::style::theme::typeface::entry(
+                        exact_kernel::style::theme::Kind::Type,
+                        &text,
+                        |_| Some(0),
+                    )
+                    .is_some_and(|entry| {
+                        [
+                            StyleId::FontStyle,
+                            StyleId::FontWeight,
+                            StyleId::FontSize,
+                            StyleId::LineHeight,
+                            StyleId::FontFamily,
+                        ]
+                        .iter()
+                        .all(|row| {
+                            exact_kernel::style::theme::typeface::part(*row, &entry)
+                                .is_none_or(|v| StyleProps::default().set_dynamic(*row, &v).is_ok())
+                        })
+                    }),
+                    Kind::Family => !text.trim().is_empty(),
+                    Kind::BoxShadow => exact_kernel::style::BoxShadows::check(&text).is_ok(),
+                    Kind::TextShadow => exact_kernel::style::TextShadow::check(&text).is_ok(),
+                    // A component of a transition, as the build writes it in.
+                    // (A spring is its own timing: no duration beside it.)
+                    Kind::Duration | Kind::Easing => {
+                        let forms = match token.kind {
+                            Kind::Duration => vec![format!("opacity {text}")],
+                            _ => vec![format!("opacity 1s {text}"), format!("opacity {text}")],
+                        };
+                        forms.into_iter().any(|transition| {
+                            StyleProps::default()
+                                .set_dynamic(
+                                    StyleId::Transition,
+                                    &StyleValue::Text(transition.into()),
+                                )
+                                .is_ok()
+                        })
+                    }
+                };
+                assert!(read, "{}: {}: {text}", path.display(), token.name);
             }
         }
     }

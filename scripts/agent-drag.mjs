@@ -87,7 +87,19 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   if (!b) throw new Error(`view ${node.id} has no box on screen`);
   const start = from ? [b.x + from[0], b.y + from[1]] : [b.x + b.w / 2, b.y + b.h / 2], end = [start[0] + dx, start[1] + dy];
   const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
-  if (vp && !(inside(start) && inside(end))) throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
+  if (vp && !(inside(start) && inside(end))) {
+    // A scroller dragged further than the viewport reaches scrolls the whole way (euxy FRICTION 14). On iOS it is the
+    // scroll view's own drag, which a viewport does not bound, under real touches too: XCTest's drag flings at its lift
+    // whatever it holds first (300 pt held 300 ms scrolled 540), so real strokes would not scroll what was asked.
+    // Elsewhere a finger's strokes (`strokes`).
+    if (!(inside(start) && ['ScrollView', 'List'].includes(b.type) && !during.length && opts.to === undefined)) throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
+    if (!['ios', 'host-ios'].includes(host)) return strokes(s, target, opts, start, vp);
+    const r = await carrier.ask({ op: 'tap', id: node.id, scrollDrag: [dx, dy], ...(from ? { from: start } : {}) });
+    if (r.error) throw new Error(r.error);
+    // Landed as an input is (`s.landed`): what the scroll settled lands its `then`s before the reply, and a landing error is said.
+    const real = carrier.touches ? ['past the screen a drag is the scroll view\'s own (recognized), not a real touch: one ends inside the screen'] : [];
+    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...real, ...await reorderNotes(s, mark)]);
+  }
   // Each op runs with input refused; the runner path bounds each one by the gesture.
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
   if (carrier.touches) {
@@ -98,10 +110,13 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
+  // A phase's note (a refused write, said once a drive) is the drag's: its reply carries it (`noted`).
+  const phaseNotes = [];
   const phase = async (name, opts) => {
     const r = await s.pointer(name, opts);
     if (r.error || r.delivery === 'unsupported') throw new Error(`drag: ${name}: ${r.error ?? r.reason ?? 'unsupported'}`);
     if (r.landError) throw new Error(`drag: ${name} was delivered; landing what it started failed: ${r.landError}`);
+    if (r.note) phaseNotes.push(r.note);
     return r;
   };
   try {
@@ -156,7 +171,36 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (s.contact) error.message += '; the contact could not be released (tap cancel, or close the session)';
     throw error;
   }
-  return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), await reorderNotes(s, mark));
+  return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
+}
+
+/** The most strokes a drag past the viewport is split into, and how long each but the last rests before it lifts. */
+export const STROKES = { most: 8, rest: 150 };
+
+/** A scroller's drag past the viewport (`dragTap`) on a carrier other than iOS, as strokes that stay in it: each moves (dx, dy) scaled down to
+ * end inside it (a point short of the edge), over the drag's `over` scaled alike. Each but the last rests
+ * `STROKES.rest` ms before it lifts, so it lifts at rest and flings nothing; the last keeps the drag's own hold. Past
+ * `STROKES.most` it is refused before any input. A stroke that fails, lands with an error or is not delivered stops
+ * it, saying which; the reply is the last stroke's, with the whole drag, the strokes, every stroke's note, and the
+ * scrolling summed. */
+async function strokes(s, target, opts, [x, y], vp) {
+  const { dx, dy, over = 250 } = opts;
+  const room = Math.min(dx > 0 ? (vp.w - 1 - x) / dx : dx < 0 ? (x - 1) / -dx : 1, dy > 0 ? (vp.h - 1 - y) / dy : dy < 0 ? (y - 1) / -dy : 1);
+  if (!(room > 0)) throw new Error(`drag: from (${x},${y}) there is no room to drag toward (${dx}, ${dy}) inside the viewport (${vp.w} × ${vp.h})`);
+  const count = Math.ceil(1 / room - 1e-9);
+  if (count > STROKES.most) throw new Error(`drag: (${dx}, ${dy}) from (${x},${y}) is ${count} strokes inside the viewport (${vp.w} × ${vp.h}), past ${STROKES.most}: drag in parts, or from nearer its middle`);
+  const parts = [], notes = [], scrolled = [0, 0];
+  for (let i = 0; i < count; i++) {
+    const part = Math.min(room, 1 - room * i), last = i === count - 1;
+    const r = await s.tap(target, { drag: { ...opts, dx: dx * part, dy: dy * part, over: Math.max(1, over * part), press: i ? 0 : opts.press, hold: last ? opts.hold : STROKES.rest } });
+    const failed = r?.error ?? r?.landError ?? (r?.delivery === 'unsupported' ? r.reason ?? 'not delivered' : null);
+    if (failed) throw Object.assign(new Error(`drag: stroke ${i + 1} of ${count}: ${failed}`), { reply: r });
+    if (r.note) notes.push(r.note);
+    if (Array.isArray(r.scrolledBy)) { scrolled[0] += r.scrolledBy[0]; scrolled[1] += r.scrolledBy[1]; }
+    parts.push(r);
+  }
+  const r = parts.at(-1);
+  return { ...r, drag: { ...r.drag, dx, dy }, strokes: count, ...(r.scrolledBy ? { scrolledBy: scrolled } : {}), ...(notes.length ? { note: [...new Set(notes)].join('; ') } : {}) };
 }
 
 /** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */

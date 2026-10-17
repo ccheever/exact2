@@ -723,3 +723,30 @@ component App
         );
     }
 }
+
+/// LLP 1115.000 D12.2: the document the wasm runtime adopts writes a bare
+/// `font-size` style's weight where it fills one, as the live host does;
+/// the one the JavaScript runtime adopts does not, as its template does
+/// not, and a shorthand's it writes in both.
+#[test]
+fn a_bare_text_styles_weight_is_written_for_the_runtime_that_writes_it() {
+    let h = host(
+        "component App\n  view\n    column\n      text font-size=\"-exact-headline\" \"Bare\"\n      text font=\"-exact-headline\" \"Shorthand\"\n",
+        Says(""),
+        "/",
+    );
+    let style = |doc: &str, text: &str| {
+        let at = doc.find(&format!(">{text}<")).expect(text);
+        let open = doc[..at].rfind('<').unwrap();
+        doc[open..at].to_string()
+    };
+    let wasm = h.document().unwrap().root;
+    let js = exact_web::document::project_for_js(h.runner())
+        .unwrap()
+        .root;
+    assert!(style(&wasm, "Bare").contains("font-weight:600"), "{wasm}");
+    assert!(!style(&js, "Bare").contains("font-weight"), "{js}");
+    for doc in [&wasm, &js] {
+        assert!(style(doc, "Shorthand").contains("font-weight:600"), "{doc}");
+    }
+}

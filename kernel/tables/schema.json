@@ -1566,6 +1566,12 @@
       "name": "midiInputs",
       "kind": "str",
       "_comment": "@ref LLP 1125 D8: the MIDI inputs an element with a `midimessage` handler hears, by `MIDIPort.id`, newline-joined from the `string[]` the author writes as `midiinputs=`. The runner reads it (`exact_runner::midi`) to open inputs and choose each message's handlers; no presenter draws it."
+    },
+    {
+      "id": 270,
+      "name": "fontShorthand",
+      "kind": "bool",
+      "_comment": "@ref LLP 1115.000 D12.2: the node's text style was named through the `font` shorthand (or a type token), which resets the weight and the leading as CSS's shorthand does, so the style's beat an inherited `font-weight` and `line-height`; a bare `font-size` naming a style fills only what nothing above says. Set by Contract, never written by an author (`contract/lower/src/shorthands.rs`)."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -5615,6 +5621,8 @@
     ["grouped-row-inset-symbol", "style", 56, 10, 56, 56],
     ["grouped-row-margin-end", "style", "unset", 10, "unset", "unset"],
     ["grouped-row-padding-end", "style", 16, 0, 16, 16],
+    ["grouped-swipe-margin", "style", 0, 10, 0, 0],
+    ["grouped-swipe-padding", "style", 16, 0, 16, 16],
     ["grouped-row-gap", "style", 8, 8, 8, 8],
     ["grouped-stack-min-height", "style", 22, 16, 22, 22],
     ["grouped-stack-padding-block", "style", 15, 10, 15, 15],
@@ -5625,8 +5633,8 @@
     ["grouped-symbol-height", "style", 20, 16, 20, 20],
     ["grouped-symbol-pull", "style", -40, 0, -40, -40],
     ["grouped-symbol-gap", "style", 8, 2, 8, 8],
-    ["grouped-chevron-width", "style", 14, 9, 14, 14],
-    ["grouped-chevron-height", "style", 14, 11, 14, 14],
+    ["grouped-chevron-width", "style", "0.82em", 9, "0.82em", "0.82em"],
+    ["grouped-chevron-height", "style", "0.82em", 11, "0.82em", "0.82em"],
     ["grouped-checkmark-width", "style", 19, 13, 19, 19],
     ["grouped-checkmark-height", "style", 17, 13, 17, 17],
     ["grouped-accessory-weight", "style", 600, 700, 600, 600],
@@ -5721,7 +5729,7 @@
     ["modal-shadow-alpha", "number", 0.24],
     ["scrim-alpha", "number", 0.4]
   ],
-  "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
+  "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, its weight in each column of the metric table (web, iOS, the Mac, neutral: the Mac's `headline` is bold, its `caption2` medium), the size at each body size in `textStyleBodies` (the root font size the host sets), and its leading in each column, a line height over the size, or null for `normal`, the face's own (LLP 1115.000 D12.2, measured with NSFont.preferredFont on macOS and UIFont.preferredFont on an iOS 27 simulator, where every style's line height is the face's natural one). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
   "textStyleBodies": [
     13,
     14,
@@ -5743,7 +5751,12 @@
       "",
       "largeTitle",
       "largeTitle",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         26,
         31,
@@ -5758,6 +5771,12 @@
         52,
         56,
         60
+      ],
+      [
+        null,
+        null,
+        1.2308,
+        null
       ]
     ],
     [
@@ -5765,7 +5784,12 @@
       "-apple-system-title1",
       "title1",
       "title1",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         22,
         25,
@@ -5780,6 +5804,12 @@
         48,
         53,
         58
+      ],
+      [
+        null,
+        null,
+        1.1818,
+        null
       ]
     ],
     [
@@ -5787,7 +5817,12 @@
       "-apple-system-title2",
       "title2",
       "title2",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         17,
         19,
@@ -5802,6 +5837,12 @@
         44,
         50,
         56
+      ],
+      [
+        null,
+        null,
+        1.2941,
+        null
       ]
     ],
     [
@@ -5809,7 +5850,12 @@
       "-apple-system-title3",
       "title3",
       "title3",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         15,
         17,
@@ -5824,6 +5870,12 @@
         43,
         49,
         55
+      ],
+      [
+        null,
+        null,
+        1.3333,
+        null
       ]
     ],
     [
@@ -5831,7 +5883,12 @@
       "-apple-system-headline",
       "headline",
       "headline",
-      600,
+      [
+        600,
+        600,
+        700,
+        600
+      ],
       [
         13,
         14,
@@ -5846,6 +5903,12 @@
         40,
         47,
         53
+      ],
+      [
+        null,
+        null,
+        1.2308,
+        null
       ]
     ],
     [
@@ -5853,7 +5916,12 @@
       "-apple-system-body",
       "body",
       "body",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         13,
         14,
@@ -5868,6 +5936,12 @@
         40,
         47,
         53
+      ],
+      [
+        null,
+        null,
+        1.2308,
+        null
       ]
     ],
     [
@@ -5875,7 +5949,12 @@
       "",
       "callout",
       "callout",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         12,
         13,
@@ -5890,6 +5969,12 @@
         38,
         44,
         51
+      ],
+      [
+        null,
+        null,
+        1.25,
+        null
       ]
     ],
     [
@@ -5897,7 +5982,12 @@
       "-apple-system-subheadline",
       "subheadline",
       "subheadline",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         11,
         12,
@@ -5912,6 +6002,12 @@
         36,
         42,
         49
+      ],
+      [
+        null,
+        null,
+        1.2727,
+        null
       ]
     ],
     [
@@ -5919,7 +6015,12 @@
       "-apple-system-footnote",
       "footnote",
       "footnote",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         10,
         12,
@@ -5934,6 +6035,12 @@
         33,
         38,
         44
+      ],
+      [
+        null,
+        null,
+        1.3,
+        null
       ]
     ],
     [
@@ -5941,7 +6048,12 @@
       "-apple-system-caption1",
       "caption1",
       "caption1",
-      400,
+      [
+        400,
+        400,
+        400,
+        400
+      ],
       [
         10,
         11,
@@ -5956,6 +6068,12 @@
         32,
         37,
         43
+      ],
+      [
+        null,
+        null,
+        1.3,
+        null
       ]
     ],
     [
@@ -5963,7 +6081,12 @@
       "-apple-system-caption2",
       "caption2",
       "caption2",
-      400,
+      [
+        400,
+        400,
+        500,
+        400
+      ],
       [
         10,
         11,
@@ -5978,6 +6101,12 @@
         29,
         34,
         40
+      ],
+      [
+        null,
+        null,
+        1.3,
+        null
       ]
     ]
   ]

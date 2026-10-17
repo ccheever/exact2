@@ -43,10 +43,10 @@ pub struct Store {
     /// Device topics the answer being made watches (`native.watch`, LLP
     /// 1016.002): taken by the runner after each answer.
     topics: std::cell::RefCell<Vec<String>>,
-    /// Socket operations the mutation being answered staged, by the index
-    /// of the resource that owns each socket (LLP 1016.000 D7): taken by
-    /// the runner after each mutation's answer, which publishes them only
-    /// if the answer stands.
+    /// Socket operations the mutation being answered, or the mapper of the
+    /// frame being parsed, staged, by the index of the resource that owns
+    /// each socket (LLP 1016.000 D7): taken by the runner after each such
+    /// turn, which publishes them only if its commit stands.
     sockets: Vec<(usize, crate::SocketOp)>,
     /// Each open socket's buffered bytes at the start of the turn, by its
     /// resource's index: what its handle's `bufferedAmount` starts from.
@@ -466,7 +466,7 @@ impl Store {
     }
 
     /// Stage `op` on the socket of resource `resource` for the mutation
-    /// being answered (LLP 1016.000 D7).
+    /// being answered or the frame being parsed (LLP 1016.000 D7).
     pub fn stage_socket(&mut self, resource: usize, op: crate::SocketOp) {
         self.sockets.push((resource, op));
     }
@@ -480,6 +480,11 @@ impl Store {
     /// index of the resource that owns it.
     pub fn socket_buffered(&self) -> &[(usize, u64)] {
         &self.socket_buffered
+    }
+
+    /// The socket operations staged since the last take, left staged.
+    pub fn staged_sockets(&self) -> &[(usize, crate::SocketOp)] {
+        &self.sockets
     }
 
     /// The socket operations staged since the last take.

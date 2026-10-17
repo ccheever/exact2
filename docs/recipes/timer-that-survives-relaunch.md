@@ -31,7 +31,8 @@ component Stopwatch
     banked = 0
   view
     column align-items="center" gap=16 padding=32
-      text clock(elapsed) font-size=72 font-variant-numeric="tabular-nums" testId="elapsed"
+      text clock(elapsed) font-size="4.5rem" font-variant-numeric="tabular-nums" -exact-fit="shrink" white-space="nowrap"
+        testId="elapsed"
       row gap=12
         button press=toggle buttonStyle="bordered-prominent" testId="start-stop"
           text (running ? "Stop" : "Start")
@@ -66,4 +67,5 @@ test "stop banks the time, and reset clears it"
   250 ms old.
 - A test's `reload` relaunches at the virtual time the test had reached, so a running timer reads
   as it did before it (`0:05` above); `performanceNow()` starts at 0 again.
-- The readout is deliberate design: its size, with `tabular-nums` ([numeric-readout](numeric-readout.md)).
+- The readout is deliberate design: its size in `rem`, which grows with Dynamic Type as a bare
+  number would not, with `tabular-nums` ([numeric-readout](numeric-readout.md)).

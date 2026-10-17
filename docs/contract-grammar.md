@@ -709,6 +709,7 @@ says. Every roster function has a row and an example, and each example written
 | `performanceNow()` | Milliseconds on the runner's clock since this launch of the app (it restarts at 0 on every launch; the driver's clock under the agent, from 0), as the web's `performance.now()`, not `Date.now()`: the date is `time.epochAtZero + performanceNow()`, with `resource time = exactTime() as shape T` declared, and that sum is what anything stored or sent takes ([timer recipe](recipes/timer-that-survives-relaunch.md)). `now()` is refused (`type-now-renamed`, LLP 1109 D1) with both repairs. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes | `performanceNow() - startedAt`, in a timer's action, is the milliseconds since `startedAt` |
 | `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) | `formatTime(1790000000000, 0, "short")` is `"2:13 PM"` |
 | `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 | `formatDate(1790000000000, 0, "medium")` is `"Sep 21, 2026"` |
+| `formatDay(then, now, offsetMinutes, "day" or "day-time" or "list")` | String; `then`'s day named from `now`'s, both at the one offset (its calendar days, so a DST change between them is not applied), en-US (LLP 1116.020 D8). `"day"` is `Today`, `Yesterday`, `Tomorrow`, else `formatDate`'s `"medium"`; `"day-time"` adds ` at ` and `formatTime`'s time (`Today at 4:42 PM`, `Oct 11, 2026 at 4:42 PM`); `"list"` is Mail's and Notes' list label: the time today, `Yesterday`, the weekday two to six days back, else `10/11/26` (a later day too). Pure: `now` is the app's ticked clock ([dates recipe](recipes/dates-and-days.md)); `""` when either instant is outside years 1–9999 | `formatDay(1790000000000, 1790000000000 + 86400000, 0, "day")` is `"Yesterday"` |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format (`1.2K`) | `formatNumber(1249, "compact")` is `"1.2K"` |
 | `formatNumber(n, "decimal")`, `formatNumber(n, "percent")`, `formatNumber(n, "currency", "USD")` | String; `Intl.NumberFormat("en-US")`'s deterministic forms (LLP 1116 D8): `"decimal"` is grouped with at most three fraction digits (`1,234.567`), `"percent"` multiplies by 100 with none (`0.256` is `26%`), `"currency"` takes an ISO 4217 code literal and prints its symbol and fraction digits (`$1,481.47`, `-$5.00`, `¥1,235`, `CHF 5.00`; the codes are USD, EUR, GBP, JPY, CNY, INR, CAD, AUD, NZD, HKD, SGD, CHF, SEK, NOK, DKK, PLN, MXN, BRL, KRW, ZAR, TWD, ILS, PHP and VND). Each rounds the value's shortest decimal digits half away from zero, as `Intl` does (`1.005` is `$1.01`, where `toFixed` says `1.00`), and signs a negative zero (`-0`); `NaN` and the infinities print `""`. The code is written with `"currency"` only (`type-format-style`) | `formatNumber(1481.47, "currency", "USD")` is `"$1,481.47"` |
 | `n.toFixed(digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`(1.005).toFixed(2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) | `(3.14159).toFixed(2)` is `"3.14"` |
@@ -1039,6 +1040,30 @@ action still happens: only `preventDefault()` stops a key's typing or a
 wheel's scroll, and a stopped `pointerdown` or `pointerup` leaves the click's
 `press` alone.
 
+`press` is DOM's `click` stopped at its handler: a press goes to the nearest
+node from the one pressed up that takes a press (a `press` handler or a
+link), and to no node above it. Content in an open popover or a modal
+`dialog` presses the popover's or dialog's authored ancestors, as a click
+bubbles out of the top layer, never a node only under it: a modal dialog's
+ancestors take that press though the dialog makes them inert, while an
+authored `inert` still silences them. That ancestor's own box is seldom
+under the pointer, so the press lands as the content it went down on judges
+its own: a pointer that leaves that content before it lifts presses nothing.
+A press that reaches an invoker (`commandfor`, `popovertarget`) behind a
+modal dialog runs its `press` handler, and opens or closes its target only
+where the target is inside the modal's subtree; a target the modal makes
+inert stays as it is, as a `contextPopover` on an ancestor behind the modal
+opens no menu.
+
+A text field, a checkbox or another form control takes a tap or a click
+itself, so an ancestor's `press` does not fire, in the page or in a dialog.
+That is the platform's rule on macOS and iOS (a hand-built screen's control
+consumes its touch, [LLP 1115](../llp/1115-write-the-web-ship-the-platform.principle.md));
+on the web the click bubbles from the control to the ancestor. A `press`
+written on the control itself gives the same result on every host. A
+`button` with no `press` of its own presses the nearest ancestor's on every
+host.
+
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
 | A string, then optionally an `InputEvent` | `change`, `input` on a text field, textarea, `select`, date or time input, and `type="radio"` (the radio's `value`); an action taking one more parameter also hears the [target](#form-controls-radio-inputevent-setselectionrange) |
@@ -1210,8 +1235,8 @@ bindings are required as a pair. See
 touch or a button going down (any: `buttons` says which, 2 for a right-click)
 is the `pointerdown` of every enabled node from the one under it up that
 declares it, innermost first, as `key` and `wheel` bubble, before any gesture
-decides; a press inside a popover reaches the popover's ancestors, never a
-node only under it. When the pointer lifts or is cancelled (a cancel is an
+decides; a press inside a popover or a modal dialog reaches its authored
+ancestors, never a node only under it. When the pointer lifts or is cancelled (a cancel is an
 up), each node the down passed that declares `pointerup` hears it, innermost
 first, wherever the pointer is, before the click's `press`. The innermost
 enabled node that hears any of the three holds the pointer: its
@@ -1249,7 +1274,10 @@ A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
 and in a browser on one it comes on the button's down, after its `pointerdown`.
 A Control-click there is a secondary click too: where a `contextmenu` or
 `contextPopover` answers it, it holds the primary button and Control, and
-nothing presses.
+nothing presses. A secondary click in a modal dialog reaches an ancestor's
+`contextmenu` behind it, but that ancestor's `contextPopover` stays shut,
+since the modal makes it inert; a press bubbling to an invoker behind the
+modal follows the same rule ([Events](#events)).
 On macOS, the unmodified `ContextMenu` key opens it at the focused node's
 visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
 A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`

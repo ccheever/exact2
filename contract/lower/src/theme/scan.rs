@@ -7,7 +7,7 @@ use super::role_named;
 use contract_syntax::{Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart};
 use exact_kernel::{StyleCodec, StyleId};
 use exact_tamber::Design;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 /// CSS's colour functions: an expression over a token is one of them.
 const COLOUR_FNS: &[&str] = &[
@@ -78,8 +78,12 @@ pub(crate) struct Said {
     pub synthetic: Vec<Synthetic>,
     /// A colour row's value is computed somewhere: any token may be named.
     pub computed: bool,
-    /// Every word the literals write that is a token's name.
-    words: HashSet<String>,
+    /// A length or number row's value is computed and may be a string
+    /// somewhere: any length or number token may be named (LLP 1121 D7).
+    pub computed_measure: bool,
+    /// Every word the literals write, a token's name or not: what D7's
+    /// retention reads (`tamber::Retention`), for this design or an edit of it.
+    pub words: BTreeSet<String>,
 }
 
 impl Said {
@@ -88,10 +92,13 @@ impl Said {
     pub(crate) fn of(file: &File, root: &Component, design: &Design) -> Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
+        let mut computed_measure = false;
         let mut attrs = |attrs: &[Attr]| {
             for a in attrs {
                 let colour = colour_attr(&a.name);
                 computed |= colour && !literal(&a.value);
+                computed_measure |=
+                    measure_attr(&a.name) && !literal(&a.value) && !number(&a.value);
                 // A colour row's own value must fold; a literal elsewhere in
                 // it (a condition's, a call's argument) may not be one.
                 if colour {
@@ -119,6 +126,21 @@ impl Said {
                 Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
                 Node::Use { children, .. } => stack.extend(children),
                 Node::Children { .. } => {}
+            }
+        }
+        // A colour keyframe folds its tokens as a row does (`keyframes::tokens`):
+        // its value as the app compiles it, through a palette function's
+        // template (`shade("chip")` to `light-dark(chip, #ffffff)`).
+        for a in file
+            .keyframes
+            .iter()
+            .flat_map(|k| &k.frames)
+            .flat_map(|f| &f.attrs)
+        {
+            if colour_attr(&a.name) {
+                if let Some(text) = crate::keyframes::constant(&a.value, &file.fns) {
+                    literals.push((text, a.span, true));
+                }
             }
         }
         // A computed row may read a `fn`, a state, a derive or what an
@@ -150,11 +172,11 @@ impl Said {
         };
         let mut said = Said {
             computed,
+            computed_measure,
             ..Default::default()
         };
         for (text, span, strict) in literals {
-            said.words
-                .extend(words(&text).filter(|w| is_token(w)).map(str::to_string));
+            said.words.extend(words(&text).map(str::to_string));
             for expr in expressions(&text, &is_token) {
                 match said.synthetic.iter_mut().find(|s| s.expr == expr) {
                     Some(s) if strict && !s.strict => {
@@ -172,11 +194,35 @@ impl Said {
         }
         said
     }
+}
 
-    /// Whether the view names `name`: a token a literal writes, or a
-    /// synthetic token's expression.
-    pub(crate) fn names(&self, name: &str) -> bool {
-        self.words.contains(name) || self.synthetic.iter().any(|s| s.expr == name)
+/// An attribute that sets a row a length or number token may name.
+fn measure_attr(name: &str) -> bool {
+    match crate::tags::attr(name) {
+        Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().any(|r| {
+            use exact_kernel::style::theme::{admits, Kind};
+            [
+                Kind::Length,
+                Kind::Number,
+                Kind::BoxShadow,
+                Kind::TextShadow,
+            ]
+            .into_iter()
+            .any(|k| admits(k, *r))
+        }),
+        _ => false,
+    }
+}
+
+/// Whether a value is a number however it is chosen: its leaves through
+/// `?:`, `match` and `let` are number literals.
+fn number(e: &Expr) -> bool {
+    match e {
+        Expr::Number(..) => true,
+        Expr::Ternary(_, yes, no, _) => number(yes) && number(no),
+        Expr::Match { some, none, .. } => number(some) && number(none),
+        Expr::Let { body, .. } => number(body),
+        _ => false,
     }
 }
 

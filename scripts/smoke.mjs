@@ -1105,8 +1105,8 @@ if (deckFixture) {
 // on the row's button is the pan's once past the slop, never the swipe's (rule
 // 3: a press keeps a contact from a swipe, not from a pan; kanban F6); a tap
 // presses it. The
-// same numbers on every host that can hold a contact; iOS, which holds none
-// (LLP 1080.000 P3), answers `unsupported`, said so, not faked.
+// same numbers on every host; a contact a carrier cannot hold (iOS on the row, which
+// only UIKit could give to the swipe or the pan) answers `unsupported`, said, not faked.
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'precedence.plan');
@@ -1125,19 +1125,19 @@ if (deckFixture) {
         await g.clock('settle');
         return true;
       };
-      if (!await drag('row', [200, 50], [[20, 0], [100, 0]])) {
-        console.log(`${host} precedence: unsupported (this carrier holds no contact); unverified here`);
-      } else {
-        check(await slots() === '1/0/0', `a horizontal drag on the row: replies/panned/pressed ${await slots()}, expected the swipe alone (1/0/0)`);
-        await drag('row', [200, 50], [[0, 10], [0, 20]]);
-        check(await slots() === '1/30/0', `a vertical drag on the row: ${await slots()}, expected the surface's pan (1/30/0)`);
-        await drag('button', [40, 20], [[0, 10], [0, 20]]);
-        check(await slots() === '1/60/0', `a drag from the row's button: ${await slots()}, expected the surface's pan and no press (1/60/0)`);
-        await g.tap('button');
-        await g.clock('settle');
-        check(await slots() === '1/60/1', `a tap on the button: ${await slots()}, expected its press (1/60/1)`);
-        console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)`);
+      // What a carrier cannot hold is said, not counted: on iOS the row's two drags (only UIKit could give them to the swipe or the pan).
+      const n = [0, 0, 0], unheld = [];
+      for (const [what, target, at, moves, adds, expected] of [
+        ['a horizontal drag on the row', 'row', [200, 50], [[20, 0], [100, 0]], [1, 0, 0], 'the swipe alone'],
+        ['a vertical drag on the row', 'row', [200, 50], [[0, 10], [0, 20]], [0, 30, 0], "the surface's pan"],
+        ["a drag from the row's button", 'button', [40, 20], [[0, 10], [0, 20]], [0, 30, 0], "the surface's pan and no press"],
+        ['a tap on the button', 'button', null, null, [0, 0, 1], 'its press']]) {
+        if (!(moves ? await drag(target, at, moves) : (await g.tap(target), await g.clock('settle'), true))) { unheld.push(what); continue; }
+        adds.forEach((v, i) => { n[i] += v; });
+        check(await slots() === n.join('/'), `${what}: replies/panned/pressed ${await slots()}, expected ${expected} (${n.join('/')})`);
       }
+      const skips = host === 'ios' ? ['a horizontal drag on the row', 'a vertical drag on the row'] : []; check(unheld.join() === skips.join() && await slots() === (skips.length ? '0/30/1' : '1/60/1'), `precedence: unsupported [${unheld.join(', ')}], expected [${skips.join(', ')}]; ${await slots()}`);
+      console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)${unheld.length ? `; unsupported, unverified here: ${unheld.join(', ')}` : ''}`);
     } catch (error) {
       failures.push(`the precedence fixture stopped: ${error.message}`);
     } finally {
@@ -1210,11 +1210,11 @@ if (deckFixture) {
         check(kb === 0 && note.y === noteBefore.y, `no software keyboard here: keyboard-inset-height ${kb}, the field at ${note.y} (was ${noteBefore.y})`);
         console.log(`${host} insets: env ${JSON.stringify(env)}; the viewport ${l.viewport.w}×${l.viewport.h}; no keyboard`);
       }
-      // A finger lands only where the target is seen: the strip at the
-      // page's bottom is under the software keyboard, so the tap is refused,
-      // having pressed nothing and kept the editor and its keyboard.
+      // A finger lands only where the target is seen: a tap at a point in the strip under the
+      // keyboard is refused, pressing nothing and keeping the editor and its keyboard (a plain
+      // `tap under` scrolls the strip above the keyboard first, as a person would, and presses it).
       if (host === 'ios') {
-        const under = await f.tap('under').then(() => null, (e) => e.message);
+        const under = await f.tap('under', { at: [l.viewport.w / 2, 4] }).then(() => null, (e) => e.message);
         st = await f.state();
         check(/under the software keyboard/.test(under ?? '') && st.slots.under === 0 && st.slots.focused === true && st.keyboard?.visible === true, `a tap under the keyboard is refused and changes nothing: ${under}, ${JSON.stringify(st.slots)}, keyboard ${JSON.stringify(st.keyboard)}`);
       }

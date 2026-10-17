@@ -1,0 +1,18 @@
+tamber type
+
+axes
+  density = compact | roomy
+
+theme
+  family.text = "InterVariable", system-ui
+  family.mono: family = ui-monospace
+  type.body = -exact-body/1.35 "InterVariable"
+  type.label = 600 -exact-subheadline family.text
+  type.title: type = italic bold 1.5rem / 32px Georgia, serif
+  type.fixed = 14px/18px family.mono
+  type.alias = type.body
+  type.dense = -exact-footnote/1.2
+    when density=roomy: -exact-body/1.5
+  face = "Inter", sans-serif
+  family.alias = face
+  type.face = -exact-body face

@@ -263,7 +263,11 @@ pub fn dtcg(f: &Folding, vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
         let mut tree = Map::new();
         let mut count = 0;
         for (checked, t) in f.tokens.iter().zip(&f.design.tokens) {
-            let Some(folded) = checked.values.get(c.tuple) else {
+            // Lengths and numbers join the export with stage 6's commit G.
+            if checked.kind != crate::Kind::Color {
+                continue;
+            }
+            let Some(folded) = checked.values.get(c.tuple).and_then(crate::Value::color) else {
                 continue;
             };
             let Some((half, note)) = side(folded, c.dark, vocab) else {
@@ -836,7 +840,7 @@ pub fn reimport(
                 .iter()
                 .map(|(a, v)| (a.as_str(), v.as_str()))
                 .collect();
-            let folded = now.values.get(cur.tuple(&pins)?)?;
+            let folded = now.values.get(cur.tuple(&pins)?)?.color()?;
             let text = match folded {
                 Folded::One(_) | Folded::Pair(..) => {
                     // An opaque 8-bit colour as a design writes it, `#rrggbb`.
@@ -1189,7 +1193,11 @@ pub fn reimport(
                     .iter()
                     .map(|(a, v)| (a.as_str(), v.as_str()))
                     .collect();
-                let Some(folded) = folding.tuple(&pins).and_then(|t| checked.values.get(t)) else {
+                let Some(folded) = folding
+                    .tuple(&pins)
+                    .and_then(|t| checked.values.get(t))
+                    .and_then(crate::Value::color)
+                else {
                     continue;
                 };
                 let wrong = [false, true].iter().any(|&dark| {

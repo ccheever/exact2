@@ -28,7 +28,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, buildBake, injectedProfiles, linuxBuild, resolveApp } from './app.mjs';
+import { HOST_DEV, buildBake, copyShaders, injectedProfiles, linuxBuild, resolveApp } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 
@@ -274,6 +274,8 @@ function buildApk(app, env, profile) {
   // The host opens the module by the name its bake recorded, in the APK's extracted library directory.
   if (gpu) copyFileSync(gpu, resolve(staged, 'jniLibs/arm64-v8a', basename(gpu)));
   if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(staged, 'assets/app/assets'), { recursive: true });
+  // The module's shader text (LLP 1030 D8), which the host registers from `shaders/` under the asset root.
+  if (gpu) copyShaders(app, resolve(staged, 'assets/app/shaders'));
   // A game's resolved manifest (with its `app` identity) is the one its shells were generated with.
   // A date or time control's picker is Compose Material 3's, linked only for a plan that has one (LLP 1115.001.000 D2).
   const compose = uses.includes('dates') ? ['-Pcompose=1'] : [];

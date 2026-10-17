@@ -137,6 +137,42 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertNotNil(tint.resolvedColor(with: tabs.tabBar.traitCollection).cgColor)
     }
 
+    /// A tablist whose accent is the app's tint (`AccentColor`) has the tint
+    /// it inherits. Where the bar inherits that tint too, the bar's is left
+    /// to UIKit: behind an alert UIKit dims an inherited tint once, and a
+    /// bar tint read from a view's dimmed tint was dimmed again, so the
+    /// selected tab went grey where a hand-built app's stays dark. Where an
+    /// ancestor the bar is not inside sets the colour, the bar is still
+    /// given the colour the tablist resolves.
+    func testABarOnTheAppTintInheritsWhatTheTablistDoes() throws {
+        let session = try fixture("tint-inherited")
+        let p = session.presenter, list = try node(session, "tabs")
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let traits = tabs.tabBar.traitCollection
+        let rgb = { (color: UIColor) -> [Int] in
+            var c: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            color.resolvedColor(with: traits).getRed(&c.0, green: &c.1, blue: &c.2, alpha: &c.3)
+            return [c.0, c.1, c.2].map { Int(($0 * 255).rounded()) }
+        }
+        p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["accent_color": ["sys": "@tint"], "written": ["accent_color"]]]]))
+        tabs.view.tintColor = .systemRed
+        XCTAssertEqual(tabs.tabBar.tintColor.resolvedColor(with: traits), UIColor.systemRed.resolvedColor(with: traits),
+                       "the bar's tint is its container's, which UIKit dims once")
+        // A wrapper the bar is not inside sets the colour a nested tablist inherits.
+        p.apply(wireBatch([["op": "create", "id": 9001, "kind": "view", "style": ["accent_color": [0xcc, 0, 0, 255], "written": ["accent_color"]]],
+                           ["op": "create", "id": 9002, "kind": "view", "style": ["accent_color": ["sys": "@tint"], "written": ["accent_color"]]]]))
+        let wrapper = try XCTUnwrap(p.views[9001]), nested = try XCTUnwrap(p.views[9002])
+        try node(session, "panels").addSubview(wrapper)
+        wrapper.addSubview(nested)
+        XCTAssertFalse(tabs.tabBar.isDescendant(of: wrapper))
+        p.navigation.tint(nested)
+        XCTAssertEqual(rgb(tabs.tabBar.tintColor), rgb(nested.tintColor), "the colour the nested tablist resolves, not the bar's inherited tint")
+        XCTAssertNotEqual(rgb(tabs.tabBar.tintColor), rgb(.systemRed))
+        // An authored colour on the tablist is the bar's own.
+        p.apply(wireBatch([["op": "style", "id": Int(list.id), "style": ["accent_color": [0x38, 0x38, 0xf5, 255], "written": ["accent_color"]]]]))
+        XCTAssertEqual(rgb(tabs.tabBar.tintColor), [0x38, 0x38, 0xf5])
+    }
+
     func testAppearanceToggleCoversSettleWithoutRepeatedDelivery() throws {
         let session = try fixture("authored-tabs-settle")
         let p = session.presenter, view = try XCTUnwrap(session.view)

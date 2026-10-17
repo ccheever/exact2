@@ -15,6 +15,7 @@ pub(crate) mod alert;
 pub(crate) mod button;
 pub(crate) mod control_text;
 pub(crate) mod defaults;
+pub mod text_style;
 
 use taffy::NodeId;
 
@@ -80,6 +81,12 @@ pub struct NodeArena {
     /// its next commit applies what it says.
     pub(crate) display_scale: Option<f32>,
     pub(crate) display_scale_next: Option<f32>,
+    /// Bold Text is on (LLP 1115.000 D12.3): the person's setting, which the
+    /// host says and its next commit applies.
+    pub(crate) bold_text: bool,
+    pub(crate) bold_text_next: Option<bool>,
+    /// Which font stacks are the system's, by id, as the plan says.
+    pub(crate) system_stacks: Vec<bool>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
@@ -158,6 +165,9 @@ impl Clone for NodeArena {
             root_font_size_next: self.root_font_size_next,
             display_scale: self.display_scale,
             display_scale_next: self.display_scale_next,
+            bold_text: self.bold_text,
+            bold_text_next: self.bold_text_next,
+            system_stacks: self.system_stacks.clone(),
             contents: self.contents.clone(),
             insets: self.insets.clone(),
             nonzero_insets: self.nonzero_insets.clone(),
@@ -564,6 +574,8 @@ impl NodeArena {
                 self.copy_inherited(slot, rows, take)
             });
         paragraph.markup = self.markup(slot);
+        // Bold Text, as its runs are (LLP 1115.000 D12.3).
+        self.embolden(slot, &mut paragraph.strut);
         if scale != 1.0 {
             paragraph.strut = paragraph.strut.scaled(scale);
         }
@@ -616,7 +628,8 @@ impl NodeArena {
         let s = slot as usize;
         match self.node_types[s] {
             NodeType::TextInput => {
-                let style = rows.style();
+                let mut style = rows.style();
+                self.embolden(slot, &mut style);
                 // An input has a line box even when empty (the web's
                 // `<input>`): its value, else its placeholder, else one space.
                 let props = &self.props[s];
@@ -666,19 +679,15 @@ impl NodeArena {
                         ))
                     };
                     boundary.push(text);
-                    out.push(TextRun {
-                        text: shown,
-                        style: rows.style(),
-                    });
+                    let mut style = rows.style();
+                    // Bold Text (LLP 1115.000 D12.3), as `text_style` reads it.
+                    self.embolden(slot, &mut style);
+                    out.push(TextRun { text: shown, style });
                 } else {
                     for child in &self.children[s] {
                         if self.node_types[*child as usize] == NodeType::Text {
-                            self.text_runs_after(
-                                *child,
-                                rows.child(&self.styles[*child as usize]),
-                                out,
-                                boundary,
-                            );
+                            let rows = self.run_style_rows(*child, rows);
+                            self.text_runs_after(*child, rows, out, boundary);
                         }
                     }
                 }

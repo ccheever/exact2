@@ -174,8 +174,9 @@ const WAITING: u64 = u64::MAX - 1;
 struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
-    /// The socket operations the answer being made handed over (op 14),
-    /// by the prelude's ticket for each socket's stream (LLP 1016.000 D7).
+    /// The socket operations the answer or mapper call being made handed
+    /// over (op 14), by the prelude's ticket for each socket's stream (LLP
+    /// 1016.000 D7).
     socket_ops: Vec<(u64, exact_runner::SocketOp)>,
     /// Each open socket's buffered bytes at the start of this turn, by the
     /// prelude's ticket for its stream (op 15).
@@ -1216,6 +1217,7 @@ impl Module {
         self.progress += 1;
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        self.host.socket_ops.clear();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
         let result: Result<Step, DataError> = (|| {
@@ -1231,6 +1233,23 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
+        // The replies the mapper staged answering this frame (LLP 1016.000
+        // D7), staged on the store however the call ended: the runner sends
+        // them with this frame's commit, or journals them refused.
+        // A socket no resource owns (a mutation's stream) takes none.
+        let ops = std::mem::take(&mut self.host.socket_ops);
+        let staged = self.stage_sockets(store, ops);
+        if let Err(why) = &staged {
+            (self.logs).push(format!(
+                "mapper `{source}` failed: {why}; socket frames were refused"
+            ));
+        }
+        let result = match staged {
+            Err(why) if matches!(result, Ok(Step::Done(Ok(_)))) => Ok(Step::Done(Err(
+                DataError::Failed(FailureCode::Error, why, String::new()),
+            ))),
+            _ => result,
+        };
         if ended {
             self.streams.remove(at);
             self.forget_calls(vec![call]);
@@ -1285,5 +1304,53 @@ mod bootstrap_tests {
         assert!(error.contains("refusing to harden"), "{error}");
         assert!(error.contains("abort hooks global"), "{error}");
         assert!(error.contains("__exact_ibex2_abort_hooks"), "{error}");
+    }
+
+    #[test]
+    fn hardening_refuses_abort_hooks_a_proxy_get_trap_hides() {
+        let mut module = Module::new(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        );
+        let error = match module.load_engine_with_prelude(include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/prelude-with-hidden-abort-hook.hbc"
+        ))) {
+            Ok(_) => panic!("abort hooks behind a Proxy must refuse hardening"),
+            Err(error) => error,
+        };
+        assert!(error.contains("refusing to harden"), "{error}");
+        assert!(error.contains("still reachable"), "{error}");
+    }
+
+    // What the freeze leaves open after a bootstrap that hides a payload
+    // behind a Proxy's `get` trap, another behind a symbol it makes
+    // Reflect.ownKeys skip, and plants a property on Object.prototype
+    // (js/tests/fixtures/harden-probe.js).
+    #[test]
+    fn hardening_freezes_what_descriptors_reach() {
+        let mut module = Module::new(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        );
+        let mut engine = module
+            .load_engine_with_prelude(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/prelude-with-harden-probe.hbc"
+            )))
+            .expect("the probe prelude hardens");
+        let report: serde_json::Value =
+            serde_json::from_str(&engine.call("__exact_probe", ["", "", ""]).unwrap()).unwrap();
+        assert_eq!(report["open"], 0, "{report}");
+        assert!(report["objects"].as_u64().unwrap() > 800, "{report}");
+        assert_eq!(report["payload"], true, "{report}");
+        // Published under a symbol after bootstrap made Reflect.ownKeys list
+        // only names.
+        assert_eq!(report["symbolic"], true, "{report}");
+        // The week tables, built after hardening, take a name planted on the
+        // frozen Object.prototype.
+        assert_eq!(report["firstDay"], 7, "{report}");
     }
 }

@@ -301,11 +301,12 @@ export function driveNotes(s, { host, storage, origins = [] }) {
     if (op === 'clock') clocked = true;
     if (!(end || early || (host === 'web' && INPUTS.includes(op)))) return;
     try {
-      if (storage === undefined && !said.has('storage') && (end || INPUTS.includes(op)) && ++probes <= 20) {
+      // Said once a drive, and not here when an input's reply already said it (`landed`).
+      if (storage === undefined && !said.has('storage') && !s.storageSaid && (end || INPUTS.includes(op)) && ++probes <= 20) {
         const j = await bounded(s.op({ op: 'logs', since: peek }), 3000);
         if (Array.isArray(j?.lines)) {
           peek = j.next;
-          if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', 'a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
+          if (j.lines.some((l) => /storage refused \(agent\)/.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', 'a data source\'s write was refused: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
         }
       }
       const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);

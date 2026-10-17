@@ -200,6 +200,7 @@ export function render(op, r) {
   const q = JSON.stringify;
   switch (op) {
     case 'check': return r.text; // LLP 1116.003 D8 (agent-check.mjs)
+    case 'screenshot': return r?.compare ? r.text : q(r); // `compare`: the comparison with a reference (agent-compare.mjs)
     case 'tree': {
       const entities = Array.isArray(r.entities) ? r.entities : r.nodes?.some((n) => n.components) ? r.nodes : null;
       if (entities) return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · tick ${r.tick} · ${entities.length} entities`, ...entities.map((e) => `${'  '.repeat(e.depth ?? 0)}${e.name ?? ''}#${e.id} (${(e.components ?? []).join(', ')})${e.tags?.length ? ' ' + e.tags.join(' ') : ''}`), ...(r.truncated ? ['(truncated)'] : [])].join('\n');

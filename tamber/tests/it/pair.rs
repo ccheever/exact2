@@ -157,3 +157,17 @@ fn renaming_a_paired_background_renames_it_in_pair() {
         src
     );
 }
+
+/// Stage 6 C (D6): a type token in px is the author's choice not to scale
+/// with the person's text size: warned of, never refused; a text style or
+/// `rem` is not.
+#[test]
+fn a_type_token_in_px_is_warned_of() {
+    let folding = check(
+        "tamber t\n\ntheme\n  type.fixed = 14px/18px system-ui\n  type.body = -exact-body/1.35\n  type.rem = 1.25rem\n    \n",
+        &vocab(),
+    )
+    .unwrap();
+    let ids: Vec<(&str, u32)> = folding.warnings.iter().map(|w| (w.id, w.line)).collect();
+    assert_eq!(ids, [("tamber-type-fixed", 4)], "{:?}", folding.warnings);
+}

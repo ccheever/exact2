@@ -18,14 +18,16 @@
 //!   says, per such row, the text's index or that it read none.
 //!
 //! The rows are the template kernel's, projected twice: once as the plan
-//! says, and once with each varying token bound to a sentinel colour no row
-//! of the first projection writes, which is then each token's `var()`.
+//! says, and once with each varying token bound to a sentinel no row of the
+//! first projection writes (a colour, a length or a number, by its kind:
+//! `measures.rs`), which is then each token's `var()`.
 //!
 //! A development build (`--dev-reload`, LLP 1121 stage 4) makes every token
 //! that overrides no role a property, varying or not, so the live table can
 //! set any of them in place ([`every`], [`design`]); a release build folds
 //! the others inline, as before, byte for byte.
 
+use exact_kernel::style::theme::Kind;
 use exact_kernel::StyleId;
 use exact_plan::{BindingKind, Plan};
 use exact_runner::bridge;
@@ -87,9 +89,15 @@ pub fn active(plan: &Plan) -> bool {
 pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     use exact_kernel::style::roles;
     let mut out: Vec<(String, String)> = Vec::new();
+    // A number token a font weight names stays inline (`measures`).
+    let inline = crate::measures::inline_tokens(plan);
     for (i, row) in plan.theme.iter().enumerate() {
         let role = roles::role(plan.str(row.role));
-        if row.slices.len == 0 && !every_token() || role.is_some_and(roles::tint) {
+        if crate::measures::kind(row).is_none()
+            || row.slices.len == 0 && !every_token()
+            || role.is_some_and(roles::tint)
+            || inline.iter().any(|(n, _)| n == plan.str(row.name))
+        {
             continue;
         }
         let name = plan.str(row.name);
@@ -123,8 +131,12 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
 
 /// A plan's modes as the build writes them.
 pub struct Modes {
-    /// Each varying token: its name, its property and its sentinel's CSS.
-    tokens: Vec<(String, String, [String; 2])>,
+    /// Each varying token: its name, its property and its sentinel's texts
+    /// (the value first, then the CSS it writes).
+    tokens: Vec<(String, String, Vec<String>)>,
+    /// Each varying token's kind, as [`Modes::project`] found it: a shadow's
+    /// sentinel marks the whole declaration it writes.
+    kinds: Vec<Kind>,
     /// The varying tokens whose value names the accent in some tuple, by
     /// property: an element with its own `accent-color` declares them again.
     accent: Vec<String>,
@@ -144,6 +156,7 @@ impl Modes {
             .collect();
         let mut modes = Modes {
             tokens,
+            kinds: Vec::new(),
             accent: Vec::new(),
             texts: Vec::new(),
         };
@@ -160,24 +173,46 @@ impl Modes {
         sites: &crate::emit::Sites,
         warnings: &mut Vec<String>,
     ) -> Result<Vec<Option<Parts>>, String> {
+        crate::measures::refuse_inline(plan)?;
         let mut parts = crate::style::project(plan, sites, warnings)?;
         if !self.tokens.is_empty() {
             let plain = written(&parts);
-            // A red byte whose sentinels the plain projection never writes.
-            let red = (0..=0xffu32)
-                .map(|k| (0xe1 + k) & 0xff)
-                .find(|r| {
-                    (0..self.tokens.len()).all(|i| {
-                        sentinel(*r, i)
-                            .iter()
-                            .all(|form| !plain.contains(form.as_str()))
+            let kinds: Vec<Kind> = self
+                .tokens
+                .iter()
+                .map(|(name, ..)| {
+                    plan.theme
+                        .iter()
+                        .find(|r| plan.str(r.name) == name)
+                        .and_then(crate::measures::kind)
+                        .unwrap_or(Kind::Color)
+                })
+                .collect();
+            let forms = |k: u32, i: usize| match kinds[i] {
+                Kind::Color => sentinel((0xe1 + k) & 0xff, i).to_vec(),
+                kind => crate::measures::sentinel(kind, k, i),
+            };
+            // An offset whose sentinels the plain projection never writes,
+            // and none of which writes another's.
+            let k = (0..=0xffu32)
+                .find(|k| {
+                    let all: Vec<Vec<String>> =
+                        (0..self.tokens.len()).map(|i| forms(*k, i)).collect();
+                    all.iter().enumerate().all(|(i, f)| {
+                        f.iter().all(|form| {
+                            !plain.contains(form.as_str())
+                                && all.iter().enumerate().all(|(j, g)| {
+                                    i == j || g.iter().all(|other| !other.contains(form.as_str()))
+                                })
+                        })
                     })
                 })
-                .ok_or("no sentinel colour is free of the app's own colours")?;
-            for (i, (name, _, forms)) in self.tokens.iter_mut().enumerate() {
-                *forms = sentinel(red, i);
-                bridge::edit_token(plan, name, &forms[0], &[]);
+                .ok_or("no sentinel is free of the app's own values")?;
+            for (i, (name, _, f)) in self.tokens.iter_mut().enumerate() {
+                *f = forms(k, i);
+                bridge::edit_token(plan, name, &f[0], &[]);
             }
+            self.kinds = kinds;
             let projected = crate::style::project(plan, sites, &mut Vec::new());
             // The plan's own tokens again (an edit is the runner's, D13).
             let _ = bridge::role_overrides(plan);
@@ -201,7 +236,24 @@ impl Modes {
     /// `text` with each sentinel its token's `var()`.
     fn substitute(&self, text: &str) -> String {
         let mut out = text.to_string();
-        for (_, prop, forms) in &self.tokens {
+        for (i, (_, prop, forms)) in self.tokens.iter().enumerate() {
+            // A shadow's: each declaration whose value holds its marker.
+            if matches!(self.kinds.get(i), Some(Kind::BoxShadow | Kind::TextShadow)) {
+                let marker = forms[1].as_str();
+                let mut next = String::new();
+                for (name, value) in declarations(&out) {
+                    let value = if value.contains(marker) {
+                        format!("var({prop})")
+                    } else {
+                        value.to_string()
+                    };
+                    let _ = write!(next, "{name}:{value};");
+                }
+                if out.contains(marker) {
+                    out = next;
+                }
+                continue;
+            }
             for form in forms {
                 if out.contains(form.as_str()) {
                     out = out.replace(form.as_str(), &format!("var({prop})"));
@@ -415,11 +467,10 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
             format!("{selector}{{")
         });
         for (name, prop) in props {
-            let Some((_, value, _)) = table.iter().find(|(n, _, role)| **n == **name && !role)
-            else {
+            let Some(entry) = table.iter().find(|e| *e.name == **name && !e.role) else {
                 continue;
             };
-            let text = css_of(value);
+            let text = css_of(entry);
             if text.contains("--exact-accent") && !accent.contains(prop) {
                 accent.push(prop.clone());
             }
@@ -439,8 +490,13 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
     (css, accent)
 }
 
-/// A token's colour text as the page's rules declare it.
-fn css_of(value: &str) -> String {
+/// A token's text as the page's rules declare it: a colour's CSS, a length's
+/// or number's (`measures::css`).
+fn css_of(entry: &exact_kernel::style::theme::Entry) -> String {
+    if entry.kind != Kind::Color {
+        return crate::measures::css(entry.kind, &entry.value);
+    }
+    let value = &*entry.value;
     let colour = exact_kernel::ColorValue::parse_light_dark(value)
         .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed));
     let mut text = String::new();
@@ -465,6 +521,7 @@ pub fn design(plan: &Plan) -> serde_json::Value {
     );
     let tokens = design::tokens(plan);
     let props = properties(plan);
+    let inline = crate::measures::inline_tokens(plan);
     let tables: Vec<_> = (0..bridge::tuples(plan))
         .map(|tuple| bridge::theme_table_at(plan, tuple))
         .collect();
@@ -478,8 +535,8 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                     .map(|table| {
                         table
                             .iter()
-                            .find(|(n, _, role)| **n == *t.name && !role)
-                            .map_or_else(|| "transparent".to_string(), |(_, v, _)| css_of(v))
+                            .find(|e| *e.name == *t.name && !e.role)
+                            .map_or_else(|| "transparent".to_string(), css_of)
                     })
                     .collect();
                 // Which tuples name the accent: the build writes a companion
@@ -489,13 +546,25 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                 row["prop"] = prop.clone().into();
                 row["css"] = css.into();
                 row["accent"] = accent.into();
+            } else if let Some((_, writer)) = inline.iter().find(|(n, _)| *n == t.name) {
+                // Written inline: a change builds (`measures`), and what
+                // writes it says why (a scrub's refusal names it).
+                row["inline"] = true.into();
+                row["writer"] = writer.clone().into();
             } else if let Some(prop) = tint_property(plan, &t.name) {
                 // The tint's override: its property in the theme's own
                 // `:root` rule (`root`), which rows read as the role and an
                 // authored `accent-color` redeclares below (LLP 1121 stage
                 // 5); a tuple's rule would mask an authored one above it.
                 row["prop"] = prop.into();
-                row["css"] = vec![css_of(&t.value)].into();
+                row["css"] = vec![css_of(&exact_kernel::style::theme::Entry {
+                    name: t.name.as_str().into(),
+                    value: t.value.as_str().into(),
+                    role: false,
+                    kind: Kind::Color,
+                    varies: false,
+                })]
+                .into();
                 row["root"] = true.into();
             }
             row

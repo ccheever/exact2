@@ -50,6 +50,7 @@ test('a stale selection asks its build again once per status, its status first; 
   const report = body => tamber.channel.report(JSON.stringify({ nonce, ...body }));
   report({ kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'], plan: 'g1', design: 'd1' });
   report({ kind: 'status', scheme: 'light', revision: 0 });
+  tamber.channel.inspect('tool', null, { on: true });
   const selected = { node: 2, site: 0, instance: [], planDigest: 'p1', tuple: {}, rows: [{ name: 'background_color', value: '#fff', source: 'authored', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }] };
   const asks = () => frames.filter(f => f.kind === 'inspect' && f.refresh).length;
   // Stale twice under one status: asked again once, status first.
@@ -64,6 +65,10 @@ test('a stale selection asks its build again once per status, its status first; 
   // Current: joined, the token rung offered, every copy outlined.
   expect(report({ kind: 'selected', selected, plan: 'g1', design: 'd2', revision: 0 }).status).toBe(204);
   expect(frames.at(-1)).toEqual({ kind: 'outline', sites: [0], plan: 'p1' });
+  // A click's selection: the outline answering it names its token.
+  expect(report({ kind: 'selected', selected, click: '7-123', plan: 'g1', design: 'd2', revision: 0 }).status).toBe(204);
+  expect(frames.at(-1)).toEqual({ kind: 'outline', sites: [0], plan: 'p1', click: '7-123' });
+  expect(report({ kind: 'selected', selected, click: '', plan: 'g1', design: 'd2', revision: 0 }).status).toBe(400);
   await tamber.close();
 });
 
@@ -131,6 +136,60 @@ test('hello says live, and a slow write is answered, not timed out', async () =>
   expect(write.status).toBe(200);
   expect((await post({ method: 'describe' })).status).toBe(504);
   tamber.close();
+});
+
+// LLP 1122 T2c: a map per plan digest. Each build is joined and outlined
+// from its own plan's map; a build on a plan with no map here is sent none.
+test('each build is joined and outlined from its own plan\'s map', async () => {
+  const port = 8806, P1 = '1'.repeat(64), P2 = '2'.repeat(64), P3 = '3'.repeat(64);
+  const mapOf = (digest, line) => ({ digest, sources: [{ file: 'exact:app', sha256: 'x' }], nodes: [{ file: 'exact:app', line, col: 5, end_col: 9, component: 'App', chain: [], bindings: [{ row: 'background_color', origin: 'own' }] }, { file: 'exact:app', line: line + 100, col: 1, end_col: 2, component: 'App', chain: [], bindings: [] }] });
+  const maps = { [P1]: mapOf(P1, 3), [P2]: mapOf(P2, 9) };
+  // The same source span at another site of P1: the same sources, another plan.
+  maps[P1].nodes.push({ file: 'exact:app', line: 109, col: 1, end_col: 2, component: 'App', chain: [], bindings: [] });
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, sourceMap: digest => { const m = digest ? maps[digest] : maps[P1]; return m ? Buffer.from(JSON.stringify(m)) : null; } });
+  const headers = { host: `127.0.0.1:${port}`, 'x-exact-tamber-token': tamber.token };
+  const post = body => ask(tamber, gate, { path: '/__tamber', method: 'POST', headers, body: JSON.stringify(body) });
+  const open = (id, planDigest) => { const frames = []; const s = tamber.channel.open(f => frames.push(f)); tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'register', id, host: 'ios', capabilities: ['pin', 'inspect'], plan: 'g', planDigest })); tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest })); return { frames, nonce: s.nonce }; };
+  const a = open('web-1', P1), b = open('ios-1', P2), c = open('mac-1', P3);
+  expect((await post({ method: 'hello' })).body.ok.builds.map(x => [x.id, x.planDigest])).toEqual([['web-1', P1], ['ios-1', P2], ['mac-1', P3]]);
+  await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ wait: false, client: 'tool' }) });
+  tamber.channel.inspect('tool', null, { on: true });
+  // A selection on ios-1 joins with P2's map, and is outlined on every
+  // build from its own plan's map: P1 has that span at site 2.
+  const selected = { node: 2, site: 1, instance: [], planDigest: P2, tuple: {}, rows: [] };
+  expect(tamber.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'selected', selected, inspect: b.frames.filter(f => f.kind === 'inspect').at(-1).seq, plan: 'g', revision: 0 })).status).toBe(204);
+  expect(b.frames.at(-1)).toEqual({ kind: 'outline', sites: [1], plan: P2 });
+  expect(a.frames.at(-1)).toEqual({ kind: 'outline', sites: [2], plan: P1 });
+  expect(c.frames.some(f => f.kind === 'outline')).toBe(false);
+  expect((await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events.find(e => e.event === 'selection').source.line).toBe(109);
+  // The tool outlines line 109: each build its own plan's sites; mac-1's
+  // plan has no map here, so it is sent nothing.
+  const outlined = (await post({ method: 'outline', client: 'tool', at: [{ file: 'exact:app', line: 109, col: 1 }] })).body.ok;
+  expect(outlined.builds).toEqual(['web-1', 'ios-1']);
+  expect(a.frames.at(-1)).toEqual({ kind: 'outline', sites: [2], plan: P1 });
+  expect(b.frames.at(-1)).toEqual({ kind: 'outline', sites: [1], plan: P2 });
+  expect(c.frames.some(f => f.kind === 'outline')).toBe(false);
+  // The running generation without a map: builds with their own still outline.
+  const running = maps[P1];
+  delete maps[P1];
+  expect((await post({ method: 'outline', client: 'tool', at: [{ file: 'exact:app', line: 109, col: 1 }] })).body.ok.builds).toEqual(['ios-1']);
+  // web-1, which this client outlined, loses that outline rather than keeping it.
+  expect(a.frames.at(-1)).toEqual({ kind: 'outline', clear: true });
+  maps[P1] = running;
+  // A map that moved under the same plan digest (an edit of locations only): the new one is used.
+  maps[P2] = mapOf(P2, 9);
+  maps[P2].nodes[1].line = 120;
+  await post({ method: 'outline', client: 'tool', at: [{ file: 'exact:app', line: 120, col: 1 }] });
+  expect(b.frames.at(-1)).toEqual({ kind: 'outline', sites: [1], plan: P2 });
+  // A selection from another plan than the build says it runs now: not current, asked again.
+  expect(tamber.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'selected', selected: { ...selected, planDigest: P1 }, inspect: b.frames.filter(f => f.kind === 'inspect').at(-1).seq, plan: 'g', revision: 0 })).status).toBe(409);
+  // A selection that names no plan joins with no map: read-only.
+  expect(tamber.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'selected', selected: { ...selected, planDigest: null }, inspect: b.frames.filter(f => f.kind === 'inspect').at(-1).seq, plan: 'g', revision: 0 })).status).toBe(204);
+  const last = (await ask(tamber, gate, { path: '/__tamber/events', method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).body.events.filter(e => e.event === 'selection').at(-1);
+  expect(last.source).toBe(null);
+  expect(typeof last.readOnly).toBe('string');
+  await tamber.close();
 });
 
 // LLP 1122 D4: the dev loop's builds in `hello`, and a pin a client may
@@ -451,6 +510,8 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
     // test finds there is selected and reported.
     const swap = page.locator('[data-testid="swap"]');
     const at = await swap.boundingBox();
+    // (Counting the page's scrolls into view from here.)
+    await page.evaluate(() => { globalThis.__scrolls = 0; const was = Element.prototype.scrollIntoView; Element.prototype.scrollIntoView = function (...a) { globalThis.__scrolls += 1; return was.apply(this, a); }; });
     await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
     const selected = await until(() => events.find(e => e.event === 'selected'));
     expect(await dim()).toBe(before);
@@ -475,6 +536,9 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
     const color = selection.rows.find(r => r.name === 'text_color');
     expect(color).toMatchObject({ source: 'inherited', editable: { rung: null, link: 'text.primary' } });
     await until(async () => (await page.locator('[data-exact-outline]').count()) >= 1);
+    // The outline of the copy just clicked scrolls nothing (it is under the
+    // pointer); the tool's Outline below brings its first copy in.
+    expect(await page.evaluate(() => globalThis.__scrolls)).toBe(0);
     // Selecting from the tool: a token's uses outline their views (the
     // card's surface, each row reading surface.card).
     const uses = (await post({ method: 'uses', token: 'surface.card' })).ok;
@@ -493,6 +557,7 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
       };
     }, outlined.sites);
     await until(async () => { const b = await boxes(); return b.views.length > 0 && JSON.stringify(b.marks) === JSON.stringify(b.views); });
+    expect(await page.evaluate(() => globalThis.__scrolls)).toBe(1);
     // An outline of nothing clears them.
     await post({ method: 'outline', client: 'tool', at: [] });
     await until(async () => (await page.locator('[data-exact-outline]').count()) === 0);
@@ -558,7 +623,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.4');
+      expect(hello.protocol).toBe('tamber/1.9');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.

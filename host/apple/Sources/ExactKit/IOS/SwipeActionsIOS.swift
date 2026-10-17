@@ -101,7 +101,6 @@ package final class SwipeActionsHost {
     /// with a row, outside it and none of whose names changed carriers,
     /// keeps its row as it was; nil revisits every owner.
     func sync(changed: Set<UInt32>? = nil) {
-        let named = presenter.chrome.named
         let renamed = presenter.takeChangedNames()
         var wanted = Set<UInt32>(), paintedOwners = Set<UInt32>()
         var claimed = Set<UInt32>()
@@ -121,9 +120,18 @@ package final class SwipeActionsHost {
             let leadingNames = (owner.props["swipeLeading"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
             let trailingNames = (owner.props["swipeTrailing"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
             let names = leadingNames + trailingNames
+            // A name resolves within its row, as an `id` repeated by a `for`
+            // (and `delete=`'s expansion) names one element in each row.
             func resolve(_ name: String) -> NodeView? {
-                guard let matches = named[name], matches.count == 1, let node = presenter.views[matches.first!] else { return nil }
-                return node !== owner && node.isDescendant(of: owner) ? node : nil
+                var found: [NodeView] = []
+                func visit(_ view: UIView) {
+                    for child in view.subviews {
+                        if let node = child as? NodeView, node.props["id"] == name { found.append(node) }
+                        visit(child)
+                    }
+                }
+                visit(owner)
+                return found.count == 1 ? found[0] : nil
             }
             let controls = names.compactMap(resolve)
             let body = resolve(content)
@@ -610,6 +618,15 @@ package final class SwipeActionsHost {
                     image.accessibilityLabel = host.label(target)
                     images[target.id] = image; action.image = image
                     action.title = shownTitle(target)
+                    return action
+                }
+                // A word its author left unstyled (no font or colour written
+                // on it or its button), as `delete=`'s Delete (LLP 1116.020
+                // D1): UIKit's title, in UIKit's font, not a picture of the word.
+                let faces = target.container.subviews.compactMap { $0 as? NodeView }
+                if let word = faces.first, faces.count == 1, word.isParagraph, let title = target.face?.title, !title.isEmpty,
+                   ![word, target].contains(where: { node in ["font_size", "font_weight", "font_family", "text_color"].contains(where: node.wrote) }) {
+                    action.title = title
                     return action
                 }
                 if let glyph = target.container.subviews.first as? NodeView, !glyph.bounds.isEmpty {

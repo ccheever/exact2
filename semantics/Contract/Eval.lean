@@ -97,6 +97,10 @@ def formatting (f : String) (args : List Value) : Result Value :=
   | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
   | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
   | "formatDate", [.num e, .num o, .str "iso"] => .ok (.str (Format.formatIsoDate e o))
+  -- LLP 1116.020 D8: a day's label, relative to the `now` the app passes.
+  | "formatDay", [.num t, .num n, .num o, .str "day"] => .ok (.str (Format.formatDay t n o "day"))
+  | "formatDay", [.num t, .num n, .num o, .str "day-time"] => .ok (.str (Format.formatDay t n o "day-time"))
+  | "formatDay", [.num t, .num n, .num o, .str "list"] => .ok (.str (Format.formatDay t n o "list"))
   | "formatNumber", [.num n, .str "compact", _] => .ok (.str (Format.compact n))
   -- LLP 1116 D8: `decimal`, `percent`, and `currency` with its code.
   | "formatNumber", [.num n, .str style, .str code] =>
@@ -220,6 +224,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   -- Formatting and localized text (`Contract.Format`).
   | "formatTime", vs => formatting "formatTime" vs
   | "formatDate", vs => formatting "formatDate" vs
+  | "formatDay", vs => formatting "formatDay" vs
   | "formatNumber", vs => formatting "formatNumber" vs
   | "t", vs => text env.prog.strings vs
   -- LLP 1102 §3.2: `round` is JavaScript's `Math.round`, a half up.

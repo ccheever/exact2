@@ -1,9 +1,10 @@
 // Builds and bakes (scripts/app.mjs `buildBake`, `bakeTarget`): artifacts and their evidence, receipts, GPU modules and shader
 // packs, the build environment and what makes a build stale.
 import { test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
@@ -474,3 +475,30 @@ test('rewriting an input with its own bytes does not make a web build stale', as
     assert.deepEqual(webChanges(dist, app).app, [source]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
+
+// LLP 1012.001.000 D1: a drive's check compares every receipt input's bytes with its digest, so a file replaced with
+// other bytes of the same length, its mtime put back (`cp -p`, `rsync -a`), is still found.
+test('a receipt input is found changed by its bytes, whatever its size and mtime', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-pending-'));
+  try {
+    const path = resolve(dir, 'a.swift');
+    writeFileSync(path, 'let a = 1\n');
+    const at = statSync(path), build = { binary: { inputs: [{ name: 'a.swift', path, sha256: createHash('sha256').update('let a = 1\n').digest('hex') }], missing: [], directories: [] } };
+    assert.deepEqual(pendingBuildInputs(build), []);
+    writeFileSync(path, 'let b = 2\n');
+    utimesSync(path, at.atime, at.mtime);
+    assert.deepEqual(pendingBuildInputs(build), ['a.swift']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A claim's holder (the Apple build's, the touch runner's device lock) is live unless shown dead: gone, or a pid
+// started after the claim; a claim that does not parse, or whose holder `ps` cannot date, is live (round-2 review).
+test('a claim is live unless its holder is shown gone or reused', async () => {
+  const { claimLive } = await import('./app.mjs');
+  const claim = (pid, started) => JSON.stringify({ pid, started });
+  assert.equal(claimLive(claim(process.pid, new Date().toISOString())), true, 'this process, claimed now');
+  assert.equal(claimLive(claim(process.pid, '2000-01-01T00:00:00Z')), false, 'a pid started after its claim is reused');
+  assert.equal(claimLive(claim(2 ** 22 + 12345, new Date().toISOString())), false, 'no such process');
+  assert.equal(claimLive('not json'), true, 'unreadable: never guess');
+  assert.equal(claimLive(claim(process.pid, 'not a date')), true, 'an undated claim of a running pid');
+});

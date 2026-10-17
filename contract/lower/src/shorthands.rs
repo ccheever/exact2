@@ -29,7 +29,9 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         "column-rule" => &[ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor],
         "column-count" => &[ColumnCount],
         "column-rule-width" => &[ColumnRuleWidth],
-        "font" => &[FontStyle, FontWeight, FontSize, LineHeight],
+        // LLP 1115.000 D12.2: only what it writes; the style's weight and
+        // leading are the kernel's, per platform (`fontShorthand`).
+        "font" => &[FontStyle, FontSize],
         // CSS Inline Layout 3 §4: one row holds both edges (`cap-alphabetic`
         // for CSS's `cap alphabetic`); `text-box` is trim, then edge.
         "text-box-edge" => &[TextBoxEdge],
@@ -282,11 +284,13 @@ fn columns_longhand(name: &str, text: &str, span: Span) -> Result<Expr, LowerErr
     }
 }
 
-/// `font`: a platform text style only (LLP 1115 D3), as WebKit's system
-/// font keywords set every longhand: `normal` style and line height, the
-/// style's weight and its size, which the kernel reads from the platform's
-/// ramp at the root font size. The family stays what it was.
-fn font(text: &str, span: Span) -> Result<[Expr; 4], LowerError> {
+/// `font`: a platform text style only (LLP 1115 D3): a `normal` style and
+/// the style's size, which the kernel reads from the platform's ramp at the
+/// root font size. Its weight and leading are the style's on each platform
+/// (LLP 1115.000 D12.2): the node is marked `fontShorthand`, so the kernel
+/// gives them as the shorthand resets them, beating an inherited value. The
+/// family stays what it was.
+fn font(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
     use exact_kernel::{style::relative::text_style, TEXT_STYLES};
     let Some(id) = text_style(text) else {
         let names: Vec<String> = TEXT_STYLES
@@ -302,9 +306,7 @@ fn font(text: &str, span: Span) -> Result<[Expr; 4], LowerError> {
     let style = &TEXT_STYLES[usize::from(id)];
     Ok([
         Expr::Str("normal".into(), span),
-        Expr::Number(f64::from(style.weight), span),
         Expr::Str(format!("-exact-{}", style.name), span),
-        Expr::Str("normal".into(), span),
     ])
 }
 
@@ -424,12 +426,24 @@ impl Lowerer<'_> {
         font: &[FontUse],
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<(), LowerError> {
+        // Type tokens write only their longhands (stage 6 C).
+        if a.name == "font" && self.type_font(a, scope, locals, font, bindings)? {
+            return Ok(());
+        }
         for (index, row) in rows(&a.name).iter().copied().enumerate() {
             let value = component(&a.value, &a.name, index)?;
             let component = Attr { value, ..a.clone() };
             let (code, ty) = self.typed_code(&component.value, scope, locals)?;
             values::check_style_value(&component, &[row], &ty, font, scope, &self.types.shapes)?;
             bindings.push(crate::style_row(row, code, a.written));
+        }
+        if a.name == "font" {
+            let marked = self.b.constant(&Value::Bool(true));
+            bindings.push(crate::prop_row(
+                exact_kernel::PropId::FontShorthand,
+                marked,
+                crate::IMPLIED,
+            ));
         }
         Ok(())
     }

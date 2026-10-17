@@ -40,7 +40,7 @@
      the accent under the ink that reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the
      button's accent, so an outline or a grey button takes red ink. */
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
-  #exact-root button[data-button-style]:has(> img:only-child) { padding-inline: .5em; }
+  #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
   @media (pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
   /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
      wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
@@ -215,6 +215,10 @@
      the shell's heading reset (`margin: 0`) and wins by coming after it. */
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
+  /* LLP 1116.020 D2: a sheet's button whose face is only a symbol says its name instead, padded as a word is (above):
+     iOS draws a Cancel's xmark and a Save's checkmark, and a web dialog's buttons are words. */
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img { display: none; }
+  :where(#exact-root [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))::after { content: attr(aria-label); }
 
   /* A dialog is a modal surface. An alert reads as a page does, its title and message at the start. Its actions share
      the row equally in the order written, a title too long for its share taking a row of its own, and a destructive

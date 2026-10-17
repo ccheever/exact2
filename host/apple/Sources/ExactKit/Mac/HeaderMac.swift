@@ -92,6 +92,8 @@ struct WindowHeader {
             for child in children(node) where child.style["display"]?.string != "none" {
                 if child === rule.heading { continue }
                 if child === rule.tap { return "its heading is inside a pressable (#\(child.id)), and a window's title is not pressed" }
+                // LLP 1075.003 §9.15: iOS's custom-view item; the toolbar makes none.
+                if rule.readouts.contains(where: { $0 === child }) { return "it holds a readout (#\(child.id), `role=\"status\"`), which the toolbar has no item for" }
                 if child === rule.search {
                     // A search input the author draws is theirs to draw: the bar's field is AppKit's.
                     if !child.lendsFieldToBar { return "its search field (#\(child.id)) is drawn by the app (`appearance: none`), and a toolbar's is AppKit's own" }

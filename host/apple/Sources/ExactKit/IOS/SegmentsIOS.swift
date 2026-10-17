@@ -188,10 +188,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         tab.props[tab.props["accessibilityRole"] == "radio" ? "accessibilityChecked" : "accessibilitySelected"] == "true"
     }
 
+    /// Whether the owner takes input. `visibility` is read on the owner
+    /// alone: its value is computed, and a box under a hidden one may set it
+    /// back to `visible`.
     private func available(_ owner: UIView) -> Bool {
+        if (owner as? NodeView)?.cssVisibilityHidden == true { return false }
         var ancestor: UIView? = owner
         while let view = ancestor {
-            if view.isHidden || view.alpha <= 0.01 || (view as? NodeView)?.props["inert"] == "true" { return false }
+            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return false }
             ancestor = presenter.eventParent(of: view)
         }
         return owner.window != nil

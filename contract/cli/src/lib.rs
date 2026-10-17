@@ -42,7 +42,7 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{design_path, with_design_text, Package, Source, SourceGraph};
+pub use sources::{code_beside, design_path, with_design_text, Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a
@@ -588,7 +588,7 @@ fn compile_path_all_warned_with(path: &Path, mapped: bool, surfaces: bool) -> Wa
     (result, warned)
 }
 
-fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
+pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -859,6 +859,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     let runner = first_frame(&plan, data, true)?;
     let mut b = PlanBuilder::from_plan(plan);
     let pending: Vec<String> = runner.pending().into_iter().map(|(n, _)| n).collect();
+    let dated = runner.resources_reading_clock();
     for i in 0..runner.plan().resources.len() {
         let name = runner
             .plan()
@@ -881,9 +882,13 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         // without a ticket (a source not ready).
         // @ref LLP 1069.005 D2 — nor is an answer that drew randomness: its
         // value would be one draw every install shares.
+        // @ref LLP 1027.000.000 D2 — nor is an answer asked at the bake's
+        // date, which is unknown (zero): a launch would show it as the
+        // device's, as a fresh install's "edited 20743d ago".
         if pending.contains(&name)
             || runner.resource_is_placeholder(&name)
             || runner.resource_draws_entropy(&name)
+            || dated.get(i) == Some(&true)
         {
             continue;
         }

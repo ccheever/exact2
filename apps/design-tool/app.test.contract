@@ -785,7 +785,9 @@ test "the inspector: inspect mode on the builds, a selection's source and rows, 
   tap "inspect-toggle"
   clock data
   expect text "inspect-result" == "Inspecting on 1 build(s): click a view in one. ios-1 cannot inspect."
-  // Its own command moves the toggle, no event needed.
+  // The toggle follows the server's event for its own command.
+  clock +1
+  clock data
   expect text "inspect-toggle" == "Stop inspecting"
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
   clock +1
@@ -815,7 +817,7 @@ test "the inspector: inspect mode on the builds, a selection's source and rows, 
   expect text "impact-outlined" == "Sent surface.card's 2 site(s) to web-1; a build in inspect mode on that plan outlines them."
   // The page leaves inspect mode itself: the selection is no longer
   // current (no edit offered), and the tool no longer inspects.
-  request POST "/__stub/event" {"event": "selected", "build": "web-1", "selected": null} as ada
+  request POST "/__stub/event" {"events": [{"event": "inspect", "client": "design-tool:Ada", "on": false, "builds": ["web-1"]}, {"event": "selected", "build": "web-1", "selected": null}]} as ada
   clock +1
   clock data
   expect text "selection-stale" == "No longer current: its page left inspect mode. Select it again to edit from here."
@@ -928,4 +930,52 @@ test "a cell the inspector opens after the design's axes were reordered is refus
   expect state file == ""
   expect text "branch-moved" == "The design's axes changed since that copy was selected, so this column is another branch now: select it again."
   expect tree missing "branch"
+  request POST "/__stub/restart" {} as ada
+
+test "the inspect toggle follows the server's inspect events: another client taking the build over, and this client's lapse"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Stop inspecting"
+  // Another client takes the build: this one no longer inspects there.
+  request POST "/__stub/event" {"events": [{"event": "inspect", "client": "design-tool:Ada", "on": false, "builds": ["web-1"], "to": "agent"}, {"event": "inspect", "client": "agent", "on": true, "builds": ["web-1"]}, {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "inspector": "agent", "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}]} as ada
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Inspect"
+  // On again, then its presence lapses at the server: off, said by the event.
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Stop inspecting"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "black", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  request POST "/__stub/event" {"events": [{"event": "inspect", "client": "design-tool:Ada", "on": false, "builds": ["web-1"], "to": null}, {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "inspector": null, "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}]} as ada
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Inspect"
+  expect text "selection-stale" == "No longer current: inspect mode was turned off there. Select it again to edit from here."
+  expect tree missing "selrow-edit-background-color"
+  // Another name is another client: this one inspects nothing yet.
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Stop inspecting"
+  tap "person"
+  type "name" "Grace"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Inspect"
   request POST "/__stub/restart" {} as ada

@@ -368,8 +368,11 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             }
         );
     }
-    // The reserved sources facts.js answers, their declared fields filled by name.
+    // The reserved sources facts.js, midi.js and transport.js answer, their declared fields filled by name:
+    // installed before any resource, since the boot's settlement asks them (the runner answers them itself).
     let facts = crate::facts::reserved(plan, &mut body)?;
+    let midi = timers::midi(&mut em, &mut body)?;
+    let transport = timers::transport(&mut em, &mut body)?;
     for (i, r) in plan.resources.iter().enumerate() {
         let mut args = Vec::new();
         for a in r.args.iter() {
@@ -617,8 +620,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let _ = write!(body, "{queues}($state);");
     }
     timers::timers(&mut em, &mut body)?;
-    let midi = timers::midi(&mut em, &mut body)?;
-    let transport = timers::sequences(&mut em, &mut body)?;
+    timers::sequences(&mut em, &mut body)?;
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
         let widget = p.props.get("interactiveWidget");

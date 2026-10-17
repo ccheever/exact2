@@ -19,9 +19,44 @@
 //   plan at the selection's source location (`outline {sites}`), every copy
 //   of the node.
 import { createHash } from 'node:crypto';
+import { request } from 'node:http';
 import { readFileSync, realpathSync } from 'node:fs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
+/** The source map a resident dev loop said it made (LLP 1122 T2c): its
+ * parent read `card` (`{plan, sha256, bytes, url}`) from the pipe it gave
+ * the child for that alone, and fetches the bytes from the child's loopback
+ * `port`, naming the `host` the child's gate answers. Only the child's map
+ * path, no redirect; kept only when the bytes are the card's and the map's
+ * own digest is the plan's. `{digest, bytes}`, or null. */
+export function pullMap(port, card, host) {
+  if (!card || !/^[0-9a-f]{64}$/.test(card.plan ?? '') || !/^[0-9a-f]{64}$/.test(card.sha256 ?? '') || !Number.isSafeInteger(card.bytes) || card.url !== `/__dev/map/${card.sha256}`) return Promise.resolve(null);
+  return new Promise((done) => {
+    const req = request({ host: '127.0.0.1', port, path: card.url, headers: { host } }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); done(null); return; }
+      const parts = [];
+      let size = 0;
+      res.on('data', (d) => { size += d.length; if (size > card.bytes) { req.destroy(); done(null); } else parts.push(d); });
+      res.on('end', () => {
+        const bytes = Buffer.concat(parts);
+        try {
+          done(bytes.length === card.bytes && createHash('sha256').update(bytes).digest('hex') === card.sha256 && JSON.parse(bytes.toString('utf8')).digest === card.plan ? { digest: card.plan, bytes } : null);
+        } catch { done(null); }
+      });
+    });
+    req.on('error', () => done(null));
+    req.end();
+  });
+}
+
+/** A card line from a resident loop's map pipe (`{plan, map}`), or null. */
+export const mapCard = (line) => {
+  try {
+    const c = JSON.parse(line);
+    return /^[0-9a-f]{64}$/.test(c?.plan ?? '') && (c.map === null || (typeof c.map === 'object' && typeof c.map.sha256 === 'string')) ? { plan: c.plan, map: c.map } : null;
+  } catch { return null; }
+};
 
 /** The map `bytes` hold, when its digest is `digest`; else null. */
 export function mapFor(bytes, digest) {
@@ -123,8 +158,10 @@ export function sitesAt(map, source) {
 /** Whether a report is the build's latest: its plan, design and pin
  * revision those of its latest status. */
 export function current(build, report) {
+  // (And its plan digest, when both say one: T2c.)
+  const digest = report.selected?.planDigest ?? null;
   return (report.plan ?? null) === (build.plan ?? null) && (report.design ?? null) === (build.design ?? null)
-    && (report.revision ?? null) === (build.status?.revision ?? null);
+    && (report.revision ?? null) === (build.status?.revision ?? null) && (!digest || !build.planDigest || digest === build.planDigest);
 }
 
 /** Why `map` is not the sources as they are now (a file it compiled has

@@ -544,8 +544,17 @@ pub fn write_color_roles(w: &mut String, colors: &[[String; 8]], rgba: impl Fn(&
     w.push_str("];\n");
 }
 /// A `textStyles` row: name, WebKit alias, UIFont's and NSFont's text
-/// style, weight, and the size at each of `textStyleBodies`.
-type TextStyleRow = (String, String, String, String, u16, Vec<f32>);
+/// style, the weight in each metric column, the size at each of
+/// `textStyleBodies`, and the leading in each column (`None`: `normal`).
+type TextStyleRow = (
+    String,
+    String,
+    String,
+    String,
+    [u16; 4],
+    Vec<f32>,
+    [Option<f32>; 4],
+);
 /// `textStyles` (LLP 1115 D3): the platform's type ramp.
 pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]) {
     assert!(
@@ -562,18 +571,21 @@ pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]
         "    /// WebKit's `-apple-system-*` name for it, or empty.\n    pub alias: &'static str,\n",
         "    /// `UIFont.TextStyle`'s.\n    pub ios: &'static str,\n",
         "    /// `NSFont.TextStyle`'s.\n    pub macos: &'static str,\n",
-        "    /// Its weight, CSS's number.\n    pub weight: u16,\n",
+        "    /// Its weight, CSS's number, in each column of the metric table: the\n",
+        "    /// web, iOS, the Mac, neutral (LLP 1115.000 D12.2).\n    pub weights: [u16; 4],\n",
         "    /// Its size at each of [`TEXT_STYLE_BODIES`].\n    pub sizes: &'static [f32],\n",
+        "    /// Its leading in each column, a line height over its size; `None` is\n",
+        "    /// `normal`, the face's own (LLP 1115.000 D12.2).\n    pub leadings: [Option<f32>; 4],\n",
         "}\n",
     ));
     w.push_str(&format!(
         "/// The body sizes (root font sizes) the ramp is given at.\npub const TEXT_STYLE_BODIES: &[f32] = &{bodies:?};\n"
     ));
     w.push_str("/// Every text style, by id.\npub const TEXT_STYLES: &[TextStyle] = &[\n");
-    for (name, alias, ios, macos, weight, sizes) in styles {
+    for (name, alias, ios, macos, weights, sizes, leadings) in styles {
         assert_eq!(sizes.len(), bodies.len(), "schema: text style {name} has a size per body");
         w.push_str(&format!(
-            "TextStyle {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, weight: {weight}, sizes: &{sizes:?} }},\n"
+            "TextStyle {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, weights: {weights:?}, sizes: &{sizes:?}, leadings: {leadings:?} }},\n"
         ));
     }
     w.push_str("];\n");

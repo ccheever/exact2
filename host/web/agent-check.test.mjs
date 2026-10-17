@@ -103,6 +103,27 @@ component PaddedFixture
                   text "Scrolls on purpose"
               text testId="readout" white-space="nowrap" font-size="-exact-title2" "00:25:00"
 `;
+// LLP 1116.020 D4 (focus-timer and trivia-quiz, round 18): a vertical scroller holds no sideways overflow, though CSS computes
+// its x `auto` (a native host's vertical scroll view cuts it at the screen's edge). `count` runs past the screen; a strip that
+// scrolls sideways on purpose and a swipe row's snap scroll (LLP 1116.020 D1) hold what lies past their sides.
+const SIDEWAYS = `component SidewaysFixture
+  view
+    column testId="app" height="100vh" display="flex" flex-direction="column"
+      scroll flex=1 min-height=0 testId="scroller"
+        column padding=16 gap=12
+          row testId="count-row" gap=16 align-items="center"
+            text "Completed today" flex=1
+            text testId="count" white-space="nowrap" "0000000000000000000000000000000000000000"
+          scroll testId="strip" overflow-x="auto" overflow-y="hidden"
+            row gap=8
+              text testId="chip-1" white-space="nowrap" padding=8 "A chip that is long"
+              text white-space="nowrap" padding=8 "Another chip that is long"
+              text white-space="nowrap" padding=8 "A third chip, past the edge"
+          scroll testId="swipe" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+            row
+              text testId="swipe-content" width="100%" flex-shrink=0 scroll-snap-align="start" padding=12 "A row's content"
+              text testId="swipe-action" width=88 flex-shrink=0 scroll-snap-align="end" padding=12 "Delete"
+`;
 // A column held to the screen's height, its end past the screen's bottom: a line cut by it, a button out of reach.
 const TALL = `component TallFixture
   state n = 0
@@ -271,6 +292,13 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const teal = judge(obs([{ ...white, bg: [0, 195, 208], on: 'own', label: true, onAccent: true }]), null);
   expect(teal.map((f) => f.kind)).toEqual(['contrast']);
   expect(teal[0].hint).toContain('leave the accent unsaid');
+  // LLP 1116.020 D7: white on an accent fill that is no button (a sent bubble) is held to a filled button's 3:1: UIKit's blue
+  // (3.4:1) reads, a pale accent (the web's dark one, 2.6:1) is found with the accent's hint; on another fill it stays 4.5:1.
+  expect(found([{ ...white, bg: [0, 136, 255], on: 'own', onAccentFill: true }])).toEqual([]);
+  expect(found([{ ...white, bg: [0, 136, 255], on: 'own' }])).toEqual(['contrast:1']);
+  const paleAccent = judge(obs([{ ...white, bg: [104, 165, 254], on: 'own', onAccentFill: true }]), null);
+  expect(paleAccent.map((f) => [f.kind, f.detail.need])).toEqual([['contrast', 3]]);
+  expect(paleAccent[0].hint).toContain('leave the accent unsaid');
   // Overlap is judged on what is presented of each box: a row its scroller cuts at y = 10 overlaps nothing below.
   const row = { id: 6, x: 0, y: 0, w: 40, h: 20, control: 'press', sized: 'platform' }, tab = { id: 7, x: 0, y: 10, w: 40, h: 20, control: 'press', sized: 'platform' };
   expect(found([row, tab])).toEqual(['overlap:6']);
@@ -355,6 +383,12 @@ test('a page with every finding class has each found, by testId, in the scheme i
       expect(at[0].findings[0].detail.past).toBe(48);
     }
   } finally { await wide.close(); }
+  const sideways = await open({ host: 'web', url: await built('sideways', SIDEWAYS), size: [390, 844] });
+  try {
+    const run = (await checkOp(sideways, ['light'])).check[0];
+    expect(kinds(run)).toEqual({ count: ['overflow'] });
+    expect(run.findings[0].detail.width).toBe(390);
+  } finally { await sideways.close(); }
   const tall = await open({ host: 'web', url: await built('tall', TALL) });
   try {
     const t = kinds((await checkOp(tall, [])).check[0]);

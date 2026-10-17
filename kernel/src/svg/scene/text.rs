@@ -172,12 +172,15 @@ impl Resolver<'_, '_> {
                 pattern: None,
             })
         };
+        // Bold Text (LLP 1115.000 D12.3), on the run's own weight and family.
+        let mut drawn = TextStyle::from_style(style);
+        node.arena.embolden(node.slot, &mut drawn);
         let run = |text: String| TextRun {
             id: node.id,
             text,
             dx,
             dy,
-            style: TextStyle::from_style(style),
+            style: drawn,
             fill: paint(&style.fill, style.fill_opacity),
             stroke: paint(&style.stroke, style.stroke_opacity).filter(|_| style.stroke_width > 0.0),
             width: style.stroke_width.max(0.0),

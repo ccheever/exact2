@@ -16,6 +16,7 @@ struct BarSource: Equatable {
     let bar: NavigationRules.Bar
     let authored: [UInt32], placed: [UInt32]
     let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
+    let presented: Bool
 }
 
 /// The inputs the route hatch last ran with. A change runs it again.
@@ -63,7 +64,14 @@ struct HeaderShape: Equatable {
         /// (UIKit's tint, the platform default) for a colour the button
         /// only inherits or the compiler implied.
         let tint: [[Double]]?
-        init(_ button: NodeView) {
+        /// A readout's face (`role="status"`, LLP 1075.003 §9.15): an item
+        /// no one presses, whose custom view shows the face as written and
+        /// follows it in place (BarReadoutIOS.swift).
+        let readout: ChipFace?
+        /// The padding its author wrote on the readout, around its face
+        /// inside the glass (none: UIKit's, the face hugging its capsule).
+        let readoutPadding: UIEdgeInsets
+        init(_ button: NodeView, readout isReadout: Bool = false) {
             var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
                 for case let child as NodeView in node.container.subviews {
@@ -93,14 +101,17 @@ struct HeaderShape: Equatable {
             toolbarGroup = grouped
             id = button.id
             testId = button.props["testId"]
-            badge = button.isNativeButton ? nil : BadgeFace(button)
-            chip = badge == nil ? ChipFace(button) : nil
+            readout = isReadout ? ChipFace(button, readout: true) : nil
+            let pad = { (side: String) in button.wrote("padding_\(side)") ? button.number("padding_\(side)") : 0 }
+            readoutPadding = isReadout ? UIEdgeInsets(top: pad("top"), left: pad("left"), bottom: pad("bottom"), right: pad("right")) : .zero
+            badge = button.isNativeButton || isReadout ? nil : BadgeFace(button)
+            chip = badge == nil && !isReadout ? ChipFace(button) : nil
             let invocation = button.presenter?.invocation(of: button)
             menu = invocation?.opensPopover == true
             menuTitle = menu ? invocation?.target.props["accessibilityLabel"] ?? "" : ""
             self.symbol = symbol
             title = text
-            label = button.props["accessibilityLabel"] ?? face?.label
+            label = button.props["accessibilityLabel"] ?? face?.label ?? (isReadout ? Self.shownWords(button) : nil)
             disabled = button.disabled
             accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
@@ -117,8 +128,20 @@ struct HeaderShape: Equatable {
                 tint = nil
             }
         }
-        /// Everything a bar item is made from.
-        var source: String { "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
+        /// What a readout says with no `aria-label`: its words that show,
+        /// none `display: none` or `aria-hidden` (the bar's own hiding of the
+        /// header is `isHidden`, not this).
+        static func shownWords(_ node: NodeView) -> String {
+            guard node.style["display"]?.string != "none", node.props["accessibilityElementsHidden"] != "true" else { return "" }
+            if node.isParagraph { return node.accessibleText }
+            return node.container.subviews.compactMap { ($0 as? NodeView).map(shownWords) }.filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        /// Everything a bar item is made from. A readout's face is not: its
+        /// view follows it in place (`showReadouts`).
+        var source: String {
+            if readout != nil { return "readout:\(toolbarGroup.map(String.init) ?? ""):\(id):\(testId ?? "")" }
+            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")"
+        }
     }
     let header: NodeView
     let title: String
@@ -150,7 +173,17 @@ struct HeaderShape: Equatable {
         guard let rule = HeaderRule(route: route, back: back, backIsPlatforms: backIsUIKits, projected: projected) else { return nil }
         // Every role the header rule assigns can remain authored. In
         // particular the title's tap target is not one of its bar items.
-        let roles = rule.items + [rule.heading, rule.tap, rule.search, rule.segments].compactMap { $0 }
+        // A readout hidden as authored, itself or by a box around it in the
+        // header, shows nothing (the bar's own hiding is `isHidden`, not this).
+        let readouts = rule.readouts.filter { readout in
+            var at: UIView? = readout
+            while let view = at, view !== rule.header {
+                if (view as? NodeView)?.style["display"]?.string == "none" { return false }
+                at = view.superview
+            }
+            return true
+        }
+        let roles = rule.items + readouts + [rule.heading, rule.tap, rule.search, rule.segments].compactMap { $0 }
         let authored = projected ? roles.filter { $0.wrote("appearance") && $0.style["appearance"]?.string == "none" } : []
         self.authored = authored
         let projects = { (node: NodeView) in !authored.contains { node === $0 || node.isDescendant(of: $0) } }
@@ -165,17 +198,35 @@ struct HeaderShape: Equatable {
         let text = titleProjects ? heading.accessibleText : ""
         title = text.unicodeScalars.allSatisfy(\.properties.isWhitespace) ? "" : text
         level = titleProjects ? rule.level : 0
-        leading = rule.leading.filter(projects).map { Item($0) }
-        trailing = rule.trailing.filter(projects).map { Item($0) }
+        let item = { (node: NodeView) -> Item? in
+            guard rule.readouts.contains(where: { $0 === node }) else { return Item(node) }
+            guard readouts.contains(where: { $0 === node }) else { return nil }
+            let item = Item(node, readout: true)
+            return item.readout == nil ? nil : item
+        }
+        let before = rule.leading.filter(projects).compactMap(item), after = rule.trailing.filter(projects).compactMap(item)
+        // A readout is apart from the title when it has a face to show: one
+        // hidden, or with nothing to draw, is the page's, as the web has it.
+        let drawn = (before + after).filter { $0.readout != nil }.map(\.id)
+        let faced = readouts.filter { drawn.contains($0.id) }
+        #if os(tvOS)
+        // tvOS's bar has no item that focus passes by undimmed: no readout.
+        leading = before.filter { $0.readout == nil }
+        trailing = after.filter { $0.readout == nil }
+        let shownReadouts: [NodeView] = []
+        #else
+        (leading, trailing) = (before, after)
+        let shownReadouts = faced
+        #endif
         self.search = search
         self.segments = segments
-        let group = titleProjects ? HeaderTitle(header: header, heading: heading, tap: tap, apart: rule.items + [rule.search, rule.segments].compactMap { $0 }) : nil
+        let group = titleProjects ? HeaderTitle(header: header, heading: heading, tap: tap, apart: rule.items + faced + [rule.search, rule.segments].compactMap { $0 }) : nil
         self.group = group
         let tablist = segments.flatMap { HeaderShape.titleTabs($0).isEmpty ? nil : $0 }
         // The title's pressable wrapper goes with the title it holds, unless
         // it holds an opted-out node, which stays where it is.
         let wrapper = titleProjects ? tap.flatMap { tap in authored.contains { $0.isDescendant(of: tap) } ? nil : tap } : nil
-        placed = ([heading] + rule.items + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
+        placed = ([heading] + rule.items + shownReadouts + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
     }
 
     /// The tabs of a header's tablist the segmented title shows (§9.8).
@@ -494,13 +545,24 @@ extension NavigationHost {
             guard let nav = c.navigationController, nav.topViewController === c, barShows(nav) else { return false }
             return c.viewIfLoaded?.window != nil
         }
+        // A readout the bar shows (§9.15) is tapped as a person taps it:
+        // nothing happens. Its header may be lifted whole or only in part.
+        if shown.contains(where: { c in c.readouts.keys.contains { id in
+            id == node.id || presenter.views[id].map { node.isDescendant(of: $0) } == true } }) {
+            return ["tapped": id, "delivery": "host-activation", "native": "bar-readout"]
+        }
         guard shown.contains(where: { c in
             c.barPresses.contains { $0.id == node.id } || c.lifted.map { node === $0 || node.isDescendant(of: $0) } == true
         }) else { return nil }
         // An item whose button only opens a menu is UIKit's pull-down, which
-        // no public API opens and the agent does not paint over the bar.
+        // no public API opens: under the agent's painted popovers it opens
+        // painted (`agentOpen(barItem:)`); under UIKit's menus a real touch opens it.
         if !node.handlers.contains("press"), !node.disabled, presenter.invocation(of: node)?.opensPopover == true {
-            return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which only a real touch opens: under --touch platform `tap` opens it and `tap <row>` picks a row; under --chrome agent the header is painted and `tap` opens the menu painted (LLP 1021 D4)"]
+            switch presenter.menus.agentOpen(barItem: node) {
+            case true?: return ["tapped": id, "delivery": "host-activation", "native": "bar-pull-down", "menu": "painted"]
+            case false?: return ["error": "bar item #\(id) opens nothing now: its menu's button is ineligible or names no popover"]
+            case nil: return ["error": "unsupported: bar item #\(id) opens its menu as UIKit's pull-down from the bar, which only a real touch opens: under --touch platform `tap` opens it and `tap <row>` picks a row (LLP 1021 D4)"]
+            }
         }
         guard node.handlers.contains("press"), !node.disabled else { return ["error": "bar item #\(id) is disabled or presses nothing"] }
         presenter.press(node.id)
@@ -599,6 +661,7 @@ extension NavigationHost {
         followTablist(routes, in: nav)
         let stackShows = barShows(nav)
         let back = container?.props["navigationBack"]
+        let presented = presentedNavigations.contains { $0 === nav }
         for (index, c) in routes.enumerated() {
             // The bar is each route's (LLP 1115.000 D5.2, D5.3): its header,
             // the system Back alone on a pushed route with none of its own
@@ -612,7 +675,7 @@ extension NavigationHost {
             let scroller = contentScroller(of: c), scroll = scroller?.scrollView
             let dataset = c.node.props["dataset"]
             let source = BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
-                                   trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
+                                   trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack, presented: presented)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
@@ -620,9 +683,10 @@ extension NavigationHost {
                                        scroll: scroll.map(ObjectIdentifier.init))
             if c.projectedSource != source {
                 c.projectedSource = source
-                project(shape, into: c, canGoBack: canGoBack, shows: shows)
+                project(shape, into: c, canGoBack: canGoBack, shows: shows, presented: presented)
             }
             collapse(c, shape: shape, shows: shows, scroller: scroller)
+            showReadouts(shows ? shape : nil, in: c)
             reachBottom(c)
             c.paintBackdrop()
             searchField(shows ? shape?.search : nil, in: c)
@@ -670,7 +734,7 @@ extension NavigationHost {
     /// route that shows the bar with no header of the bar's (`shape` nil)
     /// is left UIKit's Back button alone: no title and no items, the
     /// button's title read from the route beneath, as UIKit reads it.
-    private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
+    private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool, presented: Bool) {
         let item = c.navigationItem
         // A header the bar stops standing for shows its native buttons.
         defer { presenter.controls.syncShown() }
@@ -692,7 +756,10 @@ extension NavigationHost {
         item.title = shape?.title
         // tvOS has no large titles or back button.
         #if !os(tvOS)
-        item.largeTitleDisplayMode = shape?.level == 1 ? .always : .never
+        // @ref LLP 1116.020 D2 — a presented stack's title is inline at any
+        // level, as UIKit's sheets and Apple's (New Contact, New Event) have
+        // it; a pushed or root route's level-1 heading is large.
+        item.largeTitleDisplayMode = shape?.level == 1 && !presented ? .always : .never
         item.hidesBackButton = !canGoBack
         item.leftItemsSupplementBackButton = true
         #endif
@@ -1070,6 +1137,7 @@ extension NavigationHost {
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
+        if i.readout != nil { return readoutItem(i, c) }
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)

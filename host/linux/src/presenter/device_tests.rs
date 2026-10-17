@@ -131,7 +131,7 @@ fn the_devices_locale_is_the_viewers_place() {
         (place.seed, place.time_zone.as_str()),
         (seed, zone.as_str())
     );
-    // Carried, with no door yet: the direction, the clock, bold text.
+    // Carried, with no door yet: the direction, the clock.
     let device = p.device().unwrap();
     assert!(device.hour24 && !device.rtl && !device.bold_text);
 }
@@ -198,4 +198,26 @@ fn a_fields_placeholder_is_its_label_and_floats_as_it_fills() {
     let floated = p.frame().data().to_vec();
     assert!(!p.needs_animation_frame(), "and has floated");
     assert_ne!(resting, floated);
+}
+
+/// Android's bold text (its font weight adjustment) is Bold Text (LLP
+/// 1115.000 D12.3): the system font one step heavier, and back.
+#[test]
+fn bold_text_weights_the_system_font() {
+    let mut p = boot(READS);
+    let weight = |p: &Presenter<()>| {
+        let kernel = p.host().kernel();
+        let key = kernel.find_by_test_id("facts")[0];
+        kernel.node_by_key(key).unwrap().text_style().font_weight
+    };
+    assert_eq!(weight(&p), 400);
+    assert!(p
+        .set_device(&Device {
+            bold_text: true,
+            ..phone()
+        })
+        .is_none());
+    assert_eq!(weight(&p), 600);
+    assert!(p.set_device(&phone()).is_none());
+    assert_eq!(weight(&p), 400);
 }

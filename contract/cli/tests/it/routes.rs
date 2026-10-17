@@ -715,6 +715,22 @@ component App
             .contains("`main > column > column > column > column`"),
         "{error}"
     );
+    // @ref LLP 1116.020 D2 — beside the tabpanels: with tabs a route is a
+    // panel's, so a sheet drawn there is no sheet (round 18's contacts).
+    let sheet = "if top(nav).name == \"item\"\n        column navigationKey=`${top(nav).id}` navigationPresentation=\"modal\" position=\"absolute\" inset=0\n          text \"Item\"\n      row role=\"tablist\"";
+    let beside = tabs
+        .replace("STACK", stack)
+        .replacen("row role=\"tablist\"", sheet, 1);
+    let error = contract::compile(&beside).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    assert!(
+        error.message.contains("beside the root's tabpanels")
+            && error.message.contains("is no sheet"),
+        "{error}"
+    );
+    // A root without tabs keeps its own children as routes.
+    let plain = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${top(nav).id}`\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"\") position=\"absolute\" inset=0\n          text e.url\n";
+    contract::compile(plain).unwrap();
     // A key outside any root is not a route: below a root that carries
     // none, nothing is a navigation root (LLP 1116 D6 makes the first root
     // with a key one).

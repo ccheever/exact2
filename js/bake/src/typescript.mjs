@@ -7,6 +7,8 @@
 // It reads only captured configuration; the producer owns the stage.
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { builtinModules } from 'node:module';
 import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
 
 /** Explicit build input, ahead of an ignored app-local development selection. */
@@ -48,9 +50,9 @@ export function injectBackendOrigin(code, origin, parse) {
 
 // Rolldown IDs are file paths, not URL or slash-normalized strings. Both
 // producers enforce the same captured-file boundary (LLP 1027 D5). A
-// package's declarations are captured for the checker alone (`stagePackages`):
-// nothing under the stage's `node_modules` runs, so loading one is refused by
-// the file it was captured from.
+// package's declarations are captured for the checker alone (`stagePackages`)
+// and never load; a package's code loads only from where `capturedSources`
+// captured it, which admits it before this check.
 export function assertCapturedModule(stage, id) {
   if (!isAbsolute(id)) throw new Error('module outside captured app: '+id);
   const root=realpathSync.native(stage), file=realpathSync.native(id), path=relative(root,file);
@@ -65,8 +67,8 @@ export function assertCapturedModule(stage, id) {
 // nothing) and `package.json` files are captured into the stage's
 // `node_modules`, at the place TypeScript looks for them, so the checker reads
 // a package's types from the capture as it reads app.ts, and the resolved
-// graph still stays inside the stage. Its JavaScript is never captured: an
-// import that reaches a package at run time is refused (`packageImports`).
+// graph still stays inside the stage. Its JavaScript is captured apart, file
+// by file as the bundle reaches it (`capturedSources`).
 const DECLARATION=/\.d\.[cm]?ts$/;
 // A string after `from`, `import`, `import(`, `require(`, `declare module` or
 // `<reference types=`, comments between included. Matching more than an
@@ -166,7 +168,7 @@ export function stagePackages(stage) {
       const path=join(dir,entry.name);
       if (entry.isDirectory() && entry.name==='node_modules') mirrors.push(path);
       else if (entry.isDirectory()) sources(path);
-      else if (entry.isFile() && /\.[cm]?tsx?$/.test(entry.name) && !entry.name.startsWith('__exact_')) {
+      else if (entry.isFile() && /\.[cm]?[jt]sx?$/.test(entry.name) && !entry.name.startsWith('__exact_') && path!==resolve(stage,'app.js')) {
         const root=roots.find(([at])=>within(path,at));
         need(readFileSync(path,'utf8'),dirname(resolve(root[1],relative(root[0],path))),root,null);
       }
@@ -197,25 +199,329 @@ export function stagePackages(stage) {
   if (!existsSync(recordPath) || readFileSync(recordPath,'utf8')!==record) writeFileSync(recordPath,record);
 }
 
-/** Rolldown's `resolveId` for a captured graph: a bare import that reaches a
- * package at run time (a value import, never one TypeScript erases) is
- * refused as any module outside the capture is, by the file it would run. */
-export function packageImports(stage) {
-  // Only staged declarations sit under a `node_modules` in the stage.
+// Package code (LLP 1027 D5, "Package code"). A package's JavaScript is
+// captured file by file as the bundle reaches it: each import is resolved
+// from where its importer really is (Node's lookup, a package's `exports`,
+// `main` and `browser` fields, as a browser bundle resolves them), and the
+// file it leads to is copied into the stage under `node_modules/.packages/
+// <name>@<version>/`, with every `package.json` between it and the package's
+// root (their `type` and `sideEffects`). The bundle loads only those copies.
+// `__exact_packages.json` records each file by where it was read and its
+// SHA-256, each import's resolution, and each package's installed paths
+// (the links an install retargets), so a bake is a function of what it
+// captured and every later bundle replays it (`replayCaptured`). A Node
+// built-in, a native addon, an import that is not installed, and an
+// unguarded use of the DOM or of Node's globals are refused by package and
+// file: no executor has them.
+const RECORD='__exact_packages.json';
+const BUILTIN=new Set(builtinModules);
+const builtin=(spec)=>spec.startsWith('node:') || BUILTIN.has(spec) || BUILTIN.has(spec.split('/')[0]);
+// npm's package names (with the old capitals) and versions: a place in the
+// stage is made of them, so nothing else is taken.
+const NAME=/^(?:@[a-z0-9~][\w.~-]*\/)?[a-z0-9~][\w.~-]*$/i, VERSION=/^(?:[0-9a-z][\w.+-]*)?$/i;
+// The package a file belongs to: the nearest `package.json` that names one
+// (a nested `{"type":"module"}` names none).
+function packageOf(file) {
+  for (let dir=dirname(file);;) {
+    let json=null;
+    try { json=JSON.parse(readFileSync(join(dir,'package.json'),'utf8')); } catch { /* none here, or not JSON */ }
+    if (typeof json?.name==='string' && json.name) {
+      const version=typeof json.version==='string' ? json.version : '';
+      if (!NAME.test(json.name) || !VERSION.test(version)) throw new Error(`${join(dir,'package.json')}: not an npm package name and version (${JSON.stringify(json.name)}, ${JSON.stringify(version)})`);
+      return {root:dir,key:json.name+'@'+version,name:json.name,json,installed:new Set()};
+    }
+    const up=dirname(dir);
+    if (up===dir) return null;
+    dir=up;
+  }
+}
+// Where Node finds package `name` from `dir`: the nearest `node_modules/<name>`
+// upward, as installed (a link stays a link).
+function installedAt(name, dir) {
+  for (let at=dir;;) {
+    const candidate=join(at,'node_modules',name);
+    if (statSync(candidate,{throwIfNoEntry:false})) return candidate;
+    const up=dirname(at);
+    if (up===at) return null;
+    at=up;
+  }
+}
+const slash=(path)=>path.split(sep).join('/');
+const kindOf=(options)=>options?.kind==='require-call' ? 'require' : 'import';
+// Every bundle of the module resolves packages as a browser bundle does (the
+// `browser` condition and field first), as the page's own bundle does, so
+// the page and Hermes run the same file of a package; `process.env.NODE_ENV`
+// is the constant packages test.
+export const bundleOptions={platform:'browser',transform:{define:{'process.env.NODE_ENV':'"production"'}}};
+/** The captured graph's Rolldown plugin, the same in every producer: app
+ * files load only from the stage, package code only from its capture, and
+ * the clock (`ambientRefusals`) or what no executor has (`packageRefusals`)
+ * is refused by file and line, into `refusals` when given, else thrown. */
+export function capturedSources(stage, refusals=null) {
+  stage=realpathSync.native(stage);
+  const files=new Map(), roots=new Map(), edges=new Map(), area=join(stage,'node_modules','.packages');
+  let total=0;
+  // Staged declarations and captured package code sit under a `node_modules` in the stage.
   const staged=(id)=>within(id,stage) && relative(stage,id).split(sep).includes('node_modules');
-  return async function (source, importer, options) {
-    if (!importer || !packageName(source)) return null;
-    // `rows/../../helper.ts` names no file of a package: it leaves it, to a
-    // place that differs between the stage and the app's own directory.
-    if (source.split(/[\\/]/).some(part => part === '.' || part === '..')) throw new Error('module outside captured app: '+source);
-    const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
-    if (resolved && !staged(resolved.id)) return resolved;
-    // Where the import leads from the captured file's own place.
-    const [at,origin]=capturedOrigins(stage).find(([at])=>within(importer,at)) ?? [stage,stage];
-    const real=await this.resolve(source, resolve(origin,relative(at,importer)), { skipSelf: true }).catch(() => null);
-    if (!resolved && !real) return null;
-    throw new Error('module outside captured app: '+(real?.id ?? packageOrigin(stage,resolved.id)));
+  const label=(id,at='')=>{
+    const file=files.get(id);
+    if (!file) return slash(relative(stage,id))+at;
+    return `${file.package.key} (${slash(relative(file.package.root,file.real))}${at})`;
   };
+  const copy=(from,to,pkg)=>{
+    if (files.has(to)) return;
+    if (!within(to,area) || to===area) throw new Error('module outside captured app: '+from);
+    const bytes=readFileSync(from);
+    total+=bytes.length;
+    if (total>64<<20) throw new Error('package code exceeds 64 MiB');
+    if (!existsSync(to) || !readFileSync(to).equals(bytes)) { mkdirSync(dirname(to),{recursive:true}); writeFileSync(to,bytes); }
+    files.set(to,{real:from,package:pkg,sha256:createHash('sha256').update(bytes).digest('hex')});
+  };
+  const capture=(real,who,installed)=>{
+    const found=packageOf(real);
+    if (!found) throw new Error('module outside captured app: '+real);
+    const pkg=roots.get(found.key) ?? found;
+    if (pkg.root!==found.root) throw new Error(`two copies of ${found.key} (${pkg.root}, ${found.root}); install one`);
+    roots.set(pkg.key,pkg);
+    if (installed) pkg.installed.add(installed);
+    if (/\.node$/.test(real) || pkg.json.gypfile || existsSync(join(pkg.root,'binding.gyp')))
+      throw new Error(`${who} imports ${pkg.key}, a native addon: a data module runs JavaScript alone`);
+    const base=join(area,...pkg.key.split('/')), place=join(base,relative(pkg.root,real));
+    copy(real,place,pkg);
+    for (let dir=dirname(real); within(dir,pkg.root); dir=dirname(dir)) {
+      if (existsSync(join(dir,'package.json'))) copy(join(dir,'package.json'),join(base,relative(pkg.root,dir),'package.json'),pkg);
+      if (dir===pkg.root) break;
+    }
+    return place;
+  };
+  const report=(why)=>{ if (!why.length) return; if (refusals) refusals.push(...why); else throw new Error(why.join('\n')); };
+  return {
+    name:'captured-sources',
+    async resolveId(source, importer, options) {
+      if (!importer || importer.startsWith('\0')) return null;
+      const from=files.get(importer), name=packageName(source), kind=kindOf(options);
+      const record=(id)=>edges.set([slash(relative(stage,importer)),source,kind].join('\0'),[slash(relative(stage,importer)),source,kind,id ? slash(relative(stage,id)) : '']);
+      // The app's own imports (a relative or absolute path) resolve as they
+      // would, and are recorded, so a later bundle replays every one.
+      if (!from && !name && !builtin(source)) {
+        if (!within(importer,stage)) return null;
+        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        if (resolved && !resolved.external && !resolved.id.startsWith('\0')) record(resolved.id);
+        return resolved;
+      }
+      if (!from && name) {
+        // `rows/../../helper.ts` names no file of a package: it leaves it, to a
+        // place that differs between the stage and the app's own directory.
+        if (source.split(/[\\/]/).some(part => part === '.' || part === '..')) throw new Error('module outside captured app: '+source);
+        // A path mapping into the capture.
+        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        if (resolved && !resolved.external && within(resolved.id,stage) && !staged(resolved.id)) { record(resolved.id); return resolved; }
+      }
+      // Where the import leads from the importer's own place.
+      const [at,origin]=capturedOrigins(stage).find(([at])=>within(importer,at)) ?? [stage,stage];
+      const place=from ? from.real : resolve(origin,relative(at,importer));
+      const real=await this.resolve(source, place, { ...options, skipSelf: true }).catch(() => null);
+      const who=label(importer);
+      if (!real || real.external) {
+        if (builtin(source)) throw new Error(`${who} imports Node's built-in '${source}': a data module runs on Hermes and in the browser, which have no Node modules; import a part of the package that needs none, or another package`);
+        throw new Error(`${who} imports '${source}', which is not installed`);
+      }
+      // A `browser` field's `false`: Rolldown's empty module.
+      if (real.id.startsWith('\0')) { record(null); return real; }
+      const id=capture(real.id, who, name && installedAt(name, dirname(place)));
+      record(id);
+      return { ...real, id };
+    },
+    load(id) {
+      if (!files.has(id) && !id.startsWith('\0rolldown/empty.js')) assertCapturedModule(stage, id);
+      return null;
+    },
+    transform(code, id) {
+      const parse=(c,o)=>this.parse(c,o), js=/\.[cm]?js$/.test(id) && within(id,stage);
+      // The app's own JavaScript is checked as package code is, and for the clock as the app's TypeScript is.
+      report([...(files.has(id) ? [] : ambientRefusals(stage,id,code,parse)), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
+      return null;
+    },
+    buildEnd() {
+      const listed=[...files.values()].map(({real,package:{key,root},sha256})=>[key,slash(relative(root,real)),real,sha256])
+        .sort((a,b)=>a[0]+'\0'+a[1]<b[0]+'\0'+b[1] ? -1 : 1);
+      const resolved=[...edges.values()].sort((a,b)=>a.join('\0')<b.join('\0') ? -1 : 1);
+      // A package's digest: its files' paths and bytes, and every import that reached it.
+      const digests={};
+      for (const key of [...roots.keys()].sort()) {
+        const prefix='node_modules/.packages/'+key+'/';
+        const lines=[...listed.filter(f=>f[0]===key).map(f=>f[1]+'\0'+f[3]), ...resolved.filter(e=>e[3].startsWith(prefix)).map(e=>e.join('\0'))];
+        digests[key]=createHash('sha256').update(lines.join('\n')).digest('hex');
+      }
+      const record=JSON.stringify({
+        packages:[...roots].map(([key,{root,installed}])=>[key,root,[...installed].sort()]).sort((a,b)=>a[0]<b[0] ? -1 : 1),
+        files:listed, edges:resolved, digests,
+      });
+      const path=resolve(stage,RECORD);
+      if (!existsSync(path) || readFileSync(path,'utf8')!==record) writeFileSync(path,record);
+    },
+  };
+}
+/** A later bundle of the checked capture (the web page's and its server
+ * render's): every import from a captured file resolves to what
+ * `capturedSources` resolved it to, and any other is refused, so nothing is
+ * read again from the app's directory or where a package is installed. The
+ * one exception is `allowed`: the host runtime's own module the web build
+ * injects into the app's code. `rolldown` is a Rolldown plugin; `bun` a
+ * Bun.build plugin's setup. Imports from outside the stage are left alone. */
+export function replayCaptured(stage, allowed=[]) {
+  stage=realpathSync.native(stage);
+  const record=JSON.parse(readFileSync(resolve(stage,RECORD),'utf8'));
+  const edges=new Map(record.edges.map(([importer,source,kind,target])=>[[resolve(stage,importer),source,kind].join('\0'),target && resolve(stage,target)]));
+  const host=new Set(allowed);
+  const lookup=(source,importer,kind)=>{
+    if (!importer || !within(importer,stage)) return undefined;
+    const key=[importer,source,kind].join('\0');
+    if (edges.has(key)) return edges.get(key);
+    if (host.has(source)) return undefined;
+    throw new Error(`${slash(relative(stage,importer))} imports '${source}', which the checked capture did not resolve; build again`);
+  };
+  const EMPTY='module.exports = {};';
+  return {
+    rolldown: { name:'captured-replay',
+      resolveId(source,importer,options) { const id=lookup(source,importer,kindOf(options)); return id===undefined ? null : id || '\0exact-empty'; },
+      load(id) { return id==='\0exact-empty' ? EMPTY : null; } },
+    bun(build) {
+      build.onResolve({ filter: /.*/ }, (args) => {
+        const id=lookup(args.path,args.importer,args.kind==='require-call' ? 'require' : 'import');
+        return id===undefined ? undefined : id ? { path: id } : { path: args.path, namespace: 'exact-empty' };
+      });
+      build.onLoad({ filter: /.*/, namespace: 'exact-empty' }, () => ({ contents: EMPTY, loader: 'js' }));
+    },
+  };
+}
+// What package code, and the app's own JavaScript, may not use: the DOM,
+// which no data module has, Node's globals, and code made from a string.
+// Both executors lack the first two alike (js/src/prelude.js defines none;
+// host/web-js/ts-fetch.js hides the page's), so a test of one (`typeof
+// window`) answers the same everywhere; a use that test does not guard is
+// refused here, by name. This keeps a module portable; it is no security
+// boundary (LLP 1027 D5): on the web the module runs in the page's realm.
+const DOM=['window','frames','parent','top','opener','document','navigator','location','history','localStorage','sessionStorage','indexedDB','HTMLElement','Element','getComputedStyle','customElements','alert'];
+// The global object's names for itself, through which a member reaches the page.
+const HOSTS=['globalThis','self','window','frames','parent','top','opener'];
+// Code from a string: the bundle cannot capture it, and on the page it runs outside the module's bindings.
+const CODE=['Function','eval'];
+const NODE=['process','Buffer','global','__dirname','__filename','require'];
+const SCOPES=['Program','BlockStatement','StaticBlock','SwitchStatement','ForStatement','ForInStatement','ForOfStatement','CatchClause','ClassExpression'];
+const NOT_REFERENCES={MemberExpression:'property',Property:'key',MethodDefinition:'key',PropertyDefinition:'key',LabeledStatement:'label',BreakStatement:'label',ContinueStatement:'label',ImportSpecifier:'imported',ExportSpecifier:'exported',MetaProperty:'property'};
+const FUNCTIONS=['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'];
+// The names a scope node declares itself: a function's parameters and its
+// hoisted `var`s and functions, a block's lexical declarations, a catch
+// clause's parameter, a named function or class expression's own name.
+function declares(node) {
+  const names=new Set();
+  const pattern=(p)=>{
+    if (!p) return;
+    if (p.type==='Identifier') names.add(p.name);
+    else if (p.type==='ObjectPattern') p.properties.forEach(q=>pattern(q.type==='RestElement' ? q.argument : q.value));
+    else if (p.type==='ArrayPattern') p.elements.forEach(pattern);
+    else if (p.type==='AssignmentPattern') pattern(p.left);
+    else if (p.type==='RestElement') pattern(p.argument);
+  };
+  const lexical=(statements)=>{
+    for (let s of statements ?? []) {
+      if (['ExportNamedDeclaration','ExportDefaultDeclaration'].includes(s.type)) s=s.declaration ?? s;
+      if (s.type==='VariableDeclaration' && s.kind!=='var') s.declarations.forEach(d=>pattern(d.id));
+      if (['FunctionDeclaration','ClassDeclaration'].includes(s.type) && s.id) names.add(s.id.name);
+      if (s.type==='ImportDeclaration') s.specifiers.forEach(x=>names.add(x.local.name));
+    }
+  };
+  const vars=(n)=>{
+    if (!n || typeof n!=='object') return;
+    if (Array.isArray(n)) { n.forEach(vars); return; }
+    if (FUNCTIONS.includes(n.type) || n.type==='ClassExpression' || n.type==='ClassDeclaration') return;
+    if (n.type==='VariableDeclaration' && n.kind==='var') n.declarations.forEach(d=>pattern(d.id));
+    for (const key in n) if (key!=='parent' && n[key] && typeof n[key]==='object') vars(n[key]);
+  };
+  if (node.type==='Program') { lexical(node.body); vars(node.body); }
+  else if (FUNCTIONS.includes(node.type)) {
+    node.params.forEach(pattern);
+    if (node.type==='FunctionExpression' && node.id) names.add(node.id.name);
+    if (node.body?.type==='BlockStatement') { lexical(node.body.body); vars(node.body.body); }
+  }
+  else if (node.type==='ClassExpression' && node.id) names.add(node.id.name);
+  else if (['BlockStatement','StaticBlock'].includes(node.type)) lexical(node.body);
+  else if (node.type==='SwitchStatement') node.cases.forEach(c=>lexical(c.consequent));
+  else if (['ForStatement','ForInStatement','ForOfStatement'].includes(node.type)) { const d=node.init ?? node.left; if (d?.type==='VariableDeclaration' && d.kind!=='var') d.declarations.forEach(x=>pattern(x.id)); }
+  else if (node.type==='CatchClause') pattern(node.param);
+  return names;
+}
+/** The DOM and Node globals a JavaScript file uses, as `label(at)`'s
+ * `…: why`: each use of a name no enclosing scope binds, not guarded by a
+ * `typeof` test of it that dominates the use (`typeof x !== 'undefined' &&
+ * x.y`, its `if` or `?:`, or an earlier `if (typeof x …) return`), and each
+ * such member of `globalThis`, `self`, `window` or `global`. Static: a use
+ * behind an alias still reaches an executor without the name. */
+export function packageRefusals(code, label, parse) {
+  const ast=parse(code,{lang:'js'}), found=[], at=lineColumn(code);
+  // Whether `node` tests `typeof name` (or `typeof globalThis.name`).
+  const tests=(node,name)=>{
+    if (!node || typeof node!=='object') return false;
+    if (Array.isArray(node)) return node.some(n=>tests(n,name));
+    if (node.type==='UnaryExpression' && node.operator==='typeof') {
+      const a=bare(node.argument);
+      return a?.type==='Identifier' ? a.name===name : propertyName(a)===name;
+    }
+    if (FUNCTIONS.includes(node.type)) return false;
+    for (const key in node) if (key!=='parent' && tests(node[key],name)) return true;
+    return false;
+  };
+  const exits=(s)=>s && (['ReturnStatement','ThrowStatement'].includes(s.type) || (s.type==='BlockStatement' && exits(s.body.at(-1))));
+  // Whether a use of `name`, under the ancestors `path` (outermost first), is guarded.
+  const guarded=(name,path)=>path.some(([node,key,index],i)=>{
+    if (['IfStatement','ConditionalExpression'].includes(node.type) && key!=='test' && tests(node.test,name)) return true;
+    if (node.type==='LogicalExpression' && key==='right' && tests(node.left,name)) return true;
+    // An earlier statement of an enclosing block leaves when the name is absent.
+    const list=key==='body' || key==='consequent' ? node[key] : null;
+    return Array.isArray(list) && list.slice(0,index).some(s=>s.type==='IfStatement' && tests(s.test,name) && exits(s.consequent));
+  });
+  const refuse=(name,node)=>{
+    const where=label(':'+at(node.start));
+    if (CODE.includes(name) || name==='import()') found.push(where+` loads code from a string ('${name}'), which a bundle cannot capture`);
+    else if (HOSTS.includes(name) && !DOM.includes(name)) found.push(where+` uses the page's '${name}' through the global object: a data module has no page`);
+    else if (DOM.includes(name)) found.push(where+` uses the DOM's '${name}': a data module has no DOM`);
+    else if (name==='require') found.push(where+' loads a module by a computed name, which a bundle cannot capture');
+    else found.push(where+` uses Node's '${name}': a data module runs on Hermes and in the browser, which have no Node APIs`);
+  };
+  const scopes=[], path=[];
+  const free=(name)=>!scopes.some(s=>s.has(name));
+  const walk=(node,parent,key)=>{
+    if (!node || typeof node!=='object') return;
+    if (Array.isArray(node)) { node.forEach((n,i)=>{ path.push([parent,key,i]); walk(n,parent,key); path.pop(); }); return; }
+    if (node.type==='UnaryExpression' && node.operator==='typeof') return;
+    const pushed=SCOPES.includes(node.type) || FUNCTIONS.includes(node.type);
+    if (pushed) scopes.push(declares(node));
+    if (node.type==='Identifier' && !(NOT_REFERENCES[parent?.type]===key && !parent.computed) && free(node.name)) {
+      const name=node.name, grand=path.at(-2)?.[0];
+      const constant=name==='process' && parent?.type==='MemberExpression' && key==='object' && propertyName(parent)==='env' && grand?.type==='MemberExpression' && propertyName(grand)==='NODE_ENV';
+      const literal=name==='require' && parent?.type==='CallExpression' && key==='callee'
+        && ['Literal','TemplateLiteral'].includes(parent.arguments[0]?.type) && !parent.arguments[0].expressions?.length;
+      if ((DOM.includes(name) || NODE.includes(name)) && !constant && !literal && !guarded(name,path)) refuse(name,node);
+      // `Function`, and `eval` direct or not, however reached as a name.
+      else if (CODE.includes(name)) refuse(name,node);
+    }
+    if (node.type==='MemberExpression') {
+      const object=bare(node.object), name=propertyName(node);
+      if (object?.type==='Identifier' && HOSTS.includes(object.name) && free(object.name)
+        && (DOM.includes(name) || NODE.includes(name) || HOSTS.includes(name) || CODE.includes(name)) && !guarded(name,path)) refuse(name,node);
+    }
+    // `import(x)` of a computed name, like a computed `require`.
+    if (node.type==='ImportExpression' && !(['Literal','TemplateLiteral'].includes(node.source?.type) && !node.source.expressions?.length)) refuse('import()',node);
+    for (const k in node) if (k!=='parent' && node[k] && typeof node[k]==='object') {
+      if (!Array.isArray(node[k])) path.push([node,k]);
+      walk(node[k],node,k);
+      if (!Array.isArray(node[k])) path.pop();
+    }
+    if (pushed) scopes.pop();
+  };
+  walk(ast,null,null);
+  return found;
 }
 
 // Time and seeds are source arguments (LLP 1027.000): every executor refuses
@@ -307,6 +613,16 @@ function bound(ast) {
   walk(ast,false);
   return names;
 }
+// `line:column` of an offset in `code`, by ECMAScript's line terminators:
+// LF, CR (CRLF is one), U+2028, U+2029.
+function lineColumn(code) {
+  const starts=[0];
+  for (let i=0;i<code.length;i++) {
+    const c=code.charCodeAt(i);
+    if (c===10 || c===0x2028 || c===0x2029 || (c===13 && code.charCodeAt(i+1)!==10)) starts.push(i+1);
+  }
+  return (offset)=>{ let lo=0, hi=starts.length; while (lo+1<hi) { const mid=(lo+hi)>>1; if (starts[mid]<=offset) lo=mid; else hi=mid; } return (lo+1)+':'+(offset-starts[lo]+1); };
+}
 /** The direct uses of the clock, randomness and timers in the captured
  * module `file`, as `path:line:col: why` with its path in the app: `parse`
  * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript.
@@ -315,13 +631,7 @@ function bound(ast) {
 export function ambientRefusals(stage, file, code, parse) {
   if (!isAbsolute(file) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
   const lang=/\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js';
-  const label=relative(stage,file).split(sep).join('/'), found=[], starts=[0];
-  // ECMAScript's line terminators: LF, CR (CRLF is one), U+2028, U+2029.
-  for (let i=0;i<code.length;i++) {
-    const c=code.charCodeAt(i);
-    if (c===10 || c===0x2028 || c===0x2029 || (c===13 && code.charCodeAt(i+1)!==10)) starts.push(i+1);
-  }
-  const at=(offset)=>{ let lo=0, hi=starts.length; while (lo+1<hi) { const mid=(lo+hi)>>1; if (starts[mid]<=offset) lo=mid; else hi=mid; } return (lo+1)+':'+(offset-starts[lo]+1); };
+  const label=relative(stage,file).split(sep).join('/'), found=[], at=lineColumn(code);
   const ast=parse(code,{lang}), local=bound(ast);
   const walk=(node)=>{
     if (!node || typeof node!=='object') return;
@@ -349,6 +659,9 @@ export const compilerOptions = {
   module: 'ESNext',
   moduleResolution: 'bundler',
   allowImportingTsExtensions: true,
+  // The app's own `.js` files are typed from their code, not checked; a
+  // package's JavaScript is never read for types (`maxNodeModuleJsDepth` 0).
+  allowJs: true,
   lib: ['ES2023', 'ES2024.Object', 'ES2024.Collection', 'ES2024.Promise', 'ES2024.String', 'WebWorker'],
   // No package's types are global unless a file names it: an installed
   // `@types/node` or `@types/bun` would declare timers and `process`, which
@@ -380,6 +693,46 @@ export function snapbackMutationTypes(declarations) {
     "export type Result<S extends Source> = S extends MutationSource ? SnapbackMutationSuccess<SourceMap[S]['result']> : SourceMap[S]['result'];");
 }
 
+/** `appId`, `grants` and the export names of the module `code` (app.ts),
+ * read from its syntax: no build runs app or package code to learn them. Each
+ * of `appId` and `grants` is a constant: a string, a template, `+` or an
+ * array's `.join(…)` of constants, or a top-level `const` holding one; any
+ * other is refused by name and place. An absent one is `undefined`. */
+export function staticFacts(code, parse) {
+  const parsed=parse('app.ts',code);
+  if (parsed.errors?.length) return { appId: undefined, grants: undefined, exported: [] };
+  const body=parsed.program.body, at=lineColumn(code), consts=new Map(), exported=new Map();
+  for (const statement of body) {
+    const s=['ExportNamedDeclaration','ExportDefaultDeclaration'].includes(statement.type) ? statement.declaration ?? statement : statement;
+    if (s.type==='VariableDeclaration') for (const d of s.declarations) {
+      if (d.id.type!=='Identifier') continue;
+      if (s.kind==='const') consts.set(d.id.name,d.init);
+      if (statement.type==='ExportNamedDeclaration') exported.set(d.id.name,d.id.name);
+    }
+    if (statement.type==='ExportNamedDeclaration' && s.id?.name) exported.set(s.id.name,s.id.name);
+    if (statement.type==='ExportNamedDeclaration' && !statement.source) for (const x of statement.specifiers ?? []) exported.set(x.exported.name ?? x.exported.value,x.local.name ?? x.local.value);
+    if (statement.type==='ExportDefaultDeclaration') exported.set('default','default');
+  }
+  const value=(name)=>{
+    if (!exported.has(name)) return undefined;
+    const seen=new Set();
+    const constant=(node)=>{
+      node=bare(node);
+      const refuse=()=>{ throw new Error(`app.ts:${at(node?.start ?? 0)}: ${name} must be a constant the build reads without running the module: a string, a template or + of constants, an array of them .join('\\n'), or a top-level const holding one`); };
+      if (!node) refuse();
+      if (node.type==='Literal' && ['string','number'].includes(typeof node.value)) return String(node.value);
+      if (node.type==='TemplateLiteral') return node.quasis.map((q,i)=>q.value.cooked+(i<node.expressions.length ? constant(node.expressions[i]) : '')).join('');
+      if (node.type==='BinaryExpression' && node.operator==='+') return constant(node.left)+constant(node.right);
+      if (node.type==='Identifier' && consts.has(node.name) && !seen.has(node.name)) { seen.add(node.name); const v=constant(consts.get(node.name)); seen.delete(node.name); return v; }
+      if (node.type==='CallExpression' && node.arguments.length<=1 && propertyName(bare(node.callee))==='join' && bare(bare(node.callee).object)?.type==='ArrayExpression')
+        return bare(bare(node.callee).object).elements.map(constant).join(node.arguments.length ? constant(node.arguments[0]) : ',');
+      return refuse();
+    };
+    return constant(consts.get(exported.get(name)) ?? null);
+  };
+  return { appId: value('appId'), grants: value('grants'), exported: [...exported.keys()] };
+}
+
 export function configure(stage, incremental=false, parse) {
   const app=capturedOrigins(stage).at(-1)[1], modulePath=resolve(stage,'app.ts');
   if (existsSync(modulePath)) {
@@ -387,6 +740,8 @@ export function configure(stage, incremental=false, parse) {
     const authored=existsSync(original) ? JSON.parse(readFileSync(original,'utf8')) : before;
     const after=injectBackendOrigin(authored,backendOrigin(app),parse);
     if (before!==after) writeFileSync(modulePath,after);
+    // Every producer refuses alike what the web build cannot read without running it.
+    if (parse) staticFacts(after,parse);
   }
   const inside = (path) => {
     if (path !== stage && !path.startsWith(stage+sep)) throw new Error('tsconfig: path outside captured app: '+path);
@@ -444,7 +799,10 @@ export function configure(stage, incremental=false, parse) {
   }
   if (base && !paths['*']) paths['*']=[local(resolve(base,'*'))];
   const config={compilerOptions:{...compilerOptions,paths,
-    ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts']};
+    ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts'],
+    // The app's own declarations, as an editor's project has them (an
+    // untyped package's `declare module`); a package's are read when named.
+    include:['**/*.d.ts'],exclude:['**/node_modules']};
   const path=resolve(stage,'__exact_tsconfig.json'), bytes=JSON.stringify(config);
   if (!existsSync(path) || readFileSync(path,'utf8')!==bytes) writeFileSync(path,bytes);
   if(capturedOrigins(stage).slice(0,-1).some(([,from])=>/(?:^|[/\\])snapback4[/\\](?:ts|online)$/.test(from))) {

@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.4`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.9`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.4"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.9"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -40,6 +40,24 @@ on macOS and Linux.
   - the items marked *1.3* below.
 - `tamber/1.4` (LLP 1121 stage 5, commit 6) added `export`, and `import`'s reading of a Tamber export
   against its baseline.
+- `tamber/1.5` (LLP 1121 stage 6, commit B) added length and number tokens: each IR token's real
+  `kind` (`color`, `length`, `number`), `resolve`'s length and number tuples, and `uses` over the rows
+  of a length or number token's kind.
+- `tamber/1.6` (LLP 1122 T2b) added the `inspect` event: inspect mode's owners as they move.
+- `tamber/1.7` (LLP 1122 T2b) added a click's token on `selected`, which the `outline` answering it
+  names.
+- `tamber/1.8` (LLP 1121 stage 6, commit D) added shadow tokens: the IR's `box-shadow` and
+  `text-shadow` kinds, and `resolve`'s shadow tuples.
+- `tamber/1.9` (LLP 1121 stage 6, commit E) added motion tokens: the IR's `duration` and `easing`
+  kinds, `resolve`'s motion tuples, and `uses`' source-literal sites for one. A motion token's name
+  is dotted (`tamber-motion-name`). A transaction or `propose` that changes one is `rebuild`.
+  The 1.9 window also takes LLP 1122 T2c's optional fields, marked *1.9*: a build's `planDigest`
+  (on `register`, `status` and its record), and source maps by plan, each build joined and
+  outlined from its own plan's map.
+  Stage 6 C added under the same version (the window's one version, theme2's ruling): the IR's
+  `type` and `family` kinds and `resolve`'s type and family tuples. A transaction that changes the
+  longhands a type token writes, or a type token's or family token's family, is `rebuild`; one that
+  changes only a type token's style, weight, size or line height is `live`.
 
 ## Where it runs
 
@@ -134,9 +152,9 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 **`hello`** answers:
 - `protocol` and `format`;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
-  capabilities, plan, design, status, pin, pinRevision, unsupported}` (`pinRevision` and
-  `unsupported` *1.3*; see
-  [The build channel](#the-build-channel-llp-1122-d4-12));
+  capabilities, inspector, plan, planDigest, design, status, pin, pinRevision, unsupported}`
+  (`pinRevision` and `unsupported` *1.3*; `inspector`, the client whose inspect mode it is in or
+  null, *1.6*; see [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
 - `epoch`: this run of the server, the same value its events carry (*1.1*);
@@ -157,8 +175,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
 - `ir`: the folded IR (LLP 1121 D2):
   - `format`, `digest`, `name`, `tuples`;
   - the axes and the dials (with each dial's `range`);
-  - the tokens, each with its folded `values` per tuple, `entries`, the `dials` it depends on and
-    its `fallback`;
+  - the tokens, each with its `kind` (`color`, `length` or `number`, *1.5*: written, or inferred from
+    its value; `box-shadow` or `text-shadow`, *1.8*, always written; `duration` or `easing`, *1.9*, written or inferred; `type` or `family`, *1.9*, written or inferred), its folded `values` per tuple, `entries`, the `dials` it depends on and its
+    `fallback` (a length's or number's is its default tuple's value, twice);
   - `exports`.
 
   The IR has no `when` lines. A token's source lines come from `explain`.
@@ -187,6 +206,20 @@ tuple:
   `light`, `dark` or `srgb`.
   - `fallback` is `{light, dark}`, labelled as a fallback, never as the value.
   - `fallback` is null when the vocabulary has none.
+- **A length** (*1.5*) is `{modes, value, kind: "length", unit, amount}`: `value` is the stored text;
+  `unit` is `px`, `rem`, `em` or `named` (a text style, `-exact-hairline`), and `amount` its number
+  (null for a named length). A `rem`, `em` or named length's px is the build's, which depends on its
+  text size: `resolve-on` (LLP 1122 T2b) gives it.
+- **A number** (*1.5*) is `{modes, value, kind: "number", amount}`.
+- **A duration** (*1.9*) is `{modes, value, kind: "duration", ms}`; **an easing** is
+  `{modes, value, kind: "easing"}`, its `value` the easing as written. A motion token has one tuple's
+  value in every tuple (no `when`).
+- **A type** (*1.9*) is `{modes, value, kind: "type", style, weight, size, leading, family}`: each
+  longhand as the token writes it, null for one it leaves unsaid (`size` always written). **A
+  family** is `{modes, value, kind: "family", family}`, the stack as CSS writes it.
+- **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
+  `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
+  written) and its colour's folded CSS (null for a text shadow's `currentcolor`).
 
 **`explain`** `{token, file?}` answers `{token, value, whens, dials, names, files}`:
 - `value` and each `whens[].value` are source text, as written;
@@ -200,7 +233,10 @@ given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected`
 runner resolves it.
 
 **`uses`** `{token, file?}` (*1.2*, stage 4 commit 6) says where the app reads a token,
-statically: every row of the plan that takes a colour and whose expression names it, directly,
+statically: every row of the plan of the token's kind (one that takes a colour for a colour token,
+one that takes none for a length or number token, *1.5*; and a row of the kind of a token whose
+value names it, so a `box-shadow` or `text-shadow` row for a length or colour a shadow token folds
+over, *1.8*) whose expression names it, directly,
 through a token whose value names it, through a synthetic token (a row's expression over
 tokens) that reads it, or through a slot or derive that may hold it (a slot whose initial
 value, or a value an action stores in it, names it). A value compared (`mode == "brand"`) is no
@@ -213,6 +249,14 @@ read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliase
   any bake. A build joins the spans through its own source map (LLP 1122 T2b's `outline`);
 - `aliases`: the tokens whose values name it, directly or through another;
 - `files`: the digests it read.
+
+A duration or easing token (*1.9*) is written into its rows at build, so the plan has no node
+for it: `plan` is null, and each site is a source literal, `{site: null, row, file, line, col,
+end_col, argument?, via?}`. These are the literals of a motion row the build wrote it into
+(`row` is that row's name, `-` as `_`) in every source the app loads, a package's too, and the
+component arguments whose literals name it (`row` null, `argument: {component, name}`), which an
+expansion writes into a row. `via: {token}` says when the literal names the token through
+another token. A comment is no site.
 
 A `file` that is not the design the app builds has no sites. The JS target's plan and a native
 bake of the same sources have the same sites. How many instances of each site are mounted on a
@@ -261,8 +305,10 @@ design.
 - `changed: [{file, token}]`: every token whose folded value differs, the dependents of a changed
   dial included, plus tokens added or removed;
 - `class`, `"live"` or `"rebuild"`: what the edit would do to running development builds (LLP
-  1121 D13), judged by the edit's whole closure (stage 4, commit 2). It is `live` when the
-  design's shape is unchanged and the app's synthetic tokens (its Contract rows' expressions over
+  1121 D13), judged by the edit's whole closure (stage 4, commit 2). It is `live` when the plan's
+  retained shape is unchanged (the axes, the dials, and each token the plan keeps by D7's retention
+  with its kind, its role and whether it varies by an app axis; see
+  [The live table](#the-live-table-llp-1121-stage-4-12)) and the app's synthetic tokens (its Contract rows' expressions over
   tokens) fold on both sides; a role override's value, or a token one reads, is a value like any
   other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
@@ -305,6 +351,15 @@ to no file while the gesture lasts, and is written once, on release. The wire ru
     next scrub's end). A build that reloads the builds ends the preview there.
   - It answers `{scrub, class: "live", changed, synthetic, files}`.
   - **A rebuild-class edit has no scrub** (409): it applies on release, as a `transaction`.
+  - **A token the JS target writes inline has no scrub either** (*1.5*): a number a `font-weight`
+    names, or a length or number an SVG attribute row names, has no property the page sets in
+    place, so its edit rebuilds and the JS dev loop refuses its scrub, the refusal naming why (the
+    design entry says `inline`).
+    So does every type and family token (stage 6 C, under *1.9*): the JS target writes each as
+    the kernel resolves its longhands, a literal, so an edit to one rebuilds there and has no
+    scrub, whatever `propose` classes it for the native and wasm builds (`live` for a value-only
+    edit is no promise for the JS target); and one that varies by an app axis is refused at build
+    when the app ships the JS target.
 - **`scrub-release`** `{client, scrub}` writes once: one transaction checked against the digests
   the scrub opened with, its reply a transaction's. A file moved since is a conflict naming who
   moved it (`by`): nothing is written, and the builds get the committed design back. While a
@@ -556,6 +611,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
 | `selected` | `build`, `selected` (LLP 1122 D5; *1.3*: the wasm web page in inspect mode, see the build channel) |
 | `selection` | `build`, `node`, `site`, `instance`, `tuple`, `source`, `rows`, `readOnly`, `trimmed` (*1.3*, LLP 1122 D5: a current `selected` report joined to source; see the build channel) |
+| `inspect` | `client`, `on`, `builds` (*1.6*, LLP 1122 D4: inspect mode's owners as they move; each build record names its owner too, `inspector`, a client or null. `on: false` lists the builds a client no longer inspects, with `to` the client that took them or null where inspect mode ended, whatever ended it: its own command, another client taking them, a page's own exit, the client's presence lapsing, the build forgotten; `on: true` lists the builds it took. Nothing is said when nothing moved.) |
 | `scrub` | `scrub`, `client`, `reason` (*1.2*; see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
@@ -591,8 +647,13 @@ A write reaches every running development build at once. Release builds take non
   - **The structure** is the plan without its design values: every `theme` row's `value` and
     every slice's, a role override's included (stage 5), except a profile colour's, which hosts
     take at boot. The dev loop compares it; it does not go on the wire.
-  - **Anything else** still publishes a plan and reloads: a Contract edit, a token added, gone or
-    starting to vary, a role override gained or lost, a synthetic token gained or lost.
+  - **Anything else** still publishes a plan and reloads: a Contract edit, a token the plan keeps
+    added or gone, or one starting to vary, a role override gained or lost, a synthetic token
+    gained or lost. Which tokens the plan keeps is LLP 1121 D7's retention (`tamber::Retention`):
+    every role override, what the views may name, and in an app that can name a token outside its
+    views (a data or native module) every token, bounded by `exports`. `propose` and a
+    transaction's `class` ask the same retention, as the build last found it, so a plain app's
+    token no view names is `live` to add, and the dev loops publish nothing for it.
 - **The batch** is an event on the dev stream the builds already hold (`/__dev`; the JS target's
   `/__dev/page`): `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
   slices}]}`.
@@ -641,7 +702,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
 
 - **Registration.** A build's dev stream hello (`/__dev`; the JS target's `/__dev/page`) carries
   a `nonce` when the loop has a design. The build answers with one `POST /__dev/report`:
-  `{nonce, kind: "register", id, host, capabilities, plan, design}`.
+  `{nonce, kind: "register", id, host, capabilities, plan, planDigest?, design}`. `planDigest`
+  (*1.9*) is the SHA-256 of the plan the build runs, the digest its source map names; the server
+  joins and outlines that build from that plan's map.
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.
@@ -676,13 +739,17 @@ The tool drives no input into an app; a command changes only what `prefer` would
       restarted, or it went unpolled 5 seconds), and the build says hello again.
 - **Reports up** (`POST /__dev/report`, each with the nonce), told to every client as events:
   - `status`: the effective `scheme`, `contrast`, `mode` (`{axis: value}`) and `rootFontSize`,
-    the facts that paint, the `plan` and `design` digests, and the pin `revision` it applied.
+    the facts that paint, the `plan` and `design` digests (and `planDigest`, *1.9*, as it moves),
+    and the pin `revision` it applied.
     Sent on connect and on any change, the app's own `setScheme`, `setMode` and
     `setRootFontSize` included (at most once a turn).
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
   - `selected` (*1.3*, LLP 1122 D5; the wasm web page sends it in inspect mode):
-    `{selected, plan, design, revision}`, the digests and pin revision the build runs, and
+    `{selected, inspect?, click?, plan, design, revision}`, the number of the `inspect` command it
+    was made under (*1.6*; one since replaced is refused), a click's token (*1.7*, 1 to 64
+    characters: a selection a press made, re-sent when it is reported again), the digests and pin
+    revision the build runs, and
     `selected` `{node, type, testId, site, instance, planDigest, tuple, rows, trimmed}`: the
     node a press in inspect mode hit (the browser's hit test, as a real tap's), its plan site
     and instance path, the plan digest its map is for, the modes it is in (`tuple`: the
@@ -707,13 +774,21 @@ The tool drives no input into an app; a command changes only what `prefer` would
     is told inspect mode as the server holds it. A build that can says
     `inspect` among its `capabilities` (the wasm web page now; the JS target and natives later).
     Development pages only.
-  - `outline` (*1.3*) `{sites, plan}`: the sites of plan `plan` (its digest) to outline while
+  - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
-    `{clear: true}`. A build running another plan leaves its outlines as they are: a host never
-    reads a source map, so only the server resolves sites, from the map it has.
+    `{clear: true}`. Each build is sent its own plan's sites, from that plan's map (*1.9*: by the
+    `planDigest` it says; the running generation's for a build that says none); a build whose plan
+    has no map at the server is sent none. A host never reads a source map: only the server
+    resolves sites. A frame for another plan than its own still leaves a build's outlines as they
+    are. The outline
+    answering a selection names its `click` (*1.7*) when the report carried one: the host that
+    made that click does not scroll to the first copy for it (the copy clicked is under the
+    pointer); every other outline scrolls its first copy into view.
   - `hold` is reserved (stage 8). A host answers it `unsupported`.
 - **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report
-  only when it is the build's latest: its `plan`, `design` and `revision` those of its latest
+  only while the build is in someone's inspect mode (*1.6*: one sent as it ended, or naming an
+  `inspect` command since replaced, is refused, 409, and not published; a page's exit, `selected: null`, is published only for the build's
+  current inspect command), and only when it is the build's latest: its `plan`, `design` and `revision` those of its latest
   status. One from before (a batch or a pin since) is refused (409) and the build is asked again
   (`inspect {refresh: true, status: true}`: its status first, then the selection), once per
   status it has. A current one is joined to the source map of the plan it names
@@ -728,13 +803,18 @@ The tool drives no input into an app; a command changes only what `prefer` would
   makes the selection `readOnly`, with its reason, and every row read-only. The app's design file
   likewise (the one the server serves, which the map must name), unless the build runs the
   design the dev loop serves now and the file's bytes are the ones that design was made from (a
-  value edit it took, not a later save it kept the last good design over). Then every build that can inspect is sent `outline` with the sites at the
-  selection's source location.
+  value edit it took, not a later save it kept the last good design over). Then every build that can
+  inspect is sent `outline` with its own plan's sites at the selection's source location (*1.9*: the
+  span from the selection's plan map, resolved through each build's own; a build whose map is
+  missing or stale is sent none, and loses an outline this client drew). A selection that names no
+  plan joins with no map, and is read-only.
 - **`outline`** `{client, at: [{file, line, col}]}` (*1.3*, write scope, a present client;
   journaled; the outlines are its client's, cleared when it stops being present): every build
   that can inspect outlines its views at those source locations (a token's `uses` sites, a
-  changeset entry's), by the dev loop's current map. Answered `{sites, builds}`; refused (409)
-  while a file that map compiled has changed since (a fresh span would land on another node).
+  changeset entry's), each by its own plan's map (*1.9*; the running generation's for a build that
+  says no plan). Answered `{sites, builds}`: the running plan's sites, and the builds sent one. A
+  build whose map is missing, or compiled a file that has changed since (a fresh span would land
+  on another node), is sent none; refused (409, or 503 with no map) only when no build could be.
 - **`inspect`** `{client, build?, on | refresh: true}` (*1.3*, write scope and a present client)
   sends
   `inspect` to a build, or to every build that can. Answered `{builds, unsupported}`: the builds

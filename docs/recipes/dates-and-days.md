@@ -11,6 +11,7 @@ shape Time
 component Habit
   state now = 0
   state doneDays = []
+  state lastAt = 0
   resource time = exactTime() as shape Time
   derive shown = time.epochAtZero + now
   derive today = formatDate(shown, time.utcOffset, "iso")
@@ -23,16 +24,18 @@ component Habit
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
     doneDays = doneDays.concat([formatDate(at, time.utcOffset, "iso")])
+    lastAt = at
   view
     column padding=16 gap=8
       text formatDate(shown, time.utcOffset, "medium") role="heading" aria-level=2 testId="today"
-      text `Updated ${formatTime(shown, time.utcOffset, "short")}` color="-exact-secondary-label" testId="updated"
       if doneDays.includes(today)
         text "Done today" testId="status"
       else if doneDays.includes(yesterday)
         text "Done yesterday" testId="status"
       else
         text "Not done yet" testId="status"
+      if lastAt > 0
+        text `Last done ${formatDay(lastAt, shown, time.utcOffset, "day-time")}` testId="last"
       button press=markDone disabled=doneDays.includes(today) buttonStyle="filled" testId="done"
         text "Mark Done"
 ```
@@ -47,6 +50,7 @@ test "the day turns over at local midnight"
   clock +3600000
   expect text "today" == "Mar 15, 2026"
   expect text "status" == "Done yesterday"
+  expect text "last" == "Last done Yesterday at 11:30 PM"
 
 test "an entry made 30 s after midnight, before the tick, is the new day's"
   epoch "2026-03-15T06:59:50Z"
@@ -58,16 +62,15 @@ test "an entry made 30 s after midnight, before the tick, is the new day's"
   expect text "status" == "Done today"
 ```
 
-- **The write reads the clock itself.** The minute-ticked `now` is for display and can be a
-  minute behind, so an entry keyed by `today` just after midnight lands on yesterday: the action
-  takes `let at = time.epochAtZero + performanceNow()` and keys `formatDate(at, time.utcOffset,
-  "iso")` (an action reads the state it started with, so `today` is still the old day in it).
+- **The write reads the clock itself.** The minute-ticked `now` can be a minute behind, so an
+  entry keyed by `today` just after midnight lands on yesterday: the action takes
+  `let at = time.epochAtZero + performanceNow()` and keys `formatDate(at, time.utcOffset, "iso")`.
 - A derive that reads the clock doesn't update by itself: keep the time in state that a
-  `task … every` writes (a minute for a date, a second or less for a timer). Store
-  `time.epochAtZero + performanceNow()`, never `performanceNow()` alone, which restarts at 0 each
-  launch ([timer-that-survives-relaunch](timer-that-survives-relaunch.md)).
-- `"iso"` is the day key and keys compare as strings; `"medium"` is `Mar 14, 2026`,
-  `formatTime(…, "short")` is `11:30 PM`.
-- `utcOffset` is the zone's offset now (a DST change arrives with the next tick), so
-  `shown - 86400000` can miss by an hour across one. Tests pin `epoch` and `time-zone`; the
-  driver's default is 2026-01-01T00:00:00Z in UTC.
+  `task … every` writes. Store `time.epochAtZero + performanceNow()`, never `performanceNow()`
+  alone (0 at each launch).
+- `"iso"` is the day key, compared as text. A label is `formatDay(then, shown, offset,
+  mode)`, never `day == today ? "Today" : …`: `"day"` is `Today`, `Yesterday`, `Tomorrow` or
+  `Mar 14, 2026`; `"day-time"` adds ` at 11:30 PM`; `"list"` is Mail's (the time today,
+  `Yesterday`, a weekday this week, else `3/7/26`).
+- `utcOffset` is the zone's offset now, so `shown - 86400000` and `formatDay` can miss by an hour
+  across a DST change. Tests pin `epoch` and `time-zone`; the default is 2026-01-01 UTC.

@@ -570,6 +570,7 @@ mod owned_spec {
             hang: false,
             mark: 0,
             href: String::new(),
+            bold_text: false,
         }
     }
     fn spec(text: &str) -> Spec {

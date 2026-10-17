@@ -51,6 +51,16 @@ final class MarkupRunsTests: XCTestCase {
         XCTAssertEqual(MarkupRuns.expand("", base: base, color: nil), [])
     }
 
+    /// LLP 1115.000 D12.3: under Bold Text the kernel steps the node's
+    /// weight; a piece's own bold takes the same step (700 to 900).
+    func testBoldTextStepsAPiecesOwnWeight() {
+        let base = Run(text: "", size: 16, weight: 600, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let runs = MarkupRuns.expand("Some **bold**", base: base, color: nil, boldText: true)
+        XCTAssertEqual(runs.first { $0.text == "Some " }?.weight, 600)
+        XCTAssertEqual(runs.first { $0.text == "bold" }?.weight, 900)
+        XCTAssertEqual([400, 450, 700, 1000].map(TextEngine.bolder), [600, 650, 900, 1000])
+    }
+
     func testMarkersTakeTheInkAtReducedOpacity() {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         let runs = MarkupRuns.expand("- one\n\n> quoted", base: base, color: [0, 0, 0, 255])

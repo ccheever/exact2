@@ -6,7 +6,8 @@
 // viewport by the keyboard and reveals the field, as a browser's visual
 // viewport does (LLP 1008 §9); `dismiss` takes the focus, and the keyboard
 // with it. `under`, a strip at the page's bottom, is under the keyboard while
-// it is up: a finger cannot reach it there, so neither can the driver.
+// it is up: a finger landing there lands on the keyboard, so the driver
+// refuses a tap at a point in it.
 component Insets
   state note = ""
   state focused = false

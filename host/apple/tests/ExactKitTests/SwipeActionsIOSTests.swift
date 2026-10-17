@@ -121,6 +121,28 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(p.swipeActions.refusal(of: owner)?.contains("\"delete\" names no one descendant of it") == true, p.swipeActions.refusal(of: owner) ?? "none")
     }
 
+    /// A name resolves within its row (LLP 1116.020 D1): a `for` that
+    /// repeats `id="body"` and `id="delete"`, as `delete=`'s expansion does,
+    /// gives every row its own swipe, not a refusal.
+    func testRowsThatRepeatTheirNamesEachSwipe() throws {
+        let p = fixture()
+        var roots = BatchOp(op: .roots); roots.ids = [1, 5]
+        var content = BatchOp(op: .content, nodeID: 5)
+        content.w = 390; content.h = 80
+        apply(p, [
+            create(5, "view", props: ["swipeContent": "body", "swipeTrailing": "delete"], style: ["overflow_x": "scroll", "overflow_y": "hidden"]),
+            create(6, "view"),
+            create(7, "view", props: ["id": "body"]),
+            create(8, "button", props: ["id": "delete", "accessibilityLabel": "Delete"]),
+            children(5, [6]), children(6, [7, 8]), roots,
+            frame(5, 0, 300, 80), frame(6, 0, 390, 80), frame(7, 0, 300, 80), frame(8, 300, 90, 80), content,
+        ])
+        for owner in [try XCTUnwrap(p.views[1]), try XCTUnwrap(p.views[5])] {
+            XCTAssertNil(p.swipeActions.refusal(of: owner), p.swipeActions.refusal(of: owner) ?? "")
+        }
+        XCTAssertTrue(p.swipeActions.ownsAction(4)); XCTAssertTrue(p.swipeActions.ownsAction(8))
+    }
+
     /// Actions that say `appearance="none"` keep their paint
     /// (PaintedSwipesIOS.swift): no cell, the row's own scroll, its actions
     /// VoiceOver's custom actions on the content and hidden from it; its

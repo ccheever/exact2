@@ -901,9 +901,9 @@ fn web_build(app: &Path) -> Result<(), String> {
 
 /// A package's declarations reach the type check of every producer from the
 /// capture (LLP 1027 D5, "Type-only package imports"): a type-only import
-/// checks against them, a changed `.d.ts` checks again, and a value import,
-/// a library the configuration does not load, or a global types package no
-/// file names is refused alike.
+/// checks against them, a changed `.d.ts` checks again, and a library the
+/// configuration does not load, or a global types package no file names, is
+/// refused alike.
 #[test]
 fn type_only_package_imports_check_alike_and_package_code_never_runs() {
     let f = Fixture::new();
@@ -1080,18 +1080,14 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
         "logic.ts",
         "import { rows } from 'rows';\nexport const prefix = rows.length + ': ';\n",
     );
-    let real = f.0.canonicalize().unwrap();
-    refused(
-        &mut every,
-        &format!(
-            "module outside captured app: {}",
-            real.join("node_modules/rows/dist/index.js").display()
-        ),
-    );
-    // A side-effect import is a value import: refused before any producer,
-    // the web build's own reading of app.ts included, runs the package.
+    // Its code is captured with it ("Package code", tests/packages.rs).
+    for result in every(&f) {
+        result.unwrap();
+    }
+    // One that needs Node is refused before any producer, the web build's
+    // own reading of app.ts included, runs the package.
     put("logic.ts", &format!("import 'plain';\n{}", logic("2")));
-    refused(&mut every, "module outside captured app: ");
+    refused(&mut every, "imports Node's built-in 'node:fs'");
     assert!(!ran.exists(), "a refused package's code never runs");
     // A specifier that leaves its package names no file of it.
     put("helper.ts", "export const helper = 'helped: ';\n");

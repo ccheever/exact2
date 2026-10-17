@@ -496,8 +496,9 @@ pub struct Message {
     pub binary: Option<Vec<u8>>,
 }
 
-/// One operation a mutation stages on a resource's socket (LLP 1016.000
-/// D7), published only once the mutation's commit stands.
+/// One operation a mutation, or the socket's own mapper, stages on a
+/// resource's socket (LLP 1016.000 D7), published only once the commit
+/// that staged it stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SocketOp {
     /// A text frame.
@@ -532,14 +533,35 @@ impl SocketOp {
     }
 }
 
-/// One mutation's socket operations, in the order its source made them,
-/// each addressed to the stream ticket of the resource that owns the
-/// socket. Taken by [`crate::Runner::take_socket_sends`] after the commit
-/// that staged them stands; the host checks the whole batch, then sends it.
+/// What staged a batch of socket operations (LLP 1016.000 D7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketOrigin {
+    /// A mutation's synchronous source, by the mutation's name.
+    Mutation(String),
+    /// A resource's mapper answering a frame of its own socket (its `open`
+    /// or a `message`), by the resource's name.
+    Mapper(String),
+}
+
+impl SocketOrigin {
+    /// Its words in the journal: `send <mutation>` or `mapper <resource>`.
+    pub fn words(&self) -> (&'static str, &str) {
+        match self {
+            SocketOrigin::Mutation(name) => ("send", name),
+            SocketOrigin::Mapper(name) => ("mapper", name),
+        }
+    }
+}
+
+/// One mutation's or one mapper call's socket operations, in the order its
+/// code made them, each addressed to the stream ticket of the resource
+/// that owns the socket. Taken by [`crate::Runner::take_socket_sends`]
+/// after the commit that staged them stands; the host checks the whole
+/// batch, then sends it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SocketSend {
-    /// The mutation's name.
-    pub mutation: String,
+    /// What staged them.
+    pub origin: SocketOrigin,
     /// (stream ticket, resource name, operation), in order.
     pub ops: Vec<(u64, String, SocketOp)>,
 }

@@ -189,6 +189,9 @@ pub(crate) enum NavPlace {
     Outside,
     /// A root's child: the tags from the root down.
     RootChild(Vec<String>),
+    /// A child of a root that holds tabs, whose routes are its tabpanels'
+    /// children only (LLP 1075.003 §3.7).
+    TabbedRootChild(Vec<String>),
     /// A tabpanel's child, the panel in a root.
     PanelChild(Vec<String>),
     /// Deeper inside a root, behind a wrapper, outside any route.
@@ -346,11 +349,32 @@ impl NavPlace {
             );
         }
         if has("navigationKey") && has("navigationBack") {
-            return Ok(NavPlace::RootChild(vec![tag.to_string()]));
+            let path = vec![tag.to_string()];
+            return Ok(if holds_tabs(children) {
+                NavPlace::TabbedRootChild(path)
+            } else {
+                NavPlace::RootChild(path)
+            });
         }
         if has("navigationKey") {
             let shown = match self {
                 NavPlace::InRoot(p) => p.join(" > "),
+                // @ref LLP 1116.020 D2 — round 18's contacts took its add sheet out of the tab's
+                // stack and drew it beside the tabs: no host presented it, and its header sat
+                // under the status bar with Save and Cancel dead.
+                NavPlace::TabbedRootChild(_) => {
+                    let modal = attrs.iter().rev().find(|a| a.name == "navigationPresentation");
+                    let sheet = if modal.is_some() {
+                        " (a `navigationPresentation=\"modal\"` here is no sheet: it is drawn over the page, its header under the status bar)"
+                    } else {
+                        ""
+                    };
+                    return err(
+                        "lower-route-place",
+                        format!("this `{tag}` has a `navigationKey` beside the root's tabpanels; with tabs every host finds routes only among a tabpanel's children, so this one is never a route{sheet}. Render it in the tab's stack, in the panel's `for e in t.stack` with the other routes and not filtered out of it: a modal route there is presented as a sheet over the tabs (docs/contract-for-agents.md, \"Tabs and stacks\")"),
+                        modal.map_or(span, |a| a.span),
+                    );
+                }
                 NavPlace::InRoute => {
                     return err(
                         "lower-route-place",
@@ -380,13 +404,57 @@ impl NavPlace {
                 _ => true,
             });
         Ok(match self {
-            NavPlace::RootChild(p) | NavPlace::InRoot(p) if panel => NavPlace::PanelChild(path(p)),
-            NavPlace::RootChild(p) | NavPlace::PanelChild(p) | NavPlace::InRoot(p) => {
-                NavPlace::InRoot(path(p))
+            NavPlace::RootChild(p) | NavPlace::TabbedRootChild(p) | NavPlace::InRoot(p)
+                if panel =>
+            {
+                NavPlace::PanelChild(path(p))
             }
+            NavPlace::RootChild(p)
+            | NavPlace::TabbedRootChild(p)
+            | NavPlace::PanelChild(p)
+            | NavPlace::InRoot(p) => NavPlace::InRoot(path(p)),
             other => other.clone(),
         })
     }
+}
+
+/// Whether a navigation root's own subtree, outside its routes, holds a
+/// literal `tablist` and `tabpanel`: its routes are then its tabpanels'
+/// children, never its own (`host/web/navigation.js` `stacksOf`, the iOS and
+/// Mac hosts' `NavigationTabs`, the runner's `tab_panels`). What the compiler
+/// cannot see (a computed role, a component's use) is not counted.
+fn holds_tabs(children: &[Node]) -> bool {
+    let (mut list, mut panel) = (false, false);
+    let mut stack: Vec<&Node> = children.iter().collect();
+    while let Some(node) = stack.pop() {
+        match node {
+            Node::Element {
+                attrs, children, ..
+            } => {
+                if attrs.iter().any(|a| a.name == "navigationKey") {
+                    continue;
+                }
+                match attrs
+                    .iter()
+                    .rev()
+                    .find(|a| a.name == "role")
+                    .map(|a| &a.value)
+                {
+                    Some(Expr::Str(r, _)) if r == "tablist" => list = true,
+                    Some(Expr::Str(r, _)) if r == "tabpanel" => panel = true,
+                    _ => {}
+                }
+                stack.extend(children);
+            }
+            Node::When {
+                then, otherwise, ..
+            } => stack.extend(then.iter().chain(otherwise)),
+            Node::Each { body, .. } => stack.extend(body),
+            Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
+            Node::Use { .. } | Node::Children { .. } => {}
+        }
+    }
+    list && panel
 }
 
 /// A route's literal `navigationScroll` names its content scroller by HTML

@@ -589,8 +589,9 @@ impl Gen<'_> {
         }
     }
 
-    /// `formatTime`, `formatDate` or `formatNumber`: an instant (epoch ms)
-    /// at a UTC offset (minutes east; past ±18 h prints `""`), or a count.
+    /// `formatTime`, `formatDate`, `formatDay` or `formatNumber`: an instant
+    /// (epoch ms) at a UTC offset (minutes east; past ±18 h prints `""`), or
+    /// a count.
     fn format_expr(&mut self, env: &Env, d: usize) -> String {
         let num = |g: &mut Self| {
             if g.rng.chance(1, 2) {
@@ -599,7 +600,7 @@ impl Gen<'_> {
                 g.expr(env, &Ty::Num, d, false)
             }
         };
-        match self.rng.weighted(&[2, 2, 3, 2, 2]) {
+        match self.rng.weighted(&[2, 2, 3, 2, 2, 3]) {
             0 => {
                 let (at, off) = (num(self), number(*self.rng.pick(OFFSETS)));
                 format!("formatTime({at}, {off}, \"short\")")
@@ -640,7 +641,7 @@ impl Gen<'_> {
                 let digits = *self.rng.pick(&[0, 1, 2, 2, 3, 20, 100]);
                 format!("({n}).toFixed({digits})")
             }
-            _ => {
+            4 => {
                 let n = match self.rng.below(3) {
                     0 => number(*self.rng.pick(DECIMALS)),
                     1 => format!("round({} * 100)", self.expr(env, &Ty::Num, d, false)),
@@ -648,6 +649,27 @@ impl Gen<'_> {
                 };
                 let digits = *self.rng.pick(&[0, 1, 2, 2, 3, 20]);
                 format!("formatDecimal({n}, {digits})")
+            }
+            // LLP 1116.020 D8: `formatDay` of an instant whole days and some
+            // hours from `now`, mostly, so each word, the week's edge and a
+            // midnight at the offset come up.
+            _ => {
+                let now = num(self);
+                let then = if self.rng.chance(1, 3) {
+                    num(self)
+                } else {
+                    let days = *self
+                        .rng
+                        .pick(&[-8.0, -7.0, -6.0, -2.0, -1.0, 0.0, 1.0, 2.0]);
+                    let hours = *self.rng.pick(&[-23.0, -5.0, 0.0, 7.0, 23.5]);
+                    format!(
+                        "({now}) + {}",
+                        number(days * 86_400_000.0 + hours * 3_600_000.0)
+                    )
+                };
+                let off = number(*self.rng.pick(OFFSETS));
+                let mode = *self.rng.pick(&["\"day\"", "\"day-time\"", "\"list\""]);
+                format!("formatDay({then}, {now}, {off}, {mode})")
             }
         }
     }

@@ -425,27 +425,19 @@ impl Engine {
         self.paths.remove(&node);
         // Removing a list must not scan every other node once per row, nor
         // probe every table once per property: a list row's retirement
-        // removes a node per box. Its running curves are one range of the
-        // ordered index; its pending frame entries (`dirty`) present nothing
-        // once its slots and animations are gone (`frame` finds neither), so
-        // the next frame's drain takes them.
-        let running: Vec<(u64, Property)> = self
-            .running
-            .range((node, Property::Translate)..)
-            .take_while(|key| key.0 == node)
-            .copied()
-            .collect();
-        for key in running {
-            self.running.remove(&key);
-        }
-        let pending: Vec<(u64, Property)> = self
-            .pending
-            .range((node, Property::Translate)..)
-            .take_while(|key| key.0 == node)
-            .copied()
-            .collect();
-        for key in pending {
-            self.pending.remove(&key);
+        // removes a node per box. Its running, pending and played curves are
+        // one range of each ordered index; its pending frame entries
+        // (`dirty`) present nothing once its slots and animations are gone
+        // (`frame` finds neither), so the next frame's drain takes them.
+        for keys in [&mut self.running, &mut self.pending, &mut self.played] {
+            let of_node: Vec<(u64, Property)> = keys
+                .range((node, Property::Translate)..)
+                .take_while(|key| key.0 == node)
+                .copied()
+                .collect();
+            for key in of_node {
+                keys.remove(&key);
+            }
         }
         self.slots.remove_node(node);
     }
@@ -461,6 +453,7 @@ impl Engine {
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
         self.pending.remove(&(node, property));
+        self.played.remove(&(node, property));
         self.slots.remove(&(node, property)).is_some()
     }
 
@@ -525,7 +518,7 @@ impl Engine {
         let after = change.value;
         // A played transition comes back to be sampled (or played again):
         // a retarget measures from its curve, as for a running one.
-        self.played.remove(&key);
+        let played = self.played.remove(&key);
         if matches!(slot.owner(), Some(Owner::Held(_))) {
             slot.set_target(after);
             return Ok(());
@@ -552,8 +545,14 @@ impl Engine {
                 }
             }
             Some(running) => {
-                if after == running.to {
+                // An unchanged target leaves the transition as it is.
+                // Compared as changes state it (the slot's target): a curve
+                // between colour spaces ends in Oklab
+                if after == slot.target {
                     slot.set_running(Some(running));
+                    if played {
+                        self.played.insert(key);
+                    }
                     return Ok(());
                 }
                 slot.set_owner(None);
@@ -801,16 +800,16 @@ impl Engine {
                 .any(|p| p.animation.keyframes.properties().into_iter().any(spatial))
     }
 
-    /// The clock time at which the last running transition or finite
-    /// animation ends, or `None` when none is. An agent advances here instead
-    /// of waiting; an infinite animation never settles (LLP 1055 D10).
+    /// The clock time at which the last running or played transition or
+    /// finite animation ends, or `None` when none is. An agent advances here
+    /// instead of waiting; an infinite animation never settles (LLP 1055 D10).
     pub fn settle_time(&self) -> Option<f64> {
+        let now = self.sample_time();
+        let end = |key: &(u64, Property)| self.slots.get(key)?.running().map(|c| c.end_at(now));
         self.running
             .iter()
-            .map(|key| {
-                let curve = self.slots[key].running().expect("indexed curve");
-                curve.end_at(self.sample_time())
-            })
+            .map(|key| end(key).expect("indexed curve"))
+            .chain(self.played.iter().filter_map(end))
             .chain(self.animations_settle_time())
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }

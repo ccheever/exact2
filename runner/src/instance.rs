@@ -1035,12 +1035,11 @@ impl NodeInst {
                 self.last[i] = Some(value);
                 continue;
             }
-            // A binding is a declaration whose value is computed from state,
-            // as a `var()` reference is. A value its row's grammar refuses is
-            // invalid at computed-value time (CSS Custom Properties §3.1): the
-            // row is unset — inherited or initial — and a journal line says
-            // so. Not CSSOM's `setProperty`, which keeps the earlier value:
-            // the view would then depend on history, not state. Unknown rows are plan defects.
+            // A binding is a declaration whose value is computed from state, as a `var()` reference
+            // is. A value its row's grammar refuses is invalid at computed-value time (CSS Custom
+            // Properties §3.1): the row is unset and a journal line says so (a `BridgeError::Unset`
+            // unsets it silently). Not CSSOM's `setProperty`, which keeps the earlier value: the
+            // view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
                     Ok((prop, pv)) => u.ops.push(Op::SetProp {
@@ -1048,12 +1047,15 @@ impl NodeInst {
                         prop,
                         value: pv,
                     }),
-                    Err(bridge::BridgeError::PropKind { prop, .. }) => {
-                        u.ops.push(Op::ClearProp {
-                            id: self.view,
-                            prop,
-                        });
-                        u.notes.push(invalid(self.view, prop.name(), &value));
+                    Err(
+                        e @ (bridge::BridgeError::PropKind { prop, .. }
+                        | bridge::BridgeError::Unset(prop)),
+                    ) => {
+                        let id = self.view;
+                        u.ops.push(Op::ClearProp { id, prop });
+                        if matches!(e, bridge::BridgeError::PropKind { .. }) {
+                            u.notes.push(invalid(id, prop.name(), &value));
+                        }
                     }
                     Err(e) => return Err(InstanceError::Bridge(e)),
                 },
@@ -1076,31 +1078,28 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(Box::default);
-                    let family_value = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
-                        match &value {
-                            Value::Option(Some(inner)) => inner.as_ref(),
-                            _ => &value,
-                        }
-                    } else {
-                        &value
-                    };
-                    let family_id = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
-                        family_value.as_str().and_then(|name| {
-                            u.fonts
-                                .as_ref()?
-                                .borrow_mut()
-                                .intern(name, plan.stacks.len())
-                        })
-                    } else {
-                        None
-                    };
+                    let (family_value, family_id) =
+                        bridge::family_binding(plan, u.fonts.as_deref(), binding, &value);
+                    // A row a runtime family or a refusal sets reads no token:
+                    // the index forgets what it read before.
+                    let row = exact_kernel::StyleId::from_bit(binding.id as u32);
                     let styled = if let Some(id) = family_id {
+                        if let (true, Some(row)) = (themed_plan, row) {
+                            self.unthemed(u, i, row);
+                        }
                         bridge::set_runtime_font_style(
                             p,
                             binding,
                             id,
                             plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
                         )
+                    } else if let Err(e) =
+                        bridge::inherited_varying(plan, binding, family_value, self.node)
+                    {
+                        if let (true, Some(row)) = (themed_plan, row) {
+                            self.unthemed(u, i, row);
+                        }
+                        Err(e)
                     } else {
                         exact_kernel::style::theme::take_named();
                         let styled = bridge::set_binding_style(p, binding, family_value, plan);

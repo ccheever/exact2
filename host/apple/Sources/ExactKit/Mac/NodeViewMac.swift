@@ -36,6 +36,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package override func selectAll(_ sender: Any?) { presenter?.selection.selectAll() }
 
     package let id: UInt32
+    var pressMoves: UInt64 = 0
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
     var paintLifted = false
@@ -73,7 +74,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var liveText: String?
-    package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
+    package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self); presenter?.mouseChain.bubbledPress?.validate() } }
     package var style: NodeStyle = [:]
     /// What the host's own writers hid (a covered route, a tab a native control
     /// stands in for, a placement); a `display: none` box is hidden besides, as
@@ -203,7 +204,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
-    var routeInert = false
+    var routeInert = false { didSet { presenter?.mouseChain.bubbledPress?.validate() } }
     /// What `setAccessibilityHidden` last wrote (`Accessibility.swift`).
     var accessibilityHiddenWritten = false
     package var inert: Bool { inert(forAccessibility: false) }
@@ -1082,8 +1083,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             observeLiveScroll(sv, replacing: scroll)
             sv.autoresizingMask = [.width, .height]
             GlassGroups.moving(in: self) {
-                for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+                let children = container.subviews.filter { $0 is NodeView }
                 addSubview(sv)
+                for child in children { sv.documentView?.addSubview(child) }
             }
             scroll = sv
             presenter?.scrollers.insert(id)
@@ -1091,7 +1093,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if ox != "scroll" && ox != "auto" && oy != "scroll" && oy != "auto", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
             GlassGroups.moving(in: self) {
-                for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
+                for child in sv.documentView?.subviews ?? [] where child is NodeView { (overlay ?? materialContent ?? self).addSubview(child) }
                 sv.removeFromSuperview()
             }
             observeLiveScroll(nil, replacing: sv)
@@ -1179,6 +1181,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     package override func viewDidMoveToSuperview() {
+        pressMoves &+= 1
         super.viewDidMoveToSuperview()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         paintOrderMoved()
@@ -1383,93 +1386,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled, !inert, pressable else { return false }
         DispatchQueue.main.async { [weak self] in if let self { self.presenter?.press(self.id) } }
         return true
-    }
-    package override func mouseDown(with event: NSEvent) {
-        guard !inert else { return }
-        if contextClick(event) { return rightMouseDown(with: event) }
-        pointerPressed(event)
-        if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
-        if canvasInput?.pointer(event, phase: "down") == true { return }
-        presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
-        presenter?.collections.pointerDown(id, event: event)
-        presenter?.mouseChain.down(self, event: event)
-        guard !disabled else { pressed = false; return }
-        presenter?.interacting = id
-        if let target = presenter?.svg.target(id, at: local(event.locationInWindow)) { svgPressed = target; return }
-        if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
-            inlinePressed = run.id
-            window?.makeFirstResponder(self)
-            presenter?.selection.begin(self, event: event)
-            return
-        }
-        if selectsText { presenter?.selection.press(self, event: event); return }
-        // A descendant that took focus keeps it (LLP 1088 D7.3). Forward
-        // through the responder chain: NSView's default retries covered siblings.
-        let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
-        if takesClickFocus, !inner { window?.makeFirstResponder(self) }
-        if pressable { pressed = true } else { nextResponder?.mouseDown(with: event) }
-    }
-    /// A paragraph's drag selects its text unless a press takes it: its
-    /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
-    var selectsText: Bool { isParagraph && !pressable && !hasPressableAncestor }
-    var hasPressableAncestor: Bool {
-        var next = superview
-        while let view = next {
-            if let node = view as? NodeView, (node.pressable || node.isSurfaceControl || node.isButton) { return true }
-            next = view.superview
-        }
-        return false
-    }
-    package override func mouseDragged(with event: NSEvent) {
-        if contextClicked { return rightMouseDragged(with: event) }
-        pointerDragged(event)
-        guard !inert else { return }
-        if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
-        if canvasInput?.pointer(event, phase: "move") == true { return }
-        inlinePressed = nil
-        // A gesture that engages ends the press (the chain clears `pressed`).
-        if presenter?.mouseChain.drag(event) == true { return }
-        pressFollows(inside: pressInside(event.locationInWindow))
-        if selectsText { presenter?.selection.drag(event) }
-        else { nextResponder?.mouseDragged(with: event) }
-    }
-    package override func rightMouseUp(with event: NSEvent) {
-        pointerReleased(event)
-        if canvasInput?.pointer(event, phase: "up") != true { super.rightMouseUp(with: event) }
-    }
-    package override func mouseUp(with event: NSEvent) {
-        if contextClicked { contextClicked = false; return rightMouseUp(with: event) }
-        pointerReleased(event)
-        guard !inert else { return }
-        if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
-        if canvasInput?.pointer(event, phase: "up") == true { return }
-        defer { holdPresenter?.interacting = 0 }
-        if presenter?.mouseChain.up(event) == true { return }
-        presenter?.collections.releaseInteractionLater()
-        let double = dblclickTarget(event)
-        defer { dispatchDblclick(double) }
-        if let target = svgPressed {
-            svgPressed = nil
-            // The element has no view of its own: the `svg`'s view stands for it.
-            if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
-                presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
-            }
-            return
-        }
-        if let run = inlinePressed {
-            inlinePressed = nil
-            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
-            return
-        }
-        if selectsText { presenter?.selection.end(self, event: event); return }
-        guard !disabled else { pressed = false; return }
-        guard pressed else { nextResponder?.mouseUp(with: event); return }
-        pressed = false
-        if pressInside(event.locationInWindow) {
-            let canvas = inputCanvas, ownerWindow = window
-            presenter?.press(id, held: KeyCodes.held(event.modifierFlags))
-            finishPress(canvas: canvas, window: ownerWindow, pointer: true)
-        }
     }
     package override func rightMouseDown(with event: NSEvent) {
         // DOM's order on a Mac: the secondary button's `pointerdown`, then

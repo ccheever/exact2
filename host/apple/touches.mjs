@@ -1,18 +1,22 @@
-// The touch runner (LLP 1080.000 D1/D2): real touches on iOS through public
-// XCUICoordinate, from an XCTest UI test (`touches.swift`) that stays alive
-// for an agent session. Built from Xcode's own XCTRunner.app — no Xcode
-// project — installed on the destination, and started by xcodebuild with
-// `UseDestinationArtifacts`, so nothing is installed or relaunched under a
-// running app. The runner connects out over the phone carrier's token bridge
-// and answers JSON lines. One runner per device, held by a lock file.
+// The touch runner (LLP 1080.000 D1/D2): real touches on iOS through XCTest's
+// event synthesis, from an XCTest UI test (`touches.swift`) that stays alive
+// across agent sessions. Built from Xcode's own XCTRunner.app — no Xcode
+// project — installed on the destination, and started by xcodebuild, so
+// nothing is installed or relaunched under a running app. The runner connects
+// out over the phone carrier's token bridge, answers JSON lines, and is kept
+// for the next session on a loopback port (a connection instead of
+// xcodebuild's 5 s start). One session per device at a time, held by a lock
+// file.
 //
 // Simulator only so far; a phone is LLP 1080.000 stage 4.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { iosTriple } from './build.mjs';
+import { claimLive } from '../../scripts/app.mjs';
 import { phoneBridge } from './devices.mjs';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
@@ -24,15 +28,24 @@ const must = (cmd, args) => {
   return r.stdout;
 };
 
-/** The runner for a simulator, built once per source, SDK, arch and Xcode (D1's key), installed on `udid`. */
-export function touchRunner(udid) {
+/** The runner's identity (D1's key): its source as read now, the arch, the
+ * selected Xcode and its simulator SDK, each by its own file where it has
+ * one (a launch compares it, so it costs a file read, not a tool's start). */
+export function runnerKey() {
   const developer = must('xcode-select', ['-p']).trim();
   const platform = resolve(developer, 'Platforms/iPhoneSimulator.platform/Developer');
-  const source = resolve(ROOT, 'host/apple/touches.swift');
+  const text = (path) => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
+  const source = readFileSync(resolve(ROOT, 'host/apple/touches.swift'), 'utf8');
   const key = createHash('sha256').update(JSON.stringify({
-    source: readFileSync(source, 'utf8'), destination: 'iphonesimulator', arch: process.arch,
-    sdk: must('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-version']).trim(), xcode: must('xcodebuild', ['-version']).trim(),
+    source, destination: 'iphonesimulator', arch: process.arch, developer,
+    sdk: text(resolve(platform, 'SDKs/iPhoneSimulator.sdk/SDKSettings.json')) ?? must('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-version']).trim(),
+    xcode: text(resolve(developer, '../version.plist')) ?? must('xcodebuild', ['-version']).trim(),
   })).digest('hex').slice(0, 16);
+  return { key, platform, source };
+}
+
+/** The runner for a simulator, built once per `runnerKey()`, from the source the key was made of, installed on `udid`. */
+export function touchRunner(udid, { key, platform, source } = runnerKey()) {
   const dir = resolve(ROOT, 'target/touch-runner', key);
   const app = resolve(dir, 'ExactTouches-Runner.app');
   // Built in a directory of its own, then published by one rename: a
@@ -49,10 +62,12 @@ export function touchRunner(udid) {
   return { dir, app };
 }
 
-/** Assemble the runner in `dir`: Xcode's XCTRunner.app, the frameworks it loads, the test bundle, signed ad hoc. */
-function buildRunner(platform, source, dir) {
+/** Assemble the runner in `dir`: Xcode's XCTRunner.app, the frameworks it loads, the test bundle compiled from `text`, signed ad hoc. */
+function buildRunner(platform, text, dir) {
   const app = resolve(dir, 'ExactTouches-Runner.app');
   mkdirSync(dir, { recursive: true });
+  const source = resolve(dir, 'touches.swift');
+  writeFileSync(source, text);
   cpSync(resolve(platform, 'Library/Xcode/Agents/XCTRunner.app'), app, { recursive: true });
   must('plutil', ['-replace', 'CFBundleExecutable', '-string', 'XCTRunner', resolve(app, 'Info.plist')]);
   must('plutil', ['-replace', 'CFBundleIdentifier', '-string', RUNNER_ID, resolve(app, 'Info.plist')]);
@@ -74,6 +89,7 @@ function buildRunner(platform, source, dir) {
   for (const name of readdirSync(frameworks)) must('codesign', ['--force', '--sign', '-', resolve(frameworks, name)]);
   must('codesign', ['--force', '--sign', '-', '--entitlements', resolve(app, 'RunnerEntitlements.plist'), app]);
   rmSync(resolve(dir, 'cache'), { recursive: true, force: true });
+  rmSync(source, { force: true });
 }
 
 /** A plist from a flat object of strings, booleans, arrays of strings and nested objects. */
@@ -105,15 +121,19 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { retu
  */
 function lock(udid) {
   const path = resolve(tmpdir(), `exact-touches-${udid}.lock`);
-  const token = `${process.pid}:${randomBytes(8).toString('hex')}`;
+  // The holder by its pid and start time, as a build's claim is (`claimLive`): a reused pid is no holder.
+  const token = JSON.stringify({ pid: process.pid, started: new Date().toISOString(), id: randomBytes(8).toString('hex') });
   const create = () => { try { writeFileSync(path, token, { flag: 'wx' }); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; } };
   const holder = () => { try { return readFileSync(path, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } };
-  const owner = (t) => Number(t.split(':')[0]);
+  const owner = (t) => { try { return JSON.parse(t).pid; } catch { return Number(t.split(':')[0]); } };
+  // Live unless shown dead: a holder whose start `ps` cannot read, or a lock that does not parse, is live (claimLive);
+  // a lock written before the start time was recorded is its pid's.
+  const live = (t) => /^\d+:[0-9a-f]+$/.test(t) ? alive(owner(t)) : claimLive(t);
   for (let attempt = 0; !create(); attempt++) {
     if (attempt > 20) throw new Error(`the device's touch lock keeps changing hands (${path})`);
     const seen = holder();
     if (seen == null) continue; // released between the create and the read: create again
-    if (alive(owner(seen))) throw new Error(`the device's touches are held by PID ${owner(seen)}${owner(seen) === process.pid ? ' (another session in this process)' : ''}`);
+    if (live(seen)) throw new Error(`the device's touches are held by PID ${owner(seen)}${owner(seen) === process.pid ? ' (another session in this process)' : ''}`);
     const takeover = path + '.takeover';
     try { writeFileSync(takeover, token, { flag: 'wx' }); } catch (e) {
       if (e.code === 'EEXIST') throw new Error(`another process is taking over the device's touch lock; if none is, remove ${takeover}`);
@@ -124,93 +144,161 @@ function lock(udid) {
   return () => { if (holder() === token) rmSync(path, { force: true }); };
 }
 
-/** Each runner request's bound: a tap includes XCTest's idle wait. */
+/** Each runner request's bound: a public tap includes XCTest's idle wait. */
 const RUNNER_MS = 15000;
+/** How long a runner waits for the next session before its test ends (touches.swift `accept`). */
+const KEPT_IDLE = '10 minutes';
+
+/** Where a device's kept runner is recorded: its `runnerKey`, loopback port
+ * (null until its hello), token, log, and xcodebuild's PID, the one PID this
+ * module may kill. */
+const keptPath = (udid) => resolve(tmpdir(), `exact-touches-${udid}.runner.json`);
+const logTail = (log, n = 20) => { try { return readFileSync(log, 'utf8').trim().split('\n').slice(-n).join('\n'); } catch { return ''; } };
+/** Whether `pid` is still the xcodebuild a record names (a PID can be reused once it exits). */
+const isRunner = (pid, run) => alive(pid) && read('ps', ['-p', String(pid), '-o', 'command=']).stdout.includes(run);
+
+/** One JSON-lines conversation with a runner over `socket`. */
+function conversation(socket, tail) {
+  socket.resume();
+  socket.setEncoding('utf8');
+  socket.on('error', () => {});
+  const waiting = [];
+  let buf = '', broken = null;
+  const fail = (why) => { broken ??= why; for (const w of waiting.splice(0)) w({ error: why }); };
+  socket.on('data', (chunk) => {
+    buf += chunk;
+    for (let i; (i = buf.indexOf('\n')) >= 0;) { const line = buf.slice(0, i); buf = buf.slice(i + 1); waiting.shift()?.(JSON.parse(line)); }
+  });
+  socket.on('close', () => fail('the touch runner hung up:\n' + tail()));
+  return {
+    fail, broken: () => broken ?? (socket.destroyed ? 'the touch runner is gone' : null),
+    request: (req) => new Promise((r) => { waiting.push(r); socket.write(JSON.stringify(req) + '\n'); }),
+  };
+}
+
+/** Ends a kept runner (another key's, one that never said hello, or one that
+ * stopped answering): SIGTERM, then SIGKILL, each given 3 s, and forgets it
+ * only once its xcodebuild is gone; one that will not exit keeps its record
+ * and fails the drive, so no second runner starts beside it. */
+async function retire(udid, kept) {
+  if (!kept) return; // nothing loaded: a record on disk is another's to retire, never unlinked unread
+  const running = () => kept?.pid && isRunner(kept.pid, kept.run);
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    if (!running()) break;
+    try { process.kill(kept.pid, signal); } catch {}
+    for (const until = Date.now() + 3000; running() && Date.now() < until;) await new Promise((r) => setTimeout(r, 100));
+  }
+  if (running()) throw new Error(`the kept touch runner's xcodebuild (PID ${kept.pid}) did not exit after SIGKILL; its record ${keptPath(udid)} is kept`);
+  rmSync(keptPath(udid), { force: true });
+}
+
+/** The device's kept runner, of runner `key`, connected and greeted for `appId`, or null. */
+async function keptRunner(udid, appId, key) {
+  let kept;
+  try { kept = JSON.parse(readFileSync(keptPath(udid), 'utf8')); } catch { return null; }
+  if (kept.key !== key || kept.port == null || !isRunner(kept.pid, kept.run)) { await retire(udid, kept); return null; }
+  const socket = await new Promise((ok) => { const s = connect(kept.port, '127.0.0.1'); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
+  if (!socket) { await retire(udid, kept); return null; }
+  const talk = conversation(socket, () => logTail(kept.log));
+  const hello = await within(talk.request({ token: kept.token, app: appId }), 3000, () => null);
+  if (!hello?.ready) { socket.destroy(); await retire(udid, kept); return null; }
+  return { socket, talk, kept };
+}
 
 /**
- * Start the runner for `appId` on simulator `udid` and wait for its hello
- * (30 s). Returns `{ ask(req), close(), pid, started }`: `ask` sends one line
- * and resolves with its reply, or with an error at `RUNNER_MS`, which also
- * ends the runner (a stalled runner never hangs a drive). `onProcess` gets
- * the xcodebuild child, whose PID is the one this module may kill.
+ * The runner for `appId` on simulator `udid`: the device's kept one when it
+ * answers (a connection, milliseconds), else a new one, started and waited
+ * for (its hello, 30 s; xcodebuild's start is most of 5 s). A runner outlives
+ * the drive that started it: closing hangs up and the runner waits
+ * KEPT_IDLE for the next session. Returns `{ ask(req), close(), pid, started,
+ * kept }`: `ask` sends one line and resolves with its reply, or with an error
+ * at `RUNNER_MS`, which also ends the runner (a stalled runner never hangs a
+ * drive).
  */
-export async function openTouches({ udid, appId, appPath, onProcess }) {
+export async function openTouches({ udid, appId }) {
   const release = lock(udid);
-  let child = null, bridge = null, exited = null, run = null;
-  // Ends the runner: hang up, wait for xcodebuild (3 s), SIGTERM, then
-  // SIGKILL — only its recorded PID — and release the lock only once its
-  // exit is confirmed; otherwise the lock stays (stale once this process
-  // ends) and the failure is reported.
-  const teardown = async (socket) => {
+  const started = Date.now();
+  let socket = null, talk = null, kept = null, child = null, bridge = null, exited = null, reused = false;
+  // Ends the runner: hang up, then end xcodebuild by its recorded PID — this
+  // process's child is waited for (3 s, then SIGKILL) and the lock kept if it
+  // will not exit.
+  const teardown = async () => {
     try { socket?.destroy(); } catch {}
     bridge?.close();
-    if (run) rmSync(run, { force: true });
     if (child && child.exitCode == null && child.signalCode == null) {
-      let gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout';
+      let gone = false;
       for (const signal of ['SIGTERM', 'SIGKILL']) {
-        if (gone) break;
         try { child.kill(signal); } catch {}
-        gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout';
+        if ((gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout')) break;
       }
-      for (const stream of [child.stdout, child.stderr]) stream?.destroy();
-      if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock is kept`);
-    }
+      if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock and its record ${keptPath(udid)} are kept`);
+      rmSync(keptPath(udid), { force: true });
+    } else await retire(udid, kept);
     release();
   };
   try {
-    const started = Date.now();
-    const { app } = touchRunner(udid);
-    bridge = await phoneBridge();
-    run = resolve(tmpdir(), `exact-touches-${process.pid}-${randomBytes(4).toString('hex')}.xctestrun`);
-    writeFileSync(run, plist({
-      ExactTouches: {
-        // A simulator refuses `UseDestinationArtifacts` (device only), so
-        // xcodebuild installs the target here: the runner starts before the
-        // app is launched, never under it (D1's order).
-        IsUITestBundle: true, TestHostPath: app, TestBundlePath: '__TESTHOST__/PlugIns/ExactTouches.xctest', UITargetAppPath: appPath ?? app,
-        TestingEnvironmentVariables: { EXACT_TOUCH_CONNECT: bridge.env.EXACT_AGENT_CONNECT, EXACT_TOUCH_TOKEN: bridge.env.EXACT_AGENT_TOKEN, EXACT_TOUCH_APP: appId },
-      },
-      __xctestrun_metadata__: { FormatVersion: 1 },
-    }));
-    const log = [];
-    child = spawn('xcodebuild', ['test-without-building', '-xctestrun', run, '-destination', `id=${udid}`, '-only-testing:ExactTouches/ExactTouches/testDrive'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    onProcess?.(child);
-    for (const s of [child.stdout, child.stderr]) s.on('data', (d) => { for (const l of String(d).split('\n')) if (l.trim()) { log.push(l); if (log.length > 200) log.shift(); } });
-    exited = new Promise((r) => child.on('exit', (code) => r(code)));
-    const first = await within(Promise.race([bridge.ready.then((x) => ({ x })), exited.then((code) => ({ code }))]), 30000, () => 'timeout');
-    if (!first?.x) throw new Error(`the touch runner did not start (${first === 'timeout' ? 'no hello in 30 s' : `xcodebuild exited ${first.code}`}):\n${log.slice(-20).join('\n')}`);
-    const { socket } = first.x;
-    socket.resume();
-    socket.setEncoding('utf8');
-    const waiting = [];
-    let buf = '', broken = null;
-    const fail = (why) => { broken ??= why; for (const w of waiting.splice(0)) w({ error: why }); };
-    socket.on('data', (chunk) => {
-      buf += chunk;
-      for (let i; (i = buf.indexOf('\n')) >= 0;) { const line = buf.slice(0, i); buf = buf.slice(i + 1); waiting.shift()?.(JSON.parse(line)); }
-    });
-    socket.on('close', () => fail('the touch runner hung up:\n' + log.slice(-10).join('\n')));
+    const identity = runnerKey();
+    const found = await keptRunner(udid, appId, identity.key);
+    if (found) ({ socket, talk, kept } = found), reused = true;
+    else {
+      const { app } = touchRunner(udid, identity);
+      bridge = await phoneBridge();
+      const run = resolve(tmpdir(), `exact-touches-${udid}.xctestrun`), log = resolve(tmpdir(), `exact-touches-${udid}.log`);
+      writeFileSync(run, plist({
+        ExactTouches: {
+          // A simulator refuses `UseDestinationArtifacts` (device only), so
+          // xcodebuild installs the target here: the runner itself, so one
+          // runner serves every app (each session names its own) and the
+          // driver's app is never installed or launched by it (D1's order).
+          IsUITestBundle: true, TestHostPath: app, TestBundlePath: '__TESTHOST__/PlugIns/ExactTouches.xctest', UITargetAppPath: app,
+          TestingEnvironmentVariables: { EXACT_TOUCH_CONNECT: bridge.env.EXACT_AGENT_CONNECT, EXACT_TOUCH_TOKEN: bridge.env.EXACT_AGENT_TOKEN, EXACT_TOUCH_APP: appId },
+        },
+        __xctestrun_metadata__: { FormatVersion: 1 },
+      }));
+      // Its own session and its output in a file: it outlives this process.
+      const out = openSync(log, 'w');
+      child = spawn('xcodebuild', ['test-without-building', '-xctestrun', run, '-destination', `id=${udid}`, '-only-testing:ExactTouches/ExactTouches/testDrive'], { stdio: ['ignore', out, out], detached: true });
+      closeSync(out);
+      // Recorded before its hello: a driver killed while it waits leaves a runner the next one can retire.
+      kept = { key: identity.key, port: null, token: bridge.env.EXACT_AGENT_TOKEN, pid: child.pid, run, log };
+      writeFileSync(keptPath(udid), JSON.stringify(kept), { mode: 0o600 });
+      exited = new Promise((r) => child.on('exit', (code) => r(code)));
+      const first = await within(Promise.race([bridge.ready.then((x) => ({ x })), exited.then((code) => ({ code }))]), 30000, () => 'timeout');
+      if (!first?.x) throw new Error(`the touch runner did not start (${first === 'timeout' ? 'no hello in 30 s' : `xcodebuild exited ${first.code}`}):\n${logTail(log)}`);
+      socket = first.x.socket;
+      talk = conversation(socket, () => logTail(log, 10));
+      kept = { ...kept, port: first.x.announcement.listen };
+      writeFileSync(keptPath(udid), JSON.stringify(kept), { mode: 0o600 });
+      child.unref();
+    }
     // Teardown runs once; a failure to end the runner is kept for `close()` to report.
     let closing = null;
-    const end = () => (closing ??= teardown(socket).then(() => null, (e) => e));
+    const end = () => (closing ??= teardown().then(() => null, (e) => e));
     const ask = async (req, ms = RUNNER_MS) => {
-      if (broken || socket.destroyed) return { error: broken ?? 'the touch runner is gone' };
-      const reply = new Promise((r) => { waiting.push(r); socket.write(JSON.stringify(req) + '\n'); });
-      return within(reply, ms, () => {
+      const broken = talk.broken();
+      if (broken) return { error: broken };
+      return within(talk.request(req), ms, () => {
         // A late reply could answer the next request: the transport is spent.
         const why = `the touch runner did not answer ${req.op} within ${ms / 1000} s; it was stopped`;
-        fail(why);
+        talk.fail(why);
         end();
         return { error: why };
       });
     };
     return {
-      ask, pid: child.pid, started: Date.now() - started, log,
+      ask, pid: kept.pid, started: Date.now() - started, kept: reused,
       end,
-      async close() { const failed = await end(); if (failed) throw failed; },
+      // A session that ends well hangs up and leaves the runner for the next.
+      async close() {
+        if (closing) { const failed = await closing; if (failed) throw failed; return; }
+        if (talk.broken()) { const failed = await end(); if (failed) throw failed; return; }
+        closing = Promise.resolve(null);
+        socket.end();
+        release();
+      },
     };
   } catch (error) {
-    try { await teardown(null); } catch (e) { error.message += `; ${e.message}`; }
+    try { await teardown(); } catch (e) { error.message += `; ${e.message}`; }
     throw error;
   }
 }
@@ -251,7 +339,8 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   if (aim.error) throw new Error(aim.error);
   if (!sameAim(first.aim, aim.aim)) throw new Error(`${what}: the screen rotated or moved since aim`);
   const a = aim.aim;
-  let request = { op: 'tap', point: a.point }, moves = false, ms = 0;
+  // `screen`: where XCTest's synthesizer presses a tap (touches.swift).
+  let request = { op: 'tap', point: a.point, ...(a.fixed ? { screen: a.fixed } : {}) }, moves = false, ms = 0;
   if (drag) {
     // The end, from the start the host resolved just now, in the viewport it reported with it.
     const end = [a.at[0] + drag.dx, a.at[1] + drag.dy], [vw, vh] = a.viewport;

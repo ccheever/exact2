@@ -101,14 +101,22 @@ impl<D: DataSource> Host<D> {
 
 /// The document of `runner`'s current tree.
 pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
-    walk(runner, None).map(|(document, _)| document)
+    walk(runner, None, true).map(|(document, _)| document)
+}
+
+/// [`project`], for the JavaScript runtime to adopt: a bare `font-size`
+/// style's weight and leading are not written (LLP 1115.000 D12.2), as its
+/// template writes none, so none stays inline once it sees an ancestor's
+/// weight arrive.
+pub fn project_for_js<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
+    walk(runner, None, false).map(|(document, _)| document)
 }
 
 /// [`project`], and what it computed for each view, for the first batch.
 pub(crate) fn project_keeping<D: DataSource>(
     runner: &Runner<D>,
 ) -> Result<(Document, Computed), DocumentError> {
-    walk(runner, Some(Computed::new())).map(|(document, computed)| {
+    walk(runner, Some(Computed::new()), true).map(|(document, computed)| {
         let mut computed = computed.unwrap_or_default();
         computed.reverse();
         (document, computed)
@@ -125,19 +133,51 @@ pub trait Source {
     fn children(&self, id: ViewId) -> Cow<'_, [ViewId]>;
     /// The element an SVG reference from `from` names.
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId>;
+    /// `style`, node `id`'s, with the weight and leading a text style named
+    /// on it gives (LLP 1115.000 D12.2): a kernel's tree knows them, a
+    /// render's tree has them in its facts already.
+    fn with_style_rows<'s>(
+        &self,
+        _id: ViewId,
+        style: Cow<'s, exact_kernel::StyleProps>,
+    ) -> Cow<'s, exact_kernel::StyleProps> {
+        style
+    }
 }
 
-struct KernelSource<'k>(&'k exact_kernel::Kernel);
+/// A kernel's tree; `bare`: a bare `font-size` style's rows are written
+/// too ([`super::element::css_style_named`]).
+struct KernelSource<'k> {
+    kernel: &'k exact_kernel::Kernel,
+    bare: bool,
+}
 
 impl Source for KernelSource<'_> {
     fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>> {
-        self.0.node(id).map(|n| n.facts())
+        self.kernel.node(id).map(|n| n.facts())
     }
     fn children(&self, id: ViewId) -> Cow<'_, [ViewId]> {
-        Cow::Owned(self.0.node(id).map(|n| n.children()).unwrap_or_default())
+        Cow::Owned(
+            self.kernel
+                .node(id)
+                .map(|n| n.children())
+                .unwrap_or_default(),
+        )
     }
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId> {
-        self.0.resolve_id(from, id)
+        self.kernel.resolve_id(from, id)
+    }
+    fn with_style_rows<'s>(
+        &self,
+        id: ViewId,
+        style: Cow<'s, exact_kernel::StyleProps>,
+    ) -> Cow<'s, exact_kernel::StyleProps> {
+        match self.kernel.node(id) {
+            Some(node) if self.bare || node.names_text_style_through_font() => {
+                super::element::with_style_rows(style, &node)
+            }
+            _ => style,
+        }
     }
 }
 
@@ -244,9 +284,13 @@ fn first_prop<S: Source>(src: &S, roots: &[ViewId], id: PropId) -> Option<String
 fn walk<D: DataSource>(
     runner: &Runner<D>,
     computed: Option<Computed>,
+    bare: bool,
 ) -> Result<(Document, Option<Computed>), DocumentError> {
     let _roles = runner.bind_roles(); // Its own (LLP 1121 stage 5).
-    let src = KernelSource(runner.kernel());
+    let src = KernelSource {
+        kernel: runner.kernel(),
+        bare,
+    };
     let roots = runner.roots();
     let handlers = runner.handlers();
     let presses = handlers
@@ -567,7 +611,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
-        let text = match css_style_of(&resolve, &node) {
+        let text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
             Cow::Borrowed(style) => {
                 let fonts = &self.fonts;
                 self.css

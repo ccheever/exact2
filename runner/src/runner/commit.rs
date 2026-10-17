@@ -790,6 +790,17 @@ impl<D: DataSource> Runner<D> {
             continuation: request.continuation,
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
+            grant: request
+                .stream
+                .then(|| {
+                    crate::grants::admitting(
+                        self.data.grants(),
+                        request.grants.as_deref(),
+                        &request.url,
+                    )
+                })
+                .flatten()
+                .map(str::to_string),
             ask_again: false,
             origin: self.writes.tick(),
             write: match target {
@@ -943,6 +954,13 @@ impl<D: DataSource> Runner<D> {
             .collect()
     }
 
+    /// The grant line that admitted stream `ticket`, when one of the app's
+    /// does (`state.streams`).
+    pub fn stream_grant(&self, ticket: u64) -> Option<&str> {
+        let p = self.pending.iter().find(|p| p.ticket == ticket)?;
+        p.grant.as_deref()
+    }
+
     /// Whether resource `i` has a stream open that has delivered: it is not
     /// pending, but a newer answer must still let its ticket go.
     pub(super) fn streaming(&self, i: usize) -> bool {
@@ -1057,13 +1075,26 @@ impl<D: DataSource> Runner<D> {
         }
         let p = p.clone();
         self.sync_pending_flags();
-        let (ticket, target) = (p.ticket, p.target);
-        let what = super::lines::fulfilling(ticket, &self.target_name(target), summary);
+        let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
+        let what = super::lines::fulfilling(ticket, &name, summary);
+        let before = self.sockets.len();
         let result = self.fulfill_inner(p, outcome);
+        // What the mapper staged answering this frame (LLP 1016.000 D7):
+        // addressed for the commit, or left staged by a frame that failed.
+        let left = !self.store.take_sockets().is_empty();
+        let replied = left || self.sockets.len() > before;
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
+        // Or by one whose answer reopened the stream, which sends none.
+        if replied && (result.is_err() || left) {
+            let why = (result.as_ref().err())
+                .map_or("its answer reopened the stream".into(), |e| {
+                    crate::failure::Failure::of(e).message
+                });
+            self.log(sockets::refused(&crate::SocketOrigin::Mapper(name), &why));
+        }
         if let (Err(e), true) = (&result, self.holds(ticket)) {
             return self.release_failed(ticket, target, crate::failure::Failure::of(e));
         }
@@ -1089,6 +1120,10 @@ impl<D: DataSource> Runner<D> {
         let parsed = self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        // Only a socket's mapper answering a frame sends (LLP 1016.000 D7).
+        if !message {
+            self.store.take_sockets();
+        }
         for line in self.data.take_logs() {
             self.log(line);
         }
@@ -1136,6 +1171,16 @@ impl<D: DataSource> Runner<D> {
         };
         if !self.conforms(&value, ty) {
             return Err(self.shape(name, &value, ty));
+        }
+        // Its replies go out once this frame's commit stands (D7).
+        if message {
+            if let Err(why) = self.stage_replies(&p) {
+                let error = DataError::Unavailable(why);
+                return Err(RunnerError::Data {
+                    resource: name,
+                    error,
+                });
+            }
         }
         match p.target {
             Target::Resource(i) => {

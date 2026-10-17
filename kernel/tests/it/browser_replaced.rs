@@ -9,7 +9,7 @@
 use crate::browser_cases::{css_rows as rows, lay_out_as, mismatches, props};
 use crate::support::reader::number as n;
 use exact_kernel::StyleId::*;
-use exact_kernel::{GridTrack, GridTracks, NodeType, Op, PropId};
+use exact_kernel::{GridTrack, GridTracks, Kernel, NodeType, Op, PropId};
 
 type Frames = &'static [[f32; 4]];
 
@@ -634,4 +634,370 @@ fn replaced_elements_do_not_stretch_in_a_grid_area_or_between_insets() {
         failures.join("\n"),
         failures.len()
     );
+}
+
+/// (name, the layout around the elements, element rows, Chrome's frames of
+/// the layout's boxes then the elements, relative to the root, for canvas,
+/// iframe, video and an `svg` with `viewBox="0 0 100 50"`). Chrome 151,
+/// 2026-10-17, as above: `wrap` is a wrapping flex row (id 2) of two
+/// `flex: 1 1 160px` items (3, 4) each holding an element (5, 6); `row` the
+/// same with automatic items; `abs` an absolutely positioned box (2) holding
+/// one (3).
+const CONTENT: &[(&str, &str, &str, [Frames; 4])] = &[
+    (
+        "wrap bare",
+        "wrap",
+        "",
+        [
+            &[
+                [0.0, 0.0, 400.0, 300.0],
+                [0.0, 0.0, 400.0, 150.0],
+                [0.0, 150.0, 400.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [0.0, 150.0, 300.0, 150.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 300.0],
+                [0.0, 0.0, 400.0, 150.0],
+                [0.0, 150.0, 400.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [0.0, 150.0, 300.0, 150.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 300.0],
+                [0.0, 0.0, 400.0, 150.0],
+                [0.0, 150.0, 400.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [0.0, 150.0, 300.0, 150.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+            ],
+        ],
+    ),
+    (
+        "wrap ratio 16/9",
+        "wrap",
+        "aspect-ratio:16/9",
+        [
+            &[
+                [0.0, 0.0, 400.0, 337.5],
+                [0.0, 0.0, 400.0, 168.75],
+                [0.0, 168.75, 400.0, 168.75],
+                [0.0, 0.0, 300.0, 168.75],
+                [0.0, 168.75, 300.0, 168.75],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 112.5],
+                [0.0, 0.0, 200.0, 112.5],
+                [200.0, 0.0, 200.0, 112.5],
+                [0.0, 0.0, 200.0, 112.5],
+                [200.0, 0.0, 200.0, 112.5],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 112.5],
+                [0.0, 0.0, 200.0, 112.5],
+                [200.0, 0.0, 200.0, 112.5],
+                [0.0, 0.0, 200.0, 112.5],
+                [200.0, 0.0, 200.0, 112.5],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 112.5],
+                [0.0, 0.0, 200.0, 112.5],
+                [200.0, 0.0, 200.0, 112.5],
+                [0.0, 0.0, 200.0, 112.5],
+                [200.0, 0.0, 200.0, 112.5],
+            ],
+        ],
+    ),
+    (
+        "wrap height 100",
+        "wrap",
+        "height:100px",
+        [
+            &[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 200.0],
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 100.0, 400.0, 100.0],
+                [0.0, 0.0, 300.0, 100.0],
+                [0.0, 100.0, 300.0, 100.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 200.0],
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 100.0, 400.0, 100.0],
+                [0.0, 0.0, 300.0, 100.0],
+                [0.0, 100.0, 300.0, 100.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+            ],
+        ],
+    ),
+    (
+        "row bare",
+        "row",
+        "",
+        [
+            &[
+                [0.0, 0.0, 400.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [300.0, 0.0, 300.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [300.0, 0.0, 300.0, 150.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [300.0, 0.0, 300.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [300.0, 0.0, 300.0, 150.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [300.0, 0.0, 300.0, 150.0],
+                [0.0, 0.0, 300.0, 150.0],
+                [300.0, 0.0, 300.0, 150.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ],
+        ],
+    ),
+    (
+        "row ratio 16/9",
+        "row",
+        "aspect-ratio:16/9",
+        [
+            &[
+                [0.0, 0.0, 400.0, 168.75],
+                [0.0, 0.0, 300.0, 168.75],
+                [300.0, 0.0, 300.0, 168.75],
+                [0.0, 0.0, 300.0, 168.75],
+                [300.0, 0.0, 300.0, 168.75],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ],
+            &[
+                [0.0, 0.0, 400.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ],
+        ],
+    ),
+    (
+        "abs bare",
+        "abs",
+        "",
+        [
+            &[[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]],
+            &[[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]],
+            &[[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]],
+            &[[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+        ],
+    ),
+    (
+        "abs width 100%",
+        "abs",
+        "width:100%",
+        [
+            &[[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]],
+            &[[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]],
+            &[[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]],
+            &[[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]],
+        ],
+    ),
+    (
+        "abs ratio 16/9",
+        "abs",
+        "aspect-ratio:16/9",
+        [
+            &[[0.0, 0.0, 300.0, 168.75], [0.0, 0.0, 300.0, 168.75]],
+            &[[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+            &[[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+            &[[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+        ],
+    ),
+    (
+        "abs height 100",
+        "abs",
+        "height:100px",
+        [
+            &[[0.0, 0.0, 200.0, 100.0], [0.0, 0.0, 200.0, 100.0]],
+            &[[0.0, 0.0, 300.0, 100.0], [0.0, 0.0, 300.0, 100.0]],
+            &[[0.0, 0.0, 300.0, 100.0], [0.0, 0.0, 300.0, 100.0]],
+            &[[0.0, 0.0, 200.0, 100.0], [0.0, 0.0, 200.0, 100.0]],
+        ],
+    ),
+];
+
+/// `layout` (a `CONTENT` layout) holding a `kind` styled `item`, with
+/// `viewBox="0 0 100 50"` when `view_box`, laid out.
+fn lay_out_held(layout: &str, item: &str, kind: NodeType, view_box: bool) -> Kernel {
+    // The wrapper's rows, the boxes it holds and their rows, and each
+    // element's id and parent.
+    type Layout = (
+        &'static str,
+        &'static [(u32, &'static str)],
+        &'static [(u32, u32)],
+    );
+    let (wrapper, inner, held): Layout = match layout {
+        "wrap" => (
+            "display:flex;flex-wrap:wrap",
+            &[
+                (3, "flex-grow:1;flex-shrink:1;flex-basis:160px"),
+                (4, "flex-grow:1;flex-shrink:1;flex-basis:160px"),
+            ],
+            &[(5, 3), (6, 4)],
+        ),
+        "row" => ("display:flex", &[(3, ""), (4, "")], &[(5, 3), (6, 4)]),
+        _ => ("position:absolute", &[], &[(3, 2)]),
+    };
+    let root = props(&[vec![(Width, n(400.0))], rows("position:relative")].concat());
+    let mut nodes = vec![(2, 1, rows(wrapper))];
+    nodes.extend(inner.iter().map(|(id, r)| (*id, 2, rows(r))));
+    let mut k = lay_out_as(root, nodes, &[], &[], NodeType::View);
+    let mut ops = Vec::new();
+    for (id, parent) in held {
+        ops.push(Op::CreateView {
+            id: *id,
+            node_type: kind,
+        });
+        ops.push(Op::SetStyle {
+            id: *id,
+            patch: Box::new(props(&rows(item))),
+        });
+        if view_box {
+            ops.push(Op::SetProp {
+                id: *id,
+                prop: PropId::ViewBox,
+                value: "0 0 100 50".into(),
+            });
+        }
+        ops.push(Op::SetChildren {
+            id: *parent,
+            children: vec![*id],
+        });
+    }
+    k.apply(0, 2, &ops).unwrap();
+    k.compute_layout(1, exact_kernel::Offer::definite(800.0, 600.0))
+        .unwrap();
+    k
+}
+
+/// What a replaced element contributes to the min-content and max-content
+/// width of what holds it (CSS Sizing 3 §5.2): one with a ratio and no
+/// natural size contributes no width, though it fills a definite width
+/// (above), and at `width: 100%` Chrome gives its max-content contribution
+/// the default object width (`abs width 100%`). The canvas, whose natural
+/// size it contributes, is the contrast. `wrap bare` is the `svg` that
+/// wrapped two `flex: 1 1 160px` items onto two lines.
+#[test]
+fn replaced_elements_with_a_ratio_and_no_natural_size_contribute_no_content_width() {
+    let kinds = [
+        ("canvas", NodeType::Canvas),
+        ("iframe", NodeType::WebView),
+        ("video", NodeType::Video),
+        ("svg viewBox", NodeType::Svg),
+    ];
+    let mut failures = Vec::new();
+    for (name, layout, item, frames) in CONTENT {
+        for ((tag, kind), want) in kinds.iter().zip(frames) {
+            let k = lay_out_held(layout, item, *kind, *tag == "svg viewBox");
+            let want: Vec<_> = want
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (2 + i as u32, *f))
+                .collect();
+            failures.extend(mismatches(&format!("{tag} {name}"), &k, &want));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{}\n{} failures",
+        failures.join("\n"),
+        failures.len()
+    );
+}
+
+/// A view-box `svg` at `width: 100%`, `calc(250px + 10%)` or
+/// `max(250px, 30%)` contributes no width to a min-content size: two
+/// `flex: 1 1 160px` items holding one stay 200 wide, and the last two
+/// paint wider than their item (270 and 250). Chrome 151, 2026-10-17, as
+/// `CONTENT`'s `wrap` (frames of the row, the items, then the `svg`s).
+#[test]
+fn a_percentage_width_contributes_no_min_content_width() {
+    let cases: &[(&str, [[f32; 4]; 5])] = &[
+        (
+            "width:100%",
+            [
+                [0.0, 0.0, 400.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+                [0.0, 0.0, 200.0, 100.0],
+                [200.0, 0.0, 200.0, 100.0],
+            ],
+        ),
+        (
+            "width:calc(250px + 10%)",
+            [
+                [0.0, 0.0, 400.0, 135.0],
+                [0.0, 0.0, 200.0, 135.0],
+                [200.0, 0.0, 200.0, 135.0],
+                [0.0, 0.0, 270.0, 135.0],
+                [200.0, 0.0, 270.0, 135.0],
+            ],
+        ),
+        (
+            "width:max(250px, 30%)",
+            [
+                [0.0, 0.0, 400.0, 125.0],
+                [0.0, 0.0, 200.0, 125.0],
+                [200.0, 0.0, 200.0, 125.0],
+                [0.0, 0.0, 250.0, 125.0],
+                [200.0, 0.0, 250.0, 125.0],
+            ],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (item, frames) in cases {
+        let k = lay_out_held("wrap", item, NodeType::Svg, true);
+        let want: Vec<_> = (2..).zip(*frames).collect();
+        failures.extend(mismatches(item, &k, &want));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

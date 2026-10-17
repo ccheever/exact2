@@ -2,7 +2,7 @@
 // app's palette, and only a declaration at the top level is one.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { tellsIn } from './no-tells.mjs';
+import { fixedSizesIn, tellsIn } from './no-tells.mjs';
 
 test("a theme's literals are its palette and a row naming an entry is no tell", () => {
   const source = 'theme\n  brand="#c8102e"\n  background = "light-dark(#fff, #000)"\n\ncomponent A\n  view\n    text "x" color="brand" background-color="#fff"\n';
@@ -59,4 +59,26 @@ test('a channel may read alpha, and an origin may be an expression over tokens',
 test("an inline theme's entries are tokens as a design's are", () => {
   const source = 'theme\n  brand="#c8102e"\n\ncomponent A\n  view\n    text "x" color="rgb(from brand r g b / 0.5)" background-color="rgb(from ink r g b)"\n';
   assert.deepEqual(tellsIn(source).map(t => [t.line, t.property]), [[6, 'background-color']]);
+});
+
+// LLP 1116.020 D4: what verify names as a size Dynamic Type does not move.
+test('a fixed font size is a bare number, px or pt, whole or a branch; rem, a role, a control and a kept line are not', () => {
+  const source = [
+    'component A',
+    '  view',
+    '    column',
+    '      text "a" font-size=28 testId="big"',
+    '      text "b" font-size="2rem" font-variant-numeric="tabular-nums"',
+    '      text "c" font-size=(wide ? 48 : 28) font-variant-numeric="tabular-nums"',
+    '      text "d" font-size=(wide ? "3rem" : "2rem")',
+    '      text "e" font-size="-exact-title1"',
+    '      text "f" font-size="20px"',
+    '        testId=`ff`',
+    '      input value=v font-size=17',
+    '      text "g" font-size=72 // no-tells: a poster',
+    '      text "h" font-size=(items.length > 3 ? "2rem" : "1rem")',
+    'style Big',
+    '  font-size="30pt"',
+  ].join('\n');
+  assert.deepEqual(fixedSizesIn(source).map((f) => [f.line, f.tag, f.size, f.testId]), [[4, 'text', 28, 'big'], [6, 'text', 48, null], [9, 'text', 20, 'ff'], [15, 'style', 30, null]]);
 });

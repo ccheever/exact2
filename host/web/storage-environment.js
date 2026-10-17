@@ -26,6 +26,10 @@ export function storageKey(appId, href = launchHref()) {
   return `${own}/agent/${name}`;
 }
 export const agentStorageRefusal = 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)';
+// Whether a refused operation is said in the journal, where the driver finds it for its note (LLP 1102 §3.17):
+// a write, which a drive with no store loses. A refused read answers as a fresh install's empty store would,
+// with nothing there, so it changes nothing a store would have changed. js/src/prelude.js keeps the same list.
+export const agentRefusalSaid = op => !['readFile', 'readdir', 'stat', 'realpath', 'query'].includes(String(op).split('.').pop());
 
 // @ref LLP 1069.005 D2b — the launch seed a drive names (`&seed=`, default
 // 1, as `exactTime().seed` reads it), or null outside the agent. Only a

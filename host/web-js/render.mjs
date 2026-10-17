@@ -49,6 +49,9 @@ export function renderer(dist) {
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
+      // No reader's device facts: use runner/src/viewport.rs's default size and media bits.
+      innerWidth: 390, innerHeight: 844,
+      matchMedia: media => ({ media, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
       setTimeout, clearTimeout, queueMicrotask, performance, console, fetch, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, crypto, __exactRender: true, __files: files,
     });

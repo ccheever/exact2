@@ -22,7 +22,8 @@ extension Presenter {
     /// its edges. Animated by whatever animation block this runs inside.
     /// The nearest one keeps the rest of the node's section in view too when
     /// all of it fits (`kept`): the Add button under an inline number field.
-    func reveal(_ node: NodeView?) {
+    /// With `rect`, in the node's space, only that part of it is shown.
+    func reveal(_ node: NodeView?, rect: CGRect? = nil) {
         guard let node, node.window != nil else { return }
         var v: UIView? = node.superview, nearest = true
         while let cur = v {
@@ -38,7 +39,7 @@ extension Presenter {
                 // and the rows of the cells it brought in are carried there
                 // (a cell kept from before the keys came up showed empty).
                 for _ in 0..<(sv is GroupedScroller ? 3 : 1) {
-                    guard show(node, in: sv, keep: nearest, covered: pinnedCover(over: sv, field: node)) else { break }
+                    guard show(node, rect: rect, in: sv, keep: nearest && rect == nil, covered: pinnedCover(over: sv, field: node)) else { break }
                     guard sv is GroupedScroller else { continue }
                     carryRows(laying: sv)
                     sv.window?.layoutIfNeeded()
@@ -48,6 +49,25 @@ extension Presenter {
             }
             v = cur.superview
         }
+    }
+
+    /// Show the caret of the text area being typed into through every
+    /// scroller above it, as a browser does after an edit (UIKit and SwiftUI
+    /// leave a growing text area's new line under the keys). A browser does
+    /// so after the edit's `input` handlers run, so a handler that moved the
+    /// focus or hid the text area leaves nothing to show.
+    func revealCaret(of node: NodeView) {
+        guard let text = node.textArea, editor === node,
+              !sequence(first: text as UIView, next: \.superview).contains(where: \.isHidden),
+              let end = text.selectedTextRange?.end else { return }
+        let caret = text.caretRect(for: end)
+        guard !caret.isNull, !caret.isInfinite else { return }
+        // Keep the caret within what the text view shows: it scrolls itself
+        // to the caret only later, and a large font's caret can be taller
+        // than a short text area
+        let shown = text.bounds, height = min(caret.height, shown.height)
+        let y = min(max(caret.minY, shown.minY), shown.maxY - height)
+        reveal(node, rect: text.convert(CGRect(x: caret.minX, y: y, width: caret.width, height: height), to: node))
     }
 
     /// The colour the content at the viewport's bottom edge goes on with
@@ -109,10 +129,11 @@ extension Presenter {
         }
     }
 
-    /// Scroll `sv` by the least that shows the node, with a little air, and
-    /// with `keep` the rest of its section when all of it fits; whether it moved.
-    private func show(_ node: NodeView, in sv: UIScrollView, keep: Bool, covered: CGFloat = 0) -> Bool {
-        let field = node.convert(node.bounds, to: sv)
+    /// Scroll `sv` by the least that shows the node (or `rect` in it), with a
+    /// little air, and with `keep` the rest of its section when all of it
+    /// fits; whether it moved.
+    private func show(_ node: NodeView, rect: CGRect? = nil, in sv: UIScrollView, keep: Bool, covered: CGFloat = 0) -> Bool {
+        let field = node.convert(rect ?? node.bounds, to: sv)
         let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
         var visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
         visible.size.height = max(0, visible.height - covered)

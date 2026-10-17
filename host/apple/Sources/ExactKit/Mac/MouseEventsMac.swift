@@ -112,6 +112,119 @@ extension Presenter {
 }
 
 extension NodeView {
+    package override func mouseDown(with event: NSEvent) {
+        let chain = holdPresenter?.mouseChain
+        chain?.receivedDown(self, event: event)
+        if let contact = chain?.bubbledPress {
+            if contact.cancelled { return }
+            if contact.reaches(self) { contact.down(on: self); return }
+        }
+        guard !inert else { return }
+        if contextClick(event) { return rightMouseDown(with: event) }
+        pointerPressed(event)
+        if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
+        if canvasInput?.pointer(event, phase: "down") == true { return }
+        presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
+        presenter?.collections.pointerDown(id, event: event)
+        presenter?.mouseChain.down(self, event: event)
+        guard !disabled else { pressed = false; return }
+        presenter?.interacting = id
+        if let target = presenter?.svg.target(id, at: local(event.locationInWindow)) { svgPressed = target; return }
+        if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
+            inlinePressed = run.id
+            window?.makeFirstResponder(self)
+            presenter?.selection.begin(self, event: event)
+            return
+        }
+        if selectsText { presenter?.selection.press(self, event: event); return }
+        // A descendant that took focus keeps it (LLP 1088 D7.3). Forward
+        // through the responder chain: NSView's default retries covered siblings.
+        let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
+        if takesClickFocus, !inner { window?.makeFirstResponder(self) }
+        if pressable { pressed = true } else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseDown(with: event) }
+    }
+    /// A paragraph's drag selects its text unless a press takes it: its
+    /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
+    var selectsText: Bool { isParagraph && !pressable && !hasPressableAncestor }
+    var hasPressableAncestor: Bool { hasPressableAncestor(crossingPresentations: true) }
+    func hasPressableAncestor(crossingPresentations: Bool) -> Bool {
+        var at: NSView = self, crossed = false
+        while let parent = (crossingPresentations ? presenter?.presentationParent(of: at) : nil) ?? at.superview {
+            crossed = crossed || parent !== at.superview
+            if let node = parent as? NodeView,
+               node.pressable || !crossed && (node.isSurfaceControl || node.isButton) { return true }
+            at = parent
+        }
+        return false
+    }
+    package override func mouseDragged(with event: NSEvent) {
+        if contextClicked { return rightMouseDragged(with: event) }
+        pointerDragged(event)
+        let chain = holdPresenter?.mouseChain
+        if let contact = chain?.bubbledPress {
+            contact.validate()
+            if contact.cancelled { _ = chain?.drag(event); return }
+            if contact.reaches(self) { contact.drag(on: self, event: event); return }
+        }
+        guard !inert else { return }
+        if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
+        if canvasInput?.pointer(event, phase: "move") == true { return }
+        inlinePressed = nil
+        // A gesture that engages ends the press (the chain clears `pressed`).
+        if presenter?.mouseChain.drag(event) == true { return }
+        pressFollows(inside: pressInside(event.locationInWindow))
+        if selectsText { presenter?.selection.drag(event) }
+        else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseDragged(with: event) }
+    }
+    package override func rightMouseUp(with event: NSEvent) {
+        pointerReleased(event)
+        if canvasInput?.pointer(event, phase: "up") != true { super.rightMouseUp(with: event) }
+    }
+    package override func mouseUp(with event: NSEvent) {
+        let chain = holdPresenter?.mouseChain, contact = chain?.bubbledPress
+        defer { chain?.completed(contact, at: self) }
+        if contextClicked { contextClicked = false; return rightMouseUp(with: event) }
+        pointerReleased(event)
+        contact?.validate()
+        if contact?.cancelled == true {
+            let taken = chain?.up(event) == true
+            chain?.presenter?.interacting = 0
+            if !taken, !inert { dispatchDblclick(dblclickTarget(event)) }
+            return
+        }
+        if let contact, contact.reaches(self) { contact.up(on: self, event: event); return }
+        guard !inert else { return }
+        if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
+        if canvasInput?.pointer(event, phase: "up") == true { return }
+        defer { holdPresenter?.interacting = 0 }
+        if presenter?.mouseChain.up(event) == true { return }
+        presenter?.collections.releaseInteractionLater()
+        let double = dblclickTarget(event)
+        defer { dispatchDblclick(double) }
+        if let target = svgPressed {
+            svgPressed = nil
+            // The element has no view of its own: the `svg`'s view stands for it.
+            if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
+                presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+            }
+            return
+        }
+        if let run = inlinePressed {
+            inlinePressed = nil
+            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
+            return
+        }
+        if selectsText { presenter?.selection.end(self, event: event); return }
+        guard !disabled else { pressed = false; return }
+        guard pressed else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseUp(with: event); return }
+        pressed = false
+        if pressInside(event.locationInWindow) {
+            let canvas = inputCanvas, ownerWindow = window
+            presenter?.press(id, held: KeyCodes.held(event.modifierFlags))
+            finishPress(canvas: canvas, window: ownerWindow, pointer: true)
+        }
+    }
+
     /// Whether its own `contextmenu` or `contextPopover` answers a context request.
     var answersContextMenu: Bool { handlers.contains("contextmenu") || props["contextPopover"]?.isEmpty == false }
 

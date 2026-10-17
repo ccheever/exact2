@@ -144,19 +144,19 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Builds if stale, launches, runs each quoted op on the agent's clock, prints replies and closes.
-Without --storage, storage is refused. Chrome starts a named store empty; --keep-storage reopens it.
-An app's server.ts runs for the drive, its database kept per --storage.
+    body: `Builds if stale, launches, runs each quoted op on the agent's clock and closes.
+Without --storage, storage is refused; --keep-storage reopens a named store.
+An app's server.ts runs for the drive, its database per --storage.
 Ops      a target is a testId, else a view's exact text or label
-  tree [<target>] · tree --ax · logs · layout [<target>]
+  tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
-  tap <target> [contextmenu|dblclick|hover|drag <dx> <dy>|…]
-  type <target> <text> · type <target> key <Name>   (a select, date or checkbox: its value)
-  clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
-  check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
-  prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
+  tap <target> [contextmenu|hover|drag <dx> <dy>|…] · hold: "tap <t> down" "tap hold <ms>" "tap up"
+  type <target> <text>|key <Name>   (a select, date or checkbox: its value)
+  clock data|settle|+<ms> [real]    land in-flight work · end transitions
+  check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
+  screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
     bodyAll: `Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
-    example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
+    example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
     line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
@@ -181,10 +181,11 @@ screenshot of each screen goes to .exact/verify/ (the first screen's per width a
 each test's named by the test, the relaunch's): look at them when the features work.
 Large    each of those screens again at the largest text size (ios: the simulator's, put back
          after; web: a 53 px root, iOS's body there, at 390x844): what spills (past the edge,
-         squeezed, overlapping), each with a remedy that keeps the text's size; not counted.
+         squeezed, overlapping), each with a remedy that gives the text room; a smaller or
+         fixed font is the tell. Counted ("3 at the largest text size"), never failing.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
-         findings (check's, the relaunch's) and the compiler's warnings are counted, never
-         fail it. A screen no test ends on is not checked: end a test there.
+         findings (check's, the relaunch's, the largest text size's) and the compiler's
+         warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
          it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops
          it; one already answering there (a dev server) is refused, named, never written to; so is

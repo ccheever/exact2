@@ -441,3 +441,67 @@ fn a_development_build_makes_every_role_override_a_property() {
         release.css
     );
 }
+
+/// The JS loop's design reader (`exact-web-js design`, a design text read
+/// with no build) says the plan's structure, which its fast path compares:
+/// it moves for what the plan keeps (theme2's ruling, LLP 1121 stage 5,
+/// D7's retention) and only that. With a data crate beside the app every
+/// token is kept, so an added one moves it; a first `when` on a kept token
+/// moves it; in a plain app an unnamed token's add does not.
+#[test]
+fn the_design_readers_structure_moves_for_what_the_plan_keeps() {
+    let design = "tamber t\n\naxes\n  tone = warm | cool\n\ntheme\n  ink = #111111\n";
+    let added = format!("{design}  spare = #222222\n");
+    let varies = design.replace(
+        "ink = #111111\n",
+        "ink = #111111\n    when tone=cool: #0a7aff\n",
+    );
+    let read = |dir: &std::path::Path, text: &str| {
+        let src = dir.join("app.contract");
+        let path = contract::design_path(&src).unwrap();
+        let (plan, _) = contract::with_design_text(&path, text.to_string(), || {
+            contract::compile_path_all(&src, false)
+        })
+        .unwrap();
+        let _every = crate::modes::every(true);
+        crate::modes::design(&plan)["structure"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let app = |tag: &str, bound: bool| {
+        let dir =
+            std::env::temp_dir().join(format!("exact-web-js-reader-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.tamber"), design).unwrap();
+        std::fs::write(
+            dir.join("app.contract"),
+            "component App\n  view\n    text \"a\" color=\"ink\"\n",
+        )
+        .unwrap();
+        if bound {
+            std::fs::create_dir_all(dir.join("data")).unwrap();
+            std::fs::write(
+                dir.join("data/Cargo.toml"),
+                "[package]\nname = \"t-data\"\n",
+            )
+            .unwrap();
+        }
+        dir
+    };
+    let bound = app("bound", true);
+    let base = read(&bound, design);
+    assert_ne!(read(&bound, &added), base, "a kept token added");
+    assert_ne!(read(&bound, &varies), base, "a kept token starting to vary");
+    let plain = app("plain", false);
+    let base = read(&plain, design);
+    assert_eq!(
+        read(&plain, &added),
+        base,
+        "a token no view names is in no plan"
+    );
+    assert_ne!(read(&plain, &varies), base, "a kept token starting to vary");
+    let _ = std::fs::remove_dir_all(bound);
+    let _ = std::fs::remove_dir_all(plain);
+}

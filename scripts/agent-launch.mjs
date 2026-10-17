@@ -690,7 +690,7 @@ export function notBuildInput(dir, keep = []) {
 }
 
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
-export function receiptChanges(receipt, app) {
+export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hashed`: this drive compared its inputs' bytes already
   if (!existsSync(receipt)) return [];
   const { build, target, started } = JSON.parse(readFileSync(receipt, 'utf8'));
   // A file edited while the build ran is newer than what it read, though older than the receipt written at its end
@@ -715,7 +715,7 @@ export function receiptChanges(receipt, app) {
   // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
   const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
   const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
-  return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.

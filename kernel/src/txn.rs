@@ -22,6 +22,7 @@ use crate::layout::LayoutMirror;
 use crate::selector::SelectorIndex;
 use crate::wire::Op;
 mod defaults;
+mod text_style;
 
 /// The deepest a node may sit below the top of its tree (a root is 0). Layout
 /// recurses once per level: a release build uses up to ~3.5 KiB of stack a
@@ -729,6 +730,7 @@ pub(crate) fn continue_document(
                     }
                     defaults::after_prop(arena, layout, starts, touched, receipt);
                     source_changed(arena, slot, *prop, receipt);
+                    text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
@@ -763,6 +765,7 @@ pub(crate) fn continue_document(
                         }
                         defaults::after_prop(arena, layout, starts, touched, receipt);
                         source_changed(arena, slot, *prop, receipt);
+                        text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
                         touched.push(arena.key(slot));
                     }
                 }
@@ -773,11 +776,14 @@ pub(crate) fn continue_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
+                    let named = arena.named_text_style(slot).is_some();
                     arena.patch_style(slot, patch);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
                     }
+                    // A text style's weight and leading move with its size.
+                    let changed = text_style::with_style_rows(arena, slot, changed, named);
                     style_changed(arena, layout, slot, changed, receipt);
                     if changed.intersects(StyleMask::LAYOUT) {
                         unstyled.remove(&slot);
@@ -792,11 +798,13 @@ pub(crate) fn continue_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
+                    let named = arena.named_text_style(slot).is_some();
                     arena.clear_style(slot, *mask, *written);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
                     }
+                    let changed = text_style::with_style_rows(arena, slot, changed, named);
                     style_changed(arena, layout, slot, changed, receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, touched, receipt);

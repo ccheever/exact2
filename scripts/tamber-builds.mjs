@@ -84,12 +84,14 @@ function reportRefused(r) {
     if (!text(r.host, 32) || !r.host || !Array.isArray(r.capabilities) || r.capabilities.length > 32 || !r.capabilities.every(c => text(c, 64))) return 'a registration names its `host` and its `capabilities` (strings)';
   }
   if (!maybe(r.plan, v => text(v, 1024)) || !maybe(r.design, v => text(v, 1024))) return '`plan` and `design` are strings, or null';
+  if (!maybe(r.planDigest, v => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v))) return '`planDigest` is a SHA-256 in hex, or null';
   if (r.kind === 'status') {
     if (!maybe(r.scheme, v => text(v, 32)) || !maybe(r.contrast, v => text(v, 32))) return '`scheme` and `contrast` are strings, or null';
     if (!maybe(r.mode, v => object(v) && Object.keys(v).length <= 64 && Object.entries(v).every(([a, x]) => a.length <= 64 && text(x, 64)))) return '`mode` is {axis: value}, or null';
     if (!maybe(r.rootFontSize, Number.isFinite) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0)) return '`rootFontSize` is a number and `revision` a whole number, or null';
   }
   if (r.kind === 'selected' && !maybe(r.inspect, v => Number.isSafeInteger(v) && v >= 0)) return '`inspect` is a whole number';
+  if (r.kind === 'selected' && !maybe(r.click, v => typeof v === 'string' && v.length > 0 && v.length <= 64)) return '`click` is a string of 1 to 64 characters';
   if (r.kind === 'unsupported' && (!maybe(r.what, v => text(v, 256)) || !maybe(r.detail, v => text(v, 4096)) || !maybe(r.revision, v => Number.isSafeInteger(v) && v >= 0))) return '`what` and `detail` are strings, and `revision` a whole number';
   return null;
 }
@@ -121,11 +123,23 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
     for (const [k] of open.slice(0, Math.max(0, open.length - POLLED + room))) close(k);
   };
   const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
-  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
+  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, inspector: inspectors.get(b.id) ?? null, plan: b.plan, planDigest: b.planDigest ?? null, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
   // A build is connected while the stream it registered on still names it.
   const connected = b => streams.get(b.nonce)?.build === b.id;
   const listed = () => [...builds.values()].filter(connected).map(shown);
   const announce = () => send({ event: 'builds', builds: listed() });
+  // Inspect mode's owners, as they move (tamber/1.6): from `before`, each
+  // client that lost builds (off) and each that took some (on), so a tool
+  // follows another client's command and its own lapse with no gap.
+  // An off says who took the builds (`to`), or null when inspect mode
+  // ended there.
+  const told = (before) => {
+    const moved = new Map();
+    const add = (client, on, id, to) => { const key = `${on} ${client} ${to}`; if (!moved.has(key)) moved.set(key, { event: 'inspect', client, on, builds: [], ...(on ? {} : { to }) }); moved.get(key).builds.push(id); };
+    for (const [id, owner] of before) if (inspectors.get(id) !== owner) add(owner, false, id, inspectors.get(id) ?? null);
+    for (const [id, owner] of inspectors) if (before.get(id) !== owner) add(owner, true, id);
+    for (const e of moved.values()) send(e);
+  };
   const frame = (id, f) => { const b = builds.get(id); const s = b && streams.get(b.nonce); if (s) s.write(f); };
   // A build with no pin is told so at revision 0: nothing for it to catch.
   const pinFrame = id => (pins.has(id) ? { kind: 'pin', revision: pins.get(id).revision, pin: pins.get(id).pin } : { kind: 'pin', revision: 0, pin: null });
@@ -205,6 +219,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
       const why = reportRefused(r);
       if (why) return { status: 400, body: { message: why } };
       if (r.kind === 'register') {
+        const owners = new Map(inspectors);
         // The same build on a new stream: the old one's is no longer it.
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
@@ -212,7 +227,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id);
-        builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
+        builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
         for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
@@ -226,6 +241,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         // whose owner went meanwhile leaves it).
         if (r.capabilities?.includes('inspect')) s.write({ kind: 'inspect', on: inspectors.has(r.id), seq: inspectSeq.get(r.id) ?? 0 });
         announce();
+        told(owners);
         return { status: 200, body: { id: r.id } };
       }
       const b = s.build && builds.get(s.build);
@@ -245,6 +261,8 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         else if (b.unsupported && b.unsupported.revision !== at) b.unsupported = null;
         b.status = { scheme: r.scheme ?? null, contrast: r.contrast ?? null, mode: r.mode ?? null, rootFontSize: r.rootFontSize ?? null, revision: at };
         if (typeof r.plan === 'string') b.plan = r.plan;
+        // (Said unknown, null, it is unknown: such a build is sent every plan's outline.)
+        if ('planDigest' in r) b.planDigest = r.planDigest ?? null;
         if (typeof r.design === 'string') b.design = r.design;
         send({ event: 'build-status', build: shown(b) });
       } else if (r.kind === 'unsupported') {
@@ -257,7 +275,17 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         // A page that left inspect mode itself (Escape, its close control):
         // no one owns it there any more.
         // The exit names the command it left; a newer owner's stays.
-        if (r.selected == null && r.inspect === (inspectSeq.get(b.id) ?? 0)) inspectors.delete(b.id);
+        // An exit from a command since replaced (another owner's now) is not
+        // this build's news: nothing is published.
+        if (r.selected == null) {
+          if (r.inspect !== (inspectSeq.get(b.id) ?? 0)) return { status: 204, body: null };
+          const owners = new Map(inspectors); inspectors.delete(b.id); told(owners);
+        }
+        // A selection made under inspect mode that has ended since (Stop, a
+        // lapse, while it was on its way) is not published.
+        // So is one made under a command since replaced (Stop then Inspect,
+        // another client taking over), which names that command.
+        if (r.selected != null && (!inspectors.has(b.id) || (r.inspect != null && r.inspect !== (inspectSeq.get(b.id) ?? 0)))) return { status: 409, body: { message: 'inspect mode is off on this build, or it is another command\'s now' } };
         // A selection is the server's to join (`selected`): it may refuse a
         // stale one, and ask the build again.
         const refused = r.selected != null && selected ? selected(shown(b), r, f => frame(b.id, f)) : null;
@@ -315,6 +343,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
       if (id != null && !listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
       const targets = id == null ? listed() : listed().filter(b => b.id === id);
       const can = targets.filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
+      const owners = new Map(inspectors);
       for (const t of can) {
         if (refresh) frame(t, { kind: 'inspect', refresh: true });
         else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, { kind: 'inspect', on: !!on, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
@@ -322,6 +351,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
       // Off everywhere is off on a build of this client's that is away too:
       // its registration is told off, not replayed on.
       if (id == null && !on && !refresh) for (const [t, owner] of inspectors) if (owner === client && !can.includes(t)) { inspectors.delete(t); inspectSeq.set(t, ++inspects); }
+      told(owners);
       log(`tamber: ${client} ${refresh ? 'refreshed inspect' : `inspect ${on ? 'on' : 'off'}`} on ${can.join(', ') || 'no build'}`);
       return { builds: can, unsupported: targets.map(b => b.id).filter(t => !can.includes(t)) };
     },
@@ -329,10 +359,22 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
      * inspect (`outline {sites, plan}`); a build running another plan
      * leaves it. The outlines are that client's: cleared on a build when it
      * goes (`clear`), unless another client's came since. */
-    outline(client, sites, plan) {
+    /** `client` outlines on every build that can inspect: `sitesOf(build)`
+     * gives that build its own plan's `{sites, plan}`, or null for none
+     * (its plan has no map here); `sitesOf` null clears. The builds told. */
+    outline(client, sitesOf, click = null) {
       sweep();
-      const to = listed().filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
-      for (const t of to) { frame(t, sites == null ? { kind: 'outline', clear: true } : { kind: 'outline', sites, plan }); outliners.set(t, client); }
+      const to = [];
+      for (const b of listed().filter(b => b.capabilities?.includes('inspect'))) {
+        const mine = sitesOf ? sitesOf(b) : null;
+        // A build this outline cannot reach (its plan has no map, or a stale
+        // one) loses the client's old outline rather than keeping it.
+        if (sitesOf && !mine) { if (outliners.get(b.id) === client) { frame(b.id, { kind: 'outline', clear: true }); outliners.delete(b.id); } continue; }
+        // (`click`: the click's token the outline answers, tamber/1.7.)
+        frame(b.id, mine ? { kind: 'outline', sites: mine.sites, plan: mine.plan, ...(click ? { click } : {}) } : { kind: 'outline', clear: true });
+        outliners.set(b.id, client);
+        to.push(b.id);
+      }
       return to;
     },
     /** A command a host does not speak yet (`hold`):
@@ -341,7 +383,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
     /** Client `client` is gone: its pins are cleared on every build. */
     clear(client) {
       for (const [id, owner] of outliners) if (owner === client) { outliners.delete(id); frame(id, { kind: 'outline', clear: true }); }
+      const owners = new Map(inspectors);
       for (const [id, owner] of inspectors) if (owner === client) { inspectors.delete(id); const seq = ++inspects; inspectSeq.set(id, seq); frame(id, { kind: 'inspect', on: false, seq }); }
+      told(owners);
       const mine = [...pins].filter(([, p]) => p.client === client).map(([id]) => id);
       if (!mine.length) return;
       revision += 1;

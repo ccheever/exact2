@@ -17,7 +17,7 @@ use contract_syntax::{
 use contract_types::Checked;
 use exact_kernel::StyleId;
 use exact_plan::Stdlib;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod counts;
 mod launch;
@@ -138,8 +138,12 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     out.extend(counts::count_plural(checked));
     // @ref LLP 1116.016 D4 — a row that searches another data list.
     out.extend(rows::row_lookup(checked));
+    // @ref LLP 1116.020 D1 — a `delete=` no list row holds.
+    out.extend(crate::swipe_rows::unplaced(&root.view));
     // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
+    // @ref LLP 1116.020 D5 — an empty state drawn as a list's row.
+    out.extend(parts::empty_state_in_list(checked));
     performance_now(root, &checked.file.fns, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
@@ -230,6 +234,9 @@ enum Part {
     Tablist,
     /// A button that presses, or opens a popover: a bar item.
     Pressable,
+    /// `role="status"`: a readout, a bar item that nothing presses (LLP
+    /// 1075.003 §9.15), what it holds its face.
+    Status,
     /// A plain box, walked into.
     Box,
     /// Anything else.
@@ -257,6 +264,9 @@ fn part(node: &Node) -> Part {
     if has(attrs, "press") || (tag == "button" && opens) || tag == "link" {
         return Part::Pressable;
     }
+    if role == Some("status") && tag != "header" {
+        return Part::Status;
+    }
     match tag.as_str() {
         "text" if role == Some("heading") => Part::Heading,
         "text" => Part::Text,
@@ -278,7 +288,12 @@ fn kids(node: &Node) -> &[Node] {
 /// cannot see through: then a box around it is walked, not dropped whole.
 fn holds_placed(node: &Node) -> bool {
     kids(node).iter().any(|k| match part(k) {
-        Part::Doubt | Part::Heading | Part::Search | Part::Tablist | Part::Pressable => true,
+        Part::Doubt
+        | Part::Heading
+        | Part::Search
+        | Part::Tablist
+        | Part::Pressable
+        | Part::Status => true,
         Part::Box => holds_placed(k),
         Part::Hidden | Part::Text | Part::Other => false,
     })
@@ -287,7 +302,7 @@ fn holds_placed(node: &Node) -> bool {
 fn holds_heading(node: &Node) -> bool {
     kids(node).iter().any(|k| match part(k) {
         Part::Heading => true,
-        Part::Box | Part::Pressable => holds_heading(k),
+        Part::Box | Part::Pressable | Part::Status => holds_heading(k),
         _ => false,
     })
 }
@@ -356,7 +371,8 @@ const OR_NO_BAR: &str =
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The
 /// bar takes one heading as its title, the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
-/// tablist and the buttons that press or open a popover; the rest of the
+/// tablist, the buttons that press or open a popover and the readouts
+/// (`role="status"`, LLP 1075.003 §9.15); the rest of the
 /// header is hidden with it. With no heading or with two, the bar takes
 /// nothing and the header is shown as written, so nothing is dropped; that
 /// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). An `if` first
@@ -403,7 +419,7 @@ fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<Lowe
         out.push(LowerError {
             id: "lower-header-unplaced",
             message: format!(
-                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"` and the buttons that press, and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), or make it a button that presses (docs/contract-for-agents.md, \"Tabs and stacks\")"
+                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
             ),
             span,
         });
@@ -435,6 +451,9 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
                 walk(kids(node), bar);
             }
             Part::Pressable => {}
+            // A status around the heading is no readout: walked for it.
+            Part::Status if holds_heading(node) => walk(kids(node), bar),
+            Part::Status => {}
             Part::Text if bar.passed && !bar.subtitle => bar.subtitle = true,
             Part::Text => bar.unplaced.push((
                 span,
@@ -596,71 +615,120 @@ fn single_tab(tablist: &Node, out: &mut Vec<LowerError>) {
     }
 }
 
+/// What a number may be, as far as the clock goes: a bit set. A value may
+/// be several (a state assigned a reading in one action and a duration in
+/// another). The empty set is a state or derive not yet resolved, which
+/// adds nothing to what reads it (see `performance_now`).
+type Kinds = u8;
+/// A reading of `performanceNow()`, the milliseconds since this launch, or
+/// a number made from one: a launch-relative time.
+const TIME: Kinds = 1;
+/// One reading less another: a span of time, the same on every launch.
+const SPAN: Kinds = 2;
+/// A value the source writes, or one of no clock (a literal, a count, a
+/// truth, a call of literals).
+const CONST: Kinds = 4;
+/// A value the compiler cannot see (a source's field, a parameter): taken,
+/// as an anchor, to be on the clock.
+const UNSEEN: Kinds = 8;
+/// The launch's wall-clock origin, `epochAtZero`.
+const EPOCH: Kinds = 16;
+const ALL: [Kinds; 5] = [TIME, SPAN, CONST, UNSEEN, EPOCH];
+
+/// One kind with another, under `op`: a time with the origin added is the
+/// wall-clock time; a time less a time or an unseen anchor is a span, less
+/// a constant, a span or the origin still a time; otherwise what either is,
+/// a constant only when both are.
+fn pair(op: BinOp, x: Kinds, y: Kinds) -> Kinds {
+    let join = if x == y || y == CONST {
+        x
+    } else if x == CONST {
+        y
+    } else {
+        x | y
+    };
+    match op {
+        BinOp::Add if x | y == TIME | EPOCH => UNSEEN,
+        BinOp::Sub if x == TIME => match y {
+            TIME | UNSEEN => SPAN,
+            _ => TIME,
+        },
+        BinOp::Sub if y == TIME => TIME,
+        _ => join,
+    }
+}
+
+/// `op` over every kind `a` may be and every kind `b` may be: monotone, so
+/// the names' kinds only grow. Either side unresolved, nothing yet.
+fn arith(op: BinOp, a: Kinds, b: Kinds) -> Kinds {
+    let mut out = 0;
+    for x in ALL.into_iter().filter(|x| a & x != 0) {
+        for y in ALL.into_iter().filter(|y| b & y != 0) {
+            out |= pair(op, x, y);
+        }
+    }
+    out
+}
+
 /// What the expanded root's names may hold, as far as the clock goes.
 struct Clock<'a> {
     fns: &'a [FnDecl],
-    /// Names whose value may be a reading of `performanceNow()`: the
-    /// milliseconds since this launch, or a number made from one.
-    marks: BTreeSet<String>,
-    /// Names whose value is the launch's wall-clock origin, `epochAtZero`.
-    epochs: BTreeSet<String>,
+    /// Each state's and derive's kinds, from what is assigned to it; empty
+    /// while not yet resolved.
+    names: BTreeMap<String, Kinds>,
 }
 
 impl Clock<'_> {
-    fn epoch(&self, e: &Expr, locals: &[(String, bool)]) -> bool {
-        match e {
-            Expr::Member(_, field, _) => field == "epochAtZero",
-            Expr::Ident(name, _) => {
-                !locals.iter().any(|(n, _)| n == name) && self.epochs.contains(name)
-            }
-            Expr::Typed(inner, _, _) => self.epoch(inner, locals),
-            _ => false,
-        }
+    /// Whether `e` may be a launch-relative time.
+    fn mark(&self, e: &Expr, locals: &[(String, Kinds)], depth: u32) -> bool {
+        self.kinds(e, locals, depth) & TIME != 0
     }
 
-    /// Whether `e` may be a launch-relative time: `performanceNow()`, a name
-    /// or a computation holding one, unless `epochAtZero` is added to it
-    /// (the wall-clock time) or another reading is taken from it (a
-    /// duration). `depth` bounds a `fn`'s expansion.
-    fn mark(&self, e: &Expr, locals: &[(String, bool)], depth: u32) -> bool {
-        let m = |e: &Expr| self.mark(e, locals, depth);
+    /// What `e` may be (`pair`). `depth` bounds a `fn`'s expansion.
+    fn kinds(&self, e: &Expr, locals: &[(String, Kinds)], depth: u32) -> Kinds {
+        let k = |e: &Expr| self.kinds(e, locals, depth);
         match e {
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => CONST,
             Expr::Ident(name, _) => match locals.iter().rev().find(|(n, _)| n == name) {
-                Some(&(_, marked)) => marked,
-                None => self.marks.contains(name),
+                Some(&(_, kinds)) => kinds,
+                None => self.names.get(name).copied().unwrap_or(UNSEEN),
             },
-            Expr::Member(inner, field, _) => field != "epochAtZero" && m(inner),
+            Expr::Member(_, field, _) if field == "epochAtZero" => EPOCH,
+            Expr::Member(inner, _, _) => UNSEEN | (k(inner) & (TIME | EPOCH)),
             Expr::Call(name, args, _) => {
                 if let Some(f) = self.fns.iter().find(|f| &f.name == name) {
                     if depth == 0 {
-                        return args.iter().any(m);
+                        return args.iter().fold(UNSEEN, |acc, a| acc | k(a));
                     }
-                    let bound: Vec<(String, bool)> = f
+                    let bound: Vec<(String, Kinds)> = f
                         .params
                         .iter()
                         .zip(args)
-                        .map(|(p, a)| (p.name.clone(), m(a)))
+                        .map(|(p, a)| (p.name.clone(), k(a)))
                         .collect();
-                    return self.mark(&f.body, &bound, depth - 1);
+                    return self.kinds(&f.body, &bound, depth - 1);
                 }
                 match Stdlib::from_name(name) {
-                    Some(Stdlib::PerformanceNow) => true,
+                    Some(Stdlib::PerformanceNow) => TIME,
                     // A count, a position or a truth is no time.
-                    Some(f) if f.returns() == "bool" => false,
-                    Some(Stdlib::Length | Stdlib::IndexOf) => false,
-                    _ => args.iter().any(m),
+                    Some(f) if f.returns() == "bool" => CONST,
+                    Some(Stdlib::Length | Stdlib::IndexOf) => CONST,
+                    _ => args
+                        .iter()
+                        .map(k)
+                        .reduce(|a, b| arith(BinOp::Mul, a, b))
+                        .unwrap_or(UNSEEN),
                 }
             }
             Expr::Binary(op, a, b, _) => match op {
-                BinOp::Add if self.epoch(a, locals) || self.epoch(b, locals) => false,
-                BinOp::Sub if m(a) && m(b) => false,
-                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => m(a) || m(b),
-                _ => false,
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                    arith(*op, k(a), k(b))
+                }
+                _ => CONST,
             },
-            Expr::Unary(UnOp::Neg, inner, _) => m(inner),
-            Expr::Unary(..) => false,
-            Expr::Ternary(_, a, b, _) => m(a) || m(b),
+            Expr::Unary(UnOp::Neg, inner, _) => k(inner),
+            Expr::Unary(..) => CONST,
+            Expr::Ternary(_, a, b, _) => k(a) | k(b),
             Expr::Match {
                 subject,
                 var,
@@ -669,47 +737,72 @@ impl Clock<'_> {
                 ..
             } => {
                 let mut inner = locals.to_vec();
-                inner.push((var.clone(), m(subject)));
-                self.mark(some, &inner, depth) || m(none)
+                inner.push((var.clone(), k(subject)));
+                self.kinds(some, &inner, depth) | k(none)
             }
             Expr::Let {
                 name, value, body, ..
             } => {
                 let mut inner = locals.to_vec();
-                inner.push((name.clone(), m(value)));
-                self.mark(body, &inner, depth)
+                inner.push((name.clone(), k(value)));
+                self.kinds(body, &inner, depth)
             }
-            Expr::Template(parts, _) => parts.iter().any(|p| match p {
-                TemplatePart::Expr(e) => m(e),
-                TemplatePart::Text(_) => false,
+            Expr::Template(parts, _) => parts.iter().fold(CONST, |acc, p| match p {
+                TemplatePart::Expr(e) => acc | (k(e) & TIME),
+                TemplatePart::Text(_) => acc,
             }),
-            Expr::List(items, _) => items.iter().any(m),
+            Expr::List(items, _) => items.iter().fold(0, |acc, e| acc | k(e)),
             Expr::Some(inner, _) | Expr::NamedArg(_, inner, _) | Expr::Typed(inner, _, _) => {
-                m(inner)
+                k(inner)
             }
-            Expr::Arrow { body, .. } => m(body),
+            Expr::Arrow { body, .. } => k(body),
         }
     }
 }
 
-/// Every state a statement list assigns a mark to, with its `let`s.
+/// The states an assignment computes from themselves (`mark = performanceNow() - mark`).
+fn self_assigned(body: &[Stmt], out: &mut BTreeSet<String>) {
+    for s in body {
+        match s {
+            Stmt::Assign { target, expr, .. } => {
+                let mut read = Vec::new();
+                screens::idents(expr, &mut read);
+                if read.contains(target) {
+                    out.insert(target.clone());
+                }
+            }
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                self_assigned(then, out);
+                self_assigned(otherwise, out);
+            }
+            Stmt::Match { some, none, .. } => {
+                self_assigned(&some.1, out);
+                self_assigned(none, out);
+            }
+            Stmt::Call { body, .. } => self_assigned(body, out),
+            Stmt::Let { .. } | Stmt::Command { .. } | Stmt::Send { .. } | Stmt::Refresh { .. } => {}
+        }
+    }
+}
+
+/// Each state a statement list assigns, with what it may assign, and its `let`s.
 fn assigned(
     clock: &Clock<'_>,
     body: &[Stmt],
-    locals: &mut Vec<(String, bool)>,
-    out: &mut BTreeSet<String>,
+    locals: &mut Vec<(String, Kinds)>,
+    out: &mut BTreeMap<String, Kinds>,
 ) {
     let scope = locals.len();
     for s in body {
         match s {
             Stmt::Let { name, expr, .. } => {
-                let marked = clock.mark(expr, locals, 4);
-                locals.push((name.clone(), marked));
+                let kinds = clock.kinds(expr, locals, 4);
+                locals.push((name.clone(), kinds));
             }
             Stmt::Assign { target, expr, .. } => {
-                if clock.mark(expr, locals, 4) {
-                    out.insert(target.clone());
-                }
+                *out.entry(target.clone()).or_default() |= clock.kinds(expr, locals, 4);
             }
             Stmt::If {
                 then, otherwise, ..
@@ -723,8 +816,8 @@ fn assigned(
                 none,
                 ..
             } => {
-                let marked = clock.mark(subject, locals, 4);
-                locals.push((some.0.clone(), marked));
+                let kinds = clock.kinds(subject, locals, 4);
+                locals.push((some.0.clone(), kinds));
                 assigned(clock, &some.1, locals, out);
                 locals.pop();
                 assigned(clock, none, locals, out);
@@ -740,15 +833,15 @@ fn assigned(
 fn sent(
     clock: &Clock<'_>,
     body: &[Stmt],
-    locals: &mut Vec<(String, bool)>,
+    locals: &mut Vec<(String, Kinds)>,
     out: &mut Vec<(Span, String)>,
 ) {
     let scope = locals.len();
     for s in body {
         match s {
             Stmt::Let { name, expr, .. } => {
-                let marked = clock.mark(expr, locals, 4);
-                locals.push((name.clone(), marked));
+                let kinds = clock.kinds(expr, locals, 4);
+                locals.push((name.clone(), kinds));
             }
             Stmt::Send { source, args, .. } => {
                 for a in args.iter().filter(|a| clock.mark(a, locals, 4)) {
@@ -767,8 +860,8 @@ fn sent(
                 none,
                 ..
             } => {
-                let marked = clock.mark(subject, locals, 4);
-                locals.push((some.0.clone(), marked));
+                let kinds = clock.kinds(subject, locals, 4);
+                locals.push((some.0.clone(), kinds));
                 sent(clock, &some.1, locals, out);
                 locals.pop();
                 sent(clock, none, locals, out);
@@ -785,37 +878,48 @@ fn sent(
 /// persisted state (LLP 1116 D6, D5).
 /// `performanceNow()` counts from 0 at each launch, so a start mark a
 /// source keeps reads as a time before the next launch began (stopwatch:
-/// laps of `0-5:0-41`). A duration, one reading less another, is kept as
+/// laps of `0-5:0-41`). A span, one reading less another (or less an
+/// anchor the compiler cannot see, euxy's `transport.anchorAt`), is kept as
 /// it is.
 fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut Vec<LowerError>) {
+    // Every state and derive starts unresolved (no kinds), so what reads one
+    // waits for it: a derive of the origin read before it resolves gives
+    // nothing, not a guess it keeps.
+    let names = root.states.iter().chain(&root.derives);
     let mut clock = Clock {
         fns,
-        marks: BTreeSet::new(),
-        epochs: BTreeSet::new(),
+        names: names.map(|b| (b.name.clone(), 0)).collect(),
     };
-    // Settle which states and derives hold marks. Each round recomputes
-    // them from the last, so a name marked before what it subtracts was
-    // known (a duration, `performanceNow() - start`) is cleared again; the
-    // rounds are bounded by the names.
-    let names = root.states.len() + root.derives.len() + 1;
-    for _ in 0..=names {
-        let mut marks = BTreeSet::new();
-        let mut epochs = BTreeSet::new();
-        for b in root.states.iter().chain(&root.derives) {
-            if clock.mark(&b.expr, &[], 4) {
-                marks.insert(b.name.clone());
-            }
-            if clock.epoch(&b.expr, &[]) {
-                epochs.insert(b.name.clone());
-            }
+    // What each grows to, round by round, from what is assigned to it, until
+    // nothing more is added: every step is monotone (`arith`), so the rounds
+    // end, at most five kinds a name. An assigned state's initial number is
+    // its placeholder (`state start = 0`), only a reading there counting,
+    // unless an assignment computes the state from itself, whose first run
+    // reads that number; one never assigned is its initial value.
+    let mut targets = BTreeMap::new();
+    let mut selfish = BTreeSet::new();
+    for a in &root.actions {
+        assigned(&clock, &a.body, &mut Vec::new(), &mut targets);
+        self_assigned(&a.body, &mut selfish);
+    }
+    let rounds = (clock.names.len() + 1) * ALL.len();
+    for _ in 0..rounds {
+        let mut names = clock.names.clone();
+        for s in &root.states {
+            let placeholder = targets.contains_key(&s.name) && !selfish.contains(&s.name);
+            let kept = if placeholder { TIME } else { !0 };
+            *names.entry(s.name.clone()).or_default() |= clock.kinds(&s.expr, &[], 4) & kept;
+        }
+        for d in &root.derives {
+            *names.entry(d.name.clone()).or_default() |= clock.kinds(&d.expr, &[], 4);
         }
         for a in &root.actions {
-            assigned(&clock, &a.body, &mut Vec::new(), &mut marks);
+            assigned(&clock, &a.body, &mut Vec::new(), &mut names);
         }
-        if marks == clock.marks && epochs == clock.epochs {
+        if names == clock.names {
             break;
         }
-        (clock.marks, clock.epochs) = (marks, epochs);
+        clock.names = names;
     }
     let mut found = Vec::new();
     for a in &root.actions {
@@ -823,7 +927,7 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
     }
     // A persisted state outlives the launch as a source's copy does (D5).
     for s in root.states.iter().filter(|s| root.persists(&s.name)) {
-        if clock.marks.contains(&s.name) {
+        if clock.names.get(&s.name).is_some_and(|k| k & TIME != 0) {
             out.push(LowerError {
                 id: "type-performance-now-persisted",
                 message: format!(
@@ -1068,6 +1172,24 @@ fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mu
     }
 }
 
+/// Whether `e` is, or can choose, the string `word`.
+fn names(e: &Expr, word: &str) -> bool {
+    match e {
+        Expr::Str(s, _) => s == word,
+        Expr::Ternary(_, a, b, _) => names(a, word) || names(b, word),
+        _ => false,
+    }
+}
+
+/// Whether a literal colour is white.
+fn white(c: &str) -> bool {
+    let c = c.trim().to_ascii_lowercase().replace(' ', "");
+    matches!(
+        c.as_str(),
+        "white" | "#fff" | "#ffff" | "#ffffff" | "#ffffffff" | "rgb(255,255,255)"
+    )
+}
+
 /// `lower-colour-one-scheme`: a literal colour (a hex, `rgb()`, `hsl()`, a
 /// named colour) on a colour property of the page, outside `light-dark()`
 /// (LLP 1116.002 D1). It stays the same in dark mode while the platform's
@@ -1155,15 +1277,39 @@ fn one_scheme(
     for s in styles {
         colour_sites(&s.attrs, &leaves, &[], &mut sites);
     }
-    let mut stack: Vec<(&Node, Vec<String>)> =
-        root.view.iter().rev().map(|n| (n, Vec::new())).collect();
-    while let Some((node, locals)) = stack.pop() {
+    // Each node with whether the nearest fill over it (its own included)
+    // can be the accent.
+    let mut stack: Vec<(&Node, Vec<String>, bool)> = root
+        .view
+        .iter()
+        .rev()
+        .map(|n| (n, Vec::new(), false))
+        .collect();
+    while let Some((node, locals, on_accent)) = stack.pop() {
+        let mut accent = on_accent;
         let (children, locals): (Vec<&Node>, Vec<String>) = match node {
             Node::Element { tag, .. } if tag == "svg" => continue,
             Node::Element {
                 attrs, children, ..
             } => {
+                if let Some(fill) = attrs.iter().rev().find(|a| a.name == "background-color") {
+                    accent = names(&fill.value, "AccentColor");
+                }
+                let first = sites.len();
                 colour_sites(attrs, &leaves, &locals, &mut sites);
+                // @ref LLP 1116.020 D7 — white text on an accent fill is a
+                // filled button's label (Messages' bubble): the accent stays
+                // a fill in both schemes, and `check` holds the pair to 3:1.
+                if accent {
+                    let mut i = first;
+                    while i < sites.len() {
+                        if sites[i].name == "color" && sites[i].colours.iter().all(|c| white(c)) {
+                            sites.remove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
                 (children.iter().collect(), locals)
             }
             Node::When {
@@ -1187,7 +1333,12 @@ fn one_scheme(
             Node::Use { children, .. } => (children.iter().collect(), locals),
             Node::Children { .. } => continue,
         };
-        stack.extend(children.into_iter().rev().map(|n| (n, locals.clone())));
+        stack.extend(
+            children
+                .into_iter()
+                .rev()
+                .map(|n| (n, locals.clone(), accent)),
+        );
     }
     // A token a row names that is one colour in every scheme: one line, at
     // its declaration, however many rows name it (LLP 1121 D3).

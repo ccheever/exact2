@@ -470,6 +470,14 @@ pub(crate) fn check_style_value(
     if rows == [StyleId::Mode] {
         return crate::theme::mode_pins(a);
     }
+    // A length or number token in a row of another kind (LLP 1121 D3).
+    crate::theme::measure_row(a, rows, ty.is_string(), &|alt| {
+        let ty = match alt.value {
+            Expr::Number(..) => Ty::Number,
+            _ => Ty::String,
+        };
+        style_value(alt, rows, &ty, fonts, scope, shapes)
+    })?;
     // A name the design lacks, or a colour token in another row (LLP 1121 D3).
     style_value(a, rows, ty, fonts, scope, shapes)
         .map_err(|e| crate::theme::token_error(a, rows, e))
@@ -636,7 +644,11 @@ fn style_value(
                 }
             }
             // @ref LLP 1066, LLP 1077 — the kernel's parse says why, by name.
-            let why = if rows.contains(&StyleId::BackgroundImage) {
+            // A shadow token's name: its values were checked as this row's
+            // (`theme::measure_row`), not the name's own text.
+            let why = if crate::theme::measure_named(v).is_some() {
+                None
+            } else if rows.contains(&StyleId::BackgroundImage) {
                 exact_kernel::gradient::BackgroundImage::check(v).err()
             } else if rows.contains(&StyleId::MaskImage) {
                 exact_kernel::gradient::BackgroundImage::check_mask(v).err()
@@ -880,7 +892,15 @@ fn style_value(
     // A metric in a sheet the compiler wrote is a string that every host
     // reads as its platform's number (LLP 1115.002 D6).
     let metric = !a.written && crate::metrics::names(&a.value);
-    if !metric && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
+    // So is a number token's name, which the runner reads as its number
+    // (LLP 1121 D3).
+    // A computed string may name one too, when the design has one (D7).
+    let token = crate::theme::names_measures(&a.value)
+        || crate::theme::number_tokens()
+            && rows.iter().all(|r| {
+                exact_kernel::style::theme::admits(exact_kernel::style::theme::Kind::Number, *r)
+            });
+    if !metric && !token && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
         let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
             (ty.is_string() && !css_wide_branches(&a.value, rows)).then_some(a.value.span())
         });
@@ -1139,17 +1159,20 @@ pub(crate) fn check_prop_value(
             return err("lower-attr-value", why, span);
         }
     }
-    // @ref LLP 1053.000 D4 — a material is a name in the schema's table.
+    // @ref LLP 1053.000 D4 — a material is a name in the schema's table, or
+    // `none`, no material; each string a computed value can take is one.
     if prop == PropId::BackgroundMaterial {
-        if let Expr::Str(name, _) = value {
-            if exact_kernel::generated::material(name).is_none() {
+        let mut leaves = Vec::new();
+        string_leaves(value, &mut leaves);
+        for (name, at) in leaves {
+            if name != "none" && exact_kernel::generated::material(name).is_none() {
                 return err(
                     "lower-attr-value",
                     format!(
-                        "`backgroundMaterial=\"{name}\"` is not a material; materials: {}",
+                        "`backgroundMaterial=\"{name}\"` is not a material; materials: {}, or `none` for no material",
                         exact_kernel::generated::MATERIALS.join(", ")
                     ),
-                    span,
+                    if matches!(value, Expr::Str(..)) { span } else { at },
                 );
             }
         }
@@ -1219,6 +1242,21 @@ pub(crate) fn check_prop_value(
         );
     }
     Ok(())
+}
+/// The string literals `e` can be: itself, or the arms of a `?:`, `match` or `let`.
+fn string_leaves<'e>(e: &'e Expr, out: &mut Vec<(&'e str, Span)>) {
+    match e {
+        Expr::Str(s, span) => out.push((s, *span)),
+        Expr::Ternary(_, a, b, _)
+        | Expr::Match {
+            some: a, none: b, ..
+        } => {
+            string_leaves(a, out);
+            string_leaves(b, out);
+        }
+        Expr::Let { body: inner, .. } | Expr::Typed(inner, _, _) => string_leaves(inner, out),
+        _ => {}
+    }
 }
 /// @ref LLP 1053.000.000 D6 — where a glass group cannot be: beside the
 /// element's own material (the group's glass would fuse with it), on a

@@ -80,6 +80,62 @@ final class PressFocusIOSTests: XCTestCase {
         }
         return PointTouch(point, on: hit)
     }
+    /// euxy's capsule: a press held inside a box whose material comes or goes
+    /// for another reason (a timer's state) is still the finger's. The swap
+    /// moves the children between the effect's content view and the box,
+    /// which is no change of authored parent: a button's own press and a
+    /// text's forwarded one both land on the up.
+    func testAPressHeldAcrossItsParentsMaterialSwapStillLands() throws {
+        let p = presenter(node(1, "view", ["backgroundMaterial": "glass"], handlers: ["press"], w: 400, h: 200)
+            + node(2, "button", handlers: ["press"], y: 20) + node(3, "text", ["text": "t"], y: 100, w: 60)
+            + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
+        let box = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[2]), text = try XCTUnwrap(p.views[3])
+        var pressed: [UInt32] = []; p.onPress = { pressed.append($0) }
+        window.layoutIfNeeded()
+        let swaps: [([String: String], [String], String)] = [([:], ["backgroundMaterial"], "glass off"), (["backgroundMaterial": "glass"], [], "glass on")]
+        for (set, clear, step) in swaps {
+            let held = PointTouch(button.convert(CGPoint(x: 10, y: 10), to: nil), on: button)
+            let rest = PointTouch(text.convert(CGPoint(x: 5, y: 5), to: nil), on: text)
+            button.touchesBegan([held], with: nil)
+            text.touchesBegan([rest], with: nil)
+            XCTAssertTrue(button.pressed && box.pressed, step)
+            p.apply(wireBatch([["op": "props", "id": 1, "set": set, "clear": clear]]))
+            XCTAssertTrue(button.superview === box.container && text.superview === box.container, step)
+            XCTAssertTrue(button.pressed && box.pressed, "\(step): the presses hold")
+            button.touchesEnded([held], with: nil)
+            text.touchesEnded([rest], with: nil)
+        }
+        XCTAssertEqual(pressed, [2, 1, 2, 1])
+    }
+
+    /// The same where the material stays and what holds its children
+    /// changes: a blur box that starts clipping hosts them in its effect's
+    /// content view, and a glass box that stops scrolling takes them back
+    /// from its scroll view into its own.
+    func testAPressHeldWhileItsParentsMaterialRehomesItsChildrenStillLands() throws {
+        let plain: [String: Any] = ["text_color": [0, 0, 0, 255]]
+        let clipped = plain.merging(["overflow_x": "hidden", "overflow_y": "hidden"]) { $1 }
+        let scrolling = plain.merging(["overflow_y": "scroll"]) { $1 }
+        for (material, from, to, step) in [("ultra-thin", plain, clipped, "a blur that starts clipping"), ("glass", scrolling, plain, "a glass that stops scrolling")] {
+            let p = presenter([["op": "create", "id": 1, "kind": "view", "props": ["backgroundMaterial": material], "handlers": [], "style": from],
+                               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 200.0]]
+                + node(2, "button", handlers: ["press"], y: 20)
+                + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+            let box = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[2])
+            var pressed: [UInt32] = []; p.onPress = { pressed.append($0) }
+            window.layoutIfNeeded()
+            let before = button.superview
+            let held = PointTouch(button.convert(CGPoint(x: 10, y: 10), to: nil), on: button)
+            button.touchesBegan([held], with: nil)
+            p.apply(wireBatch([["op": "style", "id": 1, "style": to]]))
+            XCTAssertTrue(button.superview !== before && button.superview === box.container, "\(step): the child moved")
+            XCTAssertTrue(button.pressed, "\(step): the press holds")
+            button.touchesEnded([held], with: nil)
+            XCTAssertEqual(pressed, [2], step)
+            session?.destroy(); session = nil
+        }
+    }
+
     /// Issue 408: a plain text hit under Exact's inserted scroller keeps the
     /// ancestor's complete press sequence, as the same authored row does on web.
     func testAPlainTextTouchReachesItsAncestorThroughAHorizontalScroller() throws {
