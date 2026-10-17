@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "digest": "2bae326f2a3c9d77",
+  "name": "motion",
+  "tuples": 1,
+  "axes": [],
+  "dials": [],
+  "tokens": [
+    {"name": "duration.fast", "kind": "duration", "role": null, "values": ["150ms"], "entries": null, "dials": [], "fallback": ["150ms", "150ms"]},
+    {"name": "duration.slow", "kind": "duration", "role": null, "values": ["400ms"], "entries": null, "dials": [], "fallback": ["400ms", "400ms"]},
+    {"name": "duration.alias", "kind": "duration", "role": null, "values": ["150ms"], "entries": null, "dials": [], "fallback": ["150ms", "150ms"]},
+    {"name": "easing.standard", "kind": "easing", "role": null, "values": ["cubic-bezier(0.2, 0, 0, 1)"], "entries": null, "dials": [], "fallback": ["cubic-bezier(0.2, 0, 0, 1)", "cubic-bezier(0.2, 0, 0, 1)"]},
+    {"name": "easing.out", "kind": "easing", "role": null, "values": ["ease-out"], "entries": null, "dials": [], "fallback": ["ease-out", "ease-out"]},
+    {"name": "easing.alias", "kind": "easing", "role": null, "values": ["cubic-bezier(0.2, 0, 0, 1)"], "entries": null, "dials": [], "fallback": ["cubic-bezier(0.2, 0, 0, 1)", "cubic-bezier(0.2, 0, 0, 1)"]},
+    {"name": "easing.spring", "kind": "easing", "role": null, "values": ["-exact-spring(170, 26, 1)"], "entries": null, "dials": [], "fallback": ["-exact-spring(170, 26, 1)", "-exact-spring(170, 26, 1)"]},
+    {"name": "easing.steps", "kind": "easing", "role": null, "values": ["steps(4, jump-end)"], "entries": null, "dials": [], "fallback": ["steps(4, jump-end)", "steps(4, jump-end)"]}
+  ],
+  "exports": null
+}

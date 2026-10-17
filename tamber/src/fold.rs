@@ -63,6 +63,10 @@ pub(crate) enum Named {
     Number(f64),
     /// A length dial's or length token's value, which no colour takes.
     Length(crate::measure::Length),
+    /// A duration token's milliseconds.
+    Duration(f64),
+    /// An easing token's text.
+    Easing(String),
     /// A colour role no token overrides.
     Role(String),
     /// Nothing the design declares.
@@ -205,7 +209,7 @@ pub(crate) fn color(items: &[Item], names: &mut dyn Names) -> Result<Folded, Fol
 pub(crate) fn not_color_kind<T>() -> Result<T, FoldError> {
     fail(
         "tamber-stage",
-        "only colour, length, number and shadow tokens are built yet; type and motion tokens arrive later in stage 6",
+        "type and family tokens arrive with stage 6's commit C",
     )
 }
 
@@ -230,6 +234,12 @@ fn ident(name: &str, names: &mut dyn Names) -> Result<Folded, FoldError> {
         }
         Named::Length(_) => {
             return fail("tamber-kind", format!("`{name}` is a length, not a colour"))
+        }
+        Named::Duration(_) | Named::Easing(_) => {
+            return fail(
+                "tamber-kind",
+                format!("`{name}` is a motion token, not a colour"),
+            )
         }
         Named::Role(r) => return Ok(Folded::Host(Host::Role(r))),
         Named::Unknown => {}

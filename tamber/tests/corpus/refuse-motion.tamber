@@ -1,0 +1,17 @@
+tamber motion
+
+axes
+  density = regular | compact
+
+theme
+  ink = #000000
+  varies = 150ms
+    when density=compact: 100ms
+  varies.written: duration = 150ms
+    when density=compact: 100ms
+  bezier: easing = cubic-bezier(2, 0, 0, 1)
+  steps.zero: easing = steps(0)
+  bare: duration = 150
+  colour.duration: duration = ink
+  pixels: duration = 12px
+  unknown: easing = bounce

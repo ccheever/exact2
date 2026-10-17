@@ -2752,3 +2752,20 @@ channel (queued).
   marker becomes the `var()`. A bound shadow row maps a name through its own constant (`$tb`,
   `$tt`).
 - **The wire** (`tamber/1.8`): the kinds, and `resolve`'s shadow tuples.
+
+### Stage 6, commit E: duration and easing tokens
+
+- **The crate** (`tamber/src/motion.rs`) folds a `duration` (a CSS time, in ms, or a duration token)
+  and an `easing` (a keyword, `cubic-bezier()` with its x in [0, 1], `steps()` with a whole count,
+  `linear()`, `-exact-spring()`, or an easing token). A time, an easing keyword and an easing function
+  infer their kinds. A `when` on one, written or inferred, is `tamber-motion-axis`.
+- **Substituted at build:** the compiler writes each duration and easing token a literal of a
+  `transition` or `animation` value names, as a whole word, in as its value before the row's codec
+  reads it (`theme::motion`), so the plan holds the values and keeps no motion token. Named in any
+  other row, one is `tamber-kind`.
+- **An edit rebuilds** (D13): the session classes a change to a motion token, or to what it folds
+  from, as `rebuild`, so `propose` says so and a scrub is refused; the plan's structure moves, so the
+  dev loops' retained-shape checks see a structure change and rebuild.
+- **Dials:** D15's duration control (a slider in ms) is a param's (stage 7); a dial stays a colour,
+  a length or a number.
+- **The wire** (`tamber/1.9`): the kinds, and `resolve`'s `{ms}` and easing tuples.

@@ -185,6 +185,18 @@ pub fn plan(
         // sets its session's overrides from the batch and re-presents them.
         // Gaining or losing one moves the shape.
         let tokens = changed_tokens(before.as_ref(), after.as_ref());
+        // A motion token is written into its rows at build (D3, D13): a
+        // change to one, or to what it folds from, rebuilds.
+        let motion = |f: &Option<Folding>, name: &str| {
+            f.as_ref().is_some_and(|f| {
+                f.tokens.iter().any(|c| {
+                    c.name == name && matches!(c.kind, crate::Kind::Duration | crate::Kind::Easing)
+                })
+            })
+        };
+        structure |= tokens
+            .iter()
+            .any(|t| motion(&before, t) || motion(&after, t));
         for t in tokens {
             match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
                 Some(i) => {

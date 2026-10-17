@@ -23,6 +23,10 @@ pub enum Kind {
     BoxShadow,
     /// A `text-shadow` row's value (stage 6 D).
     TextShadow,
+    /// A time in a `transition` or `animation` (stage 6 E).
+    Duration,
+    /// An easing in a `transition` or `animation` (stage 6 E).
+    Easing,
 }
 
 impl Kind {
@@ -34,6 +38,8 @@ impl Kind {
             Kind::Number => "number",
             Kind::BoxShadow => "box-shadow",
             Kind::TextShadow => "text-shadow",
+            Kind::Duration => "duration",
+            Kind::Easing => "easing",
         }
     }
 
@@ -45,6 +51,8 @@ impl Kind {
             "number" => Some(Kind::Number),
             "box-shadow" => Some(Kind::BoxShadow),
             "text-shadow" => Some(Kind::TextShadow),
+            "duration" => Some(Kind::Duration),
+            "easing" => Some(Kind::Easing),
             _ => None,
         }
     }
@@ -87,6 +95,10 @@ pub enum Value {
     Number(f64),
     /// A shadow row's value.
     Shadow(crate::shadow::Shadows),
+    /// A duration, in milliseconds.
+    Duration(f64),
+    /// An easing, as written.
+    Easing(String),
 }
 
 impl Value {
@@ -98,6 +110,8 @@ impl Value {
             Value::Number(_) => Kind::Number,
             Value::Shadow(s) if s.text => Kind::TextShadow,
             Value::Shadow(_) => Kind::BoxShadow,
+            Value::Duration(_) => Kind::Duration,
+            Value::Easing(_) => Kind::Easing,
         }
     }
 
@@ -108,6 +122,8 @@ impl Value {
             Value::Length(l) => l.css(),
             Value::Number(n) => num(*n),
             Value::Shadow(s) => s.css(),
+            Value::Duration(ms) => format!("{}ms", num(*ms)),
+            Value::Easing(e) => e.clone(),
         }
     }
 
@@ -191,6 +207,9 @@ pub(crate) fn length(
         Item::Ident(name) => match names.named(name)? {
             Named::Length(l) => Ok(l),
             Named::Number(_) => fail("tamber-kind", format!("`{name}` is a number, not a length")),
+            Named::Duration(_) | Named::Easing(_) => {
+                fail("tamber-kind", format!("`{name}` is a motion token"))
+            }
             Named::Color(_) | Named::Role(_) => {
                 fail("tamber-kind", format!("`{name}` is a colour, not a length"))
             }
@@ -234,6 +253,9 @@ pub(crate) fn number(items: &[Item], names: &mut dyn Names) -> Result<f64, FoldE
         Item::Ident(name) => match names.named(name)? {
             Named::Number(n) => Ok(n),
             Named::Length(_) => fail("tamber-kind", format!("`{name}` is a length, not a number")),
+            Named::Duration(_) | Named::Easing(_) => {
+                fail("tamber-kind", format!("`{name}` is a motion token"))
+            }
             Named::Color(_) | Named::Role(_) => {
                 fail("tamber-kind", format!("`{name}` is a colour, not a number"))
             }
@@ -451,6 +473,9 @@ fn operand(item: &Item, text: &str, names: &mut dyn Names) -> Result<Quantity, F
                 "tamber-kind",
                 format!("`{name}` in `{text}`: {RELATIVE_IN_CALC}"),
             ),
+            Named::Duration(_) | Named::Easing(_) => {
+                fail("tamber-kind", format!("`{name}` is a motion token"))
+            }
             Named::Color(_) | Named::Role(_) => {
                 fail("tamber-kind", format!("`{name}` is a colour, in `{text}`"))
             }

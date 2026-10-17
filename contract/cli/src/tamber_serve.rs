@@ -64,7 +64,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.8";
+pub const PROTOCOL: &str = "tamber/1.9";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -799,6 +799,13 @@ impl Server {
                             .map(|one| json!({"inset": one.inset, "lengths": one.lengths, "color": one.color.as_ref().map(|c| c.css())}))
                             .collect();
                         return json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
+                    }
+                    // A motion token: a time in ms, or an easing's text.
+                    exact_tamber::Value::Duration(ms) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "duration", "ms": ms});
+                    }
+                    exact_tamber::Value::Easing(_) => {
+                        return json!({"modes": modes, "value": v.css(), "kind": "easing"});
                     }
                     exact_tamber::Value::Color(c) => c,
                 };

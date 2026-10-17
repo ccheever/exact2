@@ -133,6 +133,7 @@ mod tamber_binding;
 mod tamber_cli;
 mod tamber_gen;
 mod tamber_measures;
+mod tamber_motion;
 mod tamber_scheme;
 mod tamber_serve;
 mod tamber_shadows;

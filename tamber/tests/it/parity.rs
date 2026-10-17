@@ -78,6 +78,22 @@ fn every_corpus_value_parses_in_the_kernel() {
                     Kind::Number => text.parse::<f64>().is_ok(),
                     Kind::BoxShadow => exact_kernel::style::BoxShadows::check(&text).is_ok(),
                     Kind::TextShadow => exact_kernel::style::TextShadow::check(&text).is_ok(),
+                    // A component of a transition, as the build writes it in.
+                    // (A spring is its own timing: no duration beside it.)
+                    Kind::Duration | Kind::Easing => {
+                        let forms = match token.kind {
+                            Kind::Duration => vec![format!("opacity {text}")],
+                            _ => vec![format!("opacity 1s {text}"), format!("opacity {text}")],
+                        };
+                        forms.into_iter().any(|transition| {
+                            StyleProps::default()
+                                .set_dynamic(
+                                    StyleId::Transition,
+                                    &StyleValue::Text(transition.into()),
+                                )
+                                .is_ok()
+                        })
+                    }
                 };
                 assert!(read, "{}: {}: {text}", path.display(), token.name);
             }

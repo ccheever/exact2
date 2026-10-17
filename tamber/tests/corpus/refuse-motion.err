@@ -1,0 +1,8 @@
+8:3: tamber-motion-axis: a duration or an easing is written into its `transition` or `animation` at build, so it has one value: no `when` (vary the row instead)
+10:3: tamber-motion-axis: a duration or an easing is written into its `transition` or `animation` at build, so it has one value: no `when` (vary the row instead)
+12:20: tamber-kind: `cubic-bezier(2, 0, 0, 1)`: four numbers, the first and third between 0 and 1
+13:24: tamber-kind: `steps(0)`: a whole number of steps first
+14:20: tamber-kind: a duration is a time, `150ms` or `0.15s`
+15:31: tamber-kind: `ink` is not a duration
+16:22: tamber-kind: `12px`: a duration is in `ms` or `s`
+17:21: tamber-unknown-token: `bounce` is no easing token or keyword

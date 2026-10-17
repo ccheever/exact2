@@ -21,6 +21,7 @@ pub mod import;
 mod ir;
 mod lex;
 mod measure;
+mod motion;
 mod session;
 mod shadow;
 mod syntax;

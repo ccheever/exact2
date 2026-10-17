@@ -37,27 +37,30 @@ pub(crate) struct ThemeEntry {
     pub kind: tamber::Kind,
 }
 
-/// The plan's `theme.kind` for a kind (LLP 1121 D3).
-fn kind_code(kind: tamber::Kind) -> u8 {
-    match kind {
+/// The plan's `theme.kind` for a kind (LLP 1121 D3); `None` for a motion
+/// token, which the build writes into its rows and the plan does not keep.
+fn kind_code(kind: tamber::Kind) -> Option<u8> {
+    Some(match kind {
         tamber::Kind::Color => 0,
         tamber::Kind::Length => 1,
         tamber::Kind::Number => 2,
         tamber::Kind::BoxShadow => 3,
         tamber::Kind::TextShadow => 4,
-    }
+        tamber::Kind::Duration | tamber::Kind::Easing => return None,
+    })
 }
 
-/// The kernel's kind for a kind.
-fn kernel_kind(kind: tamber::Kind) -> exact_kernel::style::theme::Kind {
+/// The kernel's kind for a kind, as [`kind_code`].
+fn kernel_kind(kind: tamber::Kind) -> Option<exact_kernel::style::theme::Kind> {
     use exact_kernel::style::theme::Kind;
-    match kind {
+    Some(match kind {
         tamber::Kind::Color => Kind::Color,
         tamber::Kind::Length => Kind::Length,
         tamber::Kind::Number => Kind::Number,
         tamber::Kind::BoxShadow => Kind::BoxShadow,
         tamber::Kind::TextShadow => Kind::TextShadow,
-    }
+        tamber::Kind::Duration | tamber::Kind::Easing => return None,
+    })
 }
 
 /// A role's id, as a row writes it (`-exact-label`, `CanvasText`) or as a
@@ -192,6 +195,7 @@ impl Lowerer<'_> {
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
         RETENTION.with(|r| *r.borrow_mut() = None);
+        MOTION.with(|m| m.borrow_mut().clear());
         let Some((mut design, origin)) = self.design(file) else {
             return exact_kernel::style::theme::declarations([]);
         };
@@ -324,11 +328,20 @@ impl Lowerer<'_> {
             });
         }
         self.theme = entries;
+        // A motion token is written into its rows here (D3): by name.
+        MOTION.with(|m| {
+            *m.borrow_mut() = self
+                .theme
+                .iter()
+                .filter(|e| matches!(e.kind, tamber::Kind::Duration | tamber::Kind::Easing))
+                .map(|e| (e.name.clone(), e.value.clone()))
+                .collect()
+        });
         MEASURES.with(|m| {
             *m.borrow_mut() = self
                 .theme
                 .iter()
-                .filter(|e| e.kind != tamber::Kind::Color)
+                .filter(|e| e.kind != tamber::Kind::Color && kind_code(e.kind).is_some())
                 .map(|e| {
                     let mut values = vec![e.value.clone()];
                     for v in &e.slices {
@@ -359,6 +372,9 @@ impl Lowerer<'_> {
         // and each synthetic token its rows write. The design server's
         // `propose` asks the same `Retention` (LLP 1121 stage 5).
         for e in &self.theme {
+            let Some(code) = kind_code(e.kind) else {
+                continue;
+            };
             let synthetic = said.synthetic.iter().any(|s| s.expr == e.name);
             if synthetic || retention.keeps(&folding.design, &e.name, e.role.as_deref(), e.kind) {
                 let slices: Vec<&str> = e.slices.iter().map(String::as_str).collect();
@@ -366,7 +382,7 @@ impl Lowerer<'_> {
                     &e.name,
                     e.role.as_deref().unwrap_or(""),
                     &e.value,
-                    kind_code(e.kind),
+                    code,
                     &slices,
                 );
             }
@@ -378,23 +394,20 @@ impl Lowerer<'_> {
                     .as_deref()
                     .and_then(roles::role)
                     .is_some_and(roles::tint);
-                (!tint)
-                    .then_some((
-                        e.name.as_str(),
-                        e.value.as_str(),
-                        false,
-                        kernel_kind(e.kind),
-                        !e.slices.is_empty(),
-                    ))
-                    .into_iter()
-                    .chain(e.role.as_deref().filter(|_| !tint).map(|r| {
+                let kind = kernel_kind(e.kind);
+                kind.filter(|_| !tint)
+                    .map(|kind| {
                         (
-                            r,
+                            e.name.as_str(),
                             e.value.as_str(),
-                            true,
-                            kernel_kind(e.kind),
+                            false,
+                            kind,
                             !e.slices.is_empty(),
                         )
+                    })
+                    .into_iter()
+                    .chain(e.role.as_deref().filter(|_| !tint).and_then(|r| {
+                        Some((r, e.value.as_str(), true, kind?, !e.slices.is_empty()))
                     }))
             }),
         ))
@@ -595,6 +608,9 @@ thread_local! {
     /// The retention the last design lowered on this thread kept its
     /// tokens by (D7): what the design server classes an edit with.
     static RETENTION: std::cell::RefCell<Option<tamber::Retention>> = const { std::cell::RefCell::new(None) };
+    /// The design's duration and easing tokens while its styles are lowered
+    /// (D3): each name and its value, which the build writes in its place.
+    static MOTION: std::cell::RefCell<Vec<(String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The synthetic tokens the last build on this thread could have, folding
@@ -887,6 +903,62 @@ pub(crate) fn number_tokens() -> bool {
     })
 }
 
+/// A `transition` or `animation` value with each duration and easing
+/// token it names, as a whole word of a literal, written in as its value
+/// (LLP 1121 D3: substituted at build, before the row's codec reads it); so
+/// the plan holds the values, and an edit to a token rebuilds. `None` when
+/// it names none.
+pub(crate) fn motion(a: &Attr) -> Option<Attr> {
+    fn word(c: char) -> bool {
+        c.is_ascii_alphanumeric() || "-_.".contains(c)
+    }
+    let tokens = MOTION.with(|m| m.borrow().clone());
+    if tokens.is_empty() {
+        return None;
+    }
+    let written = |text: &str| -> Option<String> {
+        let mut out = String::new();
+        let mut moved = false;
+        let mut rest = text;
+        while !rest.is_empty() {
+            let end = rest.find(|c: char| !word(c)).unwrap_or(rest.len());
+            if end == 0 {
+                let c = rest.chars().next().unwrap();
+                out.push(c);
+                rest = &rest[c.len_utf8()..];
+                continue;
+            }
+            let w = &rest[..end];
+            match tokens.iter().find(|(name, _)| name == w) {
+                Some((_, value)) => {
+                    out.push_str(value);
+                    moved = true;
+                }
+                None => out.push_str(w),
+            }
+            rest = &rest[end..];
+        }
+        moved.then_some(out)
+    };
+    fn rewrite(e: &mut Expr, written: &dyn Fn(&str) -> Option<String>) -> bool {
+        match e {
+            Expr::Str(text, _) => match written(text) {
+                Some(next) => {
+                    *text = next;
+                    true
+                }
+                None => false,
+            },
+            Expr::Ternary(_, yes, no, _) => rewrite(yes, written) | rewrite(no, written),
+            Expr::Match { some, none, .. } => rewrite(some, written) | rewrite(none, written),
+            Expr::Let { body, .. } => rewrite(body, written),
+            _ => false,
+        }
+    }
+    let mut out = a.clone();
+    rewrite(&mut out.value, &written).then_some(out)
+}
+
 /// What a value may be, through `?:`, `match` and `let` (a `let`'s name
 /// read where its body names it): its leaves.
 fn leaves<'e>(v: &'e Expr, bound: &mut Vec<(&'e str, &'e Expr)>, out: &mut Vec<&'e Expr>) {
@@ -988,13 +1060,25 @@ pub(crate) fn measure_row(
         _ => None,
     });
     for (text, span) in found {
+        // A motion token is a component of a transition or animation only,
+        // written in there before this check (D3).
+        if MOTION.with(|m| m.borrow().iter().any(|(name, _)| name == text.trim())) {
+            return Err(LowerError {
+                id: "tamber-kind",
+                message: format!("`{}=\"{}\"`: `{}` is a motion token, a component of a `transition` or `animation` value (`transition=\"opacity {} ease\"`)", a.name, text.trim(), text.trim(), text.trim()),
+                span,
+            });
+        }
         let Some((kind, values)) = measure_values(text) else {
             continue;
         };
         let text = text.trim();
         let refuse = |id: &'static str, message: String| Err(LowerError { id, message, span });
         let kind_name = kind.name();
-        let Some(row) = rows.iter().find(|r| !theme::admits(kernel_kind(kind), **r)) else {
+        let Some(row) = rows
+            .iter()
+            .find(|r| kernel_kind(kind).is_none_or(|k| !theme::admits(k, **r)))
+        else {
             // Each tuple's value checked as the row checks its literal (the
             // kernel's codec, and what the compiler adds: a text style only a
             // font size, a press scale positive), not the default's alone.

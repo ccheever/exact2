@@ -593,6 +593,11 @@ impl<'a> Checker<'a> {
                     );
                     continue;
                 }
+                // A motion token is substituted at build: one value (D3).
+                Some("duration" | "easing") if !t.whens.is_empty() => {
+                    self.at(&t.name, "tamber-motion-axis", "a duration or an easing is written into its `transition` or `animation` at build, so it has one value: no `when` (vary the row instead)");
+                    continue;
+                }
                 Some(
                     "length" | "number" | "type" | "family" | "box-shadow" | "text-shadow"
                     | "duration" | "easing",
@@ -604,9 +609,15 @@ impl<'a> Checker<'a> {
                     self.at(&t.name, "tamber-under-kind", "only a colour may vary by an axis `under scheme=dark`: the kernel picks a length's slice without knowing the scheme");
                     continue;
                 }
-                Some("length" | "number" | "box-shadow" | "text-shadow") => {}
-                Some("type" | "family" | "duration" | "easing") => {
-                    self.at(&t.name, "tamber-stage", "only colour, length, number and shadow tokens are built yet; type and motion tokens arrive later in stage 6");
+                Some(
+                    "length" | "number" | "box-shadow" | "text-shadow" | "duration" | "easing",
+                ) => {}
+                Some("type" | "family") => {
+                    self.at(
+                        &t.name,
+                        "tamber-stage",
+                        "type and family tokens arrive with stage 6's commit C",
+                    );
                     continue;
                 }
                 Some("icon") => {
@@ -654,6 +665,14 @@ impl<'a> Checker<'a> {
             let mut path = vec![false; design.tokens.len()];
             self.kinds[i] = self.kind_of(i, &mut path);
             let t = &design.tokens[i];
+            if !self.refused[i]
+                && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
+                && !t.whens.is_empty()
+            {
+                self.refused[i] = true;
+                self.at(&t.name, "tamber-motion-axis", "a duration or an easing is written into its `transition` or `animation` at build, so it has one value: no `when` (vary the row instead)");
+                continue;
+            }
             // A shadow's kind is written: two rows read alike values.
             if !self.refused[i]
                 && self.kinds[i] == Kind::Color
@@ -706,10 +725,14 @@ impl<'a> Checker<'a> {
                     false => Kind::Number,
                 })
             }
-            [css::Item::Ident(name)] if !(self.named_length)(name) => {
+            [css::Item::Ident(name)]
+                if !(self.named_length)(name)
+                    && !crate::motion::KEYWORDS.contains(&name.as_str()) =>
+            {
                 Some(self.named_kind(name, i, path))
             }
-            _ => measure::inferred(&items, self.named_length),
+            _ => measure::inferred(&items, self.named_length)
+                .or_else(|| crate::motion::inferred(&items)),
         };
         path[i] = false;
         kind.unwrap_or(Kind::Color)
@@ -1012,6 +1035,8 @@ impl<'a> Checker<'a> {
                 crate::shadow::fold(&value.value, kind == Kind::TextShadow, &mut scope)
                     .map(Value::Shadow)
             }
+            Kind::Duration => crate::motion::duration(&items, &mut scope).map(Value::Duration),
+            Kind::Easing => crate::motion::easing(&items, &mut scope).map(Value::Easing),
             _ => measure::number(&items, &mut scope).map(Value::Number),
         };
         match folded {
@@ -1218,6 +1243,8 @@ impl Names for Scope<'_, '_> {
                     Value::Number(n) => Named::Number(n),
                     // No value names a shadow token: it is a whole row's.
                     Value::Shadow(_) => Named::Unknown,
+                    Value::Duration(ms) => Named::Duration(ms),
+                    Value::Easing(e) => Named::Easing(e),
                 })
                 .ok_or_else(quiet);
         }

@@ -1038,6 +1038,14 @@ impl<'a> Lowerer<'a> {
                         return Ok(());
                     }
                 }
+                // @ref LLP 1121 D3 — a duration or easing token is written
+                // into its `transition` or `animation` before the codec reads it.
+                let motion = rows
+                    .iter()
+                    .any(|r| matches!(r, StyleId::Transition | StyleId::Animation))
+                    .then(|| crate::theme::motion(a))
+                    .flatten();
+                let a = motion.as_ref().unwrap_or(a);
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {
