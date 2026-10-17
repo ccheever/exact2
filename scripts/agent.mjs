@@ -40,7 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot } from './agent-compare.mjs';
 import { dragArguments, dragTap, duringAllowed, duringOp } from './agent-drag.mjs';
-import { driveNotes, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
+import { driveNotes, storeBase, sweepTestStores, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices } from './agent-keys.mjs';
 import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
@@ -73,7 +73,7 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run ${ownWebBuild(app, dist) ?? `EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`}`);
 }
 const openWeb = async options => (await import('./agent-launch.mjs')).exclusiveWebStore(options, () => openWebUnlocked(options));
-async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null, port: fixed = null }) {
+async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, throwaway = false, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null, port: fixed = null }) {
   env = { ...process.env, ...env };
   if (!pageURL) await (await import('./agent-test.mjs')).backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   if (browser !== 'chrome') {
@@ -116,7 +116,8 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     serveStatic(dist, req, res);
   });
   // A named store's profile and origin are kept between drives, as a native scratch store is; `fresh` empties it first (a test's).
-  const kept = storage === undefined ? null : driveStore(selected, storage, env);
+  // A throwaway one is the drive's own temporary profile, at a free port.
+  const kept = storage === undefined || throwaway ? null : driveStore(selected, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   const pagePort = drivePagePort(fixed, pageURL ? null : kept, env?.EXACT_AGENT_EPHEMERAL_PORT === '1', env);
   await listenOn(server, pagePort, '127.0.0.1', undefined, !!fixed, env).catch((e) => {
@@ -804,7 +805,7 @@ export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(s
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', storage, seed, locale, timeZone, epoch, failFetch, mediaClock = 'wall', lineHeight = null, scale, port } = {}) {
+export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', storage, throwaway = false, seed, locale, timeZone, epoch, failFetch, mediaClock = 'wall', lineHeight = null, scale, port } = {}) {
   browser ??= 'chrome';
   if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, failFetch, env});
@@ -862,7 +863,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'linux' || host === 'android' ? await openStdio({ host, plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
-    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env, mediaClock, lineHeight, port: webPort(port, { ...process.env, ...env }) });
+    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, throwaway, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env, mediaClock, lineHeight, port: webPort(port, { ...process.env, ...env }) });
   const mapLocator = plan ?? carrier.plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     // The dist the carrier serves — an app outside the repo's own (shop F2), never Caltrain's by default.
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);
@@ -1360,6 +1361,8 @@ export { runTests, textOf } from './agent-test.mjs';
 export { browserDiagnosticNoise };
 // Exported for game/proof.test.mjs, which drives the real CLI with a fake
 // session (`injected.open`) and no app server (`injected.driveServer`).
+/** A drive's throwaway store (`main`), by a name a `--storage` of a person's is unlikely to take. */
+const THROWAWAY = '_drive';
 export async function main(argv, injected = {}) {
   const { flags, rest } = parseFlags(argv);
   guardFlags(flags.test ? 'test' : 'agent', rest, { parsed: true }); // --help, or a flag parseFlags left (never an op)
@@ -1385,10 +1388,18 @@ export async function main(argv, injected = {}) {
     return 2;
   }
   const served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage); // the app's own server, if it has one (LLP 1116.008 D1)
+  // A drive that names no store gets a throwaway one, so the app's storage works as on a first launch and never touches
+  // its real files: on the web the drive's temporary profile; on macOS and Linux a tree of this run's, removed after it
+  // (one a killed drive left goes at the next); on a simulator, a phone or Android one tree reused, emptied each launch,
+  // as an authored test's is. The sample host's two sessions keep none (they would share it).
+  const throwaway = flags.storage === undefined && !['host', 'host-ios'].includes(host);
+  const nativeBase = throwaway && ['macos', 'mac', 'linux'].includes(host) ? storeBase(resolveApp(flags.app).id, host) : null;
+  if (nativeBase) sweepTestStores(nativeBase, THROWAWAY);
+  const storage = !throwaway ? flags.storage : nativeBase ? `${THROWAWAY}.r${process.pid}-${Math.random().toString(36).slice(2, 8)}.t0` : THROWAWAY;
   // A named store starts empty on every host unless the drive keeps it (`--keep-storage`): the whole scratch tree —
   // `app:/` files, the data module's databases, kept state and secrets — or Chrome's profile for it. A native host
   // empties its tree at the first boot that reads it (picker.rs `empty_fresh_tree`).
-  const s = await (injected.open ?? open)({ host, browser, env: flags.storage !== undefined && !flags.keepStorage ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });
+  const s = await (injected.open ?? open)({ host, browser, env: storage !== undefined && !flags.keepStorage ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage, throwaway, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port });
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
   const step = async (line) => {
@@ -1461,7 +1472,7 @@ export async function main(argv, injected = {}) {
       return [op, r];
   };
   // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
-  const notes = driveNotes(s, { host, storage: flags.storage, origins: flags.url ? [] : loopbackOrigins(resolve(flags.webDist ?? defaultWebDist())) });
+  const notes = driveNotes(s, { host, storage, origins: flags.url ? [] : loopbackOrigins(resolve(flags.webDist ?? defaultWebDist())) });
   try {
     for (const [k, line] of ops.entries()) {
       at = k + 1;
@@ -1478,6 +1489,7 @@ export async function main(argv, injected = {}) {
     throw e;
   } finally {
     await s.close(); await served?.stop();
+    if (nativeBase) rmSync(resolve(nativeBase, storage), { recursive: true, force: true });
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
