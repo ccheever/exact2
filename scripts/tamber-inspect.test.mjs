@@ -108,15 +108,26 @@ test('a stale selection is refused and the build asked again; a current one is j
   channel.report(JSON.stringify({ nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'], plan: 'g1', design: 'd1' }));
   channel.report(JSON.stringify({ nonce: a.nonce, kind: 'status', scheme: 'light', revision: 0 }));
   const selected = { node: 2, site: 0, instance: [], planDigest: 'p1', tuple: {}, rows: [] };
+  // Not in inspect mode (never on, or ended while the report was on its
+  // way): not published.
+  expect(channel.report(JSON.stringify({ nonce: a.nonce, kind: 'selected', selected, plan: 'g1', design: 'd1', revision: 0 })).status).toBe(409);
+  channel.inspect('tool', null, { on: true });
   // From before a batch (another design): refused, and asked again.
   expect(channel.report(JSON.stringify({ nonce: a.nonce, kind: 'selected', selected, plan: 'g1', design: 'd0', revision: 0 })).status).toBe(409);
   expect(a.got.at(-1)).toEqual({ kind: 'inspect', refresh: true });
   expect(events.some(e => e.event === 'selection')).toBe(false);
-  // Current: joined, published, and outlined.
-  expect(channel.report(JSON.stringify({ nonce: a.nonce, kind: 'selected', selected, plan: 'g1', design: 'd1', revision: 0 })).status).toBe(204);
+  // Current, under the command it names: joined, published, and outlined.
+  expect(channel.report(JSON.stringify({ nonce: a.nonce, kind: 'selected', selected, inspect: 1, plan: 'g1', design: 'd1', revision: 0 })).status).toBe(204);
   expect(events.find(e => e.event === 'selection')).toMatchObject({ build: 'web-1', source: { file: 'exact:a', line: 1 }, readOnly: null });
   expect(a.got.at(-1)).toEqual({ kind: 'outline', sites: [0], plan: 'p1' });
+  // A selection made under a command since replaced is refused, and an
+  // exit from it publishes nothing.
+  channel.inspect('agent', 'web-1', { on: true });
+  expect(channel.report(JSON.stringify({ nonce: a.nonce, kind: 'selected', selected, inspect: 1, plan: 'g1', design: 'd1', revision: 0 })).status).toBe(409);
+  events.length = 0;
+  expect(channel.report(JSON.stringify({ nonce: a.nonce, kind: 'selected', selected: null, inspect: 1 })).status).toBe(204);
+  expect(events).toEqual([]);
   // The outline is its client's: cleared when that client goes.
   channel.clear('tool');
-  expect(a.got.at(-1)).toEqual({ kind: 'outline', clear: true });
+  expect(a.got.filter(f => f.kind === 'outline').at(-1)).toEqual({ kind: 'outline', clear: true });
 });

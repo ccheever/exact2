@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.5`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.6`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.5"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.6"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -43,6 +43,7 @@ on macOS and Linux.
 - `tamber/1.5` (LLP 1121 stage 6, commit B) added length and number tokens: each IR token's real
   `kind` (`color`, `length`, `number`), `resolve`'s length and number tuples, and `uses` over the rows
   of a length or number token's kind.
+- `tamber/1.6` (LLP 1122 T2b) added the `inspect` event: inspect mode's owners as they move.
 
 ## Where it runs
 
@@ -137,8 +138,8 @@ Each request is `POST /__tamber` with `{"method": "…", …}`.
 **`hello`** answers:
 - `protocol` and `format`;
 - `builds` (*1.2*): the registered development builds with an open stream, each `{id, host,
-  capabilities, plan, design, status, pin, pinRevision, unsupported}` (`pinRevision` and
-  `unsupported` *1.3*; see
+  capabilities, inspector, plan, design, status, pin, pinRevision, unsupported}` (`pinRevision` and
+  `unsupported` *1.3*; `inspector`, the client whose inspect mode it is in or null, *1.6*; see
   [The build channel](#the-build-channel-llp-1122-d4-12));
 - `files`;
 - `app`: the app's directory, absolute (*1.1*);
@@ -572,6 +573,7 @@ Every event carries `seq` (rising, per run) and `epoch` (this run). The server k
 | `unsupported` | `build`, `what` (a command's kind, `pin.mode`, `pin.contrast`, `batch`), `detail` |
 | `selected` | `build`, `selected` (LLP 1122 D5; *1.3*: the wasm web page in inspect mode, see the build channel) |
 | `selection` | `build`, `node`, `site`, `instance`, `tuple`, `source`, `rows`, `readOnly`, `trimmed` (*1.3*, LLP 1122 D5: a current `selected` report joined to source; see the build channel) |
+| `inspect` | `client`, `on`, `builds` (*1.6*, LLP 1122 D4: inspect mode's owners as they move; each build record names its owner too, `inspector`, a client or null. `on: false` lists the builds a client no longer inspects, with `to` the client that took them or null where inspect mode ended, whatever ended it: its own command, another client taking them, a page's own exit, the client's presence lapsing, the build forgotten; `on: true` lists the builds it took. Nothing is said when nothing moved.) |
 | `scrub` | `scrub`, `client`, `reason` (*1.2*; see [Scrub sessions](#scrub-sessions-12-llp-1121-d13-llp-1122-d6)) |
 
 - **A write is announced once,** from its reply. A hand edit made just before a write is announced
@@ -703,7 +705,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
   - `selected` (*1.3*, LLP 1122 D5; the wasm web page sends it in inspect mode):
-    `{selected, plan, design, revision}`, the digests and pin revision the build runs, and
+    `{selected, inspect?, plan, design, revision}`, the number of the `inspect` command it was
+    made under (*1.6*; one since replaced is refused), the digests and pin revision the build
+    runs, and
     `selected` `{node, type, testId, site, instance, planDigest, tuple, rows, trimmed}`: the
     node a press in inspect mode hit (the browser's hit test, as a real tap's), its plan site
     and instance path, the plan digest its map is for, the modes it is in (`tuple`: the
@@ -734,7 +738,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
     reads a source map, so only the server resolves sites, from the map it has.
   - `hold` is reserved (stage 8). A host answers it `unsupported`.
 - **A selection joined to source** (*1.3*, LLP 1122 D5). The server takes a `selected` report
-  only when it is the build's latest: its `plan`, `design` and `revision` those of its latest
+  only while the build is in someone's inspect mode (*1.6*: one sent as it ended, or naming an
+  `inspect` command since replaced, is refused, 409, and not published; a page's exit, `selected: null`, is published only for the build's
+  current inspect command), and only when it is the build's latest: its `plan`, `design` and `revision` those of its latest
   status. One from before (a batch or a pin since) is refused (409) and the build is asked again
   (`inspect {refresh: true, status: true}`: its status first, then the selection), once per
   status it has. A current one is joined to the source map of the plan it names

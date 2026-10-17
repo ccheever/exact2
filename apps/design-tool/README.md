@@ -46,7 +46,9 @@ whose design the port serves.
   tool gone) is said. An edit that rebuilds, or a tool with no dev loop,
   offers no scrub, and says why.
 - The inspector (T2b, LLP 1122 D5): Inspect turns inspect mode on every
-  build that can (the wasm page now); a click in one selects a view, and the
+  build that can (the wasm page now). The toggle follows the server's
+  `inspect` events, so another client taking a build, or this tool's
+  presence lapsing, shows at once. A click in one selects a view, and the
   server's `selection` shows here: its source and component call sites, its
   modes, and each row with where its value comes from. A row the node itself
   sets to a token offers that token's cell in the grid, on the branch that

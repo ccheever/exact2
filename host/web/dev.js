@@ -469,7 +469,8 @@ if (es) {
     const node = ask({ op: "node", id, plan: true });
     if (node.error) return { kind: "unsupported", what: "inspect", detail: node.error };
     const design = x.designDigest ?? await designNow();
-    const envelope = (selected) => ({ kind: "selected", selected, plan: channel.plan, design, revision: channel.revision });
+    // (Under the inspect command it was made in: one replaced since is refused.)
+    const envelope = (selected) => ({ kind: "selected", selected, inspect: inspecting.seq ?? undefined, plan: channel.plan, design, revision: channel.revision });
     let selected = { node: id, type: node.type, testId: node.props?.testId ?? null, site: node.site ?? null, instance: node.instance ?? [], planDigest: node.planDigest ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style ?? {}).map(([name, row]) => ({ name, ...row })), trimmed: false };
     if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, source, from, token }) => ({ name, value, source, from, token })), trimmed: true };
     while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
@@ -658,6 +659,9 @@ if (es) {
     if (frame.on && frame.seq != null && frame.seq === inspecting.left) { report({ kind: "selected", selected: null, inspect: frame.seq, plan: channel.plan, revision: channel.revision }); return; }
     inspecting.left = null;
     try { sessionStorage.removeItem("exact.dev.inspect.left"); } catch { /* storage refused */ }
+    // Another command (another owner, or off and on): a node selected
+    // under the last is not this one's to report again.
+    if ((frame.seq ?? null) !== inspecting.seq) inspecting.selected = null;
     inspecting.seq = frame.seq ?? null;
     setInspect(frame.on === true);
     if (inspecting.on) try { sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); } catch { /* storage refused */ }

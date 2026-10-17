@@ -121,11 +121,23 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
     for (const [k] of open.slice(0, Math.max(0, open.length - POLLED + room))) close(k);
   };
   const close = (k) => { const s = streams.get(k); streams.delete(k); if (s?.build) announce(); };
-  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
+  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, inspector: inspectors.get(b.id) ?? null, plan: b.plan, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
   // A build is connected while the stream it registered on still names it.
   const connected = b => streams.get(b.nonce)?.build === b.id;
   const listed = () => [...builds.values()].filter(connected).map(shown);
   const announce = () => send({ event: 'builds', builds: listed() });
+  // Inspect mode's owners, as they move (tamber/1.6): from `before`, each
+  // client that lost builds (off) and each that took some (on), so a tool
+  // follows another client's command and its own lapse with no gap.
+  // An off says who took the builds (`to`), or null when inspect mode
+  // ended there.
+  const told = (before) => {
+    const moved = new Map();
+    const add = (client, on, id, to) => { const key = `${on} ${client} ${to}`; if (!moved.has(key)) moved.set(key, { event: 'inspect', client, on, builds: [], ...(on ? {} : { to }) }); moved.get(key).builds.push(id); };
+    for (const [id, owner] of before) if (inspectors.get(id) !== owner) add(owner, false, id, inspectors.get(id) ?? null);
+    for (const [id, owner] of inspectors) if (before.get(id) !== owner) add(owner, true, id);
+    for (const e of moved.values()) send(e);
+  };
   const frame = (id, f) => { const b = builds.get(id); const s = b && streams.get(b.nonce); if (s) s.write(f); };
   // A build with no pin is told so at revision 0: nothing for it to catch.
   const pinFrame = id => (pins.has(id) ? { kind: 'pin', revision: pins.get(id).revision, pin: pins.get(id).pin } : { kind: 'pin', revision: 0, pin: null });
@@ -205,6 +217,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
       const why = reportRefused(r);
       if (why) return { status: 400, body: { message: why } };
       if (r.kind === 'register') {
+        const owners = new Map(inspectors);
         // The same build on a new stream: the old one's is no longer it.
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
@@ -226,6 +239,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         // whose owner went meanwhile leaves it).
         if (r.capabilities?.includes('inspect')) s.write({ kind: 'inspect', on: inspectors.has(r.id), seq: inspectSeq.get(r.id) ?? 0 });
         announce();
+        told(owners);
         return { status: 200, body: { id: r.id } };
       }
       const b = s.build && builds.get(s.build);
@@ -257,7 +271,17 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
         // A page that left inspect mode itself (Escape, its close control):
         // no one owns it there any more.
         // The exit names the command it left; a newer owner's stays.
-        if (r.selected == null && r.inspect === (inspectSeq.get(b.id) ?? 0)) inspectors.delete(b.id);
+        // An exit from a command since replaced (another owner's now) is not
+        // this build's news: nothing is published.
+        if (r.selected == null) {
+          if (r.inspect !== (inspectSeq.get(b.id) ?? 0)) return { status: 204, body: null };
+          const owners = new Map(inspectors); inspectors.delete(b.id); told(owners);
+        }
+        // A selection made under inspect mode that has ended since (Stop, a
+        // lapse, while it was on its way) is not published.
+        // So is one made under a command since replaced (Stop then Inspect,
+        // another client taking over), which names that command.
+        if (r.selected != null && (!inspectors.has(b.id) || (r.inspect != null && r.inspect !== (inspectSeq.get(b.id) ?? 0)))) return { status: 409, body: { message: 'inspect mode is off on this build, or it is another command\'s now' } };
         // A selection is the server's to join (`selected`): it may refuse a
         // stale one, and ask the build again.
         const refused = r.selected != null && selected ? selected(shown(b), r, f => frame(b.id, f)) : null;
@@ -315,6 +339,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
       if (id != null && !listed().some(b => b.id === id)) return { error: `no registered build \`${id}\`` };
       const targets = id == null ? listed() : listed().filter(b => b.id === id);
       const can = targets.filter(b => b.capabilities?.includes('inspect')).map(b => b.id);
+      const owners = new Map(inspectors);
       for (const t of can) {
         if (refresh) frame(t, { kind: 'inspect', refresh: true });
         else { const seq = ++inspects; inspectSeq.set(t, seq); frame(t, { kind: 'inspect', on: !!on, seq }); if (on) inspectors.set(t, client); else inspectors.delete(t); }
@@ -322,6 +347,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
       // Off everywhere is off on a build of this client's that is away too:
       // its registration is told off, not replayed on.
       if (id == null && !on && !refresh) for (const [t, owner] of inspectors) if (owner === client && !can.includes(t)) { inspectors.delete(t); inspectSeq.set(t, ++inspects); }
+      told(owners);
       log(`tamber: ${client} ${refresh ? 'refreshed inspect' : `inspect ${on ? 'on' : 'off'}`} on ${can.join(', ') || 'no build'}`);
       return { builds: can, unsupported: targets.map(b => b.id).filter(t => !can.includes(t)) };
     },
@@ -341,7 +367,9 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null 
     /** Client `client` is gone: its pins are cleared on every build. */
     clear(client) {
       for (const [id, owner] of outliners) if (owner === client) { outliners.delete(id); frame(id, { kind: 'outline', clear: true }); }
+      const owners = new Map(inspectors);
       for (const [id, owner] of inspectors) if (owner === client) { inspectors.delete(id); const seq = ++inspects; inspectSeq.set(id, seq); frame(id, { kind: 'inspect', on: false, seq }); }
+      told(owners);
       const mine = [...pins].filter(([, p]) => p.client === client).map(([id]) => id);
       if (!mine.length) return;
       revision += 1;

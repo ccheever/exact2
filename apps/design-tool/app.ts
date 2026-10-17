@@ -555,7 +555,7 @@ const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stal
 // The poll now (a newer one replaces it), and whether the build list must
 // be read again from hello (the poll started again, and no read has
 // succeeded since).
-let polls = 0, resync = true;
+let polls = 0, resync = true, polled = '';
 const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
 /** Builds as the panel lists them: each one's effective scheme, contrast,
  * mode and root font size from its status (an app's own setScheme beats a
@@ -574,9 +574,12 @@ const buildRows = () => [...buildsNow.values()].map(b => {
 });
 const buildOf = (b: any, was?: BuildState): BuildState => ({ id: String(b.id), host: String(b.host ?? was?.host ?? ''), status: b.status ?? null, plan: b.plan ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null });
 /** The server's list, whole: a build it no longer lists is gone. */
-const takeBuilds = (list: any[]) => {
+const takeBuilds = (list: any[], client = '') => {
   buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b)]));
+  for (const b of list ?? []) owned(b, client);
 };
+// This tool's inspect mode on a build, as its record says (tamber/1.6).
+const owned = (b: any, client: string) => { if (client && b && 'inspector' in b) { if (b.inspector === client) inspectOn.add(String(b.id)); else inspectOn.delete(String(b.id)); } };
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
 let lastFiles: Record<string, string> = {};
@@ -1078,6 +1081,8 @@ const sources: Sources = {
     // A poll another has replaced (a new name starts one) changes nothing
     // when it answers: the newer one reads the same events.
     const gen = ++polls;
+    // Another name is another client: what this tool inspects is read again.
+    if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client } : { after: 0, wait: false, client }, 40000);
     answers += 1;
     const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
@@ -1130,8 +1135,8 @@ const sources: Sources = {
       // Each as it comes, so a reload told in one answer still ends a
       // selection (a build that went keeps its inspect mode at the server,
       // which tells it again when it is back).
-      if (e.event === 'builds') { takeBuilds(e.builds); latch(); }
-      else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); latch(); }
+      if (e.event === 'builds') { takeBuilds(e.builds, client); latch(); }
+      else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
       // This tool's scrub, ended by the server (another write, idle, the
       // tool gone, the server lost): said, and a new one is chosen again.
       else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
@@ -1144,10 +1149,17 @@ const sources: Sources = {
       }
       // A selection joined to source, with what it was made under.
       else if (e.event === 'selection') { const b = buildsNow.get(String(e.build)); selectionNow = { e, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '' }; }
-      // A page that left inspect mode itself: its selection is no longer
-      // current, and the tool no longer inspects there.
+      // Inspect mode's owners as they move (tamber/1.6): this client's on or
+      // off, or another's taking a build over. Inspect mode ending where the
+      // selection is (an off taken by no one, `to: null`) ends it, whoever
+      // had it; this client's own loss ends it too.
+      else if (e.event === 'inspect' && Array.isArray(e.builds)) {
+        for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) inspectOn.delete(id); }
+        if (!e.on && (e.client === client || !e.to) && selectionNow && e.builds.map(String).includes(String(selectionNow.e.build))) selectionNow.stale ||= 'inspect mode was turned off there';
+      }
+      // A page that left inspect mode itself (the server says so only for
+      // its current command): its selection is no longer current.
       else if (e.event === 'selected' && e.selected === null) {
-        inspectOn.delete(String(e.build));
         if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = 'its page left inspect mode';
       }
     }
@@ -1158,7 +1170,7 @@ const sources: Sources = {
     if (resync) {
       const now = await call('/__tamber', { method: 'hello' });
       if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
-      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? []); latch(); resync = false; }
+      if (!now.error) { takeBuilds((now.reply.ok as { builds?: any[] })?.builds ?? [], client); latch(); resync = false; }
     }
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
@@ -1402,9 +1414,8 @@ const sources: Sources = {
     const { error, reply } = await call('/__tamber', { method: 'inspect', client, on });
     if (error) return { ok: false, error, note: '' };
     const ok = reply.ok as { builds: string[]; unsupported: string[] };
-    // Off is off on every build this client had, one gone included (the
-    // server forgets it there too, so it is not replayed on).
-    if (on) for (const id of ok.builds ?? []) inspectOn.add(id); else inspectOn.clear();
+    // The toggle follows the server's records and `inspect` events, not this
+    // answer, which a newer event (another client taking over) may follow.
     const none = ok.unsupported?.length ? ` ${ok.unsupported.join(', ')} cannot inspect.` : '';
     return { ok: true, error: '', note: on ? `Inspecting on ${ok.builds.length} build(s): click a view in one.${none}` : `Inspect mode off on ${ok.builds.length} build(s).` };
   },

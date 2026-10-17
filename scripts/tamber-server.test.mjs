@@ -50,6 +50,7 @@ test('a stale selection asks its build again once per status, its status first; 
   const report = body => tamber.channel.report(JSON.stringify({ nonce, ...body }));
   report({ kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'], plan: 'g1', design: 'd1' });
   report({ kind: 'status', scheme: 'light', revision: 0 });
+  tamber.channel.inspect('tool', null, { on: true });
   const selected = { node: 2, site: 0, instance: [], planDigest: 'p1', tuple: {}, rows: [{ name: 'background_color', value: '#fff', source: 'authored', token: { names: ['ink'], text: 'ink', modes: '', implied: false } }] };
   const asks = () => frames.filter(f => f.kind === 'inspect' && f.refresh).length;
   // Stale twice under one status: asked again once, status first.
@@ -564,7 +565,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.5');
+      expect(hello.protocol).toBe('tamber/1.6');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.

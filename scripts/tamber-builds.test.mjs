@@ -421,3 +421,38 @@ test('inspect goes to the builds that can, refresh asks for the selection again,
   expect(back.frames).toContainEqual({ kind: 'inspect', on: false, seq: 6 });
   expect(channel.owners()).toEqual([]);
 });
+
+test('inspect mode\'s owners are published as they move: a command, another client taking over, a page\'s own exit, the client gone', () => {
+  const events = [];
+  const channel = buildChannel({ send: e => events.push(e) });
+  const a = stream(channel), b = stream(channel);
+  report(channel, { nonce: a.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'] });
+  report(channel, { nonce: b.nonce, kind: 'register', id: 'web-2', host: 'web', capabilities: ['pin', 'inspect'] });
+  const told = () => events.splice(0).filter(e => e.event === 'inspect');
+  told();
+  channel.inspect('tool', null, { on: true });
+  expect(told()).toEqual([{ event: 'inspect', client: 'tool', on: true, builds: ['web-1', 'web-2'] }]);
+  // Again, nothing moved: nothing said.
+  channel.inspect('tool', null, { on: true });
+  expect(told()).toEqual([]);
+  // Another client takes one.
+  channel.inspect('agent', 'web-2', { on: true });
+  expect(told()).toEqual([{ event: 'inspect', client: 'tool', on: false, builds: ['web-2'], to: 'agent' }, { event: 'inspect', client: 'agent', on: true, builds: ['web-2'] }]);
+  // The page leaves inspect mode itself.
+  const seq = a.frames.filter(f => f.kind === 'inspect').at(-1).seq;
+  report(channel, { nonce: a.nonce, kind: 'selected', selected: null, inspect: seq });
+  expect(told()).toEqual([{ event: 'inspect', client: 'tool', on: false, builds: ['web-1'], to: null }]);
+  // The client gone (a presence lapse): its builds are off, said.
+  channel.clear('agent');
+  expect(told()).toEqual([{ event: 'inspect', client: 'agent', on: false, builds: ['web-2'], to: null }]);
+  // Each record names its owner; off everywhere is off on a build away too.
+  channel.inspect('tool', null, { on: true });
+  told();
+  expect(channel.list().map(b => [b.id, b.inspector])).toEqual([['web-1', 'tool'], ['web-2', 'tool']]);
+  b.close();
+  channel.inspect('tool', null, { on: false });
+  expect(told()).toEqual([{ event: 'inspect', client: 'tool', on: false, builds: ['web-1', 'web-2'], to: null }]);
+  // A refresh moves nothing.
+  channel.inspect('tool', null, { refresh: true });
+  expect(told()).toEqual([]);
+});
