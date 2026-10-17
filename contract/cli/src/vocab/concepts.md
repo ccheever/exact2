@@ -793,6 +793,45 @@ component App
 A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
 taps the item. A row whose `popovertarget` names another menu is its submenu.
 
+## search: the bar's search field, filtering a list as you type
+names: searchable, searchbar, search-bar, UISearchBar, UISearchController
+
+An `input type="search"` in a route's `header` is the bar's search field: on iOS UIKit's
+search controller (a magnifier, a clear button, Cancel), on the web a field under the title.
+Each keystroke is its `input`, and the list filters on the query, so there is no Search
+button. No match is an `EmptyState` in the list's place (`pattern list-detail`).
+
+```contract
+routes nav
+  home "/"
+
+component App
+  state query = ""
+  state notes = ["Groceries", "Ideas", "Recipes"]
+  derive shown = notes.filter(n => n.toLowerCase().includes(query.trim().toLowerCase()))
+  action search(v: string)
+    query = v
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="notes" position="absolute" inset=0
+          header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
+            text "Notes" role="heading" aria-level=1 flex=1
+            input type="search" value=query input=search placeholder="Search" aria-label="Search Notes"
+              testId="search" width="100%"
+          list id="notes" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+            section
+              for n in shown key=n
+                row
+                  text n
+```
+
+- `flex-wrap` and `width="100%"` give the field its own line on the web; iOS places it
+  itself. A field in the content with a Search button beside it is a web form's, a tell.
+- A test types the query: `type "search" "gro"`, and `type "search" ""` to clear it.
+
+More: docs/recipes/list-rows.md
+
 ## menubar: adding commands to the Mac menu bar
 names: -exact-menu, -exact-menu-remove
 

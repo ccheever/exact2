@@ -9,6 +9,8 @@
 // the menu's Lock and Delete's reason).
 // Compose as the platform does: a row pushes its detail, create and edit are sheets, a phone
 // gets one column and a wide window two (`responsive-columns`); not a form above one long list.
+// The bar's search field filters as you type (`contract vocab search`); an empty list, a failed
+// read and no match are each an `EmptyState` in the list's place. Save is disabled until valid.
 use Badge, EmptyState from "exact:content"
 
 routes nav
@@ -28,11 +30,14 @@ shape Reply
 
 fn titleOf(items: Item[], id: string): string = match first(items.filter(i => i.id == id)) { case some(i) => i.title, case none => "" }
 fn found(items: Item[], id: string): bool = items.filter(i => i.id == id).length > 0
+fn matches(i: Item, q: string): bool = i.title.toLowerCase().includes(q.trim().toLowerCase()) or i.notes.toLowerCase().includes(q.trim().toLowerCase())
 
 component App
+  state query = ""
   state draftTitle = ""
   state draftNotes = ""
-  state submitted = false
+  // The last Save's refusal, in red under the field until a Save succeeds.
+  state refusal = ""
   // The row a long press opened the menu on, or the item Delete asks about.
   state aimed = ""
   resource lib = loadItems() as shape Item[] else empty()
@@ -41,14 +46,19 @@ component App
   mutation lockSaved as shape Reply refreshes lib
   derive selected = match stack(nav).filter(e => e.name == "item").at(-1) { case some(e) => e.params.id, case none => "" }
   derive aimedLocked = lib.filter(i => i.id == aimed and i.locked).length > 0
+  derive shown = lib.filter(i => matches(i, query))
   derive saveError = match added { case some(r) => r.error, case none => "" }
-  // Said after the first Save, in red under the field; the next attempt clears it.
-  derive formError = not submitted ? "" : draftTitle.trim() == "" ? "Enter a title." : pending(added) ? "" : saveError
+  // Why Save is disabled, under the field (not red: nothing is wrong yet).
+  derive saveHint = pending(added) ? "Saving…" : draftTitle.trim() == "" ? "Enter a title to save." : ""
 
+  action search(v: string)
+    query = v
+  action reload
+    refresh lib
   action openAdd
     draftTitle = ""
     draftNotes = ""
-    submitted = false
+    refusal = ""
     nav = push(nav, "/add")
   action back
     nav = back(nav)
@@ -61,11 +71,11 @@ component App
   action editNotes(v: string)
     draftNotes = v
   action save
-    submitted = true
     if draftTitle.trim() != "" and not pending(added)
       send added = addItem(draftTitle.trim(), draftNotes.trim())
   // The sheet closes only on an ok reply; a refusal keeps it open, saying why.
   action afterSave
+    refusal = saveError
     if saveError == "" and top(nav).name == "add"
       nav = back(nav)
   action setLock(id: string, on: bool)
@@ -89,33 +99,47 @@ component App
         if e.name == "items"
           column navigationKey=`${e.id}` navigationScroll="items-list" position="absolute" inset=0
             display="flex" flex-direction="column"
-            header display="flex" align-items="center" padding="8px 16px"
+            header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
               text "Starter" role="heading" aria-level=1 flex=1
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
-            list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-              section
-                // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
-                // The scroll is UIKit's swipe on iOS: its button, the trailing action (none while locked).
-                for it in lib key=it.id
-                  scroll swipeContent=`row-${it.id}` swipeTrailing=`swipe-${it.id}` padding-right=0
-                    overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
-                    link id=`row-${it.id}` href=path("item", it.id) contextmenu=aim(it.id) contextPopover="item-menu"
-                      width="100%" flex-shrink=0 scroll-snap-align="start" padding-right=16 box-sizing="border-box"
-                      display="flex" align-items="center" gap=8 testId=`item-${it.id}`
-                      column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
-                        text it.title
-                        if it.notes != ""
-                          text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
-                      // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
-                      if it.locked
-                        Badge(label="Locked", tint=none)
-                      image "symbol:forward-chevron"
-                    button id=`swipe-${it.id}` press=askRemove(it.id) destructive=true disabled=it.locked
-                      aria-label="Delete" flex-shrink=0 scroll-snap-align="start" testId=`swipe-${it.id}`
-                      image "symbol:delete"
-                footer
-                  text (lib.length == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
+              // The bar's search field (iOS: UIKit's search controller), filtering as you type.
+              input type="search" value=query input=search placeholder="Search" aria-label="Search Items"
+                testId="search" width="100%"
+            // In place of the list: a failed read, no items, no match. Before the file's first
+            // answer the list is blank, a moment too short for a spinner.
+            if failed(lib)
+              EmptyState(symbol="symbol:alert", title="Can’t Open Items", message="Something went wrong reading them.")
+                button press=reload testId="retry"
+                  text "Try Again"
+            else if lib.length == 0 and not pending(lib)
+              EmptyState(symbol="symbol:document", title="No Items", message="Items you add appear here.")
+                button press=openAdd testId="empty-add"
+                  text "Add Item"
+            else if shown.length == 0 and not pending(lib)
+              EmptyState(symbol="symbol:search", title=`No Results for “${query.trim()}”`, message="Check the spelling or try a new search.")
+            else
+              list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                section
+                  // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
+                  // The scroll is UIKit's swipe on iOS: its button, the trailing action (none while locked).
+                  for it in shown key=it.id
+                    scroll swipeContent=`row-${it.id}` swipeTrailing=`swipe-${it.id}` padding-right=0
+                      overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+                      link id=`row-${it.id}` href=path("item", it.id) contextmenu=aim(it.id) contextPopover="item-menu"
+                        width="100%" flex-shrink=0 scroll-snap-align="start" padding-right=16 box-sizing="border-box"
+                        display="flex" align-items="center" gap=8 testId=`item-${it.id}`
+                        column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
+                          text it.title
+                          if it.notes != ""
+                            text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+                        // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                        if it.locked
+                          Badge(label="Locked", tint=none)
+                        image "symbol:forward-chevron"
+                      button id=`swipe-${it.id}` press=askRemove(it.id) destructive=true disabled=it.locked
+                        aria-label="Delete" flex-shrink=0 scroll-snap-align="start" testId=`swipe-${it.id}`
+                        image "symbol:delete"
         if e.name == "item"
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
             display="flex" flex-direction="column"
@@ -137,16 +161,19 @@ component App
                 text "Cancel"
               text "New Item" role="heading"
               button press=save buttonStyle="bordered-prominent" testId="add-save"
+                disabled=(draftTitle.trim() == "" or pending(added))
                 text "Save"
             list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                // The message sits in the field's row, under the field.
+                // Red is for a refusal, in the field's row under the field; why Save is disabled is the footer.
                 row
                   column flex=1 min-width=0 gap=4
                     input value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
-                      autofocus=true enterkeyhint="next" testId="add-title"
-                    if formError != ""
-                      text formError font="-exact-footnote" color="-exact-system-red" testId="add-error"
+                      autofocus=true enterkeyhint="next" aria-invalid=(refusal != "") testId="add-title"
+                    if refusal != ""
+                      text refusal font="-exact-footnote" color="-exact-system-red" testId="add-error"
+                footer
+                  text saveHint testId="add-hint"
               section
                 header
                   text "Notes"

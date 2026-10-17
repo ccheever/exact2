@@ -174,7 +174,7 @@ a test, and verify: By `testId` or exact text, each test from empty storage. `cl
     clock data
     reload
     expect text "n" == "1"
-composing a screen: Chrome is the platform's; the content is yours, with one focal point. Emphasis is a part, not paint on a `button`: `SummaryCard` the one number, `RingProgress` or `StatBar` progress, `Badge` a status, `AnswerTile` a choice, `RoundButton` a one-word action (Start), `RowText` rows in a `list`, `EmptyState` when there are none. A longer main action is `buttonStyle="filled"`.
+composing a screen: Chrome is the platform's; the content is yours, with one focal point. Emphasis is a part (above), not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, the bar's field, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
   use SummaryCard from "exact:content"
   column gap=16 padding=16
     SummaryCard(label="Streak", value="12", detail="days in a row", progress=none, symbol=none)
@@ -204,5 +204,5 @@ component App
 - A symbol is `"symbol:<role>"` (roles below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract, each with what to write in `contract vocab <name>`: abs pow sqrt sort reduce find some every contains toUpperCase padStart parseInt.
 - `a - b` subtracts with spaces; a unit is quoted (`width="50%"`); a view repeats with `for x in xs key=…`.
-idioms, whole with their code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu menubar ::placeholder
+idioms, whole with their code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder
 symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail

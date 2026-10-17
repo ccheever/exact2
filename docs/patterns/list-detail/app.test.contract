@@ -1,10 +1,13 @@
-test "add validates, saves, refuses a repeat in place, opens and deletes after asking"
-  expect text "items-empty" == "Nothing yet. Tap + to add the first item."
-  tap "add-item"
+test "Save waits for a title, a refusal stays until a Save succeeds, an item opens and deletes after asking"
+  clock data
+  expect tree has "empty-add"
+  tap "empty-add"
   clock settle
-  tap "add-save"
-  expect text "add-error" == "Enter a title."
+  expect disabled "add-save"
+  expect text "add-hint" == "Enter a title to save."
   type "add-title" "Milk"
+  expect enabled "add-save"
+  expect text "add-hint" == ""
   type "add-notes" "Two litres"
   tap "add-save"
   clock data
@@ -18,6 +21,15 @@ test "add validates, saves, refuses a repeat in place, opens and deletes after a
   clock data
   expect text "add-error" == "There’s already an item called Milk. Choose another title."
   expect text "add-title" == "milk"
+  type "add-title" "Oat milk"
+  expect text "add-error" == "There’s already an item called Milk. Choose another title."
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.0 .title == "Oat milk"
+  tap "add-item"
+  clock settle
+  expect tree missing "add-error"
   tap "add-cancel"
   clock settle
   tap "item-1"
@@ -28,7 +40,31 @@ test "add validates, saves, refuses a repeat in place, opens and deletes after a
   tap "remove-confirm"
   clock settle
   clock data
-  expect state lib == []
+  expect state lib.0 .title == "Oat milk"
+  expect tree missing "item-1"
+
+test "the bar's search filters as you type; no match says so"
+  tap "add-item"
+  clock settle
+  type "add-title" "Bread"
+  type "add-notes" "Sourdough"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "add-item"
+  clock settle
+  type "add-title" "Cherries"
+  tap "add-save"
+  clock data
+  clock settle
+  type "search" "sour"
+  expect tree has "item-1"
+  expect tree missing "item-2"
+  type "search" "plums"
+  expect tree missing "item-1"
+  expect state shown == []
+  type "search" ""
+  expect tree has "item-2"
 
 test "the items survive a relaunch, newest first"
   tap "add-item"

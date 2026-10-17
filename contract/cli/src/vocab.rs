@@ -339,6 +339,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if matches!(name, "focusin" | "focusout") {
             println!("  bubbles from the focused child without making this node a Tab stop; an action may take `FocusEvent(target: string, relatedTarget: option<string>)` on every host (`focusout` also fires on a move between descendants and on the focused node's removal)");
         }
+        if name == "type" {
+            println!("  {SEARCH_TYPE}");
+        }
         if name == "title" {
             println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
         }
@@ -553,6 +556,9 @@ const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a
 /// `border-radius` on a sheet route (ModalIOS.swift `cornerRadius(of:)`).
 const SHEET_RADIUS: &str = "on iOS a sheet route's (`navigationPresentation=\"modal\"`) top-left radius is also its sheet's corner radius (`preferredCornerRadius`), which seats a large sheet flat on the bottom edge. Unsaid, the sheet is UIKit's: on iOS 26 and later rounded like the display and inset from the bottom edge, as Apple's own sheets are";
 const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its resting heights, the first to start: `\"45%\"` is that share of the sheet's maximum (UIKit's maximumDetentValue; React Native's `sheetAllowedDetents: [0.45]`), so a share of the screen needs no measure. A point height and fit-content stop at that maximum. UIKit takes detents shortest to tallest, and a point height and a share cross on some screen, so the words before large are one kind (points, or shares with medium as half), each taller than the one before. A bound value iOS cannot use is journaled (`logs`) with the route, and the sheet keeps its other detents or opens large. iOS alone sizes a sheet; other hosts ignore it (LLP 1075.003 §9.11, §9.13)";
+/// LLP 1116.020 D3: round 18's builders drew search as a field and a Search
+/// button in the content; the bar's search field is one attribute away.
+const SEARCH_TYPE: &str = "on an `input`, HTML's (`number`, `date`, `checkbox`, …); `type=\"search\"` in a route's `header` is the bar's search field, filtering as you type (iOS: UIKit's search controller; `contract vocab search`)";
 const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
@@ -636,6 +642,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if let Some(only) = only_on(name) {
         doc["only"] = only.into();
+    }
+    if name == "type" {
+        doc["note"] = SEARCH_TYPE.into();
     }
     if name == "autocapitalize" {
         doc["note"] = AUTOCAPITALIZE.into();

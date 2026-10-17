@@ -182,7 +182,7 @@ test "a pick survives a relaunch"
   expect text "n" == "1"
 ```
 ### composing a screen
-Chrome is the platform's; the content is yours, with one focal point. Emphasis is a part, not paint on a `button`: `SummaryCard` the one number, `RingProgress` or `StatBar` progress, `Badge` a status, `AnswerTile` a choice, `RoundButton` a one-word action (Start), `RowText` rows in a `list`, `EmptyState` when there are none. A longer main action is `buttonStyle="filled"`.
+Chrome is the platform's; the content is yours, with one focal point. Emphasis is a part (above), not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, the bar's field, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
 ```contract
 use SummaryCard from "exact:content"
 column gap=16 padding=16
