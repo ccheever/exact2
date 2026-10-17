@@ -4,7 +4,7 @@
 //! host see the role, which is what each draws by.
 
 use crate::{err, LowerError};
-use contract_syntax::{Expr, Span};
+use contract_syntax::{Expr, Span, TemplatePart};
 use exact_kernel::generated::{symbol_role, SYMBOL_ROLES};
 
 /// The role whose Apple name an SF Symbol is, exactly (LLP 1121 D10: `symbol:sf/chevron.backward`
@@ -53,6 +53,10 @@ pub(crate) fn roles(e: &Expr) -> Option<Expr> {
             }
             let arm = |new: Option<Expr>, old: &Expr| Box::new(new.unwrap_or_else(|| old.clone()));
             Some(Expr::Ternary(cond.clone(), arm(na, a), arm(nb, b), *span))
+        }
+        // A template that starts with other text (`https://…`) names no icon.
+        Expr::Template(parts, _) if matches!(parts.first(), Some(TemplatePart::Text(t)) if !t.starts_with("symbol:")) => {
+            None
         }
         _ => {
             crate::icons::computed();

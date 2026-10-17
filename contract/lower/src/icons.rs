@@ -44,19 +44,30 @@ thread_local! {
 
 /// Whether a target draws SF Symbols.
 fn apple(target: &str) -> bool {
-    matches!(target, "ios" | "macos" | "tvos" | "visionos" | "watchos")
+    matches!(target, "ios" | "macos" | "tvos")
 }
 
-/// The targets `app.json` ships: its `host` and `deploy.store` keys.
+/// The targets `app.json` ships: its `host`, `deploy.store` and
+/// `deploy.binaries` keys. An app with none (no `app.json`) is checked for none.
 fn targets(root: Option<&Path>) -> Vec<String> {
-    let Some(text) = root.and_then(|r| std::fs::read_to_string(r.join("app.json")).ok()) else {
+    // A game's resolved manifest first, as the build reads it (`Manifest::read`).
+    let read = |r: &Path| {
+        std::fs::read_to_string(r.join(".shells/app.json"))
+            .or_else(|_| std::fs::read_to_string(r.join("app.json")))
+            .ok()
+    };
+    let Some(text) = root.and_then(read) else {
         return Vec::new();
     };
     let Ok(app) = serde_json::from_str::<serde_json::Value>(&text) else {
         return Vec::new();
     };
     let mut out: Vec<String> = Vec::new();
-    for keys in [&app["host"], &app["deploy"]["store"]] {
+    for keys in [
+        &app["host"],
+        &app["deploy"]["store"],
+        &app["deploy"]["binaries"],
+    ] {
         for key in keys.as_object().into_iter().flat_map(|o| o.keys()) {
             if !out.contains(key) {
                 out.push(key.clone());
@@ -91,6 +102,14 @@ pub(crate) fn declare(
                 errors.push(refuse("tamber-icon-svg", format!("`{}`: an icon's SVG is under the app's `assets/`; compile this source with `compile_path`", icon.name)));
                 continue;
             }
+            // `|` joins the source form's parts.
+            (Some(file), _) if file.contains('|') => {
+                errors.push(refuse(
+                    "tamber-icon-svg",
+                    format!("`{}`: an SVG's path has no `|`", icon.name),
+                ));
+                continue;
+            }
             (Some(file), Some(root)) => {
                 let path = root.join("assets").join(file);
                 match std::fs::read_to_string(&path)
@@ -109,15 +128,19 @@ pub(crate) fn declare(
             }
         };
         for target in &targets {
+            // Apple draws the SF Symbol (its hosts draw no path yet); every
+            // other host a template's path, and the web a file as written.
             let template = svg.as_ref().is_some_and(|s| s.not_template.is_none());
-            let drawn = (apple(target) && icon.sf.is_some())
-                || template
-                || (target == "web" && svg.is_some());
+            let drawn = if apple(target) {
+                icon.sf.is_some()
+            } else {
+                template || (target == "web" && svg.is_some())
+            };
             if drawn {
                 continue;
             }
             errors.push(match (&svg, &icon.svg) {
-                (Some(s), Some(file)) => refuse(
+                (Some(s), Some(file)) if !apple(target) => refuse(
                     "tamber-icon-svg",
                     format!(
                         "`{}`: `assets/{file}` is no one-colour shape ({}): only the web draws such a file, and the app ships {target}",

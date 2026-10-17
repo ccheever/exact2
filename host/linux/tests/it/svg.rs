@@ -81,15 +81,16 @@ fn a_zero_length_subpath_paints_its_cap() {
 }
 
 /// LLP 1084 §4: a portable symbol role is its path, stroked as the web
-/// strokes it, in its tint; an `sf/` name stays an empty box.
+/// strokes it, in its tint; an `sf/` name stays an empty box, unless it is a
+/// role's own Apple name, which draws that role (LLP 1121 D10).
 #[test]
 fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
-    const SYMBOLS: &str = "component App\n  view\n    row\n      image \"symbol:checkmark\" testId=\"role\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n      image \"symbol:sf/checkmark\" testId=\"sf\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n";
+    const SYMBOLS: &str = "component App\n  view\n    row\n      image \"symbol:checkmark\" testId=\"role\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n      image \"symbol:sf/checkmark.seal\" testId=\"sf\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n      image \"symbol:sf/checkmark\" testId=\"apple\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n";
     let plan = contract::compile(SYMBOLS).unwrap_or_else(|e| panic!("{e}"));
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
         (),
-        (100., 48.),
+        (150., 48.),
         1.,
         std::env::temp_dir(),
         PainterChoice::Cpu,
@@ -121,6 +122,10 @@ fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
         reds(&mut p, "sf"),
         0,
         "an SF Symbol name draws nothing on Linux"
+    );
+    assert!(
+        reds(&mut p, "apple") > 40,
+        "a role's Apple name draws the role"
     );
 }
 

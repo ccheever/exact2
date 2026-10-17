@@ -63,13 +63,25 @@ fn a_shipped_target_without_a_source_is_refused() {
     let design = "  icon.two = icon(svg \"icons/two.svg\")\n";
     let path = app(
         "colours",
-        "\"ios\": {}, \"web\": {}",
+        "\"linux\": {}, \"web\": {}",
         design,
         &view("symbol:icon.two"),
     );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
-    assert!(e.message.contains("ios"), "{e:?}");
+    assert!(
+        e.message.contains("linux") && e.message.contains("more than one colour"),
+        "{e:?}"
+    );
+    // Apple draws the SF Symbol: an SVG alone is no source there.
+    let svg_only = "  icon.svg = icon(svg \"icons/reply.svg\")\n";
+    let path = app("apple", "\"ios\": {}", svg_only, &view("symbol:icon.svg"));
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-missing", "{e:?}");
+    assert!(
+        e.message.contains("icon.svg has no source for ios"),
+        "{e:?}"
+    );
     let path = app("web-only", "\"web\": {}", design, &view("symbol:icon.two"));
     let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(
@@ -154,4 +166,43 @@ fn a_computed_source_keeps_every_icon_and_the_runner_resolves_it() {
         source("symbol:back"),
         exact_kernel::PropValue::Str("symbol:back".into())
     );
+}
+
+/// Review round 1: a native button takes an icon token; a template that
+/// starts with other text keeps no icon; `deploy.binaries` ships a target;
+/// the source graph names each icon's SVG, so a watcher rebuilds on its edit.
+#[test]
+fn a_button_a_url_template_binaries_and_the_graph() {
+    let design = "  icon.reply = icon(sf \"bubble.left\", svg \"icons/reply.svg\")\n";
+    let view = "component App\n  state id = \"1\"\n  view\n    column\n      button appearance=\"auto\" aria-label=\"Reply\"\n        image \"symbol:icon.reply\"\n      image `https://example.com/${id}.png`\n";
+    let path = app("button", "\"ios\": {}", design, view);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(plan.icons.len(), 1, "named by the button's literal only");
+    let graph = contract::source_graph(&path);
+    assert!(
+        graph
+            .sources
+            .iter()
+            .any(|s| s.path.ends_with("assets/icons/reply.svg")),
+        "{:?}",
+        graph.sources.iter().map(|s| &s.path).collect::<Vec<_>>()
+    );
+    let dir = path.parent().unwrap();
+    std::fs::write(
+        dir.join("app.json"),
+        "{\"app\": {\"id\": \"dev.test.icons\", \"name\": \"Icons\"}, \"host\": {\"ios\": {}}, \"deploy\": {\"binaries\": {\"linux\": \"manual\"}}}",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #000000\n\nicons\n  icon.sf = icon(sf \"star\")\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &path,
+        "component App\n  view\n    image \"symbol:icon.sf\"\n",
+    )
+    .unwrap();
+    let e = contract::compile_path(&path).unwrap_err();
+    assert!(e.message.contains("no source for linux"), "{e:?}");
 }

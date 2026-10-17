@@ -381,7 +381,27 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .collect();
     // The app's design is a source too: a capture copies it, a watcher
     // watches it (LLP 1121 D2).
-    sources.extend(design_path(&root_key).map(|path| Source {
+    let design = design_path(&root_key);
+    // An icon token's SVG too, which the build reads (LLP 1121 D10).
+    let icons: Vec<PathBuf> = design
+        .as_ref()
+        .and_then(|d| std::fs::read_to_string(d).ok())
+        .and_then(|text| exact_tamber::check(&text, &contract_lower::tamber_vocab()).ok())
+        .map(|folding| {
+            let assets = root_key.parent().unwrap_or(Path::new(".")).join("assets");
+            folding
+                .icons
+                .iter()
+                .filter_map(|i| i.svg.as_ref().map(|f| assets.join(f)))
+                .filter(|p| p.is_file())
+                .collect()
+        })
+        .unwrap_or_default();
+    sources.extend(design.map(|path| Source {
+        path,
+        origin: Origin::App,
+    }));
+    sources.extend(icons.into_iter().map(|path| Source {
         path,
         origin: Origin::App,
     }));

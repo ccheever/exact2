@@ -2885,12 +2885,18 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 
 ### Stage 6, commit F2: icons at build (D10)
 
-- **The SVG** (`contract/lower/src/icon_svg.rs`) is read for its viewBox (its own, or its width and
-  height) and its `<path>`s' `d`, joined as subpaths. One with several fill colours, a stroke, or
-  anything but paths and groups (a gradient, an image, text, a `<circle>`) is no template.
-- **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are `app.json`'s `host`
-  and `deploy.store` keys. Apple's draw an `sf` or a template SVG; any other a template SVG; the
-  web also a file that is no template, as written. Else `tamber-icon-missing: <icon> has no source
+- **The SVG** (`contract/lower/src/icon_svg.rs`) is read as XML (comments, CDATA and
+  declarations skipped, entities decoded, attributes apart) for its viewBox (its own, or its width
+  and height) and its `<path>`s' `d` outside `defs`, joined as subpaths (a later path's leading
+  relative moveto made absolute). Fill and stroke follow SVG's cascade (a `style` declaration over
+  the attribute, inherited from groups). One whose paths fill in more than one colour, or are
+  stroked or unfilled, or with a transform, or anything but paths and groups (a gradient, an image,
+  text, a `<circle>`, a `<use>`) is no template; a `d` that is not path data is refused.
+- **Per target** (`contract/lower/src/icons.rs`): the targets an app ships are its manifest's
+  (`.shells/app.json` first, as the build reads it, else `app.json`) `host`, `deploy.store` and
+  `deploy.binaries` keys; an app with no manifest is checked for none. The source graph names each
+  icon's SVG, so a watcher rebuilds on its edit. Apple's draw an `sf` (their hosts draw no path yet, so an SVG is no
+  source there); any other a template SVG; the web also a file that is no template, as written. Else `tamber-icon-missing: <icon> has no source
   for <target>`, or `tamber-icon-svg` naming why the file is no one-colour shape and the target.
 - **The source form:** a literal `symbol:icon.reply` is written as
   `symbol:icon|<sf>|<view_box>|<path>|<svg>`, which hosts read (`exact_kernel::Icon`,
