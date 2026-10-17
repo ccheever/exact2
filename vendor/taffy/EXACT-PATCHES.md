@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38 and 39 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41 and 42 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1208,6 +1208,31 @@ margins, non-stretch alignment and an authored item height, in both containers.
 `absolute_flex_height_resolves_against_an_auto_height_containing_block` holds
 percentage and calc heights and opposing insets against the containing block's
 used height, with automatic and zero item minima.
+
+## Patch 42: a recorded call is looked up among its own box's calls — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-10-18, for
+`issues/closed/20261017-memo-recorder-repeats-quadratic.md`.
+
+Patch 29's `Recorder::repeats` asks whether the trace already holds a box's
+answer under an input, once for every answer a recorded layout takes from
+outside the computation (a measure, a cache hit). It scanned every call
+recorded so far, so recording a subtree of n boxes made O(n²) comparisons.
+`asked` now links each call to its box's call before it, and `last_asked`
+holds each box's last call by the trace's box index (dense: indices are
+given in order from 0), so a lookup compares that box's own few inputs and
+answers as before.
+
+**Held by** `tree::memo::tests::a_recorded_call_is_looked_up_among_its_own_boxs_calls`
+(2,000 boxes asked three questions each, twice: every answer is recorded
+once, and no lookup makes more than three comparisons; the scan made up to
+6,000 comparisons a lookup, 36,000,000 in all),
+`a_lookup_answers_as_a_scan_of_every_recorded_call_does` (20,000 recordings
+and lookups in a fixed pseudo-random order, each lookup checked against a
+scan of every recorded call), both run by hand (`cargo test --manifest-path
+vendor/taffy/Cargo.toml --lib tree::memo`; no lane runs taffy's unit tests),
+and the kernel's `layout::memo_tests`, which compare replayed layouts with
+fresh ones bit for bit.
 
 ## Cargo workspace boundary
 
