@@ -1,7 +1,7 @@
 # LLP 1126: System surfaces — an app's views outside its window
 
 **Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built until Charlie has read it)
-**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Charlie ruled questions 1 to 3 and 6 to 9 on 2026-10-17 (§0); questions 4 and 5 wait for a panel. Not in `llp/current/`, which holds 15 of 15.
+**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Charlie ruled questions 1 to 3 and 6 to 9 on 2026-10-17, and question 4 by the panel he deferred it to (§0); question 5 has the panel's answers (`llp/reviews/1126-system-surfaces.panel.{astra,grok,fable}.md`) and awaits his ruling. Not in `llp/current/`, which holds 15 of 15.
 **Systems:** a new SwiftUI renderer in the Apple host (`host/apple/Sources`), a presenter-free session composition (`ExactKit`'s `ExactSession`), the app manifest (`scripts/app.schema.json`), the bake and the schema's admission columns (`contract/cli`, `kernel/tables/schema.json`), the envelope's plans (LLP 1031 D1), the store and the update store across processes (`update/src/store.rs`, LLP 1018), the Apple build's packaging (`host/apple/build.mjs`), the agent (`scripts/agent.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-17 (r1, r2)
@@ -37,7 +37,19 @@ Charlie, 2026-10-17, on §7:
   the gallery may be unneeded).
 - **Question 9, the working set:** "rec ok": this RFC enters `llp/current/`
   when stage 0 starts, and LLP 1112 (parked 2026-10-07) leaves it then.
-- **Questions 4 and 5:** waiting for a panel (Astra, Grok, Fable).
+- **Question 4, the word:** "let's wait for the panel to decide this". The
+  panel (Astra, Grok, Fable; blind) was unanimous: no umbrella word. An entry
+  is named by its kind, in `app.json`, the agent and the docs: top-level
+  `widgets` and `live_activities`, beside `protocol_handlers` and
+  `file_handlers`, not under `host` (one widget entry is realized by the iOS,
+  macOS and watchOS hosts alike). A complication is a widget with accessory
+  families, a row of `widgets`. The genus in prose is an *entry* (LLP 1101's
+  word): "a widget entry", "an activity entry". *Surface* means a place an
+  entry appears (the Home Screen, StandBy, the Dynamic Island), as Apple uses
+  it, never the entry; the canvas `surface=` binding is not renamed.
+  `snapshot` stays the compiler's name for the admission profile.
+- **Question 5, Live Activity pushes:** the panel answered; Charlie's ruling
+  is pending.
 
 ## Summary
 
@@ -196,9 +208,10 @@ UIKit and AppKit stay those.
 
 A surface takes the terminal entry's shape (LLP 1101 D1–D2):
 
-- `app.json` names each surface: its kind (a widget kind, a Live Activity),
-  its families, its root component, its props shape, and its refresh
-  function. The spelling is the spec's.
+- `app.json` names each entry under its kind's key (`widgets`,
+  `live_activities`; §0, question 4): its families, its root component, its
+  props shape, and its refresh function. The rest of the spelling is the
+  spec's.
 - The bake compiles each surface's root under a `snapshot` profile into its
   own plan, in the same bundle as the app's plan and under the same
   compatibility id. This pulls LLP 1031 D1's deferred trigger: the envelope
@@ -551,9 +564,8 @@ Templates (D11) and Android (D13) are their own RFCs.
 2. **LLP 1035.006 §11.10.** Ruled (§0): reopened; the take is waived.
 3. **watchOS.** Ruled (§0): admitted now; full Apple platform support for
    launch.
-4. **The word.** "Surface" already names a Canvas surface (`ExactSurfaces`)
-   and a platform (`rules/DEFERRED.md` §Surfaces); LLP 1124 uses "extension".
-   A name for these entries is wanted before the manifest has a key.
+4. **The word.** Ruled by the panel (§0): kinds as keys (`widgets`,
+   `live_activities`), *entry* for the genus, *surface* for the place.
 5. **Live Activity pushes.** Admit ActivityKit push tokens, the app's own
    backend sending and exact2 relaying nothing, as a scoped exception to the
    push refusal. Proposed: decide at stage 2; stage 2 ships without it.
