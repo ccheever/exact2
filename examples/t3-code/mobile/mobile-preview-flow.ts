@@ -39,7 +39,7 @@ export function mobilePreviewMenus(kind: string, input: unknown) {
   const choices = menuRows(data.menu).map(item => row(item));
   if (kind === 'browser' && data.pipSupported === true) choices.push(row({ id: 'pip', title: data.pipActive === true ? 'Stop picture in picture' : 'Picture in picture', subtitle: '', symbol: 'pip.enter', selected: false, disabled: false, destructive: false, group: '' }));
   return { selection: JSON.stringify({ ...base, title: kind === 'browser' ? 'Browser tabs' : 'Devices', symbol: kind === 'browser' ? 'square.on.square' : 'iphone', items }),
-    options: JSON.stringify({ ...base, title: kind === 'browser' ? 'Browser tab options' : 'Device options', symbol: 'ellipsis', items: kind === 'browser' ? choices : [...items.map(item => ({ ...item, group: 'Devices' })), ...choices] }) };
+    options: JSON.stringify({ ...base, title: kind === 'browser' ? 'Browser tab options' : 'Device options', symbol: 'ellipsis', items: kind === 'browser' ? choices : [...(items.length > 1 ? items.map(item => ({ ...item, group: 'Devices' })) : []), ...choices] }) };
 }
 export async function mobilePreviewMenuAction(kind: string, raw: string, owner: string, native?: Native | null) {
   let event; try { event = obj(JSON.parse(raw)); } catch { return { message: '', revision: mobileClient.revision }; }
