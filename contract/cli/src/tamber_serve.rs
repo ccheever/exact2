@@ -895,7 +895,12 @@ impl Server {
                 )
         });
         if motion {
-            let sites = contract::tamber_uses::motion_sites(&self.dir, &name);
+            let aliased: Vec<String> = aliases.iter().cloned().collect();
+            let sites = contract::tamber_uses::motion_sites(
+                &self.dir.join("app.contract"),
+                &name,
+                &aliased,
+            );
             return Ok(
                 json!({"token": name, "plan": null, "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
             );

@@ -49,7 +49,8 @@ on macOS and Linux.
 - `tamber/1.8` (LLP 1121 stage 6, commit D) added shadow tokens: the IR's `box-shadow` and
   `text-shadow` kinds, and `resolve`'s shadow tuples.
 - `tamber/1.9` (LLP 1121 stage 6, commit E) added motion tokens: the IR's `duration` and `easing`
-  kinds, and `resolve`'s motion tuples. A transaction or `propose` that changes one is `rebuild`.
+  kinds, `resolve`'s motion tuples, and `uses`' source-literal sites for one. A motion token's name
+  is dotted (`tamber-motion-name`). A transaction or `propose` that changes one is `rebuild`.
 
 ## Where it runs
 
@@ -238,6 +239,14 @@ read, nor an element id (`url(#brand)`). It answers `{token, plan, sites, aliase
   any bake. A build joins the spans through its own source map (LLP 1122 T2b's `outline`);
 - `aliases`: the tokens whose values name it, directly or through another;
 - `files`: the digests it read.
+
+A duration or easing token (*1.9*) is written into its rows at build, so the plan has no node
+for it: `plan` is null, and each site is a source literal, `{site: null, row, file, line, col,
+end_col, argument?, via?}`. These are the literals of a motion row the build wrote it into
+(`row` is that row's name, `-` as `_`) in every source the app loads, a package's too, and the
+component arguments whose literals name it (`row` null, `argument: {component, name}`), which an
+expansion writes into a row. `via: {token}` says when the literal names the token through
+another token. A comment is no site.
 
 A `file` that is not the design the app builds has no sites. The JS target's plan and a native
 bake of the same sources have the same sites. How many instances of each site are mounted on a

@@ -673,6 +673,22 @@ impl<'a> Checker<'a> {
                 self.at(&t.name, "tamber-motion-axis", "a duration or an easing is written into its `transition` or `animation` at build, so it has one value: no `when` (vary the row instead)");
                 continue;
             }
+            // A row reads a dotted word as the token wherever it stands: no
+            // CSS property, keyframes name or easing keyword has a dot.
+            if !self.refused[i]
+                && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
+                && !t.name.value.contains('.')
+            {
+                self.refused[i] = true;
+                let name = &t.name.value;
+                let group = if self.kinds[i] == Kind::Duration {
+                    "duration"
+                } else {
+                    "easing"
+                };
+                self.at(&t.name, "tamber-motion-name", format!("`{name}`: a duration's or an easing's name is dotted (`{group}.{name}`), so a `transition` or `animation` reads it as the token wherever it stands, never as a property, a keyframes name or a keyword"));
+                continue;
+            }
             // A shadow's kind is written: two rows read alike values.
             if !self.refused[i]
                 && self.kinds[i] == Kind::Color

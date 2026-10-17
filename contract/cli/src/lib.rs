@@ -588,7 +588,7 @@ fn compile_path_all_warned_with(path: &Path, mapped: bool, surfaces: bool) -> Wa
     (result, warned)
 }
 
-fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
+pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())

@@ -2759,15 +2759,23 @@ channel (queued).
   and an `easing` (a keyword, `cubic-bezier()` with its x in [0, 1], `steps()` with a whole count,
   `linear()`, `-exact-spring()`, or an easing token). A time, an easing keyword and an easing function
   infer their kinds. A `when` on one, written or inferred, is `tamber-motion-axis`.
+- **Dotted names:** a duration's or an easing's name is dotted (`duration.fast`); another is
+  `tamber-motion-name`. No CSS property, keyframes name or easing keyword has a dot, so a dotted
+  word of a motion row that is a token's name is that token wherever it stands in the shorthand
+  (`transition="1s opacity"` stays as written, whatever tokens exist). An inline `theme`'s names
+  are undotted, so it declares none.
 - **Substituted at build:** the loader writes each duration and easing token a literal of a
   `transition`, `animation`, exit animation, layout transition, timing longhand or keyframe's
-  timing names, as a whole word in a timing's place (never a transition's property nor an
-  animation's keyframes name), in as its value before scoping, the longhands' composing or the
-  row's codec read it (`contract_lower::motion`); lowering does it again for a value an expansion
-  carried in (a component's prop). So the plan holds the values and keeps no motion token. Named
-  as a whole row of another kind, one is `tamber-kind`. Its tokens are checked by the motion crate,
-  as the transition reads them (the crate depends on `exact-motion`). `uses` finds a motion token's
-  words in the sources (a site has no plan node).
+  timing names, as a whole word (not inside quotes, nor touching a template's `${…}`), in as its
+  value before scoping, the longhands' composing or the row's codec read it
+  (`contract_lower::motion`); lowering does it again, before the longhands compose, for a value an
+  expansion carried in (a component's prop, to a shorthand or a longhand). So the plan holds the
+  values and keeps no motion token. Named as a whole row of another kind, one is `tamber-kind`.
+  Its tokens are checked by the motion crate, as the transition reads them (the crate depends on
+  `exact-motion`). A profile's colour in the design is stood in for when the loader folds the
+  motion tokens, so it does not stop their substitution. `uses` reports the literals the loader
+  wrote a token into, in every source the app loads (a package's too), and the component
+  arguments that name it (a site has no plan node).
 - **An edit rebuilds** (D13): the session classes a change to a motion token, or to what it folds
   from, as `rebuild`, so `propose` says so and a scrub is refused; the plan's structure moves, so the
   dev loops' retained-shape checks see a structure change and rebuild.

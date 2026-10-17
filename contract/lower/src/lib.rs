@@ -1054,11 +1054,13 @@ impl<'a> Lowerer<'a> {
                         )
                     })
                     .then(|| {
-                        let keyframes: Vec<String> = self.keyframes.keys().cloned().collect();
-                        crate::motion::attr(a, &crate::theme::motion_tokens(), &keyframes)
+                        crate::motion::attrs(
+                            std::slice::from_ref(a),
+                            &crate::theme::motion_tokens(),
+                        )
                     })
                     .flatten();
-                let a = motion.as_ref().unwrap_or(a);
+                let a = motion.as_ref().map_or(a, |m| &m[0]);
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {

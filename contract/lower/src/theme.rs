@@ -811,6 +811,20 @@ fn inline_design(theme: &contract_syntax::ThemeDecl) -> tamber::Design {
     }
 }
 
+/// Stand `transparent` in for each token whose value is a profile's colour
+/// (`color(--…)`), which the crate does not fold alone: what a caller that
+/// folds the design outside the build reads.
+pub(crate) fn stand_in_profiles(design: &mut tamber::Design) {
+    for t in &mut design.tokens {
+        let profiled = |v: &str| v.to_ascii_lowercase().contains("color(--");
+        if profiled(&t.value.value) || t.whens.iter().any(|w| profiled(&w.value.value)) {
+            t.value.value = "transparent".into();
+            t.whens.clear();
+            t.meta.clear();
+        }
+    }
+}
+
 /// The app's tokens that are one opaque colour in light and dark in some app
 /// tuple and not marked `scheme=fixed` (LLP 1121 D3), each by its name as
 /// declared with that colour's text and whether it is one colour in every
@@ -827,15 +841,8 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
         },
         (None, None) => return Vec::new(),
     };
-    for t in &mut design.tokens {
-        let profiled = |v: &str| v.to_ascii_lowercase().contains("color(--");
-        if profiled(&t.value.value) || t.whens.iter().any(|w| profiled(&w.value.value)) {
-            // As the build stands one in (`profiles`): nothing to judge.
-            t.value.value = "transparent".into();
-            t.whens.clear();
-            t.meta.clear();
-        }
-    }
+    // As the build stands one in (`profiles`): nothing to judge.
+    stand_in_profiles(&mut design);
     let Ok(folding) = tamber::check_design(design, &vocab()) else {
         return Vec::new();
     };

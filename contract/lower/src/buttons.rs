@@ -82,8 +82,10 @@ impl Lowerer<'_> {
         }
         let face = crate::grouped::unsheet(children);
         let children = face.as_deref().unwrap_or(children);
-        let composed = self.compose_animation(&attrs)?;
-        let checked = composed.as_deref().unwrap_or(&attrs);
+        let timed = crate::motion::attrs(&attrs, &crate::theme::motion_tokens());
+        let timed = timed.as_deref().unwrap_or(&attrs);
+        let composed = self.compose_animation(timed)?;
+        let checked = composed.as_deref().unwrap_or(timed);
         let disabled = attrs.iter().find_map(|a| {
             rows(a)
                 .into_iter()

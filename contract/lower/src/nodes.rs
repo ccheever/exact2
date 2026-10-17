@@ -91,6 +91,11 @@ impl Lowerer<'_> {
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
+        // @ref LLP 1121 D3 — a motion token an expansion carried in (a
+        // component's prop, a sheet) is written in before the longhands
+        // compose with their shorthand.
+        let timed = crate::motion::attrs(expanded, &crate::theme::motion_tokens());
+        let expanded = timed.as_deref().unwrap_or(expanded);
         let composed = self.compose_animation(expanded)?;
         let expanded = composed.as_deref().unwrap_or(expanded);
         let lengths =

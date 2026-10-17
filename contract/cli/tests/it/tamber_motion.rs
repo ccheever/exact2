@@ -104,34 +104,95 @@ fn a_motion_edit_proposes_a_rebuild() {
     assert_eq!(planned.class, exact_tamber::Class::Rebuild);
 }
 
-/// Review round 1: a token in a timing's place only (never a transition's
-/// property or an animation's keyframes name), written in before the
-/// keyframes' scoping and the longhands' composing read the value, and
-/// through a component's prop.
+/// Review rounds 1 and 2: a motion token's name is dotted, so a row reads a
+/// dotted word as the token wherever it stands in the shorthand, and a
+/// property, a keyframes name or a keyword never as one; written in before
+/// the keyframes' scoping and the longhands' composing read the value, and
+/// through a component's prop, a shorthand's or a longhand's.
 #[test]
-fn a_motion_token_is_written_in_a_timings_place_before_anything_reads_it() {
-    let design = "tamber t\n\ntheme\n  opacity = 150ms\n  fast = 200ms\n  duration.fast = 150ms\n";
-    let view = "keyframes fast\n  from opacity=0\n  to opacity=1\n\ncomponent App\n  view\n    column transition=\"opacity 1s\"\n      text \"a\" animation=\"fast 1s\"\n      text \"b\" animation=\"fast duration.fast\" animation-fill-mode=\"forwards\"\n      Card(t=\"opacity duration.fast\")\n\ncomponent Card\n  props\n    t: string\n  view\n    column transition=t\n      text \"c\"\n";
+fn a_motion_token_is_written_wherever_it_stands_before_anything_reads_it() {
+    let design = "tamber t\n\ntheme\n  duration.fast = 150ms\n  easing.standard = cubic-bezier(0.2, 0, 0, 1)\n";
+    let view = "keyframes fast\n  from opacity=0\n  to opacity=1\n\ncomponent App\n  state on = true\n  view\n    column transition=\"1s opacity\"\n      text \"a\" transition=\"duration.fast opacity\"\n      text \"b\" animation=\"fast duration.fast\" animation-fill-mode=\"forwards\"\n      text \"c\" transition=`opacity ${on ? \"1s\" : \"2s\"} duration.fast`\n      text \"d\" animation=\"fast duration.fast easing.standard\"\n      Card(t=\"opacity duration.fast\", d=\"duration.fast\")\n\ncomponent Card\n  props\n    t: string\n    d: string\n  view\n    column transition=t\n      text \"e\" animation-name=\"fast\" animation-duration=d\n";
     let path = app("places", &[("app.tamber", design), ("app.contract", view)]);
-    let plan = contract::compile_path(&path).unwrap();
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
-    assert!(strings.contains(&"opacity 1s"), "{strings:?}");
-    assert!(strings.contains(&"fast 1s"), "{strings:?}");
+    assert!(strings.contains(&"1s opacity"), "{strings:?}");
+    assert!(strings.contains(&"150ms opacity"), "{strings:?}");
     // Composed with its longhand: the token's time is the shorthand's.
     assert!(
         strings.contains(&"0.15s ease 0s 1 normal forwards running fast"),
         "{strings:?}"
     );
     assert!(strings.contains(&"opacity 150ms"), "{strings:?}");
+    assert!(
+        !strings
+            .iter()
+            .any(|s| s.contains("duration.fast") || s.contains("easing.standard")),
+        "{strings:?}"
+    );
 }
 
+/// Review round 2: an undotted motion token is refused; a profile's colour
+/// in the design leaves the motion tokens written in; an inline `theme`
+/// (undotted names) declares none.
 #[test]
-fn uses_finds_a_motion_tokens_words_in_the_sources() {
-    let path = app("uses", &[("app.tamber", DESIGN), ("app.contract", VIEW)]);
-    let sites = contract::tamber_uses::motion_sites(path.parent().unwrap(), "duration.fast");
-    assert_eq!(sites.len(), 2, "{sites:?}");
-    assert_eq!(sites[0]["row"], "transition", "{sites:?}");
-    assert_eq!(sites[1]["row"], "animation", "{sites:?}");
+fn an_undotted_name_is_refused_and_a_profile_keeps_substitution() {
+    let path = app(
+        "undotted",
+        &[
+            ("app.tamber", "tamber t\n\ntheme\n  fast = 150ms\n"),
+            ("app.contract", "component App\n  view\n    text \"a\"\n"),
+        ],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-motion-name", "{e:?}");
+    let profiled =
+        "tamber t\n\ntheme\n  ink = color(--brand 0.1 0.2 0.3 0.4)\n  duration.fast = 150ms\n";
+    let view = "color-profile --brand src=\"assets/brand.icc\"\n\nkeyframes appear\n  from opacity=0\n  to opacity=1\n\ncomponent App\n  view\n    text \"a\" animation-name=\"appear\" animation-duration=\"duration.fast\" color=\"ink\"\n";
+    let path = app(
+        "profiled",
+        &[("app.tamber", profiled), ("app.contract", view)],
+    );
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        !plan.strings.iter().any(|s| s.contains("duration.fast")),
+        "{:?}",
+        plan.strings
+    );
+    // An inline theme's names are undotted: it declares no motion token.
+    let inline = "theme\n  fast = \"150ms\"\n\ncomponent App\n  view\n    text \"a\" transition=\"opacity fast\"\n";
+    let e = contract::compile(inline).unwrap_err();
+    assert_eq!(e.id, "tamber-motion-name", "{e:?}");
+}
+
+/// `uses`: the literals the token was written into, a component's argument
+/// naming it, a package's, and one through a token naming it; never a
+/// comment.
+#[test]
+fn uses_finds_a_motion_tokens_sites_from_the_loader() {
+    let design = format!("{DESIGN}  duration.quick = duration.fast\n");
+    let view = format!(
+        "use Spinner from \"./lib/ui.contract\"\n{VIEW}      // transition=\"opacity duration.fast\"\n      Card(t=\"opacity duration.quick\")\n      Spinner()\n\ncomponent Card\n  props\n    t: string\n  view\n    column transition=t\n      text \"c\"\n"
+    );
+    let path = app("uses", &[("app.tamber", &design), ("app.contract", &view)]);
+    std::fs::create_dir_all(path.with_file_name("lib")).unwrap();
+    std::fs::write(
+        path.with_file_name("lib").join("ui.contract"),
+        "component Spinner\n  view\n    text \"b\" transition=`opacity duration.fast`\n",
+    )
+    .unwrap();
+    let aliases = vec!["duration.quick".to_string()];
+    let sites = contract::tamber_uses::motion_sites(&path, "duration.fast", &aliases);
+    let rows: Vec<String> = sites
+        .iter()
+        .map(|s| format!("{} {} {}", s["file"], s["row"], s["via"]))
+        .collect();
+    assert_eq!(sites.len(), 4, "{rows:?}");
+    assert_eq!(sites[0]["row"], "transition", "{rows:?}");
+    assert_eq!(sites[1]["row"], "animation", "{rows:?}");
+    assert_eq!(sites[2]["argument"]["component"], "Card", "{rows:?}");
+    assert_eq!(sites[2]["via"]["token"], "duration.quick", "{rows:?}");
+    assert_eq!(sites[3]["file"], "lib/ui.contract", "{rows:?}");
 }
 
 /// Review round 1: a used file's animation naming its own keyframes and a

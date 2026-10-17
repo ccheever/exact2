@@ -27,6 +27,9 @@ pub(crate) struct Sources {
     /// source map says them, so a reader knows a file has not moved since
     /// (LLP 1122 D5, D6's fail-closed rule).
     pub(crate) digests: Vec<String>,
+    /// The literals a motion token was written into, or that a component's
+    /// argument names one in (LLP 1121 D3): what `uses` reports for one.
+    pub(crate) motion: Vec<contract_lower::motion::Site>,
 }
 
 /// One name a `use` brought: where it is written, and the declaration it
@@ -120,6 +123,7 @@ pub(crate) fn load(
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -266,6 +270,7 @@ pub(crate) fn use_fixes(
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -346,6 +351,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             imports: Vec::new(),
             packages: Vec::new(),
             consulted: Vec::new(),
+            motion: Vec::new(),
         },
         active: vec![root_key.clone()],
         units: Vec::new(),
@@ -506,8 +512,7 @@ impl Loader<'_> {
     fn scope(&mut self) -> Result<File, Vec<CompileError>> {
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
-            let declared: Vec<String> = file.keyframes.iter().map(|k| k.name.clone()).collect();
-            contract_lower::motion::substitute(&mut file, &self.motion, &declared);
+            self.sources.motion = contract_lower::motion::substitute(&mut file, &self.motion);
             contract_syntax::resolve_clock_timelines(&mut file).map_err(|e| vec![e.into()])?;
             file.uses.clear();
             return Ok(file);
@@ -556,13 +561,9 @@ impl Loader<'_> {
         // written into each motion row before scoping reads an animation's
         // keyframes name (the root's design, the app's).
         let motion = std::mem::take(&mut self.motion);
-        let declared: Vec<String> = self
-            .units
-            .iter()
-            .flat_map(|u| u.file.keyframes.iter().map(|k| k.name.clone()))
-            .collect();
         for unit in self.units.iter_mut() {
-            contract_lower::motion::substitute(&mut unit.file, &motion, &declared);
+            let sites = contract_lower::motion::substitute(&mut unit.file, &motion);
+            self.sources.motion.extend(sites);
         }
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
