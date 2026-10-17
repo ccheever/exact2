@@ -954,11 +954,11 @@ fn replaced_elements_with_a_ratio_and_no_natural_size_contribute_no_content_widt
     );
 }
 
-/// A view-box `svg` whose width holds a percentage contributes no width to
-/// a min-content size, whatever length the percentage is added to: two
-/// `flex: 1 1 160px` items holding one stay 200 wide, and the `svg`
-/// overflows its item. Chrome 151, 2026-10-17, as `CONTENT`'s `wrap`
-/// (frames of the row, the items, then the `svg`s).
+/// A view-box `svg` at `width: 100%`, `calc(250px + 10%)` or
+/// `max(250px, 30%)` contributes no width to a min-content size: two
+/// `flex: 1 1 160px` items holding one stay 200 wide, and the last two
+/// paint wider than their item (270 and 250). Chrome 151, 2026-10-17, as
+/// `CONTENT`'s `wrap` (frames of the row, the items, then the `svg`s).
 #[test]
 fn a_percentage_width_contributes_no_min_content_width() {
     let cases: &[(&str, [[f32; 4]; 5])] = &[
