@@ -93,10 +93,16 @@ export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Car
 // The T3 Code clone's own workspace (examples/t3-code/Cargo.toml): its build script bakes the whole app on
 // one core for minutes, so the root's members and the six checks leave it out. Built, tested and
 // linted here, in the root's target (pruned with it), where the units the two workspaces share are built
-// once. Clippy's build of the build script is a unit of its own, so linting bakes once more.
+// once. Clippy's build of the build script is a unit of its own, so linting bakes once more. The root's
+// `cargo fmt --all` does not reach this workspace, so its step checks the formatting too, after the tests.
 const t3Code = ['--manifest-path', 'examples/t3-code/Cargo.toml', '--target-dir', 'target', '--workspace', '--locked'];
 export const t3CodeChecks = [
-  ['t3-code', 'cargo', ['test', ...t3Code, '--lib', '--bins', '--tests', '--no-fail-fast']],
+  ['t3-code', 'sh', ['-c', [
+    'failed=0',
+    `cargo test ${t3Code.join(' ')} --lib --bins --tests --no-fail-fast || failed=1`,
+    'cargo fmt --manifest-path examples/t3-code/Cargo.toml --all -- --check || failed=1',
+    'exit $failed',
+  ].join('\n')]],
   ['t3-code-clippy', 'cargo', ['clippy', ...t3Code, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
 ];
 // Glue files that edit an app's checked-in sources while they run
