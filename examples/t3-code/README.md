@@ -39,7 +39,11 @@ packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the ver
 reference locks; network once) and from committed inputs: the Shiki grammar tables
 (`r12-render-grammar*.ts`), the CSS word lists, the Lucide and Pierre icon data
 (`settings-b-lucide.ts`, `pages-icons.contract`, `timeline-files.contract`,
-`timeline-files-tables.ts`, `macos/pierre-icons.tsv`, `assets/composer-icons.json`), the morph
+`timeline-files-tables.ts`, `macos/pierre-icons.tsv`, `assets/composer-icons.json`), the ten icon
+tables (`icons`, `shell-icons`, `sidebar-icons`, `timeline-icons`, `r4-surfaces-icons`,
+`settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons` and `settings-brands`, each a
+`.contract`, from the Lucide names in `tools/generate/icon-tables.mjs` and the marks in
+`icon-marks.mjs`; their hand-written components are in the `*-kit.contract` files), the morph
 plans (`shell-morph.contract`) and the terminal buffer vectors
 (`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
 `gen-vectors.mjs`). The app build runs it before it bakes (`macos/build.rs`);
@@ -398,25 +402,33 @@ could not, the comment at the fix says what happened and why the code is so.
 As of 2026-10-17, after merging main's macOS fixes (exact2 PRs #636 to #640, #646, #647, #651,
 #655, #663, #664, #676, #679 and #681, then #687, hover following the pointer once a context menu
 closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view loop's first stop
-and a placeholder change keeping a field's focus, failure 2), a session with real keys on the terminal and the
-real-input and VoiceOver sessions G to K. Each item says what is wrong or missing; the open
+and a placeholder change keeping a field's focus, failure 2), a session with real keys on the terminal, the
+real-input and VoiceOver sessions G to K, and an agent drive and real-input session on the bundle
+of `94cc6831c` with the fixtures below. Each item says what is wrong or missing; the open
 framework issues that someone using the app runs into are in the section above.
+
+**Failures** (2026-10-17, bundle of `94cc6831c`):
+
+- The settings search jump from another page opens the target page at its top, not at the row:
+  from a scrolled Appearance page, "time format" and then "legacy" (Return) each opened General
+  at its top, with neither 'Time format' nor 'Sidebar (legacy)' on screen (agent drive, 2 of 2).
+  Session L's real-input jumps that landed started on General itself. Possibly the page's new
+  scroller, keyed on the route, mounts after the jump has scrolled; not investigated.
+- ⌘V with an image or a file on the pasteboard attaches nothing to the composer. The reference
+  attaches the pasted files (ChatComposer.tsx:6011-6029 `onComposerPaste`); the clone's editor
+  pastes text only and takes files only from a drop (T3ComposerEditor.swift:376). Found while
+  preparing the image preview row, which did not run for want of an image chip.
+- The first file attached through Attach files to an empty draft (Background follow-up on Lane
+  Second) was drawn as 'Unavailable context, sample.py', dashed, and a press on it opened nothing;
+  attaching the same file again gave a resolved 'sample.py 1 KB' chip beside it (1 of 1). The
+  styler found no context record for the first chip (`T3ComposerStyler.chipMissing`); not
+  investigated.
+- Tab into a new binding's recorder records the Tab itself: the field reads 'tab' (1 of 1). The
+  reference's recorder hears only keys pressed while it has the focus. Escape then clears it and
+  keeps the focus and the row (F-2, below).
 
 **Known differences:**
 
-- VO-Space on a composer citation chip, from the end of the thread, scrolls the timeline to the
-  cited text. VoiceOver then moves its cursor to the 'Scroll to end' pill that appears as the
-  timeline leaves the end, and the keyboard focus follows it; the reference keeps the focus on
-  the chip's link. Only VoiceOver's own press does this. A pointer press, or an accessibility
-  press from another client, leaves the focus on the prompt, and a VO-Space while the pill is
-  already showing keeps it there too. exact2 #694 closed this as the clone's, because the chips'
-  elements were rebuilt on each refresh; they are now kept while their chip stays
-  (`T3ComposerChipNames.elements`). With real VoiceOver on that build (2026-10-17) VoiceOver
-  still went to the pill (1 of 1), though an accessibility client found the pressed link the
-  same, valid element after the press, with the pill shown. Posting a layout change that names
-  the link after the press did not keep VoiceOver there either. So the element's survival is not
-  the whole cause; #696 reopened the record
-  ([`issues/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/20261017-macos-voiceover-s-press-moves-its.md)).
 - A context-menu item that opens Rename project or Project grouping can still let VoiceOver
   re-read a long draft before the dialog, and the dialog's name is then not heard
   ([`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md);
@@ -480,12 +492,14 @@ framework issues that someone using the app runs into are in the section above.
 - The right panel toggle moves from the chat header into the panel when the panel opens, as the
   reference's does.
 - Session K did not run some rows, for want of fixture data or because the task left them out;
-  none is a failure: Usage's dialogs (H-2, FN8; no pooled limits), FN17 (no real-input path makes
-  a focused control disabled), FN24 (a Screen Recording grant), G-5's Remove project (no empty
-  project), the diff Turn submenu and the linked pull request, approval and device menus (FN5),
-  the project scope search, Reply and a diff comment (FN7), and realinput-1015c row 24. J9, J11,
-  J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran on the T3 lane
-  instead of PR #676's test app (58 of 58 outside presses closed the popovers), and J19's
+  none is a failure. Since checked (below): H-2's reset-credit confirm, the diff Turn submenu, the
+  approval menu (FN5) and a diff comment (FN7). Still not run: FN8's Usage part (the confirm covers
+  'Toggle main sidebar'; the driver does not read `inert`), FN17 (no real-input path makes a
+  focused control disabled), G-5's Remove project (a native menu choice, real input only; the
+  fixture now has `empty-project`), the linked pull request's actions menu and Reply (the fixture
+  now has them; the drive stopped first), the project scope search, and realinput-1015c row 24.
+  J9, J11, J15, J16 and J17 need pre-fix builds or superseded framework test apps. J10 ran on the
+  T3 lane instead of PR #676's test app (58 of 58 outside presses closed the popovers), and J19's
   NSPopover path does not exist in the clone.
 
 **Checked with real keys, pointer and VoiceOver** (session K, 2026-10-17, bundle of
@@ -509,17 +523,43 @@ buttons; the Snoozed header and Wake; and Tab through the legacy Rename project 
 reads 'Keybinding for Chat: New Press shortcut, edit text', and VO-F3 'Keybinding for Chat: New,
 edit text, is in the VoiceOver cursor' (2 of 2; before, 'scroll area'). The clone needed no change.
 
+**Checked by agent drive** (2026-10-17, bundle of `94cc6831c`, the fixtures below): on Usage ›
+Limits, a press on a segment pins its popover, a press in its card keeps it and a press elsewhere
+on the page closes it; the popover's Use reset opens 'Use a reset credit?' with Cancel focused,
+covering the window, and Escape closes it (H-2). Providers, Connections and Appearance each open at
+their top after the page before was scrolled. A press on a diff gutter (line 3 of README.md in the
+turn's diff) closes an open skill chip's details (`chip.open` true, then false). The diff scope's
+Turn submenu lists 'Turn 1' and selects it. An approval's 'More approval options' menu (Cancel,
+Always allow this session) closes on a press outside it (FN5). 'Comment on line 3' in the diff
+opens its draft focused (FN7).
+
+**Checked with real keys and pointer** (2026-10-17, bundle of `94cc6831c`, a lane copy launched
+normally): F-2 by Tab: Settings › Keybindings, Add keybinding, Tab into the new recorder, Escape:
+the field keeps the focus, its value goes back to Unassigned and the row stays (1 of 1; see the
+failure above for the 'tab' it first records). The composer's file preview (sample.py): with
+Keyboard Navigation off, Tab and Shift-Tab stay on 'Disable word wrap' (3 of 3 each), as AppKit's
+loop does without it; with it on, Tab goes Disable word wrap → Copy contents → Save file → Remove
+from draft → Close and back to the first, and Shift-Tab from the first goes to Close and back
+through the rest. Escape on 'Remove Lane Third from this device?' returns the focus to 'More
+actions for Lane Third' and keeps the environment (2 of 2). Escape on 'Delete action "Echo
+test"?' closes it and keeps the action, and a second Escape closes the editor; both were opened by
+an accessibility press, which leaves no focused trigger, so the focus went to the Name field and
+then the window (session L's keyboard-opened run went back to Delete and 'Edit Echo test'). The
+Usage page's pinned popover by a real pointer: press on the segment, a press in its card keeps it,
+a press elsewhere closes it (2 of 2).
+
+**Checked with VoiceOver** (2026-10-17, bundle of `8dd82dc72`): VO-Space on a composer citation
+chip's link, from the end of the thread, scrolls the timeline to the cited text and leaves
+VoiceOver on 'View cited assistant text: …, link', with the keyboard focus on the prompt, as in
+the reference (5 of 5). VoiceOver follows a link it presses to the link's linked elements; with
+none, it took the element that appeared within about half a second of the press, the 'Scroll to
+end' pill. The link now leads to itself (`T3ComposerChipElement.accessibilityLinkedUIElements`).
+
 **Checked by agent drive and real input after main's #687 and #688** (2026-10-17, bundle of
 `c4f9f4b38`): a press on the floating theme editor's swatch, its picker's plane and hue slider,
 Inspect and the inspector each counts as an outside press, as the window's other presses do (the
 window's count went 8 to 13, one per press). Escape in a new binding's recorder after a real
 click into it keeps the field focused and the row up (F-2, 1 of 1; #688's placeholder fix).
-
-**Fixed, not checked with real input or VoiceOver:**
-
-- Each Settings page opens at its top: each page has its own scroller, keyed on the route, the
-  scope and a restore, as `routes/settings.tsx` keys its Outlet. The search jump still lands on
-  its target (tests and an agent drive).
 
 **Checked with real keys** (2026-10-16):
 
@@ -567,41 +607,54 @@ Real-input sessions should type IME rows with held keys: orca's zero-dwell press
 input method commit a jamo at once. They should switch input sources with the system shortcut or
 menu, not TISSelectInputSource, before they judge IME rows.
 
-**Not checked yet:** the device player (needs a device), Reduce motion and trackpad momentum,
-the thread, pull request, review comment and annotation chips by pointer, the context popover
-and progress bars under VoiceOver, the branch's PR glyph, bold and italic font faces, the
-permission helper's real grant (the user's), and a tailnet. Also:
+**Not checked yet:** the thread, pull request, review comment and annotation chips by pointer,
+the context popover and progress bars under VoiceOver (the ACP stand-in's threads now have a
+context meter), the branch's PR glyph, and bold and italic font faces. Also:
 
-- The composer's file and image previews: Tab and Shift-Tab over their buttons with Keyboard
-  Navigation off and on; in an HTML preview a `target="_blank"` link opens the default browser, a
-  `_top` link does nothing and a link to the page's own section scrolls the frame; the image
-  preview refitting after a window resize.
-- Escape on "Remove from this device…" and on "Delete action?" by a person's keys (VoiceOver and
-  pointer pass); Escape on a git dialog or the Merge confirmation over the thread-details popover
-  in a narrow window.
-- VO-Space on the chip kinds session K did not press (sample.py, an image, a video and doc.pdf
-  pass; the citation chip is the known difference above).
-- Kotoeri's ⌃K in the terminal has not been run: no Japanese input source is installed.
-- Outside presses that now reach the window's `main` by bubbling alone: a press on a diff gutter
-  and on the Files preview's gutter closing an open chip's details. The diff of the
-  `second-environment` fixture's completed-turn thread has two files (Uncommitted), both
-  collapsed: a drive must expand `README.md` (`diff-toggle-README.md`) before its rows exist.
-- The Usage page's pinned segment popover (its press, a press in its card, a press elsewhere on
-  the page): the fixture reports no subscription limits, so the page draws no segments.
+- The image preview's Tab and Shift-Tab with Keyboard Navigation off and on: no image chip could be
+  attached (pasting one attaches nothing, the failure above, and the input tool's runtime closed
+  on the Open panel's Go to folder sheet). In an HTML preview a `target="_blank"` link opens the
+  default browser, a `_top` link does nothing and a link to the page's own section scrolls the
+  frame; the image preview refitting after a window resize.
+- Escape on a git dialog or the Merge confirmation over the thread-details popover in a narrow
+  window.
+- VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf and the
+  citation chip pass), and on a thread chip in particular: it is a link too, and a press that
+  changes the screen within about half a second might move VoiceOver as the citation chip's did.
+- Outside presses with a chip's details open, which the agent drive did not reach (it stopped on
+  `surface-files`, which is not the name of the new-surface menu's Files item): a press on the Files
+  preview's gutter (`notes/outline.ts` in `agent-edits`), and presses in the floating theme editor
+  (its swatch, its picker's plane and hue slider, Inspect and the inspector) with the Appearance
+  sample's chip details open.
+- The linked pull request's actions menu (`pull-request-more`, FN5) and Reply on its review thread
+  (FN7): the `gh` stand-in gives "Notes branch thread" PR #7 with both.
+- The machines popover's busy states: the older-server stand-in shows Lane Third as outdated
+  ('Update for Lane Third server' and 'Update all' in Settings › Connections, seen in the
+  real-input session), but no drive pressed Update.
 
-**Next real-input session:** each Settings page opening at its top after another page was
-scrolled, and the search jump still landing on its target; the rows session K did not run (under
-"Not failures") once the lane has pooled limits, an empty project, a linked pull request, an
-approval, a device and turn diffs; and the list above.
+**Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
+Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
+sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` give a second
-environment, a machines list and an ACP agent stand-in (each has its README). Still missing: a
-tailnet, and a server older than the client for the machines-update popover's busy states.
+**Next real-input session:** the image preview's keys once an image chip can be attached; the
+Files gutter and theme editor presses, the linked pull request's menu and Reply, and the machines
+popover's busy states, by an agent drive or by hand; G-5's Remove project by its native menu; and
+the list above.
 
-**Framework issues opened by this app:** open on main are
+**Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
+README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
+`seed second --limits` adds pooled usage limits from a CLIProxyAPI hub stand-in; `seed second
+--turns` threads on the stand-in with a completed turn, a turn that edits files (a turn diff), an
+approval waiting and a context meter, and its `$frontend-design` skill; the seed itself an empty
+project and a project action; `seed second --pull-request` a thread whose branch has an open pull
+request, with a patch and a review thread, from a `gh` stand-in; and `machines.mjs up --older` a
+server older than the client that streams a scripted self-update.
+
+**Framework issues opened by this app:** open on main is
 [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)
-and [`issues/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/20261017-macos-voiceover-s-press-moves-its.md)
-(both under "Known differences" above). Closed with #688 is
+(under "Known differences" above). Closed as the clone's is
+[`issues/closed/20261017-macos-voiceover-s-press-moves-its.md`](../../issues/closed/20261017-macos-voiceover-s-press-moves-its.md)
+(the citation link now leads to itself; checked above). Closed with #688 is
 [`issues/closed/20261016-escape-in-recorder-blurs-on-macos.md`](../../issues/closed/20261016-escape-in-recorder-blurs-on-macos.md). The macOS issues opened from 2026-10-13 to 2026-10-16 are closed
 on main, the light-dismiss and VoiceOver ones (exact2 PRs #663, #664, #676, #679 and #681)
 included, and so is the pointer events one (`pointerdown` and `pointerup` now bubble to every
@@ -663,7 +716,9 @@ module facade, the app's generated data keys, every file in `modules/apple/` (th
 `composer`, `menus` and `r5-panels` tests define their own `exactModule`, so they leave
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
-directory's sources. Run from the repository root:
+directory's sources; `composer` also needs Exact's `host/apple/modules/ExactTamber.swift`.
+`EXACT_ASSETS` must be an absolute path: the module looks up `assets/` only under one, and three of
+the composer's icon tests fail without it. Run from the repository root:
 
 ```sh
 X=$(xcode-select -p); F="$X/Platforms/MacOSX.platform/Developer/Library/Frameworks"; L="$X/Platforms/MacOSX.platform/Developer/usr/lib"
@@ -673,9 +728,10 @@ for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
   M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|r5-panels) M=$(echo "$M" | grep -v /T3Module);; esac
+  T=""; [ $n = composer ] && T=host/apple/modules/ExactTamber.swift
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
-    host/apple/modules/ExactNativeModule.swift "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
+    host/apple/modules/ExactNativeModule.swift $T "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
   EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
 done
