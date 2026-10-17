@@ -61,7 +61,7 @@ const MAX_SVG: usize = 64 * 1024;
 
 /// Whether a target draws SF Symbols.
 fn apple(target: &str) -> bool {
-    matches!(target, "ios" | "macos" | "tvos")
+    matches!(target, "ios" | "macos" | "tvos" | "watchos")
 }
 
 /// The targets an app ships: its manifest's `host`, `deploy.store` and

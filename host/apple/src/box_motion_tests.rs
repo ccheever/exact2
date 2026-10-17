@@ -225,7 +225,7 @@ component A
 }
 
 #[test]
-fn macos_samples_them() {
+fn hosts_without_box_lowering_sample_them() {
     let plan = contract::compile(APP).unwrap().encode();
     let (mut host, _) = Host::boot(
         &plan,
@@ -235,6 +235,7 @@ fn macos_samples_them() {
         844.0,
     )
     .unwrap();
+    // LLP 1126 D10: watchOS samples box motion; it has no Core Animation presenter.
     assert!(!host.svg.box_motion || cfg!(any(target_os = "ios", target_os = "tvos")));
     let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
     if !cfg!(any(target_os = "ios", target_os = "tvos")) {

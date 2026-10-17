@@ -52,6 +52,10 @@ pub(crate) const BOX_LOWERED: [Property; 4] = [
 
 /// Every property Core Animation plays on this host.
 pub(crate) fn lowered(box_motion: bool) -> Vec<Property> {
+    // LLP 1126 D10: watchOS samples every property; its SwiftUI driver has no render server.
+    if cfg!(target_os = "watchos") {
+        return Vec::new();
+    }
     let mut all = LOWERED.to_vec();
     if box_motion {
         all.extend(BOX_LOWERED);

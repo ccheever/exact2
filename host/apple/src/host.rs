@@ -485,6 +485,7 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
+            // LLP 1126 D10: watchOS has no Core Animation presenter for box motion or path morphs.
             svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
@@ -502,6 +503,7 @@ impl<D: DataSource> Host<D> {
                 // Settled values only when the plan animates nothing (LLP 1047.001).
                 let mut engine = Engine::linked(links.engine);
                 let _ = engine.set_start_on_frame(start_on_frame, 0.0);
+                // LLP 1126 D10: watchOS keeps box motion sampled for its SwiftUI driver.
                 engine.set_lowered_properties(&svg::lowered(cfg!(any(
                     target_os = "ios",
                     target_os = "tvos"

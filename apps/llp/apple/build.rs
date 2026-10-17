@@ -28,7 +28,7 @@ fn main() {
         Ok("tvos") => panic!(
             "LLP has no tvOS build: it reads documents from a directory an Apple TV does not have"
         ),
-        Ok("ios") => "ios",
+        Ok("ios" | "watchos") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
