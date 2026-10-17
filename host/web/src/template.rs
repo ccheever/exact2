@@ -54,8 +54,18 @@ pub fn parts_with(
     let tag = tag_for(&node, in_button(kernel, &node));
     let mut props = props_for(&node);
     svg_props(kernel, &node, &mut props);
-    let (text, skipped) =
+    let (mut text, skipped) =
         crate::css::css_text_relative(&css_style(kernel, &node), &font_names(plan));
+    // A platform text style's weight and leading where it is named (LLP
+    // 1115.000 D12.2), which the page's descendants inherit as CSS does.
+    for row in [
+        exact_kernel::StyleId::FontWeight,
+        exact_kernel::StyleId::LineHeight,
+    ] {
+        if let Some(rows) = node.style_given(row) {
+            text.push_str(&crate::css::css_text(&rows, &[]).0);
+        }
+    }
     let css = super::element::contents(
         host_css(kernel, &node, text, tag),
         may_fold && super::element::folded(kernel, &node, false),

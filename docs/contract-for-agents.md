@@ -3021,16 +3021,23 @@ browser's 16). A `text role="heading"` with no `font-size` or `font-weight` of
 its own is the platform's text style for its `aria-level` (LLP 1115 D3): 1
 `title1`, 2 (the default) `title2`, 3 `title3`, 4 and on `headline`, sized for
 the reader's Dynamic Type by Apple's own ramp (iOS at the default size:
-28/22/20/17 pt, the titles regular and `headline` semibold; the Mac: 22/17/15/13;
-the web reads the ramp at its 16 px root: 27/21/19/16, in `rem`). So omit
-`font-size` on headings; a written `font-size` or `font-weight` on the heading
-wins, an inherited one does not. Other text takes a style by name with `font`,
-as WebKit's `font: -apple-system-headline`: `font="-exact-footnote"` (or
-`"-apple-system-footnote"`) sets the style's size and weight, `normal` style and
-line height. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title2`,
+28/22/20/17 pt, the titles bold as a heading's emphasized style, `headline`
+semibold; the Mac: 22/17/15/13, `headline` bold; the web reads the ramp at its
+16 px root: 27/21/19/16, in `rem`). So omit `font-size` on headings; a written
+`font-size` or `font-weight` on the heading wins, an inherited one does not.
+Other text takes a style by name with `font`, as WebKit's
+`font: -apple-system-headline`: `font="-exact-footnote"` (or
+`"-apple-system-footnote"`) sets the style's size and a `normal` font style, and
+the style's weight and leading as each platform draws it (LLP 1115.000 D12.2:
+the Mac's `headline` bold and its styles' own leading, 13/16 for body; iOS's the
+face's own), beating an inherited weight or line height as CSS's shorthand
+resets them. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title2`,
 `-exact-title3`, `-exact-headline`, `-exact-body`, `-exact-callout`,
 `-exact-subheadline`, `-exact-footnote`, `-exact-caption1`, `-exact-caption2`;
-`font-size="-exact-caption1"` alone sets only the size. `font` takes nothing else.
+`font-size="-exact-caption1"` alone sets the size and keeps an inherited weight
+and line height, the style filling only what nothing above says. A weight or
+line height written on the node wins either way, and `layout` names each one's
+source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else.
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB

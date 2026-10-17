@@ -15,6 +15,7 @@ pub(crate) mod alert;
 pub(crate) mod button;
 pub(crate) mod control_text;
 pub(crate) mod defaults;
+pub(crate) mod text_style;
 
 use taffy::NodeId;
 

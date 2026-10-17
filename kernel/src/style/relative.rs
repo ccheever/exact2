@@ -109,6 +109,33 @@ fn same_role(written: &str, name: &str) -> bool {
         })
 }
 
+/// The index of `column` among a text style's columns (the metric table's).
+pub fn column_index(column: crate::style::metrics::Column) -> usize {
+    use crate::style::metrics::Column;
+    match column {
+        Column::Web => 0,
+        Column::Ios => 1,
+        Column::Mac => 2,
+        Column::Neutral => 3,
+    }
+}
+
+/// Text style `id`'s weight in `column`, CSS's number (LLP 1115.000 D12.2).
+pub fn text_style_weight(id: u8, column: crate::style::metrics::Column) -> u16 {
+    crate::TEXT_STYLES
+        .get(usize::from(id))
+        .map_or(400, |s| s.weights[column_index(column)])
+}
+
+/// Text style `id`'s leading in `column`: a line height over its size, or
+/// `normal`, the face's own (LLP 1115.000 D12.2).
+pub fn text_style_leading(id: u8, column: crate::style::metrics::Column) -> crate::LineHeight {
+    crate::TEXT_STYLES
+        .get(usize::from(id))
+        .and_then(|s| s.leadings[column_index(column)])
+        .map_or(crate::LineHeight::Normal, crate::LineHeight::Number)
+}
+
 /// The size of text style `id` where the root font size is `root`: the
 /// schema's ramp read at `root` (LLP 1115 D3). Between two of its body
 /// sizes it interpolates; below the first or above the last, the nearest

@@ -158,6 +158,7 @@ impl NodeArena {
     pub(crate) fn style_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {
         self.structural_starts(slot)
             .chain(self.control_text_start(slot))
+            .chain(self.text_style_start(slot))
     }
 
     /// Effective own rows never alter stored ownership. Inherited text is
@@ -230,10 +231,46 @@ impl NodeArena {
             }
             cur = self.parents[s as usize];
         }
+        // A bare `font-size` style fills what nothing above says (LLP
+        // 1115.000 D12.2).
+        if let Some(style) = self.bare_text_style(slot).filter(|b| b.mask.has(id)) {
+            return style;
+        }
         if self.document_style.mask.has(id) {
             return &self.document_style;
         }
         &self.styles[slot as usize]
+    }
+
+    /// The slot whose text style supplies inherited row `id` for `slot`
+    /// (LLP 1115.000 D12.2): one that names it through the `font`
+    /// shorthand, where nothing written stops the walk first, or the
+    /// nearest bare `font-size` style when nothing above says the row.
+    pub fn text_style_source(&self, slot: u32, id: StyleId) -> Option<u32> {
+        let mut cur = Some(slot);
+        while let Some(s) = cur {
+            let own = &self.styles[s as usize];
+            if own.mask.has(id) {
+                return None;
+            }
+            if self
+                .text_style_start(s)
+                .is_some_and(|start| start.mask.has(id) && !own.written.has(id))
+            {
+                return Some(s);
+            }
+            if self
+                .style_starts(s)
+                .any(|start| start.mask.has(id) && !own.written.has(id))
+                || !id.inherited()
+            {
+                return None;
+            }
+            cur = self.parents[s as usize];
+        }
+        self.bare_text_style(slot)
+            .filter(|b| b.mask.has(id))
+            .and_then(|_| self.bare_text_style_source(slot))
     }
 
     /// The computed text style without copying unrelated rows.
@@ -262,9 +299,17 @@ impl NodeArena {
             .intersect(StyleMask::INHERITED)
             .minus(self.styles[slot as usize].mask);
         let mut cur = Some(slot);
+        // The nearest bare `font-size` style, read once the walk passes the
+        // first node that sets its own size (LLP 1115.000 D12.2).
+        let mut sized = false;
+        let mut bare = None;
         while !pending.is_empty() {
             let Some(p) = cur else { break };
             let ancestor: &StyleProps = &self.styles[p as usize];
+            if !sized && ancestor.mask.has(StyleId::FontSize) {
+                sized = true;
+                bare = self.bare_text_style(p);
+            }
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {
                 copy(ancestor, found);
@@ -278,6 +323,14 @@ impl NodeArena {
                 }
             }
             cur = self.parents[p as usize];
+        }
+        // What nothing above says, a bare style fills.
+        if let Some(style) = bare {
+            let found = pending.intersect(style.mask);
+            if !found.is_empty() {
+                copy(style, found);
+                pending = pending.minus(found);
+            }
         }
         let found = pending.intersect(self.document_style.mask);
         if !found.is_empty() {

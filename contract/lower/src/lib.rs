@@ -35,6 +35,7 @@ mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
+mod headings;
 mod identity;
 mod intersect;
 mod keyframes;

@@ -68,6 +68,12 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
 > - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
 >   against that root, and a `role="heading"` is lowered to one by its level;
+> - a text style carries its weight and its leading per platform (LLP 1115.000
+>   D12.2), where CSS's `font: -apple-system-*` keywords set one weight and a
+>   `normal` line height: the Mac's `headline` is bold and its styles carry the
+>   leading NSFont gives them (body 13/16), iOS's and the web's are the face's own.
+>   Named through `font` the style resets both, as the shorthand does; named by a
+>   bare `font-size` it fills only what nothing above says, where CSS fills nothing;
 > - `hr` is one solid edge in the separator role, not Chrome's two shades, and it is
 >   one hairline with no margin of its own (LLP 1115.000 D10.3): lowering writes it a
 >   top edge `-exact-hairline` thick and no margin, where Chrome's UA sheet gives it

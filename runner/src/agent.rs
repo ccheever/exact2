@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 mod row;
 mod schedule;
 mod sound;
+mod source;
 mod streams;
 mod transport;
 mod tree;
@@ -455,8 +456,9 @@ fn token_json<D: DataSource>(runner: &Runner<D>, id: u32, row: StyleId, s: &mut 
 
 /// One node, explained (LLP 1035.002 D1): every row it sets or inherits with
 /// where the value came from — `authored` (the own row), `inherited` from
-/// the ancestor whose own row won (CSS inheritance, LLP 1035.000 D1), or
-/// `initial` — its props, the plan site it was instantiated from with the
+/// the ancestor whose own row won (CSS inheritance, LLP 1035.000 D1), the
+/// `style` or `heading` that gives it (LLP 1115.000 D12.2), or `initial`
+/// ([`source::write`]) — its props, the plan site it was instantiated from with the
 /// instance path to it (D6), and the kernel's frames: `frame` relative to
 /// the parent, `absolute` in the root's space, or in its host block's for a
 /// node inside one (LLP 1115.002 D8.2), `content` when it scrolls.
@@ -552,21 +554,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         if own {
             token_json(runner, id, row, &mut s);
         }
-        if own && dynamic(row) {
-            s.push_str(",\"source\":\"dynamic\"}");
-        } else if own {
-            s.push_str(",\"source\":\"authored\"}");
-        } else {
-            match node.source_of(row) {
-                Some(from) => {
-                    // And the token the ancestor's own row read, its link.
-                    let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}");
-                    token_json(runner, from, row, &mut s);
-                    s.push('}');
-                }
-                None => s.push_str(",\"source\":\"initial\"}"),
-            }
-        }
+        source::write(runner, &node, row, own, own && dynamic(row), &mut s);
     }
     s.push_str("},\"props\":{");
     props_json(&node, &mut s);
