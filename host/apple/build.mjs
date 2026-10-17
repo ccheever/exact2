@@ -771,7 +771,7 @@ async function main(args) {
   // manifest compile. The target SDK stays in the explicit Swift arguments.
   const swiftEnv = (libDir, composition, link = 'all') => ({
     ...process.env,
-    EXACT_APPLE_LINK: link, // LLP 1047.001 D4 (link.mjs)
+    EXACT_APPLE_LINK: link, EXACT_UPDATE_TRUST: cargoEnv.EXACT_UPDATE_TRUST ?? 'development', // LLP 1047.001 D4 (link.mjs); a production build compiles no inspect mode (Package.swift)
     ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : ios ? { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : { MACOSX_DEPLOYMENT_TARGET: targets.macos }),
     EXACT_LIB_DIR: libDir,
     EXACT_LIB: crate.replace(/-/g, '_'),

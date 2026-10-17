@@ -745,7 +745,7 @@ The tool drives no input into an app; a command changes only what `prefer` would
     `setRootFontSize` included (at most once a turn).
   - `unsupported`: a command or batch it can't apply, by name (`what`), with the pin frame's
     `revision` when it is one (*1.3*, optional).
-  - `selected` (*1.3*, LLP 1122 D5; the wasm web page sends it in inspect mode):
+  - `selected` (*1.3*, LLP 1122 D5; the wasm web page and the iOS and Mac hosts send it in inspect mode):
     `{selected, inspect?, click?, plan, design, revision}`, the number of the `inspect` command it
     was made under (*1.6*; one since replaced is refused), a click's token (*1.7*, 1 to 64
     characters: a selection a press made, re-sent when it is reported again), the digests and pin
@@ -770,10 +770,21 @@ The tool drives no input into an app; a command changes only what `prefer` would
     new generation, or said gone). In inspect mode the page shows a banner with a close control
     (and leaves on Escape), takes every input itself (pointer, mouse, touch, wheel, keys,
     gestures; guest frames take no pointer input) so nothing reaches the app, outlines the node
-    under the pointer and selects the one a press is released on. A build that registers again
+    under the pointer and selects the one a press is released on. The iOS and Mac hosts (T2c,
+    development builds only: Swift's `EXACT_INSPECT`, which a production bake has not) do the
+    same. On iOS the window takes every touch and press but those on the banner's close, and a
+    touch begun in inspect mode stays taken to its end; on entry editing ends (the keyboard goes),
+    gestures and controls under way are cancelled, and a status-bar tap scrolls nothing. On the
+    Mac an event monitor takes every mouse, wheel and key event in the app's windows but the
+    banner's close; Escape leaves. A tap or click selects the nearest view, up from the window's
+    own hit view, that stands for a plan node, a walk that stops at a system bar or the title bar
+    (a plan node the bar hosts, its title, a bar or toolbar item, a tab, is selected; UIKit's and
+    AppKit's own parts, Back, a window button, the bar, select nothing, and the banner says so);
+    a finger down (the pointer over a view, on the Mac) highlights what it would select. tvOS
+    answers `inspect` unsupported. A build that registers again
     is told inspect mode as the server holds it. A build that can says
-    `inspect` among its `capabilities` (the wasm web page now; the JS target and natives later).
-    Development pages only.
+    `inspect` among its `capabilities` (the wasm web page, and the iOS and Mac hosts; the JS
+    target later). Development builds only.
   - `outline` (*1.3*) `{sites, plan, click?}`: the sites of plan `plan` (its digest) to outline while
     inspect mode is on, every copy of a node; an empty list clears the outlines, and so does
     `{clear: true}`. Each build is sent its own plan's sites, from that plan's map (*1.9*: by the

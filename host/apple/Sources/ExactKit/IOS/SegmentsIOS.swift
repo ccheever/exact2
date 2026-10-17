@@ -142,6 +142,29 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// the tabs and adopted lists hidden for it.
     func inspectionOwns(_ view: UIView) -> Bool { bars.values.contains { $0 === view } || controls.values.contains { $0 === view } }
     func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } || adoptedLists.contains(node.id) }
+    #if EXACT_INSPECT && os(iOS)
+    /// The tab a point in `view` (a segmented control or tab bar standing in
+    /// for a tablist) is over: inspect mode selects it (InspectIOS.swift).
+    func tab(at point: CGPoint, in view: UIView) -> UInt32? {
+        let owner: UInt32? = (view as? ExactSegmentedControl)?.ownerID ?? (view as? ExactTabBar)?.ownerID
+        guard let owner, let ids = members[owner], !ids.isEmpty, view.bounds.width > 0, view.bounds.contains(point) else { return nil }
+        // A tab bar: the item's button under the point, a gap nothing.
+        if view is ExactTabBar {
+            let boxes = InspectHost.buttonBoxes(in: view) // (in item order, right to left too)
+            guard boxes.count == ids.count else { return nil }
+            return boxes.firstIndex { $0.contains(point) }.map { ids[$0] }
+        }
+        // A segmented control: its segments' own boxes (widths by content
+        // when squeezed; `segmentViews`, in segment order), else equal widths.
+        if let control = view as? ExactSegmentedControl {
+            let segments = control.segmentViews
+            if segments.count == ids.count { return segments.firstIndex { $0.convert($0.bounds, to: view).contains(point) }.map { ids[$0] } }
+        }
+        var index = Int(point.x / view.bounds.width * CGFloat(ids.count))
+        if view.effectiveUserInterfaceLayoutDirection == .rightToLeft { index = ids.count - 1 - index }
+        return ids.indices.contains(index) ? ids[index] : nil
+    }
+    #endif
 
     init(_ presenter: Presenter) { self.presenter = presenter; super.init() }
 

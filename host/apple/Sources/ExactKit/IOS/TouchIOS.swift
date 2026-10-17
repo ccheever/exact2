@@ -12,6 +12,16 @@ import UIKit
 /// logs the touches it dispatched.
 public final class ExactWindow: UIWindow {
     public override func sendEvent(_ event: UIEvent) {
+        // Inspect mode takes every touch and press (InspectIOS.swift), and
+        // knows the touches down when it begins. (It reached this window,
+        // so the agent's touch log still has it.)
+        #if EXACT_INSPECT && os(iOS)
+        InspectHost.see(event)
+        if Inspect.on || InspectHost.owning, InspectHost.take(event, in: self) {
+            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
+            return
+        }
+        #endif
         super.sendEvent(event)
         if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
     }

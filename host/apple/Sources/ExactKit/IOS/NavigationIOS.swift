@@ -20,6 +20,12 @@ final class RouteController: UIViewController {
     var pushed = false
     weak var lifted: NodeView?
     var barNodes: [NodeView] = []
+    #if EXACT_INSPECT
+    /// The header the bar shows the title of, and the node each bar item
+    /// stands for (inspect mode selects them, InspectIOS.swift).
+    weak var shownHeader: NodeView?
+    var itemNodes: [ObjectIdentifier: UInt32] = [:]
+    #endif
     weak var host: NavigationHost?
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).

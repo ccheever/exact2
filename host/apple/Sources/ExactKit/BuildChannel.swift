@@ -1,7 +1,9 @@
 // The build channel (LLP 1122 D4, LLP 1121 stage 4 commit 5): a development
-// build registers with its dev stream's nonce, reports its effective facts,
-// and takes `pin` from the design server's clients; `inspect`, `outline` and
-// `hold` are reserved (T2b, stage 8), answered unsupported. The server's half
+// build registers with its dev stream's nonce, reports its effective facts
+// and the digest of the plan it runs (tamber/1.9), and takes `pin` from the
+// design server's clients, and `inspect` and `outline` where inspect mode is
+// compiled in (T2c, Inspect.swift); `hold` is reserved (stage 8), answered
+// unsupported. The server's half
 // is scripts/tamber-builds.mjs; the web page's, host/web/dev.js. A pin sets
 // what the agent's `prefer` sets (Agent.swift), by the same means.
 #if os(macOS)
@@ -49,6 +51,26 @@ enum BuildChannel {
     static let enabled = !ExactEnv.productionBake
     /// The frame kinds dispatched before any generation handling.
     static let commands: Set<String> = ["pin", "inspect", "outline", "hold"]
+    /// What this build speaks: inspect where it is compiled in.
+    #if EXACT_INSPECT && !os(tvOS)
+    static let capabilities = ["pin", "inspect"]
+    #else
+    static let capabilities = ["pin"]
+    #endif
+    /// The SHA-256 of the plan the app runs, which its source map names: the
+    /// runner's own (its `sites` op), the one source `selected` reports use
+    /// too, asked once per generation.
+    static func planDigest(_ app: ExactApp) -> String? {
+        #if EXACT_INSPECT
+        guard let s = app.sessions.first(where: \.booted) else { return nil }
+        if let known = Inspect.digest, known.session == ObjectIdentifier(s), known.generation == s.generation { return known.digest }
+        let digest = Inspect.sites(s).plan
+        Inspect.digest = (ObjectIdentifier(s), s.generation, digest)
+        return digest
+        #else
+        return nil
+        #endif
+    }
     #if os(macOS)
     static let host = "macos"
     #else
@@ -134,12 +156,15 @@ extension ExactApp {
     func channel(_ frame: [String: Any]) {
         guard BuildChannel.enabled, let connection else { return }
         if frame["hello"] as? Bool == true {
-            connection.report(["kind": "register", "id": BuildChannel.id, "host": BuildChannel.host, "capabilities": ["pin"], "design": BuildChannel.design ?? NSNull()])
+            connection.report(["kind": "register", "id": BuildChannel.id, "host": BuildChannel.host, "capabilities": BuildChannel.capabilities, "planDigest": BuildChannel.planDigest(self) ?? NSNull(), "design": BuildChannel.design ?? NSNull()])
             BuildChannel.lastStatus = nil
             scheduleStatus()
             return
         }
         let kind = frame["kind"] as? String ?? ""
+        #if EXACT_INSPECT && !os(tvOS)
+        if kind == "inspect" || kind == "outline" { inspectCommand(frame); return }
+        #endif
         guard kind == "pin" else { connection.report(["kind": "unsupported", "what": kind]); return }
         let (pin, refused) = BuildPin.parse(frame["pin"])
         // A refusal names the pin's revision (1.3): the server binds it to that pin.
@@ -179,7 +204,7 @@ extension ExactApp {
         let modes = first.map { $0.runtime.setModes([:], check: true).modes ?? [:] }
         let body: [String: Any] = ["kind": "status", "scheme": dark ? "dark" : "light", "contrast": DisplayPreferences.contrast,
                                    "mode": modes ?? NSNull(), "rootFontSize": first.flatMap(renderedRootFontSize) ?? PageFacts.rootFontSize,
-                                   "plan": connection.plan ?? NSNull(), "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision.map { $0 as Any } ?? NSNull()]
+                                   "plan": connection.plan ?? NSNull(), "planDigest": BuildChannel.planDigest(self) ?? NSNull(), "design": BuildChannel.design ?? NSNull(), "revision": BuildChannel.revision.map { $0 as Any } ?? NSNull()]
         if let last = BuildChannel.lastStatus, last.nonce == nonce, last.body.isEqual(to: body) { return }
         BuildChannel.lastStatus = (nonce, body as NSDictionary)
         connection.report(body)
