@@ -473,6 +473,13 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     expect(line('pages-usage-dialogs.contract', 'dialogId="usage-prices-dialog"')).toContain('first=(not page.prices.pending and not page.prices.hasChanges ? "usage-prices-apply-button" :');
     expect(line('settings-scheduled.contract', 'DialogOpenFocus(')).toBe('DialogOpenFocus(target=(draft.id == "" and not busy ? "task-environment" : "task-title"))');
   });
+
+  test('Project grouping opens on its grouping rule, the reference popup\'s first Tab stop (LegacySidebar.tsx:2594)', () => {
+    const line = (needle: string) => source('legacy-sidebar.contract').split('\n').find(text => text.includes(needle))!;
+    expect(line('label="legacy-grouping"')).toContain('first="legacy-grouping-rule"');
+    // A trap stop, so Tab past the X comes round to it as well.
+    expect(line('select id="legacy-grouping-rule"')).toContain('data-focus-stop="enabled"');
+  });
 });
 
 // Base UI's Dialog also gives the focus back as it closes

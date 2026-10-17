@@ -662,10 +662,11 @@ component LegacyGroupingDialog
     local: action
     run: action
   view
-    LegacyDialogFrame(title=legacy.dialogTitle, description=legacy.dialogDescription, label="legacy-grouping", first="legacy-grouping-cancel", busy=busy, cancel=local("legacy-dialog-close", "", ""), save=run("legacy-grouping-save", "", ""))
+    // Base UI's Dialog opens on its popup's first Tab stop, the grouping rule's SelectTrigger (LegacySidebar.tsx:2594).
+    LegacyDialogFrame(title=legacy.dialogTitle, description=legacy.dialogDescription, label="legacy-grouping", first="legacy-grouping-rule", busy=busy, cancel=local("legacy-dialog-close", "", ""), save=run("legacy-grouping-save", "", ""))
       column gap="0.375rem"
         text "Grouping rule" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-        select value=legacy.dialogGrouping change=local("legacy-dialog-grouping", "") aria-label="Project grouping rule" testId="legacy-grouping-rule" height="2rem" box-sizing="border-box" font-size="0.875rem"
+        select id="legacy-grouping-rule" value=legacy.dialogGrouping change=local("legacy-dialog-grouping", "") aria-label="Project grouping rule" testId="legacy-grouping-rule" height="2rem" box-sizing="border-box" font-size="0.875rem" data-focus-stop="enabled"
           option "Use global default" value="inherit"
           option "Group by repository" value="repository"
           option "Group by repository path" value="repository_path"
