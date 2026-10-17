@@ -895,7 +895,9 @@ name, no name for the card (what an app writes, at most 8 KB), `--all` for every
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
 `border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
 top-right, bottom-right, bottom-left; no `/` elliptical radii), as a literal or a
-literal arm. A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
+literal arm; `gap` takes its row and column gaps, and `overflow` and
+`overscroll-behavior` their x and y values, the same way (`gap="8px 16px"`,
+`overflow="hidden auto"`). A computed list (`` padding=`${pad}px 0` ``, a `fn` that returns
 `` `${r}px ${r}px 0 0` ``) is refused (`lower-css-shorthand`): write the longhands,
 `` padding-top=`${pad}px` padding-right=0 … ``, each of which may be computed. A
 computed single value (`padding=pad`) is every side's.

@@ -484,3 +484,74 @@ fn a_longhand_list_is_not_split_and_keywords_ignore_case() {
         );
     }
 }
+
+/// The euxy port (FRICTION 3): a choice of literal corner lists, on a swipe
+/// row in a component whose props pick the arm, is split into the four
+/// corners as each arm's literal would be.
+#[test]
+fn a_choice_of_corner_lists_sets_each_corner() {
+    let r = boot(
+        "component A\n  state xs = [1, 2, 3]\n  view\n    column\n      for x, i in xs key=x\n        Cell(first=(i == 0), last=(i == xs.length - 1), n=x)\n\ncomponent Cell\n  props\n    first: bool\n    last: bool\n    n: number\n  state z = 0\n  action noop\n    z = 1\n  view\n    scroll testId=`b${n}` swipeContent=`row-${n}` swipeTrailing=`del-${n}` overflow-x=\"scroll\" overflow-y=\"hidden\" height=50 display=\"flex\" flex-direction=\"row\" border-radius=(first and last ? \"12px\" : first ? \"12px 12px 2px 2px\" : last ? \"2px 2px 12px 12px\" : \"2px\")\n      row id=`row-${n}` width=\"100%\" flex-shrink=0\n        text \"x\"\n      button id=`del-${n}` width=40 press=noop\n        text \"d\"\n",
+    );
+    let corners = |id: &str| {
+        let s = style_of(&r, id);
+        [
+            s.border_radius_top_left,
+            s.border_radius_top_right,
+            s.border_radius_bottom_right,
+            s.border_radius_bottom_left,
+        ]
+        .map(|d| format!("{d:?}"))
+    };
+    let p = |n: f32| format!("{:?}", exact_kernel::Dimension::Points(n));
+    assert_eq!(corners("b1"), [p(12.0), p(12.0), p(2.0), p(2.0)]);
+    assert_eq!(corners("b2"), [p(2.0), p(2.0), p(2.0), p(2.0)]);
+    assert_eq!(corners("b3"), [p(2.0), p(2.0), p(12.0), p(12.0)]);
+}
+
+/// CSS's two-value shorthands are split as the box shorthands are: `gap`
+/// into row and column, `overflow` and `overscroll-behavior` into x and y,
+/// from a literal or a literal arm; a computed list is refused naming the
+/// longhands, and a third value is refused.
+#[test]
+fn two_value_shorthands_split_into_their_rows() {
+    for value in ["\"8px 16px\"", "(on ? \"8px 16px\" : \"4px\")"] {
+        let r = boot(&format!(
+            "component A\n  state on = true\n  view\n    column\n      box testId=\"x\" width=10 height=10 gap={value} overflow=(on ? \"hidden auto\" : \"visible\") overscroll-behavior=\"contain none\"\n"
+        ));
+        let s = style_of(&r, "x");
+        assert_eq!((s.row_gap, s.column_gap), (8.0, 16.0), "{value}");
+        assert_eq!(
+            format!("{:?} {:?}", s.overflow_x, s.overflow_y),
+            "Hidden Auto"
+        );
+        assert_eq!(
+            format!(
+                "{:?} {:?}",
+                s.overscroll_behavior_x, s.overscroll_behavior_y
+            ),
+            "Contain None"
+        );
+    }
+    for (attr, says) in [
+        ("gap=`${g}px 4px`", "write `row-gap`/`column-gap`"),
+        (
+            "overflow=(on ? `hidden ${o}` : \"auto\")",
+            "write `overflow-x`/`overflow-y`",
+        ),
+        (
+            "overscroll-behavior=\"none \" + o",
+            "write `overscroll-behavior-x`/`overscroll-behavior-y`",
+        ),
+    ] {
+        let e = contract::compile(&format!(
+            "component A\n  state g = 8\n  state o = \"auto\"\n  state on = false\n  view\n    box {attr}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-css-shorthand", "{attr}: {e}");
+        assert!(e.message.contains(says), "{attr}: {e}");
+    }
+    let e = contract::compile("component A\n  view\n    box gap=\"1px 2px 3px\"\n").unwrap_err();
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(e.message.contains("one or two values (row, column)"), "{e}");
+}

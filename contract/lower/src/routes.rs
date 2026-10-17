@@ -558,16 +558,17 @@ fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
         let Expr::Str(v, _) = &a.value else {
             return false;
         };
-        let v = match v.as_str() {
+        let class = |v: &str| match v {
             "visible" => "visible",
             "hidden" | "clip" => "hidden",
             _ => "scroll",
         };
+        let (vx, vy) = crate::shorthands::overflow_axes(v);
         if to_x {
-            x = v;
+            x = class(vx);
         }
         if to_y {
-            y = v;
+            y = class(vy);
         }
     }
     y == "hidden" || (y == "visible" && x == "visible")
@@ -678,7 +679,7 @@ fn scrolls_y(tag: &str, attrs: &[Attr]) -> Option<bool> {
             "flex-direction" if scroller => return None,
             name if name.starts_with("ua:") => return None,
             "overflow" | "overflow-y" | "overflowY" => match &a.value {
-                Expr::Str(v, _) => y = v,
+                Expr::Str(v, _) => y = crate::shorthands::overflow_axes(v).1,
                 _ => return None,
             },
             _ => {}

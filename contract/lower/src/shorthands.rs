@@ -566,3 +566,36 @@ fn literals(e: &Expr) -> Option<Vec<(&str, Span)>> {
         _ => None,
     }
 }
+
+/// CSS's two-value shorthands, each value its own row in this order, one
+/// value both rows': `gap` (row, column; CSS Box Alignment 3 §8.3),
+/// `overflow` (x, y; CSS Overflow 3 §3.1) and `overscroll-behavior` (x, y;
+/// CSS Overscroll Behavior 1 §2).
+pub(crate) const PAIRS: [[StyleId; 2]; 3] = [
+    [StyleId::RowGap, StyleId::ColumnGap],
+    [StyleId::OverflowX, StyleId::OverflowY],
+    [StyleId::OverscrollBehaviorX, StyleId::OverscrollBehaviorY],
+];
+/// A literal `overflow`'s x and y values: `"hidden auto"` is x hidden and y
+/// auto, one value is both axes'.
+pub(crate) fn overflow_axes(text: &str) -> (&str, &str) {
+    let v = exact_kernel::style::sides::values(text);
+    let x = v.first().copied().unwrap_or(text);
+    (x, v.get(1).copied().unwrap_or(x))
+}
+/// The longhands a shorthand's values go to, as an author writes them.
+pub(crate) fn longhands(name: &str) -> Vec<String> {
+    let sides = ["top", "right", "bottom", "left"];
+    match name {
+        "border-radius" => ["top-left", "top-right", "bottom-right", "bottom-left"]
+            .map(|c| format!("border-{c}-radius"))
+            .to_vec(),
+        "inset" => sides.map(String::from).to_vec(),
+        "gap" => vec!["row-gap".into(), "column-gap".into()],
+        "overflow" | "overscroll-behavior" => vec![format!("{name}-x"), format!("{name}-y")],
+        n => match n.strip_prefix("border-") {
+            Some(part) => sides.map(|s| format!("border-{s}-{part}")).to_vec(),
+            None => sides.map(|s| format!("{n}-{s}")).to_vec(),
+        },
+    }
+}

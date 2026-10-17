@@ -168,9 +168,11 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
-/// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
+/// Whether these rows are one of CSS's `<value>{1,4}` box shorthands or
+/// its `<value>{1,2}` pairs, which are split into their rows the same way.
 pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
     box_sides::FAMILIES.iter().any(|f| rows == f)
+        || super::shorthands::PAIRS.iter().any(|p| rows == p)
 }
 /// A computed value that builds a list for a box shorthand (a template
 /// such as `` `${pad}px 0` ``, a concatenation, or a `fn` returning one): no
@@ -217,17 +219,10 @@ pub(crate) fn computed_list<'e>(
     let Some(span) = lists(value, body) else {
         return Ok(());
     };
-    let sides = ["top", "right", "bottom", "left"];
-    let longhands: Vec<String> = match name {
-        "border-radius" => ["top-left", "top-right", "bottom-right", "bottom-left"]
-            .map(|c| format!("`border-{c}-radius`"))
-            .to_vec(),
-        "inset" => sides.map(|s| format!("`{s}`")).to_vec(),
-        n => match n.strip_prefix("border-") {
-            Some(part) => sides.map(|s| format!("`border-{s}-{part}`")).to_vec(),
-            None => sides.map(|s| format!("`{n}-{s}`")).to_vec(),
-        },
-    };
+    let longhands: Vec<String> = super::shorthands::longhands(name)
+        .iter()
+        .map(|l| format!("`{l}`"))
+        .collect();
     err(
         "lower-css-shorthand",
         format!(
@@ -239,13 +234,15 @@ pub(crate) fn computed_list<'e>(
 }
 
 /// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
-/// …) as four longhand expressions (top, right, bottom, left): every literal
-/// the value can produce — a string, or an arm of a conditional — is split
-/// into its sides, and a computed leaf is one value for all four. `None` when
+/// …) as four longhand expressions (top, right, bottom, left), or a pair
+/// (`gap`, `overflow`, `overscroll-behavior`) as two: every literal the
+/// value can produce — a string, or an arm of a conditional — is split into
+/// its rows, and a computed leaf is one value for all of them. `None` when
 /// no literal names more than one value, so the shorthand stays one binding
-/// for four rows.
-pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, LowerError> {
-    fn widest(name: &str, e: &Expr) -> Result<usize, LowerError> {
+/// for its rows.
+pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<Vec<Expr>>, LowerError> {
+    let rows = super::shorthands::longhands(name).len();
+    fn widest(name: &str, rows: usize, e: &Expr) -> Result<usize, LowerError> {
         Ok(match e {
             Expr::Str(s, span) => {
                 let n = box_sides::values(s).len();
@@ -256,23 +253,26 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
                         *span,
                     );
                 }
-                if n > 4 {
-                    let order = if name == "border-radius" {
-                        "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"
-                    } else {
-                        "top, right, bottom, left"
+                if n > rows {
+                    let (count, order) = match name {
+                        "border-radius" => ("one to four", "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"),
+                        "gap" => ("one or two", "row, column"),
+                        _ if rows == 2 => ("one or two", "x, y"),
+                        _ => ("one to four", "top, right, bottom, left"),
                     };
                     return err(
                         "lower-attr-value",
-                        format!("`{name}` takes one to four values ({order}); \"{s}\" has {n}"),
+                        format!("`{name}` takes {count} values ({order}); \"{s}\" has {n}"),
                         *span,
                     );
                 }
                 n
             }
-            Expr::Ternary(_, yes, no, _) => widest(name, yes)?.max(widest(name, no)?),
-            Expr::Match { some, none, .. } => widest(name, some)?.max(widest(name, none)?),
-            Expr::Let { body, .. } => widest(name, body)?,
+            Expr::Ternary(_, yes, no, _) => widest(name, rows, yes)?.max(widest(name, rows, no)?),
+            Expr::Match { some, none, .. } => {
+                widest(name, rows, some)?.max(widest(name, rows, none)?)
+            }
+            Expr::Let { body, .. } => widest(name, rows, body)?,
             _ => 1,
         })
     }
@@ -325,10 +325,10 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
             other => other.clone(),
         }
     }
-    if widest(name, value)? < 2 {
+    if widest(name, rows, value)? < 2 {
         return Ok(None);
     }
-    Ok(Some([0, 1, 2, 3].map(|i| side(value, i))))
+    Ok(Some((0..rows).map(|i| side(value, i)).collect()))
 }
 /// A literal style value is checked now by the kernel's own parser
 /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
@@ -1284,7 +1284,7 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
     }
     let scrolls = attrs.iter().any(|a| {
         matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y")
-            && matches!(&a.value, Expr::Str(v, _) if v == "scroll" || v == "auto")
+            && matches!(&a.value, Expr::Str(v, _) if v.split_ascii_whitespace().any(|v| matches!(v, "scroll" | "auto")))
     });
     if tag.node_type.scrolls_by_default() || scrolls {
         return refuse("on an element that scrolls: put the group on a child inside the scroll");
