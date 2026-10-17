@@ -143,8 +143,11 @@ component EmptyState
         children
 
 // A row's content: a title, a secondary line under it (`""` for none) and an
-// optional trailing value in tabular figures. In a grouped list's `row`, or
-// anywhere a list of records is drawn.
+// optional trailing value in tabular figures. Straight in a grouped list's
+// `section` it is the row; in a `row`, or anywhere a list of records is
+// drawn, it takes the width. Its space above and below is the lines'
+// margin, not the row's padding: a grouped row's minimum height is its
+// content's, so padding there made a one-line row 72 points tall.
 // Call: RowText(title="Oat milk", detail="2 in stock", value=some("$3.50"))
 component RowText
   props
@@ -152,8 +155,8 @@ component RowText
     detail: string
     value: option<string>
   view
-    row flex=1 min-width=0 align-items="center" gap=12 padding-top=10 padding-bottom=10
-      column flex=1 min-width=0 gap=2
+    row flex=1 min-width=0 align-items="center" gap=12
+      column flex=1 min-width=0 gap=2 margin-top=10 margin-bottom=10
         text title white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
         if detail != ""
           text detail font="-exact-subheadline" color="-exact-secondary-label"

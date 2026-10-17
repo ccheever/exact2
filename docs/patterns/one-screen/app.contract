@@ -58,20 +58,25 @@ component App
               text "Starter" role="heading" aria-level=1 flex=1
               button press=undo disabled=(log.total == 0) testId="undo"
                 text "Undo"
-            scroll id="content" flex=1 min-height=0
-              // One number and its buttons: a focused column, centred, a phone's width at most, so on a
-              // wide window the buttons are not at the window's two edges. A list and its detail, or a
-              // dashboard, take two columns (`pattern dashboard`).
-              column gap=24 padding=16 max-width=420 margin-left="auto" margin-right="auto"
-                SummaryCard(label="Today", value=formatNumber(log.total, "decimal"), detail=(log.total >= goal ? "Goal reached" : `of ${formatNumber(goal, "decimal")} ml`), progress=some(min(1, log.total / goal)), symbol=some("symbol:activity"))
-                // Emphasis is a part, not paint on a button: round buttons, the accent for the main one.
-                row justify-content="space-between"
-                  RoundButton(label="250 ml", tint=none, press=add(250), disabled=false, testId="add-250")
-                  RoundButton(label="500 ml", tint=some("AccentColor"), press=add(500), disabled=false, testId="add-500")
-                // A card of your own on this plain page: `-exact-secondary-background`, a role for its text.
-                column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="history"
-                  text "History" role="heading" aria-level=3
-                  if log.entries.length == 0
-                    text "Nothing yet. Tap an amount to log a drink." color="-exact-secondary-label" padding-top=6 padding-bottom=10 testId="history-empty"
-                  for x in log.entries key=x.id
-                    RowText(title=`${x.ml} ml`, detail=(x.day == today ? "Today" : x.day), value=none)
+            // A grouped page: the number and its buttons on it (a section with no card), the log
+            // an inset-grouped section under them. A form of labelled entries is one too (`grouped-form`).
+            list id="content" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section background-color="transparent"
+                // One number and its buttons: a focused column, centred, a phone's width at most, so
+                // on a wide window the buttons are not at the window's two edges. A list and its
+                // detail, or a dashboard, take two columns (`pattern dashboard`).
+                row
+                  column flex=1 min-width=0 gap=24 max-width=420 margin-left="auto" margin-right="auto"
+                    SummaryCard(label="Today", value=formatNumber(log.total, "decimal"), detail=(log.total >= goal ? "Goal reached" : `of ${formatNumber(goal, "decimal")} ml`), progress=some(min(1, log.total / goal)), symbol=some("symbol:activity"))
+                    // Emphasis is a part, not paint on a button: round buttons, the accent for the main one.
+                    row justify-content="space-between"
+                      RoundButton(label="250 ml", tint=none, press=add(250), disabled=false, testId="add-250")
+                      RoundButton(label="500 ml", tint=some("AccentColor"), press=add(500), disabled=false, testId="add-500")
+              section testId="history"
+                header
+                  text "History"
+                // `RowText` straight in a section is the row: a title, its value at the far edge.
+                for x in log.entries key=x.id
+                  RowText(title=`${x.ml} ml`, detail="", value=some(x.day == today ? "Today" : x.day))
+                footer
+                  text (log.entries.length == 0 ? "Nothing yet. Tap an amount to log a drink." : "") testId="history-empty"

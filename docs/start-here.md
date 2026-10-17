@@ -16,15 +16,16 @@ The only required reading; the rest is lookup.
    one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
-   rows, an empty state with its next step; inset-grouped is for settings and forms.
+   rows, an empty state with its next step in the list's place. A labelled entry or settings
+   form is a grouped list (`grouped-form`), not cards of fields; a focal result (a timer, a
+   converter's answer) stays a centred column (`max-width=420`) or a `SummaryCard`.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
    - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` over your `button`
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
-   list whose rows push (beside its detail) need no code; one number and its buttons: a
-   centred column (`max-width=420`). The rows of a list the person deletes from swipe to
+   list whose rows push (beside its detail) need no code. The rows of a list the person deletes from swipe to
    delete and open a menu on a long press (`list-detail`, `contract vocab swipe`).
    `haptic("selection")` marks a choice in your own control, `haptic("success")` a task done.
 
@@ -311,15 +312,15 @@ Start from the nearest pattern, a tested app with what the recipes teach. Open a
 
 |Pattern|Already has|
 |---|---|
-|`one-screen`|a tracker: a total, buttons, a dated log in a file, a centred column|
+|`one-screen`|a tracker: a total, buttons, a centred column over a grouped log in a file|
 |`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
-|`list-detail`|a detail, an add sheet, a delete alert, a missing record, a file; split when wide|
+|`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
 |`rest`|its own server, polled; a signed-in person (`rest-backend`)|
 
 |Not in a pattern|Read|
 |---|---|
-|a settings form|`grouped-form`|
+|an entry or settings form|`grouped-form`|
 |a write that may be refused|`after-a-write`|
 |a count 1–99|`contract vocab stepper`|
 |a chat that opens at its newest message|`chat-thread`|

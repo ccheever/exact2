@@ -4,27 +4,27 @@ Columns side by side when wide, stacked on a phone, and a title and button that
 restack at the largest text size: flex items that wrap at a minimum width, as in CSS.
 
 ```contract
-shape Card
+shape Task
   id: string
   title: string
   column: string
 
 component Board
-  state cards = [Card(id="1", title="Write the brief", column="todo"), Card(id="2", title="Review the plan", column="doing")]
+  state tasks = [Task(id="1", title="Write the brief", column="todo"), Task(id="2", title="Review the plan", column="doing")]
   action add()
-    cards = cards.concat([Card(id="3", title="New", column="todo")])
+    tasks = tasks.concat([Task(id="3", title="New", column="todo")])
   view
     scroll height="100%"
       row flex-wrap="wrap" align-items="center" gap=8 padding=16
         text "Sprint 12" role="heading" flex="1 1 12rem"
-        button press=add() buttonStyle="bordered" testId="add-card"
-          text "Add card"
+        button press=add() buttonStyle="bordered" testId="add-task"
+          text "Add task"
       row flex-wrap="wrap" align-items="flex-start" gap=16 padding=16
         for col in ["todo", "doing", "done"] key=col
           column flex="1 1 280px" min-width=0 gap=8 testId=`column-${col}`
             text (col == "todo" ? "To Do" : col == "doing" ? "Doing" : "Done") role="heading" aria-level=3
-            for c in cards.filter(x => x.column == col) key=c.id
-              text c.title padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`card-${c.id}`
+            for c in tasks.filter(x => x.column == col) key=c.id
+              text c.title padding-top=6 padding-bottom=6 testId=`task-${c.id}`
 ```
 
 ```contract-test

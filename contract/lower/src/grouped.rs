@@ -1247,7 +1247,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         }
         ("column", _) if stack => subtitle(child),
         _ if !stack && stacks(child) => {
-            let margins = if lines {
+            let mut margins = if lines {
                 vec![
                     m("margin-top", "lines-padding-block", at),
                     m("margin-bottom", "lines-padding-block", at),
@@ -1255,6 +1255,13 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             } else {
                 Vec::new()
             };
+            // LLP 1116.020 D5: a stack before any text is the title, and
+            // grows as a title does, so a text after it is the value at the
+            // far edge (`RowText` straight in a section drew it mid-row).
+            if matches!(texts, Count::Known(0)) {
+                margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
+                *texts = Count::Known(1);
+            }
             // A control's lines are its label, in its own colour.
             match tag.as_str() {
                 "button" | "link" => with(child, margins),

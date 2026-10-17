@@ -409,6 +409,67 @@ component App
     );
 }
 
+/// LLP 1116.020 D5: `RowText` straight in a grouped section is the row: its
+/// value at the far edge (round 18's workout-log drew it mid-row) and the
+/// row as tall as the same part in a `row`.
+#[test]
+fn row_text_straight_in_a_section_is_the_row_with_its_value_trailing() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("row-text-section");
+    let root = dir.write(
+        "app.contract",
+        r#"use RowText from "exact:content"
+component App
+  view
+    list appearance="auto" listStyle="inset-grouped" testId="root" width=400 height=800
+      section testId="straight"
+        RowText(title="Row", detail="Heaviest lift", value=some("50 kg"))
+      section testId="wrapped"
+        row
+          RowText(title="Row", detail="Heaviest lift", value=some("50 kg"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let top = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(top, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    // The value and the box that holds it, under a section.
+    let value = |t: &str| {
+        let all = under(k, k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id);
+        let v = all
+            .iter()
+            .find(|n| n.node_type == NodeType::Text && n.props.str(PropId::Text) == Some("50 kg"))
+            .unwrap()
+            .clone();
+        let row = all
+            .iter()
+            .find(|n| n.children().contains(&v.id))
+            .unwrap()
+            .clone();
+        (v.frame, row.frame)
+    };
+    let (v, row) = value("straight");
+    assert!(
+        v.width < row.width / 4.0 && row.width - (v.x + v.width) <= 17.0,
+        "the value trails: {v:?} in {row:?}"
+    );
+    let (_, wrapped) = value("wrapped");
+    assert!(
+        (row.height - wrapped.height).abs() <= 1.5,
+        "{row:?} {wrapped:?}"
+    );
+}
+
 /// LLP 1116.020 D5: an `EmptyState` in a list is one of its rows; the
 /// warning names it at the call, and one in place of the list is quiet.
 #[test]
