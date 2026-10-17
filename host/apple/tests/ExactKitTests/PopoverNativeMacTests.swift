@@ -189,6 +189,36 @@ final class PopoverNativeMacTests: XCTestCase {
         gone(native)
     }
 
+    func testAPressInTheNativePopoverUsesItsContentBoxAndNearestAuthoredAncestor() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          view
+            column testId="outer" width="100%" height="100%"
+              column testId="ancestor" width=200 height=160
+                button testId="open" popovertarget="pop"
+                  text "Open"
+                column id="pop" testId="pop" popover="auto" padding=16 gap=8 width=240
+                  input testId="field" value="draft" width=200 height=24
+                  text "Plain content" testId="content" width=200 height=32
+        """)
+        fixture = f
+        f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
+        f.window.makeKeyAndOrderFront(nil)
+        f.settle()
+        try f.node("outer").handlers.insert("press")
+        let p = f.presenter, popover = try f.node("pop"), ancestor = try f.node("ancestor")
+        var native: NativePopover?
+        try assertPresentationPresses(p, content: f.node("content"), ancestor: ancestor, presentation: popover, open: {
+            try f.press("open")
+            let shown = try XCTUnwrap(p.menus.windowed.first), window = try XCTUnwrap(shown.window)
+            native = shown
+            XCTAssertTrue(window !== f.window)
+            XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(try f.node("field").field)))
+            shown.popover.animates = false
+        }, close: { native?.popover.close() }, isOpen: { p.menus.isOpen(popover) && native?.popover.isShown == true })
+        gone(try XCTUnwrap(native))
+    }
+
     /// The subtree in AppKit's popover, at the size layout returns, below
     /// its invoker; the page laid out as it was; and each way it closes.
     func testAPopoverThatIsNoMenuIsAppKitsPopoverAtItsContentsSize() throws {
