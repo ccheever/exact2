@@ -4,6 +4,19 @@
 /// Generate `AppData` and `app_data()` for a host's source type and constructor.
 /// `mode` is the validated `compat.inputs.rustMode` from the actual target bake.
 pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, String> {
+    // The digest of the source this binary compiles `constructor`'s crate
+    // from (`scripts/app.mjs` `nativeSource`): a Rust update built from the
+    // same source then runs this native code, not the module.
+    println!("cargo:rerun-if-env-changed=EXACT_NATIVE_SOURCE");
+    let native = match std::env::var("EXACT_NATIVE_SOURCE") {
+        Ok(source) if !source.is_empty() => {
+            if !source.bytes().all(|b| b.is_ascii_hexdigit()) || source.len() != 64 {
+                return Err("EXACT_NATIVE_SOURCE must be a sha256 in hex".into());
+            }
+            format!(".with_native({source:?}, || {constructor})")
+        }
+        _ => String::new(),
+    };
     let supplemental = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         let receipt: serde_json::Value = serde_json::from_slice(
             &std::fs::read(std::path::Path::new(&directory).join("app.module.json"))
@@ -23,9 +36,9 @@ pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, S
         ) {
             return Err("invalid supplemental Rust module filename".into());
         }
-        format!("{{ use exact_logic::exact_runner::DataSource; exact_logic::Swappable::{mode}({constructor}).replacement(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/app.plan\")), include_str!(concat!(env!(\"OUT_DIR\"), \"/rust/app.module.json\")), include_bytes!(concat!(env!(\"OUT_DIR\"), \"/rust/{file}\")).to_vec()).expect(\"validated baked Rust pair\") }}")
+        format!("{{ use exact_logic::exact_runner::DataSource; exact_logic::Swappable::{mode}({constructor}){native}.replacement(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/app.plan\")), include_str!(concat!(env!(\"OUT_DIR\"), \"/rust/app.module.json\")), include_bytes!(concat!(env!(\"OUT_DIR\"), \"/rust/{file}\")).to_vec()).expect(\"validated baked Rust pair\") }}")
     } else {
-        format!("exact_logic::Swappable::{mode}({constructor})")
+        format!("exact_logic::Swappable::{mode}({constructor}){native}")
     };
     match mode {
         "off" => Ok(format!("type AppData = {data};\n#[allow(dead_code)]\nfn app_data() -> AppData {{ {constructor} }}\n")),

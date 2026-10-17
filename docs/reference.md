@@ -1630,6 +1630,16 @@ explicit `native` avoids that interpreter. The usual dev/prod overrides apply,
 but `tiered` is unavailable on iOS/web. Update Lab opts in for macOS development;
 `auto` defaults are unchanged. Both variants still compile before publication.
 
+A binary runs its own compiled data crate until an update replaces it, and only a
+module that differs from that code is interpreted. The build records the digest of
+the source the module compiles from (`nativeSource` in `scripts/rust.mjs`: the
+module's local crates, the workspace's `Cargo.toml` and `Cargo.lock`, and the
+compiler) and every Rust receipt carries it as `source`. A candidate whose
+`source` is the binary's own becomes the native data source again
+(`Swappable::with_native`). On iOS an update that changes the Rust runs
+interpreted until a binary built from that source is installed; an update that
+changes only the Contract or TypeScript leaves the Rust native.
+
 The repository's app entries use `contract::rust_entry` to select a concrete
 factory at bake time. A custom host adapter must do the same (and depend on
 `exact-logic`), or compose `Swappable::native`, `Swappable::tiered`, `Swappable::wasm` or

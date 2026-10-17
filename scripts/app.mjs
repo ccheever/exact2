@@ -31,7 +31,7 @@ import { gzipSync } from 'node:zlib';
 import { BINARYEN } from '../host/web/stages.mjs';
 import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
-import { prepareRustBundle } from './rust.mjs';
+import { nativeSource, prepareRustBundle } from './rust.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
@@ -1273,6 +1273,8 @@ export function buildBake(app, platform, target, options = {}) {
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
+  const native=platform==='web'?null:nativeSource(app,env); // what the binary compiles its Rust from (Swappable::with_native)
+  if(native)env.EXACT_NATIVE_SOURCE=native;else delete env.EXACT_NATIVE_SOURCE;
   const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
   // Production-profile game bakes (web, Apple, release Linux, deploy) hold the
   // logic to the determinism lints; the gpu-dev edit loop leaves them to --test.
@@ -1468,7 +1470,7 @@ async function fixtureRun(app, use, run, key) {
       }) };
     for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE',
       'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'EXACT_DEPLOY_CAPSULE',
-      'EXACT_UPDATE_RECEIPT', 'EXACT_UPDATE_GENESIS', 'EXACT_UPDATE_ORIGIN', 'EXACT_GPU_DYLIB', 'EXACT_RUST_BUNDLE',
+      'EXACT_UPDATE_RECEIPT', 'EXACT_UPDATE_GENESIS', 'EXACT_UPDATE_ORIGIN', 'EXACT_GPU_DYLIB', 'EXACT_RUST_BUNDLE', 'EXACT_NATIVE_SOURCE',
       'EXACT_DEV_PLAN', 'EXACT_PLAN', 'EXACT_ASSETS']) delete env[name];
     const barrier = resolve(fixture.sourceRoot, '.git');
     if (readFileSync(barrier, 'utf8') !== 'exact deploy source boundary\n') throw new Error('unexpected diagnostic Git boundary');

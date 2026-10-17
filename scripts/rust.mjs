@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoReproducibilityFlags, developmentBuildEnv, readBuilds, resolveApp, rustPolicy } from './app.mjs';
 import { channelOrigin } from './origin.mjs';
@@ -134,6 +134,22 @@ function fileHash(path) {
   fileHashes.set(path, { stamp, hash: value });
   return value;
 }
+/** The digest of the source the app's Rust module compiles from: its local
+ * crates (the data crate the binary embeds among them), the workspace's
+ * Cargo.toml and Cargo.lock, and the compiler. The Contract is not Rust
+ * source: a plan's sources are checked by shape. A binary records it
+ * (`EXACT_NATIVE_SOURCE`, `Swappable::with_native`) and every Rust receipt
+ * carries it, so a module built from what the binary already compiled runs
+ * natively. Paths are relative to the workspace: checkouts agree. */
+let compiler = null;
+export function nativeSource(app, env = developmentBuildEnv()) {
+  if (!app.manifest || !rustPackage(app)) return null;
+  const files = rustClosure(app, env).files.filter(path => !path.endsWith('.contract') && path !== resolve(app.dir, 'app.json'));
+  compiler ??= run(app, 'rustc', ['-vV'], env);
+  const digest = createHash('sha256').update('exact native source 1\0').update(compiler);
+  for (const path of files) digest.update(relative(app.workspace, path)).update('\0').update(fileHash(path)).update('\0');
+  return digest.digest('hex');
+}
 export function rustInputDigest(paths, observations = null) {
   const digest = createHash('sha256');
   for (const path of paths) {
@@ -187,7 +203,7 @@ function rustGrants(compat) {
 export function rustReceipt(app, compat, plan, module, target, executor) {
   const extension = executor === 'tiered' ? 'bin' : executor === 'wasm' ? 'wasm' : target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
   return { version: 1, kind: 'rust', abi: 3, appId: app.id, grants: rustGrants(compat), target, executor,
-    plan: rustCard('app.plan', plan), module: rustCard(`app.module.${extension}`, module) };
+    source: nativeSource(app), plan: rustCard('app.plan', plan), module: rustCard(`app.module.${extension}`, module) };
 }
 
 /** One compiler/baker process per producer. Requests are private file paths;
