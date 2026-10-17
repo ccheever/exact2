@@ -114,3 +114,22 @@ component ShortcutButton
   view
     button hatch="t3-terminal-key" data-anchor=item.command press=press aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
       text item.label font-size=1
+
+// View › Reload and Force Reload (DesktopApplicationMenu.ts:233-234, Electron's `reload` and `forceReload` roles): the
+// window's own reload, `reload()`, in every build. The host files the two buttons at the top of View, before its own
+// items (`-exact-menu="view"`, LLP 1021 §5.3), and enables them while the window is key with no sheet, as AppKit
+// validates an item that acts on the key window. The reference renderer sees a key before Electron's menu, so a
+// keybinding the person gave ⌘R or ⇧⌘R (`items`, the dispatch buttons) keeps the chord and the item shows none.
+// Hidden from assistive technology: the menu item is how they are reached.
+component ViewReload
+  props
+    items: KeyDispatch[]
+  derive taken = items.map((item) => item.chord.toLowerCase())
+  action reloadWindow
+    reload()
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="view-reload-commands"
+      button -exact-menu="view" press=reloadWindow aria-keyshortcuts=(taken.includes("meta+r") ? "" : "Meta+R") tabindex=-1 aria-hidden=true aria-label="Reload" testId="view-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Reload" font-size=1
+      button -exact-menu="view" press=reloadWindow aria-keyshortcuts=(taken.includes("meta+shift+r") ? "" : "Meta+Shift+R") tabindex=-1 aria-hidden=true aria-label="Force Reload" testId="view-force-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Force Reload" font-size=1

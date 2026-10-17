@@ -127,7 +127,7 @@ describe('A row menu\'s pick lets go of the composer, so ⌘Z after Archive is t
     expect(['menu-choice', 'draft-choice', 'legacy-thread-menu'].map(op => run(op, true))).toEqual([1, 1, 1]);
   });
   test('nothing else does, and a menu leaves a focus that is not the composer\'s where it is', () => {
-    expect(['row-key', 'settle', 'drop', 'open-draft'].map(op => run(op, true))).toEqual([0, 0, 0, 0]);
+    expect(['settle', 'drop', 'open-draft', 'legacy-thread-choice'].map(op => run(op, true))).toEqual([0, 0, 0, 0]);
     expect(run('menu-choice', false)).toBe(0); // a keyboard-opened menu: the row keeps the focus Base UI gives back
   });
 });

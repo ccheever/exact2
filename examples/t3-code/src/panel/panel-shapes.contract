@@ -8,6 +8,7 @@ use MarkdownSource from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/markdown.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
 use PrSurface from "./pr-attachment-shapes.contract"
+use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
 use AttachmentSurface from "./pr-attachment-shapes.contract"
 use DeviceSessionView from "../device/device-workspace-shapes.contract"
 use DeviceMini from "../device/device-workspace-shapes.contract"
@@ -96,6 +97,8 @@ shape FilesView
   rows: FilesTreeRow[]
   hasDirectories: bool
   allExpanded: bool
+  // The tree rows' one context popover (context-menu-actions.ts filesTreeMenuRows).
+  treeMenu: SidebarMenuRow[]
   explorer: bool
   showExplorer: bool
   path: string

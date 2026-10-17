@@ -1212,7 +1212,7 @@ component T3Code
   action sidebarRun(op: string, id: string, value: string)
     if composerFocused and (op == "menu-choice" or op == "draft-choice" or op == "legacy-thread-menu")
       blur()
-    if not commandPending and ((op != "row-key" and op != "legacy-row-key") or (value != "Enter" and value != " " and value != "Meta" and value != "Shift" and value != "Control" and value != "Alt" and value != "CapsLock"))
+    if not commandPending
       commandPending = true
       send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + performanceNow())
   action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)

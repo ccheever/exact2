@@ -1,6 +1,6 @@
-// What the Files tree row, pull request number and chat file-link menus send to
-// the module's `contextMenu` op and do with the pick (FileBrowserPanel showEntryContextMenu,
-// fileContextMenu.ts activate, pullRequestLinkContextMenu.ts, ChatMarkdown showFileContextMenu).
+// What the Files tree row and pull request number menus (Contract context popovers) and the chat
+// file-link menu (the module's `contextMenu` op) show and do with the pick (FileBrowserPanel
+// showEntryContextMenu, fileContextMenu.ts activate, pullRequestLinkContextMenu.ts, ChatMarkdown showFileContextMenu).
 import { afterEach, describe, expect, test } from 'bun:test';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { appPath } from '../support/app-files';
@@ -9,7 +9,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
 import { toasts } from '../../src/shell/toast';
-import { filesTreeMenu, pullRequestLinkPick } from '../../src/panel/context-menu-actions';
+import { filesTreeChoice, filesTreeMenuRows, pullRequestLinkPick } from '../../src/panel/context-menu-actions';
 import { openOnHostLabel } from '../../src/shared/context-menus';
 import { filesState, markdownFileMenu } from '../../src/panel/files-surface';
 import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
@@ -44,46 +44,48 @@ function fixture(config: Obj = {}) {
   return { owner, native, calls, requests, menu, signed, refuseSigning: () => { refuse = true; }, pick: (value: string) => { picked = value; }, composer: (value: Obj) => { editor = value; } };
 }
 
+// The tree's one context popover (files-surface.contract FilesTreeMenu): its rows from the files view, its row's
+// choice here, with no native menu.
 describe('Files tree row menu', () => {
-  test('sends the five reference items with the Open with submenu', async () => {
-    const { owner, native, menu } = fixture();
-    await filesTreeMenu(owner, native, 'src/index.ts');
-    expect(menu()?.items).toEqual([
-      { id: 'open', label: 'Open' }, { id: 'reveal-in-folder', label: 'Reveal in Finder' },
-      { id: 'open-with', label: 'Open with', children: [{ id: 'editor:cursor', label: 'Cursor' }, { id: 'editor:vscode', label: 'VS Code' }] },
-      { id: 'copy-mention', label: 'Copy mention' }, { id: 'add-to-chat', label: 'Add to chat' },
-    ]);
+  const rows = (owner: T3Client) => filesTreeMenuRows(owner).map(row => [row.id, row.label, row.parent, row.sub]);
+  test('the popover lists the five reference items with the Open with submenu', () => {
+    const { owner } = fixture();
+    expect(rows(owner)).toEqual([['open', 'Open', '', false], ['reveal-in-folder', 'Reveal in Finder', '', false], ['open-with', 'Open with', '', true],
+      ['editor:cursor', 'Cursor', 'open-with', false], ['editor:vscode', 'VS Code', 'open-with', false], ['copy-mention', 'Copy mention', '', false], ['add-to-chat', 'Add to chat', '', false]]);
+    // No workspace root: no absolute path, so the file actions go (buildFileContextMenuItems).
+    owner.shell.projects = [{ id: 'p', title: 'project', workspaceRoot: '' }];
+    expect(rows(owner).map(row => row[0])).toEqual(['copy-mention', 'add-to-chat']);
   });
 
   test('opens, reveals and opens with an editor through shell.openInEditor on the absolute path', async () => {
     for (const [pick, expected] of [['open', { editor: 'file-manager' }], ['reveal-in-folder', { editor: 'file-manager', reveal: true }], ['editor:vscode', { editor: 'vscode' }]] as const) {
-      const { owner, native, requests, pick: choose } = fixture();
-      choose(pick);
-      await filesTreeMenu(owner, native, 'src/index.ts');
+      const { owner, native, requests, menu } = fixture();
+      await filesTreeChoice(owner, native, 'src/index.ts', pick);
       expect(requests).toEqual([{ method: 'shell.openInEditor', cwd: '/srv/project/src/index.ts', ...expected }]);
+      expect(menu()).toBeUndefined();
     }
   });
 
   test('copies the mention with its toast, and adds it at the end of the prompt', async () => {
     const copy = fixture();
-    copy.pick('copy-mention');
-    await filesTreeMenu(copy.owner, copy.native, 'docs/read me.md');
+    await filesTreeChoice(copy.owner, copy.native, 'docs/read me.md', 'copy-mention');
     expect(copy.calls.find(call => call.op === 'copyText')?.text).toBe('[read me.md](docs/read%20me.md)');
     expect(toasts(copy.owner).map(toast => [toast.title, toast.description])).toEqual([['Mention copied', 'docs/read me.md']]);
     const add = fixture();
-    add.pick('add-to-chat');
-    await filesTreeMenu(add.owner, add.native, 'src');
+    await filesTreeChoice(add.owner, add.native, 'src', 'add-to-chat');
     expect(add.calls.find(call => call.op === 'editorEdit')).toMatchObject({ text: '[src](src) ', pad: true });
     expect(add.calls.find(call => call.op === 'editorEdit')?.start).toBeUndefined();
     add.composer({ applied: false, reason: 'no composer' });
-    await filesTreeMenu(add.owner, add.native, 'src');
+    await filesTreeChoice(add.owner, add.native, 'src', 'add-to-chat');
     expect(toasts(add.owner).map(toast => toast.description)).toEqual(['Open a chat for this project and try again.']);
   });
 
-  test('keeps only the mention actions when the server offers no editors', async () => {
-    const { owner, native, menu } = fixture({ availableEditors: [], shellRevealInFileManager: false });
-    await filesTreeMenu(owner, native, 'src/index.ts');
-    expect(obj(menu()).items).toEqual([{ id: 'copy-mention', label: 'Copy mention' }, { id: 'add-to-chat', label: 'Add to chat' }]);
+  test('keeps only the mention actions when the server offers no editors, and refuses a row it does not show', async () => {
+    const { owner, native, requests } = fixture({ availableEditors: [], shellRevealInFileManager: false });
+    expect(rows(owner).map(row => row[0])).toEqual(['copy-mention', 'add-to-chat']);
+    await filesTreeChoice(owner, native, 'src/index.ts', 'open');
+    await filesTreeChoice(owner, native, 'src/index.ts', 'editor:vscode');
+    expect(requests).toEqual([]);
   });
 });
 

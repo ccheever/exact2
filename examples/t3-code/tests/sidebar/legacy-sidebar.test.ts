@@ -337,35 +337,58 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'env:/beta', '')).toBe('sidebar:new-thread');
     expect(drafts).toEqual(['p2']);
   });
+  test('New thread on a project of several members asks which in the module\'s menu at the pointer (handleCreateThreadClick)', async () => {
+    const repositoryIdentity = { canonicalKey: 'github.com/acme/app' };
+    const { client, calls, drafts } = fake([], { picks: ['env:/beta'], projects: [{ id: 'p1', title: 'App', workspaceRoot: '/alpha', repositoryIdentity, createdAt: at(0), updatedAt: at(0) },
+      { id: 'p2', title: 'App', workspaceRoot: '/beta', repositoryIdentity, createdAt: at(1), updatedAt: at(1) }] });
+    expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'github.com/acme/app', '')).toBe('sidebar:new-thread');
+    const menus = calls.filter(call => call.op === 'sidebarMenu');
+    expect(menus.map(call => [(call.items as Obj[]).map(item => item.label), 'anchor' in call])).toEqual([[['/alpha', '/beta'], false]]);
+    expect(drafts).toEqual(['p2']);
+  });
   test('⇧-click ranges over the project list', async () => {
     const { client } = fake([...many(4), thread('b', { projectId: 'p2', latestUserMessageAt: at(55) })]);
     sidebarSession(client).anchor = 'p1-t0';
     expect(await sidebarSelecting(client, native, 'p1-t2', 'click:shift')).toBe(true);
     expect(sidebarSession(client).selection).toEqual(['p1-t0', 'p1-t1', 'p1-t2']);
   });
+  const rowMenu = (client: T3Client, id: string) => legacySidebarSnapshot(client, NOW, { projectIdentity: identity }).projects.flatMap(project => project.threads).find(row => row.id === id)!.menu;
   test('thread menu: rename starts the inline edit; copy path toasts; delete asks first', async () => {
-    const { client, calls } = fake([thread('a', { projectId: 'p1', branch: 'feat' })], { picks: ['rename', 'copy-path', 'delete', 'copy-thread-id'] });
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'a', '');
-    expect(calls[0]!.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'new-thread-on-branch', label: 'New thread on feat' })]));
+    const { client, calls } = fake([thread('a', { projectId: 'p1', branch: 'feat' })]);
+    // The row's context popover (LegacyThreadMenu): handleThreadContextMenu's items, Delete after a separator with the trash glyph.
+    expect(rowMenu(client, 'a').map(row => [row.id, row.label, row.separated, row.destructive])).toEqual([['new-thread-on-branch', 'New thread on feat', false, false],
+      ['rename', 'Rename thread', false, false], ['mark-unread', 'Mark unread', false, false], ['copy-path', 'Copy Path', false, false],
+      ['copy-thread-id', 'Copy Thread ID', false, false], ['project-settings', 'Project settings', false, false], ['delete', 'Delete', true, true]]);
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'rename');
     expect(sidebarSession(client)).toMatchObject({ renameId: 'a', renameTitle: 'Thread a' });
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'a', '');
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'copy-path');
     expect(calls.find(call => call.op === 'copyText')).toMatchObject({ text: '/alpha' });
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Path copied', description: '/alpha' });
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'a', '');
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'delete');
     expect(sidebarSession(client).dialog).toEqual({ kind: 'delete', threadIds: ['a'], title: 'Thread a' });
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'a', '');
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'copy-thread-id');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Thread ID copied', description: 'a' });
+    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]);
+  });
+  test('a right press on a row outside the selection clears it; one on a selected row keeps it', async () => {
+    const { client } = fake([thread('a'), thread('b'), thread('c')]);
+    sidebarSession(client).selection = ['a', 'b'];
+    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'b', '');
+    expect(sidebarSession(client).selection).toEqual(['a', 'b']);
+    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'c', '');
+    expect(sidebarSession(client).selection).toEqual([]);
   });
   test('a selected row opens the multi-selection menu: mark unread, archive behind the confirm setting', async () => {
-    const { client, calls, dispatched } = fake([thread('a'), thread('b')], { picks: ['mark-unread', 'archive', 'archive'], settings: { confirmThreadArchive: true } });
+    const { client, dispatched } = fake([thread('a'), thread('b'), thread('c')], { settings: { confirmThreadArchive: true } });
     sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'a', '');
-    expect(calls[0]!.items).toEqual([{ type: 'item', id: 'mark-unread', label: 'Mark unread (2)', enabled: true, destructive: false },
-      { type: 'item', id: 'archive', label: 'Archive (2)', enabled: true, destructive: false }, { type: 'separator' }, { type: 'item', id: 'delete', label: 'Delete (2)', enabled: true, destructive: true }]);
+    expect(rowMenu(client, 'a').map(row => [row.id, row.label, row.disabled, row.separated, row.destructive])).toEqual([['mark-unread', 'Mark unread (2)', false, false, false],
+      ['archive', 'Archive (2)', false, false, false], ['delete', 'Delete (2)', false, true, true]]);
+    expect(rowMenu(client, 'c').map(row => row.id)).toContain('rename');
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'a', 'mark-unread');
     expect(dispatched.map(payload => payload.type)).toEqual(['thread.mark-unread', 'thread.mark-unread']);
     expect(sidebarSession(client).selection).toEqual([]);
     sidebarSession(client).selection = ['a', 'b'];
-    await sidebarCommand(client, native, files, 'legacy-thread-menu', 'b', '');
+    await sidebarCommand(client, native, files, 'legacy-thread-choice', 'b', 'archive');
     expect(legacySidebarSnapshot(client, NOW, { projectIdentity: identity })).toMatchObject({ dialog: 'archive-many', dialogTitle: 'Archive 2 threads?' });
     await sidebarCommand(client, native, files, 'legacy-dialog-confirm', '', '');
     expect(dispatched.slice(2).map(payload => [payload.type, payload.threadId])).toEqual([['thread.archive', 'a'], ['thread.archive', 'b']]);
@@ -379,8 +402,8 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Failed to archive thread', description: 'Stop the running turn before archiving this thread.' });
   });
   test('project menu: Remove on a project with threads warns with Delete anyway, then confirms and removes', async () => {
-    const { client, writes } = fake([thread('a')], { picks: ['delete:env:/alpha'] });
-    await sidebarCommand(client, native, files, 'legacy-project-menu', 'env:/alpha', '');
+    const { client, writes } = fake([thread('a')]);
+    await sidebarCommand(client, native, files, 'legacy-project-choice', 'env:/alpha', 'delete:env:/alpha');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'warning', title: 'Project is not empty', description: 'Delete all threads in this project before removing it.', action: { label: 'Delete anyway', op: 'sidebar:legacy-remove-anyway', id: 'p1' } });
     await sidebarCommand(client, native, files, 'legacy-remove-anyway', 'p1', '');
     const view = legacySidebarSnapshot(client, NOW, { projectIdentity: identity });
@@ -390,12 +413,16 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     expect(writes.map(write => [write.method, obj(write.payload).type, obj(write.payload).projectId, obj(write.payload).force])).toEqual([['projects.mutate', 'project.delete', 'p1', true]]);
   });
   test('project menu: an empty project asks the plain removal; rename refuses an empty title and saves a new one', async () => {
-    const { client, writes } = fake([], { picks: ['delete:env:/beta', 'rename:env:/beta', 'grouping:env:/beta'] });
-    await sidebarCommand(client, native, files, 'legacy-project-menu', 'env:/beta', '');
+    const { client, writes } = fake([]);
+    // The header's context popover (LegacyProjectMenu): one member, so each targeted row acts on it directly.
+    expect(legacySidebarSnapshot(client, NOW, { projectIdentity: identity }).projects.find(project => project.key === 'env:/beta')!.menu.map(row => [row.id, row.label, row.sub, row.destructive]))
+      .toEqual([['rename:env:/beta', 'Rename', false, false], ['grouping:env:/beta', 'Group into…', false, false], ['copy-path:env:/beta', 'Copy Path', false, false],
+        ['project-settings', 'Project settings', false, false], ['delete:env:/beta', 'Remove', false, true]]);
+    await sidebarCommand(client, native, files, 'legacy-project-choice', 'env:/beta', 'delete:env:/beta');
     expect(legacySidebarSnapshot(client, NOW, { projectIdentity: identity })).toMatchObject({ dialog: 'remove-project', dialogTitle: 'Remove project "Beta"?',
       dialogDescription: 'Path: /beta\nThis permanently clears any archived conversation history.\nThis removes only this project entry.' });
     await sidebarLocal(client, native, 'legacy-dialog-close', '', '');
-    await sidebarCommand(client, native, files, 'legacy-project-menu', 'env:/beta', '');
+    await sidebarCommand(client, native, files, 'legacy-project-choice', 'env:/beta', 'rename:env:/beta');
     expect(legacySidebarSnapshot(client, NOW, { projectIdentity: identity })).toMatchObject({ dialog: 'rename-project', dialogTitle: 'Rename project', dialogDescription: 'Update the title for /beta.', dialogField: 'Beta', dialogTarget: 'p2' });
     await sidebarCommand(client, native, files, 'legacy-rename-project', 'p2', '   ');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'warning', title: 'Project title cannot be empty' });
@@ -403,7 +430,7 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     await sidebarCommand(client, native, files, 'legacy-rename-project', 'p2', ' Gamma ');
     expect(writes.map(write => obj(write.payload))).toEqual([expect.objectContaining({ type: 'project.update', projectId: 'p2', title: 'Gamma' })]);
     expect(legacySession(client).dialog.kind).toBe('');
-    await sidebarCommand(client, native, files, 'legacy-project-menu', 'env:/beta', '');
+    await sidebarCommand(client, native, files, 'legacy-project-choice', 'env:/beta', 'grouping:env:/beta');
     expect(legacySidebarSnapshot(client, NOW, { projectIdentity: identity })).toMatchObject({ dialog: 'grouping', dialogGrouping: 'inherit', dialogGroupingLabel: 'Use global default (Group by repository)' });
     await sidebarLocal(client, native, 'legacy-dialog-grouping', '', 'separate');
     expect(legacySidebarSnapshot(client, NOW, { projectIdentity: identity })).toMatchObject({ dialogGroupingDescription: 'Every project path gets its own sidebar row.' });

@@ -14,10 +14,11 @@ import AppKit
 ///   Xcode's template (Paste and Match Style, Find, Spelling and Grammar, Substitutions,
 ///   Transformations), which the reference's lacks: those are hidden, and an app command
 ///   the host stood in Find's place (⌘F, ⌘G, ⇧⌘G) stays a hidden key equivalent there.
-/// - View starts with Reload (⌘R) and Force Reload (⇧⌘R), which reload the window,
-///   as the reference's roles reload the page. The host's Develop menu (Reload ⌘R,
+/// - View's Reload (⌘R) and Force Reload (⇧⌘R) are the window's own Contract buttons
+///   (settings-shortcuts.contract ViewReload). The host's Develop menu (Reload ⌘R,
 ///   Open Project… ⌘O, App Info… ⌘D) and its Go menu are not part of the reference
-///   bar: they go, so ⌘D (diff.toggle) and ⌘O (editor.openFavorite) reach the window.
+///   bar: they go, so ⌘D (diff.toggle) and ⌘O (editor.openFavorite) reach the window;
+///   `-exact-menu-remove` names neither.
 /// - The reference renderer sees a keystroke before Electron's menu: ⌘Z is
 ///   thread.undo while no editable text has the focus, ⌘W closes an open right panel
 ///   before it closes the window. AppKit keeps one key equivalent per chord across
@@ -27,9 +28,7 @@ import AppKit
 ///   (issues/closed/20261009-macos-textarea-native-undo.md) Exact's textarea answers `undo:` and `redo:` with its own history,
 ///   so they go up the responder chain as AppKit sends them.
 final class T3MenuBar: NSObject, NSMenuDelegate, NSMenuItemValidation {
-    private var reloadAction: Selector?
     private var saveTrace: NSMenuItem?
-    private weak var reloadTarget: AnyObject?
     private weak var file: NSMenu?
     private weak var edit: NSMenu?
     private var logMonitor: Any?
@@ -38,10 +37,6 @@ final class T3MenuBar: NSObject, NSMenuDelegate, NSMenuItemValidation {
 
     func arrange(_ bar: NSMenu) {
         if let develop = bar.items.first(where: { $0.submenu?.title == "Develop" }) {
-            if let reload = develop.submenu?.items.first(where: { $0.keyEquivalent == "r" && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command }) {
-                reloadAction = reload.action
-                reloadTarget = reload.target as AnyObject?
-            }
             // A development build keeps the host's Save Trace (⌥⌘T, LLP 1079 D5) as a hidden key equivalent: the reference has
             // no Develop menu, but a real-input session's trace has no other way out of a macOS window (without it
             // ⌥⌘T reached the view as a key; the macOS host handles no SIGUSR1, whose default ends the process).
@@ -59,15 +54,6 @@ final class T3MenuBar: NSObject, NSMenuDelegate, NSMenuItemValidation {
         if let go = bar.items.first(where: { $0.submenu?.title == "Go" }) { bar.removeItem(go) }
         // One window, no window tabs: the host allows no automatic tabbing for a one-window app (ExactDocuments.furnish),
         // and the window's root removes Show Tab Bar / Show All Tabs (`-exact-menu-remove`, app-window.contract).
-        if reloadAction != nil, let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu, view.item(withTitle: "Reload") == nil {
-            let reload = NSMenuItem(title: "Reload", action: #selector(reloadWindow(_:)), keyEquivalent: "r")
-            let force = NSMenuItem(title: "Force Reload", action: #selector(reloadWindow(_:)), keyEquivalent: "r")
-            force.keyEquivalentModifierMask = [.command, .shift]
-            for (index, item) in [reload, force, .separator()].enumerated() {
-                item.target = self
-                view.insertItem(item, at: index)
-            }
-        }
         if let edit = bar.items.first(where: { $0.submenu?.title == "Edit" })?.submenu,
            let undo = edit.items.first(where: { $0.keyEquivalent == "z" && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command }) {
             undo.action = #selector(undo(_:))
@@ -179,10 +165,6 @@ final class T3MenuBar: NSObject, NSMenuDelegate, NSMenuItemValidation {
         if keystroke(), let close = command(Self.closePanelTitle), fire(close) { return }
         closeTarget()?.performClose(sender)
     }
-    @objc func reloadWindow(_ sender: Any?) {
-        guard let reloadAction else { return }
-        NSApp.sendAction(reloadAction, to: reloadTarget, from: sender)
-    }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
@@ -194,7 +176,6 @@ final class T3MenuBar: NSObject, NSMenuDelegate, NSMenuItemValidation {
             guard let thread = command(Self.undoTitle) else { return false }
             return (thread.target as? NSMenuItemValidation)?.validateMenuItem(thread) ?? true
         case #selector(closeWindow(_:)): return closeTarget() != nil || command(Self.closePanelTitle) != nil
-        case #selector(reloadWindow(_:)): return reloadAction != nil
         default: return true
         }
     }

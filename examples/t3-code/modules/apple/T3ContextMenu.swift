@@ -2,6 +2,12 @@
 // showContextMenu): a native NSMenu at the pointer. A destructive item gets a
 // separator before it and the 12pt template trash symbol, as Electron draws it
 // on macOS. The reply names the chosen item, or null when the menu closes.
+// What still asks for it: the branch picker's Copy branch name, whose rows sit in
+// the open branch popup, which the reference's native menu leaves open and a
+// Contract context popover would close (the host closes every popover before it
+// shows one, MenusMac `context`); and the chat's file and web link menus, whose
+// rows depend on the link (its thread link, SSH aliases) and are computed when the
+// menu opens. The other row menus are Contract context popovers.
 import AppKit
 import UniformTypeIdentifiers
 
@@ -22,17 +28,12 @@ final class T3ContextMenu: NSObject {
     private var chosen: String?
 
     /// Items: [{ id, label, destructive?, disabled?, separatorBefore?, children? }]. Main thread only.
-    func show(_ items: [[String: Any]], in window: NSWindow?, keyboard: Bool = false) -> String? {
+    func show(_ items: [[String: Any]], in window: NSWindow?) -> String? {
         let menu = self.menu(for: items)
         chosen = nil
         let target = window ?? NSApp.keyWindow ?? NSApp.mainWindow
         if let view = target?.contentView, let window = target {
-            let focused = window.firstResponder as? NSView
-            let point: NSPoint
-            if keyboard, let focused, focused.isDescendant(of: view) {
-                point = view.convert(NSPoint(x: focused.bounds.midX, y: focused.bounds.midY), from: focused)
-            } else { point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil) }
-            menu.popUp(positioning: nil, at: point, in: view)
+            menu.popUp(positioning: nil, at: view.convert(window.mouseLocationOutsideOfEventStream, from: nil), in: view)
         } else {
             menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
         }
@@ -86,7 +87,7 @@ final class T3ContextMenu: NSObject {
     /// its window is never key and has no pointer, so `popUp` would track until a real click
     /// or Escape, leaving this request (and every main-queue turn and `clock settle` behind it)
     /// pending. It answers dismissed, as Escape would, as T3Sidebar's menu does; menus the
-    /// agent must choose from are Contract `contextPopover`s (the right-panel tab menu).
+    /// agent must choose from are Contract `contextPopover`s.
     static func perform(_ request: [String: Any], agent: Bool = false, reply: @escaping ([String: Any]) -> Void) {
         if agent {
             // The items go to the log (a drive reads which menu answered a right-click).
@@ -98,7 +99,7 @@ final class T3ContextMenu: NSObject {
             let items = request["items"] as? [[String: Any]] ?? []
             // NSMenuItem.target is weak: keep the owner alive across the modal popUp.
             let owner = T3ContextMenu()
-            let picked = owner.show(items, in: NSApp.keyWindow, keyboard: request["anchor"] as? String == "focus")
+            let picked = owner.show(items, in: NSApp.keyWindow)
             withExtendedLifetime(owner) {}
             let clicked: Any = picked.map { $0 as Any } ?? NSNull()
             let value: [String: Any] = ["clicked": clicked]

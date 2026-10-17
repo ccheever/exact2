@@ -4,7 +4,7 @@ import type { T3Client } from '../client/client';
 import type { PanelState, Surface, SurfaceKind } from './panel-surfaces';
 import type { DeviceTarget } from '../device/device-session';
 import type { Native } from '../client/protocol';
-import { obj, str } from '../client/domain';
+import { obj } from '../client/domain';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 export type TabAction = 'rename' | 'copy-path' | 'toggle-mute' | 'close' | 'close-others' | 'close-to-right' | 'close-all';
@@ -40,9 +40,9 @@ export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface
 }
 /**
  * The rows of the strip's one context popover (panel.contract `panel-tab-menu`). A
- * right-click opens it through the host (macOS: an NSMenu at the pointer; the agent: the
- * painted popover), so no native request waits on menu tracking; each row presses
- * `surface-<id>` for its tab, the same op the menu's choice ran before.
+ * right-click, the ContextMenu key or the tab's Shift+F10 opens it through the host
+ * (macOS: an NSMenu; the agent: the painted popover), so no native request waits on menu
+ * tracking; each row presses `surface-<id>` for its tab.
  */
 export const tabMenuRows = (surface: Surface, surfaces: readonly Surface[], mute?: MuteRow): TabMenuRow[] =>
   tabContextMenuItems(surface, surfaces, mute).map(item => ({ id: item.id, label: item.label, disabled: item.disabled === true }));
@@ -128,12 +128,4 @@ export async function copyTabPath(client: T3Client, native: Native, surface: Sur
     if (result.copied === false) throw new Error('Clipboard API unavailable.');
     pushToast(client, { kind: 'success', title: 'Path copied', description: surface.path });
   } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: error instanceof Error && error.message ? error.message : 'Clipboard API unavailable.' }); }
-}
-export async function showTabMenu(client: T3Client, native: Native, state: PanelState, id: string, keyboard = false, mute?: MuteRow): Promise<string> {
-  const surface = state.surfaces.find(entry => entry.id === id);
-  if (!surface) return '';
-  const items = tabContextMenuItems(surface, state.surfaces, mute);
-  const result = obj(await client.restAccess(native).call({ op: 'contextMenu', items, ...(keyboard ? { anchor: 'focus' } : {}) }));
-  const action = str(result.clicked);
-  return items.some(item => item.id === action && !item.disabled) ? action : '';
 }
