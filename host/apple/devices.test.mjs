@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, wr
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { crashReports, crashSummary, crashWatch, withDisplay, phoneBridge } from './devices.mjs';
+import { crashReports, crashSummary, crashWatch, withDisplay, phoneBridge, softwareKeyboard } from './devices.mjs';
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
@@ -57,6 +57,30 @@ async function withFakeSimctl(displays, body) {
   }
 }
 const reads = (dir) => { try { return Number(readFileSync(resolve(dir, 'n'), 'utf8')); } catch { return 0; } };
+
+test('a simulator that minimizes its software keyboard has the key cleared; one that does not is left alone', () => {
+  const home = mkdtempSync(resolve(tmpdir(), 'devices-kb-')), bin = mkdtempSync(resolve(tmpdir(), 'devices-kb-bin-'));
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR }, calls = resolve(bin, 'calls');
+  try {
+    writeFileSync(resolve(bin, 'xcrun'), `#!/bin/sh\necho "$@" >> '${calls}'\n`);
+    chmodSync(resolve(bin, 'xcrun'), 0o755);
+    process.env.PATH = `${bin}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    const prefs = resolve(home, 'Library/Developer/CoreSimulator/Devices/U1/data/Library/Preferences');
+    expect(softwareKeyboard('U1', home)).toBe(false); // no preferences yet: a fresh device
+    mkdirSync(prefs, { recursive: true });
+    writeFileSync(resolve(prefs, 'com.apple.keyboard.preferences.plist'), 'bplist00 DictationLanguagesEnabled');
+    expect(softwareKeyboard('U1', home)).toBe(false);
+    expect(() => readFileSync(calls)).toThrow();
+    writeFileSync(resolve(prefs, 'com.apple.keyboard.preferences.plist'), 'bplist00 AutomaticMinimizationEnabled');
+    expect(softwareKeyboard('U1', home)).toBe(true);
+    expect(readFileSync(calls, 'utf8').trim()).toBe('simctl spawn U1 defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled');
+  } finally {
+    process.env.PATH = saved.PATH;
+    if (saved.DEVELOPER_DIR === undefined) delete process.env.DEVELOPER_DIR;
+    rmSync(home, { recursive: true, force: true }); rmSync(bin, { recursive: true, force: true });
+  }
+});
 
 // 8x16 pixels at scale 2: a 4x8-point window. The app drew it red; the display shows the status bar (rows 0-1) green,
 // glass over rows 12-15 blue, and the keyboard, when there is one, from row 8 down. `paint` changes rows of a picture.

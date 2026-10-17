@@ -208,6 +208,17 @@ export function installedAlready(udid, id, bundle, executable) {
   } catch { return false; }
 }
 
+/** Let a simulator raise its software keyboard for a focused field, as a person's iPhone does. Once a Device Hub has
+ *  attached the Mac's keyboard, the device keeps `com.apple.keyboard.preferences` `AutomaticMinimizationEnabled = 1`
+ *  and minimizes the software keyboard behind it from then on (LLP 1078, "The pushed route's keyboard, found"): a
+ *  drive's screenshot of a focused field then shows none, unlike the device. Cleared before the app launches; a device
+ *  without the key costs a file read. */
+export function softwareKeyboard(udid, home = homedir()) {
+  let plist;
+  try { plist = readFileSync(resolve(home, 'Library/Developer/CoreSimulator/Devices', udid, 'data/Library/Preferences/com.apple.keyboard.preferences.plist')); } catch { return false; }
+  if (!plist.includes('AutomaticMinimizationEnabled')) return false;
+  return read('xcrun', ['simctl', 'spawn', udid, 'defaults', 'delete', 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled'], { timeout: 20000 }).status === 0;
+}
 /** Crash reports macOS wrote since `since` (ms) for an executable named
  *  `name`, newest first — a simulator app crashes as a Mac process, reported
  *  here. The name is all the file names carry, and every simulator's copy of

@@ -16,18 +16,18 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
   "type add-title Milk" "tap add-save" "clock data" "clock settle" "screenshot .exact/ios-saved.png window"
 ```
 
-**Matching a port's screens to the original's screenshots** needs no AXe or `simctl io`: `bun
+**Matching a port's screens to the original's screenshots** (no AXe needed): `bun
 exact.mjs agent ios --touch platform … "clock settle" "screenshot .exact/x.png compare ref/x.png"`
-captures as a device does (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
+captures as a device does, a focused field's keyboard too (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
 says where they differ: each region by node, where its content moved, a box measured in both
-(drawn in `x.diff.png`). Each tap is a real touch: it picks from a pull-down menu,
-switches tabs, and reaches a native module's controls. A context menu, a row scrolled out of its
+(in `x.diff.png`). Each tap is a real touch: it picks from a pull-down menu,
+switches tabs, reaches a native module's controls. A context menu, a row scrolled out of its
 menu and an alert's buttons take a drive without the flag.
 
 | Flag or op | What it does |
 | --- | --- |
 | `check`, `check dark`, `check both` | What is wrong with the screen, a line each: clipped text, a covered control, a small target, low contrast. |
-| `--chrome agent` | Opt-in: paints the authored header and tablist. |
+| `--chrome agent` | Paints the authored header and tablist. |
 | `--scale 3` | Screenshots at the device's pixels (default 1 a point). |
 | `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert, sheet or menu is up. `screenshot <f> over 600 every 50 window` films it. |
 | `tap <id> down` `tap hold <ms>` `tap up` | Press and hold (hold to charge): `pointerdown`, the clock moved `<ms>`, `pointerup`. |

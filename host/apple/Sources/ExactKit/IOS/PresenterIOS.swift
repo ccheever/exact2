@@ -193,7 +193,7 @@ package final class Presenter {
         // tvOS has no keyboard layout guide.
         return nil
         #else
-        guard hasKeyboardEditor || keyboardInset > 0 else { return nil }
+        guard hasKeyboardEditor || keyboardInset > 0 || menus.promptEditing /* UIKit's field, in a prompt */ else { return nil }
         let guide = container.keyboardLayoutGuide.layoutFrame
         return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
         #endif

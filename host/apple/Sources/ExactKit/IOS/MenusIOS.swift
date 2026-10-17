@@ -51,6 +51,8 @@ final class MenuHost {
             return self?.agentOpen.values.contains { $0 === entry } == true
         }
     }
+    /// Whether an open prompt's field (UIKit's, in the alert) is being edited.
+    var promptEditing: Bool { confirmation?.fields.contains { $0.editing } == true }
     var nativeConfirmation: NodeView? { pendingConfirmation?.popover ?? (confirmation?.finishing == false ? confirmation?.popover : nil) }
     /// How many popovers the agent has opened: each one's place in the stack.
     private var opened = 0
