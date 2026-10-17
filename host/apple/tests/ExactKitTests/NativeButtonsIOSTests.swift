@@ -74,6 +74,43 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
     }
 
+    /// A checkbox's or switch's own `press` runs before its `change`, as
+    /// HTML's `click` precedes them; an ancestor's does not.
+    func testACheckboxsOwnPressRunsBeforeItsChange() throws {
+        for kind in ["checkbox", "switch"] {
+            let props = ["type": "checkbox", "accessibilityRole": kind]
+            let p = presenter(box(1, handlers: ["press"]) + [["op": "create", "id": 2, "kind": "control", "props": props, "handlers": ["press", "change"], "style": [:]],
+                                                             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 140.0, "h": 30.0],
+                                                             ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+            var heard: [String] = []
+            p.onPress = { heard.append("press \($0)") }
+            p.onChecked = { id, on in heard.append("checked \(id) \(on)") }
+            func toggle() throws {
+                let control = try XCTUnwrap(p.controls.controls[2], kind)
+                if let toggle = control as? UISwitch { toggle.setOn(!toggle.isOn, animated: false) }
+                else { try XCTUnwrap(control as? ExactCheckbox, kind).isOn.toggle() }
+                // Target-action goes through UIApplication, which a bare test run has none of.
+                for target in control.allTargets {
+                    for action in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] {
+                        _ = (target.base as AnyObject).perform(NSSelectorFromString(action), with: control)
+                    }
+                }
+            }
+            try toggle()
+            XCTAssertEqual(heard, ["press 2", "checked 2 true"], kind)
+            p.views[2]?.handlers = ["change"]
+            try toggle()
+            XCTAssertEqual(heard, ["press 2", "checked 2 true", "checked 2 false"], "\(kind): no press of its own, none bubbles")
+            // Bound and unchanged, its press's batch syncs the control back:
+            // the toggle reported is still the one the touch made.
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "false"]]]))
+            p.views[2]?.handlers = ["press", "change"]
+            p.onPress = { heard.append("press \($0)"); p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "false"]]])) }
+            try toggle()
+            XCTAssertEqual(heard.suffix(2), ["press 2", "checked 2 true"], "\(kind): bound")
+        }
+    }
+
     private func face(_ title: String?, symbol: String? = nil, style: String = "bordered", ios: String = "bordered") -> ButtonFace {
         var f = ButtonFace()
         f.title = title; f.symbol = symbol; f.style = style; f.ios = ios; f.iosBefore26 = "bordered"
