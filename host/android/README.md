@@ -5,7 +5,8 @@ The Kotlin side of Android's Canvas host (LLP 1076 §3.3), in the repository by 
 An app on Android is its Rust, built for `aarch64-linux-android` (`host/linux`: the runner, the kernel, layout, text
 and the paint walk), and this. The Rust records what it paints as an op stream (`host/linux/src/canvas.rs`). The
 reader replays that stream onto Android's own Canvas: a `RenderNode` for each row, scroller and animated layer,
-hardware bitmaps for pictures, `drawGlyphs` for text the Rust has shaped. The two meet at `dev.exact.canvas.Native`,
+hardware bitmaps for pictures, `drawGlyphs` for text the Rust has shaped (below Android 12, the glyphs' outlines:
+"Android 10 and 11", below). The two meet at `dev.exact.canvas.Native`,
 whose methods `exact_linux::canvas_jni!(Data)` defines for an app (`host/linux/src/canvas/jni.rs`). Nothing versions
 the stream or those calls, so both sides are built from one commit.
 
@@ -15,8 +16,8 @@ the stream or those calls, so both sides are built from one commit.
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
-minSdk 31, targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` only. Views, with no Compose,
-AppCompat or Material library.
+minSdk 29 (Android 10), targetSdk 36, compileSdk 37.2, AGP 9.4.1, Kotlin 2.4.10, `arm64-v8a` only. Views, with no
+Compose, AppCompat or Material library.
 
 ## Where it came from
 
@@ -1010,6 +1011,48 @@ table (LLP 1115.000 D14.4).
   none was tried.
 - The reader's `performAction` (click, long click, scroll, set progress) was reached on the phone only for
   accessibility focus; the presenter's side of each is tested (`presenter/access_tests.rs`).
+
+## Android 10 and 11
+
+The floor is Android 10 (API 29): the shell and the reader at minSdk 29, the app's library at the NDK's API 29. A
+call of a later release is behind a `Build.VERSION.SDK_INT` check (lint's `NewApi` finds none unguarded), and a class
+that names a later release's types is a nested class an older release never loads (`ExactActivity.Back`, `Splash`).
+What Android 10 and 11 do in its place is in `Legacy.kt` and `LegacyGlyphs.kt`, and on the Rust side in
+`host/linux/src/canvas/legacy.rs`; a newer release never enters them.
+
+| | Android 12 and later | Android 10 and 11 |
+|---|---|---|
+| A glyph run | `Canvas.drawGlyphs` (API 31) | each glyph's outline, which the Rust reads with swash from the file the reader's `Font` maps (`LegacyGlyphs.glyph`, a JNI call once per face and glyph), kept as a `Path` in ems; a run's outlines are filled as one path with the run's paint. A colour glyph is its image: a bitmap strike's (Noto Color Emoji's) at its own size, a COLR version 0 glyph's at 128 pixels an em; the 128 most recently drawn are kept. A COLRv1 glyph is its plain outline |
+| JPEG, GIF and WebP | `AImageDecoder` (API 30), looked up at run time | `ImageDecoder` (API 28), the same decoder's Java face, asked for the same size and crop (`Legacy.decode`, from the Rust's decode threads) |
+| Edge to edge, the bars' icons | `setDecorFitsSystemWindows`, `WindowInsetsController` (API 30) | `systemUiVisibility` flags and the cutout's short edges |
+| Insets, the window's size | `WindowInsets.Type`, `currentWindowMetrics` (API 30) | the root's system window, stable, cutout and gesture insets; `Display.getRealSize` |
+| The keyboard, accessibility's nodes and events, a node's value | API 30's | `InputMethodManager`; `obtain()`; the value in its description |
+| Haptics `CONFIRM`, `REJECT` | API 30's | the nearest older constants, as AndroidX's compat falls back |
+| The device's colours | dynamic colour (API 31) | Material 3's baseline scheme |
+| A radial gradient with two circles | API 31's constructor | the end circle, the start circle's radius folded into the stops when they share a centre |
+| Back | `OnBackInvokedCallback` (API 33) | `onBackPressed` (also on Android 12) |
+
+Not there below Android 12: a backdrop's blur (`RenderEffect`; what is behind shows unfiltered, as a hand-built
+Android 10 app has no blur either), the overscroll stretch and its distance (`EdgeEffect`'s, API 31; Android 10's
+glow is not drawn, so an end shows nothing), Bold Text (the setting is Android 12's) and the starting window's quick
+exit. A glyph's outline is filled as a path, unhinted and at its exact position, where `drawGlyphs` draws it from
+HWUI's glyph atlas.
+
+Tried on 2026-10-17 on a Galaxy Note 9 (Android 10, Adreno 630) against a Pixel 5 (Android 14) showing the same
+screen with `drawGlyphs` and `AImageDecoder`: Noto Serif's fi, fl, ffi and ffl ligatures, Arabic's joined forms,
+Devanagari's conjuncts and reph, a synthesized oblique, and emoji with a skin tone, a flag and a family sequence draw
+the glyphs `drawGlyphs` draws, and a JPEG, a WebP and two animated GIFs decode, whole and cropped. With both
+fallbacks forced on the Pixel, the same screen's text differs from `drawGlyphs` only along glyph edges (0.5 to 3 %
+of a line's pixels), the outlines carrying 1 to 4 % more ink by coverage; its emoji are not drawn, since Android 13
+and later ship Noto Color Emoji as COLRv1 (Android 10 and 11 ship its CBDT build).
+
+What it costs Android 12 and later: Caltrain's release APK at minSdk 29 against the same tree without this work is
+10,578,583 bytes against 10,555,651 (+22,932, 0.2 %): `classes.dex` +17,604 (the checks, R8's outlines of the newer
+calls, `Legacy`, `LegacyGlyphs`), `libexactcanvas.so` +11,776 (5,070 compressed; `canvas/legacy.rs` and the run-time
+lookup of `AImageDecoder`) and `resources.arsc` +256. At run time a newer release pays the `SDK_INT` checks alone.
+
+Not tried: Android 11 (no device), and a TypeScript data module: the Android Hermes bundle is built at the NDK's API
+30 (LLP 1107 §4.1), and whether its archives link and load at API 29 is unknown.
 
 ## Still the benchmark's
 
