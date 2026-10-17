@@ -614,12 +614,12 @@ package final class Presenter {
     var inlineHoverTransition: UInt64 = 0
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
-    package func press(_ id: UInt32, held: String = "") {
+    package func press(_ id: UInt32, held: String = "", bubbled: Bool = false) {
         pressHeld = held; defer { pressHeld = "" }
-        if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
+        if let node = views[id], let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         let original = views[id]
         onPress?(id)
-        if let original, views[id] === original { menus.invoke(original) }
+        if let original, views[id] === original { menus.invoke(original, bubbled: bubbled) }
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires

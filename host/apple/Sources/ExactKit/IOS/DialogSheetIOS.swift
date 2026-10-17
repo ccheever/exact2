@@ -155,6 +155,13 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     /// A dialog's authored parent while it is in its sheet; nil for any other node.
     func authoredParent(of node: NodeView) -> UIView? { entries.first { $0.dialog === node }?.parent }
     func isOpen(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node && !$0.closing } }
+    func pressLifetime(of view: UIView) -> (() -> Bool)? {
+        guard let entry = entries.first(where: { $0.dialog === view }) else { return nil }
+        return { [weak self, weak entry] in
+            guard let entry, !entry.closing else { return false }
+            return self?.entries.contains { $0 === entry } == true
+        }
+    }
     /// The sheet a new presentation goes over, and the dialog in it: while
     /// one is up only shortcuts inside it are heard (Shortcuts.swift).
     var top: UIViewController? { entries.last { !$0.closing }?.controller }
@@ -229,13 +236,14 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     /// `close(id)`, or the dialog's own `command="close"` button: the sheet
-    /// leaves as UIKit dismisses one, and nothing is cancelled.
+    /// leaves as UIKit dismisses one, without sending a `cancel` event.
     func close(_ dialog: NodeView, animated: Bool = !ExactEnv.agentFreezes) {
         guard let entry = entries.first(where: { $0.dialog === dialog && !$0.closing }) else { return }
         entry.notifyClose = true
         dismiss(entry, animated: animated, cancelled: false)
     }
     private func dismiss(_ entry: Entry, animated: Bool, cancelled: Bool) {
+        if entry.dialog.pressContact?.responderContact?.routesBubbledPress == true { entry.dialog.cancelPressContact() }
         // A finger is taking it down already: UIKit's delegate ends it, and
         // should the finger let it back up, this closes it then.
         if entry.controller.isBeingDismissed, let coordinator = entry.controller.transitionCoordinator, coordinator.isInteractive {

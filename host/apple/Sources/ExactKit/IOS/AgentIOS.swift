@@ -551,6 +551,7 @@ extension Agent {
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           tapHitsControl(node, request: req),
            let activated = presenter.controls.activate(node) {
             if let unsupported = presenter.controls.unopened(node) { return unsupported }
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
@@ -604,8 +605,11 @@ extension Agent {
         // (`AgentAddressedTap.swift`).
         let plain = ["wheel", "hover", "contextmenu", "dblclick", "pinch", "x", "y"].allSatisfy { req[$0] == nil } && v.kind != "iframe"
         // A long press or a double tap at a point too: where its word is (LLP 1115.000 D11.6).
-        if plain || req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true, req["at"] != nil {
-            guard let point = (req["at"] as? [Double]).flatMap({ $0.count == 2 && $0.allSatisfy(\.isFinite) ? tapPoint(req, node: v) : nil }) else { return ["error": "tap at needs two finite numbers"] }
+        if req["x"] != nil || req["y"] != nil || req["at"] != nil && (plain || req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true) {
+            if req["at"] != nil {
+                guard let at = req["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) else { return ["error": "tap at needs two finite numbers"] }
+            }
+            guard let point = tapPoint(req, node: v), point.x.isFinite, point.y.isFinite else { return ["error": "tap needs finite coordinates"] }
             let whole = box(v)
             guard whole.contains(point) else { return ["error": "tap #\(v.id) at: (\(Agent.r2(point.x - whole.minX)), \(Agent.r2(point.y - whole.minY))) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
             b = CGRect(x: point.x, y: point.y, width: 0, height: 0)
@@ -736,6 +740,17 @@ extension Agent {
         return reply
     }
 
+    /// A control's padding follows the ordinary press path when a point is given.
+    private func tapHitsControl(_ node: NodeView, request: [String: Any]) -> Bool {
+        if ["at", "x", "y"].allSatisfy({ request[$0] == nil }) { return true }
+        if request["at"] != nil {
+            guard let at = request["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) else { return false }
+        }
+        guard let control = presenter.controls.controls[node.id], let point = tapPoint(request, node: node),
+              box(node).contains(point), let hit = node.window?.hitTest(windowPoint(point), with: nil) else { return false }
+        return hit === control || hit.isDescendant(of: control)
+    }
+
     /// What a finger at `p` (in the window) reaches, as `touchesEnded`
     /// resolves it (`AgentAddressedTap.swift`), nil where it would not land
     /// on `v` (covered, under the keyboard): an SVG
@@ -767,7 +782,10 @@ extension Agent {
             #else
             let takes = (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true
             #endif
-            if takes, let n = Agent.enclosing(cur).first { return .control(n) }
+            if takes, let n = Agent.enclosing(cur).first {
+                if n.takesPress { node = n; break }
+                return .control(n)
+            }
             at = cur.superview
         }
         guard let node, !node.inert else { return .nothing }
@@ -779,13 +797,13 @@ extension Agent {
         var up: UIView? = node
         while let cur = up {
             if let n = cur as? NodeView {
-                if n.disabled { return .blocked(n) }
-                if n.takesPress {
-                    let box = presenter.pressBox(of: n, from: node)
-                    return box.bounds.contains(box === n ? n.local(p) : box.convert(p, from: nil)) ? .node(n) : .nothing
+                if n.disabled || n.authoredInert { return .blocked(n) }
+                let box = presenter.pressBox(of: n, from: node)
+                if n.takesPress(bubbled: box !== n) {
+                    return box.bounds.contains((box as? NodeView)?.local(p) ?? box.convert(p, from: nil)) ? .node(n) : .nothing
                 }
             }
-            up = presenter.touchParent(of: cur)
+            up = presenter.listenerParent(of: cur)
         }
         return .nothing
     }

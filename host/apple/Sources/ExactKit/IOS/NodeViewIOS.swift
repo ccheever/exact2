@@ -14,6 +14,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The kernel's id; a parked view takes a new row's and a new incarnation (`NodePool`, LLP 1068 §4.9).
     package var id: UInt32
     var incarnation = NodePool.issue()
+    /// A captured bubbled press cannot survive detachment and reattachment.
+    var pressMoves: UInt64 = 0
     // Twice the kernel rank; transients never overwrite the authored answer.
     var rank: Int64 = 0
     var paintLifted = false
@@ -655,6 +657,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     package override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
@@ -1148,7 +1151,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// same authored parent, which is no reparenting.
     static var containerMoves = 0
     package override func didMoveToSuperview() {
-        if Self.containerMoves == 0 { cancelPressContact(reparenting: true) }
+        if Self.containerMoves == 0 { pressMoves &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
