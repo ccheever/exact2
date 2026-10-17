@@ -912,7 +912,8 @@ pixels show.
   or more apart in size or place is given at both sizes. No size is derived
   from a move, and none is given for an edge not found.
 - **The picture.** `<png>.diff.png`: the reference, the screen, and the
-  screen faded with what differs in red and the regions boxed.
+  screen faded with what differs in red and the regions boxed, each panel
+  labelled above it; the head line names them in that order.
 
 On the euxy port the four screens the judge marked down came out as the
 judge saw them: the note pads (`pad-57 (View "A2") [146,361 25×48]: 25×40 at

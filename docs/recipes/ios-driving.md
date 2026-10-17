@@ -20,7 +20,7 @@ bun exact.mjs agent ios --storage s1 "tap add-item" "clock settle" \
 exact.mjs agent ios --touch platform … "clock settle" "screenshot .exact/x.png compare ref/x.png"`
 captures as a device does, the keyboard too on a simulator it booted (status bar: `xcrun simctl status_bar <udid> override --time 9:41`) and
 says where they differ: each region by node, where its content moved, a box measured in both
-(in `x.diff.png`). Each tap is a real touch: it picks from a pull-down menu,
+(in `x.diff.png`, left to right: reference, screen, differences). Each tap is a real touch: it picks from a pull-down menu,
 switches tabs, reaches a native module's controls. A context menu, a row scrolled out of its
 menu and an alert's buttons take a drive without the flag.
 
@@ -37,7 +37,7 @@ menu and an alert's buttons take a drive without the flag.
 
 - Drive by `testId`, never by coordinates; on a bar button, search field, segment or tab
   it is the `accessibilityIdentifier`.
-- `tap` and `type` scroll a target out of view, or under a bar or the keyboard, into view first.
+- `tap` and `type` scroll their target into view first.
 - Without `--touch platform`, `tap <scroll or list> drag 0 -300` scrolls as a finger would, with
   no fling, past the screen too; any other drag is refused, naming the flag.
 - A tap on an alert's or action sheet's button returns once UIKit has dismissed it and the press
