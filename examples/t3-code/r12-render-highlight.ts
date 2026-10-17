@@ -126,6 +126,13 @@ const textKey = (lang: string, max: number, text: string) => `${lang}\u0000${max
 export const highlightPending = (): boolean => jobs.size > 0;
 /** How many times shikiTokens answered "not yet": a cache of highlight results checks it. */
 export let highlightDeferrals = 0;
+/** For an answer that starts now: whether a text waits for its tokens, or the answer painted one without them. The
+ *  second holds after that text's job has finished, while the answer's value still has the heuristic colours: the
+ *  shell asks for the Files panel's tokens before its last awaits, and a slice may finish the job during them. */
+export function highlightPendingSince(): () => boolean {
+  const deferrals = highlightDeferrals;
+  return () => jobs.size > 0 || highlightDeferrals !== deferrals;
+}
 
 function newJob(text: string, lang: string, max: number, key: string): Job {
   const lines = text.split(/\r\n|\r|\n/);
