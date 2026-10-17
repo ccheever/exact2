@@ -2627,3 +2627,30 @@ D12's runtime side, under every language's generated names.
   iOS simulator.
 - **Observe** doesn't follow Bold Text yet: colours don't depend on it. It comes with stage 6's
   `font` accessor.
+
+### After stage 5's commits: one retention question for `propose` and the dev loops (`9aa5bfd4f`..`e35fd9d9c`)
+
+`propose` judged its own design shape, which counts every token and ignores `when` lines, so it
+classed every `add-token` as `rebuild` and a first `when` as `live`. The dev loops already decided
+from the compiled plan's structure, which follows retention. There is now one predicate,
+`exact_tamber::Retention::keeps` (D7). The compiler keeps tokens by it, and `propose`'s class
+compares the retained shape: axes, dials, and each kept token's name, kind, role, fixedness,
+variance, per-tuple accent flags, and any value carrying a platform `var`.
+- An app with generated bindings (bindable) rebuilds on `add-token` and on a first `when`.
+- A plain app's unnamed `add-token` is `live`, since nothing changes.
+
+### Stage 5's gate: met (2026-10-17; the run is `~/x2theme/stage5-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A native module in the sample host draws with `ExactTamber(view).color(…)` and follows `setMode`, a pin above it, a Dynamic Type change and the live table | **Met** on the iOS simulator and the Mac, live table included. Kotlin on the `x2-android` emulator follows `setMode`, the pin and the scheme. |
+| Two embedded sessions with different designs answer differently, role overrides included, on one thread, with no journal line | **Met** by tests. |
+| A role-override value edit reaches the clone live on iOS, the Mac and the web, on both loops | **Met**, the JS loop's page included (re-run with the clone's busy-loop fix). |
+| A TypeScript data module returning an unknown token fails `tsc` | **Met.** |
+| A DTCG export re-imported unedited proposes no operations, on theme-fixture and the clone | **Met:** 0 operations on the real clone (72 tokens), and one changed value gives one `set-token`. |
+| Expose, the readers and an app with no design are unchanged | **Met** by plan contents. |
+
+**Known limit:** the Android Canvas host joins no dev loop, so it has no live table and no build
+channel (queued).
+
+**Stage 5 is closed.**
