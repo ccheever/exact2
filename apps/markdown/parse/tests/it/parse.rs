@@ -52,8 +52,12 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
         fields(&markdown_parse::value::block(usize::MAX, &doc.blocks[0]))[0].as_str(),
         Some(usize::MAX.to_string().as_str())
     );
+    // With no table in it, the reader's owned conversion is the same value.
     let encoded = markdown_parse::value::blocks(&doc).to_bytes();
-    assert_eq!(markdown_parse::value::into_blocks(doc).to_bytes(), encoded);
+    assert_eq!(
+        markdown_parse::value::into_blocks_with_tables(doc).to_bytes(),
+        encoded
+    );
 }
 
 #[test]
@@ -96,7 +100,10 @@ fn document_string_sharing_preserves_styles_links_and_indices() {
             .map(|(i, b)| markdown_parse::value::block(i, b))
             .collect(),
     );
-    assert_eq!(markdown_parse::value::into_blocks(doc), expected);
+    assert_eq!(
+        markdown_parse::value::into_blocks_with_tables(doc),
+        expected
+    );
 }
 
 #[test]
@@ -213,7 +220,7 @@ fn the_readers_blocks_make_each_table_one_block_of_the_headers_columns() {
     let doc = here(
         "Before.\n\n| A | B | C |\n| - | - | - |\n| 1 |\n| 2 | 3 | 4 | 5 |\n\n| x | y | z |\n| - | - | - |\n| p | q | r |\n\nAfter.\n",
     );
-    let value = markdown_parse::value::into_blocks(doc);
+    let value = markdown_parse::value::into_blocks_with_tables(doc);
     let blocks = fields(&value);
     let kinds: Vec<_> = blocks
         .iter()
