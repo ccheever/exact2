@@ -381,6 +381,59 @@ fn attribute_lengths_keep_shared_derive_context() {
 }
 
 #[test]
+fn attribute_lengths_bound_shared_derive_work() {
+    let mut failures = Vec::new();
+    for choices in [true, false] {
+        let mut source = String::from("component A\n  state on = true\n  view\n    svg\n      Child(on=on)\ncomponent Child\n  props\n    on: bool\n");
+        source.push_str(if choices {
+            "  derive d0 = \"1px\"\n"
+        } else {
+            "  derive d0 = \"\"\n"
+        });
+        for i in 1..=30 {
+            let prev = i - 1;
+            let value = if choices {
+                format!("(on ? d{prev} : d{prev})")
+            } else {
+                format!("(d{prev} + d{prev})")
+            };
+            source.push_str(&format!("  derive d{i} = {value}\n"));
+        }
+        source.push_str("  view\n    line x1=d30\n");
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = contract::compile(&source)
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+            let _ = send.send(result);
+        });
+        match receive.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(Ok(())) => {}
+            result => failures.push(format!("choices={choices}: {result:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn attribute_lengths_keep_marker_keywords_with_unknown_padding() {
+    let mut failures = Vec::new();
+    for (attr, a, b) in [("refX", "left", "right"), ("refY", "top", "bottom")] {
+        for value in [
+            format!("`${{on ? \"{a}\" : \"{b}\"}} ${{padding}}`"),
+            format!("`${{padding}} ${{on ? \"{a}\" : \"{b}\"}}`"),
+            format!("`${{padding}} ${{on ? \"{a}\" : \"{b}\"}} ${{padding}}`"),
+        ] {
+            let src = format!("component A\n  state on = true\n  state padding = \"\"\n  view\n    svg\n      marker {attr}={value}\n");
+            if let Err(e) = contract::compile(&src) {
+                failures.push(format!("{attr}={value}: {e}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn attribute_lengths_refuse_finished_bare_exponents() {
     let mut failures = Vec::new();
     for unit in ["e", "E"] {
