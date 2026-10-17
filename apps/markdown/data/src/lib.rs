@@ -90,14 +90,21 @@ impl Markdown {
 
     /// `shape Document`: the file, what is beside it, and any refusal.
     fn value(path: &str, doc: Document, message: &str, siblings: Value) -> Value {
+        let title = Value::str(&doc.title);
+        // A table is one block here, so the count is the list's.
+        let blocks = markdown_parse::value::into_blocks(doc);
+        let count = match &blocks {
+            Value::List(items) => items.len(),
+            _ => 0,
+        };
         Value::record(vec![
             Value::str(path),
             Value::str(&name_of(path)),
-            Value::str(&doc.title),
+            title,
             Value::str(message),
             Value::Bool(!message.is_empty()),
-            Value::Number(doc.blocks.len() as f64),
-            markdown_parse::value::into_blocks(doc),
+            Value::Number(count as f64),
+            blocks,
             siblings,
         ])
     }

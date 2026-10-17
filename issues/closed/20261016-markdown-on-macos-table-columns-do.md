@@ -1,6 +1,7 @@
 # Markdown on macOS: table columns do not line up and the header row overflows its column
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The kernel agreed with Chrome: a row of flex: 1, min-width: 0 cells gives equal columns whatever they hold, so words spilled into the next column and no column fit its content. apps/markdown now draws a pipe table as one block and one CSS grid (repeat(n, auto)) inside a sideways scroller, as a browser's GFM table on GitHub; apps/markdown/data/tests/table.rs holds it.
 **Systems:** apps/markdown, kernel flex layout, host/apple macOS text measurement
 **Author:** Charlie Cheever
 **Date:** 2026-10-16
