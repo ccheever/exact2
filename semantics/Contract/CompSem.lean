@@ -633,14 +633,16 @@ def rootEnv (p : CProgram) (slots : List (String × Value)) (st : Settled) (now 
   { prog := rootProgram p, slots, derives := st.derives, resources := st.resources, now }
 
 /-- Render the root's view against the root's slots and settled values,
-keeping the instances `prev` holds. -/
+keeping the instances `prev` holds; `every` when the host builds every tab
+panel (`Oracle.everyTab`). -/
 def renderRoot (p : CProgram) (slots : List (String × Value)) (st : Settled) (now : F64)
-    (prev : Store) (view : List CVNode := []) : Result (List CVNode × Store) :=
+    (prev : Store) (view : List CVNode := []) (every : Bool := false) :
+    Result (List CVNode × Store) :=
   let env : CEnv := { prog := p, root := rootEnv p slots st now, store := [] }
   crenderTabs fuel {
     env, prev, frame := .root, comp := p.root.name, path := [],
     provides := p.root.provides.map fun (x, e) => (x, e, .root, []),
-    fill := .none, tabs := { opened := Tabs.visited (ctabIndex view) } }
+    fill := .none, tabs := { opened := Tabs.visited (ctabIndex view), every } }
 
 /-- The declared type of an instance's state. -/
 def instSlotTy (p : CProgram) (c x : String) : Ty :=
@@ -686,7 +688,7 @@ def crunAction (p : CProgram) (o : Oracle) (c : CConfig) (f : Frame) (name : Str
         match settle rp o slots c.now c.settled fx.refreshes with
         | .error e => refuse e
         | .ok st =>
-          match renderRoot p slots st c.now store c.view with
+          match renderRoot p slots st c.now store c.view o.everyTab with
           | .ok (view, live) =>
             ({ c with slots, settled := st, store := live, view,
                       commands := c.commands ++ hostCommands fx.commands,
@@ -713,7 +715,7 @@ def cboot (p : CProgram) (o : Oracle) : CConfig × Outcome :=
       match settle rp o slots 0 with
       | .error e => (empty, .refused e)
       | .ok st =>
-        match renderRoot p slots st 0 [] with
+        match renderRoot p slots st 0 [] [] o.everyTab with
         | .ok (view, live) => ({ slots, settled := st, store := live, view, now := 0, timers }, .ok)
         | .error e => (empty, .refused e)
 

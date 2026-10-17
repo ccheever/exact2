@@ -804,8 +804,14 @@ Visited panels retain their contents and state until removed. The expander
 puts a panel's contents in one arm, so component state initializes when
 that panel first opens; a virtualized panel keeps its `for` as the owner.
 Both interpreters leave an unopened panel's descendants out of the tree,
-so they cannot be observed or receive events. Reload and prerender's
-`build_every_tab` are not modelled.
+so they cannot be observed or receive events. A prerendered page's host
+builds every panel from boot on (`Runner::build_every_tab`): the oracle's
+`everyTab` (`every-tab` in its text) opens every panel as it is made, and
+each corpus case with a `"tabpanel"` runs again as `<name> (prerendered)`
+on such a host, with its events and no `expect`s (the JS driver boots the
+agent's way, so the variant is outside the JS target). A reload, and the
+panel state it carries (`carry_panels`), are not modelled: the semantics
+has no reload.
 
 Presentation attributes are carried in the embedding but not evaluated,
 except the six attributes tab selection reads (`role`, `id`,

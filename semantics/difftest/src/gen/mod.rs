@@ -91,6 +91,7 @@ pub fn case(seed: u64, size: &Size) -> Case {
         events,
         path: None,
         stored: true,
+        prerendered: false,
     }
 }
 

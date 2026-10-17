@@ -185,6 +185,10 @@ structure Oracle where
   kept value, by the state's name, as the host read it before boot — the
   device's, like every answer here. A fresh install's is empty. -/
   stored : List (String × Value) := []
+  /-- The host built every tab panel at boot and builds each as it is made
+  (LLP 1075.003 §9.14: a page rendered ahead of its runtime, which the
+  runtime adopts whole; `Runner::build_every_tab`). -/
+  everyTab : Bool := false
   deriving Inhabited
 
 /-- The differential oracle's keys (`difftest/src/oracle.rs`): all NaN
@@ -576,7 +580,8 @@ def update (p : Program) (o : Oracle) (slots : List (String × Value)) (store : 
     Result (Settled × Result (List VNode × RowStore)) := do
   let st ← settle p o slots now prev force
   let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
-  .ok (st, renderTabs fuel { env, store, tabs := { opened := Tabs.visited (tabIndex view) } })
+  .ok (st, renderTabs fuel
+    { env, store, tabs := { opened := Tabs.visited (tabIndex view), every := o.everyTab } })
 
 /-- Whether the router slot, if the program has one, holds a valid router
 (`Route.routerOf`). -/
@@ -993,7 +998,7 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
       | .error e => (empty, .refused e)
       | .ok timers =>
       let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
-      match renderTabs fuel { env, store := [] } with
+      match renderTabs fuel { env, store := [], tabs := { every := o.everyTab } } with
       | .ok (view, live) =>
         ({ slots, settled := st, store := live, view, now := 0, timers }, .ok)
       -- A view that fails to render at boot fails the boot: there is no

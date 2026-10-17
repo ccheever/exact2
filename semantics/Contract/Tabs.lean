@@ -46,6 +46,9 @@ structure TabCx where
   /-- The nearest ancestor binding `navigationKey` also binds `navigationBack`. -/
   tabs : Bool := false
   opened : List TabId := []
+  /-- Every panel is built as it is made (a page rendered ahead of its
+  runtime: `Runner::build_every_tab`), so none waits. -/
+  every : Bool := false
   deriving Inhabited
 
 def TabCx.enter (cx : TabCx) (key : Value := .unit) (dup : Nat := 0) : TabCx :=
@@ -57,7 +60,8 @@ def TabCx.element (cx : TabCx) (props : List (String × Expr))
     (values : List (String × Value)) : TabInfo :=
   let path := (cx.enter).path
   let panel := cx.tabs && ((lookupField "role" props).map tabLiteral matches .some (.str "tabpanel"))
-  { path, parent := cx.parent, props := values, panel, opened := !panel || cx.opened.contains path }
+  { path, parent := cx.parent, props := values, panel,
+    opened := !panel || cx.every || cx.opened.contains path }
 
 def TabCx.children (cx : TabCx) (props : List (String × Expr)) : TabCx :=
   let inner := cx.enter

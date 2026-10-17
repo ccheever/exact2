@@ -793,7 +793,7 @@ theorem boot_configOK {p : Program} (hp : WellTyped p) (o : Oracle) : ConfigOK p
     obtain ⟨rfl, -⟩ := hb
     have hrender := renderTabs_good hp (E := Legit) (fun _ h _ => h) fuel
       (cx := { env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 },
-               store := [] })
+               store := [], tabs := { every := o.everyTab } })
       ⟨rfl, hs, hpres, RowsOK.nil, hsettled.1, hsettled.2⟩ (.inr trivial) StoreOK.nil
     rw [hr] at hrender
     exact ⟨hs, .inl ⟨hpres, hcomp⟩, hsettled, hrender.2, hrender.1, htimers⟩

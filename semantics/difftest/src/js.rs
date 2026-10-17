@@ -138,6 +138,11 @@ struct Ready {
 /// Run `case` on the runner and write its half of a batch; the program goes
 /// to `dir` unless it is its own file, unchanged (its `use`s resolve there).
 fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
+    if case.prerendered {
+        return Err(JsVerdict::Outside(
+            "a prerendered page: the driver boots the agent's way, every tab panel waiting".into(),
+        ));
+    }
     let plan = compile(case).map_err(JsVerdict::Refused)?;
     let (rust, data) = observe::run(plan.clone(), Oracle::for_case(&plan, case), &case.events);
     let data = data.expect("the oracle comes back");
