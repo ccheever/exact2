@@ -27,8 +27,10 @@ use swash::scale::image::Content;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith};
 use swash::zeno::{Command, PathData};
 
-/// The size a COLR glyph's image is rendered at, pixels an em; a bitmap
-/// glyph's is its largest strike's.
+/// The size a COLR glyph's image is rendered at, pixels an em (a bitmap
+/// glyph's is its largest strike's), and an outline is scaled at before it
+/// is brought to ems: the scaler's points are 26.6 fixed point, a 64th of a
+/// pixel, so at one pixel an em they would be a 64th of an em.
 const COLOR_PPEM: f32 = 128.0;
 
 /// Every axis at its default: a scaler context keeps the last builder's
@@ -57,21 +59,22 @@ pub(crate) fn glyph_words(
 ) -> Option<Vec<i32>> {
     static SCALE: std::sync::Mutex<Option<ScaleContext>> = std::sync::Mutex::new(None);
     let font = swash::FontRef::from_index(data, index as usize)?;
-    let settings = || {
-        axes.iter()
-            .map(|&(tag, value)| swash::Setting { tag, value })
-    };
     let mut scale = SCALE.lock().unwrap_or_else(|e| e.into_inner());
-    let context = scale.get_or_insert_with(ScaleContext::new);
     let ppem = font
         .color_strikes()
         .find_by_largest_ppem(id)
         .map_or(COLOR_PPEM, |s| f32::from(s.ppem()));
-    let mut scaler = context
+    // One scaler for both: a colour image at `ppem`, else the outline at
+    // `ppem`, brought to ems below.
+    let mut scaler = scale
+        .get_or_insert_with(ScaleContext::new)
         .builder(font)
         .size(ppem)
         .normalized_coords(DEFAULT)
-        .variations(settings())
+        .variations(
+            axes.iter()
+                .map(|&(tag, value)| swash::Setting { tag, value }),
+        )
         .build();
     if scaler.has_color_outlines() || scaler.has_color_bitmaps() {
         let image = Render::new(&[
@@ -98,18 +101,13 @@ pub(crate) fn glyph_words(
             return Some(out);
         }
     }
-    let mut scaler = context
-        .builder(font)
-        .size(1.0)
-        .normalized_coords(DEFAULT)
-        .variations(settings())
-        .build();
     let outline = scaler.scale_outline(id)?;
+    let em = 1.0 / ppem;
     let mut out = vec![1, 0];
     let mut put = |verb: i32, points: &[swash::zeno::Vector]| {
         out.push(verb);
         for p in points {
-            out.extend([p.x.to_bits() as i32, (-p.y).to_bits() as i32]);
+            out.extend([(p.x * em).to_bits() as i32, (-p.y * em).to_bits() as i32]);
         }
     };
     let mut verbs = 0;
@@ -395,6 +393,9 @@ mod tests {
             ids.len()
         );
         let mut drawn = 0;
+        // Finer than the 64th of an em the scaler's 26.6 points would be at
+        // one pixel an em.
+        let mut fine = false;
         for id in ids {
             let w = glyph_words(&data, 0, &[], id).expect("a glyph of the face");
             assert_eq!(w[0], 1, "an outline");
@@ -409,12 +410,14 @@ mod tests {
                 for k in 0..n {
                     let v = f32::from_bits(w[i + 1 + k] as u32);
                     assert!(v.is_finite() && v.abs() < 4.0, "glyph {id}: {v}");
+                    fine |= (v * 64.0).fract() != 0.0;
                 }
                 i += 1 + n;
             }
             assert_eq!(i, w.len());
         }
         assert!(drawn > 100);
+        assert!(fine);
     }
 
     #[test]
