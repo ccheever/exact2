@@ -271,8 +271,10 @@ design.
 - `changed: [{file, token}]`: every token whose folded value differs, the dependents of a changed
   dial included, plus tokens added or removed;
 - `class`, `"live"` or `"rebuild"`: what the edit would do to running development builds (LLP
-  1121 D13), judged by the edit's whole closure (stage 4, commit 2). It is `live` when the
-  design's shape is unchanged and the app's synthetic tokens (its Contract rows' expressions over
+  1121 D13), judged by the edit's whole closure (stage 4, commit 2). It is `live` when the plan's
+  retained shape is unchanged (the axes, the dials, and each token the plan keeps by D7's retention
+  with its kind, its role and whether it varies by an app axis; see
+  [The live table](#the-live-table-llp-1121-stage-4-12)) and the app's synthetic tokens (its Contract rows' expressions over
   tokens) fold on both sides; a role override's value, or a token one reads, is a value like any
   other (stage 5). It is `rebuild` for structure (a role override gained or lost among it), a
   synthetic token gained, lost or left unfoldable, a profile colour, or an unknown closure (the
@@ -605,8 +607,13 @@ A write reaches every running development build at once. Release builds take non
   - **The structure** is the plan without its design values: every `theme` row's `value` and
     every slice's, a role override's included (stage 5), except a profile colour's, which hosts
     take at boot. The dev loop compares it; it does not go on the wire.
-  - **Anything else** still publishes a plan and reloads: a Contract edit, a token added, gone or
-    starting to vary, a role override gained or lost, a synthetic token gained or lost.
+  - **Anything else** still publishes a plan and reloads: a Contract edit, a token the plan keeps
+    added or gone, or one starting to vary, a role override gained or lost, a synthetic token
+    gained or lost. Which tokens the plan keeps is LLP 1121 D7's retention (`tamber::Retention`):
+    every role override, what the views may name, and in an app that can name a token outside its
+    views (a data or native module) every token, bounded by `exports`. `propose` and a
+    transaction's `class` ask the same retention, as the build last found it, so a plain app's
+    token no view names is `live` to add, and the dev loops publish nothing for it.
 - **The batch** is an event on the dev stream the builds already hold (`/__dev`; the JS target's
   `/__dev/page`): `{kind: "tamber-batch", structure, base, design, tokens: [{name, value,
   slices}]}`.

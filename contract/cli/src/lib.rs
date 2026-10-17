@@ -42,7 +42,7 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{design_path, with_design_text, Package, Source, SourceGraph};
+pub use sources::{code_beside, design_path, with_design_text, Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
 /// The app's strings tables (LLP 1060 D1), `None` for an app without a

@@ -192,8 +192,9 @@ struct Server {
     /// The client a `hello` named.
     client: Option<String>,
     /// The app's synthetic tokens (LLP 1121 D3), by the digest of the
-    /// Contract sources they were read from.
-    synthetic: Option<(String, Vec<(String, bool)>)>,
+    /// Contract sources they were read from, with the retention its plan
+    /// keeps tokens by (D7), read by the same build.
+    synthetic: Option<(String, Vec<(String, bool)>, Option<exact_tamber::Retention>)>,
 }
 
 /// Open without following a symbolic link at the last component.
@@ -356,6 +357,10 @@ impl Server {
             );
             key.push('\n');
         }
+        // Whether code beside the app can name a token outside its views
+        // (D7's retention: app.ts, a data crate, app.json's modules or
+        // hatches), which none of the sources say.
+        key.push_str(&format!("bindable {}\n", contract::code_beside(&root)));
         // What resolved the imports (package manifests, the paths tried).
         for path in &graph.consulted {
             key.push_str(&path.to_string_lossy());
@@ -373,18 +378,20 @@ impl Server {
                 key.push('\n');
             }
         }
-        if let Some((k, exprs)) = &self.synthetic {
+        if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
                 return Some(exprs.clone());
             }
         }
         let _ = contract_lower::synthetic_candidates();
+        let _ = contract_lower::retention();
         let built = contract::compile_path_all(&root, false);
         let exprs = contract_lower::synthetic_candidates();
+        let retention = contract_lower::retention();
         // A build that stopped before the design says nothing of them.
         let reached = built.is_ok() || !exprs.is_empty();
         reached.then(|| {
-            self.synthetic = Some((key, exprs.clone()));
+            self.synthetic = Some((key, exprs.clone(), retention));
             exprs
         })
     }
@@ -958,9 +965,13 @@ impl Server {
             .collect();
         let known = self.synthetic(snap);
         let exprs = known.clone().unwrap_or_default();
+        // The tokens the plan keeps (D7): an edit to one it does not keep
+        // (a plain app's token no view names) leaves the plan as it is.
+        let retention = self.synthetic.as_ref().and_then(|(_, _, r)| r.clone());
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
+            retention: retention.as_ref(),
         };
         let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})

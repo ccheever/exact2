@@ -853,9 +853,11 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
       // Again, cancelled.
       'tap cell-accent.fill-0-light', 'clock data', 'type branch-value #00ff00', 'type branch-value key Enter', 'clock data',
       'tap scrub-start', 'clock data', 'tree scrub', 'clock +6000 real', 'tap scrub-cancel', 'clock data', ...wait, 'state',
-      // A token added is structure: it rebuilds, and offers no scrub. (A
-      // role override's value is live since LLP 1121 stage 5.)
-      'type new-name accent.extra', 'type new-value #ff0000', 'tap add-token', 'clock data', 'state',
+      // A role override added is structure: it rebuilds, and offers no
+      // scrub. (Its value is live since LLP 1121 stage 5; a token no view
+      // names, in this copy with no data crate, is in no plan, so adding
+      // one is live: D7's retention.)
+      'type new-name -exact-label', 'type new-value #ff0000', 'tap add-token', 'clock data', 'state',
       'tree proposal', 'clock +6000 real',
     ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     let driveSaid = '';
@@ -908,9 +910,9 @@ test('T2: a scrub chosen on a token previews on the frame\'s build with no reloa
     expect(after.frame.design).toBe(before.frame.design);
     expect([cancelling.frame.id, after.frame.id]).toEqual([before.frame.id, before.frame.id]);
     expect(after.connects).toBe(before.connects);
-    // The token added: rebuilds, and Scrub live is not offered. (A set-token
-    // edit that rebuilds says why it has no scrub: the stub's contract test.
-    // Not applied: the dev loop sends a token no page reads as a batch.)
+    // The role override added: rebuilds, and Scrub live is not offered. (A
+    // set-token edit that rebuilds says why it has no scrub: the stub's
+    // contract test. Not applied.)
     expect(states[5].resources.proposal).toMatchObject({ ok: true, chip: 'rebuild' });
     expect(trees[4].nodes.some(n => n.props.testId === 'chip' && n.props.text === 'Rebuilds')).toBe(true);
     expect(trees[4].nodes.some(n => n.props.testId === 'scrub-start')).toBe(false);

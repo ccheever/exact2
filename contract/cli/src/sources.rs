@@ -222,7 +222,7 @@ fn design(
 /// data module (`app.ts`), a Rust data crate (`data/Cargo.toml`), or native
 /// modules or hatches its `app.json` declares. The driver's half of
 /// `contract_lower::names_tokens_outside_views`.
-fn code_beside(root: &Path) -> bool {
+pub fn code_beside(root: &Path) -> bool {
     let dir = root.parent().unwrap_or(Path::new("."));
     if dir.join("app.ts").is_file() || dir.join("data/Cargo.toml").is_file() {
         return true;

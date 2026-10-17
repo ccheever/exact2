@@ -147,6 +147,12 @@ fn reads_answer_on_the_clones_design() {
 #[test]
 fn a_transaction_writes_a_line_its_inverse_undoes_and_a_stale_digest_conflicts() {
     let dir = app("write", CLONE);
+    // A view naming one token, which the plan keeps (D7).
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"mute_banner\"\n",
+    )
+    .unwrap();
     let file = dir.join("app.tamber");
     let before = std::fs::read_to_string(&file).unwrap();
     let mut s = Serve::start(&dir, &[]);
@@ -188,7 +194,8 @@ fn a_transaction_writes_a_line_its_inverse_undoes_and_a_stale_digest_conflicts()
     let (conflict, _) = s.ask(json!({"method": "transaction", "client": "two", "files": {"app.tamber": seen}, "ops": [{"op": "set-token", "name": "contrast_0", "value": "#000000"}]}));
     assert_eq!(conflict["error"]["conflict"], true);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), after);
-    // A structural edit is a rebuild; the inverse gives the bytes back.
+    // A structural edit (a kept token renamed) is a rebuild; the inverse
+    // gives the bytes back.
     let (rename, _) = s.ask(json!({"method": "propose", "ops": [{"op": "rename-token", "from": "mute_banner", "to": "banner.mute"}]}));
     assert_eq!(rename["ok"]["class"], "rebuild");
     let (undone, _) =
@@ -654,10 +661,73 @@ fn propose_judges_live_or_rebuild_by_the_closure() {
     let (lost, _) =
         s.ask(json!({"method": "propose", "ops": [{"op": "remove-token", "name": "CanvasText"}]}));
     assert_eq!(lost["ok"]["class"], "rebuild", "{lost}");
-    // Structure.
+    // A token no view names, in an app with no bindings, is in no plan:
+    // adding it leaves the plan as it is (D7's retention).
     let (added, _) = s.ask(json!({"method": "propose", "ops": [{"op": "add-token", "name": "fresh", "value": "#123456"}]}));
-    assert_eq!(added["ok"]["class"], "rebuild", "{added}");
+    assert_eq!(added["ok"]["class"], "live", "{added}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `propose` classes by the plan's retained shape, as the compiler keeps
+/// tokens (D7) and the dev loops compare plans (theme2's ruling, LLP 1121
+/// stage 5): in an app that can name a token outside its views (a data
+/// crate) every token is kept, so adding one is structure; a first `when`
+/// on a kept token that did not vary is structure (the plan gains its
+/// slices); in a plain app, an unnamed token's add and first `when` are
+/// not.
+#[test]
+fn propose_classes_by_the_plans_retained_shape() {
+    let design = "tamber app
+
+axes
+  tone = warm | cool
+
+theme
+  ink = #111111
+  spare = #222222
+";
+    let view = "component App\n  view\n    text \"a\" color=\"ink\"\n";
+    let add = json!({"method": "propose", "ops": [{"op": "add-token", "name": "fresh", "value": "#123456"}]});
+    let when = |name: &str| json!({"method": "propose", "ops": [{"op": "set-token", "name": name, "when": [{"axis": "tone", "value": "cool"}], "value": "#0a7aff"}]});
+    // Bindable: data/Cargo.toml beside app.contract.
+    let bound = app("retained-bound", design);
+    std::fs::write(bound.join("app.contract"), view).unwrap();
+    std::fs::create_dir_all(bound.join("data")).unwrap();
+    std::fs::write(
+        bound.join("data/Cargo.toml"),
+        "[package]\nname = \"t-data\"\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&bound, &[]);
+    let (added, _) = s.ask(add.clone());
+    assert_eq!(added["ok"]["class"], "rebuild", "{added}");
+    let (varies, _) = s.ask(when("spare"));
+    assert_eq!(varies["ok"]["class"], "rebuild", "{varies}");
+    drop(s);
+    // Plain: the view names `ink` alone.
+    let plain = app("retained-plain", design);
+    std::fs::write(plain.join("app.contract"), view).unwrap();
+    let mut s = Serve::start(&plain, &[]);
+    let (added, _) = s.ask(add);
+    assert_eq!(added["ok"]["class"], "live", "{added}");
+    let (unkept, _) = s.ask(when("spare"));
+    assert_eq!(unkept["ok"]["class"], "live", "{unkept}");
+    let (kept, _) = s.ask(when("ink"));
+    assert_eq!(kept["ok"]["class"], "rebuild", "{kept}");
+    let (value, _) = s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#333333"}]}));
+    assert_eq!(value["ok"]["class"], "live", "{value}");
+    // A data crate added beside the running server: every token kept now.
+    std::fs::create_dir_all(plain.join("data")).unwrap();
+    std::fs::write(
+        plain.join("data/Cargo.toml"),
+        "[package]\nname = \"t-data\"\n",
+    )
+    .unwrap();
+    let (bound_now, _) = s.ask(json!({"method": "propose", "ops": [{"op": "add-token", "name": "fresh", "value": "#123456"}]}));
+    assert_eq!(bound_now["ok"]["class"], "rebuild", "{bound_now}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&bound);
+    let _ = std::fs::remove_dir_all(&plain);
 }
 
 /// A synthetic token that comes to fold is a rebuild (the plan's table

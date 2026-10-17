@@ -7,7 +7,7 @@ use super::role_named;
 use contract_syntax::{Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart};
 use exact_kernel::{StyleCodec, StyleId};
 use exact_tamber::Design;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 /// CSS's colour functions: an expression over a token is one of them.
 const COLOUR_FNS: &[&str] = &[
@@ -81,8 +81,9 @@ pub(crate) struct Said {
     /// A length or number row's value is computed and may be a string
     /// somewhere: any length or number token may be named (LLP 1121 D7).
     pub computed_measure: bool,
-    /// Every word the literals write that is a token's name.
-    words: HashSet<String>,
+    /// Every word the literals write, a token's name or not: what D7's
+    /// retention reads (`tamber::Retention`), for this design or an edit of it.
+    pub words: BTreeSet<String>,
 }
 
 impl Said {
@@ -160,8 +161,7 @@ impl Said {
             ..Default::default()
         };
         for (text, span, strict) in literals {
-            said.words
-                .extend(words(&text).filter(|w| is_token(w)).map(str::to_string));
+            said.words.extend(words(&text).map(str::to_string));
             for expr in expressions(&text, &is_token) {
                 match said.synthetic.iter_mut().find(|s| s.expr == expr) {
                     Some(s) if strict && !s.strict => {
@@ -178,12 +178,6 @@ impl Said {
             }
         }
         said
-    }
-
-    /// Whether the view names `name`: a token a literal writes, or a
-    /// synthetic token's expression.
-    pub(crate) fn names(&self, name: &str) -> bool {
-        self.words.contains(name) || self.synthetic.iter().any(|s| s.expr == name)
     }
 }
 

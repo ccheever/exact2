@@ -30,7 +30,7 @@ pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use ir::FORMAT;
 pub use measure::{Kind, Length, Value};
-pub use session::{plan, Class, Planned, Refused, Synthetic};
+pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
 
 /// A refusal, at a line and column of the source.
@@ -81,6 +81,9 @@ pub struct Role {
     pub system: bool,
     /// The light and dark pair every host shows until it reports its own.
     pub fallback: [String; 2],
+    /// The web draws it in the nearest accent (`--exact-accent`): a token
+    /// whose value is it is written so on the JS target.
+    pub accent: bool,
 }
 
 /// What a design is checked against: the schema's vocabulary, which the

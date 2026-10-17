@@ -88,6 +88,7 @@ pub fn vocab() -> tamber::Vocab {
                 name: r.name.into(),
                 system: roles::is_css_system(r),
                 fallback: [hex(r.light), hex(r.dark)],
+                accent: roles::web_accent(r),
             })
             .collect(),
         named_lengths: tamber::Vocab::named_lengths(
@@ -186,10 +187,20 @@ impl Lowerer<'_> {
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
         MEASURES.with(|m| m.borrow_mut().clear());
+        RETENTION.with(|r| *r.borrow_mut() = None);
         let Some((mut design, origin)) = self.design(file) else {
             return exact_kernel::style::theme::declarations([]);
         };
         let mut said = Said::of(file, root, &design);
+        // D7's retention, left for the design server before the design is
+        // folded, as it does not depend on the fold.
+        let retention = tamber::Retention {
+            bindable,
+            computed: said.computed,
+            computed_measure: said.computed_measure,
+            words: std::mem::take(&mut said.words),
+        };
+        RETENTION.with(|r| *r.borrow_mut() = Some(retention.clone()));
         CANDIDATES.with(|c| {
             *c.borrow_mut() = said
                 .synthetic
@@ -340,21 +351,12 @@ impl Lowerer<'_> {
         });
         // D7's retention: what the view may name, every role override, and
         // in an app that can name a token outside its views (generated
-        // bindings, D12) every token, or those its `exports` block lists.
-        let exported = |e: &ThemeEntry| {
-            folding.design.exports.as_ref().is_none_or(|exports| {
-                exports
-                    .iter()
-                    .any(|x| tamber::exports_names(&x.value, &e.name, e.role.as_deref()))
-            })
-        };
+        // bindings, D12) every token, or those its `exports` block lists;
+        // and each synthetic token its rows write. The design server's
+        // `propose` asks the same `Retention` (LLP 1121 stage 5).
         for e in &self.theme {
-            // A computed string may name any token of a kind its row reads.
-            let computed = match e.kind {
-                tamber::Kind::Color => said.computed,
-                _ => said.computed_measure,
-            };
-            if e.role.is_some() || computed || said.names(&e.name) || bindable && exported(e) {
+            let synthetic = said.synthetic.iter().any(|s| s.expr == e.name);
+            if synthetic || retention.keeps(&folding.design, &e.name, e.role.as_deref(), e.kind) {
                 let slices: Vec<&str> = e.slices.iter().map(String::as_str).collect();
                 self.b.theme_token(
                     &e.name,
@@ -586,6 +588,9 @@ thread_local! {
     /// The design's length and number tokens while its styles are lowered
     /// (LLP 1121 D3): each name, kind and distinct values over the tuples.
     static MEASURES: std::cell::RefCell<Vec<(String, tamber::Kind, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The retention the last design lowered on this thread kept its
+    /// tokens by (D7): what the design server classes an edit with.
+    static RETENTION: std::cell::RefCell<Option<tamber::Retention>> = const { std::cell::RefCell::new(None) };
 }
 
 /// The synthetic tokens the last build on this thread could have, folding
@@ -596,6 +601,12 @@ thread_local! {
 /// rebuild.
 pub fn synthetic_candidates() -> Vec<(String, bool)> {
     CANDIDATES.with(|c| std::mem::take(&mut *c.borrow_mut()))
+}
+
+/// The retention the last build on this thread kept its design's tokens by
+/// (D7), taken: none when it stopped before its design.
+pub fn retention() -> Option<tamber::Retention> {
+    RETENTION.with(|r| r.borrow_mut().take())
 }
 
 /// Bind `file`'s design's axes for the pins a pass checks before lowering
