@@ -6,9 +6,9 @@
 // the cover-root and inset invariants `smoke ios` checks; the Fold screen's
 // two panes exactly on the division's segments (one pane flat or closed);
 // `devicePosture` folded at 130° and 90° only; no control on the band between
-// the segments; keyboard, sheet, push and scroll state across a fold; the
-// two-session host's panes. A failed check leaves one screenshot of the app in
-// the run's directory.
+// the segments; keyboard, sheet, push and scroll state across a fold; no
+// sideways range in Reflow's scroller; the two-session host's panes. A failed
+// check leaves one screenshot of the app in the run's directory.
 //
 // Run by hand, like `smoke deploy`: it needs Xcode 27.1 beta and a Duo
 // simulator (`DEVELOPER_DIR`, `EXACT_SIM`), and the bundles built first:
@@ -606,6 +606,20 @@ async function suite({ open: openSession, check: record }, reset) {
         check(echo === `Draft so far: ${title} / ${draft}`, `${tag}: the draft is echoed on the Combinations screen: ${echo}`);
       });
     } catch (e) { check(false, `duo-lab: ${e.message}`); } finally { await s.close(); }
+    // Only under `--chrome platform` does UIKit's navigation bar take Reflow's scroller. It insets the scroller's top and
+    // bottom and must give it no sideways range, though the panels' status column is a side inset. The rest of the lab
+    // keeps the agent's chrome, whose authored header puts the Images list's top edge, its anchor, where the content
+    // shows. Images is not checked here: its list writes `overflow-x: hidden`, so the agent's wheel, like the web's,
+    // takes no sideways step there and cannot show a range.
+    const p = await open({ host: 'ios', app: 'duo-lab', chrome: 'platform' });
+    try {
+      await p.tap('tab-reflow'); await settle(p);
+      await eachPose(p, 'sideways', async (_f, tag) => {
+        await p.tap('reflow-scroll', { wheel: [400, 0] }); await settle(p);
+        const port = box(await p.layout(), 'reflow-scroll');
+        check(port?.sx === 0, `${tag}: Reflow's scroller has no sideways range under UIKit's bar; a sideways wheel moved it to ${port?.sx}`);
+      });
+    } catch (e) { check(false, `duo-lab under --chrome platform: ${e.message}`); } finally { await p.close(); }
   }
 
   // 4. The two-session sample host: both panes follow the pose.
