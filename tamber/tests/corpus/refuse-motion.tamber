@@ -15,3 +15,6 @@ theme
   colour.duration: duration = ink
   pixels: duration = 12px
   unknown: easing = bounce
+  steps.bogus: easing = steps(2, bogus)
+  spring.bad: easing = -exact-spring(-1, 26, 1)
+  linear.empty: easing = linear()

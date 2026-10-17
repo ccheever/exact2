@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "digest": "9ba6636a6a1132f0",
+  "digest": "c81004805a37a686",
   "name": "measures",
   "tuples": 2,
   "axes": [
@@ -33,7 +33,9 @@
     {"name": "space.double", "kind": "length", "role": null, "values": ["24px", "16px"], "entries": [0, 1], "dials": [], "fallback": ["24px", "24px"]},
     {"name": "space.grouped", "kind": "length", "role": null, "values": ["20px"], "entries": null, "dials": [], "fallback": ["20px", "20px"]},
     {"name": "tiny", "kind": "number", "role": null, "values": ["0.0000004"], "entries": null, "dials": [], "fallback": ["0.0000004", "0.0000004"]},
-    {"name": "ink", "kind": "color", "role": null, "values": ["#000000ff"], "entries": null, "dials": [], "fallback": ["#000000ff", "#000000ff"]}
+    {"name": "ink", "kind": "color", "role": null, "values": ["#000000ff"], "entries": null, "dials": [], "fallback": ["#000000ff", "#000000ff"]},
+    {"name": "ease", "kind": "length", "role": null, "values": ["12px"], "entries": null, "dials": [], "fallback": ["12px", "12px"]},
+    {"name": "space.alias.ease", "kind": "length", "role": null, "values": ["12px"], "entries": null, "dials": [], "fallback": ["12px", "12px"]}
   ],
   "exports": null
 }

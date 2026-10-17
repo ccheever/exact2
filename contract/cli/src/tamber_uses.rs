@@ -416,6 +416,93 @@ pub fn aliases<'a>(
     found
 }
 
+/// The sites a duration or easing token is read at (LLP 1121 D3): the build
+/// writes it into its rows, so the plan holds no name to find; each
+/// `.contract` source under `dir` is read for the token as a word of a
+/// motion row's literal (`transition=`, `animation=`, a timing longhand),
+/// with its span. `site` is null: the plan node is the row's, not the name's.
+pub fn motion_sites(dir: &std::path::Path, token: &str) -> Vec<Value> {
+    fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if path.is_dir()
+                && !name.starts_with('.')
+                && !matches!(name.as_str(), "target" | "node_modules")
+            {
+                sources(&path, out);
+            } else if name.ends_with(".contract") {
+                out.push(path);
+            }
+        }
+    }
+    const ROWS: &[&str] = &[
+        "transition",
+        "-exact-layout-transition",
+        "animation",
+        "-exact-exit-animation",
+        "transition-duration",
+        "transition-delay",
+        "transition-timing-function",
+        "animation-duration",
+        "animation-delay",
+        "animation-timing-function",
+    ];
+    let word = |c: char| c.is_ascii_alphanumeric() || "-_.".contains(c);
+    let mut files = Vec::new();
+    sources(dir, &mut files);
+    files.sort();
+    let mut out = Vec::new();
+    for path in files {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let shown = path
+            .strip_prefix(dir)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        for (n, line) in text.lines().enumerate() {
+            for row in ROWS {
+                let mut from = 0;
+                while let Some(at) = line[from..].find(&format!("{row}=")) {
+                    let start = from + at;
+                    from = start + row.len() + 1;
+                    // The attribute's own name, whole.
+                    if start > 0 && line[..start].ends_with(word) {
+                        continue;
+                    }
+                    let value = &line[from..];
+                    let Some(quote) = value.chars().next().filter(|c| *c == '"' || *c == '(')
+                    else {
+                        continue;
+                    };
+                    let end = if quote == '"' {
+                        value[1..].find('"').map_or(value.len(), |e| e + 2)
+                    } else {
+                        value.find(')').map_or(value.len(), |e| e + 1)
+                    };
+                    let mut at = 0;
+                    while let Some(found) = value[at..end].find(token) {
+                        let s = at + found;
+                        let e = s + token.len();
+                        let whole = !value[..s].ends_with(word) && !value[e..].starts_with(word);
+                        if whole {
+                            let col = from + s + 1;
+                            out.push(json!({"site": Value::Null, "row": row.replace('-', "_"), "file": shown, "line": n + 1, "col": col, "end_col": col + token.len()}));
+                        }
+                        at = e;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

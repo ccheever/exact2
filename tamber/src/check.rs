@@ -725,9 +725,13 @@ impl<'a> Checker<'a> {
                     false => Kind::Number,
                 })
             }
+            // A declared token's or dial's name wins over a keyword's
+            // spelling (an easing keyword, a named length).
             [css::Item::Ident(name)]
-                if !(self.named_length)(name)
-                    && !crate::motion::KEYWORDS.contains(&name.as_str()) =>
+                if self.names.get(name.as_str()).is_some_and(|&j| j != i)
+                    || self.dials.contains_key(name.as_str())
+                    || !(self.named_length)(name)
+                        && !crate::motion::KEYWORDS.contains(&name.as_str()) =>
             {
                 Some(self.named_kind(name, i, path))
             }

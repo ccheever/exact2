@@ -43,6 +43,7 @@ mod lint;
 mod media;
 mod menus;
 mod metrics;
+pub mod motion;
 mod native;
 mod nodes;
 mod routes;
@@ -1040,10 +1041,22 @@ impl<'a> Lowerer<'a> {
                 }
                 // @ref LLP 1121 D3 — a duration or easing token is written
                 // into its `transition` or `animation` before the codec reads it.
+                // (The loader wrote a literal's in; this is an expansion's.)
                 let motion = rows
                     .iter()
-                    .any(|r| matches!(r, StyleId::Transition | StyleId::Animation))
-                    .then(|| crate::theme::motion(a))
+                    .any(|r| {
+                        matches!(
+                            r,
+                            StyleId::Transition
+                                | StyleId::Animation
+                                | StyleId::ExitAnimation
+                                | StyleId::LayoutTransition
+                        )
+                    })
+                    .then(|| {
+                        let keyframes: Vec<String> = self.keyframes.keys().cloned().collect();
+                        crate::motion::attr(a, &crate::theme::motion_tokens(), &keyframes)
+                    })
                     .flatten();
                 let a = motion.as_ref().unwrap_or(a);
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;

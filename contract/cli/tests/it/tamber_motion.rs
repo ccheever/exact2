@@ -103,3 +103,79 @@ fn a_motion_edit_proposes_a_rebuild() {
     .unwrap();
     assert_eq!(planned.class, exact_tamber::Class::Rebuild);
 }
+
+/// Review round 1: a token in a timing's place only (never a transition's
+/// property or an animation's keyframes name), written in before the
+/// keyframes' scoping and the longhands' composing read the value, and
+/// through a component's prop.
+#[test]
+fn a_motion_token_is_written_in_a_timings_place_before_anything_reads_it() {
+    let design = "tamber t\n\ntheme\n  opacity = 150ms\n  fast = 200ms\n  duration.fast = 150ms\n";
+    let view = "keyframes fast\n  from opacity=0\n  to opacity=1\n\ncomponent App\n  view\n    column transition=\"opacity 1s\"\n      text \"a\" animation=\"fast 1s\"\n      text \"b\" animation=\"fast duration.fast\" animation-fill-mode=\"forwards\"\n      Card(t=\"opacity duration.fast\")\n\ncomponent Card\n  props\n    t: string\n  view\n    column transition=t\n      text \"c\"\n";
+    let path = app("places", &[("app.tamber", design), ("app.contract", view)]);
+    let plan = contract::compile_path(&path).unwrap();
+    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    assert!(strings.contains(&"opacity 1s"), "{strings:?}");
+    assert!(strings.contains(&"fast 1s"), "{strings:?}");
+    // Composed with its longhand: the token's time is the shorthand's.
+    assert!(
+        strings.contains(&"0.15s ease 0s 1 normal forwards running fast"),
+        "{strings:?}"
+    );
+    assert!(strings.contains(&"opacity 150ms"), "{strings:?}");
+}
+
+#[test]
+fn uses_finds_a_motion_tokens_words_in_the_sources() {
+    let path = app("uses", &[("app.tamber", DESIGN), ("app.contract", VIEW)]);
+    let sites = contract::tamber_uses::motion_sites(path.parent().unwrap(), "duration.fast");
+    assert_eq!(sites.len(), 2, "{sites:?}");
+    assert_eq!(sites[0]["row"], "transition", "{sites:?}");
+    assert_eq!(sites[1]["row"], "animation", "{sites:?}");
+}
+
+/// Review round 1: a used file's animation naming its own keyframes and a
+/// motion token keeps its keyframes (scoping reads the value after the
+/// token is written in).
+#[test]
+fn a_used_files_animation_keeps_its_own_keyframes() {
+    let path = app(
+        "scoped",
+        &[
+            ("app.tamber", DESIGN),
+            ("app.contract", "use Spinner from \"./lib/ui.contract\"\nkeyframes spin\n  to opacity=0\ncomponent App\n  view\n    column\n      text \"a\" animation=\"spin 1s\"\n      Spinner()\n"),
+        ],
+    );
+    std::fs::create_dir_all(path.with_file_name("lib")).unwrap();
+    std::fs::write(
+        path.with_file_name("lib").join("ui.contract"),
+        "keyframes spin\n  to opacity=1\ncomponent Spinner\n  view\n    text \"b\" animation=\"spin duration.fast easing.standard\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&path).unwrap();
+    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    let used = strings
+        .iter()
+        .find(|s| s.contains("150ms"))
+        .unwrap_or_else(|| panic!("{strings:?}"));
+    assert!(
+        used.starts_with("spin") && !used.starts_with("spin "),
+        "renamed keyframes: {used}"
+    );
+}
+
+/// Review round 1 (Grok): the other copies of the grammars take tokens
+/// too: an exit animation, a layout transition, a keyframe's timing.
+#[test]
+fn an_exit_animation_a_layout_transition_and_a_keyframes_timing_take_tokens() {
+    let view = "keyframes appear\n  from opacity=0 animation-timing-function=\"easing.standard\"\n  to opacity=1\n\ncomponent App\n  state on = true\n  view\n    column -exact-layout-transition=\"duration.fast easing.standard\"\n      if on\n        text \"a\" -exact-exit-animation=\"appear duration.fast\"\n";
+    let path = app("copies", &[("app.tamber", DESIGN), ("app.contract", view)]);
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let strings: Vec<&str> = plan.strings.iter().map(String::as_str).collect();
+    assert!(
+        !strings
+            .iter()
+            .any(|s| s.contains("duration.fast") || s.contains("easing.standard")),
+        "{strings:?}"
+    );
+}

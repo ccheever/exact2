@@ -16,6 +16,8 @@ crate-type = ["rlib"]
 [dependencies]
 exact-color = { path = "../color" }
 exact-num = { path = "../num" }
+# A motion token is checked as its transition reads it (LLP 1121 stage 6 E).
+exact-motion = { path = "../motion" }
 # The DTCG importer reads JSON (LLP 1121 D14).
 serde_json = "1.0"
 

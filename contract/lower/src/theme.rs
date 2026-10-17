@@ -903,60 +903,10 @@ pub(crate) fn number_tokens() -> bool {
     })
 }
 
-/// A `transition` or `animation` value with each duration and easing
-/// token it names, as a whole word of a literal, written in as its value
-/// (LLP 1121 D3: substituted at build, before the row's codec reads it); so
-/// the plan holds the values, and an edit to a token rebuilds. `None` when
-/// it names none.
-pub(crate) fn motion(a: &Attr) -> Option<Attr> {
-    fn word(c: char) -> bool {
-        c.is_ascii_alphanumeric() || "-_.".contains(c)
-    }
-    let tokens = MOTION.with(|m| m.borrow().clone());
-    if tokens.is_empty() {
-        return None;
-    }
-    let written = |text: &str| -> Option<String> {
-        let mut out = String::new();
-        let mut moved = false;
-        let mut rest = text;
-        while !rest.is_empty() {
-            let end = rest.find(|c: char| !word(c)).unwrap_or(rest.len());
-            if end == 0 {
-                let c = rest.chars().next().unwrap();
-                out.push(c);
-                rest = &rest[c.len_utf8()..];
-                continue;
-            }
-            let w = &rest[..end];
-            match tokens.iter().find(|(name, _)| name == w) {
-                Some((_, value)) => {
-                    out.push_str(value);
-                    moved = true;
-                }
-                None => out.push_str(w),
-            }
-            rest = &rest[end..];
-        }
-        moved.then_some(out)
-    };
-    fn rewrite(e: &mut Expr, written: &dyn Fn(&str) -> Option<String>) -> bool {
-        match e {
-            Expr::Str(text, _) => match written(text) {
-                Some(next) => {
-                    *text = next;
-                    true
-                }
-                None => false,
-            },
-            Expr::Ternary(_, yes, no, _) => rewrite(yes, written) | rewrite(no, written),
-            Expr::Match { some, none, .. } => rewrite(some, written) | rewrite(none, written),
-            Expr::Let { body, .. } => rewrite(body, written),
-            _ => false,
-        }
-    }
-    let mut out = a.clone();
-    rewrite(&mut out.value, &written).then_some(out)
+/// The design's motion tokens while its styles are lowered, by name and
+/// value ([`crate::motion`] writes them in).
+pub(crate) fn motion_tokens() -> Vec<(String, String)> {
+    MOTION.with(|m| m.borrow().clone())
 }
 
 /// What a value may be, through `?:`, `match` and `let` (a `let`'s name

@@ -127,6 +127,7 @@ pub(crate) fn load(
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -136,9 +137,16 @@ pub(crate) fn load(
     if let Err(all) = loader.load_source(&root_key, src, 0) {
         return Err(resolve(&loader.sources, all));
     }
+    // The design, read before scoping: its motion tokens are written into
+    // the views first (`contract_lower::motion`).
+    let design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+    loader.motion = design
+        .as_ref()
+        .map(|d| contract_lower::motion::tokens(&d.text))
+        .unwrap_or_default();
     match loader.scope() {
         Ok(mut file) => {
-            file.design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+            file.design = design;
             Ok((file, loader.sources))
         }
         Err(all) => Err(resolve(&loader.sources, all)),
@@ -265,6 +273,7 @@ pub(crate) fn use_fixes(
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let resolve = |sources: &Sources, all: Vec<CompileError>| {
         all.into_iter()
@@ -344,6 +353,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         fixes: Vec::new(),
         proposed: Vec::new(),
         declared: Vec::new(),
+        motion: Vec::new(),
     };
     let errors = match loader.load_source(&root_key, src, 0) {
         Err(all) => all,
@@ -399,6 +409,9 @@ struct Loader<'a> {
     /// Each unit's declarations as written, before renaming, for §21's
     /// fixes to judge what a `use` would bring.
     declared: Vec<Vec<(Kind, String)>>,
+    /// The app's duration and easing tokens (LLP 1121 D3), written into the
+    /// motion rows before scoping.
+    motion: Vec<(String, String)>,
 }
 impl Loader<'_> {
     /// Parse `src` as unit `source_id`, then every file its uses name, depth
@@ -493,6 +506,8 @@ impl Loader<'_> {
     fn scope(&mut self) -> Result<File, Vec<CompileError>> {
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
+            let declared: Vec<String> = file.keyframes.iter().map(|k| k.name.clone()).collect();
+            contract_lower::motion::substitute(&mut file, &self.motion, &declared);
             contract_syntax::resolve_clock_timelines(&mut file).map_err(|e| vec![e.into()])?;
             file.uses.clear();
             return Ok(file);
@@ -537,6 +552,18 @@ impl Loader<'_> {
                 })
             })
             .collect();
+        // @ref LLP 1121 D3 — the design's duration and easing tokens are
+        // written into each motion row before scoping reads an animation's
+        // keyframes name (the root's design, the app's).
+        let motion = std::mem::take(&mut self.motion);
+        let declared: Vec<String> = self
+            .units
+            .iter()
+            .flat_map(|u| u.file.keyframes.iter().map(|k| k.name.clone()))
+            .collect();
+        for unit in self.units.iter_mut() {
+            contract_lower::motion::substitute(&mut unit.file, &motion, &declared);
+        }
         for (index, unit) in self.units.iter_mut().enumerate() {
             let mut scope = scopes[index].take().expect("every unit is scoped");
             scope.elsewhere = elsewhere

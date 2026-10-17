@@ -2759,10 +2759,15 @@ channel (queued).
   and an `easing` (a keyword, `cubic-bezier()` with its x in [0, 1], `steps()` with a whole count,
   `linear()`, `-exact-spring()`, or an easing token). A time, an easing keyword and an easing function
   infer their kinds. A `when` on one, written or inferred, is `tamber-motion-axis`.
-- **Substituted at build:** the compiler writes each duration and easing token a literal of a
-  `transition` or `animation` value names, as a whole word, in as its value before the row's codec
-  reads it (`theme::motion`), so the plan holds the values and keeps no motion token. Named in any
-  other row, one is `tamber-kind`.
+- **Substituted at build:** the loader writes each duration and easing token a literal of a
+  `transition`, `animation`, exit animation, layout transition, timing longhand or keyframe's
+  timing names, as a whole word in a timing's place (never a transition's property nor an
+  animation's keyframes name), in as its value before scoping, the longhands' composing or the
+  row's codec read it (`contract_lower::motion`); lowering does it again for a value an expansion
+  carried in (a component's prop). So the plan holds the values and keeps no motion token. Named
+  as a whole row of another kind, one is `tamber-kind`. Its tokens are checked by the motion crate,
+  as the transition reads them (the crate depends on `exact-motion`). `uses` finds a motion token's
+  words in the sources (a site has no plan node).
 - **An edit rebuilds** (D13): the session classes a change to a motion token, or to what it folds
   from, as `rebuild`, so `propose` says so and a scrub is refused; the plan's structure moves, so the
   dev loops' retained-shape checks see a structure change and rebuild.

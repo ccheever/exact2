@@ -33,3 +33,5 @@ theme
   space.grouped = calc((2px + 3px) * 4)
   tiny: number = 0.0000004
   ink = #000000
+  ease = 12px
+  space.alias.ease = ease

@@ -885,6 +885,21 @@ impl Server {
             .into_iter()
             .map(|(e, _)| e)
             .collect();
+        // A motion token is written into its rows: its sites are its words
+        // in the sources (`motion_sites`), not plan nodes.
+        let motion = folding.tokens.iter().any(|t| {
+            t.name == name
+                && matches!(
+                    t.kind,
+                    exact_tamber::Kind::Duration | exact_tamber::Kind::Easing
+                )
+        });
+        if motion {
+            let sites = contract::tamber_uses::motion_sites(&self.dir, &name);
+            return Ok(
+                json!({"token": name, "plan": null, "sites": sites, "aliases": aliases, "files": files_json(&snap)}),
+            );
+        }
         let (plan, map) = contract::compile_path_mapped(&self.dir.join("app.contract"))
             .map_err(|e| json!({"message": format!("the app does not build: {}", e.message)}))?;
         let map: Value = serde_json::from_str(&map.json(&plan.encode()))
