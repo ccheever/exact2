@@ -131,15 +131,31 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [5])
     }
 
-    private func tablist(_ faces: [UInt32: ButtonFace], labels: [Int: String] = [:]) -> Presenter {
-        var ops = view(1, ["accessibilityRole": "tablist"])
+    private func tablist(_ faces: [UInt32: ButtonFace], labels: [Int: String] = [:], role: String = "tablist") -> Presenter {
+        var ops = view(1, ["accessibilityRole": role])
         for (i, id) in [2, 3, 4].enumerated() {
-            var props = ["accessibilityRole": "tab"]
+            var props = ["accessibilityRole": role == "radiogroup" ? "radio" : "tab"]
             if i == 0 { props["accessibilitySelected"] = "true" }
             if let label = labels[id] { props["accessibilityLabel"] = label }
             ops += native(id, props, x: Double(i) * 100, w: 100)
         }
         return presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]], faces: faces)
+    }
+
+    /// A written `appearance="none"` keeps a radio group's authored keys, as it
+    /// keeps a tablist's: the author's design, not `UISegmentedControl`.
+    func testAWrittenAppearanceNoneKeepsAnAuthoredRadioGroup() throws {
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")], role: "radiogroup")
+        XCTAssertNotNil(p.segments.control(of: 1), "a radio group is a segmented control")
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "none", "written": ["appearance"]]]]))
+        XCTAssertNil(p.segments.control(of: 1))
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).isHidden, "its authored radios show")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(3)
+        XCTAssertEqual(pressed, [3])
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["appearance": "auto", "written": ["appearance"]]]]))
+        XCTAssertNotNil(p.segments.control(of: 1))
     }
 
     /// Opacity only paints (CSS); `visibility: hidden` and `inert` take input away.

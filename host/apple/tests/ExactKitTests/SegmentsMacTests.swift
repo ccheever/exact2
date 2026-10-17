@@ -46,13 +46,17 @@ final class SegmentsMacTests: XCTestCase {
     }
 
     func testAppearanceNoneRestoresAuthoredTabsAndTheirActions() throws {
+        for (role, member) in [("tablist", "tab"), ("radiogroup", "radio")] { try appearanceNone(role, member) }
+    }
+
+    private func appearanceNone(_ role: String, _ member: String) throws {
         _ = NSApplication.shared
         let p = Presenter()
         defer { p.reset() }
         p.apply(wireBatch([
-            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
-            ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
-            ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": role]],
+            ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": member], "handlers": ["press"]],
+            ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": member], "handlers": ["press"]],
             ["op": "create", "id": 13, "kind": "text", "props": ["text": "One"]],
             ["op": "create", "id": 14, "kind": "text", "props": ["text": "Two"]],
             ["op": "children", "id": 11, "ids": [13]],

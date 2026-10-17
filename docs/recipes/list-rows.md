@@ -63,6 +63,7 @@ test "search, swipe to delete, delete from the menu"
 - The search field querying a server (live, or on the keyboard's Search key): `contract
   vocab search`.
 - A filter: a `row role="radiogroup"` of `button role="radio"` above the list
-  ([persisted-setting](persisted-setting.md)).
+  ([persisted-setting](persisted-setting.md)): the platform's segmented control, or keys of
+  your own with `appearance="none"` on the group.
 - One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`
   and hides it (iOS: a `UIMenu`). Test: `tap "note-1" contextmenu`.
