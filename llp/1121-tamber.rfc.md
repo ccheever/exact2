@@ -2812,8 +2812,8 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   `fontShorthand`), within stage 6's break window after B's. No host binary shipped between them.
 ### Stage 6, commit C: type and family tokens
 
-- **The crate** (`tamber/src/typeface.rs`) folds a `type` token, CSS `font` syntax: `italic` or
-  `oblique`, a weight (a whole number from 1 to 1000, or `bold`), a size (px, `rem`, `em`, a text
+- **The crate** (`tamber/src/typeface.rs`) folds a `type` token, CSS `font` syntax: `italic` (the
+  kernel's `font-style` holds `normal` and `italic`, so `oblique` is refused), a weight (a whole number from 1 to 1000, or `bold`), a size (px, `rem`, `em`, a text
   style, or a length token naming one of those), an optional `/line-height` (a number, a length,
   `normal`, or a number or length token), and an optional family (a stack, or a family token). It
   names only what it writes, so `normal` is refused (it says nothing). A `family` token is a stack:
@@ -2832,12 +2832,17 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   `tamber-type-longhands`.
 - **A family is a stack the plan declares**, as a literal `font-family`'s is. The compiler declares
   one for each tuple's family. A bound table holds its id (`#12`): the compiler's from its own
-  stacks, the runner's from the plan's by their members (`typeface::family_key`). The runner passes a
-  `font-family` string naming a token to the kernel rather than interning it as a runtime family.
+  stacks, the runner's from the plan's by their members as the compiler reads them
+  (`typeface::family_key`: a quoted name, a generic one only unquoted, `-apple-system` as
+  `system-ui`). The runner passes a `font-family` string naming a token, dotted or not, to the
+  kernel rather than interning it as a runtime family. A one-word family (`textFace`) names a family
+  token where the design has one. A type token's written style and weight are checked against a
+  family the app ships, as `font-weight` and `font-style` beside `font-family` are (`lower-font-face`).
 - **The axis (theme2's ruling):** a type or family token that varies by an app axis is refused on a
   node with element children, which would inherit its rows (`tamber-inherited-axis`, "write it on the
   text, not its container"). On a text with none it is read again per tuple, as a colour is: the
-  kernel lets a varying type or family token reach an inherited row. A mode can't rescale a whole
+  kernel lets a varying type or family token reach an inherited row. A name computed at run time
+  is held to the same rule by the runner, which refuses it as an invalid value there. A mode can't rescale a whole
   subtree's type through a container; boundary re-specification is a later stage's, if an app needs
   it.
 - **Live and rebuild (the lead's ruling):** an edit that changes only a type token's style, weight,
@@ -2847,8 +2852,9 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
 - **Bold Text** applies through D12.3's rule: a type token naming a system family is stepped, an
   authored weight included, and a family the app names is not.
 - **The JS target** writes a type or family token as the kernel resolves each longhand, a literal,
-  never a property (`measures::inline_tokens`). So one that varies by an app axis, or a bound row that
-  may name one, is refused there (`QUEUE.md`); a development build rebuilds on an edit to one.
+  never a property (`measures::inline_tokens`); a bound row maps a name to that row's part (`$ty<row>`).
+  So one that varies by an app axis is refused there (`QUEUE.md`); a development build rebuilds on an
+  edit to one.
 - **The wire** (under `tamber/1.9`, the window's one version): the kinds, and `resolve`'s type and
   family tuples.
 - **Tests:** `contract/cli/tests/it/tamber_type.rs` (only the named longhands, the style's weight,

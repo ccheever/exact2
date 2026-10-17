@@ -758,6 +758,70 @@ pub(crate) fn check_pins(text: &str, axes: &[(String, Vec<String>)]) -> Result<(
 /// The app's colours as `theme` entries, for the passes that read them
 /// before lowering (the lint, the one-scheme warning): the inline block, or
 /// the design's tokens at their default values.
+/// The design's tokens bound for the lint, each of its kind with its first
+/// tuple's value (a type or family token's family as stack 0, which no row
+/// the lint checks reads), and the kinds the style checks ask (`MEASURES`):
+/// a length token stands in a length row as the build reads it. A design
+/// that does not fold binds every name as a colour, as before.
+pub(crate) fn lint_scope(file: &File) -> exact_kernel::style::theme::ThemeScope {
+    let design = match (&file.theme, &file.design) {
+        (Some(theme), _) => Some(inline_design(theme)),
+        (None, Some(source)) => tamber::parse(&source.text).ok(),
+        _ => None,
+    };
+    let folding = design.and_then(|mut d| {
+        stand_in_profiles(&mut d);
+        tamber::check_design(d, &vocab()).ok()
+    });
+    let Some(folding) = folding else {
+        let theme = theme_decl(file);
+        let entries: Vec<String> = theme
+            .iter()
+            .flat_map(|t| &t.entries)
+            .map(|e| e.name.clone())
+            .collect();
+        return exact_kernel::style::theme::declarations(
+            entries.iter().map(|n| (n.as_str(), "transparent", false)),
+        );
+    };
+    MEASURES.with(|m| {
+        *m.borrow_mut() = folding
+            .tokens
+            .iter()
+            .filter(|t| t.kind != tamber::Kind::Color && kind_code(t.kind).is_some())
+            .map(|t| {
+                let mut values: Vec<String> = Vec::new();
+                for v in t.values.iter().map(|v| v.css()) {
+                    if !values.contains(&v) {
+                        values.push(v);
+                    }
+                }
+                (t.name.clone(), t.kind, values)
+            })
+            .collect()
+    });
+    let entries: Vec<(String, String, exact_kernel::style::theme::Kind, bool)> = folding
+        .tokens
+        .iter()
+        .filter_map(|t| {
+            let kind = kernel_kind(t.kind)?;
+            let first = t.values.first().map(|v| v.css()).unwrap_or_default();
+            let value = match kind {
+                exact_kernel::style::theme::Kind::Color => "transparent".to_string(),
+                _ => exact_kernel::style::theme::typeface::entry(kind, &first, |_| Some(0))
+                    .unwrap_or(first),
+            };
+            let varies = t.values.windows(2).any(|w| w[0] != w[1]);
+            Some((t.name.clone(), value, kind, varies))
+        })
+        .collect();
+    exact_kernel::style::theme::bind(&exact_kernel::style::theme::kinded(
+        entries
+            .iter()
+            .map(|(n, v, k, va)| (n.as_str(), v.as_str(), false, *k, *va)),
+    ))
+}
+
 pub(crate) fn theme_decl(file: &File) -> Option<contract_syntax::ThemeDecl> {
     if let Some(theme) = &file.theme {
         return Some(theme.clone());

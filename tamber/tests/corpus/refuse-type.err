@@ -5,3 +5,4 @@
 8:17: tamber-kind: `Inter!`: `Inter!` is no family name (quote a name with other characters)
 9:24: tamber-kind: `"Inter", 12px`: `12px` is no family name (quote a name with other characters)
 10:15: tamber-kind: `-exact-hairline` is a named length no font size takes
+11:18: tamber-kind: `oblique 16px`: `font-style` is `normal` or `italic` on every host; write `italic`

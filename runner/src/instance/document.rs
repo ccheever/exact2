@@ -363,21 +363,8 @@ impl Build<'_> {
                     if matches!(value, Value::Option(None))
                         || bridge::unsets(binding.id, value) => {}
                 BindingKind::Style => {
-                    let family_value = if binding.id == StyleId::FontFamily as u16 {
-                        match value {
-                            Value::Option(Some(inner)) => inner.as_ref(),
-                            _ => value,
-                        }
-                    } else {
-                        value
-                    };
-                    let family_id = if binding.id == StyleId::FontFamily as u16 {
-                        family_value.as_str().and_then(|name| {
-                            self.fonts.borrow_mut().intern(name, plan.stacks.len())
-                        })
-                    } else {
-                        None
-                    };
+                    let (family_value, family_id) =
+                        bridge::family_binding(plan, Some(&*self.fonts), binding, value);
                     let styled = if let Some(id) = family_id {
                         bridge::set_runtime_font_style(
                             &mut patch,

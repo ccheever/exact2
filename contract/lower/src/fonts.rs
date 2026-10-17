@@ -193,7 +193,7 @@ impl Lowerer<'_> {
         }
         for stack in tokens.iter().flatten() {
             let key = exact_kernel::style::theme::typeface::family_key_of(stack);
-            names.extend(key.split(',').map(str::to_string));
+            names.extend(key.split(',').map(|m| m.trim_matches('"').to_string()));
         }
         let italic = match attrs.iter().find(|a| a.name == "font-style") {
             None => Some(false),

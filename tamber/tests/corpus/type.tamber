@@ -13,3 +13,6 @@ theme
   type.alias = type.body
   type.dense = -exact-footnote/1.2
     when density=roomy: -exact-body/1.5
+  face = "Inter", sans-serif
+  family.alias = face
+  type.face = -exact-body face

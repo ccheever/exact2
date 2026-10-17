@@ -253,10 +253,16 @@ fn ident(name: &str, names: &mut dyn Names) -> Result<Folded, FoldError> {
                 format!("`{name}` is a motion token, not a colour"),
             )
         }
-        Named::Type(_) | Named::Family(_) => {
+        Named::Type(_) => {
             return fail(
                 "tamber-kind",
                 format!("`{name}` is a type token, not a colour"),
+            )
+        }
+        Named::Family(_) => {
+            return fail(
+                "tamber-kind",
+                format!("`{name}` is a family token, not a colour"),
             )
         }
         Named::Role(r) => return Ok(Folded::Host(Host::Role(r))),

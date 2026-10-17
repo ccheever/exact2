@@ -46,6 +46,24 @@ pub fn css(kind: Kind, value: &str) -> String {
     }
 }
 
+/// Row `id`'s part of type token `value`, or family token `value`'s stack,
+/// as CSS; `None` where it writes none.
+fn font_part(kind: Kind, id: StyleId, value: &str) -> Option<String> {
+    use exact_kernel::style::theme::typeface;
+    if kind == Kind::Family {
+        return Some(value.trim().to_string());
+    }
+    let p = typeface::parts(value)?;
+    Some(match id {
+        StyleId::FontStyle => p.style?.to_string(),
+        StyleId::FontWeight => p.weight?.to_string(),
+        StyleId::FontSize => css(Kind::Length, p.size),
+        StyleId::LineHeight => p.leading?.to_string(),
+        StyleId::FontFamily => p.family?.to_string(),
+        _ => return None,
+    })
+}
+
 /// Whether a row may read a length, number or shadow token: those the kernel
 /// resolves one in (`style::theme::admits`).
 pub fn row(id: StyleId) -> bool {
@@ -55,6 +73,8 @@ pub fn row(id: StyleId) -> bool {
         Kind::Number,
         Kind::BoxShadow,
         Kind::TextShadow,
+        Kind::Type,
+        Kind::Family,
     ]
     .into_iter()
     .any(|k| admits(k, id))
@@ -120,27 +140,6 @@ pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
 /// A token the page writes inline that varies by an app axis: no tuple's
 /// rule can reach it on the JS target, so the build is refused, naming it.
 pub fn refuse_inline(plan: &Plan) -> Result<(), String> {
-    // A type or family token a bound row may name: the target writes no
-    // map from one to each longhand's part (stage 6 C; bindings are G's).
-    let typed: Vec<&str> = plan
-        .theme
-        .iter()
-        .filter(|r| matches!(kind(r), Some(Kind::Type | Kind::Family)))
-        .map(|r| plan.str(r.name))
-        .collect();
-    if !typed.is_empty() {
-        for node in &plan.nodes {
-            for b in node.bindings.iter().map(|b| plan.binding(b)) {
-                let code = plan.code(b.expr);
-                if b.kind == BindingKind::Style
-                    && crate::style::literal(plan, code).is_none()
-                    && crate::style::can_be(plan, code, &|s| typed.contains(&s.trim()))
-                {
-                    return Err("a type or family token chosen at run time is not in the JS target yet (LLP 1121 stage 6 G): name one token in the row".into());
-                }
-            }
-        }
-    }
     for (name, writer) in inline_tokens(plan) {
         let varies = plan
             .theme
@@ -192,7 +191,7 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
 pub fn map_name(id: StyleId, attribute: bool) -> String {
     use exact_kernel::style::theme::admits;
     format!(
-        "$t{}{}{}{}{}",
+        "$t{}{}{}{}{}{}",
         if admits(Kind::Length, id) { "l" } else { "" },
         if admits(Kind::Number, id) { "n" } else { "" },
         if admits(Kind::BoxShadow, id) { "b" } else { "" },
@@ -200,6 +199,12 @@ pub fn map_name(id: StyleId, attribute: bool) -> String {
             "t"
         } else {
             ""
+        },
+        // A type token's part is the row's own (stage 6 C).
+        if admits(Kind::Type, id) {
+            format!("y{}", id as u16)
+        } else {
+            String::new()
         },
         if attribute { "a" } else { "" }
     )
@@ -221,10 +226,8 @@ pub fn map(
         .theme
         .iter()
         .filter_map(|r| {
-            let kind = kind(r).filter(|k| {
-                !matches!(k, Kind::Color | Kind::Type | Kind::Family)
-                    && exact_kernel::style::theme::admits(*k, id)
-            })?;
+            let kind = kind(r)
+                .filter(|k| *k != Kind::Color && exact_kernel::style::theme::admits(*k, id))?;
             // An SVG attribute reads no property, and no tuple's rule reaches
             // it: a varying token's name stands there (the JS target does not
             // read one computed into an attribute). Nor does an inherited row
@@ -233,6 +236,17 @@ pub fn map(
                 return None;
             }
             let name = plan.str(r.name);
+            // A type token's part for this row, a family's stack, as the
+            // template writes the literal's (stage 6 C); a part it does not
+            // write stands, for the browser to refuse, as the kernel leaves it.
+            if matches!(kind, Kind::Type | Kind::Family) {
+                let css = font_part(kind, id, plan.str(r.value))?;
+                return Some(format!(
+                    "{}:{}",
+                    serde_json::to_string(name).unwrap(),
+                    serde_json::to_string(&css).unwrap()
+                ));
+            }
             let value = match props.iter().find(|(n, _)| n == name && !attribute) {
                 Some((_, prop)) => serde_json::to_string(&format!("var({prop})")).unwrap(),
                 None if kind == Kind::Number => css(kind, plan.str(r.value)),

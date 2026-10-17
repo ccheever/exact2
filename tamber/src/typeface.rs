@@ -10,7 +10,8 @@ use crate::measure::{num, Length};
 /// A folded type token: the longhands it writes, each as its row reads it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Type {
-    /// `italic` or `oblique`, when written.
+    /// `italic`, when written (the kernel's `font-style` holds `normal`
+    /// and `italic`).
     pub style: Option<String>,
     /// The weight, 1 to 1000, when written.
     pub weight: Option<u16>,
@@ -90,8 +91,9 @@ pub(crate) fn fold(
             );
         }
         match word {
-            "italic" | "oblique" if style.is_none() && weight.is_none() => {
-                style = Some(word.to_string())
+            "italic" if style.is_none() && weight.is_none() => style = Some(word.to_string()),
+            "oblique" => {
+                return fail("tamber-kind", format!("`{text}`: `font-style` is `normal` or `italic` on every host; write `italic`"));
             }
             "bold" if weight.is_none() => weight = Some(700),
             "normal" => {
@@ -237,12 +239,17 @@ fn leading(word: &str, names: &mut dyn Names) -> Result<String, FoldError> {
 /// `, `; or another family token's name.
 pub(crate) fn family(text: &str, names: &mut dyn Names) -> Result<String, FoldError> {
     let text = text.trim();
-    if is_name(text) && text.contains('.') {
-        return match names.named(text)? {
-            Named::Family(f) => Ok(f),
-            Named::Unknown => fail("tamber-unknown-token", format!("`{text}` is no token")),
-            _ => fail("tamber-kind", format!("`{text}` is not a family token")),
-        };
+    // A family token's name (`textFace`, `family.text`): its stack. Another
+    // one word is a family's name, unless the design names it otherwise.
+    if is_name(text) {
+        match names.named(text)? {
+            Named::Family(f) => return Ok(f),
+            Named::Unknown if text.contains('.') => {
+                return fail("tamber-unknown-token", format!("`{text}` is no token"))
+            }
+            Named::Unknown => {}
+            _ => return fail("tamber-kind", format!("`{text}` is not a family token")),
+        }
     }
     let mut members = Vec::new();
     for member in split_commas(text) {

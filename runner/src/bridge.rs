@@ -475,6 +475,75 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
     })
 }
 
+/// Whether `text` names one of `plan`'s type or family tokens (stage 6 C):
+/// a `font-family` row's string the kernel reads as the token's stack,
+/// never interned as an installed family.
+pub fn names_font_token(plan: &exact_plan::Plan, text: &str) -> bool {
+    use exact_kernel::style::theme::Kind;
+    let text = text.trim();
+    plan.theme.iter().any(|r| {
+        matches!(Kind::of(r.kind), Some(Kind::Type | Kind::Family)) && plan.str(r.name) == text
+    })
+}
+
+/// Binding `b`'s value as a `font-family` row reads it (an option's
+/// inner value), and the runtime stack it names: a family list interned
+/// for the session, but never a type or family token's name, which the
+/// kernel reads as the token's stack (stage 6 C).
+pub fn family_binding<'v>(
+    plan: &exact_plan::Plan,
+    fonts: Option<&std::cell::RefCell<RuntimeFonts>>,
+    b: &exact_plan::BindingsRow,
+    value: &'v Value,
+) -> (&'v Value, Option<u16>) {
+    if b.id != StyleId::FontFamily as u16 {
+        return (value, None);
+    }
+    let value = match value {
+        Value::Option(Some(inner)) => inner.as_ref(),
+        _ => value,
+    };
+    let id = value
+        .as_str()
+        .filter(|n| !names_font_token(plan, n))
+        .and_then(|name| fonts?.borrow_mut().intern(name, plan.stacks.len()));
+    (value, id)
+}
+
+/// A refusal when binding `b`'s `value` on site `node` names a type or
+/// family token that varies by an app axis on a node whose children
+/// inherit its rows (stage 6 C, theme2's ruling): the compiler refuses a
+/// literal so; a value computed at run time is refused here, as invalid.
+pub fn inherited_varying(
+    plan: &exact_plan::Plan,
+    b: &exact_plan::BindingsRow,
+    value: &Value,
+    node: exact_plan::NodesId,
+) -> Result<(), BridgeError> {
+    use exact_kernel::style::theme::{typeface, Kind};
+    let Some(row) = StyleId::from_bit(u32::from(b.id)).filter(|r| typeface::admits_type(*r)) else {
+        return Ok(());
+    };
+    let Some(text) = value.as_str().map(str::trim) else {
+        return Ok(());
+    };
+    let varying = plan.theme.iter().any(|r| {
+        matches!(Kind::of(r.kind), Some(Kind::Type | Kind::Family))
+            && r.slices.len > 0
+            && plan.str(r.name) == text
+    });
+    if b.kind == exact_plan::BindingKind::Style
+        && varying
+        && plan.nodes.iter().any(|n| n.parent == Some(node))
+    {
+        return Err(BridgeError::StyleKind {
+            style: row,
+            value: value.clone(),
+        });
+    }
+    Ok(())
+}
+
 /// `plan`'s font stacks by their members' key
 /// (`typeface::family_key`), each with its id.
 fn plan_stacks(plan: &exact_plan::Plan) -> Vec<(String, u16)> {
@@ -482,14 +551,14 @@ fn plan_stacks(plan: &exact_plan::Plan) -> Vec<(String, u16)> {
         .iter()
         .enumerate()
         .map(|(id, stack)| {
-            let names: Vec<&str> = stack
+            let names: Vec<(bool, &str)> = stack
                 .members
                 .iter()
                 .map(|m| {
                     let member = plan.stack_member(m);
                     match member.family {
-                        Some(f) => plan.str(plan.familie(f).name),
-                        None => member.kind.name(),
+                        Some(f) => (true, plan.str(plan.familie(f).name)),
+                        None => (false, member.kind.name()),
                     }
                 })
                 .collect();

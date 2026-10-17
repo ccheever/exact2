@@ -44,7 +44,7 @@ fn node<'a>(r: &'a Runner<NoData>, id: &str) -> exact_kernel::NodeRef<'a> {
     r.kernel().node_by_key(key).unwrap()
 }
 
-const DESIGN: &str = "tamber t\n\naxes\n  density = regular | roomy\n\ntheme\n  family.mono = ui-monospace, monospace\n  type.body = -exact-body/1.35 \"InterVariable\"\n  type.title = 700 -exact-title1 Georgia, serif\n  type.system = 1.25rem/1.4 system-ui, sans-serif\n  type.dense = -exact-footnote/1.2\n    when density=roomy: -exact-body/1.5\n  type.mixed: type = -exact-footnote\n    when density=roomy: -exact-body/1.5\n";
+const DESIGN: &str = "tamber t\n\naxes\n  density = regular | roomy\n\ntheme\n  family.mono = ui-monospace, monospace\n  type.body = -exact-body/1.35 \"InterVariable\"\n  type.title = 700 -exact-title1 Georgia, serif\n  type.system = 1.25rem/1.4 system-ui, sans-serif\n  type.dense = -exact-footnote/1.2\n    when density=roomy: -exact-body/1.5\n  type.mixed: type = -exact-footnote\n    when density=roomy: -exact-body/1.5\n  face = \"InterVariable\", system-ui\n  family.quoted: family = \"monospace\"\n  family.apple: family = -apple-system\n  family.vary: family = Georgia\n    when density=roomy: serif\n  type.upper = -EXACT-BODY/1.4\n";
 
 const VIEW: &str = "component App\n  view\n    column\n      text \"Body\" testId=\"body\" font=\"type.body\"\n      text \"Title\" testId=\"title\" font=\"type.title\"\n      text \"System\" testId=\"system\" font=\"type.system\"\n      text \"Mono\" testId=\"mono\" font-family=\"family.mono\"\n      text \"Dense\" testId=\"dense\" font=\"type.dense\"\n      column -exact-mode=\"density=roomy\"\n        text \"Roomy\" testId=\"roomy\" font=\"type.dense\"\n";
 
@@ -119,6 +119,38 @@ fn a_type_token_writes_only_its_longhands() {
     assert_eq!(
         format!("{:?}", body.computed(StyleId::LineHeight)),
         "LineHeight(Number(1.5))"
+    );
+}
+
+/// A family token resolves to the stack the compiler declared for it, by
+/// its members as the compiler reads them: an undotted name too (never an
+/// installed family named for the token), a quoted generic as a family,
+/// `-apple-system` as `system-ui`. A name computed at run time that varies
+/// is refused on a node whose children would inherit it.
+#[test]
+fn a_family_token_is_the_stack_the_compiler_declared() {
+    let view = "component App\n  state chosen = \"family.vary\"\n  view\n    column\n      text \"Face\" testId=\"face\" font-family=\"face\"\n      text \"Quoted\" testId=\"quoted\" font-family=\"family.quoted\"\n      text \"Apple\" testId=\"apple\" font-family=\"family.apple\"\n      text \"Upper\" testId=\"upper\" font=\"type.upper\"\n      column testId=\"container\" font-family=chosen\n        text \"Inner\"\n";
+    let plan = contract::compile_path(&app("stacks", view)).unwrap_or_else(|e| panic!("{e:?}"));
+    let stacks = plan.stacks.len() as u16;
+    let r = booted(plan);
+    let face = node(&r, "face").style.font_family;
+    assert!(
+        face >= 8 && face < stacks,
+        "the plan's stack, not a runtime one: {face} of {stacks}"
+    );
+    let quoted = node(&r, "quoted").style.font_family;
+    assert!(
+        quoted >= 8 && quoted < stacks,
+        "a quoted generic is a family: {quoted}"
+    );
+    assert_eq!(node(&r, "apple").style.font_family, 0, "system-ui");
+    assert!(
+        node(&r, "upper").style.mask.has(StyleId::FontSize),
+        "a text style in capitals"
+    );
+    assert!(
+        !node(&r, "container").style.mask.has(StyleId::FontFamily),
+        "a varying token computed onto a container is refused"
     );
 }
 

@@ -8,3 +8,4 @@ theme
   type.family = 16px Inter!
   family.bad: family = "Inter", 12px
   type.hair = -exact-hairline/1.2 Inter
+  type.oblique = oblique 16px

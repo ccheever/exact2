@@ -340,3 +340,39 @@ fn a_bound_text_shadow_token_marks_its_read() {
     let out = crate::emit::emit(&plan, false, false).unwrap();
     assert!(out.js.contains("const $tt=(M=>v=>typeof v===\"string\"&&Object.hasOwn(M,v.trim())?((globalThis.exact??={}).$th=1,M[v.trim()])"), "{}", out.js);
 }
+
+/// Stage 6 C: a type or family token is written as the kernel resolves each
+/// longhand (a constant one's literal in the class); a bound row naming one
+/// maps it to that row's part; one that varies by an app axis is refused.
+#[test]
+fn a_type_token_is_its_parts_and_a_varying_one_is_refused() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  type.a = -exact-title1/1.2 Georgia, serif\n  type.b = 1.25rem/1.4 system-ui\n  family.mono: family = ui-monospace\n  type.vary = -exact-body/1.2\n    when density=compact: -exact-footnote/1.1\n";
+    let fixed = plan(
+        "type",
+        design,
+        "component App\n  state big = false\n  view\n    column\n      text \"a\" font=\"type.a\"\n      text \"b\" font=(big ? \"type.a\" : \"type.b\")\n      text \"m\" font-family=\"family.mono\"\n",
+    );
+    let out = crate::emit::emit(&fixed, false, false).unwrap();
+    assert!(
+        out.css.contains("font-size:1.6875rem;") && out.css.contains("line-height:1.2;"),
+        "{}",
+        out.css
+    );
+    for part in [
+        "\"type.a\":\"1.6875rem\"",
+        "\"type.b\":\"1.25rem\"",
+        "\"type.a\":\"1.2\"",
+        "\"type.b\":\"system-ui\"",
+    ] {
+        assert!(out.js.contains(part), "{part}\n{}", out.js);
+    }
+    let varying = plan(
+        "type-vary",
+        design,
+        "component App\n  view\n    text \"v\" font=\"type.vary\"\n",
+    );
+    let e = crate::emit::emit(&varying, false, false)
+        .err()
+        .expect("refused");
+    assert!(e.contains("`type.vary` varies by an app axis"), "{e}");
+}

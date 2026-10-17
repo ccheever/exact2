@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "digest": "4ecc08817ce0de1a",
+  "digest": "03a380ca2e8cfea2",
   "name": "type",
   "tuples": 2,
   "axes": [
@@ -15,7 +15,10 @@
     {"name": "type.title", "kind": "type", "role": null, "values": ["italic 700 1.5rem/32px Georgia, serif"], "entries": null, "dials": [], "fallback": ["italic 700 1.5rem/32px Georgia, serif", "italic 700 1.5rem/32px Georgia, serif"]},
     {"name": "type.fixed", "kind": "type", "role": null, "values": ["14px/18px ui-monospace"], "entries": null, "dials": [], "fallback": ["14px/18px ui-monospace", "14px/18px ui-monospace"]},
     {"name": "type.alias", "kind": "type", "role": null, "values": ["-exact-body/1.35 \"InterVariable\""], "entries": null, "dials": [], "fallback": ["-exact-body/1.35 \"InterVariable\"", "-exact-body/1.35 \"InterVariable\""]},
-    {"name": "type.dense", "kind": "type", "role": null, "values": ["-exact-footnote/1.2", "-exact-body/1.5"], "entries": [0, 1], "dials": [], "fallback": ["-exact-footnote/1.2", "-exact-footnote/1.2"]}
+    {"name": "type.dense", "kind": "type", "role": null, "values": ["-exact-footnote/1.2", "-exact-body/1.5"], "entries": [0, 1], "dials": [], "fallback": ["-exact-footnote/1.2", "-exact-footnote/1.2"]},
+    {"name": "face", "kind": "family", "role": null, "values": ["\"Inter\", sans-serif"], "entries": null, "dials": [], "fallback": ["\"Inter\", sans-serif", "\"Inter\", sans-serif"]},
+    {"name": "family.alias", "kind": "family", "role": null, "values": ["\"Inter\", sans-serif"], "entries": null, "dials": [], "fallback": ["\"Inter\", sans-serif", "\"Inter\", sans-serif"]},
+    {"name": "type.face", "kind": "type", "role": null, "values": ["-exact-body \"Inter\", sans-serif"], "entries": null, "dials": [], "fallback": ["-exact-body \"Inter\", sans-serif", "-exact-body \"Inter\", sans-serif"]}
   ],
   "exports": null
 }

@@ -11,7 +11,7 @@ use crate::StyleId;
 /// A type entry's parts, as their rows read them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeParts<'a> {
-    /// `italic` or `oblique`.
+    /// `italic`.
     pub style: Option<&'a str>,
     /// The weight's text, a number.
     pub weight: Option<&'a str>,
@@ -26,7 +26,7 @@ pub struct TypeParts<'a> {
 /// Whether `word` reads as a type value's size: a dimension or a named
 /// text style.
 fn is_size(word: &str) -> bool {
-    let size = word.split('/').next().unwrap_or(word);
+    let size = word.split('/').next().unwrap_or(word).to_ascii_lowercase();
     size.starts_with("-exact-")
         || size.starts_with("-apple-system-")
         || ["px", "rem", "em"].iter().any(|u| {
@@ -66,7 +66,7 @@ pub fn parts(text: &str) -> Option<TypeParts<'_>> {
             });
         }
         match word {
-            "italic" | "oblique" if style.is_none() => style = Some(word),
+            "italic" if style.is_none() => style = Some(word),
             w if weight.is_none() && w.parse::<u16>().is_ok() => weight = Some(w),
             _ => return None,
         }
@@ -137,8 +137,22 @@ pub fn entry(
     }
 }
 
+/// The generic families a plan's stack names as such, not as a family.
+const GENERICS: [&str; 8] = [
+    "system-ui",
+    "ui-sans-serif",
+    "sans-serif",
+    "ui-serif",
+    "serif",
+    "ui-monospace",
+    "monospace",
+    "ui-rounded",
+];
+
 /// A family stack's text as a key ([`family_key`]), its members split at
-/// the commas outside quotes.
+/// the commas outside quotes. A member is generic only unquoted, as the
+/// compiler reads it (`-apple-system` is `system-ui`); a quoted one, or
+/// any other name, is a family.
 pub fn family_key_of(text: &str) -> String {
     let (mut members, mut start, mut quote) = (Vec::new(), 0, None);
     for (i, c) in text.char_indices() {
@@ -153,21 +167,44 @@ pub fn family_key_of(text: &str) -> String {
         }
     }
     members.push(&text[start..]);
-    family_key(members)
-}
-
-/// A family stack's members as a key: each without its quotes,
-/// lower-cased, joined by `,` (a plan's stacks are matched by it).
-pub fn family_key<'a>(members: impl IntoIterator<Item = &'a str>) -> String {
-    members
+    let members: Vec<(bool, String)> = members
         .into_iter()
         .map(|m| {
-            m.trim()
-                .trim_matches(['"', '\''])
+            let m = m.trim();
+            let quoted = m.len() >= 2
+                && (m.starts_with('"') && m.ends_with('"')
+                    || m.starts_with('\'') && m.ends_with('\''));
+            if quoted {
+                return (true, m[1..m.len() - 1].to_string());
+            }
+            let lower = m.to_ascii_lowercase();
+            match lower.as_str() {
+                "-apple-system" => (false, "system-ui".into()),
+                g if GENERICS.contains(&g) => (false, lower),
+                _ => (true, m.to_string()),
+            }
+        })
+        .collect();
+    family_key(members.iter().map(|(f, n)| (*f, n.as_str())))
+}
+
+/// A family stack's members as a key, each a family (`true`) or a generic
+/// family by its name: a family's name quoted, each lower-cased with its
+/// spaces collapsed, joined by `,` (a plan's stacks are matched by it).
+pub fn family_key<'a>(members: impl IntoIterator<Item = (bool, &'a str)>) -> String {
+    members
+        .into_iter()
+        .map(|(family, m)| {
+            let name = m
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ")
-                .to_ascii_lowercase()
+                .to_ascii_lowercase();
+            if family {
+                format!("\"{name}\"")
+            } else {
+                name
+            }
         })
         .collect::<Vec<_>>()
         .join(",")
@@ -203,9 +240,15 @@ mod tests {
         let e = entry(
             super::super::Kind::Type,
             "600 1rem \"Inter\", sans-serif",
-            |f| (family_key_of(f) == "inter,sans-serif").then_some(9),
+            |f| (family_key_of(f) == "\"inter\",sans-serif").then_some(9),
         );
         assert_eq!(e.as_deref(), Some("600 1rem #9"));
         assert_eq!(parts("Inter"), None);
+        assert_ne!(family_key_of("\"serif\""), family_key_of("serif"));
+        assert_ne!(family_key_of("\"A,B\""), family_key_of("A, B"));
+        assert_eq!(
+            family_key_of("-apple-system, Georgia"),
+            family_key_of("system-ui, \"georgia\"")
+        );
     }
 }
