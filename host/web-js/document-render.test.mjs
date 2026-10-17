@@ -22,6 +22,34 @@ async function renderedPages(source, check) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+test('JavaScript-rendered viewport uses default media facts without a reader’s device', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+shape Viewport
+  width: number
+  height: number
+  prefersReducedMotion: bool
+  prefersReducedTransparency: bool
+  prefersContrast: string
+  prefersColorScheme: string
+  pointer: string
+  hover: string
+  colorGamut: string
+  dynamicRange: string
+  displayMode: string
+
+component MediaFacts
+  resource viewport = exactViewport() as shape Viewport
+  view
+    main
+      head title=\`\${viewport.width}x\${viewport.height}/\${viewport.prefersReducedMotion}/\${viewport.prefersReducedTransparency}/\${viewport.prefersContrast}/\${viewport.prefersColorScheme}/\${viewport.pointer}/\${viewport.hover}/\${viewport.colorGamut}/\${viewport.dynamicRange}/\${viewport.displayMode}\`
+      text "Viewport facts"
+`, page => {
+    expect(page('')[0]).toBe('390x844/false/false/no-preference/light/fine/hover/srgb/standard/standalone');
+  });
+}, 30000);
+
 test('JavaScript-rendered pages exclude a covered route’s deeper head', async () => {
   await renderedPages(`routes nav
   tab home "/" render=build
