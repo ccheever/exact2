@@ -1068,3 +1068,49 @@ the iOS simulator and the Mac.
   - frame the page at a different site (`localhost`), so a heavy app can't stall the tool (done
     after T2b step 6: "The canvas frames a 127.0.0.1 page as localhost, in its own process");
   - serialize the canvas host's refusal and status posts (done: `5f9e9fd75`).
+
+### T2b (web, wasm): inspect mode, the server's join, outline, the inspector (`ed60a4824`, `b7955343e`, `30a4e1da9`; report order `5f9e9fd75`; framing `169407db1`)
+
+- **Inspect mode on the wasm page** (`host/web/dev.js`, development only):
+  - `inspect {client, build?, on | refresh}` (*1.3*) is numbered, owned by a present client, and
+    replayed to a build that registers again;
+  - a banner with a close control, and Escape;
+  - a pointer cover plus a gate on keys, focus, change, scroll and drag, so the app gets no input,
+    and guest frames none either;
+  - a released press selects what the **browser's own hit test** finds. That is the wasm page's
+    real tap path, in place of D5's "the runtime's own hit test, `geometry-glue.js`", which is the
+    app's `elementFromPoint` import.
+- **The `selected` report** carries the plan, design and pin revision, plus the node, site,
+  instance, the node's own tuple, and its rows (value, source, token), trimmed to 64 KiB and said so.
+  Reports go one at a time per stream, in order.
+- **The server's join** (`scripts/tamber-inspect.mjs`):
+  - **Currency:** a report whose plan, design or pin revision isn't the build's latest status is a
+    409, and the build is asked again once per status.
+  - **The map:** the site is looked up in the named plan's source map, verified by digest. The
+    compiler now records each source's SHA-256 in the map, and a changed or missing file makes the
+    selection read-only, with the reason.
+  - **Editability fails closed:** the token rung is offered only where the row's own whole value
+    is one declared token. Every other row says why and links its token.
+- **`outline {sites, plan}`** goes to inspecting builds, each drawing one box per mounted copy.
+  Outlines are owned by their client.
+- **The inspector:** a selection is pinned to its build's facts, the design's axes and its scheme,
+  and goes stale on any move. The token rung opens the winning branch's cell with its column's full
+  place. Impact shows `uses` for its own token.
+- **The canvas frames the page as `localhost:<port>`,** a different site from the tool's, so the
+  browser runs it in its own process. The dev loops also answer on `[::1]`.
+- **Known limits:**
+  - the server keeps one map, the running generation's, so a build on another plan gets no outline
+    and a read-only selection (T2c needs a map per plan);
+  - a popover's light dismiss happens before inspect can stop it;
+  - a gesture already under way isn't cancelled.
+
+### T2b's gate, the wasm half: met (2026-10-16; the run is `~/x2theme/t2b-gate-run.txt`)
+
+| Gate line | Result |
+|---|---|
+| A click in the frame selects the node the browser hit-tests, and shows its source, rows, sources and token chain | **Met** on the clone, e.g. "Feeds ✨" at `home.contract:203 · HomeScreen`. |
+| Every copy of the node is outlined | **Met:** 3 marks on the 3 mounted posts' author names. |
+| Inherited, dynamic and boundary rows are read-only, with their reason | **Met** for inherited and dynamic on the clone. Boundary rows are met on the theme fixture by tests, since the clone's signed-out screens have no boundary. |
+| Taps don't reach the app while inspect is on | **Met.** |
+
+The JS target's half follows, with the same gate on the clone's JS loop.
