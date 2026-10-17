@@ -118,7 +118,8 @@ component Groceries
 - **Styles.** A colour behind a box is `background-color`; the `background` shorthand is refused.
 - **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
   Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
-  an action does, and repeats with `for x in xs key=…`; no `form` (a field's Enter is its `submit`).
+  an action does, and repeats with `for x in xs key=x.id` (`for x, i in xs key=x.id` binds the
+  index `i` too); no `form` (a field's Enter is its `submit`).
 - **Expressions** are TypeScript's: what compiles means what it means in TypeScript, and
   what does not is refused with what to write. The web's string and array methods are
   methods (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
@@ -229,14 +230,13 @@ snapshot. The backend’s clock stays its own.
 ## Look it up
 
 Start from the nearest pattern, a tested app with what the recipes teach. Look up what it lacks:
-`contract vocab` prints each name's answer in turn, a recipe (`docs/recipes/<name>.md`) whole, so
-one call fetches what a screen needs:
+`contract vocab` prints each name's answer in turn, a keyword, tag, function or part as well as a
+recipe (`docs/recipes/<name>.md`, whole), so one call fetches what a screen needs:
 
 ```sh
 bun exact.mjs contract vocab list-rows search swipe            # a list with search and delete
-bun exact.mjs contract vocab grouped-form number-field choice persist   # an entry or settings form
+bun exact.mjs contract vocab for match persist grouped-form choice   # keywords, a settings form
 bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day's log
-bun exact.mjs contract vocab rest-backend fetch-loading-error after-a-write   # a server's data
 ```
 
 |Pattern|Already has|
@@ -245,7 +245,7 @@ bun exact.mjs contract vocab rest-backend fetch-loading-error after-a-write   # 
 |`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
-|`rest`|its own server, polled; a signed-in person (`rest-backend`)|
+|`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
 
 |Not in a pattern|Look up|
 |---|---|
