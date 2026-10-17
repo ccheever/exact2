@@ -794,8 +794,10 @@ public final class Agent {
     /// closed has been presented or dismissed (`awaitModalTransitions`,
     /// LLP 1035.003 D5); past the bound it says so, as `clock settle` does
     /// (`settled: false`, `reason: "transition"`). An error reply is as it
-    /// was; platform timing leaves the wait to `clock settle`.
+    /// was; platform timing leaves the wait to `clock settle`, but for a
+    /// chosen alert button's press, which still lands before the reply.
     func completingInput(_ reply: [String: Any]) -> [String: Any] {
+        if !ExactEnv.agentFreezes, reply["error"] == nil { awaitChosenPress() }
         guard ExactEnv.agentFreezes, reply["error"] == nil, !awaitModalTransitions() else { return reply }
         var out = reply
         out["settled"] = false

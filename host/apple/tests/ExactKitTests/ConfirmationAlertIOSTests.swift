@@ -747,6 +747,17 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         settle { p.menus.observation() == nil }
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertTrue(try counts(session).hasPrefix("count 1"))
+
+        // Platform timing (this process's): the dismissal animates, and the
+        // wait for a chosen press still covers it.
+        settle { controller.presentedViewController == nil }
+        XCTAssertEqual(p.menus.activate(try node(session, "ask-clear")), true)
+        settle { !p.menus.inTransition && controller.presentedViewController is UIAlertController }
+        XCTAssertEqual(p.menus.activate(try node(session, "clear-confirm-clear")), true)
+        XCTAssertTrue(p.menus.choosing)
+        XCTAssertTrue(session.agentInstance.awaitChosenPress())
+        XCTAssertFalse(p.menus.choosing)
+        XCTAssertTrue(try counts(session).hasPrefix("count 0"), "the press has landed")
     }
 }
 #endif

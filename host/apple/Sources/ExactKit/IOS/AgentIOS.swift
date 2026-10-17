@@ -123,6 +123,19 @@ extension Agent {
         return true
     }
 
+    /// Under platform timing UIKit animates an alert's dismissal, and a
+    /// chosen button's press lands only after it (`dismissConfirmation`):
+    /// the input still returns once it has, bounded at two seconds. Sheets
+    /// and pushes are left to `clock settle` there.
+    @discardableResult func awaitChosenPress(bound: TimeInterval = 2) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: bound)
+        while presenter.menus.choosing {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
+    }
+
     /// Native transitions, keyboard work and an agent-issued caret reveal
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {

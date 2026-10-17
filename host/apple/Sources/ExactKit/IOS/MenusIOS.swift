@@ -51,6 +51,9 @@ final class MenuHost {
             return self?.agentOpen.values.contains { $0 === entry } == true
         }
     }
+    /// Whether a confirmation's button was chosen and its press has not yet
+    /// landed: it lands once UIKit has dismissed the alert.
+    var choosing: Bool { confirmation?.finishing == true }
     /// Whether an open prompt's field (UIKit's, in the alert) is being edited.
     var promptEditing: Bool { confirmation?.fields.contains { $0.editing } == true }
     var nativeConfirmation: NodeView? { pendingConfirmation?.popover ?? (confirmation?.finishing == false ? confirmation?.popover : nil) }

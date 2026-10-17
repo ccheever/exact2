@@ -66,6 +66,7 @@ extension Agent {
     /// not return before), so there is nothing to wait for (the iOS host's
     /// `awaitModalTransitions`).
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
+    @discardableResult func awaitChosenPress(bound: TimeInterval = 2) -> Bool { true }
 
     /// AppKit's list corrections and element reveals finish on its clock,
     /// including a reveal in the page viewport (LLP 1070.000 §11).
