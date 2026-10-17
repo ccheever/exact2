@@ -43,9 +43,30 @@ fn symbolic(e: &Expr) -> bool {
         Expr::Template(parts, _) => {
             matches!(parts.first(), Some(TemplatePart::Text(s)) if s.starts_with("symbol:"))
         }
-        Expr::Ternary(_, a, b, _) => symbolic(a) || symbolic(b),
         _ => false,
     }
+}
+
+/// Each part of an image's source `e` with whether it is a symbol's: a
+/// `?:`'s branches apart (its condition no source), so a URL branch is
+/// left as written beside a symbol's.
+fn source_parts(e: &mut Expr, f: &mut dyn FnMut(&mut Expr, bool)) {
+    match e {
+        Expr::Ternary(c, a, b, _) => {
+            f(c, false);
+            source_parts(a, f);
+            source_parts(b, f);
+        }
+        _ => {
+            let symbol = symbolic(e);
+            f(e, symbol)
+        }
+    }
+}
+
+/// Whether attribute `name` of `tag` is an image's source (named).
+fn source(tag: &str, name: &str) -> bool {
+    sourced(tag) && name == "src"
 }
 
 /// Each `param.<name>` whole word of `text` outside quotes, not after `#`,
@@ -111,6 +132,8 @@ struct At {
     quote: Option<char>,
     span: Span,
     value: bool,
+    /// Inside a template's hole inside quotes: part of a quoted name.
+    quoted: bool,
 }
 
 /// A text on its own: a param's default, a `select`'s options.
@@ -124,6 +147,7 @@ const PLAIN: At = At {
         source_id: 0,
     },
     value: true,
+    quoted: false,
 };
 
 /// `text` with each `param.<name>` [`found`] in it written by `named`; a name
@@ -159,16 +183,20 @@ type Visit<'a> = dyn FnMut(&mut String, At) + 'a;
 /// templates do through `?:` branches, `match` arms, `let` and `+` (as
 /// [`crate::motion`] writes a motion token in), and nothing else does.
 fn texts(e: &mut Expr, value: bool, f: &mut Visit<'_>) {
+    walk(e, value, false, f)
+}
+
+/// [`texts`]; `quoted`: inside a template's hole inside quotes.
+fn walk(e: &mut Expr, value: bool, quoted: bool, f: &mut Visit<'_>) {
+    let at = |span: Span, glued, quote| At {
+        glued,
+        quote,
+        span,
+        value,
+        quoted,
+    };
     match e {
-        Expr::Str(s, span) => f(
-            s,
-            At {
-                glued: (false, false),
-                quote: None,
-                span: *span,
-                value,
-            },
-        ),
+        Expr::Str(s, span) => f(s, at(*span, (false, false), None)),
         Expr::Template(parts, span) => {
             let n = parts.len();
             let holes: Vec<bool> = parts
@@ -182,25 +210,17 @@ fn texts(e: &mut Expr, value: bool, f: &mut Visit<'_>) {
                         let glued = (i > 0 && holes[i - 1], i + 1 < n && holes[i + 1]);
                         let start = quote;
                         quote = found(s, glued, start).1;
-                        f(
-                            s,
-                            At {
-                                glued,
-                                quote: start,
-                                span: *span,
-                                value,
-                            },
-                        );
+                        f(s, at(*span, glued, start));
                     }
                     // A hole inside quotes is part of a quoted name.
-                    TemplatePart::Expr(x) => texts(x, value && quote.is_none(), f),
+                    TemplatePart::Expr(x) => walk(x, value, quoted || quote.is_some(), f),
                 }
             }
         }
         Expr::Ternary(c, a, b, _) => {
-            texts(c, false, f);
-            texts(a, value, f);
-            texts(b, value, f);
+            walk(c, false, quoted, f);
+            walk(a, value, quoted, f);
+            walk(b, value, quoted, f);
         }
         Expr::Match {
             subject,
@@ -208,27 +228,27 @@ fn texts(e: &mut Expr, value: bool, f: &mut Visit<'_>) {
             none,
             ..
         } => {
-            texts(subject, false, f);
-            texts(some, value, f);
-            texts(none, value, f);
+            walk(subject, false, quoted, f);
+            walk(some, value, quoted, f);
+            walk(none, value, quoted, f);
         }
         Expr::Let { value: v, body, .. } => {
-            texts(v, value, f);
-            texts(body, value, f);
+            walk(v, value, quoted, f);
+            walk(body, value, quoted, f);
         }
         Expr::Binary(op, a, b, _) => {
             let joined = value && matches!(op, BinOp::Add);
-            texts(a, joined, f);
-            texts(b, joined, f);
+            walk(a, joined, quoted, f);
+            walk(b, joined, quoted, f);
         }
-        Expr::List(items, _) => items.iter_mut().for_each(|a| texts(a, false, f)),
-        Expr::Call(_, args, _) => args.iter_mut().for_each(|a| texts(a, false, f)),
+        Expr::List(items, _) => items.iter_mut().for_each(|a| walk(a, false, quoted, f)),
+        Expr::Call(_, args, _) => args.iter_mut().for_each(|a| walk(a, false, quoted, f)),
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
         | Expr::Typed(x, _, _)
-        | Expr::Unary(_, x, _) => texts(x, false, f),
-        Expr::Arrow { body, .. } => texts(body, false, f),
+        | Expr::Unary(_, x, _) => walk(x, false, quoted, f),
+        Expr::Arrow { body, .. } => walk(body, false, quoted, f),
         Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
     }
 }
@@ -248,13 +268,22 @@ fn view(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr)) {
                 ..
             } => {
                 for a in attrs.iter_mut().filter(|a| row(tag, &a.name)) {
-                    if !sourced(tag) || symbolic(&a.value) {
-                        visit(&mut a.value);
+                    match source(tag, &a.name) {
+                        true => source_parts(&mut a.value, &mut |e, symbol| {
+                            if symbol {
+                                visit(e)
+                            }
+                        }),
+                        false => visit(&mut a.value),
                     }
                 }
                 if sourced(tag) {
-                    if let Some(p) = positional.first_mut().filter(|p| symbolic(p)) {
-                        visit(p);
+                    if let Some(p) = positional.first_mut() {
+                        source_parts(p, &mut |e, symbol| {
+                            if symbol {
+                                visit(e)
+                            }
+                        });
                     }
                 }
                 view(children, visit);
@@ -295,12 +324,16 @@ fn everything(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr, bool)) {
                 ..
             } => {
                 for a in attrs.iter_mut() {
-                    let at = row(tag, &a.name) && (!sourced(tag) || symbolic(&a.value));
-                    visit(&mut a.value, at);
+                    match (row(tag, &a.name), source(tag, &a.name)) {
+                        (true, true) => source_parts(&mut a.value, visit),
+                        (row, _) => visit(&mut a.value, row),
+                    }
                 }
                 for (i, p) in positional.iter_mut().enumerate() {
-                    let at = sourced(tag) && i == 0 && symbolic(p);
-                    visit(p, at);
+                    match sourced(tag) && i == 0 {
+                        true => source_parts(p, visit),
+                        false => visit(p, false),
+                    }
                 }
                 everything(children, visit);
             }
@@ -356,7 +389,7 @@ pub fn reached(root: &Component, params: &[ParamToken]) -> Vec<LowerError> {
     let mut list = root.view.clone();
     everything(&mut list, &mut |e, row| {
         texts(e, row, &mut |s, at| {
-            if !at.value {
+            if !at.value || at.quoted {
                 found.push((s.clone(), at.span));
             }
         })
@@ -401,6 +434,9 @@ fn scoped(span: Span, name: &str, place: String, fix: &str) -> LowerError {
 fn named_in(e: &mut Expr) -> Vec<(String, Span)> {
     let mut out = Vec::new();
     texts(e, false, &mut |s, at| {
+        if at.quoted {
+            return;
+        }
         out.extend(
             found(s, at.glued, at.quote)
                 .0
@@ -451,7 +487,9 @@ fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
     let mut scope: Vec<LowerError> = Vec::new();
     view(&mut c.view, &mut |e| {
         texts(e, true, &mut |s, at| {
-            if at.value {
+            if at.quoted {
+                // Part of a quoted name: left as written.
+            } else if at.value {
                 let mut found = Vec::new();
                 *s = written(s, at, &named, &mut found);
                 bad.extend(found.into_iter().map(|n| (n, at.span)));
@@ -503,7 +541,7 @@ fn read(c: &mut Component) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     view(&mut c.view, &mut |e| {
         texts(e, true, &mut |s, at| {
-            if at.value {
+            if at.value && !at.quoted {
                 out.extend(
                     s.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
                         .filter(|w| w.starts_with(PREFIX))

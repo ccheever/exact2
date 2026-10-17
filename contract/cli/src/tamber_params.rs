@@ -19,6 +19,9 @@ pub struct AppParams {
     pub tokens: Vec<ParamToken>,
     /// Every component's identity.
     pub identities: Vec<String>,
+    /// Each source's file, by source id, as a diagnostic names it: relative
+    /// to the app's directory where it is inside it.
+    pub files: Vec<String>,
 }
 
 /// The app's params, loaded from `app_contract`; none when it has no
@@ -30,35 +33,49 @@ pub fn params_of(app_contract: &Path) -> AppParams {
     let Ok(root) = crate::app_root(app_contract) else {
         return AppParams::default();
     };
+    let dir = app_contract.parent().unwrap_or(Path::new("."));
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     match crate::sources::load(app_contract, &src, &root) {
-        Ok((file, _)) => AppParams {
+        Ok((file, sources)) => AppParams {
             tokens: params::tokens(&file),
             identities: params::identities(&file),
+            files: sources
+                .paths()
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&dir)
+                        .unwrap_or(p)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect(),
         },
         Err(_) => AppParams::default(),
     }
 }
 
-/// Diagnostic `d` of a design folded with `params` where an author finds
-/// it: one of a param's (on [`params::LINE`] and after) at its default, in
-/// its declaring file, which is returned; every name in full.
-pub fn relocate(d: &mut exact_tamber::Diagnostic, params: &[ParamToken]) -> Option<String> {
-    d.message = params::shown(&d.message, params);
-    let p = params.get(d.line.checked_sub(params::LINE)? as usize)?;
+/// Diagnostic `d` of a design folded with the app's params where an author
+/// finds it: one of a param's (on [`params::LINE`] and after) at its
+/// default, in its declaring file (its path, by the default's source),
+/// which is returned; every name in full.
+pub fn relocate(d: &mut exact_tamber::Diagnostic, app: &AppParams) -> Option<String> {
+    d.message = params::shown(&d.message, &app.tokens);
+    let p = app.tokens.get(d.line.checked_sub(params::LINE)? as usize)?;
     d.line = p.param.default_span.line;
     d.col = p.param.default_span.col;
-    Some(
+    let id = p.param.default_span.source_id as usize;
+    Some(app.files.get(id).cloned().unwrap_or_else(|| {
         p.identity
             .rsplit_once('#')
-            .map_or(p.identity.clone(), |(f, _)| f.to_string()),
-    )
+            .map_or(p.identity.clone(), |(f, _)| f.to_string())
+    }))
 }
 
 /// [`relocate`]d, as a line a terminal prints: `file:line:col: id: message`,
 /// the design's file `design` unless a param's.
-pub fn located(d: &exact_tamber::Diagnostic, params: &[ParamToken], design: &Path) -> String {
+pub fn located(d: &exact_tamber::Diagnostic, app: &AppParams, design: &Path) -> String {
     let mut d = d.clone();
-    match relocate(&mut d, params) {
+    match relocate(&mut d, app) {
         Some(file) => format!("{file}:{d}"),
         None => format!("{}:{d}", design.display()),
     }

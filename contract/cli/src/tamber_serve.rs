@@ -684,8 +684,9 @@ impl Server {
     fn design_with(
         &self,
         request: &Value,
-        params: &[contract_lower::params::ParamToken],
+        app: &contract::tamber_params::AppParams,
     ) -> Result<(Snapshot, exact_tamber::Folding, exact_tamber::Design), Value> {
+        let params = app.tokens.as_slice();
         if params.is_empty() {
             let (snap, folding) = self.design(request)?;
             let design = folding.design.clone();
@@ -700,7 +701,7 @@ impl Server {
             .1;
         let (folding, design) = contract::tamber_params::fold_with(text, params, &self.vocab)
             .map_err(|all| {
-                json!({"message": "the design is refused", "diagnostics": all.iter().map(|d| located(&file, d, params)).collect::<Vec<_>>()})
+                json!({"message": "the design is refused", "diagnostics": all.iter().map(|d| located(&file, d, app)).collect::<Vec<_>>()})
             })?;
         Ok((snap, folding, design))
     }
@@ -741,7 +742,7 @@ impl Server {
         // so a dial only a param reads is read; listed by full name.
         let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
         let all = app.tokens.as_slice();
-        let (snap, folding, design) = self.design_with(request, all)?;
+        let (snap, folding, design) = self.design_with(request, &app)?;
         let mut ir: Value =
             serde_json::from_str(&folding.ir()).map_err(|e| json!({"message": e.to_string()}))?;
         if !all.is_empty() {
@@ -786,7 +787,7 @@ impl Server {
         let warnings: Vec<Value> = folding
             .warnings
             .iter()
-            .map(|d| located(&file, d, all))
+            .map(|d| located(&file, d, &app))
             .collect();
         Ok(
             json!({"ir": ir, "files": files_json(&snap), "meta": {"dials": dials, "tokens": tokens}, "pairs": pairs, "warnings": warnings}),
@@ -914,7 +915,7 @@ impl Server {
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
         // A param's token (the IR's `components` names it) is one too (D15).
         let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
-        let (snap, folding, _) = self.design_with(request, &app.tokens)?;
+        let (snap, folding, _) = self.design_with(request, &app)?;
         let name = required(request, "token")?;
         if !folding.tokens.iter().any(|t| t.name == name) {
             return Err(json!({"message": format!("no token `{name}`")}));
@@ -1399,10 +1400,10 @@ fn diagnostic(file: &str, d: &exact_tamber::Diagnostic) -> Value {
 fn located(
     file: &str,
     d: &exact_tamber::Diagnostic,
-    params: &[contract_lower::params::ParamToken],
+    app: &contract::tamber_params::AppParams,
 ) -> Value {
     let mut d = d.clone();
-    let declaring = contract::tamber_params::relocate(&mut d, params);
+    let declaring = contract::tamber_params::relocate(&mut d, app);
     diagnostic(declaring.as_deref().unwrap_or(file), &d)
 }
 

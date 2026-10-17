@@ -3113,7 +3113,8 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     `let` and `+`, the places a motion token is written into. Also in its params' defaults and
     `select` options. A quoted word (the quote carried across a template's holes), one after `#`
     (`url(#…)`) and one touching a template's `${…}` are left as written, as is text that is no
-    row (a `text`'s content, a `testId`, an image's URL). So a param is read, folded, retained
+    row (a `text`'s content, a `testId`, an image's URL, a `?:` branch of an image's source that is
+    no symbol's; an image's other rows take params as any element's do). So a param is read, folded, retained
     (D7) and bound as any token is, and an import alias never redirects it.
   - An argument to another component passes the param: the child's row reads it as its value
     (round 2's change; round 1 refused it). After inlining, a param's token anywhere but a row's
@@ -3123,10 +3124,11 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
     what a row computes (a function's argument, a condition, a comparison, a callback): what it
     computes is data the param's value never reaches, and a duration there would never be written
-    in. A package's file (one under `node_modules`, or the root a `use` named) is named by the
-    package's declared name, however a `use` reached it, so two routes or aliases to one package
-    are one identity. A package with no name is named by its place under the app. A source text
-    with no path is `app.contract`.
+    in. A package's file is named by the package's declared name: the nearest directory above the
+    file, below the app's own, whose `package.json` has a name (under `node_modules`, linked from
+    elsewhere, or vendored). It is read from where the file is, never the route a `use` took, so
+    two routes, aliases or links to one package are one identity. A package with no name is named
+    by its place under the app. A source text with no path is `app.contract`.
   - Every refusal names the full name, never the hash: the lowering's errors pass through
     `params::shown`, every param's (a bad kind's too). `contract types` names no param, and
     `describe`, `contract tamber ir` and the design's checks fold the params with the design but

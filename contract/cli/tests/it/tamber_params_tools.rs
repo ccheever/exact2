@@ -176,3 +176,93 @@ fn an_icon_param_naming_another_reads_its_svg_as_a_source() {
     let all = format!("{graph:?}");
     assert!(all.contains("mark.svg"), "{all}");
 }
+
+#[test]
+fn an_images_rows_take_params_and_only_its_symbol_source_names_one() {
+    let design = "tamber t\n\ntheme\n  accent.fill = #0a7aff\n";
+    let styled = r##"component App
+  params
+    fill: color = "#ffffff"
+  view
+    image "https://example.com/photo.png" background-color="param.fill"
+"##;
+    let path = app(
+        "img-row",
+        &[("app.contract", styled), ("app.tamber", design)],
+    );
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let branches = r##"component App
+  params
+    fill: color = "#ffffff"
+  state show = false
+  view
+    column background-color="param.fill"
+      image (show ? "symbol:star" : "https://example.com/param.fill")
+      text "x" font-family=`"${"param.fill"}", system-ui`
+"##;
+    let path = app(
+        "img-branch",
+        &[("app.contract", branches), ("app.tamber", design)],
+    );
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let strings = format!("{:?}", plan.strings);
+    assert!(
+        strings.contains("https://example.com/param.fill"),
+        "{strings}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_package_is_its_package_s_and_its_diagnostics_its_file_s() {
+    let card = "component Card\n  params\n    body: type = \"16px/1.4 system-ui\"\n  view\n    column\n      text \"a\" font=\"param.body\"\n";
+    let manifest = r#"{"name": "pkg", "version": "1.0.0", "exports": {".": "./index.contract"}}"#;
+    let orders = [
+        "use Card as A from \"./node_modules/pkg/index.contract\"\nuse Card as B from \"pkg\"\n",
+        "use Card as B from \"pkg\"\nuse Card as A from \"./node_modules/pkg/index.contract\"\n",
+    ];
+    for (i, uses) in orders.iter().enumerate() {
+        let root = format!("{uses}\ncomponent App\n  view\n    column\n      A()\n      B()\n");
+        let path = app(
+            &format!("linked{i}"),
+            &[
+                ("app.contract", &root),
+                ("vendor/pkg/package.json", manifest),
+                ("vendor/pkg/index.contract", card),
+            ],
+        );
+        let dir = path.parent().unwrap();
+        std::fs::create_dir_all(dir.join("node_modules")).unwrap();
+        std::os::unix::fs::symlink(dir.join("vendor/pkg"), dir.join("node_modules/pkg")).unwrap();
+        let params = contract::tamber_params::params_of(&path);
+        let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
+        assert_eq!(ids, ["pkg/index.contract#Card"], "order {i}");
+        if i == 0 {
+            let (_, _, err) = tamber(&["check"], &path);
+            assert!(err.contains("vendor/pkg/index.contract:3:"), "{err}");
+        }
+    }
+}
+
+#[test]
+fn a_design_named_apart_is_admitted_alone() {
+    let src = r##"component App
+  params
+    fill: color = "#ffffff"
+  view
+    column background-color="param.fill"
+      text "x"
+"##;
+    let bad = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  Canvas = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n";
+    let path = app("apart", &[("app.contract", src), ("bad.tamber", bad)]);
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["tamber", "check"])
+        .arg(path.parent().unwrap().join("bad.tamber"))
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success() && err.contains("tamber-role-axis"),
+        "{err}"
+    );
+}

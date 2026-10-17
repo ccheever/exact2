@@ -120,7 +120,7 @@ pub fn run(args: &[String]) -> ExitCode {
         Ok(folding) => folding,
         Err(all) => {
             for d in &all {
-                eprintln!("{}", contract::tamber_params::located(d, params, &path));
+                eprintln!("{}", contract::tamber_params::located(d, &app, &path));
             }
             // A profile's colour is the compiler's to resolve, with the
             // declarations in the app's Contract (LLP 1100 D3).
@@ -139,10 +139,12 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     // What the compiler refuses of a design beyond the crate's check (a
     // CSS word as a name, a role that varies by an axis …), as a build would.
-    let refused = match admission(
-        &src,
-        (!params.is_empty()).then(|| app_contract(Path::new(&input))),
-    ) {
+    // An app with params is built itself, when the design checked is the
+    // one it builds (a design named apart is checked alone).
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let built = app_contract(Path::new(&input));
+    let own = contract::design_path(&built).is_some_and(|d| canonical(&d) == canonical(&path));
+    let refused = match admission(&src, (!params.is_empty() && own).then_some(built)) {
         Ok(refused) => refused,
         Err(why) => {
             eprintln!("contract tamber: {why}");
@@ -160,7 +162,7 @@ pub fn run(args: &[String]) -> ExitCode {
         ("check", []) => {
             // The author's information, never a refusal (LLP 1121 D3).
             for w in &folding.warnings {
-                eprintln!("{}", contract::tamber_params::located(w, params, &path));
+                eprintln!("{}", contract::tamber_params::located(w, &app, &path));
             }
             let design = &folding.design;
             // A param is its component's, counted apart (D15).

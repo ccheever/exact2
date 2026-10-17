@@ -44,6 +44,11 @@ impl Sources {
     /// first `(captured, original)` pair whose captured directory holds it
     /// (a bake's stage, and each package mirrored into the stage's
     /// `node_modules`, listed first; LLP 1091 D10).
+    /// Each source's path, by source id.
+    pub(crate) fn paths(&self) -> &[PathBuf] {
+        &self.paths
+    }
+
     pub(crate) fn relocate(&mut self, moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
         let moves = moves
             .iter()
@@ -185,13 +190,16 @@ pub(crate) fn load(
 }
 
 /// A source's file as a component's identity names it (LLP 1121 D15),
-/// whatever route a `use` reached it by: a package's file (one under a
-/// `node_modules` directory, or the package root a `use` named) under the
-/// package's own name (its `package.json`'s), else the file relative to the
-/// app's directory. A package with no name is named by where it is.
+/// from where the file is alone, never the route a `use` reached it by: a
+/// file in a package (the nearest directory above it, below the app's own,
+/// whose `package.json` has a name: under `node_modules`, linked from
+/// elsewhere, or vendored) under the package's name, else the file relative
+/// to the app's directory.
 fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let app = app_root
+        .canonicalize()
+        .unwrap_or_else(|_| app_root.to_path_buf());
     let relative = |root: &Path| {
         path.strip_prefix(root)
             .ok()
@@ -203,37 +211,21 @@ fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .and_then(|m| m["name"].as_str().map(str::to_string))
     };
-    let routed = match origin {
-        Origin::Package { root, .. } => Some(canonical(root)),
-        _ => None,
-    };
     for dir in path.ancestors().skip(1) {
-        let packaged = routed.as_deref() == Some(dir)
-            || dir.parent().is_some_and(|p| {
-                p.ends_with("node_modules")
-                    || (p
-                        .file_name()
-                        .is_some_and(|n| n.to_string_lossy().starts_with('@'))
-                        && p.parent().is_some_and(|g| g.ends_with("node_modules")))
-            });
-        if packaged {
-            if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
-                return format!("{name}/{rest}");
-            }
+        // The app's own directory and those above it are no package of it.
+        if app.starts_with(dir) {
+            break;
+        }
+        if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
+            return format!("{name}/{rest}");
         }
     }
-    let app = app_root
-        .canonicalize()
-        .unwrap_or_else(|_| app_root.to_path_buf());
     if let Some(rest) = relative(&app) {
         return rest;
     }
     match origin {
-        Origin::Package { root, name, .. } => {
-            format!("{name}/{}", relative(&canonical(root)).unwrap_or_default())
-        }
         Origin::Builtin => path.to_string_lossy().into_owned(),
-        Origin::App => path
+        _ => path
             .file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
     }
