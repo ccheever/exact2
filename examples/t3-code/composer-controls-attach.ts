@@ -34,6 +34,27 @@ export async function attachFiles(client: T3Client, native: Native): Promise<str
 }
 
 /**
+ * onComposerPaste's addComposerAttachments: the files a paste took from the pasteboard (T3ComposerEditor.swift's
+ * `pastedFiles`), staged as Attach stages picked ones and added the same way. `key`: the draft the editor reported
+ * them for; once another draft is open they are let go.
+ */
+export async function takePastedFiles(client: T3Client, native: Native, key = client.draftKey): Promise<void> {
+  const imageChips = imagesGetChips(client);
+  const files = arr(obj(await client.restAccess(native).call({ op: 'composerPasteTake', fileLimit: attachStagingLimit(client) })).files);
+  if (!files.length) return;
+  if (key !== client.draftKey || !client.projectId) {
+    for (const file of files) {
+      if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
+      await releaseStagedFile(native, file);
+    }
+    // Attach files says the same; the reference claims no paste without a thread.
+    if (key === client.draftKey) client.error = 'Choose a project first.';
+    return;
+  }
+  await addAttachedFiles(client, native, files, imageChips);
+}
+
+/**
  * addComposerFiles over staged files (the picker's, or the sidebar row drop's, legacy-sidebar-drop.ts): images join the
  * shelf; other files become chips; what cannot be attached is named in one error. `owner`: the composer the chips go into
  * at its caret (`editorInsert` refuses another thread's editor; then they join the end of the stored draft).
