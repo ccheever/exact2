@@ -103,7 +103,16 @@ fn walk_stmts(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr, Role) -> bool) -> bo
         let stop = match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => walk_expr(expr, Role::Plain, f),
             // A call is expansion's, never an authored tree's (LLP 1089).
-            Stmt::Command { args, .. } => args.iter_mut().any(|a| walk_expr(a, Role::HostArg, f)),
+            // The parser writes a call of the component's own action as a
+            // command too; only a host's is the Rust checker's alone.
+            Stmt::Command { name, args, .. } => {
+                let role = if contract_syntax::HOST_COMMANDS.contains(&name.as_str()) {
+                    Role::HostArg
+                } else {
+                    Role::Plain
+                };
+                args.iter_mut().any(|a| walk_expr(a, role, f))
+            }
             Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
                 args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
             }
@@ -211,11 +220,12 @@ fn walk_expr(e: &mut Expr, role: Role, f: &mut dyn FnMut(&mut Expr, Role) -> boo
             TemplatePart::Expr(x) => walk_expr(x, Role::Plain, f),
             TemplatePart::Text(_) => false,
         }),
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Unary(_, x, _)
-        | Expr::Typed(x, _, _) => walk_expr(x, Role::Plain, f),
+        // A named argument's value is in its call's place (`gain=` of a
+        // host command is still the command's signature).
+        Expr::NamedArg(_, x, _) => walk_expr(x, role, f),
+        Expr::Some(x, _) | Expr::Member(x, _, _) | Expr::Unary(_, x, _) | Expr::Typed(x, _, _) => {
+            walk_expr(x, Role::Plain, f)
+        }
         Expr::Call(_, args, _) | Expr::List(args, _) => {
             args.iter_mut().any(|a| walk_expr(a, Role::Plain, f))
         }

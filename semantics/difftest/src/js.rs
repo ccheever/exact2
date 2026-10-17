@@ -323,10 +323,11 @@ fn libm(key: &str) -> Option<String> {
     Some(format!("{:016x}", y.to_bits()))
 }
 
-/// How many times a case is driven while it asks for `sin` or `cos` of
-/// inputs not yet answered: each drive answers the inputs the one before
-/// it reached, a chain of trig results one more link.
-const TRIG_ROUNDS: usize = 4;
+/// How many times a case is driven at most while it asks for `sin` or
+/// `cos` of inputs not yet answered: each drive answers the inputs the one
+/// before it reached, so a chain of `n` trig results takes `n + 1`. A case
+/// still asking after the last is a driver error, never scored.
+const TRIG_ROUNDS: usize = 32;
 
 /// Run `cases` on the runner and the JS target, `batch` cases per driver
 /// process, the processes side by side (`DIFFTEST_JOBS`, as [`crate::check`]).
@@ -390,7 +391,7 @@ fn run_chunk(compiler: &Path, chunk: &[Case], dir: &Path) -> Result<Vec<JsVerdic
     // input the harness had not answered, with those answered.
     let mut lines: Vec<String> = vec![String::new(); ready.len()];
     let mut pending: Vec<usize> = (0..ready.len()).collect();
-    for round in 1..=TRIG_ROUNDS {
+    for _ in 0..TRIG_ROUNDS {
         if pending.is_empty() {
             break;
         }
@@ -400,7 +401,7 @@ fn run_chunk(compiler: &Path, chunk: &[Case], dir: &Path) -> Result<Vec<JsVerdic
         for (&i, line) in pending.iter().zip(driven) {
             let keys = asked(&line);
             lines[i] = line;
-            if keys.is_empty() || round == TRIG_ROUNDS {
+            if keys.is_empty() {
                 continue;
             }
             for k in keys {
@@ -416,6 +417,10 @@ fn run_chunk(compiler: &Path, chunk: &[Case], dir: &Path) -> Result<Vec<JsVerdic
     Ok(slots
         .into_iter()
         .map(|s| match s {
+            Ok(i) if pending.contains(&i) => JsVerdict::Error(format!(
+                "sin or cos inputs still unanswered after {TRIG_ROUNDS} drives: {}",
+                asked(&lines[i]).join(" ")
+            )),
             Ok(i) => {
                 let r = ready[i].take().expect("each case once");
                 verdict(r.rust, &lines[i])

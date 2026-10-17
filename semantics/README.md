@@ -236,8 +236,9 @@ The JS target's `sin` and `cos` are the browser's `Math.sin` and
 the two (`roster.js`'s `x_sin`, `x_cos`) with the runner's bits for each
 input: an input it has no answer for is answered by `Math` and reported,
 the harness computes it with `exact_motion::math`, and the case is driven
-again, up to four times, so a chain of trig results is answered link by
-link. Every other number is compared by its bits, so the comparison stays
+again until it asks for none, so a chain of trig results is answered link
+by link. Only a drive that asked for nothing is scored; a case still
+asking after 32 drives is a driver error (`ERROR-JS`). Every other number is compared by its bits, so the comparison stays
 exact; `Math.sin` and `Math.cos` themselves are not what it checks.
 
 A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
