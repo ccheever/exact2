@@ -268,8 +268,11 @@ component T3Code
         workspaceRetryWake = result.wake
       case none
         workspaceRetryAt = performanceNow() + 10000
+  // A timeline read's mutation refreshes data as it lands, and a refresh replaces an answer in flight, so the tick
+  // leaves a pending data answer alone, as the highlight pump does (highlightStepped): asked again each second, a
+  // launch's slow snapshot answer could never land.
   action liveTick
-    if data.timelineReadsNeeded
+    if data.timelineReadsNeeded and not pending(data)
       dispatchTimelineReads()
     if workspaceDiscovery.needed and not pending(workspaceRefreshed)
       if workspaceRetryKey != workspaceDiscovery.key or (performanceNow() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
