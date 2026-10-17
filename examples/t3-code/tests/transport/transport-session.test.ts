@@ -1,0 +1,268 @@
+// One connection, driven as app.contract drives it (transport-session.ts, transport.ts): pairing, requests,
+// streams, the Ping cadence, the reconnect ladder, probes and the saved-environment ops.
+import { describe, test, expect } from 'bun:test';
+import { Drive, FakeServer, pairing } from '../support/transport-fixture';
+
+const ORIGIN = 'http://127.0.0.1:4001';
+type Obj = Record<string, unknown>;
+const value = (reply: Obj) => reply.value as Obj;
+
+async function paired(server = new FakeServer(ORIGIN)) {
+  const drive = new Drive(server);
+  const reply = await drive.op(pairing());
+  expect(reply.ok).toBe(true);
+  return { drive, server };
+}
+
+describe('pairing (authorization/remote.ts, resolver.ts)', () => {
+  test('exchanges the code, checks the session, opens the socket with a ticket and saves the environment', async () => {
+    const { drive, server } = await paired();
+    const status = value(await drive.op({ op: 'status' }));
+    expect([status.state, status.environmentId, status.origin]).toEqual(['connected', 'env-1', ORIGIN]);
+    expect(server.requests.map(request => `${request.method} ${request.path}`)).toEqual([
+      'GET /.well-known/t3/environment', 'POST /oauth/token', 'GET /api/auth/session', 'POST /api/auth/websocket-ticket']);
+    expect(server.requests[1]!.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(server.requests[2]!.headers.Authorization).toBe('Bearer token-1');
+    // The catalog keeps the entry and its token in the one secret.
+    const saved = value(await drive.op({ op: 'environments' })).saved as Obj[];
+    expect(saved.map(entry => [entry.origin, entry.environmentId, entry.enabled])).toEqual([[ORIGIN, 'env-1', true]]);
+    expect(JSON.parse(drive.store.get('t3-catalog')!).tokens).toEqual({ [`${ORIGIN}\nenv-1`]: 'token-1' });
+    // The status adds the module's presentation.
+    expect(status.presentation).toEqual({ scrollEnds: {} });
+  });
+
+  test('a refused code saves nothing and names the reference error', async () => {
+    const drive = new Drive(new FakeServer(ORIGIN));
+    const reply = await drive.op(pairing(ORIGIN, 'wrong'));
+    expect(reply.ok).toBe(false);
+    expect((reply.error as Obj).message).toBe('The environment credential is invalid.');
+    const status = value(await drive.op({ op: 'status' }));
+    expect(status.state).toBe('error');
+    expect(value(await drive.op({ op: 'environments' })).saved).toEqual([]);
+  });
+
+  test('an incompatible server keeps its descriptor and stops', async () => {
+    const server = new FakeServer(ORIGIN, 'env-1', { orchestrationProtocolVersion: 1, capabilities: { serverSelfUpdate: 'respawn' } });
+    const drive = new Drive(server);
+    await drive.op(pairing());
+    const status = value(await drive.op({ op: 'status' }));
+    expect([status.state, status.failureKind]).toEqual(['error', 'Protocol']);
+    expect((status.descriptor as Obj).orchestrationProtocolVersion).toBe(1);
+  });
+});
+
+describe('requests', () => {
+  test('a request is sent by the tick, and its reply comes back through the delivering answer', async () => {
+    const { drive, server } = await paired();
+    server.methods['orchestration.getSnapshot'] = (_method, payload) => ({ echoed: payload.x });
+    let reply: Obj | null = null;
+    void drive.bridge.later({ op: 'request', method: 'orchestration.getSnapshot', payload: { x: 7 } }).then(answer => { reply = answer as Obj; });
+    // Nothing resolves outside the delivering answer, even once the Exit is in.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(reply).toBeNull();
+    await drive.settle();
+    expect(reply!.ok).toBe(true);
+    expect(value(reply!)).toEqual({ echoed: 7 });
+    expect(server.rpcs.at(-1)).toMatchObject({ method: 'orchestration.getSnapshot', payload: { x: 7 } });
+  });
+
+  test('a typed failure keeps its kind, reason and detail', async () => {
+    const { drive, server } = await paired();
+    server.methods['pullRequests.getDetail'] = (_method, _payload, id, srv) => { srv.exit(id, { _tag: 'Failure', cause: [{ _tag: 'Fail', error: { _tag: 'PullRequestOperationError', operation: 'getDetail', reason: 'not-found', detail: 'gone' } }] }); return undefined; };
+    const reply = await drive.op({ op: 'request', method: 'pullRequests.getDetail', payload: {} });
+    expect(reply.error).toEqual({ kind: 'PullRequestOperationError', message: 'Pull request operation getDetail failed: gone', uncertain: false, reason: 'not-found', detail: 'gone' });
+  });
+
+  test('an unanswered request times out uncertain and is interrupted', async () => {
+    const { drive, server } = await paired();
+    server.methods.slow = () => undefined;
+    let reply: Obj | null = null;
+    void drive.bridge.later({ op: 'request', method: 'slow', payload: {}, timeout: 2 }).then(answer => { reply = answer as Obj; });
+    await drive.advance(1_000);
+    expect(reply).toBeNull();
+    await drive.advance(1_500);
+    expect(reply!.error).toMatchObject({ kind: 'Timeout', uncertain: true });
+    expect(drive.socketAt(0)!.sent.some(frame => frame._tag === 'Interrupt')).toBe(true);
+  });
+
+  test('a shared read joins an identical one still pending', async () => {
+    const { drive, server } = await paired();
+    let count = 0;
+    server.methods['vcs.refreshStatus'] = () => ({ n: ++count });
+    const first = drive.bridge.later({ op: 'request', method: 'vcs.refreshStatus', payload: { cwd: '/r', a: 1 }, share: true });
+    const second = drive.bridge.later({ op: 'request', method: 'vcs.refreshStatus', payload: { a: 1, cwd: '/r' }, share: true });
+    await drive.settle();
+    expect([value(await first as Obj), value(await second as Obj)]).toEqual([{ n: 1 }, { n: 1 }]);
+    expect(server.rpcs.filter(rpc => rpc.method === 'vcs.refreshStatus')).toHaveLength(1);
+  });
+
+  test('a delivered request replies at once and joins the inbox under its key', async () => {
+    const { drive, server } = await paired();
+    server.methods['server.feedback'] = () => ({ uploaded: true });
+    const reply = await drive.op({ op: 'request', method: 'server.feedback', payload: {}, deliver: 'composer-reply:1' });
+    expect(Object.keys(value(reply))).toEqual(['id']);
+    await drive.settle();
+    const events = value(await drive.op({ op: 'events', after: 0 })).events as Obj[];
+    expect(events.map(event => [event.key, event.value])).toEqual([['composer-reply:1', { _reply: { uploaded: true } }]]);
+  });
+
+  test('a request while disconnected is refused, not queued', async () => {
+    const drive = new Drive(new FakeServer(ORIGIN));
+    const reply = await drive.op({ op: 'request', method: 'x', payload: {} });
+    expect(reply.error).toMatchObject({ kind: 'Disconnected' });
+  });
+
+  test('a stale generation is refused', async () => {
+    const { drive } = await paired();
+    const reply = await drive.op({ op: 'events', after: 0, generation: -5 });
+    expect(reply.error).toMatchObject({ kind: 'stale' });
+  });
+});
+
+describe('streams (rpc/client.ts)', () => {
+  test('chunks join the inbox in order, each acknowledged as it arrives', async () => {
+    const { drive, server } = await paired();
+    server.methods['orchestration.subscribeShell'] = () => undefined;
+    const subscribed = value(await drive.op({ op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: { afterSequence: 0 } }));
+    await drive.settle();
+    const id = String(subscribed.id);
+    server.chunk(id, [{ kind: 'a' }, { kind: 'b' }]);
+    server.chunk(id, [{ kind: 'c' }]);
+    await drive.settle();
+    const batch = value(await drive.op({ op: 'events', after: 0 }));
+    expect((batch.events as Obj[]).map(event => (event.value as Obj).kind)).toEqual(['a', 'b', 'c']);
+    expect(drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Ack').map(frame => frame.requestId)).toEqual([id, id]);
+    const ack = value(await drive.op({ op: 'ack', through: Number(batch.latest) }));
+    expect(ack.latest).toBe(batch.latest);
+  });
+
+  test('a failed stream reports its error, then resubscribes on this session after 250 ms', async () => {
+    const { drive, server } = await paired();
+    server.methods['orchestration.subscribeThread'] = () => undefined;
+    const id = String(value(await drive.op({ op: 'subscribe', key: 'thread', method: 'orchestration.subscribeThread', payload: {} })).id);
+    await drive.settle();
+    server.exit(id, { _tag: 'Failure', cause: [{ _tag: 'Fail', error: { _tag: 'ThreadMissing', message: 'gone for now' } }] });
+    await drive.settle();
+    let events = value(await drive.op({ op: 'events', after: 0 })).events as Obj[];
+    expect(events.map(event => event.value)).toEqual([{ _transportError: { kind: 'ThreadMissing', message: 'gone for now', uncertain: false, reason: '', detail: '' }, retryAfterMs: 250 }]);
+    await drive.advance(500);
+    events = value(await drive.op({ op: 'events', after: 1 })).events as Obj[];
+    expect(events.map(event => event.value)).toEqual([{ _retryDue: true }]);
+  });
+
+  test('unsubscribe interrupts the stream; at most sixteen are open', async () => {
+    const { drive, server } = await paired();
+    server.methods.sub = () => undefined;
+    for (let index = 0; index < 16; index++) await drive.op({ op: 'subscribe', key: `k${index}`, method: 'sub', payload: {} });
+    expect((await drive.op({ op: 'subscribe', key: 'k16', method: 'sub', payload: {} })).error).toMatchObject({ kind: 'Busy' });
+    await drive.op({ op: 'unsubscribe', key: 'k0' });
+    await drive.settle();
+    expect(drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Interrupt')).toHaveLength(1);
+    expect((await drive.op({ op: 'subscribe', key: 'k16', method: 'sub', payload: {} })).ok).toBe(true);
+  });
+});
+
+describe('liveness and the reconnect ladder (supervisor.ts)', () => {
+  test('a Ping every ten seconds; a server that stays silent for 35 s is reconnected', async () => {
+    const { drive, server } = await paired();
+    await drive.advance(10_250);
+    expect(drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Ping').length).toBeGreaterThan(0);
+    // Silence: the server stops answering Pings.
+    server.respond = () => [];
+    await drive.advance(36_000);
+    const status = value(await drive.op({ op: 'status' }));
+    expect(status.state).toBe('reconnecting');
+    expect(String(status.message)).toMatch(/The server stopped responding\. Reconnecting in \ds…/);
+  });
+
+  test('a server restart reconnects after the ladder delay and resubscribes nothing by itself', async () => {
+    const { drive, server } = await paired();
+    server.up = false;
+    await drive.settle();
+    let status = value(await drive.op({ op: 'status' }));
+    expect(status.state).toBe('reconnecting');
+    expect(String(status.message)).toContain('Reconnecting in 2s…');
+    server.up = true;
+    await drive.advance(2_500);
+    status = value(await drive.op({ op: 'status' }));
+    expect(status.state).toBe('connected');
+    // The saved token, not a new pairing.
+    expect(server.requests.filter(request => request.path === '/oauth/token')).toHaveLength(1);
+  });
+
+  test('Retry probes a live socket instead of replacing it', async () => {
+    const { drive, server } = await paired();
+    const reply = await drive.op({ op: 'retry', origin: '', credential: '' });
+    expect(value(reply).state).toBe('connected');
+    expect(server.rpcs.at(-1)!.method).toBe('server.probe');
+    expect(server.sockets).toHaveLength(1);
+  });
+
+  test('a probe that goes unanswered reconnects at once, skipping the ladder', async () => {
+    const { drive, server } = await paired();
+    server.methods['server.probe'] = () => undefined;
+    void drive.bridge.later({ op: 'retry', origin: '', credential: '' });
+    await drive.advance(3_500);
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+    expect(server.sockets.length).toBe(2);
+  });
+
+  test('an expired session stops and forgets its token', async () => {
+    const { drive, server } = await paired();
+    server.tokens.clear();
+    server.up = false; await drive.settle(); server.up = true;
+    await drive.advance(2_500);
+    const status = value(await drive.op({ op: 'status' }));
+    expect([status.state, status.failureKind]).toEqual(['error', 'Authentication']);
+    expect(JSON.parse(drive.store.get('t3-catalog')!).tokens).toEqual({});
+  });
+});
+
+describe('disconnect and forget', () => {
+  test('Disconnect keeps the token; Forget removes the environment and its token', async () => {
+    const { drive } = await paired();
+    expect(value(await drive.op({ op: 'disconnect', forget: false })).state).toBe('disconnected');
+    expect(JSON.parse(drive.store.get('t3-catalog')!).tokens).not.toEqual({});
+    await drive.op({ op: 'connect', origin: ORIGIN, credential: '' });
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+    await drive.op({ op: 'disconnect', forget: true });
+    expect(JSON.parse(drive.store.get('t3-catalog')!)).toMatchObject({ saved: [], tokens: {}, origin: '' });
+  });
+
+  test('a relaunch restores the remembered origin of a saved environment', async () => {
+    const { drive } = await paired();
+    const catalog = drive.store.get('t3-catalog')!;
+    const next = new Drive(new FakeServer(ORIGIN));
+    next.store.set('t3-catalog', catalog);
+    const status = value(await next.op({ op: 'status' }));
+    expect([status.state, status.origin]).toEqual(['disconnected', ORIGIN]);
+  });
+});
+
+describe('HTTP through fetch', () => {
+  test('a read sends the bearer; the pull request diff is a POST of its allowed fields', async () => {
+    const { drive, server } = await paired();
+    server.routes['/api/orchestration/shell'] = () => ({ status: 200, body: { projects: [] } });
+    server.routes['/api/pull-requests/diff'] = request => ({ status: 200, body: { echoed: JSON.parse(request.body) } });
+    expect(value(await drive.op({ op: 'http', path: '/api/orchestration/shell' }))).toEqual({ projects: [] });
+    expect(server.requests.at(-1)!.headers.Authorization).toBe('Bearer token-1');
+    const diff = await drive.op({ op: 'prDiff', payload: { projectId: 'p', repository: 'o/r', number: 3 } });
+    expect(value(diff)).toEqual({ echoed: { number: 3, projectId: 'p', repository: 'o/r' } });
+    expect((await drive.op({ op: 'http', path: '/x', method: 'POST' })).error).toMatchObject({ kind: 'Arguments' });
+  });
+
+  test('an unavailable pull request host reads the reference sentence', async () => {
+    const { drive, server } = await paired();
+    server.routes['/api/pull-requests/diff'] = () => ({ status: 503, body: { _tag: 'PullRequestUnavailableError', reason: 'cli-unauthenticated', provider: 'github' } });
+    const diff = await drive.op({ op: 'prDiff', payload: { projectId: 'p', repository: 'o/r', number: 3 } });
+    expect((diff.error as Obj).message).toBe('GitHub CLI is not authenticated. Run `gh auth login` and retry.');
+  });
+
+  test('an attachment uploads its bytes under its type, without the bearer', async () => {
+    const { drive, server } = await paired();
+    server.routes['/api/attachments/upload/a1'] = request => ({ status: 200, body: { stored: request.body, type: request.headers['Content-Type'], auth: request.headers.Authorization ?? '' } });
+    const reply = await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', base64: btoa('hello'), contentType: 'text/plain' });
+    expect(value(reply)).toEqual({ stored: '<5 bytes>', type: 'text/plain', auth: '' });
+    expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', base64: btoa('not a png') })).error).toMatchObject({ message: 'The captured image is not a PNG.' });
+  });
+});
