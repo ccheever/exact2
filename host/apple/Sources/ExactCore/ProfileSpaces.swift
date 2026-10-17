@@ -7,8 +7,8 @@ import CryptoKit
 package enum ProfileSpaces {
     /// A decoded value owns its immutable profile beyond cache eviction.
     package final class Handle: Equatable {
-        let key: String
-        let space: CGColorSpace
+        package let key: String
+        package let space: CGColorSpace
         init(key: String, space: CGColorSpace) { self.key = key; self.space = space }
         package static func == (a: Handle, b: Handle) -> Bool { a.key == b.key }
     }
@@ -17,9 +17,9 @@ package enum ProfileSpaces {
     private static let lock = NSLock()
     private static let capacity = 64
 
-    static var cacheCount: Int { lock.lock(); defer { lock.unlock() }; return cache.count }
+    package static var cacheCount: Int { lock.lock(); defer { lock.unlock() }; return cache.count }
 
-    static func bind(_ name: String, resolver: AssetResolver?) -> Handle? {
+    package static func bind(_ name: String, resolver: AssetResolver?) -> Handle? {
         guard name.hasPrefix("icc:"), let data = resolver?.bytes(String(name.dropFirst(4))) else { return nil }
         let key = "icc-sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         lock.lock(); defer { lock.unlock() }
@@ -31,12 +31,12 @@ package enum ProfileSpaces {
         return handle
     }
 
-    static func space(_ name: String) -> CGColorSpace? {
+    package static func space(_ name: String) -> CGColorSpace? {
         guard name.hasPrefix("cg:") else { return nil }
         return CGColorSpace(name: String(name.dropFirst(3)) as CFString)
     }
 
-    static func intent(_ name: String?) -> CGColorRenderingIntent {
+    package static func intent(_ name: String?) -> CGColorRenderingIntent {
         switch name {
         case "perceptual": return .perceptual
         case "absolute-colorimetric": return .absoluteColorimetric

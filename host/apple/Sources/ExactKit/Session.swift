@@ -109,13 +109,6 @@ public protocol ExactAppLifecycle: AnyObject {
 /// A plan and its complete asset namespace prepared by an app composition.
 /// The opaque token is meaningful only to that composition; zero is an
 /// ordinary core/dev plan, with no delivery selection to count or bless.
-/// A module's pairing receipt and compiled bytes. The caller authenticates
-/// a signed update or explicitly admits a development origin before preparation.
-public struct ExactModule {
-    public let receipt: Data
-    public let bytecode: Data
-    public init(receipt: Data, bytecode: Data) { self.receipt = receipt; self.bytecode = bytecode }
-}
 public struct ExactGeneration {
     public let plan: Data
     public let assets: AssetResolver
@@ -358,14 +351,15 @@ public final class ExactSession {
     var dataActivated: Bool { dataGeneration == generation }
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
-    package let runtime: Runtime
+    package let core: SessionCore
+    package var runtime: Runtime { core.runtime }
     /// This session's file roots, captured outside a native module callback.
     var appFileRoots: [String: String] = [:]
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
     #endif
-    var text: TextEngine
+    var text: TextEngine { get { core.text } set { core.text = newValue } }
     let fieldChrome = FieldChromeCache()
     let buttonMeasurements = ButtonMeasureCache()
     package let presenter: Presenter
@@ -473,11 +467,11 @@ public final class ExactSession {
     init(app: ExactApp, label: String) {
         self.app = app
         self.label = label
-        runtime = Runtime()
+        let runtime = Runtime()
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
-        text = TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
-                               bundled: { [weak app] source in app?.bundledAsset(source) })
+        core = SessionCore(runtime: runtime, text: TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
+                               bundled: { [weak app] source in app?.bundledAsset(source) }))
         presenter = Presenter()
         canvases = SurfacesLink.installed?.canvases() ?? NoCanvases()
         webviews = WebViews()
@@ -488,8 +482,7 @@ public final class ExactSession {
         natives.session = self
         frames.session = self
         sampler = FrameSampler.fromBoot(self)
-        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        core.measure(with: text)
         installControlText()
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
         // handles this session decodes.
@@ -876,16 +869,14 @@ public final class ExactSession {
         runtime.setProfileResolver(resolver)
         defer { runtime.setProfileResolver(app.resolver) }
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
-        runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
+        core.measure(with: candidate)
         installControlText(on: candidate)
         let viewport = size ?? presenter.viewportSize
         primeTime()
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height, letGo: letGo) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
-        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        core.measure(with: text)
         installControlText()
         requestsPending = batch.requests; if batch.pending { modulePending = true; return nil }
         // Resolve initially used local payloads before first pixel, without
@@ -910,8 +901,7 @@ public final class ExactSession {
         text = candidate.text
         runtime.setProfileResolver(candidate.resolver)
         updateToken = candidate.token
-        runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
-        runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        core.measure(with: text)
         installControlText()
         text.commitFonts()
         let batch = runtime.commitPlan()

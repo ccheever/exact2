@@ -2,14 +2,17 @@
 import Foundation
 import CoreText
 
-struct RegisteredFace {
-    let family: String
-    let generic: Int?
-    let weight: Int
-    let italic: Bool
+package struct RegisteredFace {
+    package let family: String
+    package let generic: Int?
+    package let weight: Int
+    package let italic: Bool
     /// Created from the registered URL itself — never from the Contract alias
     /// or a lookup in the system font library (LLP 1019 D3).
-    let descriptor: CTFontDescriptor
+    package let descriptor: CTFontDescriptor
+    package init(family: String, generic: Int?, weight: Int, italic: Bool, descriptor: CTFontDescriptor) {
+        self.family = family; self.generic = generic; self.weight = weight; self.italic = italic; self.descriptor = descriptor
+    }
 }
 
 extension TextEngine {
@@ -18,7 +21,7 @@ extension TextEngine {
     /// browser draws a face at the weight its `@font-face` names, on the
     /// `wght` axis, so the axis is set to it (clamped to the axis's range).
     /// A static face has no axis and is returned as it is.
-    static func declaredFace(_ descriptor: CTFontDescriptor, weight: Int) -> CTFontDescriptor {
+    package static func declaredFace(_ descriptor: CTFontDescriptor, weight: Int) -> CTFontDescriptor {
         let tag = 0x77676874 // 'wght'
         let font = CTFontCreateWithFontDescriptor(descriptor, 16, nil)
         guard let axes = CTFontCopyVariationAxes(font) as? [[CFString: Any]],
@@ -31,7 +34,7 @@ extension TextEngine {
     /// The faces of an installed family at CSS's normal stretch, its default
     /// face first so it wins a tie (Iowan Old Style's Roman over Titling).
     /// Weight is the face's OS/2 `usWeightClass`, the number CSS matches.
-    static func installedFaces(_ name: String) -> [RegisteredFace] {
+    package static func installedFaces(_ name: String) -> [RegisteredFace] {
         let request = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: name] as CFDictionary)
         let mandatory = NSSet(object: kCTFontFamilyNameAttribute) as CFSet
         guard let first = CTFontDescriptorCreateMatchingFontDescriptor(request, mandatory) else { return [] }
@@ -55,7 +58,7 @@ extension TextEngine {
         return (normal.isEmpty ? faces : normal).map(\.0)
     }
 
-    static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {
+    package static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {
         let first = faces.filter { $0.family == faces[0].family }
         let styled = first.filter { $0.italic == italic }
         let candidates = styled.isEmpty ? first : styled

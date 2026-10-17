@@ -7,7 +7,7 @@ import CExact
 /// Same metric-only key for owned geometry and a synchronous borrowed request.
 /// Hashes select candidates only; matches performs exact field/UTF8 equality.
 /// No borrowed buffer, request, or pointer is retained in the identity index.
-enum TextMetricKey {
+package enum TextMetricKey {
     private static func fields(_ size: CGFloat, _ weight: Int, _ family: Int, _ italic: Bool,
                                _ lineHeight: CGFloat?, _ spacing: CGFloat, _ numeric: Int, _ h: inout Hasher) {
         h.combine(size); h.combine(weight); h.combine(family); h.combine(italic)
@@ -24,7 +24,7 @@ enum TextMetricKey {
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
                Int(r.font_variant_numeric), &h)
     }
-    static func hash(_ spec: Spec) -> Int {
+    package static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
         h.combine(spec.runs.count)
         for r in spec.runs {
@@ -42,7 +42,7 @@ enum TextMetricKey {
         h.combine(spec.balance ? 1 : 0)
         return h.finalize()
     }
-    static func hash(_ request: ExactMeasureRequest) -> Int {
+    package static func hash(_ request: ExactMeasureRequest) -> Int {
         var h = Hasher()
         h.combine(request.count)
         for r in UnsafeBufferPointer(start: request.runs, count: request.count) {
@@ -71,7 +71,7 @@ enum TextMetricKey {
             && CGFloat(raw.letter_spacing) == owned.letterSpacing
             && Int(raw.font_variant_numeric) == owned.numeric
     }
-    static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
+    package static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;
         // its geometry is keyed by the request hash and never borrowed by runs.
         // Auto hyphenation's soft hyphens are in the geometry, not the request.
@@ -96,24 +96,24 @@ enum TextMetricKey {
 
 /// A namespace is retained by its identities, so restoring a checkpoint cannot
 /// alias a candidate catalog, including after allocator address reuse.
-final class TextCatalogIdentity {}
+package final class TextCatalogIdentity {}
 
 /// Payload-free key lifetime: weak lookup metadata cannot retain dead text. A
 /// token remains unique while any key/checkpoint holds it, without raw-pointer
 /// reuse or a process-global serial.
-final class TextIdentityToken: Hashable {
-    static func == (lhs: TextIdentityToken, rhs: TextIdentityToken) -> Bool { lhs === rhs }
-    func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
+package final class TextIdentityToken: Hashable {
+    package static func == (lhs: TextIdentityToken, rhs: TextIdentityToken) -> Bool { lhs === rhs }
+    package func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
 }
 
-final class TextIdentity: Hashable {
-    let geometry: Spec
-    let token = TextIdentityToken()
-    let catalog: TextCatalogIdentity
-    let utf8Bytes: Int
-    let utf16Count: Int
-    let runEnds: [Int]
-    init(_ geometry: Spec, catalog: TextCatalogIdentity) {
+package final class TextIdentity: Hashable {
+    package let geometry: Spec
+    package let token = TextIdentityToken()
+    package let catalog: TextCatalogIdentity
+    package let utf8Bytes: Int
+    package let utf16Count: Int
+    package let runEnds: [Int]
+    package init(_ geometry: Spec, catalog: TextCatalogIdentity) {
         self.geometry = geometry; self.catalog = catalog
         utf8Bytes = geometry.runs.reduce(0) { $0 + $1.text.utf8.count }
         var end = 0
@@ -123,14 +123,14 @@ final class TextIdentity: Hashable {
         }
         utf16Count = end
     }
-    static func == (lhs: TextIdentity, rhs: TextIdentity) -> Bool { lhs === rhs }
-    func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
-    var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride + runEnds.count * MemoryLayout<Int>.stride }
+    package static func == (lhs: TextIdentity, rhs: TextIdentity) -> Bool { lhs === rhs }
+    package func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
+    package var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride + runEnds.count * MemoryLayout<Int>.stride }
 }
 
 extension Spec {
     /// Paint does not affect wrapping. Retain run boundaries and metric styles.
-    var geometry: Spec {
+    package var geometry: Spec {
         var value = self
         value.color = [0, 0, 0, 255]
         value.ellipsis = false
@@ -156,8 +156,8 @@ extension Spec {
 
 /// Text/font metrics are interned by exact Run equality, not a digest or ABI
 /// pointer. Width and paint keys then share that owned identity and its Strings.
-struct TextPaint: Hashable {
-    struct Inline: Hashable {
+package struct TextPaint: Hashable {
+    package struct Inline: Hashable {
         let hidden: Bool
         let fixedInk: Bool
         let color: [Double]?
@@ -167,16 +167,16 @@ struct TextPaint: Hashable {
         let shadow: [Double]?
         let stroke: [Double]?
     }
-    let color: [Double]
-    let runs: [Inline]
-    let ellipsis: Bool
-    init(_ spec: Spec) {
+    package let color: [Double]
+    package let runs: [Inline]
+    package let ellipsis: Bool
+    package init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
         runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
-    func applying(to identity: TextIdentity) -> Spec {
+    package func applying(to identity: TextIdentity) -> Spec {
         var spec = identity.geometry
         spec.color = color
         spec.ellipsis = ellipsis
@@ -194,73 +194,73 @@ struct TextPaint: Hashable {
     }
 }
 
-struct TextShapeKey: Hashable {
-    let token: TextIdentityToken
-    let paint: TextPaint
+package struct TextShapeKey: Hashable {
+    package let token: TextIdentityToken
+    package let paint: TextPaint
     // LRU links and indexes hash this key many times per admission. Paint is
     // immutable; walk its run array once, retaining exact equality on hits.
     private let cachedHash: Int
-    init(identity: TextIdentity, paint: TextPaint) {
+    package init(identity: TextIdentity, paint: TextPaint) {
         token = identity.token; self.paint = paint
         var hash = Hasher()
         hash.combine(token); hash.combine(paint)
         cachedHash = hash.finalize()
     }
-    func hash(into hasher: inout Hasher) { hasher.combine(cachedHash) }
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    package func hash(into hasher: inout Hasher) { hasher.combine(cachedHash) }
+    package static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.cachedHash == rhs.cachedHash && lhs.token === rhs.token && lhs.paint == rhs.paint
     }
 }
 
-struct TextParagraphKey: Hashable {
-    let shape: TextShapeKey
+package struct TextParagraphKey: Hashable {
+    package let shape: TextShapeKey
     // IEEE bits preserve the exact offer; max-content is a distinct infinity.
-    let widthBits: UInt64
-    init(shape: TextShapeKey, width: CGFloat) {
+    package let widthBits: UInt64
+    package init(shape: TextShapeKey, width: CGFloat) {
         self.shape = shape; widthBits = Double(width == 0 ? 0 : width).bitPattern
     }
 }
 
 private struct TextGeometryKey: Hashable {
-    let token: TextIdentityToken
-    let widthBits: UInt64
+    package let token: TextIdentityToken
+    package let widthBits: UInt64
 }
 
-enum TextScalarKind: Hashable {
+package enum TextScalarKind: Hashable {
     case minimumWidth, minContent, maxContent
     case definite(UInt64)
 }
 
-final class TextShape {
-    let key: TextShapeKey
-    let identity: TextIdentity
-    let spec: Spec
-    let typesetter: CTTypesetter
+package final class TextShape {
+    package let key: TextShapeKey
+    package let identity: TextIdentity
+    package let spec: Spec
+    package let typesetter: CTTypesetter
     // Reuse unchanged CTLines across widths while a view still owns its prior
     // paragraph. This weak reference adds no paragraph or width-history owner.
-    weak var lastParagraph: Paragraph?
-    let attributed: NSAttributedString
+    package weak var lastParagraph: Paragraph?
+    package let attributed: NSAttributedString
     // Unicode opportunities belong to this immutable source, never a width.
     // Filled lazily by the session's TextEngine; raster workers do not use it.
-    var lineBreakBoundaries: [Int]?
+    package var lineBreakBoundaries: [Int]?
     /// Where each line starts (`lineInsets`), made once from this source.
-    var insets: LineInsets?
-    private(set) var flow: TextFlowSource?
-    private(set) var prepareCount = 0
-    func preparedFlow() -> TextFlowSource {
+    package var insets: LineInsets?
+    private(set) package var flow: TextFlowSource?
+    private(set) package var prepareCount = 0
+    package func preparedFlow() -> TextFlowSource {
         if let flow { return flow }
         let prepared = TextFlowSource(self)
         flow = prepared; prepareCount += 1
         return prepared
     }
-    init(key: TextShapeKey, identity: TextIdentity, attributed: NSAttributedString) {
+    package init(key: TextShapeKey, identity: TextIdentity, attributed: NSAttributedString) {
         self.attributed = attributed
         self.key = key; self.identity = identity; spec = key.paint.applying(to: identity)
         typesetter = CTTypesetterCreateWithAttributedString(attributed)
     }
     // Policy estimate, not measurement of opaque CoreText allocations. Source
     // String payload is accounted once separately; paint key payload is owned.
-    var ownedBytes: Int {
+    package var ownedBytes: Int {
         (lineBreakBoundaries?.count ?? 0) * MemoryLayout<Int>.stride
             + (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
             + key.paint.color.count * MemoryLayout<Double>.stride + key.paint.runs.reduce(0) {
@@ -268,24 +268,24 @@ final class TextShape {
                 + $1.decoration.utf8.count + $1.href.utf8.count
         }
     }
-    var opaqueEstimate: Int { identity.utf16Count * 32 + spec.runs.count * 512 + (flow == nil ? 0 : identity.utf16Count * 64 + 256) }
+    package var opaqueEstimate: Int { identity.utf16Count * 32 + spec.runs.count * 512 + (flow == nil ? 0 : identity.utf16Count * 64 + 256) }
 }
 
 private final class WeakTextIdentity {
-    weak var value: TextIdentity?
-    init(_ value: TextIdentity) { self.value = value }
+    package weak var value: TextIdentity?
+    package init(_ value: TextIdentity) { self.value = value }
 }
 
 private final class TextScalar {
-    let identity: TextIdentity
-    let metrics: ExactMetrics
-    let minimum: CGFloat?
+    package let identity: TextIdentity
+    package let metrics: ExactMetrics
+    package let minimum: CGFloat?
     /// What is left of a measured paragraph whose shaped form went (its
     /// `CTTypesetter` and `CTLine`s, a few kilobytes): where its lines break
     /// and their baselines. A worker rasters from these and paint lays its
     /// lines there, so the paragraph coming back is not typeset again.
-    let lines: (ranges: [CFRange], baselines: [CGFloat])?
-    init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil,
+    package let lines: (ranges: [CFRange], baselines: [CGFloat])?
+    package init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil,
          lines: (ranges: [CFRange], baselines: [CGFloat])? = nil) {
         self.identity = identity; self.metrics = metrics; self.minimum = minimum; self.lines = lines
     }
@@ -301,45 +301,45 @@ private enum TextValue {
     case paragraph(Paragraph)
     case shape(TextShape)
     case scalar(TextScalar)
-    var object: AnyObject {
+    package var object: AnyObject {
         switch self { case .paragraph(let p): return p; case .shape(let s): return s; case .scalar(let s): return s }
     }
-    var identity: TextIdentity {
+    package var identity: TextIdentity {
         switch self {
         case .paragraph(let p): return p.shape!.identity
         case .shape(let s): return s.identity
         case .scalar(let s): return s.identity
         }
     }
-    var shape: TextShape? {
+    package var shape: TextShape? {
         switch self { case .paragraph(let p): return p.shape; case .shape(let s): return s; case .scalar: return nil }
     }
 }
 
 
-struct TextResidencyStats {
-    let metadataEntries: Int
-    let identityEntries: Int
-    let geometryEntries: Int
-    let maintenanceVisits: UInt64
+package struct TextResidencyStats {
+    package let metadataEntries: Int
+    package let identityEntries: Int
+    package let geometryEntries: Int
+    package let maintenanceVisits: UInt64
     /// Includes the deterministic potential ink-index payload; not actual RSS.
-    let coldAdmissionBytes: Int
-    let coldEntries: Int
-    let liveParagraphs: Int
-    let liveShapes: Int
-    let scalarEntries: Int
-    let identities: Int
+    package let coldAdmissionBytes: Int
+    package let coldEntries: Int
+    package let liveParagraphs: Int
+    package let liveShapes: Int
+    package let scalarEntries: Int
+    package let identities: Int
     /// Logical Swift payload tally (not malloc capacities/headers); shared
     /// source/shape identities count once. Strings in different runs may share
     /// storage, so this is conservative even before the CoreText estimate.
-    let coldOwnedPayloadBytes: Int
+    package let coldOwnedPayloadBytes: Int
     /// Named heuristic for otherwise opaque typesetter/CTLine allocations.
-    let coldCoreTextEstimateBytes: Int
-    let softTargetBytes: Int
-    var coldEstimatedBytes: Int { coldOwnedPayloadBytes + coldCoreTextEstimateBytes }
+    package let coldCoreTextEstimateBytes: Int
+    package let softTargetBytes: Int
+    package var coldEstimatedBytes: Int { coldOwnedPayloadBytes + coldCoreTextEstimateBytes }
     /// Working handoff/ink-index growth may exceed the target until the next
     /// miss or acceptance removes cold ownership. This is never a hard ceiling.
-    var coldOverageBytes: Int { max(0, coldEstimatedBytes - softTargetBytes) }
+    package var coldOverageBytes: Int { max(0, coldEstimatedBytes - softTargetBytes) }
     // These are this cache's cold holdings, not total residency. Accepted view
     // leases, external CTLine aliases, saved checkpoints, retired catalogs,
     // font caches, allocator slack and other CoreText internals are excluded.
@@ -359,25 +359,25 @@ struct TextResidencyStats {
 /// answer (a few hundred bytes: metrics, line breaks, baselines) on the other
 /// list, so a list that comes back is measured and rastered without being
 /// typeset again. Answers are held to `maxColdEntries` with everything else.
-struct TextResidency {
-    static let defaultSoftTargetBytes = 64 * 1024 * 1024
-    static let maxColdEntries = 4096
+package struct TextResidency {
+    package static let defaultSoftTargetBytes = 64 * 1024 * 1024
+    package static let maxColdEntries = 4096
     /// Two screens of shaped text behind the travel: a paragraph measured
     /// leaves a source and a paragraph (`fitShaped`).
-    static let shapedPerParagraph = 4
+    package static let shapedPerParagraph = 4
     /// Below this the entries within one layout pass (a paragraph offered
     /// several widths) would evict each other.
-    static let minShaped = 256
-    static let maxLookupEntries = 8192
-    static let maxIdentities = 4096
+    package static let minShaped = 256
+    package static let maxLookupEntries = 8192
+    package static let maxIdentities = 4096
     // A measurement crosses several indexes. Sweep only when admitting a new
     // source, not at each nested lookup, put, prepare and acceptance. The entry
     // and identity caps independently bound metadata between these visits.
     private static let cleanupQuota = 1
-    let softTargetBytes: Int
+    package let softTargetBytes: Int
     /// Whether shaped text that goes leaves its answer here. A measurer
     /// whose answers are published (`TextAnswers`) keeps none of its own.
-    var keepsAnswers = true
+    package var keepsAnswers = true
     private let catalog = TextCatalogIdentity()
     /// One entry in `slab`. Its links are `links` at the same index: the
     /// recency list of every entry and the list of cold ones. A key per link
@@ -425,7 +425,7 @@ struct TextResidency {
     private var coldCount = 0, shapedCount = 0
     private var clock: UInt64 = 0
     /// At most this many cold shaped values (`fitShaped`).
-    private(set) var shapedLimit = Self.maxColdEntries
+    private(set) package var shapedLimit = Self.maxColdEntries
     // Retirement visits layouts only; saved scalar answers need no width retirement.
     private var coldLayouts: [TextIdentityToken: Set<TextEntryKey>] = [:]
     private var geometryIndex: [TextGeometryKey: Set<TextEntryKey>] = [:]
@@ -437,15 +437,15 @@ struct TextResidency {
     private var ownedBudget = 0, opaqueBudget = 0
     private var maintenanceVisits: UInt64 = 0
 
-    init(softTargetBytes: Int = Self.defaultSoftTargetBytes) {
+    package init(softTargetBytes: Int = Self.defaultSoftTargetBytes) {
         self.softTargetBytes = max(0, softTargetBytes)
     }
-    mutating func identity(_ spec: Spec) -> TextIdentity {
+    package mutating func identity(_ spec: Spec) -> TextIdentity {
         return identityAfterBorrowedMiss(spec)
     }
     /// Completes admission after a borrowed lookup. Malformed UTF8 must be
     /// hashed again after replacement decoding.
-    mutating func identityAfterBorrowedMiss(_ spec: Spec) -> TextIdentity {
+    package mutating func identityAfterBorrowedMiss(_ spec: Spec) -> TextIdentity {
         let geometry = spec.geometry, hash = TextMetricKey.hash(geometry)
         for token in identities[hash] ?? [] {
             maintenanceVisits &+= 1
@@ -467,7 +467,7 @@ struct TextResidency {
     }
     /// Metric-cache lookup before String/Run/Spec construction. On a miss the
     /// caller decodes normally and completes admission without repeating lookup.
-    mutating func borrowedIdentity(_ request: ExactMeasureRequest) -> TextIdentity? {
+    package mutating func borrowedIdentity(_ request: ExactMeasureRequest) -> TextIdentity? {
         let hash = TextMetricKey.hash(request)
         for token in identities[hash] ?? [] {
             maintenanceVisits &+= 1
@@ -502,24 +502,24 @@ struct TextResidency {
         if slab[Int(i)]?.cold != nil { touchCold(i) }
         return value
     }
-    mutating func paragraph(_ key: TextParagraphKey) -> Paragraph? {
+    package mutating func paragraph(_ key: TextParagraphKey) -> Paragraph? {
         if case .paragraph(let p) = get(.paragraph(key)) { return p }; return nil
     }
-    mutating func shape(_ key: TextShapeKey) -> TextShape? {
+    package mutating func shape(_ key: TextShapeKey) -> TextShape? {
         if case .shape(let s) = get(.shape(key)) { return s }; return nil
     }
-    mutating func scalar(_ identity: TextIdentity, kind: TextScalarKind) -> ExactMetrics? {
+    package mutating func scalar(_ identity: TextIdentity, kind: TextScalarKind) -> ExactMetrics? {
         if case .scalar(let s) = get(.scalar(identity.token, kind)) { return s.metrics }; return nil
     }
-    mutating func minimum(_ identity: TextIdentity) -> CGFloat? {
+    package mutating func minimum(_ identity: TextIdentity) -> CGFloat? {
         if case .scalar(let s) = get(.scalar(identity.token, .minimumWidth)) { return s.minimum }; return nil
     }
-    mutating func putMinimum(_ identity: TextIdentity, width: CGFloat) {
+    package mutating func putMinimum(_ identity: TextIdentity, width: CGFloat) {
         put(.scalar(identity.token, .minimumWidth), .scalar(TextScalar(identity, ExactMetrics(), minimum: width)))
     }
     /// Exact same-source, same-width paint handoff; index membership is retired
     /// with the entry, so dead arrays of historical paints cannot accumulate.
-    mutating func geometry(_ identity: TextIdentity, width: CGFloat) -> Paragraph? {
+    package mutating func geometry(_ identity: TextIdentity, width: CGFloat) -> Paragraph? {
         let key = TextGeometryKey(token: identity.token, widthBits: Double(width == 0 ? 0 : width).bitPattern)
         for entry in geometryIndex[key] ?? [] {
             maintenanceVisits &+= 1
@@ -531,7 +531,7 @@ struct TextResidency {
         }
         return nil
     }
-    mutating func retireWidths(_ key: TextParagraphKey) {
+    package mutating func retireWidths(_ key: TextParagraphKey) {
         // Only this source's cold variants; accepted widths stay weakly indexed.
         for old in coldLayouts[key.shape.token] ?? [] {
             maintenanceVisits &+= 1
@@ -551,16 +551,16 @@ struct TextResidency {
             }
         }
     }
-    mutating func accepted(_ paragraph: Paragraph) {
+    package mutating func accepted(_ paragraph: Paragraph) {
         guard let key = paragraph.residencyKey else { return }
         removeCold(.paragraph(key)); removeCold(.shape(key.shape))
     }
-    mutating func put(_ paragraph: Paragraph) {
+    package mutating func put(_ paragraph: Paragraph) {
         guard let key = paragraph.residencyKey else { return }
         put(.paragraph(key), .paragraph(paragraph))
     }
-    mutating func put(_ shape: TextShape) { put(.shape(shape.key), .shape(shape)) }
-    mutating func put(_ identity: TextIdentity, kind: TextScalarKind, metrics: ExactMetrics) {
+    package mutating func put(_ shape: TextShape) { put(.shape(shape.key), .shape(shape)) }
+    package mutating func put(_ identity: TextIdentity, kind: TextScalarKind, metrics: ExactMetrics) {
         put(.scalar(identity.token, kind), .scalar(TextScalar(identity, metrics)))
     }
     private mutating func put(_ key: TextEntryKey, _ value: TextValue) {
@@ -596,19 +596,19 @@ struct TextResidency {
     }
     /// Hold cold shaped text to what `visibleParagraphs` paragraphs on a
     /// screen need: two screens' worth, never fewer than `minShaped`.
-    mutating func fitShaped(visibleParagraphs: Int) {
+    package mutating func fitShaped(visibleParagraphs: Int) {
         shapedLimit = min(Self.maxColdEntries, max(Self.minShaped, visibleParagraphs * Self.shapedPerParagraph))
         trim(incoming: 0, keeping: nil)
     }
     /// A paragraph's answer at its width, with the lines it broke into, if
     /// its shaped form has gone. Measuring and rastering it need no more.
-    mutating func answerLines(_ identity: TextIdentity, width: CGFloat) -> ([CFRange], [CGFloat])? {
+    package mutating func answerLines(_ identity: TextIdentity, width: CGFloat) -> ([CFRange], [CGFloat])? {
         let kind = TextScalarKind.definite(Double(width == 0 ? 0 : width).bitPattern)
         guard case .scalar(let s) = get(.scalar(identity.token, kind)), let lines = s.lines else { return nil }
         return (lines.ranges, lines.baselines)
     }
     /// Lazy walker storage becomes part of the resident shape's existing charge.
-    mutating func refresh(_ shape: TextShape) {
+    package mutating func refresh(_ shape: TextShape) {
         let key = ObjectIdentifier(shape)
         if let old = coldShapes[key] {
             ownedBudget += shape.ownedBytes - old.owned
@@ -620,7 +620,7 @@ struct TextResidency {
     /// Checkpoints share immutable sources whose lazy preparation can grow.
     /// Their copied charge tables must catch up before re-admitting cold work.
     /// Restore is exceptional; ordinary lookups never scan the cache.
-    mutating func refreshAfterRestore() {
+    package mutating func refreshAfterRestore() {
         var seen: Set<ObjectIdentifier> = []
         for case let entry? in slab {
             guard let shape = entry.cold?.shape else { continue }
@@ -633,7 +633,7 @@ struct TextResidency {
         trim(incoming: 0, keeping: coldLast >= 0 ? slab[Int(coldLast)]?.key : nil)
     }
     /// Memory pressure: every cold value goes; views keep what they show.
-    mutating func dropCold() {
+    package mutating func dropCold() {
         while coldFirst >= 0 { removeCold(at: coldFirst) }
         while answerFirst >= 0 { removeCold(at: answerFirst) }
         compact()
@@ -641,7 +641,7 @@ struct TextResidency {
     /// At rest: cold shaped text goes, and the lines kept of shaped text that
     /// went before; cold measurements (a few bytes each, what a row coming
     /// back needs first) stay.
-    mutating func dropColdShaped() {
+    package mutating func dropColdShaped() {
         while coldFirst >= 0 { removeCold(at: coldFirst) }
         var i = answerFirst
         while i >= 0 {
@@ -697,7 +697,7 @@ struct TextResidency {
         for (j, entry) in packed.enumerated() { if let entry { keys[entry.key] = Int32(j) } }
         entries = keys; slab = packed; links = packedLinks; vacant = []
     }
-    mutating func prepare(estimatedBytes: Int) {
+    package mutating func prepare(estimatedBytes: Int) {
         trim(incoming: estimatedBytes, keeping: nil)
     }
     private mutating func trim(incoming: Int, keeping: TextEntryKey?) {
@@ -853,7 +853,7 @@ struct TextResidency {
     }
     /// Explicit diagnostics may enumerate metadata. Hot admission uses cached
     /// charges, including possible lazy ink; reported payload uses actual ink.
-    var stats: TextResidencyStats {
+    package var stats: TextResidencyStats {
         var paragraphs = 0, shapes = 0, scalars = 0, inkSlack = 0
         for case let entry? in slab {
             switch entry.owned {

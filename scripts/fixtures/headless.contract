@@ -1,0 +1,11 @@
+// A view-free session's frame, inline text, and width-dependent line breaks.
+component Headless
+  state suffix = "beta gamma"
+  action change
+    suffix = "delta epsilon zeta"
+  view
+    column width="100%" padding=10 gap=6 box-sizing="border-box" testId="root"
+      box width=40 height=20 press=change testId="box"
+      text font-size=16 line-height="20px" testId="label"
+        text "alpha "
+        text suffix

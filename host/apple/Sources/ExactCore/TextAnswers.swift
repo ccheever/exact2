@@ -18,7 +18,7 @@ import CExact
 /// a third of a point or a 0.41 letter spacing reads back as the nearest
 /// double to the decimal, not the double of the `f32`. Rounded to `f32`
 /// again they are the kernel's values, so both engines spell one key.
-enum TextAnswerKey {
+package enum TextAnswerKey {
     private static func put<T>(_ value: T, _ out: inout [UInt8]) {
         withUnsafeBytes(of: value) { out.append(contentsOf: $0) }
     }
@@ -41,7 +41,7 @@ enum TextAnswerKey {
         return h.finalize()
     }
     /// The key of `spec`'s geometry (its paint is no part of it) and its hash.
-    static func write(_ spec: Spec, into out: inout [UInt8]) -> Int {
+    package static func write(_ spec: Spec, into out: inout [UInt8]) -> Int {
         out.removeAll(keepingCapacity: true)
         put(Int32(truncatingIfNeeded: spec.runs.count), &out)
         for r in spec.runs {
@@ -73,7 +73,7 @@ enum TextAnswerKey {
     /// of it. A request always carries a strut. Text that is not UTF-8 keys
     /// apart from its decoded `Spec` (whose replacement characters differ),
     /// so such a request is never answered from here.
-    static func write(_ request: ExactMeasureRequest, into out: inout [UInt8]) -> Int {
+    package static func write(_ request: ExactMeasureRequest, into out: inout [UInt8]) -> Int {
         out.removeAll(keepingCapacity: true)
         func run(_ r: ExactTextRun) {
             fields(Double(r.font_size), Int32(r.font_weight), Int32(r.font_family), r.italic != 0,
@@ -101,16 +101,16 @@ enum TextAnswerKey {
     /// no measurer on this host reads it (a paragraph's height is its
     /// lines', which its width, clamp and wrapping decide), as the
     /// residency's scalars never keyed it either.
-    static func offer(width: CGFloat) -> UInt64 { let w = single(width); return (w == 0 ? 0 : w).bitPattern }
-    static let minContent: UInt64 = 0x7FF8_0000_0000_0001, maxContent: UInt64 = 0x7FF8_0000_0000_0002
+    package static func offer(width: CGFloat) -> UInt64 { let w = single(width); return (w == 0 ? 0 : w).bitPattern }
+    package static let minContent: UInt64 = 0x7FF8_0000_0000_0001, maxContent: UInt64 = 0x7FF8_0000_0000_0002
 }
 
 /// One session's answers, least recently used first out, bounded by bytes.
 /// An answer is what typesetting the paragraph at that offer gives, so one
 /// that is gone is only typeset again: nothing painted depends on what is
 /// here. A font catalog change empties it (`TextEngine.dropMeasuredBreaks`).
-final class TextAnswers: @unchecked Sendable {
-    struct Stats: Equatable { var paragraphs = 0, offers = 0, bytes = 0 }
+package final class TextAnswers: @unchecked Sendable {
+    package struct Stats: Equatable { package var paragraphs = 0, offers = 0, bytes = 0 }
     private struct Offer {
         let bits: UInt64
         let metrics: ExactMetrics
@@ -133,19 +133,19 @@ final class TextAnswers: @unchecked Sendable {
         init(hash: Int, key: [UInt8]) { self.hash = hash; self.key = key.withUnsafeBufferPointer { Array($0) } }
     }
     /// A layout pass offers one paragraph several sizes (LLP 1044 F6).
-    static let offersPerParagraph = 8
+    package static let offersPerParagraph = 8
     /// About 3,500 paragraphs of a sentence or two, each offered two or
     /// three sizes: a thousand-row list's travel out and back.
-    static let defaultLimit = 5 * 512 * 1024
-    let limit: Int
+    package static let defaultLimit = 5 * 512 * 1024
+    package let limit: Int
     private let lock = NSLock()
     private var buckets: [Int: Entry] = [:]
     private var oldest: Entry?, newest: Entry?
     private var stats = Stats()
 
-    init(limit: Int = TextAnswers.defaultLimit) { self.limit = limit }
+    package init(limit: Int = TextAnswers.defaultLimit) { self.limit = limit }
 
-    var observation: Stats { lock.lock(); defer { lock.unlock() }; return stats }
+    package var observation: Stats { lock.lock(); defer { lock.unlock() }; return stats }
 
     private func find(_ hash: Int, _ key: [UInt8]) -> Entry? {
         var entry = buckets[hash]
@@ -189,14 +189,14 @@ final class TextAnswers: @unchecked Sendable {
     }
 
     /// What measuring the paragraph keyed `key` at `offer` answered.
-    func metrics(hash: Int, key: [UInt8], offer: UInt64) -> ExactMetrics? {
+    package func metrics(hash: Int, key: [UInt8], offer: UInt64) -> ExactMetrics? {
         lock.lock(); defer { lock.unlock() }
         guard let e = find(hash, key), let hit = e.offers.first(where: { $0.bits == offer }) else { return nil }
         touch(e)
         return hit.metrics
     }
     /// Where that paragraph's lines break at a definite width.
-    func lines(hash: Int, key: [UInt8], width: CGFloat) -> LineGeometry? {
+    package func lines(hash: Int, key: [UInt8], width: CGFloat) -> LineGeometry? {
         let offer = TextAnswerKey.offer(width: width)
         lock.lock(); defer { lock.unlock() }
         guard let e = find(hash, key), let hit = e.offers.first(where: { $0.bits == offer }) else { return nil }
@@ -204,7 +204,7 @@ final class TextAnswers: @unchecked Sendable {
         return hit.lines
     }
     /// The measurer's answer, published once per offer.
-    func put(hash: Int, key: [UInt8], offer: UInt64, metrics: ExactMetrics, lines: LineGeometry?) {
+    package func put(hash: Int, key: [UInt8], offer: UInt64, metrics: ExactMetrics, lines: LineGeometry?) {
         guard limit > 0 else { return }
         lock.lock(); defer { lock.unlock() }
         let e: Entry
@@ -236,7 +236,7 @@ final class TextAnswers: @unchecked Sendable {
         e.bytes += cost; stats.bytes += cost
         while stats.bytes > limit, let victim = oldest, victim !== e { remove(victim) }
     }
-    func clear() {
+    package func clear() {
         lock.lock(); defer { lock.unlock() }
         // Unlinked one by one: a long chain of `older` links released at
         // once would recurse through every entry.

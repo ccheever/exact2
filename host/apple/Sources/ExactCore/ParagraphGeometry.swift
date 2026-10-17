@@ -12,12 +12,12 @@ extension TextEngine {
     /// (`text-align-last: auto`). Indices stay the source's, so hit testing,
     /// selection and later layouts read the same ranges. The reader diary
     /// found both missing only on Apple.
-    static func finishedLine(_ line: CTLine, source: NSAttributedString, range: CFRange, justify width: Double?) -> CTLine {
+    package static func finishedLine(_ line: CTLine, source: NSAttributedString, range: CFRange, justify width: Double?) -> CTLine {
         let line = inkedSoftHyphen(line, source: source, range: range)
         return width.map { justified(line, source: source, range: range, width: $0) } ?? line
     }
 
-    static func inkedSoftHyphen(_ line: CTLine, source: NSAttributedString, range: CFRange) -> CTLine {
+    package static func inkedSoftHyphen(_ line: CTLine, source: NSAttributedString, range: CFRange) -> CTLine {
         let end = range.location + range.length
         guard range.length > 0, end <= source.length,
               (source.string as NSString).character(at: end - 1) == 0xAD else { return line }
@@ -28,7 +28,7 @@ extension TextEngine {
         return CTTypesetterCreateLine(CTTypesetterCreateWithAttributedString(visible), range)
     }
 
-    static func justified(_ line: CTLine, source: NSAttributedString, range: CFRange, width: Double) -> CTLine {
+    package static func justified(_ line: CTLine, source: NSAttributedString, range: CFRange, width: Double) -> CTLine {
         let end = range.location + range.length
         let text = source.string as NSString
         guard width.isFinite, range.length > 0, end < source.length,
@@ -54,7 +54,7 @@ extension TextEngine {
     /// column at an accessibility text size spilled left over its neighbour
     /// (round 13's weather: the "High" header ran into "Low") where the web
     /// spills right. A line that fits is CoreText's.
-    static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool) -> CGFloat {
+    package static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool) -> CGFloat {
         let offset = CGFloat(CTLineGetPenOffsetForFlush(line, flush, room))
         guard flush != 0 || rtl else { return offset }
         let slack = flush == 1 ? offset : CGFloat(CTLineGetPenOffsetForFlush(line, 1, room))
@@ -68,17 +68,17 @@ extension TextEngine {
 /// marker hung before it — the `padding-left` and outside marker the web
 /// lays the same item out with (LLP 1045 D4). Measure, layout, paint, hits
 /// and raster workers all start lines here.
-struct LineInsets {
-    var textIndent: CGFloat = 0
-    var rtl = false
+package struct LineInsets {
+    package var textIndent: CGFloat = 0
+    package var rtl = false
     /// The indented paragraphs (each ends after its newline), UTF-16
     /// [start, end), in order: the first line's inset and the others'.
-    var heads: [(start: Int, end: Int, first: CGFloat, rest: CGFloat)] = []
+    package var heads: [(start: Int, end: Int, first: CGFloat, rest: CGFloat)] = []
 
-    init() {}
+    package init() {}
     /// `spec`'s; `marker` is the width of a hung run's UTF-16 range, as
     /// the paragraph's own source shapes it.
-    init(_ spec: Spec, marker: (CFRange) -> CGFloat) {
+    package init(_ spec: Spec, marker: (CFRange) -> CGFloat) {
         textIndent = spec.textIndent; rtl = spec.direction == 1
         guard spec.runs.contains(where: { $0.indent != 0 }) else { return }
         var open: (start: Int, first: CGFloat, rest: CGFloat)?
@@ -105,7 +105,7 @@ struct LineInsets {
 
     /// The inset of the line that starts at UTF-16 `location`: how far
     /// right its start moves (`left`) and how much room it gives (`width`).
-    func at(_ location: Int) -> (left: CGFloat, width: CGFloat) {
+    package func at(_ location: Int) -> (left: CGFloat, width: CGFloat) {
         var width: CGFloat = location == 0 ? textIndent : 0
         var lo = 0, hi = heads.count
         while lo < hi { let mid = (lo + hi) / 2; if heads[mid].start <= location { lo = mid + 1 } else { hi = mid } }
@@ -118,7 +118,7 @@ struct LineInsets {
 
 extension TextShape {
     /// This source's `LineInsets`, its markers shaped by its own typesetter.
-    var lineInsets: LineInsets {
+    package var lineInsets: LineInsets {
         if let insets { return insets }
         let made = LineInsets(spec) { CGFloat(CTLineGetTypographicBounds(CTTypesetterCreateLine(self.typesetter, $0), nil, nil, nil)) }
         insets = made
@@ -128,7 +128,7 @@ extension TextShape {
 
 extension LineInsets {
     /// `spec`'s, its markers shaped from `source` (a raster worker's copy).
-    init(_ spec: Spec, source: NSAttributedString) {
+    package init(_ spec: Spec, source: NSAttributedString) {
         self.init(spec) { range in
             let marker = source.attributedSubstring(from: NSRange(location: range.location, length: range.length))
             return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(marker), nil, nil, nil))
@@ -137,7 +137,7 @@ extension LineInsets {
 }
 
 extension Paragraph {
-    func origin(_ index: Int, align: Int, width: CGFloat) -> CGFloat {
+    package func origin(_ index: Int, align: Int, width: CGFloat) -> CGFloat {
         if origins.indices.contains(index) { return origins[index] }
         let flush: CGFloat = align == 1 ? 0.5 : align == 2 ? 1 : 0
         // CSS `text-indent` and a list item's indent: the line aligns in
@@ -148,7 +148,7 @@ extension Paragraph {
 
     /// First select the band, then the closest painted fragment in that band.
     /// A click in an exclusion chooses the adjacent caret, never a different row.
-    func lineIndex(at point: CGPoint, align: Int, width: CGFloat) -> Int? {
+    package func lineIndex(at point: CGPoint, align: Int, width: CGFloat) -> Int? {
         guard !lines.isEmpty else { return nil }
         var first = lines.count - 1
         for i in lines.indices where point.y < (lineBottoms.indices.contains(i) ? lineBottoms[i] : height) {
@@ -165,20 +165,20 @@ extension Paragraph {
         return best
     }
 
-    func stringIndex(in line: Int, at x: CGFloat) -> Int {
+    package func stringIndex(in line: Int, at x: CGFloat) -> Int {
         if fragments.indices.contains(line), CTLineGetGlyphCount(lines[line]) == 0 {
             return fragments[line].utf16_start
         }
         return CTLineGetStringIndexForPosition(lines[line], CGPoint(x: x, y: 0))
     }
 
-    func selectionRects(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
+    package func selectionRects(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
         selectedLines(range, align: align, in: bounds, dirty: dirty).map(\.rect)
     }
 
     /// `selectionRects`, each with the line it is on: what paints a
     /// selection's glyphs as well as its fill.
-    func selectedLines(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [(line: Int, rect: CGRect)] {
+    package func selectedLines(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [(line: Int, rect: CGRect)] {
         guard range.location >= 0, range.length > 0 else { return [] }
         var rects: [(line: Int, rect: CGRect)] = []
         for i in lines.indices {
@@ -198,7 +198,7 @@ extension Paragraph {
 
     /// Full logical coverage and visible ranges are separate: trailing whitespace
     /// belongs to a fragment even though CoreText never paints it. Work is O(F).
-    var flowFacts: [String: Any] {
+    package var flowFacts: [String: Any] {
         ["line_height": flowLineHeight, "height": height,
          "prepare_count": shape?.prepareCount ?? 0,
          "utf8_length": shape?.flow?.utf8Count ?? 0,
@@ -221,7 +221,7 @@ extension Spec {
     /// soft hyphen keeps only those. An unknown language is the web page's
     /// default `lang="en"`; one CoreFoundation cannot hyphenate is left as
     /// `manual`. The source map takes the inserted characters back out.
-    mutating func hyphenateAuto() {
+    package mutating func hyphenateAuto() {
         guard hyphens == 2 else { return }
         let locale = CFLocaleCreate(nil, CFLocaleCreateCanonicalLocaleIdentifierFromString(nil, (language.isEmpty ? "en" : language) as CFString))
         guard CFStringIsHyphenationAvailableForLocale(locale) else { return }
