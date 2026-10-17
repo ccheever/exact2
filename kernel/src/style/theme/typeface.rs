@@ -195,17 +195,14 @@ pub fn family_key_of(text: &str) -> String {
 }
 
 /// A family stack's members as a key, each a family (`true`) or a generic
-/// family by its name: a family's name quoted, each lower-cased with its
-/// spaces collapsed, joined by `,` (a plan's stacks are matched by it).
+/// family by its name: a family's name quoted, each lower-cased (its spaces
+/// as written: `"A  B"` is not `"A B"`), joined by `,` (a plan's stacks are
+/// matched by it).
 pub fn family_key<'a>(members: impl IntoIterator<Item = (bool, &'a str)>) -> String {
     members
         .into_iter()
         .map(|(family, m)| {
-            let name = m
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_ascii_lowercase();
+            let name = m.to_ascii_lowercase();
             if family {
                 format!("\"{name}\"")
             } else {

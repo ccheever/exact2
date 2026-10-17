@@ -143,7 +143,12 @@ impl Lowerer<'_> {
         let Some(p) = typeface::parts(value) else {
             return Ok(());
         };
-        let italic = p.style == Some("italic");
+        // The token's style, else the node's `font-style` where it is known
+        // (a style neither says is not checked).
+        let italic = match p.style {
+            Some(style) => Some(style == "italic"),
+            None => font.iter().find_map(|u| u.italic),
+        };
         let weight: u16 = p.weight.and_then(|w| w.parse().ok()).unwrap_or(400);
         let shipped: Vec<(String, &DeclaredFont)> = match p.family {
             Some(family) => typeface::family_members(family)
@@ -168,11 +173,16 @@ impl Lowerer<'_> {
             let face = font
                 .faces
                 .iter()
-                .any(|(w, i)| *i == italic && (weight < 600 || *w >= 600));
+                .any(|(w, i)| italic.is_none_or(|it| *i == it) && (weight < 600 || *w >= 600));
             if !face {
+                let style = match italic {
+                    Some(true) => "italic",
+                    Some(false) => "normal",
+                    None => "",
+                };
                 return err(
                     "lower-font-face",
-                    format!("`{name}` is `{value}`: {member} has no real {}{} face; v1 never synthesizes one", if weight >= 600 { "bold " } else { "" }, if italic { "italic" } else { "normal" }),
+                    format!("`{name}` is `{value}`: {member} has no real {}{style} face; v1 never synthesizes one", if weight >= 600 { "bold " } else { "" }),
                     span,
                 );
             }
@@ -204,6 +214,34 @@ impl Lowerer<'_> {
                 _ => None,
             })
             .collect();
+        // A token of the other kind, undotted (`heading`), is no family's
+        // name or text style here: refused, naming the row that names it.
+        for e in &leaves {
+            if let Expr::Str(text, span) = e {
+                if let Some((other @ (tamber::Kind::Type | tamber::Kind::Family), _)) =
+                    crate::theme::measure_values(text)
+                {
+                    if other != kind {
+                        let row = if other == tamber::Kind::Type {
+                            "font"
+                        } else {
+                            "font-family"
+                        };
+                        return err(
+                            "tamber-kind",
+                            format!(
+                                "`{}=\"{}\"`: `{}` is a {} token, which `{row}` names",
+                                a.name,
+                                text.trim(),
+                                text.trim(),
+                                other.name()
+                            ),
+                            *span,
+                        );
+                    }
+                }
+            }
+        }
         if named.is_empty() {
             return Ok(None);
         }

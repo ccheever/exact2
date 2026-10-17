@@ -546,9 +546,11 @@ pub fn design(plan: &Plan) -> serde_json::Value {
                 row["prop"] = prop.clone().into();
                 row["css"] = css.into();
                 row["accent"] = accent.into();
-            } else if inline.iter().any(|(n, _)| *n == t.name) {
-                // Written inline: a change builds (`measures`).
+            } else if let Some((_, writer)) = inline.iter().find(|(n, _)| *n == t.name) {
+                // Written inline: a change builds (`measures`), and what
+                // writes it says why (a scrub's refusal names it).
                 row["inline"] = true.into();
+                row["writer"] = writer.clone().into();
             } else if let Some(prop) = tint_property(plan, &t.name) {
                 // The tint's override: its property in the theme's own
                 // `:root` rule (`root`), which rows read as the role and an

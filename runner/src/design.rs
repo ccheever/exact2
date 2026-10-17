@@ -13,6 +13,7 @@
 //! Each process interns what it parses itself, so no wide colour id
 //! crosses.
 
+use exact_kernel::style::theme::{typeface, Kind};
 use exact_plan::Plan;
 use sha2::{Digest, Sha256};
 
@@ -79,6 +80,31 @@ pub fn shape(plan: &Plan) -> String {
         text(&row.slices.len.to_string());
         // A kind is which rows may name the token: a change is structure.
         text(&row.kind.to_string());
+        // A type token's longhands and family, a family token's stack, each
+        // tuple's (stage 6 C, the lead's ruling): which rows it writes and
+        // which stack it names are lowered, so a change is structure.
+        if let Some(k @ (Kind::Type | Kind::Family)) = Kind::of(row.kind) {
+            let values = std::iter::once(row.value).chain(
+                plan.theme_slices[row.slices.start as usize..][..row.slices.len as usize]
+                    .iter()
+                    .map(|s| s.value),
+            );
+            for value in values {
+                let value = plan.str(value);
+                text(&match k {
+                    Kind::Family => value.trim().to_string(),
+                    _ => typeface::parts(value).map_or_else(String::new, |p| {
+                        format!(
+                            "{} {} {} {:?}",
+                            p.style.is_some(),
+                            p.weight.is_some(),
+                            p.leading.is_some(),
+                            p.family
+                        )
+                    }),
+                });
+            }
+        }
     }
     // The `@keyframes` rules, which a token named in a colour keyframe is
     // folded into when the app compiles: an edit to it changes a rule, so it
