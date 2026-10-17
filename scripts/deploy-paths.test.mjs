@@ -120,10 +120,16 @@ test('async game step checks the separate workspace with its lockfile', () => {
   expect(steps.find(([name]) => name === 'game')).toEqual(['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']]);
 });
 
-test('async builds, tests and lints the T3 Code clone, whose workspace the six checks leave out', () => {
+test('async builds, tests, formats and lints the T3 Code clone, whose workspace the six checks leave out', () => {
   const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, contract: false, glue: []});
   const t3 = ['--manifest-path', 'examples/t3-code/Cargo.toml', '--target-dir', 'target', '--workspace', '--locked'];
-  expect(steps.find(([name]) => name === 't3-code')).toEqual(['t3-code', 'cargo', ['test', ...t3, '--lib', '--bins', '--tests', '--no-fail-fast']]);
+  // One step: the tests, then rustfmt, which runs whatever the tests found.
+  expect(steps.find(([name]) => name === 't3-code')).toEqual(['t3-code', 'sh', ['-c', [
+    'failed=0',
+    `cargo test ${t3.join(' ')} --lib --bins --tests --no-fail-fast || failed=1`,
+    'cargo fmt --manifest-path examples/t3-code/Cargo.toml --all -- --check || failed=1',
+    'exit $failed',
+  ].join('\n')]]);
   expect(steps.find(([name]) => name === 't3-code-clippy')).toEqual(['t3-code-clippy', 'cargo', ['clippy', ...t3, '--all-targets', '--keep-going', '--', '-D', 'warnings']]);
 });
 
