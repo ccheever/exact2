@@ -331,13 +331,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
   #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
   Contract tasks.
-- Data modules can send on a WebSocket now (LLP 1016.000 D7, [`issues/20261009-runner-owned-bidirectional-streams.md`](../../issues/20261009-runner-owned-bidirectional-streams.md),
-  #126), but the sockets stay in `T3Transport.swift`, `T3Fleet.swift` and `R7DeviceClient.swift`: a
-  `net.websocket` grant names one origin, fixed in `app.ts`, and the clone's servers are chosen at
-  run time ([`issues/20261017-websocket-origin-chosen-at-run-time.md`](../../issues/20261017-websocket-origin-chosen-at-run-time.md));
-  a data module cannot answer a frame (an Ack, a Pong) in the turn it arrives
-  ([`issues/20261017-socket-reply-in-the-frames-turn.md`](../../issues/20261017-socket-reply-in-the-frames-turn.md));
-  and the 10 s Ping and the request deadlines need timers.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
@@ -374,6 +367,11 @@ These it does not use, because on macOS they do not do what the reference does:
 
 Differences that belong to the app:
 
+- The server connections stay in `T3Transport.swift`, `T3Fleet.swift` and `R7DeviceClient.swift`,
+  not the data module. Main now lets a data module do what they do: a `net.websocket ws:`/`wss:`
+  line admits servers chosen at run time (#703), and a stream's mapper answers each frame (an
+  Ack, a Pong) in the commit that settles it (#705, LLP 1016.000 D7). Moving the transport would
+  change nothing someone using the app sees, so it stays native.
 - The Browser surface is WebKit, not Chromium (#100 was closed as not planned). It has no
   "Open DevTools" item, and pages get no Notification API or geolocation.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
