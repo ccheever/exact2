@@ -35,7 +35,7 @@ import { guardFlags } from './help.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
-const API = 30;
+const API = 29;
 /** What a drive runs: the app's Linux host built for the phone, or with `--reader` (EXACT_ANDROID_READER) its APK. */
 export const androidBinary = (app, bin) => process.env.EXACT_ANDROID_READER ? readerApk(app)
   : resolve(app.target, ANDROID_TARGET, HOST_DEV, bin ?? app.crate('linux'));

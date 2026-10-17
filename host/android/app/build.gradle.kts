@@ -32,7 +32,7 @@ android {
     defaultConfig {
         // An Android package name's segments are Java identifiers: a manifest id's `-` becomes `_`.
         applicationId = (identity["id"] as String).replace('-', '_')
-        minSdk = 31
+        minSdk = 29
         targetSdk = 36
         versionCode = 1
         // -PidSuffix=.dev: a side-by-side build (another package) that leaves the installed one alone.
