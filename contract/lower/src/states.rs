@@ -95,11 +95,11 @@ fn longhands(row: &Attr) -> Result<Vec<(String, Expr)>, LowerError> {
 /// The base's value for longhand `l`: the last of `base` that writes it,
 /// a shorthand's part for it (`border-color`, `border`, `border-top` …);
 /// `None` where none does.
-fn base_of(base: &[Attr], l: &str) -> Result<Option<(Expr, bool)>, LowerError> {
+fn base_of(base: &[Attr], l: &str) -> Result<Option<Expr>, LowerError> {
     let mut out = None;
     for a in base {
         if a.name == l {
-            out = Some((a.value.clone(), a.written));
+            out = Some(a.value.clone());
             continue;
         }
         let Some(side) = SIDES.iter().position(|s| *s == l) else {
@@ -109,10 +109,7 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<(Expr, bool)>, LowerError> {
         match a.name.as_str() {
             "border-color" => {
                 let sides = values::sides("border-color", &a.value)?;
-                out = Some((
-                    sides.map_or_else(|| a.value.clone(), |s| s[side].clone()),
-                    a.written,
-                ));
+                out = Some(sides.map_or_else(|| a.value.clone(), |s| s[side].clone()));
             }
             "border" | "border-top" | "border-right" | "border-bottom" | "border-left"
                 if a.name == "border" || a.name == edge =>
@@ -125,7 +122,7 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<(Expr, bool)>, LowerError> {
                     BorderColorLeft,
                 ][side];
                 if let Some(index) = shorthands::rows(&a.name).iter().position(|r| *r == colour) {
-                    out = Some((shorthands::component(&a.value, &a.name, index)?, a.written));
+                    out = Some(shorthands::component(&a.value, &a.name, index)?);
                 }
             }
             _ => {}
@@ -136,8 +133,9 @@ fn base_of(base: &[Attr], l: &str) -> Result<Option<(Expr, bool)>, LowerError> {
 
 /// `value` with each arm that is no value (`none`, a conditional class's
 /// side without the row) taken by `under`: a state that does not write a
-/// row in some arm leaves the base's. A `match`'s `some` arm keeps its own
-/// where `under` reads the name it binds.
+/// row in some arm leaves the base's. Where `under` reads the name a
+/// `match`'s `some` arm binds, it is bound once beside the `match` under a
+/// name no source spells, so the arm's own binding hides it not.
 fn over(value: Expr, under: &Expr) -> Expr {
     match value {
         Expr::None(_) => under.clone(),
@@ -156,19 +154,45 @@ fn over(value: Expr, under: &Expr) -> Expr {
         } => {
             let mut reads = Vec::new();
             crate::disabled_look::free_reads(under, &mut Vec::new(), &mut reads);
-            let some = match reads.contains(&var) {
-                true => some,
-                false => Box::new(over(*some, under)),
-            };
+            if reads.contains(&var) {
+                let base = Expr::Ident(BASE.into(), span);
+                return Expr::Let {
+                    name: BASE.into(),
+                    value: Box::new(under.clone()),
+                    body: Box::new(Expr::Match {
+                        subject,
+                        var,
+                        some: Box::new(over(*some, &base)),
+                        none: Box::new(over(*none, &base)),
+                        span,
+                    }),
+                    span,
+                };
+            }
             Expr::Match {
                 subject,
                 var,
-                some,
+                some: Box::new(over(*some, under)),
                 none: Box::new(over(*none, under)),
                 span,
             }
         }
         other => other,
+    }
+}
+
+/// The name a state's base is bound to where a `match` arm would hide it.
+const BASE: &str = "$state-base";
+
+/// Whether `e` names a metric the compiler writes anywhere in it (a grouped
+/// list's ground), which no author's row may.
+fn metric_in(e: &Expr) -> bool {
+    match e {
+        Expr::Str(t, _) => exact_kernel::style::metrics::named(t).is_some(),
+        Expr::Ternary(_, a, b, _) => metric_in(a) || metric_in(b),
+        Expr::Match { some, none, .. } => metric_in(some) || metric_in(none),
+        Expr::Let { body, .. } => metric_in(body),
+        _ => false,
     }
 }
 
@@ -402,30 +426,31 @@ impl Lowerer<'_> {
             let Some(condition) = condition else { continue };
             for (_, row, class) in parts.iter().filter(|(s, ..)| *s == state) {
                 for (l, v) in longhands(row)? {
-                    let (under, by_class, written) =
-                        match folded.iter().rposition(|(n, ..)| *n == l) {
-                            Some(i) => {
-                                let f = folded.remove(i);
-                                (f.1, f.4 && *class, f.3)
-                            }
-                            // The base's, else what the node takes unwritten (a
-                            // link's colour), else no row. A row the compiler
-                            // implies keeps the fold implied: a metric it names
-                            // is no author's (a grouped list's ground).
-                            None => {
-                                let (base, written) = base_of(&base, &l)?
-                                    .or_else(|| {
-                                        implied
-                                            .iter()
-                                            .rfind(|(n, _)| *n == l)
-                                            .map(|(_, e)| (e.clone(), false))
-                                    })
-                                    .unwrap_or((Expr::None(row.span), true));
-                                (base, *class, written)
-                            }
-                        };
+                    let (under, by_class) = match folded.iter().rposition(|(n, ..)| *n == l) {
+                        Some(i) => {
+                            let f = folded.remove(i);
+                            (f.1, f.4 && *class)
+                        }
+                        // The base's, else what the node takes unwritten (a
+                        // link's colour), else no row.
+                        None => {
+                            let base = base_of(&base, &l)?
+                                .or_else(|| {
+                                    implied
+                                        .iter()
+                                        .rfind(|(n, _)| *n == l)
+                                        .map(|(_, e)| e.clone())
+                                })
+                                .unwrap_or(Expr::None(row.span));
+                            (base, *class)
+                        }
+                    };
+                    // The author's row owns what it folds, unless its base is
+                    // a metric the compiler writes, which no author may (a
+                    // grouped list's ground): then the fold stays implied.
+                    let metric = metric_in(&under);
                     let value = choose(condition.clone(), v, under, row.span)?;
-                    folded.push((l, value, row.span, row.written && written, by_class));
+                    folded.push((l, value, row.span, row.written && !metric, by_class));
                 }
             }
         }

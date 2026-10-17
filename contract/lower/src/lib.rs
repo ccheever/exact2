@@ -754,7 +754,10 @@ impl<'a> Lowerer<'a> {
                 let nav_place = std::mem::replace(&mut self.nav_place, step.nav_place);
                 let parent_axis =
                     std::mem::replace(&mut self.parent_horizontal_flex, step.horizontal_flex);
+                // A grouped list's rows are its sections' group's (a
+                // `column`), not a header's or footer's text.
                 let below = match step.rows {
+                    0 if self.row_depth == 2 && step.tag != "column" => 0,
                     0 => self.row_depth.saturating_sub(1),
                     n => n,
                 };

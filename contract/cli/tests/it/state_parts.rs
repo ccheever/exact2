@@ -351,3 +351,33 @@ fn round_two_edges() {
     assert!(contract::compile_path_mapped(&dir.join("app.contract")).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review round 3: a swipe row is still a row; a grouped section's header
+/// text is none; a `match` binding the name its base reads keeps the base;
+/// an author's state colour over an implied one is written.
+#[test]
+fn round_three_edges() {
+    assert_eq!(
+        refused("component App\n  state rows = [\"a\"]\n  view\n    list flex=1\n      for row in rows key=row\n        column press=go delete=go aria-pressed=true\n          :checked\n            background-color = \"#00ff00\"\n          text row\n  action go\n    rows = rows\n"),
+        "lower-state-target"
+    );
+    assert_eq!(
+        refused("component App\n  state busy = false\n  view\n    list appearance=\"auto\"\n      section\n        header\n          text \"H\" disabled=busy\n            :disabled\n              opacity = 0.5\n        text \"r\"\n"),
+        "compiled"
+    );
+    let src = "component App\n  state x = 0.7\n  state busy = false\n  state opt: option<number> = some(0.2)\n  action hold\n    busy = !busy\n  view\n    column\n      column press=hold testId=\"hold\"\n        text \"hold\"\n      column opacity=x disabled=busy testId=\"m\"\n        :disabled\n          opacity=match opt { case some(x) => none, case none => 0.5 }\n        text \"m\"\n";
+    let mut r = booted(src);
+    press(&mut r, "hold");
+    let key = r.kernel().find_by_test_id("m")[0];
+    let o = format!(
+        "{:?}",
+        r.kernel()
+            .node_by_key(key)
+            .unwrap()
+            .computed(StyleId::Opacity)
+    );
+    assert!(
+        o.contains("0.69999"),
+        "none in the some arm keeps the base x, though the arm binds x: {o}"
+    );
+}

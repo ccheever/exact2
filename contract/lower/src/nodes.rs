@@ -728,9 +728,13 @@ impl Lowerer<'_> {
                 warnings::horizontal_flex(t.fixed_styles, expanded)
             },
             nav_place,
+            // A row that says `delete=` is its swipe's `scroll` (swipe_rows.rs):
+            // the author's row is the scroll's content, a row still.
             rows: if grouped_list {
                 3
-            } else if cells {
+            } else if cells
+                || self.row_depth == 1 && expanded.iter().any(|a| a.name == "swipeTrailing")
+            {
                 1
             } else {
                 0
