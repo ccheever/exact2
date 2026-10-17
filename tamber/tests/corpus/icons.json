@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "digest": "38f740254c313ac5",
+  "digest": "70a2a8f1da15e5c6",
   "name": "icons",
   "tuples": 1,
   "axes": [],
@@ -8,10 +8,12 @@
   "tokens": [
     {"name": "ink", "kind": "color", "role": null, "values": ["#000000ff"], "entries": null, "dials": [], "fallback": ["#000000ff", "#000000ff"]}
   ],
-  "exports": null,
+  "exports": ["ink", "icon.reply"],
   "icons": [
     {"name": "icon.reply", "sf": "bubble.left", "material": "chat_bubble", "svg": "icons/reply.svg"},
     {"name": "icon.share", "sf": "square.and.arrow.up", "material": null, "svg": null},
-    {"name": "icon.flag", "sf": null, "material": null, "svg": "icons/material/flag.svg"}
+    {"name": "icon.flag", "sf": null, "material": null, "svg": "icons/material/flag.svg"},
+    {"name": "icon.comma", "sf": null, "material": null, "svg": "icons/a,b.svg"},
+    {"name": "icon.cramped", "sf": "star", "material": null, "svg": null}
   ]
 }

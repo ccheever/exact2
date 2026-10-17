@@ -157,7 +157,7 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
             continue;
         }
         let word = head.text.split(' ').next().unwrap_or("");
-        if ["axes", "dials", "theme", "exports"].contains(&word) {
+        if ["axes", "dials", "theme", "icons", "exports"].contains(&word) {
             if head.text != word {
                 errors.push(Diagnostic::new(
                     "tamber-block",

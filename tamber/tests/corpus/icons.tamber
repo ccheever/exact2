@@ -3,7 +3,13 @@ tamber icons
 theme
   ink = #000000
 
+exports
+  ink
+  icon.reply
+
 icons
   icon.reply = icon(sf "bubble.left", material "chat_bubble", svg "icons/reply.svg")
   icon.share: icon = icon(sf "square.and.arrow.up")
   icon.flag = icon(svg "icons/material/flag.svg")
+  icon.comma = icon(svg "icons/a,b.svg")
+  icon.cramped=icon(sf "star")

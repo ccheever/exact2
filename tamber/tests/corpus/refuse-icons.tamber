@@ -6,6 +6,7 @@ axes
 theme
   ink = #000000
   icon.theme = icon(sf "star")
+  colour.of.icon = icon.dup
 
 icons
   ink = icon(sf "star")
@@ -18,3 +19,7 @@ icons
   icon.parent = icon(svg "../star.svg")
   icon.key = icon(png "star.png")
   icon.bare = star
+  star = icon(sf "star")
+  icon.empty = icon()
+  icon.windows = icon(svg "..\outside.svg")
+  icon.drive = icon(svg "C:/outside.svg")

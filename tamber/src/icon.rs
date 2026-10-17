@@ -34,7 +34,24 @@ fn sources(value: &str) -> Result<[Option<String>; 3], String> {
         .and_then(|v| v.strip_suffix(')'))
         .ok_or("an icon is `icon(sf \"…\", material \"…\", svg \"…\")`")?;
     let mut out: [Option<String>; 3] = [None, None, None];
-    for part in inner.split(',') {
+    if inner.trim().is_empty() {
+        return Err("an icon has an `sf` or an `svg` source: `icon(sf \"bubble.left\")`".into());
+    }
+    // Its sources: commas outside the quotes.
+    let mut parts = Vec::new();
+    let (mut quoted, mut start) = (false, 0);
+    for (i, c) in inner.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            ',' if !quoted => {
+                parts.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&inner[start..]);
+    for part in parts {
         let part = part.trim();
         let (key, rest) = part.split_once(char::is_whitespace).unwrap_or((part, ""));
         let rest = rest.trim();
@@ -60,6 +77,8 @@ fn sources(value: &str) -> Result<[Option<String>; 3], String> {
                 2,
                 text.ends_with(".svg")
                     && !text.starts_with('/')
+                    // Nor a Windows separator or drive, which leave `assets/` there.
+                    && !text.contains(['\\', ':'])
                     && !text
                         .split('/')
                         .any(|s| s.is_empty() || s == "." || s == ".."),
@@ -107,6 +126,15 @@ pub(crate) fn check(icons: &[Token], tokens: &[Token]) -> (Vec<Icon>, Vec<Diagno
                 t,
                 "tamber-duplicate",
                 format!("`{name}` is declared twice"),
+            ));
+            continue;
+        }
+        // Dotted, so no dial, role, CSS colour or keyword is spelled as one.
+        if !name.contains('.') {
+            errors.push(at(
+                t,
+                "tamber-icon-name",
+                format!("`{name}`: an icon's name is dotted (`icon.{name}`), so no dial, role or CSS word is spelled as one"),
             ));
             continue;
         }
@@ -163,5 +191,9 @@ mod tests {
         assert!(sources(r#"icon(svg "../x.svg")"#).is_err());
         assert!(sources(r#"icon(sf "a", sf "b")"#).is_err());
         assert!(sources(r#"icon(png "a")"#).is_err());
+        assert!(sources("icon()").is_err());
+        assert!(sources(r#"icon(svg "icons/a,b.svg")"#).is_ok());
+        assert!(sources(r#"icon(svg "..\\x.svg")"#).is_err());
+        assert!(sources(r#"icon(svg "C:/x.svg")"#).is_err());
     }
 }

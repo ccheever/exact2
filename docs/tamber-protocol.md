@@ -221,7 +221,8 @@ tuple:
 - **A type** (*1.9*) is `{modes, value, kind: "type", style, weight, size, leading, family}`: each
   longhand as the token writes it, null for one it leaves unsaid (`size` always written). **A
   family** is `{modes, value, kind: "family", family}`, the stack as CSS writes it.
-- **An icon** (*1.9*) is `{modes, kind: "icon", sf, material, svg}`, the same in every tuple.
+- **An icon** (*1.9*) is `{modes, kind: "icon", sf, material, svg}`, the same in every tuple, a
+  source unwritten null.
 - **A shadow** (*1.8*) is `{modes, value, kind: "box-shadow" | "text-shadow", shadows}`: each shadow
   `{inset, lengths, color}`, its lengths in px (offset x, offset y, then blur and spread when
   written) and its colour's folded CSS (null for a text shadow's `currentcolor`).

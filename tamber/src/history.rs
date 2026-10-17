@@ -156,6 +156,16 @@ pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Result<Vec<Edit>, St
         })
     };
     other(&mut out, "exports".into(), exports(a), exports(b));
+    // An icon is no operation's to write (D10): a change to one is reported.
+    for icon in union(&a.icons, &b.icons, |t| &t.name.value) {
+        let value = |t: &crate::Token| t.value.value.trim().to_string();
+        other(
+            &mut out,
+            format!("icon {icon}"),
+            find(&a.icons, icon, |t| &t.name.value).map(value),
+            find(&b.icons, icon, |t| &t.name.value).map(value),
+        );
+    }
     Ok(out)
 }
 
@@ -565,6 +575,17 @@ mod tests {
 
     fn d(src: &str) -> Design {
         parse(src).unwrap()
+    }
+
+    /// An icon is no operation's to write: its change is reported (D10).
+    #[test]
+    fn an_icon_change_is_reported() {
+        let v1 = format!("{V1}\nicons\n  icon.reply = icon(sf \"bubble.left\")\n");
+        let v2 = v1.replace("bubble.left", "arrowshape.turn.up.left");
+        let all = edits(Some(&d(&v1)), Some(&d(&v2))).unwrap();
+        assert_eq!(all.len(), 1, "{all:?}");
+        assert_eq!(all[0].what, What::Other);
+        assert_eq!(all[0].name, "icon icon.reply");
     }
 
     #[test]

@@ -1186,7 +1186,9 @@ impl<'a> Checker<'a> {
             let key = self
                 .role_key(&e.value)
                 .map_or(e.value.clone(), |(_, row)| row.to_ascii_lowercase());
-            if !self.names.contains_key(&key) {
+            // An icon may be exported too: generated bindings name it (D12).
+            let icon = self.design.icons.iter().any(|i| i.name.value == e.value);
+            if !self.names.contains_key(&key) && !icon {
                 self.at(
                     e,
                     "tamber-unknown-token",
@@ -1282,6 +1284,13 @@ impl Names for Scope<'_, '_> {
         }
         if c.refused_names.contains(name) || c.refused_names.contains(&lower) {
             return Err(quiet());
+        }
+        // An icon (D10) is a row's `symbol:`, no value's.
+        if c.design.icons.iter().any(|i| i.name.value == name) {
+            return Err(FoldError {
+                id: "tamber-kind",
+                message: format!("`{name}` is an icon: a `symbol:` source names it, not a value"),
+            });
         }
         if let Some((_, row)) = c.roles.get(&lower) {
             return Ok(Named::Role(row.clone()));
