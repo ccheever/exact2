@@ -19,7 +19,7 @@
 // - a `modal` route is a sheet; a pushed route gets the system Back button and
 //   edge swipe, and the sheet swipes down, with nothing written for either;
 // - `dialog role="alertdialog"` is the system alert, `contextPopover` the
-//   long-press menu, `swipeTrailing` the row's swipe action, `refresh=` the
+//   long-press menu, `delete=` the row's swipe to delete, `refresh=` the
 //   pull-to-refresh, `progress` the activity indicator, and `progress value=`
 //   the progress bar.
 //
@@ -478,63 +478,43 @@ component Shelf
 // A row of the library: tap to open, long-press for the menu, swipe to delete.
 // The row only navigates, so it is a `link` to the book's route: the root's
 // `navigate` pushes it on every host, and on the web it is a real link (a new
-// tab, "Copy Link", the address in the status bar). The swipe is a horizontal
-// snap scroll naming its content and its action; iOS makes the action UIKit's
-// own, and the web scrolls to it.
+// tab, "Copy Link", the address in the status bar). `delete=` is its swipe to
+// delete: on iOS UIKit's own, which a full swipe performs, and the web scrolls
+// the row to its Delete.
 component BookRow
   props
     book: Book
     aim: action
     swipeRemove: action
   view
-    scroll swipeContent=`book-${book.id}`
-      swipeTrailing=`delete-${book.id}`
-      testId=`swipe-${book.id}`
-      width="100%"
-      overflow-x="scroll"
-      overflow-y="hidden"
-      scrollbar-width="none"
-      scroll-snap-type="x mandatory"
-      row width="100%"
-        link id=`book-${book.id}`
-          href=path("book", book.id)
-          contextmenu=aim(book.id)
-          contextPopover="book-menu"
-          testId=`book-${book.id}`
-          width="100%"
-          flex-shrink=0
-          scroll-snap-align="start"
-          text-align="start"
-          display="flex"
-          align-items="center"
-          row flex=1
-            min-width=0
-            align-items="center"
-            gap=8
-            margin-left=16
-            padding="10px 16px 10px 0"
-            column flex=1 min-width=0 gap=2
-              text book.title font="-exact-headline" line-clamp=2 testId=`book-title-${book.id}`
-              text book.author font="-exact-subheadline" color="-exact-secondary-label"
-              row align-items="center" gap=6
-                text (book.status == "reading" ? `${percent(book.currentPage, book.pages)}% · page ${book.currentPage} of ${book.pages}` : statusLabel(book.status)) font="-exact-footnote"
-                  color="-exact-secondary-label"
-                  testId=`book-status-${book.id}`
-                if book.status == "done" and book.rating > 0
-                  Stars(value=book.rating, tid=`book-stars-${book.id}`)
-              if book.status == "reading"
-                Meter(value=percent(book.currentPage, book.pages), tid=`book-progress-${book.id}`)
-            image "symbol:forward-chevron" aria-hidden=true
-              font="-exact-footnote"
-              -exact-tint-color="-exact-tertiary-label"
-        button id=`delete-${book.id}`
-          destructive=true
-          press=swipeRemove(book.id)
-          aria-label="Delete"
-          testId=`delete-${book.id}`
-          flex-shrink=0
-          scroll-snap-align="start"
-          image "symbol:delete"
+    link href=path("book", book.id)
+      delete=swipeRemove(book.id)
+      contextmenu=aim(book.id)
+      contextPopover="book-menu"
+      testId=`book-${book.id}`
+      text-align="start"
+      display="flex"
+      align-items="center"
+      row flex=1
+        min-width=0
+        align-items="center"
+        gap=8
+        margin-left=16
+        padding="10px 16px 10px 0"
+        column flex=1 min-width=0 gap=2
+          text book.title font="-exact-headline" line-clamp=2 testId=`book-title-${book.id}`
+          text book.author font="-exact-subheadline" color="-exact-secondary-label"
+          row align-items="center" gap=6
+            text (book.status == "reading" ? `${percent(book.currentPage, book.pages)}% · page ${book.currentPage} of ${book.pages}` : statusLabel(book.status)) font="-exact-footnote"
+              color="-exact-secondary-label"
+              testId=`book-status-${book.id}`
+            if book.status == "done" and book.rating > 0
+              Stars(value=book.rating, tid=`book-stars-${book.id}`)
+          if book.status == "reading"
+            Meter(value=percent(book.currentPage, book.pages), tid=`book-progress-${book.id}`)
+        image "symbol:forward-chevron" aria-hidden=true
+          font="-exact-footnote"
+          -exact-tint-color="-exact-tertiary-label"
 
 // A book's screen: a grouped list, one section per concern.
 component BookSections
