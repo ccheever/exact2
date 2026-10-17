@@ -1035,12 +1035,11 @@ impl NodeInst {
                 self.last[i] = Some(value);
                 continue;
             }
-            // A binding is a declaration whose value is computed from state,
-            // as a `var()` reference is. A value its row's grammar refuses is
-            // invalid at computed-value time (CSS Custom Properties §3.1): the
-            // row is unset — inherited or initial — and a journal line says
-            // so. Not CSSOM's `setProperty`, which keeps the earlier value:
-            // the view would then depend on history, not state. Unknown rows are plan defects.
+            // A binding is a declaration whose value is computed from state, as a `var()` reference
+            // is. A value its row's grammar refuses is invalid at computed-value time (CSS Custom
+            // Properties §3.1): the row is unset and a journal line says so (a `BridgeError::Unset`
+            // unsets it silently). Not CSSOM's `setProperty`, which keeps the earlier value: the
+            // view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
                     Ok((prop, pv)) => u.ops.push(Op::SetProp {
