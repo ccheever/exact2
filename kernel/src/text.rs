@@ -1012,6 +1012,19 @@ impl RunRows {
         self
     }
 
+    /// The rows set at or above this run.
+    pub fn said(&self) -> StyleMask {
+        self.mask
+    }
+
+    /// `from`'s rows in `mask` taken, as a text style gives them (LLP
+    /// 1115.000 D12.2), and marked set for the runs inside.
+    pub fn fill(mut self, from: &StyleProps, mask: StyleMask) -> Self {
+        self.take(from, mask);
+        self.mask = self.mask.union(mask);
+        self
+    }
+
     fn take(&mut self, from: &StyleProps, mask: StyleMask) {
         self.text.take(from, mask);
         if mask.has(StyleId::Hyphens) {

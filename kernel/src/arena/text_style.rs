@@ -62,31 +62,52 @@ impl NodeArena {
         }
     }
 
-    /// The rows a bare `font-size` style gives `slot` when nothing above
-    /// says them: the style of the nearest node, `slot` or an ancestor, that
-    /// sets its own `font-size`, when that names a style and no shorthand
-    /// did (a shorthand's is a start, [`Self::text_style_start`]).
-    pub(crate) fn bare_text_style(&self, slot: u32) -> Option<&'static StyleProps> {
-        let mut cur = Some(slot);
-        while let Some(s) = cur {
-            if self.style(s).mask.has(StyleId::FontSize) {
-                return match self.named_text_style(s)? {
-                    (id, false) => Some(&STARTS.get(usize::from(id))?[index(metrics::column())]),
-                    _ => None,
-                };
-            }
-            cur = self.parents[s as usize];
+    /// A run's rows inside its paragraph (`rows`, its parent's): its own
+    /// over them, and its text style's where it names one (LLP 1115.000
+    /// D12.2): a shorthand's beneath its own rows, a bare one's only where
+    /// nothing at or above it says the row.
+    pub(crate) fn run_style_rows(
+        &self,
+        slot: u32,
+        rows: crate::text::RunRows,
+    ) -> crate::text::RunRows {
+        let own = self.style(slot);
+        let above = rows.said();
+        let rows = rows.child(own);
+        let unsaid = |style: &StyleProps| style.mask.minus(own.mask).minus(own.written);
+        if let Some(start) = self.text_style_start(slot) {
+            rows.fill(start, unsaid(start))
+        } else if let Some(bare) = self.bare_style_rows(slot) {
+            rows.fill(bare, unsaid(bare).minus(above))
+        } else {
+            rows
         }
-        None
     }
 
-    /// The slot whose `font-size` names the bare style [`Self::bare_text_style`]
-    /// reads, for provenance.
-    pub(crate) fn bare_text_style_source(&self, slot: u32) -> Option<u32> {
+    /// The rows `slot`'s own bare `font-size` style gives, when its size
+    /// names one and no shorthand did (a shorthand's is a start,
+    /// [`Self::text_style_start`]).
+    pub(crate) fn bare_style_rows(&self, slot: u32) -> Option<&'static StyleProps> {
+        match self.named_text_style(slot)? {
+            (id, false) => Some(&STARTS.get(usize::from(id))?[index(metrics::column())]),
+            _ => None,
+        }
+    }
+
+    /// The nearest bare `font-size` style at or above `slot`, as CSS would
+    /// have its weight inherited from where it is named: its node, and the
+    /// rows it gives less those a node on the way up (that node included)
+    /// writes, a clear among them (`inherit` takes its parent's).
+    pub(crate) fn bare_text_style(
+        &self,
+        slot: u32,
+    ) -> Option<(u32, &'static StyleProps, StyleMask)> {
+        let mut written = StyleMask::EMPTY;
         let mut cur = Some(slot);
         while let Some(s) = cur {
-            if self.style(s).mask.has(StyleId::FontSize) {
-                return matches!(self.named_text_style(s), Some((_, false))).then_some(s);
+            written = written.union(self.style(s).written);
+            if let Some(rows) = self.bare_style_rows(s) {
+                return Some((s, rows, written));
             }
             cur = self.parents[s as usize];
         }
@@ -95,6 +116,12 @@ impl NodeArena {
 }
 
 impl crate::NodeRef<'_> {
+    /// Whether this node names a text style through the `font` shorthand
+    /// (or a heading): its weight and leading reset there.
+    pub fn names_text_style_through_font(&self) -> bool {
+        matches!(self.arena.named_text_style(self.slot), Some((_, true)))
+    }
+
     /// Whether own row `id` is a heading's implied size or weight: the
     /// compiler's, no author's (LLP 1115.000 D12.2).
     pub fn heading_implies(&self, id: StyleId) -> bool {

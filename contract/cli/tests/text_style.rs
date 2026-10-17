@@ -19,6 +19,9 @@ impl DataSource for NoData {
 }
 
 const SOURCE: &str = r#"component App
+  state big = false
+  action flip
+    big = not big
   view
     column testId="root"
       column font-weight=700 line-height=2
@@ -30,6 +33,16 @@ const SOURCE: &str = r#"component App
         text testId="child" "Child"
       text testId="h5" role="heading" aria-level=5 "Five"
       text testId="h1" role="heading" aria-level=1 "One"
+      column testId="barehead" font-size="-exact-headline"
+        text testId="small" font-size=12 "Small"
+      text testId="cleared" font-size="-exact-headline" font-weight="inherit" "Cleared"
+      input testId="field" font="-exact-headline" value="x"
+      column testId="flipper" font=(big ? "-exact-headline" : "-exact-body")
+        text testId="inner" font-size=12 "Inner"
+      button testId="flip" press=flip "Flip"
+      text testId="para" font-weight=700 line-height=2
+        text font="-exact-body" "Body "
+        text font-size="-exact-headline" "Bare"
 "#;
 
 fn boot() -> Runner<NoData> {
@@ -140,10 +153,52 @@ fn a_text_style_gives_its_weight_and_leading_by_its_precedence_and_column() {
         )),
         "{alone}"
     );
+    assert_eq!(
+        weight(&r, "small"),
+        600.0,
+        "a bare style's weight is inherited as CSS's is, a child's own size or not"
+    );
+    assert_eq!(
+        weight(&r, "cleared"),
+        400.0,
+        "a written clear inherits: nothing above, CSS's 400"
+    );
+    assert_eq!(
+        weight(&r, "field"),
+        600.0,
+        "a style the author names beats a control's own type"
+    );
     let h1 = read("h1");
     assert!(
         h1.contains("\"font_weight\":{\"value\":700,\"source\":\"heading\"}"),
         "{h1}"
+    );
+    // Runs inside a paragraph take their style as a node does: a shorthand's
+    // beats the paragraph's 700 and line height 2; a bare one keeps them.
+    let runs = {
+        let key = r.kernel().find_by_test_id("para")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        node.text_runs()
+            .iter()
+            .map(|run| (run.style.font_weight, run.style.line_height))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(runs[0].0, 400, "{runs:?}");
+    assert_eq!(runs[1].0, 700, "{runs:?}");
+    assert_ne!(
+        runs[0].1, runs[1].1,
+        "the shorthand's `normal` against the paragraph's 2: {runs:?}"
+    );
+    // A bound shorthand moving its style moves what its children inherit,
+    // a child with a size of its own included.
+    assert_eq!(weight(&r, "inner"), 400.0);
+    let mut r = r;
+    let flip = view(&r, "flip");
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        weight(&r, "inner"),
+        600.0,
+        "the parent's style is headline now"
     );
     // The Mac's column: a bold headline, and the styles' own leading.
     set_column(Column::Mac);

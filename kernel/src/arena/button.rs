@@ -195,6 +195,13 @@ impl NodeArena {
                 }
             }
             style.mask = own.mask.union(self.style(at).mask).intersect(title_mask);
+            // A text style's weight and leading (LLP 1115.000 D12.2) are the
+            // title's as much as its own rows are.
+            for row in [StyleId::FontWeight, StyleId::LineHeight] {
+                if title_mask.has(row) && self.text_style_source(at, row).is_some() {
+                    style.mask.set(row);
+                }
+            }
             style
         };
         let texts: Vec<_> = self

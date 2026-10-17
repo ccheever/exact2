@@ -156,9 +156,10 @@ impl NodeArena {
     }
 
     pub(crate) fn style_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {
+        // A style the author names beats a control's own type.
         self.structural_starts(slot)
-            .chain(self.control_text_start(slot))
             .chain(self.text_style_start(slot))
+            .chain(self.control_text_start(slot))
     }
 
     /// Effective own rows never alter stored ownership. Inherited text is
@@ -233,7 +234,10 @@ impl NodeArena {
         }
         // A bare `font-size` style fills what nothing above says (LLP
         // 1115.000 D12.2).
-        if let Some(style) = self.bare_text_style(slot).filter(|b| b.mask.has(id)) {
+        if let Some((_, style, _)) = self
+            .bare_text_style(slot)
+            .filter(|(_, rows, written)| rows.mask.has(id) && !written.has(id))
+        {
             return style;
         }
         if self.document_style.mask.has(id) {
@@ -269,8 +273,8 @@ impl NodeArena {
             cur = self.parents[s as usize];
         }
         self.bare_text_style(slot)
-            .filter(|b| b.mask.has(id))
-            .and_then(|_| self.bare_text_style_source(slot))
+            .filter(|(_, rows, written)| rows.mask.has(id) && !written.has(id))
+            .map(|(s, ..)| s)
     }
 
     /// The computed text style without copying unrelated rows.
@@ -299,16 +303,16 @@ impl NodeArena {
             .intersect(StyleMask::INHERITED)
             .minus(self.styles[slot as usize].mask);
         let mut cur = Some(slot);
-        // The nearest bare `font-size` style, read once the walk passes the
-        // first node that sets its own size (LLP 1115.000 D12.2).
-        let mut sized = false;
-        let mut bare = None;
+        // The nearest bare `font-size` style on the way up, less the rows
+        // written on the way to it (LLP 1115.000 D12.2).
+        let mut written = StyleMask::EMPTY;
+        let mut bare: Option<(&StyleProps, StyleMask)> = None;
         while !pending.is_empty() {
             let Some(p) = cur else { break };
             let ancestor: &StyleProps = &self.styles[p as usize];
-            if !sized && ancestor.mask.has(StyleId::FontSize) {
-                sized = true;
-                bare = self.bare_text_style(p);
+            if bare.is_none() {
+                written = written.union(ancestor.written);
+                bare = self.bare_style_rows(p).map(|rows| (rows, written));
             }
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {
@@ -325,8 +329,8 @@ impl NodeArena {
             cur = self.parents[p as usize];
         }
         // What nothing above says, a bare style fills.
-        if let Some(style) = bare {
-            let found = pending.intersect(style.mask);
+        if let Some((style, written)) = bare {
+            let found = pending.intersect(style.mask).minus(written);
             if !found.is_empty() {
                 copy(style, found);
                 pending = pending.minus(found);

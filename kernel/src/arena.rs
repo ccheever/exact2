@@ -674,12 +674,8 @@ impl NodeArena {
                 } else {
                     for child in &self.children[s] {
                         if self.node_types[*child as usize] == NodeType::Text {
-                            self.text_runs_after(
-                                *child,
-                                rows.child(&self.styles[*child as usize]),
-                                out,
-                                boundary,
-                            );
+                            let rows = self.run_style_rows(*child, rows);
+                            self.text_runs_after(*child, rows, out, boundary);
                         }
                     }
                 }
