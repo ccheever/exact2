@@ -103,6 +103,9 @@ pub struct NodeArena {
     /// route nodes at most, so a list by slot rather than a column (and not a
     /// map, whose code every web core would carry).
     covers: Vec<(u32, crate::kernel::HostCover)>,
+    /// The margins the platform's own list gives a grouped list's cards and
+    /// cells, by the list's slot: a few lists at most, as the covers.
+    grouped_margins: Vec<(u32, crate::grouped::GroupedMargins)>,
     /// Alert roots whose host supplies the CSS `::before` title item. The
     /// engine derives the item from the root's live label and inherited text.
     pub(crate) alert_prefixes: SlotSet,
@@ -173,6 +176,7 @@ impl Clone for NodeArena {
             nonzero_insets: self.nonzero_insets.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),
+            grouped_margins: self.grouped_margins.clone(),
             alert_prefixes: self.alert_prefixes.clone(),
             blocks: self.blocks.clone(),
             taffy: self.taffy.clone(),
@@ -262,6 +266,7 @@ impl NodeArena {
         self.nonzero_insets.clear();
         self.intrinsic.clear();
         self.covers.clear();
+        self.grouped_margins.clear();
         self.alert_prefixes.clear();
         self.blocks = Default::default();
         self.free = (0..self.live.len() as u32).rev().collect();
@@ -825,6 +830,7 @@ impl NodeArena {
         self.set_inset(slot, None);
         self.intrinsic.remove(&slot);
         self.covers.retain(|(s, _)| *s != slot);
+        self.grouped_margins.retain(|(s, _)| *s != slot);
         self.alert_prefixes.remove(slot);
         self.blocks.set(slot, None);
         self.taffy[s] = None;
@@ -1030,6 +1036,27 @@ impl NodeArena {
         if let Some(c) = cover {
             self.covers.push((slot, c));
         }
+    }
+
+    /// The margins the platform's list gives the grouped list `slot`.
+    pub(crate) fn grouped_margins(&self, slot: u32) -> Option<crate::grouped::GroupedMargins> {
+        self.grouped_margins
+            .iter()
+            .find(|(s, _)| *s == slot)
+            .map(|(_, m)| *m)
+    }
+
+    pub(crate) fn has_grouped_margins(&self) -> bool {
+        !self.grouped_margins.is_empty()
+    }
+
+    pub(crate) fn set_grouped_margins(
+        &mut self,
+        slot: u32,
+        margins: Option<crate::grouped::GroupedMargins>,
+    ) {
+        self.grouped_margins.retain(|(s, _)| *s != slot);
+        self.grouped_margins.extend(margins.map(|m| (slot, m)));
     }
 
     pub(crate) fn set_content(&mut self, slot: u32, content: (f32, f32)) {

@@ -715,7 +715,7 @@ package final class Presenter {
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
     /// Work for after the batch being applied, or now: a hatch's act on an
     /// authored element never lands inside a batch (LLP 1075.003 §3.4).
-    func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }
+    package func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }
     /// Symbols and projected controls report after the batch that creates
     /// them: all sizes from a turn reach the runner under one layout.
     private struct QueuedIntrinsic { weak var view: NodeView?; let generation: Int; let size: CGSize? }
