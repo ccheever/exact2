@@ -232,7 +232,8 @@ fn call_value(
         | Stdlib::Join
         | Stdlib::Concat
         | Stdlib::Split
-        | Stdlib::Sum => return None,
+        | Stdlib::Sum
+        | Stdlib::SortBy => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         // `Math.sin` and `Math.cos` through the pinned `libm`, so every
         // native target computes the same bits (LLP 1003 §7).

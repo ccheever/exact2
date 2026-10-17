@@ -367,6 +367,11 @@ pub(crate) fn compile(
             {
                 return callback_call(l, asm, f, list, callback, scope, locals);
             }
+            if let (Some(Stdlib::SortBy), [list, callback, rest @ ..]) =
+                (Stdlib::from_name(name), args.as_slice())
+            {
+                return sort_by(l, asm, list, callback, rest, scope, locals);
+            }
             let Some(f) = Stdlib::from_name(name) else {
                 return err(
                     "lower-unknown-function",
@@ -608,6 +613,53 @@ fn record(
     Ok(ty)
 }
 
+/// `sortBy(list, callback, direction?)` (@ref LLP 1116.016 §5): the list
+/// bound as the next local, then the roster's `sortBy` on that list, its keys
+/// (a `Map` of the callback over it) and whether it is descending:
+///
+/// ```text
+/// <list> BindLocal; LoadLocal n; LoadLocal n; Map end <key> end:
+/// Bool desc; Call sortBy; DropLocal
+/// ```
+///
+/// So each key is computed once, on the `Map`'s list step, and the call
+/// orders the items without running code.
+fn sort_by(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    list: &Expr,
+    callback: &Expr,
+    rest: &[Expr],
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let descending = match rest {
+        [] => false,
+        [Expr::Str(d, _)] if d == "asc" => false,
+        [Expr::Str(d, _)] if d == "desc" => true,
+        _ => {
+            return err(
+                "lower-sort-direction",
+                "the direction of `sortBy` is `\"asc\"` or `\"desc\"`",
+                callback.span(),
+            )
+        }
+    };
+    let listed = compile(l, asm, list, scope, locals)?;
+    asm.bind_local();
+    let at = *locals;
+    *locals += 1;
+    asm.load_local(at);
+    asm.load_local(at);
+    let keys = callback_body(l, asm, Opcode::Map, listed.clone(), callback, scope, locals);
+    *locals -= 1;
+    keys?;
+    asm.bool(descending);
+    asm.call(Stdlib::SortBy);
+    asm.drop_local();
+    Ok(listed)
+}
+
 /// `map(list, callback)` or `filter(list, callback)` (LLP 1017.003 D5):
 /// the list, then `Map`/`Filter` with the callback's body inline, the item
 /// and its index the next two locals, which the VM binds for each run.
@@ -621,10 +673,34 @@ fn callback_call(
     locals: &mut u16,
 ) -> Result<Ty, LowerError> {
     let listed = compile(l, asm, list, scope, locals)?;
+    let op = if f == Stdlib::Map {
+        Opcode::Map
+    } else {
+        Opcode::Filter
+    };
+    let result = callback_body(l, asm, op, listed.clone(), callback, scope, locals)?;
+    Ok(if f == Stdlib::Map {
+        Ty::List(Box::new(result))
+    } else {
+        listed
+    })
+}
+
+/// `op` (`Map` or `Filter`) over the list on the stack, of type `listed`,
+/// with `callback`'s body inline: the type of what the body leaves.
+fn callback_body(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    op: Opcode,
+    listed: Ty,
+    callback: &Expr,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
     let Expr::Arrow { params, body, span } = callback else {
         return err(
             "lower-arrow-position",
-            format!("the argument of `.{}(…)` is an arrow function", f.name()),
+            "a callback is an arrow function",
             callback.span(),
         );
     };
@@ -640,14 +716,7 @@ fn callback_call(
         );
     }
     let end = asm.label();
-    asm.each_item(
-        if f == Stdlib::Map {
-            Opcode::Map
-        } else {
-            Opcode::Filter
-        },
-        end,
-    );
+    asm.each_item(op, end);
     let base = *locals;
     *locals += 2;
     let mut inner = scope.clone();
@@ -663,9 +732,5 @@ fn callback_call(
     *locals -= 2;
     let result = result?;
     asm.place(end);
-    Ok(if f == Stdlib::Map {
-        Ty::List(Box::new(result))
-    } else {
-        listed
-    })
+    Ok(result)
 }

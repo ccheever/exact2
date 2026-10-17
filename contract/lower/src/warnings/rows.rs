@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 
 /// The roster's list work that walks its receiver.
 const WALKS: &[&str] = &[
-    "filter", "map", "includes", "indexOf", "join", "concat", "slice",
+    "filter", "map", "includes", "indexOf", "join", "concat", "slice", "sortBy",
 ];
 
 /// `data.users`, `favorites`: the receiver as written, when it is a name or

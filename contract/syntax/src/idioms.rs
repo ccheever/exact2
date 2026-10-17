@@ -73,6 +73,8 @@ pub fn method_fix(name: &str) -> String {
         "replace" => "write `s.replaceAll(find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         // `Date.now()`, `performance.now()`.
         "now" => NOW_REFUSED.into(),
+        // @ref LLP 1116.016 §5 — Exact's function, as `sum` is.
+        "sortBy" => "write `sortBy(xs, x => key)`: Exact's own function, not a method of the list (a method is TypeScript's, and TypeScript has no `sortBy`)".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => match nearest_method(name) {
@@ -131,9 +133,14 @@ pub fn refusal(name: &str) -> Option<String> {
                 "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
             )
         }
+        // @ref LLP 1116.016 §5 — a comparator's result is left to each
+        // engine when it is inconsistent; one key, stable, is the same everywhere.
+        "sort" | "toSorted" => format!(
+            "`{name}` is refused: a list is never changed in place, and a comparator is not Contract's; write `sortBy(xs, x => x.name)`, a stable sort by one number or string key (`sortBy(xs, x => x.count, \"desc\")` for descending, equal keys keeping their order, so a second key is an earlier `sortBy`). A locale's collation, a stored or canonical order, and rows the view has not loaded are still the data module's: order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
+        ),
         // LLP 1116.016 §7: told only to sort in the data source, a builder
         // writing the view alone dropped the order; named, it kept it.
-        "sort" | "sortBy" | "toSorted" | "reverse" | "toReversed" => format!(
+        "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): order the list in the data source and name the order where the view reads it (`resource tasks = loadTasksByDueDate()`)"
         ),
         "reduce" | "reduceRight" => format!(

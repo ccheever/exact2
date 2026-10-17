@@ -745,6 +745,7 @@ says. Every roster function has a row and an example, and each example written
 | `xs.map(callback)` | `U[]`; callback returns one value | `[1, 2].map(x => x * 10)` is `[10, 20]` |
 | `xs.filter(callback)` | `T[]`; callback returns boolean | `[1, 2, 3].filter(x => x > 1)` is `[2, 3]` |
 | `xs.join(separator)` | String; `xs` a list of strings, numbers or bools, each printed | `["a", "b"].join(", ")` is `"a, b"` |
+| `sortBy(xs, x => key)`, `sortBy(xs, x => key, "desc")` | `T[]`; the items in a stable order of one key, a number or a string, computed once an item (the callback is `map`'s, item and index). Numbers ascend by `<` with `NaN` counted as `0` (so `NaN`, `-0` and `0` tie); strings by UTF-16 code units as `<` compares them, no locale. `"desc"` (a literal, as is `"asc"`, the default) reverses the order of the keys, not of ties: equal keys keep their input order in both directions, so a second key is an earlier sort (`sortBy(sortBy(xs, x => x.created), x => x.bpm)` is by bpm, ties oldest first). Exact's own function, not TypeScript's `toSorted`, whose comparator is refused; a locale's collation, a stored order and rows the view has not loaded are the data module's (LLP 1116.016 §5) | `sortBy([3, 1, 2], x => x)` is `[1, 2, 3]` |
 | `encodeURIComponent(text)` | String | `encodeURIComponent("a b&c")` is `"a%20b%26c"` |
 | `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
 | `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
@@ -800,7 +801,12 @@ list steps on the evaluation's budget as `map` and `join` do (LLP 1090): one
 for each item `concat`, `slice` or `split` keeps, taken before the list is
 built, one for each item `sum` adds, and one for each item `includes` or
 `indexOf` scans up to its match. A
-list they build is bounded as any built value is.
+list they build is bounded as any built value is. `sortBy` takes one step an
+item, as its key is computed, and none for its comparisons: a stable merge sort
+makes at most n·⌈log₂ n⌉ of them, which is the cost the budget does not count.
+So 5,000 rows filtered and then sorted take 10,000 of the 65,536 steps, and
+the sort of 30,000 is about 450,000 comparisons on every evaluation that reads
+it, which a `derive` makes once per change of what it reads.
 
 Compiler intrinsics and special forms additionally include:
 

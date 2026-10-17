@@ -125,6 +125,31 @@ export function x_indexOf(v, x, s, pc) {
   step(s, v.length, pc);
   return -1;
 }
+/** `sortBy(xs, x => key, direction)` once a `Map` computed `keys` (LLP 1116.016 §5): the items by key, equal keys in
+ * input order both ways; numbers by `<` with NaN as +0, strings by `<` (UTF-16 code units). No step: the `Map` took one an
+ * item. The runner's bottom-up merge sort (`lists::sort_by`), step for step, never `Array.prototype.sort`. */
+export function x_sortBy(xs, keys, desc, pc) {
+  const n = xs.length, k = new Array(n);
+  // The checker gives every key one type, a number or a string.
+  for (let i = 0; i < n; i++) k[i] = keys[i] !== keys[i] ? 0 : keys[i];
+  // Whether the item at position `b` goes before the one at `a`.
+  const before = desc ? (b, a) => k[a] < k[b] : (b, a) => k[b] < k[a];
+  let src = new Array(n), dst = new Array(n);
+  for (let i = 0; i < n; i++) src[i] = i;
+  for (let width = 1; width < n; width *= 2) {
+    for (let lo = 0; lo < n; lo += 2 * width) {
+      const mid = Math.min(lo + width, n), hi = Math.min(lo + 2 * width, n);
+      let i = lo, j = mid, o = lo;
+      while (i < mid && j < hi) dst[o++] = before(src[j], src[i]) ? src[j++] : src[i++];
+      while (i < mid) dst[o++] = src[i++];
+      while (j < hi) dst[o++] = src[j++];
+    }
+    const t = src; src = dst; dst = t;
+  }
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = xs[src[i]];
+  return K(out, pc);
+}
 /** `sum(xs)`: `xs.reduce((a, x) => a + x, 0)`, a step an item, taken before it adds. */
 export function x_sum(l, s, pc) {
   step(s, l.length, pc);

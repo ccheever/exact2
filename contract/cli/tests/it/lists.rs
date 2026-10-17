@@ -385,6 +385,87 @@ component A
     assert_eq!(e.id, "type-argument", "{e}");
 }
 
+/// `sortBy` (LLP 1116.016 §5): a stable sort by one number or string key,
+/// equal keys in input order in both directions; NaN, -0 and +0 tie;
+/// strings by UTF-16 code unit. Its list steps are its `Map`'s, one an
+/// item, so 5,000 rows filtered then sorted take 10,000 of the 65,536.
+#[test]
+fn sort_by_is_stable_by_one_key_and_steps_once_an_item() {
+    let src = r#"shape Row
+  name: string
+  n: number
+component A
+  resource xs = xs() as shape number[]
+  state rows = [Row(name="b", n=2), Row(name="a", n=1), Row(name="c", n=2), Row(name="d", n=1)]
+  view
+    column
+      text sortBy(rows, r => r.n).map(r => r.name).join("") testId="asc"
+      text sortBy(rows, r => r.n, "desc").map(r => r.name).join("") testId="desc"
+      text sortBy(sortBy(rows, r => r.name, "desc"), r => r.n).map(r => r.name).join("") testId="two"
+      text sortBy(rows, (r, i) => 0 - i).map(r => r.name).join("") testId="index"
+      text sortBy([3, 0 / 0, -0, 1, 0, -1], x => x).map(x => `${x}`).join(" ") testId="nan"
+      text sortBy(["～", "😀", "a", "ab", "", "a"], s => s).join(",") testId="units"
+      text sortBy(xs.filter(x => x > 0), x => 0 - x).length.toString() testId="big"
+      text sortBy(rows.filter(r => r.n > 5), r => r.name).length.toString() testId="empty"
+"#;
+    struct Xs(usize);
+    impl DataSource for Xs {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(numbers(&vec![1.0; self.0]))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        contract::bake(plan.clone(), Xs(5_000)).unwrap(),
+        Xs(5_000),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    // Expected values from Bun: a stable `toSorted` comparing the keys.
+    assert_eq!(text("asc"), "adbc");
+    assert_eq!(text("desc"), "bcad");
+    // A second key is an earlier sort: by n, ties by name descending.
+    assert_eq!(text("two"), "dacb");
+    assert_eq!(text("index"), "dcab");
+    assert_eq!(text("nan"), "-1 NaN 0 0 1 3");
+    assert_eq!(text("units"), ",a,a,ab,😀,～");
+    assert_eq!(text("big"), "5000");
+    assert_eq!(text("empty"), "0");
+    // 32,768 filtered and sorted is 65,536 steps; one more is refused.
+    contract::bake(plan.clone(), Xs(32_768)).unwrap();
+    let error = contract::bake(plan, Xs(32_769)).unwrap_err();
+    assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
+    for (body, id) in [
+        ("sortBy(rows, r => r)", "type-argument"),
+        ("sortBy(rows, r => r.n > 1)", "type-argument"),
+        ("sortBy(rows, r => r.n, \"up\")", "type-argument"),
+        ("sortBy(rows, r => r.n, dir)", "type-argument"),
+        ("sortBy(rows)", "type-arity"),
+        ("sortBy(rows, rows)", "type-argument"),
+        ("rows.sortBy(r => r.n)", "syntax-method-call"),
+    ] {
+        let src = format!(
+            "shape Row\n  n: number\ncomponent A\n  state rows = [Row(n=1)]\n  state dir = \"asc\"\n  view\n    text {body}.length.toString()\n"
+        );
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, id, "{body}: {e}");
+    }
+}
+
 /// A callback's parameters are binders: a prop passed in that mentions the
 /// same name is not captured by them; a `fn` that reaches itself through a
 /// callback is recursive; a call repeated inside a callback is bound inside
@@ -542,6 +623,13 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
             "syntax-method-call",
             "in the data source",
         );
+    }
+    // A comparator sort names the key sort (LLP 1116.016 §5).
+    for line in [
+        "text xs.sort((a, b) => a.n - b.n).length.toString()",
+        "text xs.toSorted((a, b) => a.n - b.n).length.toString()",
+    ] {
+        refused(line, "syntax-method-call", "`sortBy(xs, x => x.name)`");
     }
     // The four with a composition in the roster name it.
     // (`some(…)` is the parser's: `some(x)` also makes an option.)

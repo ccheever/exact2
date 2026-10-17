@@ -9,7 +9,9 @@ use exact_plan::{Opcode, Stdlib, Value};
 /// first — one per item `concat`, `slice` and `split` keep or `sum` adds, one
 /// per item `includes` and `indexOf` scan up to the match — then a list they
 /// build measured as `Opcode::List` measures one (LLP 1090 D3). `None` for
-/// `slice`, `includes` and `indexOf` over text.
+/// `slice`, `includes` and `indexOf` over text. `sortBy`'s items were each
+/// stepped by the `Map` that computed their keys, so it takes no step here
+/// (LLP 1116.016 §5).
 pub(super) fn list_call(
     f: Stdlib,
     args: &[Value],
@@ -21,6 +23,18 @@ pub(super) fn list_call(
         pc,
         op: Opcode::Call,
     };
+    if f == Stdlib::SortBy {
+        let (Some(Value::List(items)), Some(Value::List(keys)), Some(Value::Bool(desc))) =
+            (args.first(), args.get(1), args.get(2))
+        else {
+            return Err(mismatch);
+        };
+        let built = crate::lists::sort_by(items, keys, *desc).ok_or(mismatch)?;
+        let e = extents.built(&built, pc)?;
+        let v = Value::list(built);
+        extents.remember(&v, e);
+        return Ok(Some(v));
+    }
     if f == Stdlib::Split {
         let (Some(s), Some(sep)) = (args[0].as_str(), args[1].as_str()) else {
             return Err(mismatch);

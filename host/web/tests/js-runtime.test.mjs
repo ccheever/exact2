@@ -364,6 +364,26 @@ test('sin, cos and sum compute as the runner does, and sum steps on the budget',
   expect(() => budget.x_sum([1, 2], 65535, 7)).toThrow('IterationLimit');
 });
 
+// `sortBy` (LLP 1116.016 §5): the runner's stable merge sort on precomputed keys, taking no step of its own; against a
+// stable `toSorted` on the decorated key with NaN read as 0, at every length to 40 and both directions.
+test('sortBy orders by key, stably both ways, as a reference stable sort does', async () => {
+  const { x_sortBy } = await import(resolve(dir, 'budget.js'));
+  const ids = (xs, keys, desc) => x_sortBy(xs, keys, desc, 7);
+  expect(ids([0, 1, 2, 3, 4, 5, 6], [3, NaN, -0, 1, 0, -1, 3], false)).toEqual([5, 1, 2, 4, 3, 0, 6]);
+  expect(ids([0, 1, 2, 3, 4, 5, 6], [3, NaN, -0, 1, 0, -1, 3], true)).toEqual([0, 6, 3, 1, 2, 4, 5]);
+  const words = ['～', '😀', 'a', 'ab', '', 'a'];
+  expect(ids(words, words, false)).toEqual(['', 'a', 'a', 'ab', '😀', '～']);
+  expect(ids([], [], true)).toEqual([]);
+  for (let n = 0; n < 40; n++) {
+    const xs = Array.from({ length: n }, (_, i) => i), keys = xs.map(i => [NaN, 2, -0, 1, 0][(i * 7) % 5]);
+    for (const desc of [false, true]) {
+      const k = i => (keys[i] !== keys[i] ? 0 : keys[i]);
+      const want = xs.toSorted((a, b) => (desc ? (k(b) < k(a) ? -1 : k(a) < k(b) ? 1 : 0) : k(a) < k(b) ? -1 : k(b) < k(a) ? 1 : 0));
+      expect(ids(xs, keys, desc)).toEqual(want);
+    }
+  }
+});
+
 
 // Optimistic writes (overlay.js): a send shows through the source's overlay in its commit and asks nothing; the
 // write shows until an answer asked after its landing has it; one that fails disappears at once and the read is asked

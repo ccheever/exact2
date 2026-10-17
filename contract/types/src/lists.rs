@@ -1,6 +1,6 @@
-//! `map`, `filter` and `join` (LLP 1017.003 D4): the roster's list
-//! operations, typed here because a callback is not a value the roster
-//! table can describe; and `concat`, `slice`, `includes` and `indexOf`
+//! `map`, `filter` and `join` (LLP 1017.003 D4) and `sortBy` (LLP 1116.016
+//! §5): the roster's list operations, typed here because a callback is not
+//! a value the roster table can describe; and `concat`, `slice`, `includes` and `indexOf`
 //! (LLP 1088 §9.1), whose types follow their first argument's: a list's
 //! item type, or text for all but `concat`, the web's same-named methods.
 
@@ -14,6 +14,7 @@ pub(crate) fn is_list_op(f: Stdlib) -> bool {
         f,
         Stdlib::Map
             | Stdlib::Filter
+            | Stdlib::SortBy
             | Stdlib::Join
             | Stdlib::Concat
             | Stdlib::Slice
@@ -134,6 +135,9 @@ pub(crate) fn infer_call(
         return infer_built(f, args, span, scope, shapes);
     }
     let name = f.name();
+    if f == Stdlib::SortBy {
+        return infer_sort_by(args, span, scope, shapes);
+    }
     let [list, second] = args else {
         let signature = if f == Stdlib::Join {
             "(separator)"
@@ -187,36 +191,11 @@ pub(crate) fn infer_call(
         }
         return Ok(Ty::String);
     }
-    let Expr::Arrow { params, body, .. } = second else {
-        return err(
-            "type-argument",
-            format!(
-                "argument 2 of `{name}` is an arrow function: `{name}(list, (item, index) => …)`"
-            ),
-            second.span(),
-        );
-    };
-    if params.len() > 2 || (params.len() == 2 && params[0] == params[1]) {
-        return err(
-            "type-arrow-parameters",
-            format!(
-                "a `{name}` callback takes the item and its index, two different names at most: `(item, index) => …`"
-            ),
-            second.span(),
-        );
-    }
-    let mut inner = scope.clone();
-    inner.push(
-        params
-            .iter()
-            .zip([item.clone(), Ty::Number])
-            .map(|(p, t)| (p.clone(), Ref::Local(0), t))
-            .collect(),
-    );
+    let (body, inner) = callback(name, second, item, scope)?;
     // `map(items, i => Row(item=i))`: the JSX habit. A declared shape's
     // name builds a record (`F(x=i)`, `F(f, x=…)`; LLP 1035.005.000 D3), a
     // value a callback may return.
-    if let Expr::Call(callee, _, at) = &**body {
+    if let Expr::Call(callee, _, at) = body {
         if callee.starts_with(|c: char| c.is_ascii_uppercase())
             && !shapes.fns.contains_key(callee)
             && !crate::records::is_record_call(callee, shapes)
@@ -250,6 +229,104 @@ pub(crate) fn infer_call(
             format!("a `filter` callback returns a bool, not `{result}` (Contract has no truthiness); {compare}"),
             body.span(),
         );
+    }
+    Ok(listed)
+}
+
+/// A callback's body and the scope it reads: the item (of type `item`) and
+/// its index bound to its parameters, which are at most two and distinct.
+fn callback<'a>(
+    name: &str,
+    arrow: &'a Expr,
+    item: Ty,
+    scope: &Scope,
+) -> Result<(&'a Expr, Scope), TypeError> {
+    let Expr::Arrow { params, body, .. } = arrow else {
+        let form = if name == "sortBy" {
+            "`sortBy(list, item => key)`".to_owned()
+        } else {
+            format!("`{name}(list, (item, index) => …)`")
+        };
+        return err(
+            "type-argument",
+            format!(
+                "{} is an arrow function: {form}",
+                contract_syntax::idioms::argument(name, 1)
+            ),
+            arrow.span(),
+        );
+    };
+    if params.len() > 2 || (params.len() == 2 && params[0] == params[1]) {
+        return err(
+            "type-arrow-parameters",
+            format!(
+                "a `{name}` callback takes the item and its index, two different names at most: `(item, index) => …`"
+            ),
+            arrow.span(),
+        );
+    }
+    let mut inner = scope.clone();
+    inner.push(
+        params
+            .iter()
+            .zip([item, Ty::Number])
+            .map(|(p, t)| (p.clone(), Ref::Local(0), t))
+            .collect(),
+    );
+    Ok((body, inner))
+}
+
+/// `sortBy(xs, x => key)` and `sortBy(xs, x => key, "desc")` (@ref LLP
+/// 1116.016 §5): a list's items in a stable order of one key, a number or a
+/// string, the direction a literal `"asc"` (the default) or `"desc"`.
+fn infer_sort_by(
+    args: &[Expr],
+    span: Span,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    if !(2..=3).contains(&args.len()) {
+        return err(
+            "type-arity",
+            format!(
+                "`sortBy` takes a list, a key and an optional direction, `sortBy(xs, x => x.name)` or `sortBy(xs, x => x.count, \"desc\")`, given {} argument{}",
+                args.len(),
+                if args.len() == 1 { "" } else { "s" }
+            ),
+            span,
+        );
+    }
+    let listed = infer(&args[0], scope, shapes)?;
+    let item = match &listed {
+        Ty::List(item) => (**item).clone(),
+        Ty::Unknown => Ty::Unknown,
+        other => {
+            return err(
+                "type-argument",
+                format!("argument 1 of `sortBy` expects a list, given `{other}`"),
+                args[0].span(),
+            )
+        }
+    };
+    let (body, inner) = callback("sortBy", &args[1], item, scope)?;
+    let key = infer(body, &inner, shapes)?;
+    if !matches!(key, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Unknown) {
+        return err(
+            "type-argument",
+            format!(
+                "a `sortBy` key is a number or a string, given `{key}`: sort by one field (`x => x.name`); to break its ties by another, sort by that one first, `sortBy(sortBy(xs, x => x.date), x => x.name)`, since `sortBy` keeps equal keys in order"
+            ),
+            body.span(),
+        );
+    }
+    if let Some(dir) = args.get(2) {
+        if !matches!(dir, Expr::Str(d, _) if d == "asc" || d == "desc") {
+            return err(
+                "type-argument",
+                "argument 3 of `sortBy` is the direction, written `\"asc\"` (the default) or `\"desc\"`",
+                dir.span(),
+            );
+        }
     }
     Ok(listed)
 }

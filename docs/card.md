@@ -3,7 +3,7 @@ Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 functions: call -> result
   xs.at(i) -> option<T>  (none past end; -1 is last)
   back(router) -> Router
-  calendarDiff(from, to, "years" or "months") -> option<number>  (whole ones; YYYY-MM-DD dates)
+  calendarDiff(from, to, "years"|"months") -> option<number>  (whole; YYYY-MM-DD)
   ceil(n) -> number
   xs.concat(ys) -> T[]
   cos(rad) -> number
@@ -17,7 +17,7 @@ functions: call -> result
   first(xs) -> option<T>
   floor(n) -> number
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
-  formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Yesterday, Monday)
+  formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
   formatDecimal(units, digits) -> string  (cents to "12.34"; digits a literal)
   formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
@@ -34,7 +34,7 @@ functions: call -> result
   min(a, b) -> number
   open(router, location) -> Router
   params(router, parameterName) -> string[]
-  parseNumber(text) -> option<number>  (none for "", "12px", "1.2.3")
+  parseNumber(text) -> option<number>  (none for "12px")
   performanceNow() -> number  (ms since launch)
   push(router, location) -> Router
   querySelectorAll(selector) -> string[]
@@ -45,12 +45,13 @@ functions: call -> result
   select(router, tabName) -> Router
   sin(rad) -> number
   s.slice(start, end?) -> text|list
+  sortBy(xs, x => key, "desc"?) -> T[]  (stable)
   text.split(separator) -> string[]
   stack(router) -> Entry[]
   text.startsWith(prefix) -> bool
   sum(xs) -> number
   t("key", name=value) -> string  (the locale's table)
-  n.toFixed(digits) -> string  (digits a literal, 0 to 100)
+  n.toFixed(digits) -> string  (digits a literal)
   text.toLowerCase() -> string
   top(router) -> Entry
   x.toString() -> string

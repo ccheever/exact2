@@ -19,12 +19,12 @@ Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 ## functions
 at: xs.at(i) -> option<T>  (none past end; -1 is last)
-calendarDiff: (whole ones; YYYY-MM-DD dates)
+calendarDiff: calendarDiff(from, to, "years"|"months") -> option<number>  (whole; YYYY-MM-DD)
 concat: xs.concat(ys) -> T[]
 filter: xs.filter(x => bool) -> T[]
 first: first(xs) -> option<T>
 formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
-formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Yesterday, Monday)
+formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
 formatDecimal: (cents to "12.34"; digits a literal)
 formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
 formatTime: ("2:13 PM"; minutes east of UTC)
@@ -36,12 +36,13 @@ join: xs.join(sep) -> string
 length: s.length -> number  (text or list)
 map: xs.map(x => U) -> U[]
 measure: (in an action)
-parseNumber: (none for "", "12px", "1.2.3")
+parseNumber: (none for "12px")
 performanceNow: (ms since launch)
 round: (half up)
 slice: s.slice(start, end?) -> text|list
+sortBy: sortBy(xs, x => key, "desc"?) -> T[]  (stable)
 t: t("key", name=value) -> string  (the locale's table)
-toFixed: (digits a literal, 0 to 100)
+toFixed: (digits a literal)
 toString: x.toString() -> string
 
 ## tags

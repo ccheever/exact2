@@ -1089,7 +1089,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         Expr::Arrow { span, .. } => {
             return err(
                 "type-arrow-position",
-                "an arrow function is only the argument of `map` or `filter`: `xs.map((item, index) => …)`",
+                "an arrow function is only the callback of `map`, `filter` or `sortBy`: `xs.map((item, index) => …)`, `sortBy(xs, item => key)`",
                 *span,
             )
         }
