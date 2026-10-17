@@ -552,3 +552,34 @@ pub fn report(
     );
     Ok(diverge == 0 && errors == 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numbers_a_few_units_apart_are_near_and_nothing_else_is() {
+        let line = |x: &str| format!("slot s0 {{\"1e21\",{x},n4000000000000000}}");
+        assert!(near(&line("nbfe7328434159860"), &line("nbfe732843415985f")));
+        assert!(near(
+            "view \"C0\" \"0-0.9560510077059199\"",
+            "view \"C0\" \"0-0.9560510077059198\""
+        ));
+        assert!(near("text \"1.5e-7\"", "text \"1.5000000000000002e-7\""));
+        assert!(!near(
+            &line("nbfe7328434159860"),
+            &line("nbfe7328434159870")
+        ));
+        assert!(!near("text \"1\"", "text \"2\""));
+        assert!(!near("text \"0\"", "text \"-0\""));
+        assert!(!near("text \"a\"", "text \"b\""));
+    }
+
+    #[test]
+    fn a_call_of_sin_or_cos_is_one_by_its_whole_name() {
+        assert!(calls_trig("derive d = sin(x)"));
+        assert!(calls_trig("derive d = (cos(x))"));
+        assert!(!calls_trig("fn asin(x: number): number = x"));
+        assert!(!calls_trig("derive d = floor(x)"));
+    }
+}
