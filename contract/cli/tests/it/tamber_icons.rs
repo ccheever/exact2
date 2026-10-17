@@ -276,3 +276,17 @@ fn a_nested_literal_template_folds_and_lints() {
         "{warnings:?}"
     );
 }
+
+/// A refused icon's uses say nothing more: its own error is the one
+/// (x2-perf4's stage 6 gate).
+#[test]
+fn a_refused_icons_uses_are_not_refused_again() {
+    let design = "  icon.gone = icon(sf \"star\", svg \"icons/gone.svg\")\n";
+    let view = "component App\n  view\n    column\n      image \"symbol:icon.gone\"\n      image \"symbol:icon.gone\"\n";
+    let path = app("refused", "\"ios\": {}, \"web\": {}", design, view);
+    let Err(errors) = contract::compile_path_all(&path, false) else {
+        panic!("the missing SVG is refused");
+    };
+    let ids: Vec<&str> = errors.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, ["tamber-icon-svg"], "{errors:?}");
+}

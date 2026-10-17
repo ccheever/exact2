@@ -40,6 +40,20 @@ thread_local! {
     /// The icons a literal named, and whether a source was computed (then
     /// every icon is kept).
     static USED: RefCell<(Vec<String>, bool)> = const { RefCell::new((Vec::new(), false)) };
+    /// The icons the design declares that were refused (their own error
+    /// said why), so a use of one is not refused again as no role.
+    static REFUSED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Mark icons refused: a use of one says nothing more.
+pub(crate) fn mark_refused(names: impl IntoIterator<Item = String>) {
+    REFUSED.with(|r| r.borrow_mut().extend(names));
+}
+
+/// Whether `name` (after `symbol:`) is an icon the design declares and the
+/// build refused.
+pub(crate) fn is_refused(name: &str) -> bool {
+    REFUSED.with(|r| r.borrow().iter().any(|n| n == name))
 }
 
 /// An icon's SVG's most bytes.
@@ -176,6 +190,13 @@ pub(crate) fn declare(
             svg: icon.svg.clone().unwrap_or_default(),
         });
     }
+    // One whose SVG was refused is out of the table; its uses say no more.
+    mark_refused(
+        icons
+            .iter()
+            .filter(|i| !out.iter().any(|r: &Resolved| r.name == i.name))
+            .map(|i| i.name.clone()),
+    );
     let kept = out
         .iter()
         .map(|r| r.name.clone())
@@ -190,6 +211,7 @@ pub(crate) fn declare(
 /// ships, which a bare `symbol:sf/…` is linted against with or without one.
 pub(crate) fn clear(root: Option<&Path>) {
     ICONS.with(|i| *i.borrow_mut() = (Vec::new(), targets(root)));
+    REFUSED.with(|r| r.borrow_mut().clear());
     USED.with(|u| *u.borrow_mut() = (Vec::new(), false));
 }
 

@@ -167,7 +167,12 @@ pub(crate) fn check(e: &Expr, span: Span) -> Result<(), LowerError> {
         let Some(role) = source.strip_prefix("symbol:") else {
             continue;
         };
-        if !role.starts_with("sf/") && !role.starts_with("icon|") && symbol_role(role).is_none() {
+        // An icon the design declares and the build refused said why already.
+        if !role.starts_with("sf/")
+            && !role.starts_with("icon|")
+            && symbol_role(role).is_none()
+            && !crate::icons::is_refused(role)
+        {
             let near = contract_syntax::suggestion(role, SYMBOL_ROLES.iter().copied())
                 .map(|r| format!("did you mean `symbol:{r}`? "))
                 .unwrap_or_default();

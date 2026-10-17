@@ -284,6 +284,8 @@ impl Lowerer<'_> {
                     for d in all.iter().filter(|d| !loose(d)) {
                         self.design_refusal(d, &origin, &said);
                     }
+                    // Its icons' uses say no more than the design's refusal.
+                    crate::icons::mark_refused(design.icons.iter().map(|t| t.name.value.clone()));
                     return exact_kernel::style::theme::declarations([]);
                 }
             }
