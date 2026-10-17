@@ -3,12 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
 
-async function renderedPages(source, check) {
+async function renderedPages(source, check, files = {}) {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/head-render-test-'));
   try {
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} } }));
     writeFileSync(resolve(dir, 'app.contract'), source);
+    for (const [name, text] of Object.entries(files)) writeFileSync(resolve(dir, name), text);
     const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'head-render-test', '--out', resolve(dir, 'dist'), '--render', 'js'], {
       cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
     });
@@ -48,6 +49,36 @@ component MediaFacts
 `, page => {
     expect(page('')[0]).toBe('390x844/false/false/no-preference/light/fine/hover/srgb/standard/standalone');
   });
+}, 30000);
+
+// The runtime answers `exactTransport` and `exactMIDI` itself from the boot's
+// first settlement, as the runner does; asked of a TypeScript data module,
+// which answers neither, they refused the boot. (A render does not run a
+// sequence: its server bundle installs no voice table.)
+test('JavaScript-rendered boot answers the transport and MIDI beside a TypeScript data module', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+shape Transport
+  state: string
+  bpm: number
+
+shape MIDI
+  state: string
+
+component ReservedBoot
+  state takes = 0 persist
+  resource transport = exactTransport() as shape Transport
+  resource midi = exactMIDI() as shape MIDI
+  action start
+    takes = takes + 1
+  view
+    main
+      head title=\`\${transport.state} \${transport.bpm} \${midi.state} \${takes}\`
+      button "Start" press=start
+`, page => {
+    expect(page('')[0]).toBe('stopped 0 denied 0');
+  }, { 'app.ts': "import type { Answer } from './app.contract.d.ts';\nexport const appId = 'test.heads', grants = '';\nexport const answer: Answer = name => { throw new Error(`no source ${name}`); };\n" });
 }, 30000);
 
 test('JavaScript-rendered pages exclude a covered route’s deeper head', async () => {
