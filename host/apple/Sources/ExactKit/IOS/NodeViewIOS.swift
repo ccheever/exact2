@@ -1008,8 +1008,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // leave the window: UIKit cancels the touches of a view that
             // does, and a press held inside would end at the swap (euxy's
             // dice, whose charge turned the capsule's glass off).
-            for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
-            old?.removeFromSuperview()
+            GlassGroups.moving(in: self) {
+                for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
+                old?.removeFromSuperview()
+            }
             presenter?.flats.containerChanged(id)
         }
         guard let materialView else { rehomeMaterialChildren(); return }
@@ -1141,8 +1143,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
     }
 
+    /// Inside `GlassGroups.moving`: a container comes or goes under the
+    /// same authored parent, which is no reparenting.
+    static var containerMoves = 0
     package override func didMoveToSuperview() {
-        cancelPressContact(reparenting: true)
+        if Self.containerMoves == 0 { cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }

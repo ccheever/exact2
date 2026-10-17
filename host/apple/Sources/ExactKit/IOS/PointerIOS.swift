@@ -252,8 +252,13 @@ extension NodeView {
         // click bubbles to the document's ancestors (LLP 1123 D2): UIKit's
         // chain leaves the session at the sheet's controllers
         if let presenter, let parent = presenter.touchParent(of: self), parent !== superview { return parent }
+        // Exact's own containers (a clip box, a material or glass effect
+        // and its content view) are no step: a container swap keeps the route.
         var responder = next
-        while let plain = responder as? PlainView { responder = plain.next }
+        while let view = responder as? UIView, view is PlainView || view is UIVisualEffectView
+                || (view.superview as? UIVisualEffectView)?.contentView === view {
+            responder = view.next
+        }
         if let scroll = responder as? ScrollView, let owner = scroll.superview as? NodeView, owner.scroll === scroll { return owner }
         return responder
     }
