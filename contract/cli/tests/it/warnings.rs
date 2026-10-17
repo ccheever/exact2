@@ -331,8 +331,7 @@ fn a_launch_relative_time_sent_to_a_source_is_named_with_its_repair() {
         "start - 1000",
         "performanceNow() - 2 * 1000",
         "start - max(500, 1000)",
-        // A reading less a span is a time again; less the launch's origin,
-        // or a state that is never anything but its initial 0, no span.
+        // A reading less a span, the origin, or a never-set 0 is still a time.
         "performanceNow() - (performanceNow() - start)",
         "performanceNow() - time.epochAtZero",
         "performanceNow() - other",
