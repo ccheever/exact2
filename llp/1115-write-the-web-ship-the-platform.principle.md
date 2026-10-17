@@ -117,6 +117,10 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
 - **D2. Unset backgrounds are the platform's.** The window/viewport, launch view and sheet
   surfaces fall back to `systemBackground` (iOS) and `windowBackgroundColor` (macOS), never a
   fixed white. (Today a page with no background is white text on white in dark mode.)
+  > **Amended by LLP 1116.021 D7 (2026-10-17).** On iOS a sheet's surface is its route's own
+  > background where the route has one: a sheet whose scroll is a grouped list is on the
+  > grouped background (LLP 1116.007 D5), as a hand-built grouped sheet is, so no white band
+  > shows between it and a keyboard's bar. A route with none keeps `systemBackground`.
 - **D3. Type is the platform's.** The root font size is the platform body size (§3). Headings
   (`role="heading"`/`h1`–`h6`) get the platform's text styles by level, overridable by any
   authored `font-size`/`font-weight`. Bold Text is honoured.
