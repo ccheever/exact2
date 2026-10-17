@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // A `gh` stand-in that knows one open pull request, so a lane thread on its branch has a linked
 // pull request (the sidebar's glyph, the chat header's link, the detail panel with its actions
-// menu, Merge and one review thread to reply to) without GitHub. It answers the calls a T3 server makes for those (reference
+// menu, Merge, its patch and one review thread to reply to) without GitHub. It answers the calls a T3 server makes for those (reference
 // apps/server/src/sourceControl/GitHubCli.ts and GitHubPullRequestCli.ts, the shapes
 // pullRequest/gitHubPullRequestJson.ts decodes) and fails every other one, as a gh that cannot
 // reach GitHub would. It merges nothing and contacts nothing.
@@ -31,7 +31,21 @@ const detail = () => ({ data: { repository: { mergeCommitAllowed: true, squashMe
     viewerCanUpdate: true, viewerDidAuthor: false, viewerCanUpdateBranch: false, baseRef: null,
     reviewRequests: { nodes: [] }, labels: { nodes: [] }, commits: { nodes: [{ commit: { statusCheckRollup: null } }] } } } } });
 
-/** One unresolved review thread on README.md, so the detail panel's conversation has a Reply. */
+/** The pull request's patch (`gh pr diff`), which the review thread's line 3 sits in. */
+const PATCH = `diff --git a/README.md b/README.md
+index 1111111..2222222 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,5 @@
+ # shared-notes
+ 
+-A fixture repository.
++A fixture repository. The notes live in \`notes/\`.
++
++See notes/plan.md for the plan.
+`;
+
+/** One unresolved review thread on README.md, so the detail panel's Code tab has a Reply. */
 const reviewThreads = () => ({ data: { viewer: { login: pr.author }, repository: { pullRequest: {
   author, viewerCanUpdate: true, viewerDidAuthor: false, reactionGroups: [], comments: { nodes: [] }, reviews: { nodes: [] },
   reviewThreads: { totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{
@@ -81,6 +95,7 @@ export function answer(argv, stdin = () => "") {
     const listed = head !== undefined ? head === pr.headRefName : (repo === undefined || repo.replace(/^github\.com\//, "") === `${pr.owner}/${pr.name}`) && ["open", "all"].includes(state);
     return ok(listed ? [{ ...listItem(), ...counts, author, mergeable: "MERGEABLE", reviewDecision: null, reviewRequests: [], latestReviews: [], labels: [], statusCheckRollup: [] }] : []);
   }
+  if (first === "pr" && second === "diff" && Number(argv[2]) === pr.number) return ok(PATCH);
   if (first === "pr" && second === "view" && Number(argv[2]) === pr.number) {
     const json = argv[argv.indexOf("--json") + 1] ?? "";
     if (json.split(",").includes("comments")) return ok({ author, comments: [], reviews: [], commits: [] });
