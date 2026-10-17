@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34 and 35 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35 and 36 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1090,6 +1090,21 @@ was. Exact lays out unrounded (`disable_rounding`), so every node carried a
 (rounded layouts read after a layout; `TaffyTree::new` rounds) and
 `test_layout` (a layout read before any was written), and by the kernel's
 layout tests, which read the unrounded one.
+
+## Patch 36: compress cyclic replaced-element contributions in block layout
+
+A replaced block child with a cyclic percentage width or max-width contributes
+zero to its ancestor's min-content width, floored by its authored inline minimum
+and padding/border, with margins added (CSS Sizing 3 §5.2.1). The contribution
+is computed before a definite height can transfer through the ratio. The child's
+own content size and final layout are unchanged. Chrome 151 also compresses
+`calc()` widths containing percentages to zero; the current specification instead
+resolves their percentage term against zero.
+
+**Held by** `browser_replaced::replaced_content_contributions_distinguish_items_from_descendants`:
+Chrome 151 frames for canvas, iframe, video, unsized SVG and loaded images, with
+width/max-width percentages, calc, minimum and fixed sizes, padding, border and
+margins. Direct flex items keep their own content minimum.
 
 ## Cargo workspace boundary
 

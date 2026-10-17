@@ -1066,9 +1066,15 @@ impl LayoutTree {
                         line_height = metrics.height;
                         return size;
                     }
-                    if let Some(size) =
-                        crate::replaced::measure(arena, slot, style, inset, known, space)
-                    {
+                    if let Some(size) = crate::replaced::measure(
+                        arena,
+                        slot,
+                        style,
+                        inset,
+                        known,
+                        space,
+                        inputs.sizing_mode,
+                    ) {
                         return size;
                     }
                     if let Some(record) = buttons.get(&slot).and_then(|n| button_records.get_mut(n))
