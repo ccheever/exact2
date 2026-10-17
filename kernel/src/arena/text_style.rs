@@ -72,7 +72,18 @@ impl NodeArena {
         rows: crate::text::RunRows,
     ) -> crate::text::RunRows {
         let own = self.style(slot);
-        let above = rows.said();
+        // What is said above, but for what a bare style (a further one)
+        // filled there: a nearer bare style replaces that.
+        let parent = self.parents[slot as usize];
+        let mut above = rows.said();
+        for row in [StyleId::FontWeight, StyleId::LineHeight] {
+            let bare = parent
+                .and_then(|p| self.text_style_source(p, row))
+                .is_some_and(|s| matches!(self.named_text_style(s), Some((_, false))));
+            if bare {
+                above = above.minus(StyleMask::of(row));
+            }
+        }
         let rows = rows.child(own);
         let unsaid = |style: &StyleProps| style.mask.minus(own.mask).minus(own.written);
         if let Some(start) = self.text_style_start(slot) {
@@ -96,18 +107,17 @@ impl NodeArena {
 
     /// The nearest bare `font-size` style at or above `slot`, as CSS would
     /// have its weight inherited from where it is named: its node, and the
-    /// rows it gives less those a node on the way up (that node included)
-    /// writes, a clear among them (`inherit` takes its parent's).
+    /// rows it gives less those that node writes, a clear among them
+    /// (`inherit` there takes its parent's; a clear below inherits the
+    /// style's).
     pub(crate) fn bare_text_style(
         &self,
         slot: u32,
     ) -> Option<(u32, &'static StyleProps, StyleMask)> {
-        let mut written = StyleMask::EMPTY;
         let mut cur = Some(slot);
         while let Some(s) = cur {
-            written = written.union(self.style(s).written);
             if let Some(rows) = self.bare_style_rows(s) {
-                return Some((s, rows, written));
+                return Some((s, rows, self.style(s).written));
             }
             cur = self.parents[s as usize];
         }

@@ -304,15 +304,13 @@ impl NodeArena {
             .minus(self.styles[slot as usize].mask);
         let mut cur = Some(slot);
         // The nearest bare `font-size` style on the way up, less the rows
-        // written on the way to it (LLP 1115.000 D12.2).
-        let mut written = StyleMask::EMPTY;
+        // its node writes (LLP 1115.000 D12.2).
         let mut bare: Option<(&StyleProps, StyleMask)> = None;
         while !pending.is_empty() {
             let Some(p) = cur else { break };
             let ancestor: &StyleProps = &self.styles[p as usize];
             if bare.is_none() {
-                written = written.union(ancestor.written);
-                bare = self.bare_style_rows(p).map(|rows| (rows, written));
+                bare = self.bare_style_rows(p).map(|rows| (rows, ancestor.written));
             }
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {

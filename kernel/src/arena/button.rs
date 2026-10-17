@@ -188,7 +188,12 @@ impl NodeArena {
             let mut style = self.computed_style(at, title_mask);
             // Non-inheriting rows (line-clamp) also map from button to title.
             for &row in TITLE_ROWS {
-                if !self.style(at).mask.has(row) && own.mask.has(row) {
+                // A text style the title names gives its own (LLP 1115.000
+                // D12.2).
+                if !self.style(at).mask.has(row)
+                    && own.mask.has(row)
+                    && self.text_style_source(at, row).is_none()
+                {
                     let mut one = StyleMask::EMPTY;
                     one.set(row);
                     style.copy_rows(own, one);

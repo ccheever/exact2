@@ -312,13 +312,20 @@ impl Em<'_> {
             }
             // A bound `font` shorthand: its style's weight and leading with
             // its size (LLP 1115.000 D12.2), as a literal one's are written.
+            // What the node writes itself, statically or bound, it keeps.
             StyleId::FontSize if parts.props.contains_key("data-fontshorthand") => {
                 let [weight, leading] = &*style::TEXT_STYLE_ROWS;
-                vec![
-                    ("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string())),
-                    ("font-weight".into(), String::new(), Some(weight.clone())),
-                    ("line-height".into(), String::new(), Some(leading.clone())),
-                ]
+                let said = |row: StyleId, name: &str| {
+                    binding(row).is_some() || parts.css.split(';').any(|d| d.starts_with(&format!("{name}:")))
+                };
+                let mut w = vec![("font-size".into(), "px".into(), Some(style::TEXT_STYLE_MAP.to_string()))];
+                if !said(StyleId::FontWeight, "font-weight") {
+                    w.push(("font-weight".into(), String::new(), Some(weight.clone())));
+                }
+                if !said(StyleId::LineHeight, "line-height") {
+                    w.push(("line-height".into(), String::new(), Some(leading.clone())));
+                }
+                w
             }
             StyleId::FontSize | StyleId::FontWeight if parts.tag == "img" => {
                 let size = id == StyleId::FontSize;

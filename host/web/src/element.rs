@@ -611,10 +611,19 @@ pub(super) fn css_style_named<'a>(
     node: &NodeRef<'a>,
     bare: bool,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
-    let mut style = css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts());
+    let style = css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts());
     if !bare && !node.names_text_style_through_font() {
         return style;
     }
+    with_style_rows(style, node)
+}
+
+/// `style` with the weight and leading a text style named on `node` gives it
+/// (LLP 1115.000 D12.2), for a writer that declares them where it is named.
+pub(super) fn with_style_rows<'a>(
+    mut style: std::borrow::Cow<'a, exact_kernel::StyleProps>,
+    node: &NodeRef<'_>,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     use exact_kernel::StyleId::{FontWeight, LineHeight};
     if let Some(rows) = node.style_given(FontWeight) {
         let style = style.to_mut();

@@ -125,6 +125,16 @@ pub trait Source {
     fn children(&self, id: ViewId) -> Cow<'_, [ViewId]>;
     /// The element an SVG reference from `from` names.
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId>;
+    /// `style`, node `id`'s, with the weight and leading a text style named
+    /// on it gives (LLP 1115.000 D12.2): a kernel's tree knows them, a
+    /// render's tree has them in its facts already.
+    fn with_style_rows<'s>(
+        &self,
+        _id: ViewId,
+        style: Cow<'s, exact_kernel::StyleProps>,
+    ) -> Cow<'s, exact_kernel::StyleProps> {
+        style
+    }
 }
 
 struct KernelSource<'k>(&'k exact_kernel::Kernel);
@@ -138,6 +148,16 @@ impl Source for KernelSource<'_> {
     }
     fn resolve(&self, from: ViewId, id: &str) -> Option<ViewId> {
         self.0.resolve_id(from, id)
+    }
+    fn with_style_rows<'s>(
+        &self,
+        id: ViewId,
+        style: Cow<'s, exact_kernel::StyleProps>,
+    ) -> Cow<'s, exact_kernel::StyleProps> {
+        match self.0.node(id) {
+            Some(node) => super::element::with_style_rows(style, &node),
+            None => style,
+        }
     }
 }
 
@@ -567,7 +587,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
-        let text = match css_style_of(&resolve, &node) {
+        let text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
             Cow::Borrowed(style) => {
                 let fonts = &self.fonts;
                 self.css

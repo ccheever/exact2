@@ -43,6 +43,10 @@ const SOURCE: &str = r#"component App
       text testId="para" font-weight=700 line-height=2
         text font="-exact-body" "Body "
         text font-size="-exact-headline" "Bare"
+      column font-size="-exact-headline"
+        text testId="inheriting" font-size=12 font-weight="inherit" "Inheriting"
+      text testId="nested" font-size="-exact-headline"
+        text font-size="-exact-body" "Inner"
 "#;
 
 fn boot() -> Runner<NoData> {
@@ -188,6 +192,21 @@ fn a_text_style_gives_its_weight_and_leading_by_its_precedence_and_column() {
     assert_ne!(
         runs[0].1, runs[1].1,
         "the shorthand's `normal` against the paragraph's 2: {runs:?}"
+    );
+    assert_eq!(
+        weight(&r, "inheriting"),
+        600.0,
+        "a clear below a bare style inherits the style's"
+    );
+    let inner = {
+        let key = r.kernel().find_by_test_id("nested")[0];
+        r.kernel().node_by_key(key).unwrap().text_runs()[0]
+            .style
+            .font_weight
+    };
+    assert_eq!(
+        inner, 400,
+        "a nearer bare style's run takes its own, not the outer's fill"
     );
     // A bound shorthand moving its style moves what its children inherit,
     // a child with a size of its own included.
