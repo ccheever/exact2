@@ -542,6 +542,16 @@ names no take; `:focus-within` remains out.
   This admits the body click only; action buttons and replies, badges, push,
   repeats, and permission facts remain refused. Take: none named; Charlie's
   scoped ruling admits this expansion.
+  **Expanded (Charlie, 2026-10-17, "approve", on LLP 1126 §7 question 5):**
+  ActivityKit update tokens for an app's own Live Activities. The app reads an
+  activity's push token and gives it to its own backend, which sends to APNs;
+  exact2 sends nothing and relays nothing (LLP 1030.000 D6), and no app code
+  runs when an update arrives (the system replaces the activity's state and
+  the extension redraws it). Consumer: Interview's AI answer being written,
+  which only its server can advance. Unblocks a Live Activity that stays true
+  while its app is suspended. Still refused: push-to-start, remote
+  notifications, and everything the click ruling left refused. Take: none
+  named; the ruling stands as its own waiver.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 

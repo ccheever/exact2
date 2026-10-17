@@ -1,7 +1,7 @@
 # LLP 1126: System surfaces — an app's views outside its window
 
 **Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built until Charlie has read it)
-**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Charlie ruled questions 1 to 3 and 6 to 9 on 2026-10-17, and question 4 by the panel he deferred it to (§0); question 5 has the panel's answers (`llp/reviews/1126-system-surfaces.panel.{astra,grok,fable}.md`) and awaits his ruling. Not in `llp/current/`, which holds 15 of 15.
+**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Charlie ruled questions 1 to 3 and 6 to 9 on 2026-10-17, question 4 by the panel he deferred it to, and question 5 and question 7's riders on the panel's answers (§0; `llp/reviews/1126-system-surfaces.panel.{astra,grok,fable}.md`). Every question in §7 is ruled. Not in `llp/current/`, which holds 15 of 15.
 **Systems:** a new SwiftUI renderer in the Apple host (`host/apple/Sources`), a presenter-free session composition (`ExactKit`'s `ExactSession`), the app manifest (`scripts/app.schema.json`), the bake and the schema's admission columns (`contract/cli`, `kernel/tables/schema.json`), the envelope's plans (LLP 1031 D1), the store and the update store across processes (`update/src/store.rs`, LLP 1018), the Apple build's packaging (`host/apple/build.mjs`), the agent (`scripts/agent.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-17 (r1, r2)
@@ -48,8 +48,26 @@ Charlie, 2026-10-17, on §7:
   entry appears (the Home Screen, StandBy, the Dynamic Island), as Apple uses
   it, never the entry; the canvas `surface=` binding is not renamed.
   `snapshot` stays the compiler's name for the admission profile.
-- **Question 5, Live Activity pushes:** the panel answered; Charlie's ruling
-  is pending.
+- **Question 5, Live Activity pushes:** "approve", on the recommendation
+  after the panel (Astra: admit at stage 2, 88%; Fable: admit now with
+  push-to-start, 70%; Grok: wait for a consumer only a server can advance,
+  78%). Question 7's ruling reopened this one: Interview's natural activity
+  is an AI answer being written, which only its server advances, so a Live
+  Activity its running app alone updates would freeze when iOS suspends the
+  app. ActivityKit update tokens are admitted at stage 2 (D9;
+  `rules/DEFERRED.md`, the notifications entry). Push-to-start and remote
+  notifications stay refused, for a later ruling of their own.
+- **Question 7's riders**, "approve", from the panel:
+  1. Caltrain gets a countdown widget as the in-tree fixture: the checks and
+     the approved apparatus run this repository's apps, and Interview is out
+     of tree. Interview judges; Caltrain is what the checks drive.
+  2. Stage 0's Q3 reports two sets of numbers, Caltrain's Rust-only plan and
+     Interview's TypeScript refresh under Hermes, so a kill line that fails
+     says whether the design or the consumer is too heavy.
+  3. Each stage names the job its entry does for Interview (§5).
+  4. Account content on the Lock Screen follows a privacy policy (D8).
+  5. None of the candidates is on the App Store yet; the judgement that
+     counts today is Charlie's, which favours the app he uses daily.
 
 ## Summary
 
@@ -381,9 +399,15 @@ surface's inputs it reloads that surface's timelines. The answer stays a pull
 widget's write reaches the app when it next comes to the front, or at once
 if it is running (§0, question 6).
 
-**The render touches no secret.** A Lock Screen surface can render before
-first unlock, when the Keychain's usual class is unavailable. Secrets are
-read only in refresh steps; the render reads its props and the plain store.
+**The render touches no secret, and account content is private by default.**
+A Lock Screen widget can render before first unlock, when the Keychain's
+usual class (`AfterFirstUnlockThisDeviceOnly`, LLP 1018 D7) and protected
+files are unavailable. Secrets are read only in refresh steps, from a
+Keychain access group the app and its extensions share; the render reads its
+props and the plain store. Before first unlock an entry shows its
+placeholder. An entry's account content is marked privacy-sensitive, so the
+system redacts it while the device is locked; the author opts a node out by
+name.
 
 **A session without a presenter.** The extension needs an `ExactKit`
 composition that builds no presenter and calls no app-only API
@@ -419,15 +443,17 @@ bar take placements the system derives from those.
 Starting, updating and ending an activity are sends from the running app,
 present where ActivityKit exists and absent elsewhere (Charlie, 2026-09-27,
 LLP 1055.000 Q5: "allow platforms to reach their full platform rather than
-sanding everything down to lowest common denominator"). With D6, an
-activity updated by its app while it runs and counting down on its own is
-useful by itself: the first consumer needs no push.
-
-Updates from the app's own server, through ActivityKit push tokens, are what
-most Live Activities are for (a delivery, a flight, a score), and
-`rules/DEFERRED.md` refuses push delivery from a server. Exact would relay
-nothing (LLP 1030.000 D6): the app registers its token with its own backend,
-which sends; the 4 KB limit applies there. Admitting that is §7, question 5.
+sanding everything down to lowest common denominator"). **Updates from the app's own server** (§0, question 5). Most Live Activities
+change because something happened elsewhere (an answer being written, a
+delivery, a build), so an activity entry may declare that it takes pushes.
+The build then adds the `aps-environment` entitlement; the activity's push
+token, and its rotation, are a device fact the data module reads and sends
+to its own backend; the backend sends D9's envelope to APNs, within its 4 KB
+limit, using the JSON Schema the bake emits. exact2 sends nothing and relays
+nothing (LLP 1030.000 D6), and no app code runs when an update arrives.
+Starting an activity stays a send from the running app: push-to-start, and
+remote notifications, which share the entitlement but not the mechanism,
+stay refused.
 
 ### D10 — The watch: bring-up beside stage 0, complications with the snapshot driver, then the live driver
 
@@ -522,9 +548,13 @@ yes; §7, question 8 asks for it.
    a fallback proposal, not a workaround.
 1. **The snapshot driver and iPhone widgets** for Interview (§0): D2–D8, D14.
    StandBy, CarPlay, HomeView and the Mac show them with no other code.
-2. **Live Activities and interactive widgets**: D7's intents and D9, updated
-   by the running app. The watch's Smart Stack and the Mac's menu bar mirror
-   them.
+   Interview's job: the person's open question, with its latest answer.
+   Caltrain's countdown widget is the in-tree fixture the checks drive.
+2. **Live Activities and interactive widgets**: D7's intents and D9.
+   Interview's jobs: an AI answer being written, as an activity its server
+   advances by push; an upvote or "mark read" as a widget's intent. Done
+   when a push updates the activity on a locked phone with the app
+   suspended. The watch's Smart Stack and the Mac's menu bar mirror it.
 3. **The other WidgetKit binaries**: a Mac app's own widgets, and the
    watch's complications and Smart Stack widgets, by the same driver.
    visionOS widgets come with the visionOS port (`rules/DEFERRED.md`
@@ -566,12 +596,12 @@ Templates (D11) and Android (D13) are their own RFCs.
    launch.
 4. **The word.** Ruled by the panel (§0): kinds as keys (`widgets`,
    `live_activities`), *entry* for the genus, *surface* for the place.
-5. **Live Activity pushes.** Admit ActivityKit push tokens, the app's own
-   backend sending and exact2 relaying nothing, as a scoped exception to the
-   push refusal. Proposed: decide at stage 2; stage 2 ships without it.
+5. **Live Activity pushes.** Ruled (§0): update tokens admitted at stage 2;
+   push-to-start and remote notifications stay refused.
 6. **A widget's write and an open app.** Ruled (§0): at foreground, and at
    once while the app runs.
-7. **The first consumer.** Ruled (§0): Interview.
+7. **The first consumer.** Ruled (§0): Interview, with the panel's five
+   riders.
 8. **Apparatus.** Ruled (§0): approved; the set is decided at stage 1.
 9. **The working set.** Ruled (§0): enters at stage 0, LLP 1112 leaves.
 
@@ -587,10 +617,11 @@ Templates (D11) and Android (D13) are their own RFCs.
   text sizes and the accented and vibrant modes; a ticking `time` in a
   reserved width; VoiceOver reading the paragraph as one.
 - **Q3. A session in an extension.** Against the measured ceiling: peak
-  memory, cold refresh and cold intent time, for a pruned plan, with a
-  20-entry timeline times its variants, and for a TypeScript app's refresh
-  under Hermes (Interview's `app.ts`); an app and an extension writing
-  the store at once.
+  memory, cold refresh and cold intent time, with a 20-entry timeline times
+  its variants, reported twice: for Caltrain's Rust-only pruned plan, and
+  for Interview's TypeScript refresh under Hermes (`app.ts`, with its
+  replica opened read-only); and an app and an extension writing the store
+  at once.
 - **Q4. One framework.** The app's launch with the runtime in a shared
   dynamic framework against today's static archive, and link-by-use (LLP
   1047.001) for one cohort.
@@ -604,9 +635,9 @@ Templates (D11) and Android (D13) are their own RFCs.
 - LLP 1031 D1: the `plans` map's trigger is pulled (D2).
 - LLP 1035.006 §11.10: reopened (done, 2026-10-17).
 - `kernel/tables/schema.json`: a `snapshot` admission column (D2).
-- `rules/DEFERRED.md`: §Surfaces admits system surfaces and watchOS (done,
-  2026-10-17); the notifications entry's push refusal only if question 5
-  admits Live Activity pushes.
+- `rules/DEFERRED.md`: §Surfaces admits system surfaces and watchOS, and the
+  notifications entry admits ActivityKit update tokens (both done,
+  2026-10-17).
   §Components is unchanged (D6 uses HTML's elements).
 
 ## R. Round 1: what r2 took
