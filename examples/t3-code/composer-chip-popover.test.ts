@@ -68,6 +68,9 @@ describe('a skill chip\'s details popover', () => {
     const native = { available: true, later: async (request: Obj) => { calls.push(request); return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
     await chipPopoverLocal({} as T3Client, native, 'chip-close', '7', '');
     expect(calls).toEqual([{ op: 'editorChipClose', seq: 7 }]);
+    // Escape asks the editor to take the focus back with the chip selected (PopoverPopup's finalFocus: the trigger).
+    await chipPopoverLocal({} as T3Client, native, 'chip-close', '9', 'escape');
+    expect(calls.at(-1)).toEqual({ op: 'editorChipClose', seq: 9, escape: true });
     // openFileSurface needs a project: the close still happens first.
     const noProject = { config: {}, shell: { projects: [] }, projection: {}, projectId: '', ready: true } as unknown as T3Client;
     await expect(chipPopoverLocal(noProject, native, 'chip-instructions', '8', '/skills/a/SKILL.md')).rejects.toThrow();

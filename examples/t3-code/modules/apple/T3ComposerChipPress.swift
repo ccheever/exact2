@@ -174,9 +174,10 @@ final class T3ComposerChipPress {
         if chip.kind == "citation", let view = styler?.view, chip.end <= (view.string as NSString).length {
             link = (view.string as NSString).substring(with: chip.range)
         } else { link = "" }
-        // A citation's comment takes the focus as it opens (PopoverPopup `initialFocus`: its textarea): the prompt gives it
-        // up, so the popover's `autofocus` (which yields to a focused view, as HTML's does) lands there.
-        if chip.kind == "citation", let window = styler?.view?.window, window.firstResponder === styler?.view { window.makeFirstResponder(nil) }
+        // The details take the focus as they open (PopoverPopup's `initialFocus`: a citation's textarea, else the popup's
+        // first tabbable or the popup itself, so VoiceOver reads the dialog): the prompt gives it up, so the popover's
+        // `autofocus` (which yields to a focused view, as HTML's does) lands there.
+        if let window = styler?.view?.window, window.firstResponder === styler?.view { window.makeFirstResponder(nil) }
         follow()
         (frame, trigger) = measure() ?? ([], [])
         onChange()
@@ -259,13 +260,21 @@ final class T3ComposerChipPress {
         onChange()
     }
 
-    /// The app's close (an outside press, View instructions): only the press it saw. A citation's comment closed by an
-    /// outside press with nothing to commit gives the prompt the focus, the caret after the chip, when the press left the
-    /// focus nowhere (PopoverPopup's `finalFocus` → onRestoreFocus), as `finishCitation` does.
-    func close(seq: Int) {
+    /// The app's close (an outside press, Escape, View instructions): only the press it saw. Escape (`escape`) gives the
+    /// prompt back the focus with the chip selected, as PopoverPopup's `finalFocus` returns it to the chip, its trigger; an
+    /// outside press leaves the focus where the press put it (the body, on ground that takes none). A citation's comment
+    /// closed by an outside press with nothing to commit gives the prompt the focus, the caret after the chip, when the
+    /// press left the focus nowhere (PopoverPopup's `finalFocus` → onRestoreFocus), as `finishCitation` does.
+    func close(seq: Int, escape: Bool = false) {
         if seq == self.seq, acted != nil { acted = nil; onChange(); return }
         guard seq == self.seq, let chip else { return }
-        guard chip.kind == "citation", let view = styler?.view, let window = view.window, chip.end <= (view.string as NSString).length,
+        if chip.kind != "citation" {
+            close()
+            guard escape, let view = styler?.view, let window = view.window, NSMaxRange(chip.range) <= (view.string as NSString).length else { return }
+            select(chip, in: view, window: window)
+            return
+        }
+        guard let view = styler?.view, let window = view.window, chip.end <= (view.string as NSString).length,
               T3ComposerChipPress.focusIsNowhere(window) || T3ComposerChipPress.focusInCitationComment(window) else { close(); return }
         close()
         if window.firstResponder !== view { window.makeFirstResponder(view) }

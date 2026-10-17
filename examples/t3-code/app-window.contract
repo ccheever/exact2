@@ -543,12 +543,14 @@ component T3Window
   // The window's Escape (ChipPopoverEscape): a citation's comment cancels when its textarea has the focus, as its editor's
   // Escape does; elsewhere (the prompt's, or none: a draft past 8,000 characters held open) it closes as Base UI's escape-key
   // dismissal and keeps the chip (the native editor tells which: T3ComposerChipPress.finishCitation `escape`). The popover
-  // stays drawn until the native editor closes it, so its textarea still holds the focus when the editor looks.
+  // stays drawn until the native editor closes it, so its textarea still holds the focus when the editor looks. Other
+  // details close at once and the prompt takes the focus back with the chip selected (PopoverPopup's `finalFocus`).
   action chipEscape
     if chip.kind == "citation"
       editorOp("chip-cite-escape", `${chip.seq}`, "")
     else
-      chipClose(false)
+      chipClosed = chip.seq
+      editorOp("chip-close", `${chip.seq}`, "escape")
   // A citation's comment (citation-comment.contract, citation-comment.ts). The draft is the
   // window's, so every way the popover closes can settle it: Base UI's onOpenChange with resolveAssistantCitationCommentDismissal
   // (AssistantCitationChip settleDraftOnClose). An untouched draft (`citeDraftSeq` another press's) is the reference's null.

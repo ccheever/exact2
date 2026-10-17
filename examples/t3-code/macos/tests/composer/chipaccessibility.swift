@@ -171,12 +171,12 @@ final class ComposerChipAccessibilityTests: XCTestCase {
         let press = fixture.styler.press
         let terminal = fixture.styler.chips[0]
         XCTAssertEqual(fixture.styler.chipKind(terminal), "terminal")
-        // VO-Space: AXPress on the pop-up button, with the focus elsewhere. It does what a click does: the prompt takes
-        // the focus with the chip selected, and its details open.
+        // VO-Space: AXPress on the pop-up button, with the focus elsewhere. It does what a click does: the chip is
+        // selected in the prompt, and its details open and take the focus (PopoverPopup's initialFocus).
         fixture.base.window.makeFirstResponder(nil)
         let element = press.accessibilityElements[0]
         XCTAssertTrue(axPress(element))
-        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view)
+        XCTAssertFalse(fixture.base.window.firstResponder === fixture.view)
         XCTAssertEqual(fixture.view.selectedRange(), terminal.range)
         XCTAssertTrue(press.isOpen)
         XCTAssertEqual(press.state["kind"] as? String, "terminal")

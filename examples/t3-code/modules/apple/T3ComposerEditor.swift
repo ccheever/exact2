@@ -323,21 +323,21 @@ final class T3ComposerEditor {
     }
 
     /// Insert at the caret, padding with spaces only where words would join
-    /// (insertInlineContextReference).
+    /// (insertComposerText at "cursor"). The caret is the selection's start and
+    /// the selection stays in the text: a chip left selected after its preview
+    /// closes is not replaced by context another panel adds.
     func insert(_ request: [String: Any]) -> [String: Any] {
         guard let view = textView else { return ["applied": false, "reason": "no composer"] }
         // A caller naming its composer (a sidebar row's dropped files) never types into another thread's.
         if let wanted = request["owner"] as? String, !wanted.isEmpty, wanted != owner { return ["applied": false, "reason": "another composer"] }
         let text = view.string as NSString
         // Terminal/file menus take focus, but the editor retains the user's insertion range.
-        let selection = view.selectedRange()
-        let start = min(selection.location, text.length)
-        let end = start + min(selection.length, text.length - start)
+        let start = min(view.selectedRange().location, text.length)
         let lead = start > 0 && !T3ComposerText.isBlank(text.character(at: start - 1)) ? " " : ""
-        let replaceEnd = end < text.length && text.character(at: end) == 32 ? end + 1 : end
+        let replaceEnd = start < text.length && text.character(at: start) == 32 ? start + 1 : start
         let body = request["text"] as? String ?? ""
         if let window = view.window, window.firstResponder !== view { window.makeFirstResponder(view) }
-        let applied = apply(NSRange(location: start, length: replaceEnd - start), lead + body + " ", in: view)
+        let applied = apply(NSRange(location: start, length: replaceEnd - start), lead + body + (body.hasSuffix(" ") ? "" : " "), in: view)
         return ["applied": applied]
     }
 

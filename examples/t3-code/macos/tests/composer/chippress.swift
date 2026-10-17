@@ -134,8 +134,11 @@ final class ComposerChipPressTests: XCTestCase {
             content.cacheDisplay(in: area, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(directory)/re3-selected-chip.png"))
         }
-        fixture.base.escape()
+        // The details hold the focus; the window's Escape closes them and gives the editor the focus back.
+        XCTAssertFalse(fixture.base.window.firstResponder === fixture.view, "the details take the focus")
+        press.close(seq: press.seq, escape: true)
         XCTAssertFalse(press.isOpen, "Escape closes the details")
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view)
         XCTAssertEqual(fixture.view.selectedRange(), chip.range, "and the chip stays selected")
         fixture.view.insertText("x", replacementRange: fixture.view.selectedRange())
         fixture.base.tick()
@@ -146,8 +149,9 @@ final class ComposerChipPressTests: XCTestCase {
         fixture.view.string = previewSample; fixture.view.didChangeText(); fixture.base.tick()
         fixture.base.window.makeFirstResponder(fixture.base.editor)
         fixture.click(fixture.center(fixture.preview.styler.chips[0]))
-        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view && fixture.view.selectedRange() == fixture.preview.styler.chips[0].range, "the pressed chip's editor takes the focus with the chip selected")
-        fixture.base.escape()
+        XCTAssertTrue(fixture.base.window.firstResponder !== fixture.base.editor && fixture.view.selectedRange() == fixture.preview.styler.chips[0].range, "the pressed chip's editor has the chip selected, and the details the focus")
+        press.close(seq: press.seq, escape: true)
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view, "Escape gives that editor the focus")
         // A mention's press is its Preview button's: taken and selected as the skill's, and reported as an action, not details.
         let mention = fixture.preview.styler.chips.first { $0.kind != "skill" }!
         XCTAssertTrue(press.mouseDown(NSEvent.mouseEvent(with: .leftMouseDown, location: fixture.view.convert(fixture.center(mention), to: nil), modifierFlags: [],
@@ -165,10 +169,13 @@ final class ComposerChipPressTests: XCTestCase {
         let chip = fixture.preview.styler.chips[0]
         press.press(chip)
         XCTAssertTrue(press.isOpen)
+        // Escape in the text view, should it hold the focus, closes them too.
+        fixture.base.window.makeFirstResponder(fixture.view)
         fixture.base.escape()
         XCTAssertFalse(press.isOpen, "Escape closes the details")
         XCTAssertEqual(fixture.view.string, previewSample)
         press.press(chip)
+        fixture.base.window.makeFirstResponder(fixture.view)
         fixture.view.setSelectedRange(NSRange(location: (previewSample as NSString).length, length: 0))
         fixture.base.send("x", 7)
         XCTAssertFalse(press.isOpen, "typing closes them")

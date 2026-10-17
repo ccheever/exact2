@@ -100,10 +100,10 @@ final class EditorFixture {
 final class ComposerEditorTests: XCTestCase {
     func testContextInsertionRetainsCaretAndSelectionAfterComposerBlur() {
         for blurred in [false, true] {
-            for replacing in [false, true] {
+            for selecting in [false, true] {
                 let fixture = EditorFixture()
                 fixture.type("LEFT RIGHT")
-                let range = NSRange(location: 5, length: replacing ? 5 : 0)
+                let range = NSRange(location: 5, length: selecting ? 5 : 0)
                 fixture.editor.setSelectedRange(range)
                 if blurred {
                     let terminal = NSTextView(frame: NSRect(x: 0, y: 140, width: 100, height: 30))
@@ -113,8 +113,8 @@ final class ComposerEditorTests: XCTestCase {
                 }
                 let result = fixture.composer.editor.insert(["text": "[Terminal 1](t3-context://v1/terminal/probe)"])
                 XCTAssertEqual(result["applied"] as? Bool, true)
-                XCTAssertEqual(fixture.editor.string, "LEFT [Terminal 1](t3-context://v1/terminal/probe) " + (replacing ? "" : "RIGHT"),
-                               "insertion must preserve the retained selection even after a terminal menu takes focus")
+                XCTAssertEqual(fixture.editor.string, "LEFT [Terminal 1](t3-context://v1/terminal/probe) RIGHT",
+                               "insertion goes in at the retained selection's start, deleting nothing, even after a terminal menu takes focus")
                 XCTAssertTrue(fixture.window.firstResponder === fixture.editor)
                 XCTAssertEqual(fixture.editor.selectedRange().length, 0)
             }
@@ -126,6 +126,12 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertEqual(refused["applied"] as? Bool, false)
         XCTAssertEqual(fixture.editor.string, "KEEP", "another thread's chips stay out of this editor")
         XCTAssertEqual(fixture.composer.editor.insert(["text": "[a.txt](t3-context://v1/file/x)", "owner": "owner-a"])["applied"] as? Bool, true)
+        // A text that brings its own trailing space (a review comment's chip) gets no second one.
+        let spaced = EditorFixture()
+        spaced.type("A B")
+        spaced.editor.setSelectedRange(NSRange(location: 2, length: 0))
+        _ = spaced.composer.editor.insert(["text": "[x L1](t3-context://v1/review-comment/r) "])
+        XCTAssertEqual(spaced.editor.string, "A [x L1](t3-context://v1/review-comment/r) B")
     }
 
     // MARK: Pure rules
