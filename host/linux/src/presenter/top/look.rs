@@ -236,10 +236,11 @@ pub(in crate::presenter) fn symbol(
     rect: Rect4,
     color: [u8; 4],
 ) {
-    let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
+    // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
+    let Some((d, filled, view_box)) = exact_kernel::symbol_path(role) else {
         return;
     };
-    glyph(backend, d, filled, rect, color);
+    glyph_in(backend, d, filled, view_box, rect, color);
 }
 
 /// A 24-unit path in `rect`: stroked as a symbol role's is, or filled.
@@ -250,6 +251,19 @@ pub(in crate::presenter) fn glyph(
     rect: Rect4,
     color: [u8; 4],
 ) {
+    glyph_in(backend, d, filled, "0 0 24 24", rect, color);
+}
+
+/// A path in `rect` under its viewBox, stroked in a role's 24 units, or filled.
+fn glyph_in(
+    backend: &mut dyn Backend,
+    d: &str,
+    filled: bool,
+    view_box: &str,
+    rect: Rect4,
+    color: [u8; 4],
+) {
+    let [bx, by, bw, bh] = crate::paint::view_box(view_box);
     let path = exact_kernel::svg::parse_d(d);
     let paint = SvgPaint {
         path: &path,
@@ -257,14 +271,16 @@ pub(in crate::presenter) fn glyph(
         even_odd: true,
         stroke: (!filled).then_some(Ink::Solid(color)),
         order: [0, 1, 2],
-        width: 1.1 + 300.0 / 400.0,
+        width: (1.1 + 300.0 / 400.0) * bw / 24.0,
         cap: 1,
         join: 1,
         miter: 4.0,
         dash: Vec::new(),
         phase: 0.0,
     };
-    let ts = Transform::from_translate(rect.0, rect.1).pre_scale(rect.2 / 24.0, rect.3 / 24.0);
+    let ts = Transform::from_translate(rect.0, rect.1)
+        .pre_scale(rect.2 / bw, rect.3 / bh)
+        .pre_translate(-bx, -by);
     backend.svg_path(&paint, ts);
 }
 

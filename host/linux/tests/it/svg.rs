@@ -127,6 +127,23 @@ fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
         reds(&mut p, "apple") > 40,
         "a role's Apple name draws the role"
     );
+    // An icon token's form: its path filled under its own viewBox (a square
+    // over Material's box fills the image).
+    const ICON: &str = "component App\n  view\n    image \"symbol:icon||0 -960 960 960|M0-960h960v960H0Z|\" testId=\"icon\" width=48 height=48 object-fit=\"contain\" -exact-tint-color=\"#ff0000\"\n";
+    let plan = contract::compile(ICON).unwrap_or_else(|e| panic!("{e}"));
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (48., 48.),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(
+        reds(&mut p, "icon") > 2000,
+        "the icon's square fills its box"
+    );
 }
 
 /// Every portable role draws on Linux from its path alone: a role added to

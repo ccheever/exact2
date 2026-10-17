@@ -331,8 +331,8 @@ impl super::Painter {
         };
         match icon {
             Icon::Calendar => self.symbol_face("calendar", node.style, at, tint, ts),
-            Icon::Clock => self.glyph_face(CLOCK, false, node.style, at, tint, ts),
-            Icon::Menu => self.glyph_face(MENU, true, node.style, at, tint, ts),
+            Icon::Clock => self.glyph_face(CLOCK, false, "0 0 24 24", node.style, at, tint, ts),
+            Icon::Menu => self.glyph_face(MENU, true, "0 0 24 24", node.style, at, tint, ts),
         }
     }
 }

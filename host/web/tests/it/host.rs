@@ -151,6 +151,21 @@ fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
     assert!(!unsaved.contains("\"data-symbol-fill\":\"\""), "{unsaved}");
 }
 
+/// LLP 1121 D10: an icon token's form draws its path under its viewBox,
+/// filled; one whose SVG is no template is the file; an SF Symbol that is a
+/// role's Apple name is the role.
+#[test]
+fn an_icon_draws_its_path_under_its_viewbox_or_its_file() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      image \"symbol:icon|star|0 -960 960 960|M0-960h960Z|icons/a.svg\"\n      image \"symbol:icon||0 0 24 24||icons/two.svg\"\n",
+    )
+    .unwrap();
+    let (_, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain, Default::default(), "/").unwrap();
+    assert!(first.contains("\"data-symbol-path\":\"M0-960h960Z\""), "{first}");
+    assert!(first.contains("\"data-symbol-viewbox\":\"0 -960 960 960\""), "{first}");
+    assert!(first.contains("\"src\":\"assets/icons/two.svg\""), "{first}");
+}
+
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];

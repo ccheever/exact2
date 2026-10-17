@@ -393,9 +393,7 @@ pub(crate) fn projection_size(
         {
             bytes = add_wire(
                 bytes,
-                role.strip_prefix("sf/")
-                    .or_else(|| exact_kernel::generated::symbol(role).map(|s| s.0))
-                    .map_or(0, str::len),
+                exact_kernel::apple_symbol_name(role).len(),
                 6,
             )?;
         }

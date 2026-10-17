@@ -62,6 +62,7 @@ pub mod rows;
 mod shadow;
 mod space;
 mod svg;
+pub(crate) use svg::view_box;
 mod text_clip;
 mod text_decoration;
 mod text_shadow;

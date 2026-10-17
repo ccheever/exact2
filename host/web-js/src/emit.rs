@@ -522,27 +522,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     if let Some(m) = &modes {
         body.push_str(&m.js(plan, &em.classes));
     }
-    // Symbols (symbols.js): a bound source picks its role from the plan's
-    // strings that name one, `symbol:`-prefixed or not.
+    // Symbols (symbols.js): a bound source picks its role, or an icon token
+    // (LLP 1121 D10), from the plan's own table.
     if em.symbols.0 {
-        let mut roles = Vec::new();
-        if em.symbols.1 {
-            for s in &plan.strings {
-                let role = s.strip_prefix("symbol:").unwrap_or(s);
-                if let Some((_, path, filled)) = exact_kernel::generated::symbol(role) {
-                    let entry = format!(
-                        "{}:[{},{}]",
-                        serde_json::to_string(role).unwrap(),
-                        serde_json::to_string(path).unwrap(),
-                        filled as u8
-                    );
-                    if !roles.contains(&entry) {
-                        roles.push(entry);
-                    }
-                }
-            }
-        }
-        let _ = write!(body, "$symbols({{{}}});", roles.join(","));
+        let _ = write!(body, "$symbols({});", crate::symbols::table(plan, em.symbols.1));
     }
     if paint {
         let painting = em.uses.rt("usePaint");

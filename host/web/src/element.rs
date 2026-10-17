@@ -1246,15 +1246,27 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             .str(PropId::ImageSource)
             .and_then(|s| s.strip_prefix("symbol:"))
         {
-            let symbol = exact_kernel::generated::symbol(role);
+            // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
+            let symbol = exact_kernel::symbol_path(role);
             out.insert("data-symbol-source".into(), format!("symbol:{role}"));
-            out.insert(
-                "data-symbol-path".into(),
-                symbol.map(|s| s.1).unwrap_or("").into(),
-            );
-            // A filled role's path is a silhouette, drawn filled, not stroked.
-            if symbol.is_some_and(|s| s.2) {
+            match exact_kernel::Icon::parse(role).filter(|i| i.path.is_empty() && !i.svg.is_empty()) {
+                // An icon's SVG that is no template: the page draws the file.
+                Some(icon) => {
+                    out.insert("src".into(), format!("assets/{}", icon.svg));
+                }
+                None => {
+                    out.insert(
+                        "data-symbol-path".into(),
+                        symbol.map(|s| s.0).unwrap_or("").into(),
+                    );
+                }
+            }
+            // A filled path is a silhouette, drawn filled, not stroked.
+            if symbol.is_some_and(|s| s.1) {
                 out.insert("data-symbol-fill".into(), String::new());
+            }
+            if let Some((_, _, view_box)) = symbol.filter(|s| s.2 != "0 0 24 24") {
+                out.insert("data-symbol-viewbox".into(), view_box.into());
             }
             // Decorative unless the author named it (`alt`, `aria-label`).
             if !out.contains_key("alt") {

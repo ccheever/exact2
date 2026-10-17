@@ -2913,3 +2913,19 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   (`icons`, and the `theme.kind` comment for kinds 3 and 4 that D left out), pinned in
   `plan/tests/format.rs`. Every host needs a new binary; an old one refuses a new plan by the
   format digest before reading a table (`FormatDigestMismatch`).
+
+### Stage 6, commit F3: hosts draw icons (D10)
+
+- **One reading:** every host reads a symbol through the kernel: `apple_symbol_name` (Apple's SF
+  Symbol, an icon's `sf` included) and `symbol_path` (a role's path, an icon's path under its
+  viewBox, filled, or `sf/` a role's Apple name, which draws that role).
+- **Linux and Android's reader** (`paint/svg.rs`, `presenter/top/look.rs`) draw the path scaled by
+  its viewBox, a role's stroke kept at its 24-unit width; paths are parsed once by their text.
+- **The web** (`element.rs`, `glue.js`) writes `data-symbol-viewbox` beside the path; an icon whose
+  SVG is no template is the file (`src="assets/…"`), shown as any image is.
+- **The JS target** (`symbols.js`, `src/symbols.rs`) carries the plan's icons in its table (by name
+  and by `sf/`, before the roles), reads the build's own form, and loads every role (with `sf/`
+  keys for their Apple names) for a computed `sf/` it does not hold; a role's entry keeps its two
+  fields, so an app without icons emits what it did.
+- **Apple** reads the SF Symbol as before, through the kernel (`content_region.rs`,
+  `kernel/src/grouped.rs`).

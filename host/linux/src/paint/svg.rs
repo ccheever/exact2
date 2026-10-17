@@ -68,22 +68,36 @@ pub struct SvgPaint<'a> {
 }
 
 thread_local! {
-    /// Each role's path, parsed once: the schema's `d` strings are static,
-    /// so the address names the path (a row of icons painted again parsed
-    /// every one, 4% of the easy list's thread).
-    static SYMBOL_PATHS: std::cell::RefCell<std::collections::HashMap<usize, std::rc::Rc<Path>>> =
+    /// Each symbol's path, parsed once: a role's schema `d` or an icon
+    /// token's (LLP 1121 D10), by its text (a row of icons painted again
+    /// parsed every one, 4% of the easy list's thread).
+    static SYMBOL_PATHS: std::cell::RefCell<std::collections::HashMap<String, std::rc::Rc<Path>>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// The parsed path of a schema `d` string.
-fn parsed_symbol(d: &'static str) -> std::rc::Rc<Path> {
+/// The parsed path of a symbol's `d`.
+fn parsed_symbol(d: &str) -> std::rc::Rc<Path> {
     SYMBOL_PATHS.with(|paths| {
-        paths
-            .borrow_mut()
-            .entry(d.as_ptr() as usize)
-            .or_insert_with(|| std::rc::Rc::new(exact_kernel::svg::parse_d(d)))
-            .clone()
+        if let Some(p) = paths.borrow().get(d) {
+            return p.clone();
+        }
+        let p = std::rc::Rc::new(exact_kernel::svg::parse_d(d));
+        paths.borrow_mut().insert(d.to_string(), p.clone());
+        p
     })
+}
+
+/// A viewBox's `min-x min-y width height`; a role's 24-unit box when it
+/// does not read.
+pub(crate) fn view_box(text: &str) -> [f32; 4] {
+    let n: Vec<f32> = text
+        .split([' ', ','])
+        .filter_map(|v| v.parse().ok())
+        .collect();
+    match n[..] {
+        [x, y, w, h] if w > 0.0 && h > 0.0 => [x, y, w, h],
+        _ => [0.0, 0.0, 24.0, 24.0],
+    }
 }
 
 impl Painter {
@@ -91,7 +105,8 @@ impl Painter {
     /// role's path in a 24-unit box at the image's font size, placed by
     /// `object-fit`, stroked `1.1 + (weight − 100) / 400` units with round
     /// caps and joins (a `-fill` role filled even-odd), in its tint, which
-    /// starts as `AccentColor`. An `sf/` name stays an empty box (LLP 1035.004.000 D4).
+    /// starts as `AccentColor`. An icon token draws its path under its viewBox, filled (LLP 1121
+    /// D10); an `sf/` name that is no role's Apple name stays an empty box (LLP 1035.004.000 D4).
     pub(super) fn symbol(
         &mut self,
         node: &NodeRef<'_>,
@@ -132,18 +147,21 @@ impl Painter {
         colour: [u8; 4],
         ts: Transform,
     ) {
-        let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
+        // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
+        let Some((d, filled, view_box)) = exact_kernel::symbol_path(role) else {
             return;
         };
-        self.glyph_face(d, filled, style, rect, colour, ts);
+        self.glyph_face(d, filled, view_box, style, rect, colour, ts);
     }
 
-    /// A 24-unit path in `rect`, stroked as a symbol role is at `style`'s
-    /// weight, or filled.
+    /// A path in `rect` under its viewBox (a role's 24 units), stroked as a
+    /// symbol role is at `style`'s weight, or filled.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn glyph_face(
         &mut self,
-        d: &'static str,
+        d: &str,
         filled: bool,
+        view_box: &str,
         style: &exact_kernel::StyleProps,
         rect: Rect4,
         colour: [u8; 4],
@@ -165,8 +183,18 @@ impl Painter {
             dash: Vec::new(),
             phase: 0.0,
         };
-        self.backend
-            .svg_path(&paint, ts.pre_translate(x, y).pre_scale(w / 24.0, h / 24.0));
+        let [bx, by, bw, bh] = self::view_box(view_box);
+        // The stroke is in the role's 24 units whatever the box.
+        let paint = SvgPaint {
+            width: paint.width * bw / 24.0,
+            ..paint
+        };
+        self.backend.svg_path(
+            &paint,
+            ts.pre_translate(x, y)
+                .pre_scale(w / bw, h / bh)
+                .pre_translate(-bx, -by),
+        );
     }
 
     /// SVG text (LLP 1055.000 D11): each run shaped as a one-line paragraph
