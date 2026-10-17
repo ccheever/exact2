@@ -3286,7 +3286,8 @@ the child's row's value. One in a `style`, a `keyframes` or a state's value,
 or in what a row computes (a function's argument, a condition, a comparison,
 a callback), or that a child reads otherwise than as a row's value, is refused
 (`tamber-param-scope`). A param no
-row of its component reads, directly or through another param, is refused
+row of its component reads (a state part's row counts: `:active`'s
+`background-color = "param.pressed"`), directly or through another param, is refused
 (`tamber-param-unused`); a ranged length is px (`tamber-range-unit`) and its
 default must be inside the range in every mode; `control` follows the kind
 (`color`, `slider`, `stepper`, `token`, `select` with `options="a|b"`, `none`),

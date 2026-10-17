@@ -401,3 +401,35 @@ fn round_three_edges() {
         "none in the some arm keeps the base x, though the arm binds x: {o}"
     );
 }
+
+/// Stage 8 F: a param read only by a state part is reached (D15's
+/// `PostButton.pressed`, read by `:active` alone), kept by the plan, and
+/// named by the look's row as a static row names a token; one read by
+/// `:disabled` folds into the node's row.
+#[test]
+fn a_param_read_only_by_a_state_part_is_reached() {
+    let dir = std::env::temp_dir().join(format!("exact2-state-params-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  accent.fill = #0a7aff\n  ink = #111111\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    PostButton()\n\ncomponent PostButton\n  state busy = false\n  action post\n    busy = !busy\n  params\n    fill: color = \"accent.fill\"  control=\"color\"\n    pressed: color = \"color-mix(in oklab, param.fill 88%, ink)\"  control=\"none\"\n    faded: number = \"0.4\"\n  view\n    column press=post disabled=busy background-color=\"param.fill\"\n      :active\n        background-color = \"param.pressed\"\n      :disabled\n        opacity = \"param.faded\"\n      text \"Post\"\n",
+    )
+    .unwrap();
+    let plan =
+        contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    let names: Vec<&str> = plan.theme.iter().map(|t| plan.str(t.name)).collect();
+    let pressed = contract_lower::params::token_name("app.contract#PostButton", "pressed");
+    let faded = contract_lower::params::token_name("app.contract#PostButton", "faded");
+    assert!(
+        names.contains(&pressed.as_str()) && names.contains(&faded.as_str()),
+        "{names:?}"
+    );
+    assert!(plan.looks.iter().any(|l| l.state == 0), "the :active look");
+    let _ = std::fs::remove_dir_all(&dir);
+}

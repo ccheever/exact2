@@ -3355,3 +3355,17 @@ verifying build (not reproduced in three replays); and the iOS tamber smoke's re
   disabled toggle (the gate line); a state's `border-color` over a `border` and a side's longhand;
   the node's part over its class's; the disabled-look mark; every refusal; the lint; looks one a
   state, composed; fmt.
+
+### Stage 8, commit F: params read by state parts (draft for theme2)
+
+- **Stage 7 A's refusal is lifted.** A state part's row is a row where a param may stand
+  (`params::rewrite`'s `row` reads `:active background-color` as `background-color`), so
+  `param.x` there is rewritten to its token and reaches the param: D15's `PostButton.pressed`,
+  read by `:active` alone, compiles and folds. `tamber-param-unused`'s message no longer points at
+  stage 8.
+- **What it does at run time** is A's and B's: a `:disabled` or `:checked` row reading a param
+  folds into the node's row, which reads the param's token, so a live `set-param` reaches it as
+  any token row's; a host look's row keeps the token's name as a static row does, which B's hosts
+  resolve per node tuple and follow live (theme2's ruling (b), 17:37).
+- **Tests:** `state_parts.rs`'s `a_param_read_only_by_a_state_part_is_reached` (refused as unused
+  before, `tamber-param-unused`).
