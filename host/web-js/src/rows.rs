@@ -133,13 +133,37 @@ impl Em<'_> {
         let attribute = exact_web::host::template::attribute_rows(kind)
             .iter()
             .any(|(r, _)| *r == id);
+        // A node with children reads no varying type or family token: they
+        // would inherit it (the runner refuses it as an invalid value).
+        // (Asked only where one varies: a map's name stays as it was.)
+        let varying = plan.theme.iter().any(|r| {
+            r.slices.len > 0
+                && matches!(
+                    crate::measures::kind(r),
+                    Some(
+                        exact_kernel::style::theme::Kind::Type
+                            | exact_kernel::style::theme::Kind::Family
+                    )
+                )
+        });
+        let container = varying
+            && (plan
+                .nodes
+                .iter()
+                .any(|n| n.parent.is_some_and(|p| p.0 == i))
+                || plan
+                    .regions
+                    .iter()
+                    .any(|r| r.parent.is_some_and(|p| p.0 == i)));
         let measure = crate::measures::row(id)
-            .then(|| crate::measures::map(plan, &crate::modes::properties(plan), id, attribute))
+            .then(|| {
+                let props = crate::modes::properties(plan);
+                crate::measures::map(plan, &props, id, attribute, container)
+            })
             .flatten()
             .map(|m| {
-                let map = self
-                    .uses
-                    .constant(&crate::measures::map_name(id, attribute), || m);
+                let name = crate::measures::map_name(id, attribute, container);
+                let map = self.uses.constant(&name, || m);
                 format!("()=>{map}(({f})())")
             });
         let f = measure.as_deref().unwrap_or(f);

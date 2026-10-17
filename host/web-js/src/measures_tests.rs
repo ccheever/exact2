@@ -517,3 +517,46 @@ fn a_development_build_makes_every_type_token_properties() {
         "it writes no style: {token}"
     );
 }
+
+/// Review round 1 (Astra, Grok): a node's own row over the token's stands;
+/// names that write one property are made unique; a varying token named on
+/// a node with children stands.
+#[test]
+fn a_type_tokens_properties_hold_their_edges() {
+    let design = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  type.a-b = 600 18px/1.4 Georgia, serif\n  type.a.b = 600 20px/1.4 Georgia, serif\n  family.vary: family = ui-monospace\n    when density=compact: Georgia, serif\n";
+    let p = plan(
+        "type-edges",
+        design,
+        "component App\n  state chosen = \"family.vary\"\n  view\n    column\n      text \"own\" font=\"type.a-b\" font-weight=400\n      text \"other\" font=\"type.a.b\"\n      text \"quoted\" font-family=\"family.vary\" font-size=12\n      column font-family=chosen\n        text \"inside\"\n",
+    );
+    let dev = crate::emit::emit(&p, false, true).unwrap_or_else(|e| panic!("{e}"));
+    let css = &dev.css;
+    assert!(
+        css.contains("font-size:var(--x-type-a-b-size);font-weight:400;"),
+        "{css}"
+    );
+    assert!(
+        css.contains("font-size:var(--x-type-a-b-size-1)"),
+        "the second is its own: {css}"
+    );
+    assert!(
+        css.contains("--x-type-a-b-size:18px;") && css.contains("--x-type-a-b-size-1:20px;"),
+        "{css}"
+    );
+    assert!(
+        css.contains("font-family:var(--x-family-vary);font-size:12px;")
+            || css.contains("font-size:12px;font-family:var(--x-family-vary);"),
+        "{css}"
+    );
+    // The column's bound family: its map leaves the varying token standing.
+    assert!(dev.js.contains("const $tly67c="), "{}", dev.js);
+    let container = dev
+        .js
+        .split("const $tly67c=")
+        .nth(1)
+        .unwrap()
+        .split(";")
+        .next()
+        .unwrap();
+    assert!(!container.contains("family.vary"), "{container}");
+}

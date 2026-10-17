@@ -250,33 +250,29 @@ impl Modes {
         if self.types.is_empty() {
             return;
         }
-        for b in node.bindings.iter().map(|b| plan.binding(b)) {
-            if b.kind != BindingKind::Style {
+        let rows: Vec<_> = node
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .filter(|b| b.kind == BindingKind::Style)
+            .collect();
+        for (id, css, _) in crate::measures::TYPE_ROWS {
+            // The row that wins: the last of its id, as the projection
+            // applies them (a node's own `font-weight=400` after `font`).
+            let Some(b) = rows.iter().rev().find(|b| b.id == id as u16) else {
                 continue;
-            }
+            };
             let Some(text) = crate::style::literal(plan, plan.code(b.expr)) else {
                 continue;
             };
             let Some(name) = text.as_str().map(str::trim) else {
                 continue;
             };
-            let Some((.., prop)) = self
-                .types
-                .iter()
-                .find(|(n, id, _)| n == name && *id as u16 == b.id)
-            else {
+            let Some((.., prop)) = self.types.iter().find(|(n, i, _)| n == name && *i == id) else {
                 continue;
             };
-            let Some((_, css, _)) = crate::measures::TYPE_ROWS
-                .iter()
-                .find(|(id, ..)| *id as u16 == b.id)
-            else {
-                continue;
-            };
-            if let Some(value) = declaration(&p.css, css).map(str::to_string) {
-                p.css = p
-                    .css
-                    .replace(&format!("{css}:{value};"), &format!("{css}:var({prop});"));
+            if let Some((_, _, at)) = spans(&p.css).into_iter().rev().find(|(n, ..)| *n == css) {
+                p.css.replace_range(at, &format!("var({prop})"));
             }
         }
     }
@@ -715,16 +711,39 @@ fn declaration<'a>(css: &'a str, prop: &str) -> Option<&'a str> {
 
 /// `css`'s top-level declarations, `(property, value)`, in order.
 fn declarations(css: &str) -> Vec<(&str, &str)> {
-    let mut depth = 0i32;
+    spans(css)
+        .into_iter()
+        .map(|(name, value, _)| (name, value))
+        .collect()
+}
+
+/// `css`'s top-level declarations with each value's byte range; a `;` in
+/// parentheses or a quoted string (a family `"A;B"`) ends none.
+fn spans(css: &str) -> Vec<(&str, &str, std::ops::Range<usize>)> {
+    let (mut depth, mut quote, mut escaped) = (0i32, None, false);
     let mut start = 0;
     let mut out = Vec::new();
     for (i, c) in css.char_indices() {
+        if let Some(q) = quote {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                c if c == q => quote = None,
+                _ => {}
+            }
+            continue;
+        }
         match c {
+            '"' | '\'' => quote = Some(c),
             '(' => depth += 1,
             ')' => depth -= 1,
             ';' if depth == 0 => {
-                if let Some((name, value)) = css[start..i].split_once(':') {
-                    out.push((name.trim(), value.trim()));
+                if let Some(colon) = css[start..i].find(':') {
+                    let (name, raw) = (&css[start..start + colon], &css[start + colon + 1..i]);
+                    let lead = raw.len() - raw.trim_start().len();
+                    let from = start + colon + 1 + lead;
+                    let value = raw.trim();
+                    out.push((name.trim(), value, from..from + value.len()));
                 }
                 start = i + 1;
             }

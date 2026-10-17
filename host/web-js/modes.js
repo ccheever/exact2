@@ -223,6 +223,9 @@ function design(frame) {
     });
   }
   Design = (globalThis.exact ??= {}).designDigest = frame.design;
+  // A symbol sized by a type token's property redraws its mask, as the
+  // build channel's scheme pin asks it (symbols.js listens for a resize).
+  if (frame.tokens.some(t => t.parts) && typeof dispatchEvent === "function") dispatchEvent(new Event("resize"));
   return { live: "applied" };
 }
 // dev-only }

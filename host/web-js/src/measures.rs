@@ -187,7 +187,8 @@ pub fn part_css(plan: &Plan, kind: Kind, id: StyleId, value: &str) -> Option<Str
 /// token's `--x-<name>-<part>`. Every tuple writes the same rows
 /// (`tamber-type-longhands`), so the default tuple's say which.
 pub fn type_properties(plan: &Plan, every: bool) -> Vec<(String, StyleId, String)> {
-    let mut out = Vec::new();
+    let mut out: Vec<(String, StyleId, String)> = Vec::new();
+    let taken = crate::modes::properties(plan);
     for r in plan.theme.iter() {
         let Some(kind @ (Kind::Type | Kind::Family)) = kind(r) else {
             continue;
@@ -212,10 +213,17 @@ pub fn type_properties(plan: &Plan, every: bool) -> Vec<(String, StyleId, String
             {
                 continue;
             }
-            let prop = match kind {
+            let first = match kind {
                 Kind::Family => format!("--x-{base}"),
                 _ => format!("--x-{base}-{part}"),
             };
+            // Unique among every property the page declares (`type.a-b`
+            // and `type.a.b`, a length `body-size` and a type `body`).
+            let (mut prop, mut n) = (first.clone(), 1);
+            while taken.iter().any(|(_, p)| *p == prop) || out.iter().any(|(.., p)| *p == prop) {
+                prop = format!("{first}-{n}");
+                n += 1;
+            }
             out.push((name.to_string(), id, prop));
         }
     }
@@ -258,10 +266,10 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
 
 /// The name of row `id`'s bound map ([`map`]): one per mix of the kinds it
 /// takes, and an attribute row's of its own.
-pub fn map_name(id: StyleId, attribute: bool) -> String {
+pub fn map_name(id: StyleId, attribute: bool, container: bool) -> String {
     use exact_kernel::style::theme::admits;
     format!(
-        "$t{}{}{}{}{}{}",
+        "$t{}{}{}{}{}{}{}",
         if admits(Kind::Length, id) { "l" } else { "" },
         if admits(Kind::Number, id) { "n" } else { "" },
         if admits(Kind::BoxShadow, id) { "b" } else { "" },
@@ -276,7 +284,13 @@ pub fn map_name(id: StyleId, attribute: bool) -> String {
         } else {
             String::new()
         },
-        if attribute { "a" } else { "" }
+        if attribute { "a" } else { "" },
+        // A node with children: its varying type tokens stand (`map`).
+        if container && admits(Kind::Type, id) {
+            "c"
+        } else {
+            ""
+        }
     )
 }
 
@@ -291,6 +305,7 @@ pub fn map(
     props: &[(String, String)],
     id: StyleId,
     attribute: bool,
+    container: bool,
 ) -> Option<String> {
     let types = type_properties(plan, crate::modes::every_token());
     let pairs: Vec<String> = plan
@@ -305,7 +320,12 @@ pub fn map(
             // read one, as the kernel reads none (LLP 1121 D7).
             let name = plan.str(r.name);
             // A type or family token's part the page declares: its property
-            // (a text with no element children reads it, stage 6 C).
+            // (a text with no element children reads it, stage 6 C); on a
+            // node with children one that varies stands, for the browser to
+            // refuse, as the runner refuses it.
+            if matches!(kind, Kind::Type | Kind::Family) && container && r.slices.len > 0 {
+                return None;
+            }
             if matches!(kind, Kind::Type | Kind::Family) && !attribute {
                 if let Some((.., prop)) = types.iter().find(|(n, row, _)| n == name && *row == id) {
                     let var = serde_json::to_string(&format!("var({prop})")).unwrap();
