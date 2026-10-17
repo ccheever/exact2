@@ -1258,8 +1258,10 @@ component MapCard
 tamber-file  = "tamber" IDENT NL { block } ;
 block       = "axes" NL block(axis) | "dials" NL block(dial)
                         | "theme" NL block(token) | "icons" NL block(token)
-            | "exports" NL block(NAME NL)
+            | "exports" NL block(NAME NL) | "params" NL block(setting)
             | "component" IDENT NL INDENT "params" NL block(param) DEDENT ;
+setting     = PARAM "=" value NL [ INDENT { when } DEDENT ] ;   (as built, stage 7 B)
+PARAM       = [ FILE "#" ] IDENT "." IDENT ;   (a full or short param name)
 param       = IDENT ":" kind "=" value [ "in" value ".." value ] { meta } NL ;
 meta        = IDENT "=" ( STRING | NUMBER | IDENT ) ;
 axis        = IDENT "=" IDENT { "|" IDENT } [ "under" "scheme" "=" "dark" ] NL ;
@@ -3200,3 +3202,34 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
   ring also draws on x2-android.
 - **Not yet:** a live `set-param` reaching them waits for B's server folding (the server's own
   fold adds no params today). Packages' `.tamber` components are QUEUEd.
+
+### Stage 7, commit B: the app's value, `set-param` and `unset-param` (draft for theme2)
+
+- **The `params` block** (theme2's ruling, option 1). A design may have a `params` block beside
+  `theme`. Each line is a param's full or short name, `= value`, with `when` lines. `#` and `/`
+  are allowed in names there only, and a kind is not written (it is the component's). `tamber fmt`
+  lays it out as `theme`'s.
+  - The compiler puts each line in place of its param's default and `when` lines, so every
+    instance shares it, and a range is checked on the folded value at the line.
+  - A line naming no param of the app is a warning, `tamber-param-unknown`: a moved or renamed
+    declaring file must not break the build, and the value no longer applies.
+  - A short name two components share is `tamber-param-ambiguous`.
+- **`set-param` and `unset-param`** (`tamber::edit`, *tamber/1.10*):
+  - `set-param` writes the param's line, making the block at the end when there is none, or sets
+    one `when` line. A `when` needs the line first.
+  - `unset-param` removes the line and its `when` lines, or one `when`. An emptied block goes.
+  - The inverse is the preimage, as every edit's is, so undoing the first `set-param` restores
+    absence.
+  - The server refuses a name no param answers, and an ambiguous short name. It writes on the line
+    the design already has, by that line's name. It refuses a value that doesn't fold with the
+    params where it lands, or that is out of range (`tamber_ops::param_values`).
+- **The closure** (`tamber::params`). `plan` folds the design with the app's params, each in its
+  `params` line's place (`Synthetic::params`; the server reads the app's params by its Contract
+  sources' key). So a param's value is `live`, and `rebuild` for a duration or easing param. A live
+  one is scrubbed as a token is: the wire's scrub plans with `propose` and the dev loop compiles
+  the texts.
+- **Reads.** `resolve`, `explain` and `uses` take a param's full or short name and answer by its
+  full name (`uses`: every instance's row). `describe`'s `components` gives `set`, the app's
+  value. It gives `pinned`, the tokens a default reads that a literal value no longer follows: D14's
+  mark, "no longer follows `radius.md`".
+

@@ -25,6 +25,7 @@ mod ir;
 mod lex;
 mod measure;
 mod motion;
+pub mod params;
 mod session;
 mod shadow;
 mod syntax;

@@ -160,6 +160,18 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 span: e.span,
             }),
     );
+    // @ref LLP 1121 D15 — the design's values of params the app no longer has.
+    if let Some(source) = &checked.file.design {
+        if let Ok(design) = exact_tamber::parse(&source.text) {
+            let params = crate::params::tokens(checked.file);
+            out.extend(crate::params::unknown(
+                &design,
+                &params,
+                &crate::params::identities(checked.file),
+                source.source_id,
+            ));
+        }
+    }
     out.truncate(MAX_WARNINGS);
     one_scheme(
         root,

@@ -88,17 +88,39 @@ pub fn located(d: &exact_tamber::Diagnostic, app: &AppParams, design: &Path) -> 
     }
 }
 
-/// `text`, a design, folded with `params`, and the design as parsed,
-/// without them; a refusal as the fold gives it ([`relocate`] it).
+/// `design` with each of `params` a token, and each of its `params` lines in
+/// its param's place, as the build lays them (D15).
+pub fn laid(design: &exact_tamber::Design, app: &AppParams) -> exact_tamber::Design {
+    let params = app.tokens.as_slice();
+    let mut out = design.clone();
+    params::add_to(&mut out, params);
+    for entry in &design.params {
+        let Ok(p) = params::resolve(params, &app.identities, &entry.name.value) else {
+            continue;
+        };
+        if let Some(t) = out
+            .tokens
+            .iter_mut()
+            .chain(out.icons.iter_mut())
+            .find(|t| t.name.value == p.token)
+        {
+            t.value = entry.value.clone();
+            t.whens = entry.whens.clone();
+        }
+    }
+    out
+}
+
+/// `text`, a design, folded with `params`, its `params` lines in their
+/// places, and the design as parsed, without them; a refusal as the fold
+/// gives it ([`relocate`] it).
 pub fn fold_with(
     text: &str,
-    params: &[ParamToken],
+    app: &AppParams,
     vocab: &exact_tamber::Vocab,
 ) -> Result<(exact_tamber::Folding, exact_tamber::Design), Vec<exact_tamber::Diagnostic>> {
     let design = exact_tamber::parse(text)?;
-    let mut laid = design.clone();
-    params::add_to(&mut laid, params);
-    let folding = exact_tamber::check_design(laid, vocab)?;
+    let folding = exact_tamber::check_design(laid(&design, app), vocab)?;
     Ok((folding, design))
 }
 
@@ -139,9 +161,8 @@ pub fn components(
     vocab: &exact_tamber::Vocab,
 ) -> Value {
     let all = app.tokens.as_slice();
-    let mut folded = design.cloned().unwrap_or_default();
-    params::add_to(&mut folded, all);
-    let folding = exact_tamber::check_design(folded, vocab).ok();
+    let design = design.cloned().unwrap_or_default();
+    let folding = exact_tamber::check_design(laid(&design, app), vocab).ok();
     let mut out: Vec<Value> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     for p in all {
@@ -154,6 +175,21 @@ pub fn components(
             .filter(|q| q.identity == p.identity)
             .map(|q| {
                 let attr = |name: &str| q.param.attr(name).map(ParamValue::text);
+                // The app's value, its `params` line; a literal there in
+                // place of a default that names tokens no longer follows them
+                // (D15, marked as D14 marks a pinned dial override).
+                let set = design.params.iter().find(|e| params::resolve(all, &app.identities, &e.name.value).is_ok_and(|r| r.token == q.token));
+                let follows: Vec<String> = q
+                    .param
+                    .default
+                    .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
+                    .filter(|w| folding.as_ref().is_some_and(|f| f.tokens.iter().any(|t| t.name == *w)))
+                    .map(str::to_string)
+                    .collect();
+                let pinned: Vec<String> = match set {
+                    Some(e) => follows.iter().filter(|w| !e.value.value.contains(w.as_str())).map(|w| params::shown(w, all)).collect(),
+                    None => Vec::new(),
+                };
                 let num = |name: &str| q.param.attr(name).and_then(params::number);
                 // An icon's sources, the same in every tuple.
                 let values: Option<Value> = folding.as_ref().and_then(|f| match q.param.kind.as_str() {
@@ -175,6 +211,8 @@ pub fn components(
                     "kind": q.param.kind,
                     "default": params::shown(&q.param.default, all),
                     "values": values,
+                    "set": set.map(|e| json!({"value": params::shown(&e.value.value, all), "line": e.name.line, "whens": e.whens.len()})),
+                    "pinned": pinned,
                     "range": params::range(&q.param).and_then(Result::ok).map(|(lo, hi)| json!([lo, hi])),
                     "step": num("step"),
                     "control": attr("control").unwrap_or_else(|| "token".into()),

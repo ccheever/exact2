@@ -82,6 +82,27 @@ pub enum Op {
         /// The token.
         name: String,
     },
+    /// `set-param name [when …] value` (D15): the app's value of a
+    /// component's param, in the design's `params` block (made at the end
+    /// when there is none), its line or one `when` line of it. A `when`
+    /// line needs the param's own line first.
+    SetParam {
+        /// The param, by the name its line has (full or short).
+        name: String,
+        /// The `when` line's conditions; none is the param's own line.
+        when: Vec<(String, String)>,
+        /// The value, a token's.
+        value: String,
+    },
+    /// `unset-param name [when …]`: the param's line and its `when` lines
+    /// (the component's default applies again), or one `when` line; an
+    /// emptied `params` block goes with it.
+    UnsetParam {
+        /// The param, by the name its line has.
+        name: String,
+        /// The `when` line's conditions; none is the whole param.
+        when: Vec<(String, String)>,
+    },
     /// `add-axis-value axis value`, before `before` (else last).
     AddAxisValue {
         /// The axis.
@@ -260,6 +281,12 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             "`{v}`: a token's name is identifiers joined by `.`, or a role's"
         ))),
     };
+    let param = |v: &str| match crate::syntax::param_name(v) {
+        true => Ok(()),
+        false => Err(refuse(format!(
+            "`{v}`: a param is named `Component.param`, or in full, `file.contract#Component.param`"
+        ))),
+    };
     let ident = |v: &str| match lex::is_ident(v) {
         true => Ok(()),
         false => Err(refuse(format!(
@@ -334,6 +361,16 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         }
         Op::RenameToken { from, to } => name(from).and_then(|_| name(to)),
         Op::RemoveToken { name: n } => name(n),
+        Op::SetParam {
+            name: n,
+            when,
+            value: v,
+        } => {
+            param(n)?;
+            conds(when)?;
+            value(v)
+        }
+        Op::UnsetParam { name: n, when } => param(n).and_then(|_| conds(when)),
         Op::AddAxisValue {
             axis,
             value,
@@ -436,6 +473,8 @@ const KEYWORDS: &[&str] = &[
     "transparent",
     "currentcolor",
 ];
+
+mod params;
 
 /// The design's lines, which an edit splices.
 struct Doc {
@@ -821,6 +860,8 @@ impl Doc {
                 values,
                 under_dark,
             } => self.add_axis(design, name, values, *under_dark),
+            Op::SetParam { name, when, value } => self.set_param(design, name, when, value),
+            Op::UnsetParam { name, when } => self.unset_param(design, name, when),
             Op::RemoveAxisValue { axis, value } => {
                 let a = design
                     .axes

@@ -343,17 +343,22 @@ pub fn declared(params: &[ParamToken]) -> (Vec<LowerError>, Vec<usize>) {
 
 /// Each param checked as it folds, for every tuple: a ranged length is px
 /// (`tamber-range-unit`) and every value is inside its range; a `select`'s
-/// options name tokens of its kind.
-pub fn folded(params: &[ParamToken], folding: &exact_tamber::Folding) -> Vec<LowerError> {
+/// options name tokens of its kind. A param the design sets (`overridden`,
+/// each token with its line's span) is refused at that line.
+pub fn folded(
+    params: &[ParamToken],
+    folding: &exact_tamber::Folding,
+    overridden: &[(String, Span)],
+) -> Vec<LowerError> {
     use exact_tamber::{Length, Value};
     let mut errors = Vec::new();
     for t in params {
         let p = &t.param;
-        let refuse = |id: &'static str, message: String| LowerError {
-            id,
-            message,
-            span: p.default_span,
-        };
+        let span = overridden
+            .iter()
+            .find(|(token, _)| *token == t.token)
+            .map_or(p.default_span, |(_, span)| *span);
+        let refuse = |id: &'static str, message: String| LowerError { id, message, span };
         if let Some(Ok((low, high))) = range(p) {
             let Some(token) = folding.tokens.iter().find(|c| c.name == t.token) else {
                 continue;
@@ -418,6 +423,38 @@ pub fn folded(params: &[ParamToken], folding: &exact_tamber::Folding) -> Vec<Low
         }
     }
     errors
+}
+
+/// Each line of the design's `params` block that names no param of the
+/// app, as a warning (`tamber-param-unknown`, D15): its declaring file moved
+/// or was renamed, or the param was removed, so the value no longer
+/// applies. A short name two components share is the build's refusal.
+pub fn unknown(
+    design: &exact_tamber::Design,
+    params: &[ParamToken],
+    identities: &[String],
+    source_id: u32,
+) -> Vec<LowerError> {
+    design
+        .params
+        .iter()
+        .filter_map(|entry| match resolve(params, identities, &entry.name.value) {
+            Err(e) if e.id == "tamber-param-unknown" => Some(LowerError {
+                id: "tamber-param-unknown",
+                message: format!(
+                    "`{}` in the design's `params` block names no param of this app, so its value applies to nothing: was its declaring file moved or renamed (a new identity, D15)?",
+                    entry.name.value
+                ),
+                span: Span {
+                    line: entry.name.line,
+                    col: entry.name.col,
+                    end_col: entry.name.col + entry.name.value.len() as u32,
+                    source_id,
+                },
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The param `name` names among `params`: its full name

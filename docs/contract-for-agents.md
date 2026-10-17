@@ -3186,6 +3186,11 @@ an indented `params` block of lines like a dial's, any kind (`inset: length =
 and the name (`app.tamber#MapCard`); its declaration keeps every param, and
 what its default reads, as the code reads them by name; a `when` is not the
 component's (the app's design sets a param per mode).
+The app sets a param's value in its
+design's `params` block (`PostButton.radius = 8px`, `when` lines too), which
+every instance shares; the design server's `set-param` writes it,
+`unset-param` takes it back to the component's default, and a line naming no
+param of the app is warned of.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

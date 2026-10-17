@@ -71,6 +71,9 @@ pub struct Synthetic<'a> {
     /// Which of its tokens the app's plan keeps (D7), as the compiler last
     /// found; none: every token, as an app with bindings keeps.
     pub retention: Option<&'a Retention>,
+    /// The app's components' params (D15), which fold with the design file:
+    /// each a token, its `params` line in place of its default.
+    pub params: &'a [crate::params::Param],
 }
 
 /// D7's retention: which of a design's tokens an app's plan keeps. The
@@ -162,12 +165,13 @@ pub fn plan(
         if edited.text == *text {
             continue;
         }
-        let exprs: &[(String, bool)] = if *path == synthetic.file {
-            synthetic.exprs
-        } else {
-            &[]
-        };
-        let (before, after, moved_set) = folded(text, &edited.text, exprs, vocab);
+        let (exprs, params): (&[(String, bool)], &[crate::params::Param]) =
+            if *path == synthetic.file {
+                (synthetic.exprs, synthetic.params)
+            } else {
+                (&[], &[])
+            };
+        let (before, after, moved_set) = folded(text, &edited.text, (exprs, params), vocab);
         structure |= moved_set;
         // A profile's colour (`color(--…)`) the compiler resolves itself, and
         // folds the rest around it: an edit to a design with one either side
@@ -259,11 +263,11 @@ pub fn plan(
 fn folded(
     before: &str,
     after: &str,
-    exprs: &[(String, bool)],
+    (exprs, params): (&[(String, bool)], &[crate::params::Param]),
     vocab: &Vocab,
 ) -> (Option<Folding>, Option<Folding>, bool) {
-    let (b, kept_b) = foldable(before, exprs, vocab);
-    let (a, kept_a) = foldable(after, exprs, vocab);
+    let (b, kept_b) = foldable(before, exprs, params, vocab);
+    let (a, kept_a) = foldable(after, exprs, params, vocab);
     let moved = b.is_some() && a.is_some() && kept_b != kept_a;
     (b, a, moved)
 }
@@ -271,10 +275,17 @@ fn folded(
 /// `text` folded with each synthetic token that folds with it, and which;
 /// none when the file does not fold, or a strict one does not (the build
 /// would refuse it).
-fn foldable(text: &str, exprs: &[(String, bool)], vocab: &Vocab) -> (Option<Folding>, Vec<usize>) {
+fn foldable(
+    text: &str,
+    exprs: &[(String, bool)],
+    params: &[crate::params::Param],
+    vocab: &Vocab,
+) -> (Option<Folding>, Vec<usize>) {
     let Ok(design) = crate::parse(text) else {
         return (None, Vec::new());
     };
+    // The params fold with the design, each in its `params` line's place.
+    let design = crate::params::laid(&design, params);
     let mut kept: Vec<usize> = (0..exprs.len()).collect();
     loop {
         let mut checked = design.clone();

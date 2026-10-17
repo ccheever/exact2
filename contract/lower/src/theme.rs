@@ -253,6 +253,35 @@ impl Lowerer<'_> {
             .collect();
         PARAMS.with(|p| *p.borrow_mut() = kinded.clone());
         crate::params::add_to(&mut design, &kinded);
+        // The app's values of its params, the design's `params` block (D15,
+        // stage 7 B): each replaces its param's default and `when` lines. One
+        // naming no param is a warning (`params::unknown`): a moved or renamed
+        // declaring file leaves it, and it no longer applies.
+        let mut overridden: Vec<(String, Span)> = Vec::new();
+        for entry in design.params.clone() {
+            match crate::params::resolve(&kinded, &crate::params::identities(file), &entry.name.value) {
+                Ok(p) => {
+                    let token = design
+                        .tokens
+                        .iter_mut()
+                        .chain(design.icons.iter_mut())
+                        .find(|t| t.name.value == p.token);
+                    if let Some(t) = token {
+                        t.value = entry.value.clone();
+                        t.whens = entry.whens.clone();
+                    }
+                    overridden.push((
+                        p.token.clone(),
+                        self.token_span(&origin, entry.name.line, entry.name.col),
+                    ));
+                }
+                Err(e) if e.id == "tamber-param-ambiguous" => {
+                    let span = self.token_span(&origin, entry.name.line, entry.name.col);
+                    self.push(LowerError { span, ..e });
+                }
+                Err(_) => {}
+            }
+        }
         let mut said = Said::of(file, root, &design);
         // D7's retention, left for the design server before the design is
         // folded, as it does not depend on the fold.
@@ -353,7 +382,7 @@ impl Lowerer<'_> {
                 }
             }
         };
-        for e in crate::params::folded(&kinded, &folding) {
+        for e in crate::params::folded(&kinded, &folding, &overridden) {
             self.push(e);
         }
         // @ref LLP 1121 D10 — the icons' SVGs, and a source per shipped target.

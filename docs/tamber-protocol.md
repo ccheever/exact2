@@ -193,12 +193,16 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     (`post.contract#PostButton.radius`), `short` the `Component.param` form or null where the app has
     another component of that name (with params or none), `token` its name below the IR
     (`param.f<hash>.…`, which no author or tool writes; `uses` takes it), `default` as written and
-    `options` each with a param named in full, and `values` per
-    tuple, folded with the design. `control` defaults to `token`, `priority` to 2. Moving the
-    declaring file is a new identity, so an override keyed by the old one no longer applies.
+    `options` each with a param named in full, and `values` per tuple, folded with the design and
+    the app's value. `control` defaults to `token`, `priority` to 2. `set` is the app's value,
+    `{value, line, whens}` of its `params` line, or null; `pinned` names the tokens the default
+    reads that a literal `set` no longer follows (D14's mark). Moving the declaring file is a new
+    identity, so a value keyed by the old one no longer applies.
     A component that isn't Contract, declared in the design (`component MapCard` over
     `params`, stage 7 D), is listed the same way, its identity the design file and its name
     (`app.tamber#MapCard`).
+  - `resolve`, `explain` and `uses` take a param's full or short name as `token` and answer by its
+    full name (*1.10*).
 
   The IR has no `when` lines. A token's source lines come from `explain`; an icon is read through
   `describe` and `resolve` only.
@@ -306,6 +310,8 @@ design.
 | `add-axis` | `name`, `values`, `under?: "scheme=dark"` | structure |
 | `add-axis-value` | `axis`, `value`, `before?` | structure |
 | `remove-axis-value` | `axis`, `value` | structure |
+| `set-param` (*1.10*) | `name`, `when?: [{axis, value}]`, `value` | the app's value of a component's param (LLP 1121 D15): its line in the design's `params` block, or one `when` line of it |
+| `unset-param` (*1.10*) | `name`, `when?` | removes the param's line (the component's default applies again), or one `when` line |
 
 - **Values are source text**, as the file writes them: `"light-dark(#fff, #000)"`, `"accent"`,
   `"oklch(from accent calc(l + 0.1) c h)"`.
@@ -316,8 +322,16 @@ design.
     `text-shadow`, `duration`, `easing`, `type`, `family`);
   - the axes may make at most 64 tuples;
   - naming a dial, token, `when` or axis value the design doesn't have is refused.
+- **A param's value** (*1.10*): `name` is a param's full name (`post.contract#PostButton.radius`)
+  or its short one (`PostButton.radius`); a name no param of the app answers, or a short name two
+  components share, is refused (`tamber-param-unknown`, `tamber-param-ambiguous`). The line is
+  written by the name the design's line already has, or the name given; the `params` block is made
+  at the end when there is none, and goes when its last line does. A `when` line needs the param's
+  own line first. The value folds with the app's params and must be inside the param's range
+  (`tamber-param-range`, `tamber-range-unit`). The inverse is the preimage, so undoing the first
+  `set-param` restores absence. It is `live` like a token's value, `rebuild` for a duration or
+  easing param, and a live one can be scrubbed.
 - **Not yet built:**
-  - the component-param operations (`set-param`, `unset-param`; stage 7);
   - state parts (`set-state`; stage 8);
   - `set-row` (LLP 1122 T5);
   - `preview` as an operation (it is a request instead: see the build channel).

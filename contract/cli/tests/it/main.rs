@@ -143,6 +143,7 @@ mod tamber_params_scope;
 mod tamber_params_tools;
 mod tamber_scheme;
 mod tamber_serve;
+mod tamber_set_param;
 mod tamber_shadows;
 mod tamber_type;
 mod tests_decl;

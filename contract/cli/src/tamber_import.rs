@@ -305,6 +305,12 @@ pub fn op_json(op: &Op) -> Value {
             "comment": comment, "before": before,
         }),
         Op::RenameToken { from, to } => json!({"op": "rename-token", "from": from, "to": to}),
+        Op::SetParam { name, when, value } => {
+            json!({"op": "set-param", "name": name, "when": conds(when), "value": value})
+        }
+        Op::UnsetParam { name, when } => {
+            json!({"op": "unset-param", "name": name, "when": conds(when)})
+        }
         Op::RemoveToken { name } => json!({"op": "remove-token", "name": name}),
         Op::AddAxisValue {
             axis,

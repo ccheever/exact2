@@ -3,6 +3,7 @@
 mod common;
 mod corpus;
 mod edit;
+mod edit_params;
 mod expected;
 mod export;
 mod fmt;

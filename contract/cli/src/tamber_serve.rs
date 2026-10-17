@@ -195,6 +195,8 @@ struct Server {
     /// Contract sources they were read from, with the retention its plan
     /// keeps tokens by (D7), read by the same build.
     synthetic: Option<Synthetic>,
+    /// The app's components' params (LLP 1121 D15), by the same key.
+    params: (String, contract::tamber_params::AppParams),
 }
 
 /// A digest, its synthetic token expressions, and the plan's retention.
@@ -326,6 +328,7 @@ impl Server {
             next: 0,
             client: None,
             synthetic: None,
+            params: Default::default(),
         };
         server.same_state()?;
         server.recover()?;
@@ -380,6 +383,9 @@ impl Server {
                 key.push_str(&t.name.value);
                 key.push('\n');
             }
+        }
+        if self.params.0 != key {
+            self.params = (key.clone(), contract::tamber_params::params_of(&root));
         }
         if let Some((k, exprs, _)) = &self.synthetic {
             if *k == key {
@@ -608,9 +614,14 @@ impl Server {
         match request["method"].as_str() {
             Some("hello") => vec![reply(self.hello(&request))],
             Some("describe") => vec![reply(self.describe(&request))],
-            Some("resolve") => vec![reply(self.resolve(&request))],
-            Some("explain") => vec![reply(self.explain(&request))],
-            Some("uses") => vec![reply(self.uses(&request))],
+            Some(m @ ("resolve" | "explain" | "uses")) => {
+                let answer = match m {
+                    "resolve" => self.resolve(&request),
+                    "explain" => self.explain(&request),
+                    _ => self.uses(&request),
+                };
+                vec![reply(answer.map(|v| self.present(v)))]
+            }
             Some("propose") => vec![reply(self.transaction(&request, false))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
@@ -679,6 +690,22 @@ impl Server {
 
     /// The file a read names (`file`, the app's design when unsaid),
     /// checked, from one snapshot that also gives the digests.
+    /// The design folded for a request's `token`: a param (D15), named in
+    /// full or short, folds with the app's params, its `params` line in
+    /// place; any other with the design alone. The name to look up.
+    fn lookup(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding, String), Value> {
+        let name = required(request, "token")?;
+        let all = contract::tamber_params::params_of(&self.dir.join("app.contract"));
+        match contract_lower::params::resolve(&all.tokens, &all.identities, &name) {
+            Ok(p) => {
+                let token = p.token.clone();
+                let (snap, folding, _) = self.design_with(request, &all)?;
+                Ok((snap, folding, token))
+            }
+            Err(_) => self.design(request).map(|(s, f)| (s, f, name)),
+        }
+    }
+
     /// [`Self::design`], folded with the app's components' params (D15),
     /// and the design as parsed, without them.
     fn design_with(
@@ -699,11 +726,22 @@ impl Server {
             .find(|(f, _, _)| *f == file)
             .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
             .1;
-        let (folding, design) = contract::tamber_params::fold_with(text, params, &self.vocab)
+        let (folding, design) = contract::tamber_params::fold_with(text, app, &self.vocab)
             .map_err(|all| {
                 json!({"message": "the design is refused", "diagnostics": all.iter().map(|d| located(&file, d, app)).collect::<Vec<_>>()})
             })?;
         Ok((snap, folding, design))
+    }
+
+    /// A reply with each param named by its full name (D15), never by its
+    /// name below the IR.
+    fn present(&self, v: Value) -> Value {
+        let all = contract::tamber_params::params_of(&self.dir.join("app.contract")).tokens;
+        if all.is_empty() {
+            return v;
+        }
+        let text = contract_lower::params::shown(&v.to_string(), &all);
+        serde_json::from_str(&text).unwrap_or(v)
     }
 
     fn design(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding), Value> {
@@ -797,8 +835,7 @@ impl Server {
     /// A token's stored value per tuple and scheme; a host value (a role, a
     /// platform colour) is a residual, labelled so, with its fallback.
     fn resolve(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
-        let name = required(request, "token")?;
+        let (snap, folding, name) = self.lookup(request)?;
         // An icon (D10): its sources, the same in every tuple.
         if let Some(icon) = folding.icons.iter().find(|i| i.name == name) {
             let tuples: Vec<Value> = (0..folding.tuples)
@@ -886,8 +923,7 @@ impl Server {
     /// A token's chain: its default and `when` values, the dials it depends
     /// on, and the tokens those values name, as the checker resolved them.
     fn explain(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding) = self.design(request)?;
-        let name = required(request, "token")?;
+        let (snap, folding, name) = self.lookup(request)?;
         let (token, declared) = folding
             .tokens
             .iter()
@@ -913,10 +949,7 @@ impl Server {
     /// joins the spans through its own source map (LLP 1122 T2b's
     /// `outline`).
     fn uses(&mut self, request: &Value) -> Result<Value, Value> {
-        // A param's token (the IR's `components` names it) is one too (D15).
-        let app = contract::tamber_params::params_of(&self.dir.join("app.contract"));
-        let (snap, folding, _) = self.design_with(request, &app)?;
-        let name = required(request, "token")?;
+        let (snap, folding, name) = self.lookup(request)?;
         if !folding.tokens.iter().any(|t| t.name == name) {
             return Err(json!({"message": format!("no token `{name}`")}));
         }
@@ -975,7 +1008,7 @@ impl Server {
     /// must carry the digest the client saw (a `propose` checks the ones it
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
-        let ops = crate::tamber_ops::parse_ops(&request["ops"], &self.design)?;
+        let mut ops = crate::tamber_ops::parse_ops(&request["ops"], &self.design)?;
         let seen = seen_files(request, "files")?;
         // Files it does not edit but was planned on (a revert's file already
         // as before), each as the plan read it.
@@ -1006,6 +1039,10 @@ impl Server {
                 json!({"conflict": true, "message": "a file changed since the client read it", "files": files_json(&snap), "stale": stale}),
             );
         }
+        // A param set or unset by a name the app has (D15), on the line the
+        // design already gives it, whichever name that line uses.
+        let _ = self.synthetic(&snap);
+        crate::tamber_ops::param_names(&mut ops, &snap, &self.params.1)?;
         // A scrub's preview (the wire's, LLP 1121 D13) compiles the texts
         // a propose would write, which it asks for.
         let texts = !write && request["texts"] == json!(true);
@@ -1063,10 +1100,12 @@ impl Server {
         // The tokens the plan keeps (D7): an edit to one it does not keep
         // (a plain app's token no view names) leaves the plan as it is.
         let retention = self.synthetic.as_ref().and_then(|(_, _, r)| r.clone());
+        let params = crate::tamber_ops::params(&self.params.1.tokens);
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
             retention: retention.as_ref(),
+            params: &params,
         };
         let planned = exact_tamber::plan(&texts, ops, &self.vocab, undo, synthetic).map_err(|all| {
             json!({"message": "refused", "diagnostics": all.iter().map(|(f, d)| diagnostic(f, d)).collect::<Vec<_>>()})
@@ -1107,6 +1146,17 @@ impl Server {
             }
             if !axis.is_empty() {
                 return Err(json!({"message": "refused", "diagnostics": axis}));
+            }
+            // A param's value folds with the params where it lands, inside
+            // its range (D15), as the build checks it.
+            if ops.iter().any(|(_, op)| matches!(op, Op::SetParam { .. })) {
+                let set: Vec<(String, String)> = planned
+                    .files
+                    .iter()
+                    .filter(|(p, _, _)| *p == self.design)
+                    .map(|(p, t, _)| (p.clone(), t.clone()))
+                    .collect();
+                crate::tamber_ops::param_values(&set, &self.params.1.tokens, &self.vocab)?;
             }
         }
         let mut out = json!({
