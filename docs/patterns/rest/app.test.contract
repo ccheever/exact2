@@ -61,9 +61,10 @@ test "an item is added for everyone, and another person's arrives on the next po
   expect state lib.items.1 .title == "Eggs"
   back
   clock settle
-  expect state persona == "Ada"
+  expect state persona == "ada"
   tap "persona"
-  tap "persona-Grace"
-  expect state persona == "Grace"
+  tap "persona-grace"
+  expect state persona == "grace"
+  expect text "persona-grace" == "Grace Hopper"
   reload
-  expect state persona == "Grace"
+  expect state persona == "grace"

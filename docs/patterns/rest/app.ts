@@ -4,13 +4,15 @@ export const appId = 'com.example.starter';
 // The server's address, its one place: server.ts listens on it (a phone reaches the Mac by its LAN address or HTTPS).
 export const API = 'http://127.0.0.1:8787';
 export const grants = `net.fetch ${API}`;
-// The persona's name is its token; a real sign-in keeps its token with `secret.keep token` and store.set.
+// Who may sign in: the server's token and the name the app shows for it. A real sign-in keeps its token
+// with `secret.keep token` and store.set, and asks the server for the name.
+const PEOPLE = [{ token: 'ada', name: 'Ada Lovelace' }, { token: 'grace', name: 'Grace Hopper' }];
 
 type Answered = { ok: true; body: unknown } | { ok: false; error: string };
 async function call(persona: string, path: string, init: RequestInit = {}): Promise<Answered> {
   try {
     const res = await fetch(`${API}${path}`, { ...init, exactTimeout: 10000,
-      headers: { authorization: `Bearer ${persona.toLowerCase()}`, 'content-type': 'application/json' } });
+      headers: { authorization: `Bearer ${persona}`, 'content-type': 'application/json' } });
     const body = (await res.json().catch(() => ({}))) as { error?: unknown };
     if (res.ok) return { ok: true, body };
     return { ok: false, error: typeof body.error === 'string' ? body.error : 'The server had a problem. Try again.' };
@@ -23,6 +25,7 @@ async function call(persona: string, path: string, init: RequestInit = {}): Prom
 let last: Result<'loadItems'>['items'] = []; // a failed poll keeps the list on screen
 const reply = (r: Answered) => (r.ok ? { ok: true, error: '' } : { ok: false, error: r.error });
 const sources: Sources = {
+  loadPeople: async () => PEOPLE,
   loadItems: async ([persona]) => {
     const r = await call(persona, '/items');
     if (!r.ok) return { ok: false, error: r.error, items: last };

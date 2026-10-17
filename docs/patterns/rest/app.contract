@@ -1,9 +1,9 @@
 // Starter: list-detail over your own REST server (server.ts), polled, every failure in words.
-// app.ts fetches with a bearer token, the persona's name, and answers a refusal or a lost server
+// app.ts fetches with a bearer token, the persona's, and answers a refusal or a lost server
 // as data. Who is signed in is the bar's pull-down menu, kept with `persist` across
-// launches. `bun server.ts` serves the dev loop; `test` and `verify` run it
+// launches; the menu shows each person's name from the data module, never the token. `bun server.ts` serves the dev loop; `test` and `verify` run it
 // themselves, on an empty database. A smaller app deletes what it doesn't need: the persona
-// switcher (`persona`, `signIn`, its bar button and menu, the `persona` argument of every
+// switcher (`persona`, `people`, `signIn`, its bar button and menu, the `persona` argument of every
 // source), the delete (`askRemove`,
 // `remove`, the dialog, the server's DELETE), the notes (the shape's field, the title's
 // `enterkeyhint`, the sections, the server's column), or the lock (the shape's `locked`, `setLock`, the badge, the switch, the server's PATCH).
@@ -32,13 +32,19 @@ shape Reply
   ok: bool
   error: string
 
+shape Person
+  token: string
+  name: string
+
+fn nameOf(people: Person[], token: string): string = match first(people.filter(p => p.token == token)) { case some(p) => p.name, case none => "" }
 fn titleOf(items: Item[], id: string): string = match first(items.filter(i => i.id == id)) { case some(i) => i.title, case none => "" }
 
 component App
   state draftTitle = ""
   state draftNotes = ""
   state submitted = false
-  state persona = "Ada" persist
+  state persona = "ada" persist
+  resource people = loadPeople() as shape Person[] else empty()
   resource lib = loadItems(persona) as shape Items else empty(ok=true)
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
@@ -100,7 +106,7 @@ component App
             // the bar and the list. A control that stays goes in the bar; one that may scroll away, in the list.
             header display="flex" align-items="center" padding="8px 16px"
               text "Starter" role="heading" aria-level=1 flex=1
-              button popovertarget="persona-menu" aria-label=`Signed in as ${persona}` testId="persona"
+              button popovertarget="persona-menu" aria-label=`Signed in as ${nameOf(people, persona)}` testId="persona"
                 image "symbol:person"
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
@@ -158,10 +164,10 @@ component App
                     rows=4 testId="add-notes" flex=1 min-width=0
       // Who is signed in: the bar button's pull-down (iOS: a UIMenu, the choice checked).
       column id="persona-menu" popover="auto" role="menu"
-        for p in ["Ada", "Grace"] key=p
-          button role="menuitemradio" aria-checked=(persona == p) press=signIn(p) popovertarget="persona-menu"
-            popovertargetaction="hide" testId=`persona-${p}`
-            text p
+        for p in people key=p.token
+          button role="menuitemradio" aria-checked=(persona == p.token) press=signIn(p.token) popovertarget="persona-menu"
+            popovertargetaction="hide" testId=`persona-${p.token}`
+            text p.name
       dialog id="remove" role="alertdialog" aria-label="Delete Item?"
         text "This can’t be undone."
         button press=remove destructive=true commandfor="remove" command="close" testId="remove-confirm"
