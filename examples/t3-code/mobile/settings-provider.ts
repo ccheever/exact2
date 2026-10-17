@@ -8,9 +8,11 @@ import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { settingsCall, settingsEndpoint, settingsEndpointCurrent, settingsGrants, settingsNative, settingsSources,
   type MobileSettingsEndpoint, type MobileSettingsSource } from './settings-server-source';
 
+type DisplayedEmail = { rawEmail: string; token: string; revealed: boolean };
 type Account = { streamKey: string; sourceKey: string; instanceId: string; generation: number; subscription: string; lastSequence: number;
-  state: Obj | null; error: string; queryError: string; pending: boolean; choosing: boolean; revealed: boolean; draftIdentity: string; values: Record<string, string>; externalLinksAvailable: boolean };
+  state: Obj | null; error: string; queryError: string; pending: boolean; choosing: boolean; displayedEmail: DisplayedEmail | null; draftIdentity: string; values: Record<string, string>; externalLinksAvailable: boolean };
 const accounts = new Map<string, Account>();
+let emailMountSerial = 0;
 const streamPrefix = 'mobile-provider-auth:';
 const identity = (state: Obj | null) => `${str(state?.flowId)}:${str(obj(state?.interaction).id)}`;
 function accountFor(endpoint: MobileSettingsEndpoint, instanceId: string): Account {
@@ -18,7 +20,7 @@ function accountFor(endpoint: MobileSettingsEndpoint, instanceId: string): Accou
   let account = accounts.get(streamKey);
   if (!account || account.generation !== endpoint.generation) {
     account = { streamKey, sourceKey: endpoint.source.key, instanceId, generation: endpoint.generation, subscription: '', lastSequence: 0,
-      state: null, error: '', queryError: '', pending: false, choosing: false, revealed: false, draftIdentity: '', values: {}, externalLinksAvailable: false };
+      state: null, error: '', queryError: '', pending: false, choosing: false, displayedEmail: null, draftIdentity: '', values: {}, externalLinksAvailable: false };
     accounts.set(streamKey, account);
   }
   return account;
@@ -56,8 +58,13 @@ async function watch(endpoint: MobileSettingsEndpoint, account: Account) {
   account.subscription = str(reply.id);
   if (!account.subscription) throw new ClientError('Provider sign-in did not return a subscription.');
 }
+function providerEmail(provider: Obj, state: Obj | null): string {
+  const auth = obj(provider.auth), email = str(auth.email);
+  const signedIn = auth.status === 'authenticated' || auth.status === 'unknown' && state?.phase === 'succeeded';
+  return signedIn && !['starting', 'waiting', 'verifying'].includes(str(state?.phase)) && email.trim() ? email : '';
+}
 export function mobileProviderProjection(source: Pick<MobileSettingsSource, 'key' | 'label'>, provider: Obj, state: Obj | null,
-  view: { key: string; error?: string; queryError?: string; pending?: boolean; choosing?: boolean; revealed?: boolean; values?: Record<string, string>; writable?: boolean; externalLinksAvailable?: boolean }) {
+  view: { key: string; error?: string; queryError?: string; pending?: boolean; choosing?: boolean; revealed?: boolean; emailToken?: string; values?: Record<string, string>; writable?: boolean; externalLinksAvailable?: boolean }) {
   const interaction = obj(state?.interaction), setup = obj(provider.setup), auth = obj(provider.auth), active = ['starting', 'waiting', 'verifying'].includes(str(state?.phase));
   const signedIn = auth.status === 'authenticated' || auth.status === 'unknown' && state?.phase === 'succeeded';
   const discovering = provider.driver === 'acpRegistry' && !active && !signedIn && !view.queryError && state?.methods === undefined;
@@ -83,11 +90,12 @@ export function mobileProviderProjection(source: Pick<MobileSettingsSource, 'key
   else if (active && state?.flowId) action('cancel', 'Cancel sign-in', 'xmark');
   else if (!active && !external && setup.canAuthenticate !== false) action('choose', signedIn ? 'Change account' : 'Sign in', 'person.crop.circle', provider.enabled !== true || provider.installed !== true || state === null);
   if (!active && signedIn && (auth.canLogout ?? setup.canAuthenticate) === true) action('logout', 'Sign out', 'person.crop.circle', state === null, '', true);
-  const email = signedIn && !active ? str(auth.email).trim() : '';
+  const email = providerEmail(provider, state);
   return { key: view.key, label: str(provider.displayName) || str(provider.driver), disabled, pending: view.pending === true,
     message: active || ['failed', 'cancelled'].includes(str(state?.phase)) ? str(state?.message) : signedIn ? 'Signed in.' : discovering ? 'Discovering sign-in methods…'
       : external ? "No in-app sign-in advertised. Follow the provider's docs to finish setup." : 'Connect this provider.',
     email: email ? view.revealed ? email : '••••••@••••••' : '', emailAction: view.revealed ? 'Hide account email' : 'Reveal account email',
+    emailToken: email ? view.emailToken ?? '' : '',
     deviceCode: interaction.type === 'deviceCode' ? `Enter code ${str(interaction.userCode)} on the sign-in page.` : '',
     output: interaction.type === 'terminal' ? str(interaction.output).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '') : '',
     error: view.error || view.queryError || '', fields, actions,
@@ -107,18 +115,30 @@ function providerSelection(environmentIdsJSON: string): { ids: string[]; signatu
 /** Local field/reveal/chooser projection: no native reads, subscriptions, watches or permission assumptions. */
 export function mobileProviderAccountsSnapshot(environmentIdsJSON: string, active: boolean): ProviderSettingsData {
   const empty = emptyProviderData();
-  if (!active) return empty;
+  let displayed: Set<Account> | null = null;
   try {
-    if (prepared?.signature !== providerSelection(environmentIdsJSON).signature) return empty;
+    if (!active || prepared?.signature !== providerSelection(environmentIdsJSON).signature) return empty;
+    const current = new Set<Account>();
     const sections = prepared.sections.map(section => ({ key: section.source.key, title: section.source.label,
       emptyMessage: section.providers.length ? '' : 'Configure a provider with in-app sign-in in web or desktop Settings.',
       accounts: section.providers.flatMap(({ provider, key }) => {
         const account = accounts.get(key);
-        return account ? [mobileProviderProjection(section.source, provider, account.state,
-          { ...account, key, writable: section.writable, queryError: account.queryError || section.permissionError })] : [];
+        if (!account) return [];
+        const email = providerEmail(provider, account.state);
+        if (!email) account.displayedEmail = null;
+        else if (account.displayedEmail?.rawEmail !== email) {
+          if (emailMountSerial >= Number.MAX_SAFE_INTEGER) throw new ClientError('The provider email display limit was reached. Reopen T3 Code.');
+          account.displayedEmail = { rawEmail: email, token: `provider-email:${++emailMountSerial}`, revealed: false };
+        }
+        current.add(account);
+        return [mobileProviderProjection(section.source, provider, account.state,
+          { ...account, key, revealed: account.displayedEmail?.revealed, emailToken: account.displayedEmail?.token,
+            writable: section.writable, queryError: account.queryError || section.permissionError })];
       }) }));
+    displayed = current;
     return { ...empty, ready: true, emptyMessage: sections.length ? '' : 'Select a connected environment.', sections };
   } catch (error) { return { ...empty, error: error instanceof Error ? error.message : 'The provider settings scope is invalid.' }; }
+  finally { for (const account of accounts.values()) if (!displayed?.has(account)) account.displayedEmail = null; }
 }
 export async function mobileProviderAccounts(environmentIdsJSON: string, active: boolean, nativeInput: Native | null | undefined, externalLinksAvailable = false): Promise<ProviderSettingsData> {
   const empty = emptyProviderData(), epoch = ++preparationEpoch;
@@ -182,7 +202,12 @@ export async function mobileProviderCommand(op: string, key: string, value: stri
   const account = accounts.get(key);
   if (!account || account.pending) return { revision: mobileClient.revision, message: 'That sign-in action is no longer available.' };
   const finish = (message = '') => ({ revision: ++mobileClient.revision, message });
-  if (op === 'reveal') { account.revealed = !account.revealed; return finish(); }
+  if (op === 'reveal') {
+    const email = account.displayedEmail;
+    if (!value || !email || value !== email.token) return { revision: mobileClient.revision, message: 'That sign-in action is no longer available.' };
+    email.revealed = !email.revealed;
+    return finish();
+  }
   if (op === 'choose-cancel') { account.choosing = false; return finish(); }
   account.pending = true; account.error = '';
   try {
