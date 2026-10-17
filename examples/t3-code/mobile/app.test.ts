@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { answer } from './app';
+import { overlayMobilePreferenceChoices } from './settings-preferences';
 
 describe('mobile pairing source', () => {
   test('keeps the copied parser identical to its declared immutable source', () => {
@@ -218,5 +219,42 @@ describe('stable snapshot reader and pure root projection', () => {
     }
     expect(await answer('preferences', [], undefined, undefined, native)).toEqual(before);
     expect(calls).toBe(0);
+  });
+});
+
+
+describe('pending local preference choices', () => {
+  const resource = () => ({ ready: false, error: 'Read pending', revision: 7,
+    serialized: JSON.stringify({ ready: false, error: 'Read pending', revision: 7, baseFontSize: 19,
+      composerEnterBehavior: 'send', followUpBehavior: 'queue', projectGroupingMode: 'repository' }) });
+  const choice = (key: string, value: string, extra = {}) => ({ mutation: 'choicePreferenceChanged',
+    source: 'preferenceChange', args: [key, value], answered: false, ...extra });
+  test('folds queued choices per field without changing read metadata or inputs', () => {
+    const before = resource(), writes = [choice('composerEnterBehavior', 'newline'), choice('followUpBehavior', 'steer'),
+      choice('composerEnterBehavior', 'send'), choice('projectGroupingMode', 'separate')];
+    const frozen = JSON.stringify({ before, writes });
+    const effective = overlayMobilePreferenceChoices(before, writes)!;
+    expect(effective).toEqual({ ...before, serialized: JSON.stringify({ ...JSON.parse(before.serialized),
+      composerEnterBehavior: 'send', followUpBehavior: 'steer', projectGroupingMode: 'separate' }) });
+    expect(JSON.stringify({ before, writes })).toBe(frozen);
+  });
+  test('old failures and answered writes cannot remove a newer equal-valued intent', () => {
+    const before = resource();
+    const effective = overlayMobilePreferenceChoices(before, [choice('composerEnterBehavior', 'newline', { reply: { revision: 0, message: 'No' } }),
+      choice('followUpBehavior', 'steer', { answered: true, reply: { revision: 8, message: '' } }),
+      choice('composerEnterBehavior', 'newline')])!;
+    expect(JSON.parse(effective.serialized as string)).toEqual({ ...JSON.parse(before.serialized), composerEnterBehavior: 'newline' });
+    expect(overlayMobilePreferenceChoices(before, [choice('composerEnterBehavior', 'newline', { reply: { revision: 8, message: '' } })])).toBeDefined();
+    expect(overlayMobilePreferenceChoices(before, [choice('composerEnterBehavior', 'newline', { answered: true, reply: { revision: 8, message: '' } })])).toBeUndefined();
+  });
+  test('refuses other lanes, malformed replies, invalid choices and malformed answers', () => {
+    const before = resource();
+    expect(overlayMobilePreferenceChoices(before, [choice('composerEnterBehavior', 'newline', { mutation: 'preferenceChanged' }),
+      choice('composerEnterBehavior', 'newline', { source: 'other' }), choice('workingEnabled', 'true'),
+      choice('composerEnterBehavior', 'unknown'), choice('__proto__', 'newline'),
+      choice('followUpBehavior', 'steer', { reply: {} })])).toBeUndefined();
+    for (const serialized of ['bad', 'null', '[]', '1'])
+      expect(overlayMobilePreferenceChoices({ ...before, serialized }, [choice('composerEnterBehavior', 'newline')])).toBeUndefined();
+    expect(overlayMobilePreferenceChoices({}, [choice('composerEnterBehavior', 'newline')])).toBeUndefined();
   });
 });

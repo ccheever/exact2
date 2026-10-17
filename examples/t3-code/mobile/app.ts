@@ -23,7 +23,7 @@ import { mobileAddProjectColors } from './add-project-presentation';
 import { mobileThreadHeaderSnapshot, mobileThreadHeaderPrepare, mobileThreadHeaderAction } from './thread-header';
 import { mobileThreadHeaderLaunch } from './thread-header-terminal';
 import { mobileWorkingControl } from './working-control';
-import type { Sources, Answer } from './app.contract.d.ts';
+import type { Sources, Answer, Overlay } from './app.contract.d.ts';
 import { mobileComposerTarget } from './composer-target';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuePrepare } from './queue-read';
@@ -74,7 +74,7 @@ import { mobileClearClientCaches } from './mobile-cache-controls';
 import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
 import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
 import { mobileHtmlRenderTheme, mobileThreadLocalColors, mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
-import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
+import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance, overlayMobilePreferenceChoices } from './settings-preferences';
 import { settingsAppearanceView, settingsChoices } from './settings-appearance';
 import { mobileArchiveCommand, mobileArchiveRead, mobileArchiveScope, mobileArchiveView } from './archive';
 import { mobileAgentActivity } from './agent-activity';
@@ -758,6 +758,9 @@ const sources: Sources = {
     return mobileCommand(args, native, storage!);
   },
 };
+export const overlay: Overlay = (source, _args, answer, writes) =>
+  source === 'preferences' ? overlayMobilePreferenceChoices(answer, writes) as never : undefined;
+
 export const answer: Answer = (source, args, store, storage, native) => {
   if (!Object.prototype.hasOwnProperty.call(sources, source)) throw new Error(`Unknown mobile source: ${source}`);
   return sources[source](args, store, storage, native);
