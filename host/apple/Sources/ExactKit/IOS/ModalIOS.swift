@@ -189,8 +189,6 @@ private final class Presentation {
     /// from the photo as it is then, zoomed or panned.
     var sampleLanding: (() -> Void)?
     var alreadyDismissed = false
-    /// The opening press's hold while UIKit presents it (PressHandoffIOS).
-    var pressWork: (() -> Void)?
 
     init(host: ModalHost, route: NodeView, navigation: UIViewController,
          background: UIViewController) {
@@ -547,9 +545,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         let layer = Presentation(host: self, route: route, navigation: navigation,
                                  background: background)
         // The press that opened the sheet may hand its control's focus to the
-        // route's autofocus (PressHandoffIOS): any while UIKit presents it,
-        // then the route's first, until the route goes.
-        layer.pressWork = presenter.holdPress(destination: route)
+        // route's first autofocus until the route goes (PressHandoffIOS).
+        presenter.pressShows(route)
         // The presenting screen stays where it is, inert (HTML modal dialogs)
         background.view.isUserInteractionEnabled = false
         background.view.accessibilityElementsHidden = true
@@ -621,7 +618,6 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         defer { if owner.presentedViewController !== controller { endPress(layer) } } // UIKit refused it
         owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer, weak controller] in
             if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
-            layer?.pressWork?(); layer?.pressWork = nil
             guard let self, let layer else { return }
             layer.presenting = false
             #if os(iOS)
@@ -744,10 +740,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func unmounted() { reset() }
 
     /// The sheet went, or never came: its press hands nothing on through it.
-    private func endPress(_ layer: Presentation) {
-        layer.pressWork?(); layer.pressWork = nil
-        presenter.pressHandoff?.drop(layer.route)
-    }
+    private func endPress(_ layer: Presentation) { presenter.pressHandoff?.drop(layer.route) }
 
     func reset() {
         // Dismiss native owners from the top down, each keeping what it shows

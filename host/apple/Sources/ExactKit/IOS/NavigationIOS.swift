@@ -241,7 +241,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var tookWholeView = false
     private var pendingSync = false
     /// The press whose commit a deferred sync still owes (PressHandoffIOS).
-    private var pendingPressWork: (() -> Void)?
+    private weak var pendingPress: PressHandoff?
     /// A sync was deferred (a transition ran, or there was no window yet)
     /// and is still owed, or UIKit moved a stack itself (its back button, a
     /// swipe) since the last one: the next batch syncs, whatever it holds.
@@ -485,15 +485,21 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
         guard !changing, !presenter.modals.inTransition else {
             pendingSync = true
-            pendingPressWork = pendingPressWork ?? presenter.holdPress() // the press whose commit waits
+            owePress()
             return
         }
         pendingSync = false
-        // A press's handoff waits for the sync it deferred, which takes its own
-        // hold for what it presents or pushes, or for the one after if it defers again.
-        let carried = pendingPressWork
-        pendingPressWork = nil
-        defer { if pendingSync { pendingPressWork = carried ?? presenter.holdPress() } else { carried?() } }
+        // The press a deferred sync is owed to: what this sync presents or
+        // pushes is that press's work, and it is owed again if this defers too.
+        let owed = pendingPress.flatMap { $0 === presenter.pressHandoff ? $0 : nil }
+        pendingPress = nil
+        owed?.syncing = true
+        defer {
+            owed?.syncing = false
+            owed?.pending = false
+            if pendingSync { owePress(owed) }
+            owed?.settle()
+        }
         let boundaries = parts.dropFirst().map { wanted[$0.lowerBound].node }
         let mounted = presenter.modals.routes
         let common = zip(boundaries, mounted).prefix {
@@ -506,7 +512,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let nav = owners[index], stack = Array(wanted[parts[index]])
             prepareRoutes(stack, in: nav)
             let same = nav.viewControllers.count == stack.count && zip(nav.viewControllers, stack).allSatisfy { $0 === $1 }
-            var pushWork: (() -> Void)?
             if !same {
                 // @ref LLP 1038 D6 — a tab change swaps immediately. A replacement within one stack
                 // whose new top was not on it (a finished screen giving way to its result) arrives
@@ -514,15 +519,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
                 let arrives = stack.count > 1 && nav.viewControllers.first === stack.first
                     && !nav.viewControllers.contains { $0 === stack.last }
-                let animated = (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil
-                nav.setViewControllers(stack, animated: animated)
+                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil)
                 recordOwned(nav)
-                // The press that pushed may hand its control's focus to the arriving route's autofocus
-                // until the push is over (PressHandoffIOS).
-                if animated { pushWork = presenter.holdPress(destination: (stack.last as? RouteController)?.node) }
+                // A press that pushed may hand its control's focus to the arriving route's first autofocus (PressHandoffIOS).
+                if pushOrPop || arrives { presenter.pressShows((stack.last as? RouteController)?.node) }
             }
             nav.view.layoutIfNeeded()
-            if let pushWork, nav.transitionCoordinator?.animate(alongsideTransition: nil, completion: { _ in pushWork() }) != true { pushWork() }
         }
         unanimated = false
         if mounted.count > common {
@@ -540,6 +542,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             prepareRoutes(Array(wanted[part]), in: nav)
             nav.setViewControllers(Array(wanted[part]), animated: false)
             recordOwned(nav)
+            presenter.pressShows(wanted[part].last?.node) // a route pushed in the sheet as it opens
             watchPops(nav)
             nav.view.layoutIfNeeded()
             pendingSync = boundaries.count > mounted.count + 1
@@ -655,6 +658,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 parent.container.insertSubview(node, at: index)
             }
         }
+    }
+
+    /// A sync deferred behind a running transition is owed to the press
+    /// whose work it is (`owed`, else the live press while its work runs):
+    /// that press's handoff waits for it. A newer press owns it instead.
+    private func owePress(_ owed: PressHandoff? = nil) {
+        guard let press = owed ?? presenter.pressHandoff.flatMap({ $0.working ? $0 : nil }) else { return }
+        if pendingPress !== press { pendingPress?.pending = false; pendingPress?.settle() }
+        press.pending = true
+        pendingPress = press
     }
 
     func modalDidDismiss() {
@@ -1123,7 +1136,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         controllers.removeAll()
         routeIDs = []
         pendingSync = false
-        pendingPressWork?(); pendingPressWork = nil
+        pendingPress?.pending = false; pendingPress?.settle(); pendingPress = nil
         keyboardDropped = false
         droppedEditor = nil
         lastTransition = "idle"

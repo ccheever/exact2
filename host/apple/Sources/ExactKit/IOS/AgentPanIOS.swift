@@ -234,7 +234,6 @@ extension Agent {
         }
         var f: UIView? = node
         var took = false
-        presenter.supersedePress(touching: node)
         var handoff: PressHandoff?
         defer { handoff?.dispatched() }
         while let cur = f {
@@ -341,7 +340,6 @@ extension Agent {
                     return ["error": "tap #\(v.id) down: \(why)"]
                 }
                 let touched = seen ?? v
-                presenter.supersedePress(touching: touched)
                 let contact = AgentPan(node: nil, pressing: true, pointer: Agent.pointerNode(from: touched).map(HeldNode.init), path: Agent.fingerPath(from: touched),
                                        reach: fingerReach(touched, at: p), at: at, t: t, held: Agent.heldPrefix(req))
                 panContact = contact
@@ -353,7 +351,6 @@ extension Agent {
             // a draggable card) presses that node if the pan never begins.
             let pressInside = hit.isDescendant(of: node) && sequence(first: hit, next: { $0.superview }).prefix { $0 !== node }
                 .contains { ($0 as? NodeView)?.handlers.contains("press") == true }
-            presenter.supersedePress(touching: hit)
             var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: hit).map(HeldNode.init), path: Agent.fingerPath(from: hit), at: at, t: t, held: Agent.heldPrefix(req))
             // A lift that never panned is the press it landed on, through a finger's lift (`lift`).
             if pressInside || node.handlers.contains("press") { contact.reach = fingerReach(hit, at: p) }

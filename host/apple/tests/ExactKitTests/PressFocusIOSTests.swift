@@ -602,15 +602,15 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertNil(p.pressHandoff, "the sheet went: its press hands nothing on")
     }
 
-    /// A press's work presented a route (`holdPress(destination:)`) and UIKit
-    /// finished it: the first autofocus mounted inside that route takes the
-    /// focus the press left, later; one mounted outside it does not.
+    /// A press's work presented a route (`pressShows`): after the press, the
+    /// first autofocus mounted inside that route takes the focus the press
+    /// left; one mounted outside it takes nothing and spends nothing.
     func testOnlyThePresentedRoutesAutofocusTakesTheFocusAfterThePress() throws {
         let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
                           + node(4, "view", ["testId": "route"], y: 200, w: 400, h: 200)
                           + [["op": "children", "id": 1, "ids": [2, 4]], ["op": "roots", "ids": [1]]])
         let fab = try XCTUnwrap(p.views[2])
-        p.onPress = { _ in p.holdPress(destination: p.views[4])?() }
+        p.onPress = { _ in p.pressShows(p.views[4]) }
         tap(fab)
         XCTAssertTrue(fab.isFirstResponder)
         p.apply(wireBatch(node(5, "view", ["tabIndex": "0", "autofocus": "true"], y: 100)
@@ -623,18 +623,23 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertNil(p.pressHandoff)
     }
 
-    /// A key, a shortcut or another contact going down ends the handoff a
-    /// press's route still held: the route's autofocus then takes nothing.
-    func testAKeyAShortcutOrAContactEndsTheHandoff() throws {
+    /// A key, a shortcut, typed text or a new contact going down (on the
+    /// control the press focused too) ends the handoff a press's route still
+    /// held: the route's autofocus then takes nothing.
+    func testAKeyAShortcutTypedTextOrAContactEndsTheHandoff() throws {
         let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
                           + node(3, "button", handlers: ["press"], y: 60) + node(4, "view", ["testId": "route"], y: 200, w: 400, h: 200)
-                          + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]])
-        let fab = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[3])
-        p.onPress = { id in if id == 2 { p.holdPress(destination: p.views[4])?() } }
+                          + node(7, "textarea", y: 120, w: 300, h: 60)
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4, 7]], ["op": "roots", "ids": [1]]])
+        let fab = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[3]), text = try XCTUnwrap(p.views[7]?.textArea)
+        p.onPress = { id in if id == 2 { p.pressShows(p.views[4]) } }
+        func touch(_ view: NodeView) { view.touchesBegan([PointTouch(view.convert(CGPoint(x: 10, y: 10), to: nil), on: view)], with: nil) }
         let ends: [(String, () -> Void)] = [
             ("a key", { _ = p.keyDown(at: nil, "a") }),
             ("a shortcut", { p.performShortcut(UIKeyCommand(input: "k", modifierFlags: .command, action: #selector(UIResponder.becomeFirstResponder))) }),
-            ("a contact on another control", { other.touchesBegan([PointTouch(other.convert(CGPoint(x: 10, y: 10), to: nil), on: other)], with: nil) }),
+            ("typed text", { text.insertText("x") }),
+            ("a contact on another control", { touch(other) }),
+            ("a new contact on the control", { touch(fab) }),
         ]
         for (what, end) in ends {
             tap(fab)
@@ -645,6 +650,23 @@ final class PressFocusIOSTests: XCTestCase {
         p.apply(wireBatch(node(6, "textarea", ["autofocus": "true"], w: 300, h: 120) + [["op": "children", "id": 4, "ids": [6]]]))
         p.syncAccessibility()
         XCTAssertTrue(fab.isFirstResponder, "the opener keeps its focus")
+    }
+
+    /// A press that showed two routes (a pushed screen and a sheet over it):
+    /// the sheet dismissed, the screen still hands on its first autofocus.
+    func testADroppedRouteLeavesThePresssOtherRoute() throws {
+        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "button", ["tabIndex": "0"], handlers: ["press"])
+                          + node(4, "view", ["testId": "screen"], y: 200, w: 400, h: 100) + node(8, "view", ["testId": "sheet"], y: 300, w: 400, h: 100)
+                          + [["op": "children", "id": 1, "ids": [2, 4, 8]], ["op": "roots", "ids": [1]]])
+        let fab = try XCTUnwrap(p.views[2])
+        p.onPress = { _ in p.pressShows(p.views[4]); p.pressShows(p.views[8]) }
+        tap(fab)
+        p.pressHandoff?.drop(try XCTUnwrap(p.views[8]))
+        XCTAssertNotNil(p.pressHandoff, "the screen is still the press's")
+        p.apply(wireBatch(node(6, "textarea", ["autofocus": "true"], w: 300, h: 80) + [["op": "children", "id": 4, "ids": [6]]]))
+        p.syncAccessibility()
+        XCTAssertTrue(try XCTUnwrap(p.views[6]?.textArea).isFirstResponder, "the screen's first autofocus takes the press's focus")
+        XCTAssertFalse(fab.isFirstResponder)
     }
 
     /// The agent's tap on a field whose press mounts an autofocus textarea:

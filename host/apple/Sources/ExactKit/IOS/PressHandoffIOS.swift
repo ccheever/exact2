@@ -9,64 +9,60 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// A press while its work may run. Its dispatch, and a presentation or push
-/// that dispatch started while UIKit runs it (or a sync a running transition
-/// deferred), let any autofocus take the focus. Then each route it presented
-/// or pushed (a destination) still lets the first autofocus mounted inside it
-/// take the focus, as a composer's field that a later data answer mounts,
-/// until that route leaves the tree. It ends once an autofocus takes the
-/// focus through it, once none of that is left, or at the next touch, key or
-/// focus choice (Tab, `focus(id)`).
+/// A press's permission to hand the focus it left on its control to an
+/// autofocus its own work mounts. While its dispatch runs, and while a sync
+/// that dispatch deferred behind a running transition runs, any autofocus
+/// may take it. After, only one inside a route that work presented or
+/// pushed (a destination), logically: a composer's field that a later data
+/// answer mounts in its sheet. It ends once an autofocus takes the focus
+/// through it, when no destination is left in the tree and no deferred
+/// sync owes it, or at the next contact, key, typed text, focus choice (Tab,
+/// `focus(id)`) or the scene leaving the foreground.
 final class PressHandoff {
     /// The responder the press left focused (`focusForPress`): the innermost
     /// node that asked for focus, a field the press focused, else the
     /// press's target.
     weak var control: UIView?
     private weak var presenter: Presenter?
-    private var work = 1
+    /// Its dispatch is running.
+    private var dispatching = true
+    /// A sync its dispatch deferred is owed (`pending`) or running (`syncing`).
+    var pending = false
+    var syncing = false
     private struct Destination { weak var route: NodeView? }
     private var destinations: [Destination] = []
     fileprivate init(_ presenter: Presenter, control: UIView?) { self.presenter = presenter; self.control = control }
+    /// Whether its own work is running now: what that work presents or
+    /// pushes is its destination.
+    var working: Bool { dispatching || syncing }
     /// The press's dispatch returned.
-    func dispatched() { release() }
-    /// A presentation or push the press's work started, released when UIKit
-    /// has finished it; `destination`, the route it shows.
-    fileprivate func hold(destination: NodeView?) -> () -> Void {
-        work += 1
-        if let destination { destinations.append(Destination(route: destination)) }
-        var released = false
-        return { [weak self] in
-            guard !released else { return }
-            released = true
-            self?.release()
-        }
+    func dispatched() {
+        dispatching = false
+        settle()
     }
-    /// A route the press presented left (its sheet was dismissed): the
-    /// press's work is over, and it hands nothing on.
+    fileprivate func record(_ route: NodeView) {
+        if !destinations.contains(where: { $0.route === route }) { destinations.append(Destination(route: route)) }
+    }
+    /// A destination left (its sheet was dismissed); any other stays.
     func drop(_ route: NodeView) {
-        guard destinations.contains(where: { $0.route === route }), let presenter, presenter.pressHandoff === self else { return }
-        presenter.pressHandoff = nil
+        destinations.removeAll { $0.route === route }
+        settle()
     }
-    /// Its dispatch, or what that started, still runs: a sync it deferred
-    /// or a presentation may hold it. A handoff only a destination keeps
-    /// alive takes no more work.
-    fileprivate var holdsWork: Bool { work > 0 }
     /// Whether an autofocus on `candidate` may take the focus the press left.
     fileprivate func allows(_ candidate: NodeView) -> Bool {
+        if working { return true }
         prune()
-        return work > 0 || destinations.contains { $0.route.map { candidate === $0 || candidate.isDescendant(of: $0) } == true }
-    }
-    private func release() {
-        work -= 1
-        settle()
+        guard let presenter, !destinations.isEmpty else { return false }
+        // Through authored parents: a sheet's, a lifted popover's (`listenerParent`).
+        return sequence(first: candidate as UIView, next: presenter.listenerParent).contains { view in destinations.contains { $0.route === view } }
     }
     /// A route whose nodes left the presenter's tree is gone.
     private func prune() {
         destinations.removeAll { d in d.route.map { presenter?.views[$0.id] !== $0 } ?? true }
     }
-    private func settle() {
+    func settle() {
         prune()
-        if work <= 0, destinations.isEmpty, let presenter, presenter.pressHandoff === self { presenter.pressHandoff = nil }
+        if !working, !pending, destinations.isEmpty, let presenter, presenter.pressHandoff === self { presenter.pressHandoff = nil }
     }
 }
 
@@ -78,16 +74,14 @@ extension Presenter {
         pressHandoff = handoff
         return handoff
     }
-    /// The presentation or push the live press's work starts holds the
-    /// handoff until `release` runs, when UIKit has finished it; nil without
-    /// a live press.
-    func holdPress(destination: NodeView? = nil) -> (() -> Void)? { pressHandoff?.holdsWork == true ? pressHandoff?.hold(destination: destination) : nil }
-    /// A contact going down or a key supersedes the live press: one landing
-    /// in its control is that control's next press.
-    func supersedePress(touching view: UIView? = nil) {
-        if let control = pressHandoff?.control, let view, view.isDescendant(of: control) { return }
-        pressHandoff = nil
+    /// A route the live press's own work presents or pushes.
+    func pressShows(_ route: NodeView?) {
+        guard let route, let handoff = pressHandoff, handoff.working else { return }
+        handoff.record(route)
     }
+    /// A contact going down, a key, typed text, a remote's scroll or focus
+    /// move, or the scene leaving the foreground ends the live press's handoff.
+    func supersedePress() { pressHandoff = nil }
     /// Whether `view` holds the focus a live press left on its control,
     /// which an autofocus on `candidate` its work mounted may take.
     func pressHandsOff(_ view: UIView, to candidate: NodeView) -> Bool {
@@ -96,8 +90,13 @@ extension Presenter {
               view === control || !(control is NodeView) && view.isDescendant(of: control) else { return false }
         return handoff.allows(candidate)
     }
-    /// Tab, `focus(id)`, Return's next field or an autofocus chose `target`:
-    /// the app's focus, which no press hands on.
+    /// An autofocus took the focus: one the press's handoff allowed spends it.
+    func autofocused(_ node: NodeView) {
+        node.focusedBySurfaceTouch = false
+        if pressHandoff?.allows(node) == true { pressHandoff = nil }
+    }
+    /// Tab, `focus(id)` or Return's next field chose `target`: the app's
+    /// focus, which no press hands on.
     func chooseFocus(_ target: NodeView) {
         target.focusedBySurfaceTouch = false
         pressHandoff = nil

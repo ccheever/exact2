@@ -639,7 +639,7 @@ extension Presenter {
             autofocusProcessed.insert(ObjectIdentifier(node))
             guard !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
-            chooseFocus(node) // the app's focus now, as Tab's and focus(id)'s; a press hands on nothing more
+            autofocused(node) // the app's focus now, as Tab's and focus(id)'s
             _ = target.becomeFirstResponder()
             #endif
         }

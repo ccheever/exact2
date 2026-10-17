@@ -518,6 +518,9 @@ extension Agent {
             return ["error": "a contact is already down; use `tap up` or `tap cancel` first"]
         }
         settleForPress()
+        // Each synthetic contact ends a live press's handoff before it is
+        // delivered, as a real one's touch-down does (PressHandoffIOS).
+        presenter.supersedePress()
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -751,7 +754,6 @@ extension Agent {
         if let why = unreached, fingers.isEmpty { return ["error": "unsupported: tap #\(v.id) at (\(at[0]), \(at[1])) \(why)"] }
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = Agent.heldPrefix(req)
-        presenter.supersedePress(touching: hit) // before its `pointerdown`, as a real contact's
         fingerPointer(.down, fingers, at: p, held: held)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }

@@ -113,11 +113,13 @@ final class TextField: UITextField {
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
         } else { super.insertText(text) }
     }
     override func deleteBackward() {
+        owner?.presenter?.supersedePress()
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
@@ -158,6 +160,7 @@ package final class TextArea: UITextView {
         } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
     }
     package override func insertText(_ text: String) {
+        owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here;
         // the command's own native insertion bypasses through `applying`.
@@ -169,6 +172,7 @@ package final class TextArea: UITextView {
     }
 
     package override func deleteBackward() {
+        owner?.presenter?.supersedePress()
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
         } else { super.deleteBackward() }

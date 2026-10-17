@@ -65,7 +65,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         super.touchesBegan(touches, with: event)
         if touch == nil, let relay { node = relay.listener(touches.first?.view) { $0.wantsPointer } }
         // A contact going down ends a live press's handoff before its `pointerdown` runs.
-        node?.presenter?.supersedePress(touching: touches.first?.view)
+        node?.presenter?.supersedePress()
         guard touch == nil, let first = touches.first, let node, !node.disabled, relay != nil || !nearer(first.view) else { return }
         touch = first
         touchId += 1
@@ -342,7 +342,7 @@ extension NodeView {
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     package override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        presenter?.supersedePress(touching: self)
+        presenter?.supersedePress()
         if touches.contains(where: { presenter?.cancelledPressTouches.contains($0) == true }) { cancelPressContact(); return }
         if canvasTouches(touches, phase: "down", event: event) { return }
         guard let touch = touches.first else { return }

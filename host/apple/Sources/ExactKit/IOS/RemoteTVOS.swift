@@ -60,6 +60,7 @@ extension NodeView {
     package override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         if context.nextFocusedItem === self {
+            presenter?.supersedePress() // the remote moved the focus (PressHandoffIOS)
             presenter?.focusKey = props["testId"]
             presenter?.focusGuides.focused(self)
             showFocusRing(true)
@@ -82,6 +83,7 @@ extension NodeView {
             let key = ObjectIdentifier(press)
             if !down { return NodeView.steppedPresses.remove(key) != nil }
             guard scroll?.remoteStep(heading) == true else { return false }
+            presenter?.supersedePress()
             NodeView.steppedPresses.insert(key)
             return true
         }
