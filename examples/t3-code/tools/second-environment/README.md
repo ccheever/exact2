@@ -77,7 +77,8 @@ consumed credit empties that account's session window. `stop all` stops the hub 
 waits until the server has linked the stand-in's open pull request, #7 "Keep the notes in one
 place". The thread then has the sidebar's PR glyph and the chat header's link, the Pull Requests
 page lists #7, and its detail panel has the actions menu, Merge (whose confirm merges nothing: the
-stand-in refuses `gh pr merge`) and one unresolved review thread on `README.md` with a Reply. The
+stand-in refuses `gh pr merge`) and, on its Code tab, a one-file patch with an unresolved review
+thread on `README.md` line 3 and its Reply. The
 stand-in answers the calls the reference server makes for these (`GitHubCli.ts`,
 `GitHubPullRequestCli.ts`; `gh auth token` gets a placeholder, which the server hands back only to
 the stand-in), logs each to `envs/<name>/gh-calls.log` and refuses every other one.
