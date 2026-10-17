@@ -4,11 +4,11 @@ import { dirname, resolve } from 'node:path';
 import { webCompiler } from './module.mjs';
 import { createDocument } from './dom.js';
 
-async function renderedPages(source, check, files = {}) {
+async function renderedPages(source, check, files = {}, manifest = {}) {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/head-render-test-'));
   try {
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Head Render Test', app: { id: 'test.heads', name: 'Head Render Test' }, host: { web: {} }, ...manifest }));
     writeFileSync(resolve(dir, 'app.contract'), source);
     for (const [name, text] of Object.entries(files)) {
       mkdirSync(dirname(resolve(dir, name)), { recursive: true });
@@ -26,6 +26,49 @@ async function renderedPages(source, check, files = {}) {
     }, html);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
+
+test('JavaScript-rendered strings use the document language with an English translation available', async () => {
+  await renderedPages(`routes nav
+  home "/" render=build
+
+component Greeting
+  view
+    main
+      head title=t("hello")
+      text t("hello")
+`, (page, html) => {
+    expect(page('')[0]).toBe('Bonjour');
+    expect(html('')).toContain('<html lang="fr" dir="ltr">');
+    expect(html('')).toContain('>Bonjour<');
+  }, { 'strings/fr.json': '{"hello":"Bonjour"}', 'strings/en.json': '{"hello":"Hello"}' }, { lang: 'fr', strings: { base: 'fr' } });
+}, 30000);
+
+test('the render context reports UTC independently of the machine zone', async () => {
+  const dir = mkdtempSync(resolve(import.meta.dir, '../../target/place-render-test-'));
+  try {
+    mkdirSync(resolve(dir, '.gen'));
+    writeFileSync(resolve(dir, 'shell.html'), '<html><head><title>Place</title><meta name="viewport" content="width=device-width">\n</head><body><div id="exact-root"></div><script type="module" src="./app.js"></script></body></html>');
+    const entry = resolve(dir, 'probe.js');
+    writeFileSync(entry, `import { placeReporter } from ${JSON.stringify(resolve(import.meta.dir, '../web/navigation.js'))};
+globalThis.__start = () => ({ activate: 'eager' });
+globalThis.__render = () => {
+  const [language, zone] = placeReporter(new URLSearchParams())().split('\\0');
+  const explicit = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Tokyo' }).resolvedOptions().timeZone;
+  const inherited = new Intl.DateTimeFormat('en', Object.create({ hour: '2-digit', hourCycle: 'h23' })).resolvedOptions();
+  return { root: '', title: [language, zone, explicit, inherited.timeZone, inherited.hour, typeof Intl.DateTimeFormat.supportedLocalesOf].join('/'), time: 0, answers: '[]', pending: [] };
+};`);
+    const bundle = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'iife' });
+    expect(bundle.success).toBe(true);
+    writeFileSync(resolve(dir, '.gen/server.js'), await bundle.outputs[0].text());
+    const render = Bun.spawn([process.execPath, resolve(import.meta.dir, 'render.mjs'), dir, '/'], {
+      env: { ...process.env, TZ: 'Pacific/Honolulu' }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, html, stderr] = await Promise.all([render.exited, new Response(render.stdout).text(), new Response(render.stderr).text()]);
+    expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
+    expect(html).toContain('<title>en-US/UTC/Asia/Tokyo/UTC/2-digit/function</title>');
+    expect(html).toContain('<html lang="en-US" dir="ltr">');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 30000);
 
 test('JavaScript-rendered page uses server facts without a reader’s device', async () => {
   await renderedPages(`routes nav

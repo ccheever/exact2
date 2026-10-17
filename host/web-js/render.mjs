@@ -18,6 +18,12 @@ import { createDocument } from './dom.js';
 
 const DEADLINE = 3000;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+// Without a reader's zone, use runner/src/time.rs's Place default; explicit formatter zones still win.
+const utcFormatArgs = ([locales, options]) => [locales, options === null || options?.timeZone !== undefined ? options : Object.create(Object(options), { timeZone: { value: 'UTC' } })];
+const renderIntl = Object.create(Intl, { DateTimeFormat: { value: new Proxy(Intl.DateTimeFormat, {
+  apply: (target, receiver, args) => Reflect.apply(target, receiver, utcFormatArgs(args)),
+  construct: (target, args, derived) => Reflect.construct(target, utcFormatArgs(args), derived),
+}) } });
 
 /** The renderer for one built dist: its server bundle compiled once. */
 export function renderer(dist) {
@@ -38,7 +44,8 @@ export function renderer(dist) {
   const root = ROOT?.index ?? -1, entry = shell.indexOf(ENTRY), rootAttrs = ROOT?.[1] ?? '';
   const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
   // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
-  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, html => `<html lang="${/ lang="([^"]*)"/.exec(html)?.[1] ?? 'en'}" dir="ltr">`) + `<script>${capture}</script>\n`
+  const language = /<html[^>]* lang="([^"]*)"/.exec(shell)?.[1] || 'en-US';
+  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, `<html lang="${language}" dir="ltr">`) + `<script>${capture}</script>\n`
     + (preload ? shell.slice(stop, root) : shell.slice(stop, root).replace(/<link rel="modulepreload" href="[^"]*">\n/g, ''));
   /** A render begun: its route's policy and the page's head, known before
    * any data is asked; `finish` settles it and composes the rest. */
@@ -49,7 +56,7 @@ export function renderer(dist) {
     const url = new URL(location, 'http://render.invalid');
     const ctx = vm.createContext({
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
-      navigator: { onLine: true, language: 'en' },
+      navigator: { onLine: true, language }, Intl: renderIntl,
       getComputedStyle: () => ({ fontSize: '16px' }), devicePixelRatio: 1,
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
