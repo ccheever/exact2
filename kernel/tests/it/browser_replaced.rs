@@ -13,6 +13,9 @@ use exact_kernel::{GridTrack, GridTracks, Kernel, NodeType, Op, PropId};
 
 type Frames = &'static [[f32; 4]];
 
+#[path = "browser_replaced_minimum.rs"]
+mod minimum;
+
 /// (name, root rows, element rows, element count, Chrome's frames for
 /// canvas, iframe, video, svg).
 const CASES: &[(&str, &str, &str, u32, [Frames; 4])] = &[

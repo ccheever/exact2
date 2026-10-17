@@ -1095,16 +1095,19 @@ layout tests, which read the unrounded one.
 
 A replaced block child with a cyclic percentage width or max-width contributes
 zero to its ancestor's min-content width, floored by its authored inline minimum
-and padding/border, with margins added (CSS Sizing 3 §5.2.1). The contribution
-is computed before a definite height can transfer through the ratio. The child's
-own content size and final layout are unchanged. Chrome 151 also compresses
-`calc()` widths containing percentages to zero; the current specification instead
-resolves their percentage term against zero.
+and padding/border, with margins added (CSS Sizing 3 §5.2.1). Cyclic percentages
+in the minimum resolve against zero, preserving length terms in `calc()` and
+comparison functions. The contribution is computed before a definite height can
+transfer through the ratio. The child's own content size and final layout are
+unchanged. Chrome 151 also compresses `calc()` widths containing percentages to
+zero; the current specification instead resolves their percentage term against zero.
 
 **Held by** `browser_replaced::replaced_content_contributions_distinguish_items_from_descendants`:
 Chrome 151 frames for canvas, iframe, video, unsized SVG and loaded images, with
 width/max-width percentages, calc, minimum and fixed sizes, padding, border and
 margins. Direct flex items keep their own content minimum.
+`browser_replaced::minimum` holds percentage-containing minima and the padding/border
+floor under both box-sizing modes against Chrome 151 frames for the same five tags.
 
 ## Cargo workspace boundary
 

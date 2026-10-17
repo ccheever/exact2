@@ -974,7 +974,8 @@ fn determine_content_based_container_width(
             let cyclic = style.size().width.into_raw().uses_percentage()
                 || style.max_size().width.into_raw().uses_percentage();
             cyclic.then(|| {
-                let min = style.min_size().width.maybe_resolve(None, |val, basis| tree.calc(val, basis));
+                // Resolve cyclic percentages in the minimum against zero, preserving its length terms.
+                let min = style.min_size().width.maybe_resolve(Some(0.0), |val, basis| tree.calc(val, basis));
                 let inset = if style.box_sizing() == BoxSizing::ContentBox { item.padding_border_sum.width } else { 0.0 };
                 min.unwrap_or(0.0) + inset
             })
