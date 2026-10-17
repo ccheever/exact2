@@ -1,7 +1,7 @@
 # LLP 1126: System surfaces — an app's views outside its window
 
 **Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built until Charlie has read it)
-**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Charlie ruled questions 1 to 3 on 2026-10-17 (§0); questions 4 and 5 wait for a panel, 6 to 9 are open. Not in `llp/current/`, which holds 15 of 15.
+**Status:** Draft r2, 2026-10-17. r1 was reviewed blind, on direction only, by Claude Fable 5.1 (xhigh), GPT-6 Astra (max) and Grok 4.7 (xhigh); all three READY WITH CHANGES (`llp/reviews/1126-system-surfaces.{fable,astra,grok}.md`). Muse Wonder was asked for and unavailable (its quota exhausted until 2026-10-19). r2 takes their foundational findings; §R lists each and where it went. Charlie ruled questions 1 to 3 and 6 to 9 on 2026-10-17 (§0); questions 4 and 5 wait for a panel. Not in `llp/current/`, which holds 15 of 15.
 **Systems:** a new SwiftUI renderer in the Apple host (`host/apple/Sources`), a presenter-free session composition (`ExactKit`'s `ExactSession`), the app manifest (`scripts/app.schema.json`), the bake and the schema's admission columns (`contract/cli`, `kernel/tables/schema.json`), the envelope's plans (LLP 1031 D1), the store and the update store across processes (`update/src/store.rs`, LLP 1018), the Apple build's packaging (`host/apple/build.mjs`), the agent (`scripts/agent.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-17 (r1, r2)
@@ -22,6 +22,21 @@ Charlie, 2026-10-17, on §7:
   bring-up starts beside stage 0, complications come with the snapshot
   driver, and the live driver and the watch app are a stage of their own,
   not a conditional one.
+- **Question 6, a widget's write and an open app:** "rec ok", as recommended
+  that day: the app re-asks at foreground and, while it runs, on a Darwin
+  notification each commit posts (D8), which the Mac needs, where a widget
+  and its app's window are on screen together.
+- **Question 7, the first consumer:** "interview", for every stage. Interview
+  ships on iOS and macOS, has a TypeScript data module (`app.ts`) and signed-in
+  account data, so stage 0 measures a refresh under Hermes and the Lock
+  Screen before first unlock on the real consumer, and stage 0's fidelity
+  baseline is a hand-built SwiftUI widget for Interview.
+- **Question 8, apparatus:** "rec ok": the gallery, the agent's surface
+  addressing and the async-lane extension test are approved, with the final
+  set decided at stage 1 (if Q5 shows the archive's refusal is observable,
+  the gallery may be unneeded).
+- **Question 9, the working set:** "rec ok": this RFC enters `llp/current/`
+  when stage 0 starts, and LLP 1112 (parked 2026-10-07) leaves it then.
 - **Questions 4 and 5:** waiting for a panel (Astra, Grok, Fable).
 
 ## Summary
@@ -344,13 +359,14 @@ whole invocation, and never fetches, selects or repairs one.
 
 **Two writers, one store.** An intent commits in the extension while the app
 may be running. The store's writes stay transactional across processes, and
-each commit bumps a generation counter in the container. The app, at
-foreground and on that counter moving, re-asks the resources that read the
-store (the existing `data_ready` path); after a commit that touches a
+each commit bumps a generation counter in the container and posts a Darwin
+notification (a cross-process ping with no payload). The app, at foreground
+and, while it runs, on that ping, re-asks the resources that read the store
+(the existing `data_ready` path) if the counter moved; after a commit that touches a
 surface's inputs it reloads that surface's timelines. The answer stays a pull
 (LLP 1016.002); there is no shared heap and no reactive shared store. A
-widget's write reaches an open app at its next foreground, not at once (§7,
-question 6).
+widget's write reaches the app when it next comes to the front, or at once
+if it is running (§0, question 6).
 
 **The render touches no secret.** A Lock Screen surface can render before
 first unlock, when the Keychain's usual class is unavailable. Secrets are
@@ -485,13 +501,13 @@ yes; §7, question 8 asks for it.
 ## 5. Stages
 
 0. **Probes, as a decision gate.** Throwaway, on a simulator and the oldest
-   supported iPhone, against a hand-built SwiftUI widget for Caltrain as the
+   supported iPhone, against a hand-built SwiftUI widget for Interview as the
    fidelity baseline (the reference for "would someone who knows the
    platform notice?"). Q1 to Q5 (§8), each with its kill line (D4, D8). The
    probes exercise a real archived widget and a minimal Live Activity
    region, not the gallery. Past a kill line the stage ends with a report and
    a fallback proposal, not a workaround.
-1. **The snapshot driver and iPhone widgets** for one app: D2–D8, D14.
+1. **The snapshot driver and iPhone widgets** for Interview (§0): D2–D8, D14.
    StandBy, CarPlay, HomeView and the Mac show them with no other code.
 2. **Live Activities and interactive widgets**: D7's intents and D9, updated
    by the running app. The watch's Smart Stack and the Mac's menu bar mirror
@@ -518,7 +534,7 @@ Templates (D11) and Android (D13) are their own RFCs.
   and no renderer. It loses on what this repository is for: the author (often
   an agent) writes a second language and a second layout model, the agent
   cannot drive what it wrote, and nothing ports to Android. It is D4's
-  fallback, and its hand-built Caltrain widget is stage 0's baseline.
+  fallback, and its hand-built Interview widget is stage 0's baseline.
 - **A render-only extension.** The app, or a refresh helper, writes a display
   list; a Swift-only inflater draws it, and the extension links no kernel or
   runner. It wins if Q3 fails. It loses otherwise: the system picks size,
@@ -541,14 +557,11 @@ Templates (D11) and Android (D13) are their own RFCs.
 5. **Live Activity pushes.** Admit ActivityKit push tokens, the app's own
    backend sending and exact2 relaying nothing, as a scoped exception to the
    push refusal. Proposed: decide at stage 2; stage 2 ships without it.
-6. **A widget's write and an open app.** Visible at the app's next
-   foreground (D8), not at once. Proposed: yes.
-7. **The first consumer.** Caltrain (public timetable, no secrets, a
-   countdown) is proposed for stages 0 and 1; an app that ships to users
-   (Expo Services, Interview) for stage 2.
-8. **Apparatus.** The gallery, the agent's surface addressing, and the
-   async-lane extension test (D14). Proposed: yes, at stage 1.
-9. **The working set.** If this enters `llp/current/`, which document leaves.
+6. **A widget's write and an open app.** Ruled (§0): at foreground, and at
+   once while the app runs.
+7. **The first consumer.** Ruled (§0): Interview.
+8. **Apparatus.** Ruled (§0): approved; the set is decided at stage 1.
+9. **The working set.** Ruled (§0): enters at stage 0, LLP 1112 leaves.
 
 ## 8. Open technical questions (stage 0)
 
@@ -564,7 +577,7 @@ Templates (D11) and Android (D13) are their own RFCs.
 - **Q3. A session in an extension.** Against the measured ceiling: peak
   memory, cold refresh and cold intent time, for a pruned plan, with a
   20-entry timeline times its variants, and for a TypeScript app's refresh
-  under Hermes as well as Caltrain's Rust; an app and an extension writing
+  under Hermes (Interview's `app.ts`); an app and an extension writing
   the store at once.
 - **Q4. One framework.** The app's launch with the runtime in a shared
   dynamic framework against today's static archive, and link-by-use (LLP
