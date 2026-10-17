@@ -136,7 +136,7 @@ action step
 text `${now}`
 ```
 ### keeping a value
-Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB, read before the first frame. Records belong in a source (`files-and-grants`).
+Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records belong in a source (`files-and-grants`).
 ```contract
 state units = "C" persist
 ```
@@ -172,7 +172,7 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` keeps the screenshots. A screen no test ends on is unchecked.
+By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` keeps screenshots. A screen no test ends on is unchecked.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"
@@ -181,7 +181,7 @@ test "a pick survives a relaunch"
   expect text "n" == "1"
 ```
 ### composing a screen
-One focal point. Emphasis is a part (above), not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, the bar's field, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering as you type. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
 ```contract
 use SummaryCard from "exact:content"
 column gap=16 padding=16

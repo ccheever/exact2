@@ -13,6 +13,8 @@ export const x_first = l => l.length ? l[0] : null;
 export const x_at = (l, i) => { const v = l.at(i); return v === undefined ? null : v; };
 // LLP 1102 §3.1–§3.4 (runner/src/stdlib.rs `js_round`, `parse_number`, `calendar_diff`).
 export const x_ceil = Math.ceil, x_round = Math.round;
+// The native runners' `libm` and the engine's `Math` may differ in the last bits (format.json `sin`).
+export const x_sin = Math.sin, x_cos = Math.cos;
 /** `parseNumber`: `trim`'s whitespace, a sign, digits and an optional fraction (or a fraction alone), an optional exponent;
  * `Number()`'s correctly rounded value, or null for other text, a result past the largest finite, or a nonzero numeral
  * that rounds to zero. `\d` without the `u` flag is ASCII only, as the runner's grammar is. */

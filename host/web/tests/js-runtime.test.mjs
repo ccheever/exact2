@@ -351,6 +351,19 @@ test('a mutation answered at once forces the async read it refreshes', async () 
   expect([doc(), doc.p()]).toEqual([1, false]);
 });
 
+// `sin` and `cos` are `Math`'s; `sum` is `reduce((a, x) => a + x, 0)`, a list step an item on the caller's budget, as
+// the runner's `list_call` counts it.
+test('sin, cos and sum compute as the runner does, and sum steps on the budget', async () => {
+  const { x_sin, x_cos } = await import(resolve(dir, 'roster.js'));
+  const budget = await import(resolve(dir, 'budget.js'));
+  expect([x_sin(0), x_cos(0), x_sin(1), x_cos(1)]).toEqual([0, 1, 0.8414709848078965, 0.5403023058681398]);
+  expect([budget.x_sum([1, 2, 3], 0, 7), budget.ST]).toEqual([6, 3]);
+  expect(budget.x_sum([0.1, 0.2, 0.3], 0, 7)).toBe(0.6000000000000001);
+  expect(Object.is(budget.x_sum([-0], 0, 7), 0)).toBe(true);
+  expect(budget.x_sum([], 0, 7)).toBe(0);
+  expect(() => budget.x_sum([1, 2], 65535, 7)).toThrow('IterationLimit');
+});
+
 
 // Optimistic writes (overlay.js): a send shows through the source's overlay in its commit and asks nothing; the
 // write shows until an answer asked after its landing has it; one that fails disappears at once and the read is asked

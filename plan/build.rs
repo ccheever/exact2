@@ -250,6 +250,7 @@ fn validate(schema: &Schema) {
                             | "list<Router>"
                             | "list<Entry>"
                             | "list<string>"
+                            | "list<number>"
                             | "option<string>"
                             | "option<number>"
                     ),

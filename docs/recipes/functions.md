@@ -11,9 +11,9 @@ are called on their value (`s.trim()`, `xs.length`); the rest as functions (`fir
 - **Lists:** `x.length` and `x.isEmpty()` (text too) · `xs.map((x, i) => y) -> U[]` ·
   `xs.filter(x => bool)` · `first(xs) -> option<T>` · `xs.at(i) -> option<T>` ·
   `xs.slice(start, end?)` · `xs.concat(ys)` · `xs.includes(x) -> bool` ·
-  `xs.indexOf(x) -> number` · `xs.join(sep) -> string`.
-- **Numbers:** `floor(n)` · `ceil(n)` · `round(n)` · `min(a, b)` · `max(a, b)`; the
-  operators `+ - * / %`.
+  `xs.indexOf(x) -> number` · `xs.join(sep) -> string` · `sum(xs)`.
+- **Numbers:** `floor(n)` · `ceil(n)` · `round(n)` · `min(a, b)` · `max(a, b)` ·
+  `sin(rad)` · `cos(rad)` · `+ - * / %`.
 - **Formatting:** `formatNumber(n, "decimal" | "percent" | "compact")` ·
   `formatNumber(n, "currency", "USD")` · `n.toFixed(digits)` · `formatDecimal(cents, 2)` ·
   `formatDate(ms, offset, "medium" | "month-year" | "iso")` · `formatTime(ms, offset, "short")` ·
@@ -41,5 +41,5 @@ What the web has and Contract doesn't is a composition, or the data module's job
   `xs.map(p).indexOf(true)`.
 - A count chooses its noun by the number: `${n} ${n == 1 ? "book" : "books"}`, never "1 books"
   (`lower-count-plural`).
-- Sorting, grouping, sums and other maths (`sort`, `reduce`, `pow`, `abs`) are the data module's:
-  it answers the view the result. Upper case is CSS: `text-transform="uppercase"`.
+- Sorting, grouping, folds and other maths (`sort`, `reduce`, `pow`, `abs`) are the data module's.
+  Upper case is CSS: `text-transform="uppercase"`.

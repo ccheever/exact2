@@ -1529,6 +1529,24 @@
       "params": ["number", "number", "number", "\"day\" | \"day-time\" | \"list\""],
       "returns": "string",
       "_comment": "@ref LLP 1116.020 D8: a day's label for (thenMs, nowMs, utcOffset), en-US. The days are the offset's calendar days, as `formatDate`'s are (one fixed offset for both instants: a DST change between them is not applied). `day` is `Today`, `Yesterday` or `Tomorrow`, else `formatDate`'s `medium`; `day-time` adds ` at ` and `formatTime`'s `short` (`Today at 4:42 PM`, `Oct 11, 2026 at 4:42 PM`); `list` is Mail's and Notes' list label: `formatTime`'s `short` today, `Yesterday`, the weekday's name two to six days back, else the numeric short date of Intl.DateTimeFormat(\"en-US\", { dateStyle: \"short\" }) (`10/11/26`), a later day's included. `\"\"` when either instant is invalid as `formatDate` judges one (LLP 1054.000.003 D7). Pure: the app passes its own `now`. The linked capability `format`."
+    },
+    {
+      "name": "sin",
+      "params": ["number"],
+      "returns": "number",
+      "_comment": "@ref LLP 1017.003 §Refused (2026-10-17): JavaScript's `Math.sin` and CSS's `sin()`, of radians. The native runners compute it with `libm` (`exact_motion::math`), the same bits on every target; the web's JS target is `Math.sin`, which ECMA-262 lets differ in the last bits. NaN and the infinities are NaN."
+    },
+    {
+      "name": "cos",
+      "params": ["number"],
+      "returns": "number",
+      "_comment": "@ref LLP 1017.003 §Refused (2026-10-17): JavaScript's `Math.cos` and CSS's `cos()`, of radians, computed as `sin` is."
+    },
+    {
+      "name": "sum",
+      "params": ["list<number>"],
+      "returns": "number",
+      "_comment": "@ref LLP 1017.003 §Refused (2026-10-17): a list of numbers added left to right from +0, exactly `xs.reduce((a, x) => a + x, 0)`: `[]` is 0, `[-0]` is +0, a NaN or opposite infinities make NaN. A step an item on the evaluation's list budget, as `includes` takes (LLP 1088 §9.1). Not `Math.sumPrecise`, which rounds once."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",
