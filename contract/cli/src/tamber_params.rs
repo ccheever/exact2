@@ -22,6 +22,9 @@ pub struct AppParams {
     /// Each source's file, by source id, as a diagnostic names it: relative
     /// to the app's directory where it is inside it.
     pub files: Vec<String>,
+    /// The app's Contract did not load (the build says why): its params are
+    /// unknown, not none.
+    pub failed: bool,
 }
 
 /// The app's params, loaded from `app_contract`; none when it has no
@@ -49,8 +52,12 @@ pub fn params_of(app_contract: &Path) -> AppParams {
                         .into_owned()
                 })
                 .collect(),
+            failed: false,
         },
-        Err(_) => AppParams::default(),
+        Err(_) => AppParams {
+            failed: true,
+            ..AppParams::default()
+        },
     }
 }
 

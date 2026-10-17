@@ -148,8 +148,10 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     // What the compiler refuses of a design beyond the crate's check (a
     // CSS word as a name, a role that varies by an axis …), as a build would.
-    // An app with params is built itself, as it builds its design.
-    let refused = match admission(&src, (!params.is_empty()).then_some(built)) {
+    // An app with params is built itself, as it builds its design; so is
+    // one whose Contract did not load (its params are unknown), so the
+    // build says why.
+    let refused = match admission(&src, (!params.is_empty() || app.failed).then_some(built)) {
         Ok(refused) => refused,
         Err(why) => {
             eprintln!("contract tamber: {why}");

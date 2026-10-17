@@ -322,3 +322,95 @@ component Swatch
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn the_third_re_check_lets_in_sources_failed_loads_unnamed_packages_and_conditions() {
+    // A child's source behind a shared derive: the param is the symbol's.
+    let shared = r##"component App
+  params
+    glyph: icon = "icon(sf \"heart\")"
+  state show = true
+  view
+    Child(glyph="param.glyph", show=show)
+component Child
+  props
+    glyph: string
+    show: bool
+  derive flag = show
+  derive picture = flag ? `symbol:${glyph}` : (flag ? "symbol:star" : "symbol:heart")
+  view
+    image picture
+"##;
+    let path = app("let-source", &[("app.contract", shared)]);
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    // A Contract that does not load: check builds it and says why.
+    let spare = "component App\n  params\n    fill: color = \"#ffffff\"\n    spare: color = \"#000000\"\n  view\n    text \"x\" color=\"param.fill\"\n";
+    let path = app(
+        "failed",
+        &[("app.contract", spare), ("app.tamber", "tamber t\n")],
+    );
+    let (ok, _, err) = tamber(&["check"], &path);
+    assert!(!ok && err.contains("tamber-param-unused"), "{err}");
+    // A param in an image source's condition is a computation: refused.
+    let cond = r##"component App
+  params
+    fill: color = "#ffffff"
+  view
+    column background-color="param.fill"
+      image ("param.fill" == "#ffffff" ? "symbol:heart" : "symbol:star")
+"##;
+    let path = app("img-cond", &[("app.contract", cond)]);
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-param-scope", "{e:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn two_unnamed_packages_outside_the_app_are_two_identities() {
+    let root = std::env::temp_dir().join(format!("exact2-tools-unnamed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    for (lib, px) in [("a", "4px"), ("b", "8px")] {
+        let dir = root.join("libs").join(lib);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"exports": {".": "./index.contract"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("index.contract"),
+            format!("component Card\n  params\n    radius: length = \"{px}\"\n  view\n    column border-radius=\"param.radius\"\n      text \"c\"\n"),
+        )
+        .unwrap();
+    }
+    let app_dir = root.join("app");
+    std::fs::create_dir_all(app_dir.join("node_modules")).unwrap();
+    std::fs::write(
+        app_dir.join("package.json"),
+        r#"{"name": "app", "dependencies": {"a": "*", "b": "*"}}"#,
+    )
+    .unwrap();
+    for lib in ["a", "b"] {
+        std::os::unix::fs::symlink(
+            root.join("libs").join(lib),
+            app_dir.join("node_modules").join(lib),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        app_dir.join("app.contract"),
+        "use Card as A from \"a\"\nuse Card as B from \"b\"\n\ncomponent App\n  view\n    column\n      A()\n      B()\n",
+    )
+    .unwrap();
+    let path = app_dir.join("app.contract");
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let params = contract::tamber_params::params_of(&path);
+    let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "../libs/a/index.contract#Card",
+            "../libs/b/index.contract#Card"
+        ]
+    );
+}

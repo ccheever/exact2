@@ -3129,7 +3129,7 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     file, below the app's own, whose `package.json` has a name (under `node_modules`, linked from
     elsewhere, or vendored). It is read from where the file is, never the route a `use` took, so
     two routes, aliases or links to one package are one identity. A package with no name is named
-    by its place under the app. A source text with no path is `app.contract`.
+    by its place from the app (`../libs/a/index.contract` outside it). A source text with no path is `app.contract`.
   - Every refusal names the full name, never the hash: the lowering's errors pass through
     `params::shown`, every param's (a bad kind's too). `contract types` names no param, and
     `describe`, `contract tamber ir` and the design's checks fold the params with the design but

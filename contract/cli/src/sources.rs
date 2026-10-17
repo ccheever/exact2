@@ -225,9 +225,18 @@ fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
     }
     match origin {
         Origin::Builtin => path.to_string_lossy().into_owned(),
-        _ => path
-            .file_name()
-            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+        // Outside the app, in no named package: by its place from the app
+        // (`../libs/a/index.contract`), never its file name alone.
+        _ => {
+            let (a, p): (Vec<_>, Vec<_>) =
+                (app.components().collect(), path.components().collect());
+            let common = a.iter().zip(&p).take_while(|(x, y)| x == y).count();
+            let up = std::iter::repeat_n("..".to_string(), a.len() - common);
+            let down = p[common..]
+                .iter()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned());
+            up.chain(down).collect::<Vec<_>>().join("/")
+        }
     }
 }
 

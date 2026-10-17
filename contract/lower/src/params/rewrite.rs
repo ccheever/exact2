@@ -47,13 +47,23 @@ fn symbolic(e: &Expr) -> bool {
     }
 }
 
-/// Each part of an image's source `e` with whether it is a symbol's: a
-/// `?:`'s branches apart (its condition no source), so a URL branch is
-/// left as written beside a symbol's.
-fn source_parts(e: &mut Expr, f: &mut dyn FnMut(&mut Expr, bool)) {
+/// What a part of an image's source is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// A symbol's (`symbol:…`), a row's value.
+    Symbol,
+    /// A URL or an asset's path: no row, left as written.
+    Url,
+    /// A condition, a `match` subject or a `let`'s value: a computation.
+    Data,
+}
+
+/// Each part of an image's source `e`: a `?:`'s branches and a `match`'s
+/// arms apart, so a URL branch is left as written beside a symbol's.
+fn source_parts(e: &mut Expr, f: &mut dyn FnMut(&mut Expr, Part)) {
     match e {
         Expr::Ternary(c, a, b, _) => {
-            f(c, false);
+            f(c, Part::Data);
             source_parts(a, f);
             source_parts(b, f);
         }
@@ -63,15 +73,25 @@ fn source_parts(e: &mut Expr, f: &mut dyn FnMut(&mut Expr, bool)) {
             none,
             ..
         } => {
-            f(subject, false);
+            f(subject, Part::Data);
             source_parts(some, f);
             source_parts(none, f);
         }
+        // An expansion's shared derive: its value read by name.
+        Expr::Let { value, body, .. } => {
+            f(value, Part::Data);
+            source_parts(body, f);
+        }
         // `"symbol:" + …`: a symbol's, as its first string says.
-        Expr::Binary(BinOp::Add, a, _, _) if leftmost(a).is_some_and(symbolic) => f(e, true),
+        Expr::Binary(BinOp::Add, a, _, _) if leftmost(a).is_some_and(symbolic) => {
+            f(e, Part::Symbol)
+        }
         _ => {
-            let symbol = symbolic(e);
-            f(e, symbol)
+            let part = match symbolic(e) {
+                true => Part::Symbol,
+                false => Part::Url,
+            };
+            f(e, part)
         }
     }
 }
@@ -281,7 +301,7 @@ fn walk(e: &mut Expr, value: bool, quoted: bool, f: &mut Visit<'_>) {
 /// each image's `symbol:` source, and each argument to another component
 /// (the param passes to it: [`reached`] refuses one the child reads
 /// otherwise than as a row's value).
-fn view(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr)) {
+fn view(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr, bool)) {
     for node in list {
         match node {
             Node::Element {
@@ -291,23 +311,22 @@ fn view(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr)) {
                 children,
                 ..
             } => {
+                // An image's source: a symbol's part is a row's value, a
+                // condition a computation, a URL left as written.
+                let mut part = |e: &mut Expr, p: Part| match p {
+                    Part::Symbol => visit(e, true),
+                    Part::Data => visit(e, false),
+                    Part::Url => {}
+                };
                 for a in attrs.iter_mut().filter(|a| row(tag, &a.name)) {
                     match source(tag, &a.name) {
-                        true => source_parts(&mut a.value, &mut |e, symbol| {
-                            if symbol {
-                                visit(e)
-                            }
-                        }),
-                        false => visit(&mut a.value),
+                        true => source_parts(&mut a.value, &mut part),
+                        false => part(&mut a.value, Part::Symbol),
                     }
                 }
                 if sourced(tag) {
                     if let Some(p) = positional.first_mut() {
-                        source_parts(p, &mut |e, symbol| {
-                            if symbol {
-                                visit(e)
-                            }
-                        });
+                        source_parts(p, &mut part);
                     }
                 }
                 view(children, visit);
@@ -325,7 +344,7 @@ fn view(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr)) {
             }
             Node::Use { args, children, .. } => {
                 for a in args.iter_mut() {
-                    visit(&mut a.value);
+                    visit(&mut a.value, true);
                 }
                 view(children, visit);
             }
@@ -347,16 +366,17 @@ fn everything(list: &mut [Node], visit: &mut dyn FnMut(&mut Expr, bool)) {
                 children,
                 ..
             } => {
+                let mut part = |e: &mut Expr, p: Part| visit(e, p == Part::Symbol);
                 for a in attrs.iter_mut() {
                     match (row(tag, &a.name), source(tag, &a.name)) {
-                        (true, true) => source_parts(&mut a.value, visit),
-                        (row, _) => visit(&mut a.value, row),
+                        (true, true) => source_parts(&mut a.value, &mut part),
+                        (row, _) => part(&mut a.value, if row { Part::Symbol } else { Part::Data }),
                     }
                 }
                 for (i, p) in positional.iter_mut().enumerate() {
                     match sourced(tag) && i == 0 {
-                        true => source_parts(p, visit),
-                        false => visit(p, false),
+                        true => source_parts(p, &mut part),
+                        false => part(p, Part::Data),
                     }
                 }
                 everything(children, visit);
@@ -509,8 +529,8 @@ fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
     };
     let mut bad: Vec<(String, Span)> = Vec::new();
     let mut scope: Vec<LowerError> = Vec::new();
-    view(&mut c.view, &mut |e| {
-        texts(e, true, &mut |s, at| {
+    view(&mut c.view, &mut |e, value| {
+        texts(e, value, &mut |s, at| {
             if at.quoted {
                 // Part of a quoted name: left as written.
             } else if at.value {
@@ -563,8 +583,8 @@ fn rewrite_component(c: &mut Component, errors: &mut Vec<LowerError>) {
 /// The param token names a component's rows read.
 fn read(c: &mut Component) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    view(&mut c.view, &mut |e| {
-        texts(e, true, &mut |s, at| {
+    view(&mut c.view, &mut |e, value| {
+        texts(e, value, &mut |s, at| {
             if at.value && !at.quoted {
                 out.extend(
                     s.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
