@@ -194,8 +194,11 @@ struct Server {
     /// The app's synthetic tokens (LLP 1121 D3), by the digest of the
     /// Contract sources they were read from, with the retention its plan
     /// keeps tokens by (D7), read by the same build.
-    synthetic: Option<(String, Vec<(String, bool)>, Option<exact_tamber::Retention>)>,
+    synthetic: Option<Synthetic>,
 }
+
+/// A digest, its synthetic token expressions, and the plan's retention.
+type Synthetic = (String, Vec<(String, bool)>, Option<exact_tamber::Retention>);
 
 /// Open without following a symbolic link at the last component.
 fn no_follow(options: &mut OpenOptions) -> &mut OpenOptions {
