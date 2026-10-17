@@ -6,8 +6,36 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
-import { launchFacts } from './agent-launch.mjs';
+import { chromium, launchFacts } from './agent-launch.mjs';
+import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
+
+need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
+    '<!doctype html><main id="exact-root" data-boot-ms="0"></main><script>globalThis.exact = {ready: Promise.resolve(), agentSettled: async () => ({})};</script>',
+    { headers: { 'content-type': 'text/html' } },
+  ) });
+  let session;
+  try {
+    session = await open({ host: 'web', url: server.url.href });
+    const { evaluate, call } = session.carrier;
+    const input = () => evaluate(() => Object.fromEntries(
+      ['pointer', 'any-pointer', 'hover', 'any-hover'].map(feature => [feature,
+        (feature.endsWith('pointer') ? ['none', 'coarse', 'fine'] : ['none', 'hover'])
+          .filter(value => matchMedia(`(${feature}: ${value})`).matches)]),
+    ));
+    const desktop = { pointer: ['fine'], 'any-pointer': ['fine'], hover: ['hover'], 'any-hover': ['hover'] };
+    assert.deepEqual(await input(), desktop);
+    await session.prefer({ 'prefers-color-scheme': 'dark' });
+    await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 20, y: 20 }] });
+    await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    assert.deepEqual(await input(), desktop);
+    await call('Emulation.setTouchEmulationEnabled', { enabled: true });
+    assert.deepEqual(await input(), { pointer: ['coarse'], 'any-pointer': ['coarse'], hover: ['none'], 'any-hover': ['none'] });
+  } finally {
+    try { await session?.close(); } finally { server.stop(true); }
+  }
+}, 30_000);
 
 test('malformed input is labelled before delivery; a state refusal is not', async () => {
   const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},

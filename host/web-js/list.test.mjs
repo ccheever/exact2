@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Cdp } from '../../scripts/agent.mjs';
-import { chromium } from '../../scripts/agent-launch.mjs';
+import { chromium, DESKTOP_INPUT } from '../../scripts/agent-launch.mjs';
 import { need } from '../../scripts/coverage.mjs';
 
 const { executable: chrome, unavailable } = chromium();
@@ -22,7 +22,7 @@ beforeAll(async () => {
       headers: { 'content-type': path.endsWith('.js') ? 'text/javascript' : 'text/html' },
     });
   }});
-  child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  child = spawn(chrome, ['--headless=new', DESKTOP_INPUT, '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
   cdp = new Cdp(child.stdio[3], child.stdio[4]);
   child.on('exit', () => cdp.fail('Chrome closed'));
   const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });

@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
-import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
+import { chromium, DESKTOP_INPUT, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
 import { withLook } from '../look.mjs';
@@ -218,11 +218,8 @@ function browser() {
   if (launched) return launched;
   const started = launched = (async () => {
     const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-    // The renderer uses Viewport::default(): a fine pointer with hover. Headless
-    // Linux without input devices reports none; parity needs the same input facts
-    // (Blink's PointerType 4 is fine, HoverType 2 is hover).
     const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
-      '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2',
+      DESKTOP_INPUT,
       `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
       '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
     { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });

@@ -298,6 +298,10 @@ export function launchFailure(error, log, { alive, chrome, env = process.env }) 
   return new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${lines.map(l => '  chrome: ' + l).join('\n') || '  (it printed nothing)'}${socket || (alive ? '' : '\nSet CHROME to a browser that runs here.')}`);
 }
 
+// Desktop input, matching Viewport::default() even on headless Linux without devices.
+// Blink's ui::PointerType fine is 4; ui::HoverType hover is 2. CDP emulation can override them.
+export const DESKTOP_INPUT = '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2';
+
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */
