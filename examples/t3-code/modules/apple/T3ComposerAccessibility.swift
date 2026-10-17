@@ -51,13 +51,20 @@ class T3ComposerChipElement: NSAccessibilityElement {
         return NSAccessibility.unignoredAncestor(of: container) ?? super.accessibilityParent()
     }
 
-    /// A link (a citation's source link, a thread chip) leads to itself. VoiceOver follows a link it pressed (VO-Space) to
-    /// the link's linked elements; with none, it took the element that appeared within about half a second of the press,
-    /// the 'Scroll to end' pill as a citation's press scrolled the timeline off its end, and the keyboard focus followed
-    /// (measured; a button's press, another client's AXPress, or the pill appearing later kept it). The reference keeps
-    /// VoiceOver on the citation's link; its thread chip is a link too (ThreadContextChip.tsx), whose press opens the thread.
+    /// VoiceOver follows a link it pressed (VO-Space) to the link's linked elements; with none, it took the element that
+    /// appeared within about half a second of the press, the 'Scroll to end' pill as a citation's press scrolled the
+    /// timeline off its end, and the keyboard focus followed (measured; a button's press, another client's AXPress, or the
+    /// pill appearing later kept it). A citation's source link leads to itself: the reference keeps VoiceOver on it.
+    /// A thread chip (ThreadContextChip.tsx's Link) leads to the prompt. Its press opens the thread: the new thread's draft
+    /// replaces the old one in the same text view, which keeps the focus, and the chip goes with the old draft. Leading to
+    /// itself, it took VoiceOver's cursor with it to the window's first element, and nothing read the prompt. T3 Code
+    /// focuses the composer when the thread changes (ChatView.tsx:6569-6577), and its VoiceOver reads the new thread's
+    /// empty Message (measured). A focus change posted for the prompt after the switch, even a resign and refocus, is not
+    /// followed, as the focus never left it (measured).
     override func accessibilityLinkedUIElements() -> [Any]? {
-        accessibilityRole() == .link ? [self] : super.accessibilityLinkedUIElements()
+        guard accessibilityRole() == .link else { return super.accessibilityLinkedUIElements() }
+        if part == .chip, let prompt = styler?.view { return [prompt] }
+        return [self]
     }
 
     override func accessibilityFrame() -> NSRect {

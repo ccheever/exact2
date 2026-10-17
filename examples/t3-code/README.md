@@ -401,20 +401,18 @@ closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view 
 and a placeholder change keeping a field's focus, failure 2, then #712, a context menu's item chosen
 by typing its name and Return pressing it), a session with real keys on the terminal, the
 real-input and VoiceOver sessions G to K, an agent drive and real-input session on the bundle
-of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2` and `966bb0d79`, each with
-the fixtures below. Each item says what is wrong or missing; the open framework issues that
-someone using the app runs into are in the section above.
-
-**Failures** (2026-10-17, bundle of `dd7643a86` unless a row names another):
-
-- VO-Space on a composer thread chip ('link, Thread, Turn with file edits') opens the thread, and
-  VoiceOver's cursor then lands on 'Go to threads, button', the window's first element, while the
-  keyboard focus is on the new thread's empty Message (3 of 3, bundle of `3d6c75ad2`, where the chip
-  leads to itself as the citation link does). The chip leaves with the old draft, so the element
-  VoiceOver follows the link to is gone. Not measured before `3d6c75ad2`, nor on the reference.
+of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2`, `c067957ad` and `966bb0d79`,
+each with the fixtures below. Each item says what is wrong or missing; the open framework issues
+that someone using the app runs into are in the section above.
 
 **Known differences:**
 
+- After VO-Space on a composer thread chip, the reference's VoiceOver cursor ends on the window's close
+  button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
+  new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
+  has the keyboard focus, as VoiceOver's cursor does in an AppKit window. The clone also reads the old
+  draft's text as it leaves ("see Turn with file edits now"), VoiceOver's echo of text removed from
+  the focused text view; the reference reads nothing of it.
 - A right press on a flat sidebar draft row leaves the focus in the prompt, and one on a control
   inside a thread row (pin, snooze) focuses the row. Chromium focuses what was pressed: the draft
   row, a `role="button"` with a tabIndex (Sidebar.tsx:872-873), or the control.
@@ -609,6 +607,18 @@ then the window (session L's keyboard-opened run went back to Delete and 'Edit E
 Usage page's pinned popover by a real pointer: press on the segment, a press in its card keeps it,
 a press elsewhere closes it (2 of 2).
 
+**Checked with VoiceOver** (2026-10-17, bundle of `c067957ad`, `second` seeded with `--turns`; a lane
+copy): VO-Space on a composer thread chip ('link, Thread, Turn with file edits', in "see … now" on
+Notes branch thread) opens the thread; VoiceOver says "Message, edit text, Insertion at beginning of
+text." and stays on the new thread's empty Message, which has the keyboard focus, and VO-Right goes
+on to 'Default, collapsed, button' (3 of 3). The reference (the Electron oracle on an isolated home,
+its own server seeded with two threads, the chip picked from the `@` menu) says "Message, Ask for
+changes, send follow-ups, or attach images, list box pop up, text entry area, Insertion at beginning
+of text." with the keyboard focus on that prompt (3 of 3). The chip now leads to the prompt: leading
+to itself, it took VoiceOver's cursor to 'Go to threads' as it went with the old draft, and a focus
+change posted for the prompt after the switch was not followed (`98be292b9`, replaced). The citation
+chip's link still keeps VoiceOver on it ('lane note, selected'; 1 of 1).
+
 **Checked with VoiceOver** (2026-10-17, bundle of `8dd82dc72`): VO-Space on a composer citation
 chip's link, from the end of the thread, scrolls the timeline to the cited text and leaves
 VoiceOver on 'View cited assistant text: …, link', with the keyboard focus on the prompt, as in
@@ -677,8 +687,8 @@ context meter), the branch's PR glyph, and bold and italic font faces. Also:
   resize.
 - Escape on a git dialog or the Merge confirmation over the thread-details popover in a narrow
   window.
-- VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf and the
-  citation chip pass; the thread chip's result is under "Failures").
+- VO-Space on the chip kinds session K did not press (sample.py, an image, a video, doc.pdf, the
+  citation and the thread chip pass).
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
