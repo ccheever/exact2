@@ -29,7 +29,9 @@ mod command;
 pub mod conv;
 mod descriptor;
 mod device;
+// EXACT (EXACT-PATCHES.md, 11).
 mod drm;
+mod f16;
 mod instance;
 mod sampler;
 mod semaphore_list;
@@ -161,6 +163,8 @@ pub struct DebugUtilsMessengerUserData {
 }
 
 pub struct InstanceShared {
+    // EXACT (EXACT-PATCHES.md, 11): explicit native arithmetic-only opt-in.
+    f16_arithmetic: core::sync::atomic::AtomicBool,
     raw: ash::Instance,
     extensions: Vec<&'static CStr>,
     flags: wgt::InstanceFlags,
@@ -186,6 +190,7 @@ pub struct InstanceShared {
 impl fmt::Debug for InstanceShared {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
+            f16_arithmetic: _, // EXACT (EXACT-PATCHES.md, 11).
             raw: _,
             extensions,
             flags,
@@ -1269,7 +1274,48 @@ impl crate::DynRayTracingPipeline for RayTracingPipeline {}
 
 #[derive(Debug)]
 pub struct PipelineCache {
-    raw: vk::PipelineCache,
+    // EXACT (EXACT-PATCHES.md, 10): creations share access; snapshots exclude them.
+    raw: RwLock<vk::PipelineCache>,
+}
+
+// EXACT (EXACT-PATCHES.md, 10): keep access guards around the driver calls.
+impl PipelineCache {
+    fn with_creation<T>(cache: Option<&Self>, create: impl FnOnce(vk::PipelineCache) -> T) -> T {
+        let guard = cache.map(|cache| cache.raw.read());
+        create(guard.as_deref().copied().unwrap_or_default())
+    }
+
+    fn with_data<T>(&self, snapshot: impl FnOnce(vk::PipelineCache) -> T) -> T {
+        let guard = self.raw.write();
+        snapshot(*guard)
+    }
+}
+
+#[test]
+fn pipeline_cache_snapshot_excludes_creators() {
+    let cache = PipelineCache {
+        raw: RwLock::new(vk::PipelineCache::null()),
+    };
+    std::thread::scope(|scope| {
+        PipelineCache::with_creation(Some(&cache), |_| {
+            scope
+                .spawn(|| {
+                    PipelineCache::with_creation(Some(&cache), |_| {
+                        assert!(cache.raw.try_write().is_none());
+                    })
+                })
+                .join()
+                .unwrap();
+            assert!(cache.raw.try_write().is_none());
+        });
+        cache.with_data(|_| {
+            scope
+                .spawn(|| assert!(cache.raw.try_read().is_none()))
+                .join()
+                .unwrap();
+        });
+        assert!(cache.raw.try_read().is_some());
+    });
 }
 
 impl crate::DynPipelineCache for PipelineCache {}

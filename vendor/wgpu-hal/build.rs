@@ -1,7 +1,8 @@
 fn main() {
     // EXACT (EXACT-PATCHES.md, 3): `DEP_EXACT_WGPU_HAL_PATCHES` in the build
     // script of a crate that depends on this one directly (exact-gpu's).
-    println!("cargo::metadata=patches=2");
+    // EXACT (EXACT-PATCHES.md, 11): Android also requires the guarded f16 grant.
+    println!("cargo::metadata=patches=12");
     cfg_aliases::cfg_aliases! {
         native: { not(target_arch = "wasm32") },
         send_sync: { any(
