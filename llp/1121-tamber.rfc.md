@@ -3286,3 +3286,33 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
 - **Release** output is byte for byte the same where no type or family token varies.
 - Out of scope: Bold Text, and the weight and leading a text style implies where the token writes
   none (they stay the default tuple's literal).
+
+### Stage 7, commit E: the clone declares params (clone `d2406b4`, on its main)
+
+The Bluesky clone's `PostButton` declares `fill` and `height`, and its post action row
+(`Controls`) declares `gap`, `tint`, hit padding and `radius`, with groups, priorities, controls and
+`select` options. `Controls` passes `tint` to its glyph as the child's row value, which commit A
+admits. The defaults equal the literals they replaced, so the screens are unchanged.
+
+### Stage 7's gate: met (2026-10-17; the run is `~/x2theme/stage7-gate-run.txt`)
+
+The clone at `d2406b4` was run on exact2 `272f117e3`.
+
+| Gate line | Result |
+|---|---|
+| The clone's post action row and Post button declare params | **Met.** |
+| The design tool lists them by group and priority with their controls and `select` options | **Met through `describe`**, which gives group, priority, control and options per param. The tool's own panel is LLP 1122 T3, not yet landed. |
+| A `set-param` reaches every instance live, and one on a duration param rebuilds instead | **Met** on the wasm loop, the JS loop, the iOS simulator and the Mac. `tint` and `gap` reached all six action rows live, and the natives kept their plan ("2 tokens to 2 builds, no generation"). `Drawer.fade` (a duration) is `rebuild`, and the page and natives took a new plan. |
+| A Swift native view's `.tamber` params appear beside them and draw through `ExactTamber(view)` | **Met on the Mac:** tamber-host's Swatch ring follows the mode. On the iOS simulator the first frame agrees, but the smoke's relaunch never opened its agent socket (a harness problem, followed up). |
+| An unused param, an ambiguous short name and a `rem` value on a ranged length are refused | **Met.** |
+| Renaming an import keeps an override on its component | **Met.** |
+| No regressions | **Met.** Plans of apps without params are byte-identical before and after stage 7, apart from a format-digest header another lane moved. |
+
+**Deferred:** commit C (`add-param` and `remove-param`, the server owning `.contract` params
+sections) lands with LLP 1122 T5's `set-row`. A refuses an unread param, so either op only works
+paired with a row rewrite. Its `.contract` ownership infrastructure arrives with stage 8 D.
+
+**Queued:** a stale duration seen once on the JS loop after writes queued behind a slow first
+verifying build (not reproduced in three replays); and the iOS tamber smoke's relaunch.
+
+**Stage 7 is closed.**
