@@ -1,0 +1,14 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md#queued-command-construction
+shape MobileOutboxDrive
+  initialized: bool
+  complete: bool
+  busy: bool
+  count: number
+  next: string
+  delay: number
+
+shape MobileOutboxEdit
+  revision: number
+  message: string
+  requestRoute: string
+  nextLocation: string

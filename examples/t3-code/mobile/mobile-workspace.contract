@@ -1,0 +1,83 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#source-helpers
+// Scalar projection from adaptive-workspace.ts. Root owns navigation and pane content.
+shape MobileWorkspace
+  variant: string
+  usesSplitView: bool
+  shellPadding: number
+  sidebarMounted: bool
+  sidebarVisible: bool
+  sidebarSuppressedByAuxiliary: bool
+  sidebarContentWidth: number
+  sidebarTargetWidth: number
+  emptyWorkspaceDetail: bool
+  contentPaneWidth: number
+  contentSettledWidth: number
+  auxiliaryPaneRole: string
+  auxiliaryPaneSupported: bool
+  auxiliaryPaneVisible: bool
+  auxiliaryPaneWidth: number
+  fileInspectorSupported: bool
+  fileInspectorWidth: number
+  inspectorMounted: bool
+  inspectorVisible: bool
+  inspectorTargetWidth: number
+  chatContentMaxWidth: number
+  chatHorizontalPadding: number
+  userBubbleMaxWidth: number
+  ready: bool
+  topRouteId: string
+  workspaceRouteId: string
+  workspaceName: string
+  workspaceURL: string
+  workspacePath: string
+  environmentId: string
+  threadId: string
+  overlayCount: number
+  inspectorRouteKey: string
+  inspectorContentWidth: number
+  sidebarRouteKey: string
+  configuration: string
+  inspectorToken: string
+  inspectorRouteId: string
+  inspectorKind: string
+  inspectorSelectedPath: string
+  threadOwner: string
+  inspectorCandidate: string
+  inspectorMain: string
+  inspectorAutomatic: bool
+
+shape WorkspaceParams
+  threadEnvironment: string
+  threadId: string
+  filePath: string
+shape WorkspaceEntry
+  id: string
+  name: string
+  url: string
+  params: WorkspaceParams
+shape WorkspaceOptions
+  width: number
+  height: number
+  primarySidebarPreferredVisible: bool
+  supplementaryPanePreferredVisible: bool
+  fileInspectorPreferredVisible: bool
+  reducedMotion: bool
+  appearance: string
+  background: string
+  fileInspectorPreferredWidth: number
+  inspectorRegistration: string
+  inspectorRole: string
+  inspectorExitToken: string
+  inspectorResizing: bool
+  dividerColor: string
+  dividerActiveColor: string
+shape WorkspaceNavigation
+  operation: string
+  sourceAction: string
+  requestRoute: string
+  anchorRouteId: string
+  anchorLocation: string
+  location: string
+  dismissOverlays: bool
+  hideFileInspector: bool
+  message: string

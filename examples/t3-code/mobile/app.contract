@@ -1,0 +1,1500 @@
+use HtmlRenderContext, HtmlRenderResult, htmlRenderReply, ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors, threadSubmissionNoticeMessage, changeNoticeMessage, fileNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage, TerminalAttachChange, SnapshotRead, HomeReplyPlan, homeReplyPlan, pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, pairingUiScan, followedLocation, SettingsVisit, settingsVisitOwner, settingsVisitSelection, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveVisit, archiveDefaultFilters, archiveVisitFilters, archiveLiveRecords, archiveEventRecords, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches, IncomingShareInbox, IncomingSharePresentation, MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult, MobileGitFeedback, MobileGitFeedbackSnapshot, MobileGitFeedbackResult, ArchiveChromeSnapshot, ArchiveChromeEvent, ProjectFaviconImages, ProjectFaviconPrepared, ProjectFaviconAdmission, MobileOutboxDrive, MobileOutboxEdit, ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation, ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, SettingsSelection, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, ScheduledClockTime, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, FileActionResult, FileUi, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource, SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
+font "DM Sans" // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+  400 = "assets/fonts/DMSans_400Regular.ttf"
+  500 = "assets/fonts/DMSans_500Medium.ttf"
+  700 = "assets/fonts/DMSans_700Bold.ttf"
+routes nav
+  home "/"
+    homeArrange "/arrange"
+    thread "/threads/:threadEnvironment/:threadId"
+    threadQueue "/threads/:threadEnvironment/:threadId/queue"
+    threadBrowser "/threads/:threadEnvironment/:threadId/browser"
+    threadDevices "/threads/:threadEnvironment/:threadId/devices"
+    threadTerminal "/threads/:threadEnvironment/:threadId/terminal"
+    threadTerminalCapture "/threads/:threadEnvironment/:threadId/terminal/output"
+    gitOverview "/threads/:threadEnvironment/:threadId/git"
+    gitCommit "/threads/:threadEnvironment/:threadId/git/commit"
+    gitConfirm "/threads/:threadEnvironment/:threadId/git-confirm"
+    gitBranches "/threads/:threadEnvironment/:threadId/git/branches"
+    threadReview "/threads/:threadEnvironment/:threadId/review"
+    threadReviewComment "/threads/:threadEnvironment/:threadId/review/comment"
+    threadFiles "/threads/:threadEnvironment/:threadId/files"
+    threadFile "/threads/:threadEnvironment/:threadId/files/:filePath"
+    threadMedia "/threads/:threadEnvironment/:threadId/attachments/:attachmentId"
+    threadDraftMedia "/threads/:threadEnvironment/:threadId/draft-attachments/:attachmentId"
+    threadModel "/threads/:threadEnvironment/:threadId/model"
+    threadModelOption "/threads/:threadEnvironment/:threadId/model/options/:modelOption"
+    threadRuntime "/threads/:threadEnvironment/:threadId/model/runtime"
+    threadAgents "/threads/:threadEnvironment/:threadId/agents"
+    settings "/settings"
+    settingsAuth "/settings/auth"
+    settingsWaitlist "/settings/waitlist"
+    settingsNotifications "/settings/notifications"
+    settingsThreads "/settings/thread-preferences"
+    settingsProjectOverview "/settings/project"
+    connectOnboarding "/connect-onboarding"
+    archive "/settings/archive"
+    settingsServer "/settings/server/:serverPage"
+    settingsProviders "/settings/provider-accounts"
+    settingsAppearance "/settings/appearance"
+    settingsChoice "/settings/preferences/:settingsChoice"
+    settingsScheduledTasks "/settings/scheduled"
+    settingsScheduledNew "/settings/scheduled/new"
+    settingsScheduledEdit "/settings/scheduled/edit"
+    settingsScheduledModel "/settings/scheduled/model"
+    settingsScheduledBranch "/settings/scheduled/branch"
+    settingsAbout "/settings/about"
+    settingsClientStorage "/settings/client-storage"
+    settingsDiagnostics "/settings/diagnostics"
+    settingsOpenSourceLicenses "/settings/open-source-licenses"
+    settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
+    settingsLegal "/settings/legal"
+    settingsUsage "/settings/usage"
+    settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
+    newTask "/new"
+      addProject "/new/add-project"
+      addProjectRepository "/new/add-project/repository"
+      addProjectDestination "/new/add-project/destination"
+      addProjectLocal "/new/add-project/local"
+      addProjectNew "/new/add-project/new"
+      newTaskDraft "/new/draft"
+        newTaskEnvironments "/new/draft/environment"
+        newTaskBranches "/new/draft/branch"
+        newTaskMedia "/new/draft/attachments/:attachmentId"
+        newTaskFile "/new/draft/files/:filePath"
+        newTaskModel "/new/draft/settings"
+          newTaskModelOption "/new/draft/settings/options/:modelOption"
+          newTaskRuntime "/new/draft/settings/runtime"
+    connections "/connections"
+    connect "/connections/new"
+    environments "/settings/environments"
+    environmentDetail "/settings/environments/:environmentKey"
+    notfound
+component App
+  action showMobileNotice(title: string, message: string)
+    if message != ""
+      send notice = alert("info", title, message)
+  resource projectFaviconDemand = projectFaviconDemand(top(nav).name, `${top(nav).id}`, top(nav).name == "home", workspace.usesSplitView and workspace.sidebarVisible, home.items, sidebarHome.items, newTaskData.projects, archiveData.items, projectOverview, wallTime.epochAtZero + max(elapsed, performanceNow()), data.revision, data.faviconRevision) as shape ProjectFaviconAdmission
+  resource projectFavicons = projectFavicons(projectFaviconDemand.revision, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape ProjectFaviconPrepared
+  resource projectImages = projectImages(projectFaviconDemand.revision, projectFavicons.revision) as shape ProjectFaviconImages
+  mutation projectImageChanged as shape Change queue refreshes projectImages
+  action projectImageEvent(mountId: string, requestKey: string, url: string, event: string, message: string)
+    send projectImageChanged = projectImageEvent(mountId, requestKey, url, event)
+  provide
+    projectFaviconVisit = `${top(nav).id}`
+    projectFaviconImages = projectImages.items
+    projectFaviconEvent = projectImageEvent
+  state incomingShareState = ""
+  derive incomingShareSheetMounted = stack(nav).filter(entry => entry.name.startsWith("newTask") or entry.name.startsWith("addProject")).length > 0
+  resource incomingShareInbox = incomingShareInbox() as shape IncomingShareInbox
+  resource incomingShare = incomingSharePresentation(incomingShareState, incomingShareSheetMounted, `${top(nav).id}`, incomingShareInbox.revision) as shape IncomingSharePresentation
+  task presentIncomingShare when incomingShare.state != incomingShareState key=`${incomingShare.requestRoute}:${incomingShare.previousState}:${incomingShare.state}:${incomingShare.inboxRevision}`
+    after(1, presentIncomingShare)
+  action presentIncomingShare
+    if incomingShare.inboxRevision == incomingShareInbox.revision and incomingShare.requestRoute == `${top(nav).id}` and incomingShare.previousState == incomingShareState and (incomingShare.location == "" or not incomingShareSheetMounted)
+      incomingShareState = incomingShare.state
+      if incomingShare.location != ""
+        nav = push(nav, incomingShare.location)
+  resource outbox = outboxView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape MobileOutboxDrive
+  mutation outboxChanged as shape Change refreshes data, threadData, outbox
+  mutation outboxEdited as shape MobileOutboxEdit then didEditOutbox
+  action didEditOutbox
+    match outboxEdited
+      case some(result)
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "Could not open draft", result.message)
+          else if result.nextLocation != ""
+            nav = replace(nav, result.nextLocation)
+      case none
+        newTaskOperation = ""
+  task readOutbox mount
+    after(1, readOutbox)
+  action readOutbox
+    send outboxChanged = outboxAction("read", "", wallTime.epochAtZero + performanceNow())
+  task deliverOutbox when outbox.next != "" and not pending(outboxChanged) and not (newTaskActive and newTaskFlow.pendingEditor) key=outbox.next
+    every(1000, deliverOutbox)
+  action deliverOutbox
+    if not pending(outboxChanged) and not (newTaskActive and newTaskFlow.pendingEditor)
+      send outboxChanged = outboxAction("deliver", outbox.next, wallTime.epochAtZero + performanceNow())
+  resource accountEntry = accountEntry(top(nav).name, depth(nav) > 1, `${top(nav).id}`) as shape AccountEntry
+  resource notificationSettings = notificationSettings() as shape NotificationsData
+  task enterAccount when accountEntry.kind != "" key=top(nav).id
+    after(1, redirectAccount)
+  action redirectAccount
+    if accountEntry.requestRoute == `${top(nav).id}`
+      if accountEntry.kind == "back"
+        nav = back(nav)
+      else if accountEntry.route == "settings"
+        settingsVisits = settingsVisits.filter(visit => visit.visitToken != `root:${top(nav).id}`)
+        nav = replace(nav, path("settings"))
+      else
+        nav = open(nav, path("home"))
+  resource viewport = exactViewport() as shape Viewport
+  state sidebarPreferredVisible = true
+  state fileInspectorPreferredVisible = true
+  state fileInspectorPreferredWidth = 0
+  state inspectorResizing = false
+  state inspectorSerialized = ""
+  state inspectorContentSerialized = ""
+  resource inspectorState = inspectorState(inspectorSerialized) as shape InspectorState
+  resource inspectorContext = inspectorContext(workspaceEntries, workspace.fileInspectorSupported, workspace.auxiliaryPaneSupported, workspace.auxiliaryPaneWidth, inspectorResizing, viewport.prefersReducedMotion, appearance.scheme, data.revision, filesData.revision, reviewData.revision) as shape InspectorContext
+  resource inspectorPresentation = inspectorPresentation(inspectorContentSerialized, inspectorSerialized, workspace.inspectorVisible, fileUi.query, appearance.scheme, appearance.themeId, appearance.baseFontSize) as shape InspectorPresentation
+  mutation inspectorChanged as shape InspectorChange then didInspectorChange
+  mutation workspaceEvent as shape WorkspaceEvent then didWorkspaceEvent
+  task reconcileInspector key=`${inspectorContext.key}:${data.revision}:${filesData.revision}:${reviewData.revision}:${gitData.revision}:${inspectorSerialized}`
+    after(1, reconcileInspector)
+  action reconcileInspector
+    inspectorAction("", "")
+  action inspectorAction(kind: string, value: string)
+    send inspectorChanged = inspectorTransition(inspectorSerialized, inspectorContext.serialized, kind, value, wallTime.epochAtZero + performanceNow(), inspectorContentSerialized, appearance.scheme)
+  action didInspectorChange
+    match inspectorChanged
+      case some(result)
+        if result.before == inspectorSerialized and result.contextKey == inspectorContext.key
+          inspectorSerialized = result.serialized
+          inspectorContentSerialized = result.content
+          if result.revealInspector
+            fileInspectorPreferredVisible = true
+      case none
+        inspectorResizing = false
+  task inspectorExit when inspectorState.exitToken != "" key=inspectorState.exitToken
+    after(260, inspectorExitDeadline)
+  action inspectorExitDeadline
+    inspectorAction("deadline", inspectorState.exitToken)
+  task inspectorPrewarm when inspectorState.prewarmToken != "" key=inspectorState.prewarmToken
+    after(350, inspectorPrewarmDeadline)
+  action inspectorPrewarmDeadline
+    inspectorAction("deadline", inspectorState.prewarmToken)
+  task inspectorOwnerChanged key=workspace.inspectorToken
+    after(1, endInspectorResize)
+  action endInspectorResize
+    inspectorResizing = false
+  action inspectorEvent(value: string)
+    send workspaceEvent = workspaceEvent(value, workspace.inspectorToken, inspectorState.exitToken, workspace.inspectorVisible, workspace.contentPaneWidth)
+  action didWorkspaceEvent
+    match workspaceEvent
+      case some(event)
+        if event.owner == workspace.inspectorToken
+          if event.kind == "search"
+            fileUi = FileUi(fileUi, query=event.value)
+          else if event.kind == "close"
+            fileInspectorPreferredVisible = false
+            inspectorResizing = false
+          else if event.kind == "end-exit"
+            inspectorAction("end-exit", event.token)
+          else if event.kind == "resize"
+            inspectorResizing = event.phase == "start" or event.phase == "update"
+            if event.phase == "update" or event.phase == "step"
+              fileInspectorPreferredWidth = event.width
+      case none
+        inspectorResizing = inspectorResizing
+  action toggleInspector
+    if inspectorState.mode == "" and (top(nav).name == "thread" or top(nav).name == "threadFiles")
+      openFiles()
+    else
+      fileInspectorPreferredVisible = not fileInspectorPreferredVisible
+      inspectorResizing = false
+  derive workspaceEntries = stack(nav).map(entry => WorkspaceEntry(id=`${entry.id}`, name=entry.name, url=entry.url, params=WorkspaceParams(threadEnvironment=entry.params.threadEnvironment, threadId=entry.params.threadId, filePath=entry.params.filePath)))
+  resource workspace = workspace(workspaceEntries, WorkspaceOptions(width=viewport.width, height=viewport.height, primarySidebarPreferredVisible=sidebarPreferredVisible, supplementaryPanePreferredVisible=true, fileInspectorPreferredVisible=fileInspectorPreferredVisible, reducedMotion=viewport.prefersReducedMotion, appearance=appearance.scheme, background=look.screen, fileInspectorPreferredWidth=fileInspectorPreferredWidth, inspectorRegistration=inspectorState.registrationJSON, inspectorRole=inspectorState.roleJSON, inspectorExitToken=inspectorState.exitToken, inspectorResizing=inspectorResizing, dividerColor=reviewLook.border, dividerActiveColor=reviewLook.primary), data.revision) as shape MobileWorkspace
+  action toggleSidebar
+    if workspace.workspacePath != "/"
+      if not workspace.sidebarVisible and workspace.sidebarSuppressedByAuxiliary
+        sidebarPreferredVisible = true
+        fileInspectorPreferredVisible = false
+      else
+        sidebarPreferredVisible = not sidebarPreferredVisible
+  action openNewTask
+    nav = push(nav, path("newTask"))
+  mutation workspaceNavigation as shape WorkspaceNavigation then didWorkspaceNavigation
+  action didWorkspaceNavigation
+    match workspaceNavigation
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and stack(nav).filter(entry => `${entry.id}` == result.anchorRouteId and entry.url == result.anchorLocation).length == 1
+          if result.message != ""
+            send notice = alert("info", "Workspace", result.message)
+          else
+            if result.hideFileInspector
+              fileInspectorPreferredVisible = false
+            if result.operation == "push"
+              nav = push(go(nav, result.anchorLocation), result.location)
+            else if result.operation == "replace"
+              nav = replace(go(nav, result.anchorLocation), result.location)
+      case none
+        sidebarPreferredVisible = sidebarPreferredVisible
+  resource voiceFocus = voiceFocus(((top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported)) and workspaceRouteReady) or (top(nav).name == "newTaskDraft" and newTaskFlow.ready), top(nav).name == "thread" or top(nav).name == "threadFiles" ? threadData.title : "New task", data.revision, taskGuardOwner, taskGuardRoute) as shape VoiceFocus
+  resource voiceStatus = voiceStatus(data.revision) as shape VoiceStatus
+  resource voiceData = voiceSnapshot(voiceFocus.owner, max(30, viewport.width - 150), voiceStatus, data.revision, pending(voiceChanged)) as shape VoiceSnapshot
+  resource voiceLook = voiceColors(appearance.scheme, appearance.themeId) as shape VoiceColors
+  state voicePillExpanded = false
+  mutation voiceChanged as shape VoiceResult refreshes data, voiceStatus, voiceData then didVoiceChange
+  mutation voiceCancelled as shape VoiceResult refreshes data, voiceStatus, voiceData then didVoiceCancel
+  mutation voiceReconciled as shape VoiceResult refreshes data, voiceStatus, voiceData
+  task voiceEvent when (voiceStatus.eventKind == "finished" or voiceStatus.eventKind == "interrupted" or voiceStatus.eventKind == "background") and not pending(voiceChanged) and not pending(voiceCancelled) key=`${voiceStatus.session}:${voiceStatus.event}`
+    after(1, reconcileVoice)
+  action reconcileVoice
+    send voiceReconciled = voiceAction("reconcile", voiceFocus.label, voiceFocus.owner, taskGuardOwner, taskGuardRoute)
+  action voiceAction(op: string)
+    if op == "cancel"
+      send voiceCancelled = voiceAction(op, voiceFocus.label, voiceFocus.owner, taskGuardOwner, taskGuardRoute)
+    else if not pending(voiceChanged)
+      send voiceChanged = voiceAction(op, voiceFocus.label, voiceFocus.owner, taskGuardOwner, taskGuardRoute)
+  action didVoiceChange
+    showMobileNotice("Voice input", voiceNoticeMessage(voiceChanged))
+  action didVoiceCancel
+    showMobileNotice("Voice input", voiceNoticeMessage(voiceCancelled))
+  action expandVoicePill(value: bool)
+    voicePillExpanded = value
+  resource preferences = preferences() as shape MobilePreferencesResource
+  resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
+  resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
+  resource snapshotRead = snapshotRead() as shape SnapshotRead
+  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape Snapshot
+  resource keyboard = keyboardSnapshot(`${top(nav).id}`, top(nav).url, data.revision) as shape MobileKeyboardSnapshot
+  mutation keyboardCopied as shape MobileKeyboardResult refreshes keyboard
+  mutation keyboardDismissed as shape MobileKeyboardResult refreshes keyboard
+  action keyboardEvent(value: string)
+    send keyboardCopied = keyboardCopy(value, `${top(nav).id}`, top(nav).url)
+  action keyboardDismiss(feedbackId: number)
+    send keyboardDismissed = keyboardDismiss(feedbackId)
+  task keyboardFeedbackExpiry when keyboard.phase != "" key=keyboard.feedbackId
+    after(3000, expireKeyboardFeedback)
+  action expireKeyboardFeedback
+    keyboardDismiss(keyboard.feedbackId)
+  resource detail = environmentDetail(top(nav).params.environmentKey, data.revision) as shape EnvironmentDetailData
+  mutation detailChanged as shape Change refreshes data, detail
+  state informationQuery = ""
+  resource informationRoute = informationRoute(top(nav).name) as shape InformationRoute
+  resource informationRead = informationPrepare(top(nav).name, `${top(nav).id}`, data.ready) as shape InformationRead
+  resource informationData = informationSnapshot(informationQuery, top(nav).params.entryKey, informationRead, pending(informationChanged), appearance.scheme, appearance.themeId) as shape InformationData
+  resource informationLegal = informationLegal(`${top(nav).id}`, "legal-close", settingsData.root.colors, appearance.baseFontSize) as shape InformationConfiguration
+  mutation informationChanged as shape InformationChange refreshes informationRead, informationData, data then didInformationChange
+  action informationCommand(op: string, value: string)
+    send informationChanged = informationCommand(op, value, `${top(nav).id}`)
+  action didInformationChange
+    showMobileNotice("Settings", informationNoticeMessage(informationChanged, `${top(nav).id}`))
+  action informationSearch(value: string)
+    informationQuery = value
+  action openInformation(target: string, key: string)
+    let location = mobileInformationPath(target, key)
+    if location != ""
+      if target == "settingsOpenSourceLicenses"
+        informationQuery = ""
+      nav = push(nav, location)
+  state settingsVisits = [SettingsVisit(visitToken="", selection=SettingsSelection(allEnvironments=true, environmentIds=[""].slice(0, 0), projectKey=""))].slice(0, 0)
+  derive settingsVisit = settingsVisitOwner(workspaceEntries, `${top(nav).id}`)
+  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsVisit.routeKey, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), data.revision, `${top(nav).id}`, not workspace.usesSplitView, settingsVisit.visitToken) as shape SettingsView
+  resource settingsAppearance = settingsAppearance(preferences.serialized, viewport.prefersColorScheme, preferences.ready, layout.safeBottom) as shape SettingsAppearanceData
+  resource settingsChoice = settingsChoices(top(nav).params.settingsChoice, preferences.serialized, preferences.ready) as shape SettingsChoicesData
+  resource threadPreferences = threadPreferences(top(nav).name == "settingsThreads", settingsData.serverScope, preferences.serialized, preferences.ready, data.revision) as shape ThreadPreferencesData
+  resource projectOverview = projectOverview(top(nav).name == "settingsProjectOverview", settingsData.serverScope, data.revision) as shape SettingsProjectData
+  state projectSavedRevision = 0
+  mutation threadPreferencesChanged as shape SettingsWrite refreshes threadPreferences, data then didScopedSettingChange
+  mutation projectRenamed as shape SettingsWrite refreshes projectOverview, data then didProjectRename
+  action threadPreferenceChange(scope: string, key: string, value: string)
+    if scope == settingsData.serverScope
+      send threadPreferencesChanged = threadPreferencesChange(scope, key, value, `${top(nav).id}`)
+  action renameProject(scope: string, identity: string, name: string)
+    send projectRenamed = projectRename(scope, identity, name, `${top(nav).id}`)
+  action didScopedSettingChange
+    showMobileNotice("Could not save setting", settingNoticeMessage(threadPreferencesChanged, `${top(nav).id}`))
+  action didProjectRename
+    match projectRenamed
+      case some(result)
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "Could not rename project", result.message)
+          else if result.saved
+            projectSavedRevision = projectSavedRevision + 1
+      case none
+        projectSavedRevision = projectSavedRevision
+  resource serverSettings = serverSettings(top(nav).params.serverPage, settingsData.serverScope, top(nav).name == "settingsServer", data.revision) as shape ServerSettingsData
+  resource providerPrepared = providerAccounts(settingsData.environmentIds, top(nav).name == "settingsProviders", data.revision) as shape ProviderSettingsData
+  resource providerAccounts = providerSnapshot(settingsData.environmentIds, top(nav).name == "settingsProviders", providerPrepared) as shape ProviderSettingsData
+  mutation serverSettingChanged as shape Change refreshes serverSettings, data then didServerSettingChange
+  mutation providerChanged as shape Change refreshes providerPrepared, providerAccounts then didProviderChange
+  mutation providerFieldChanged as shape Change refreshes providerAccounts
+  state automationRefresh = 0
+  state automationElapsed = 0
+  resource scheduledClockTime = scheduledClockTime(top(nav).name == "settingsScheduledTasks", `${top(nav).id}`, automationElapsed, top(nav).name == "settingsScheduledTasks" ? wallTime.epochAtZero + performanceNow() : 0) as shape ScheduledClockTime
+  resource automationPrepared = automationPrepare(top(nav).name, settingsData.serverScope, top(nav).params.usageAccount, top(nav).params.usageWindow, top(nav).params.usageKind, top(nav).name == "settingsScheduledTasks" ? scheduledClockTime.now : wallTime.epochAtZero + max(elapsed, automationElapsed), data.revision, automationRefresh) as shape AutomationPrepared
+  resource automationData = automationSnapshot(automationPrepared, pending(automationChanged)) as shape AutomationData
+  resource scheduledHeader = scheduledHeader(preferences.serialized, data.environments, `${top(nav).id}`, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), automationData.scheduled.canCreate, settingsVisit.visitToken) as shape ScheduledHeader
+  mutation automationChanged as shape AutomationChange refreshes automationData then didAutomationChange
+  mutation automationEdited as shape AutomationChange refreshes automationData then didAutomationEdit
+  mutation automationBranchRead as shape AutomationChange refreshes automationData then didAutomationBranchRead
+  task automationClock when top(nav).name == "settingsScheduledTasks" key=`${top(nav).id}`
+    every(60000, tickAutomation)
+  action tickAutomation
+    automationElapsed = performanceNow()
+  action automationAction(op: string, id: string, value: string, extra: string)
+    if op == "field" or op == "branch-query" or op == "usage-local" or op == "usage-reveal"
+      send automationEdited = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
+    else if op == "branch-fetch" or op == "branch-more"
+      if top(nav).name == "settingsScheduledBranch"
+        send automationBranchRead = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
+    else if not pending(automationChanged)
+      send automationChanged = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
+  state automationBranchVersion = 0
+  task automationBranchDebounce when top(nav).name == "settingsScheduledBranch" and automationBranchVersion > 0 key=automationBranchVersion
+    after(150, automationBranchFetch)
+  action automationBranchFetch
+    automationAction("branch-fetch", "", "", "")
+  action didAutomationBranchRead
+    showMobileNotice("Branches", automationNoticeMessage(automationBranchRead, `${top(nav).id}`))
+  action didAutomationEdit
+    match automationEdited
+      case some(result)
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "T3 Code", result.message)
+          if result.refresh
+            automationRefresh = automationRefresh + 1
+          if result.debounce
+            automationBranchVersion = automationBranchVersion + 1
+      case none
+        automationRefresh = automationRefresh
+  action didAutomationChange
+    match automationChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "T3 Code", result.message)
+          if result.refresh
+            automationRefresh = automationRefresh + 1
+          if result.closed
+            nav = back(nav)
+          else
+            let location = homeAutomationPath(result.route, result.accountKey, result.windowId, result.windowKind)
+            if location != ""
+              nav = push(nav, location)
+      case none
+        automationRefresh = automationRefresh
+  state providerLogoutKey = ""
+  mutation providerLogoutConfirmation as shape Notice then didConfirmProviderLogout
+  action serverSettingChange(key: string, value: string)
+    send serverSettingChanged = serverSettingChange(top(nav).params.serverPage, settingsData.serverScope, key, value)
+  action didServerSettingChange
+    showMobileNotice("Could not save setting", changeNoticeMessage(serverSettingChanged))
+  action providerAction(op: string, key: string, value: string)
+    if op == "reveal" or op == "choose-cancel"
+      send providerFieldChanged = providerAction(op, key, value)
+    else
+      send providerChanged = providerAction(op, key, value)
+  action providerField(key: string, name: string, value: string)
+    send providerFieldChanged = providerField(key, name, value)
+  action didProviderChange
+    showMobileNotice("Provider account", changeNoticeMessage(providerChanged))
+  action providerSignOut(key: string, title: string, message: string)
+    providerLogoutKey = key
+    send providerLogoutConfirmation = alert("sign-out", title, message)
+  action didConfirmProviderLogout
+    match providerLogoutConfirmation
+      case some(result)
+        if result.choice == "sign-out"
+          providerAction("logout-confirmed", providerLogoutKey, "")
+      case none
+        providerLogoutKey = ""
+  action settingsEnvironment(key: string)
+    nav = push(nav, path("environmentDetail", key))
+  mutation preferenceChanged as shape Change refreshes preferences, shelves, data then didPreferenceChange
+  mutation appearanceApplied as shape Change
+  mutation settingsEvent as shape SettingsScopeEvent queue then didSettingsEvent
+  task applyTheme when preferences.ready key=appearance.themeMode
+    after(1, applyTheme)
+  action applyTheme
+    send appearanceApplied = applyAppearance(preferences.serialized)
+  action changePreference(key: string, value: string)
+    send preferenceChanged = preferenceChange(key, value)
+  action didPreferenceChange
+    showMobileNotice("Could not save preference", changeNoticeMessage(preferenceChanged))
+  action settingsHeaderEvent(value: string)
+    send settingsEvent = settingsScopeEvent(value, (top(nav).name == "settings" ? settingsData.header : top(nav).name == "settingsScheduledTasks" ? scheduledHeader.configuration : top(nav).name == "settingsThreads" or top(nav).name == "settingsProjectOverview" ? settingsData.projectHeader : ""), settingsVisit.visitToken, `${top(nav).id}`)
+  action didSettingsEvent
+    let event = settingsEventPlan(settingsVisits, settingsEvent, workspaceEntries, `${top(nav).id}`)
+    settingsVisits = event.records
+    if event.close
+      nav = back(nav)
+  action openSetting(target: string)
+    let location = mobileSettingPath(target)
+    if location != ""
+      nav = push(nav, location)
+  state targetEnvironment = ""
+  state confirmKind = ""
+  state confirmKey = ""
+  state confirmValue = ""
+  mutation detailConfirmation as shape Notice then didConfirmDetail
+  resource wallTime = exactTime() as shape Time
+  state elapsed = 0
+  state layoutJSON = ""
+  resource layout = layoutFacts(layoutJSON) as shape MobileLayout
+  action layoutChanged(value: string)
+    layoutJSON = value
+  state homeQuery = ""
+  state homeEnvironment = ""
+  state homeProject = ""
+  derive homeRouteKey = match first(stack(nav).filter(route => route.name == "home")) { case some(route) => `${route.id}`, case none => "home" }
+  resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "compact") as shape HomeChromeView
+  state sidebarQuery = ""
+  state sidebarEnvironment = ""
+  state sidebarProject = ""
+  state sidebarSettledCount = 10
+  resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
+  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "sidebar", snapshotRead.serial > 0) as shape HomeView
+  mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
+  action sidebarChromeEvent(value: string)
+    send sidebarEvent = homeChromeEvent(value)
+  action didSidebarEvent
+    match sidebarEvent
+      case some(event)
+        let change = homeChromeChange(event.kind, event.value, sidebarQuery, sidebarEnvironment, sidebarProject, sidebarSettledCount)
+        sidebarQuery = change.query
+        sidebarEnvironment = change.environment
+        sidebarProject = change.project
+        sidebarSettledCount = change.count
+        if change.location != ""
+          nav = push(nav, change.location)
+      case none
+        sidebarQuery = sidebarQuery
+  action showMoreSidebar
+    sidebarSettledCount = sidebarSettledCount + 25
+  mutation chromeEvent as shape ChromeEvent then didChromeEvent
+  mutation searchChanged as shape Change refreshes data
+  task searchDebounce key=`${workspace.usesSplitView}:${workspace.usesSplitView ? sidebarQuery : homeQuery}`
+    after(200, searchHome)
+  action searchHome
+    send searchChanged = command("search", "", workspace.usesSplitView ? sidebarQuery : homeQuery, "0", taskGuardOwner, taskGuardRoute)
+  action homeEvent(value: string)
+    send chromeEvent = homeChromeEvent(value)
+  action didChromeEvent
+    match chromeEvent
+      case some(event)
+        let change = homeChromeChange(event.kind, event.value, homeQuery, homeEnvironment, homeProject, settledCount)
+        homeQuery = change.query
+        homeEnvironment = change.environment
+        homeProject = change.project
+        settledCount = change.count
+        if change.location != ""
+          nav = push(nav, change.location)
+      case none
+        homeQuery = homeQuery
+  state composerFocusIdentity = ""
+  state composerReturn = ComposerFocusReturn(editorId="", owner="", sheetId="", phase="", attempts=0)
+  derive composerOwner = newTaskActive ? newTaskData.composer.contentOwner : threadData.composer.contentOwner
+  derive composerEditor = (top(nav).name == "thread" or (top(nav).name == "newTaskDraft" and newTaskFlow.ready and newTaskData.draft) or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? `thread-composer-${top(nav).id}` : ""
+  derive composerSettings = top(nav).name.startsWith("threadModel") or top(nav).name.startsWith("newTaskModel") or top(nav).name == "threadRuntime" or top(nav).name == "newTaskRuntime"
+  derive composerFocused = composerOwner != "" and composerEditor != "" and composerFocusIdentity == `${composerEditor}:${composerOwner}`
+  derive composerExpanded = composerFocused or (composerReturn.phase != "" and composerReturn.owner == composerOwner)
+  derive composerNextPhase = composerReturnPhase(composerReturn, composerEditor, composerOwner, stack(nav).map(entry => `thread-composer-${entry.id}`), composerSettings, composerFocused)
+  task clearComposerReturn when composerReturn.phase != composerNextPhase and composerNextPhase != "restoring" key=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}:${composerNextPhase}`
+    after(1, restoreComposerFocus)
+  task beginComposerReturn when composerReturn.phase == "pending" and composerNextPhase == "restoring" key=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}`
+    after(300, restoreComposerFocus)
+  task retryComposerReturn when composerReturn.phase == "restoring" and composerNextPhase == "restoring" key=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}:${composerReturn.attempts}`
+    after(50, restoreComposerFocus)
+  action restoreComposerFocus
+    if composerNextPhase == "restoring" and composerReturn.attempts < 20
+      focus(composerReturn.editorId)
+    else if composerReturn.phase == "restoring" and not composerFocused
+      blur(composerReturn.editorId)
+    composerReturn = ComposerFocusReturn(composerReturn, phase=(composerNextPhase == "restoring" and composerReturn.attempts >= 20 ? "" : composerNextPhase), attempts=(composerNextPhase == "restoring" and composerReturn.attempts < 20 ? composerReturn.attempts + 1 : 0))
+  derive hapticEntry = stack(nav).filter(entry => entry.name == "thread").at(-1)
+  derive hapticRoute = match hapticEntry { case some(entry) => `${entry.id}`, case none => "" }
+  derive hapticEnvironment = match hapticEntry { case some(entry) => entry.params.threadEnvironment, case none => "" }
+  derive hapticThread = match hapticEntry { case some(entry) => entry.params.threadId, case none => "" }
+  resource hapticFeed = streamingAssistant(data.revision, hapticRoute, hapticEnvironment, hapticThread) as shape StreamingAssistant
+  state streamHaptics = [StreamingHapticState(routeId="", owner="", id="", textLength=0, lastAt=0)].slice(0, 0)
+  task streamFeedback when hapticFeed.owner != "" key=hapticFeed.key
+    after(1, updateStreamFeedback)
+  task pruneStreamFeedback when true key=stack(nav).map(entry => `${entry.id}`).join("|")
+    after(1, pruneStreamOwners)
+  action pruneStreamOwners
+    streamHaptics = streamHaptics.filter(item => stack(nav).map(entry => `${entry.id}`).includes(item.routeId))
+    archiveVisits = archiveLiveRecords(archiveVisits, workspaceEntries)
+  action updateStreamFeedback
+    if hapticFeed.routeId == hapticRoute and hapticFeed.environmentId == hapticEnvironment and hapticFeed.threadId == hapticThread and hapticEnvironment == data.environmentId and hapticThread == data.threadId
+      let time = wallTime.epochAtZero + performanceNow()
+      match first(streamHaptics.filter(item => item.routeId == hapticFeed.routeId))
+        case some(previous)
+          let pulse = previous.owner == hapticFeed.owner and hapticFeed.id != "" and (previous.id != hapticFeed.id or (hapticFeed.textLength > previous.textLength and time - previous.lastAt >= 320))
+          streamHaptics = streamHaptics.filter(item => item.routeId != hapticFeed.routeId).concat([StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=(pulse ? time : previous.lastAt))])
+          if pulse
+            haptic("selection")
+        case none
+          streamHaptics = streamHaptics.concat([StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
+  state richComposerLatch = ""
+  derive richComposerInput = ComposerRootInput(active=top(nav).name == "thread", visit=`${top(nav).id}`, url=top(nav).url, environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, editorId=composerEditor, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, scheme=appearance.scheme, themeId=appearance.themeId, enterBehavior=appearance.enterBehavior, focusSerial=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}`, focusAttempt=composerReturn.attempts, focusOperation=(composerReturn.phase == "restoring" and composerReturn.editorId == composerEditor ? "focus" : "none"), now=wallTime.epochAtZero + elapsed)
+  resource richComposer = composerRoot(richComposerInput, richComposerLatch, data.revision) as shape ComposerRootView
+  mutation richComposerFiles as shape ComposerRootResult queue refreshes data, richComposer, threadSubmission
+  mutation richComposerImmediate as shape ComposerRootResult refreshes richComposer
+  mutation richComposerPath as shape ComposerRootResult refreshes richComposer
+  mutation richComposerPullRequests as shape ComposerRootResult refreshes richComposer
+  mutation richComposerDiscovery as shape ComposerRootResult refreshes richComposer
+  mutation richComposerChanged as shape ComposerRootResult queue refreshes data, richComposer, threadSubmission then didRichComposerChange
+  action richComposerAction(op: string, admission: string, key: string, payload: string)
+    send richComposerChanged = composerRootAction(richComposerInput, op, admission, key, payload, wallTime.epochAtZero + performanceNow())
+  action richComposerEvent(value: string)
+    richComposerLatch = value
+    send richComposerChanged = composerRootAction(richComposerInput, "event", richComposer.admission, "", value, wallTime.epochAtZero + performanceNow())
+  action richComposerMessage(value: string)
+    send richComposerChanged = composerRootAction(richComposerInput, "rich", richComposer.admission, "", value, wallTime.epochAtZero + performanceNow())
+  task prepareRichComposer when richComposer.files.needsPrepare key=richComposer.files.prepareKey
+    after(1, prepareRichComposer)
+  action prepareRichComposer
+    send richComposerFiles = composerRootAction(richComposerInput, "prepare-files", richComposer.admission, richComposer.files.prepareKey, "", wallTime.epochAtZero + performanceNow())
+  task cleanRichComposer when richComposer.files.cleanupKey != "" key=richComposer.files.cleanupKey
+    after(1, cleanRichComposer)
+  action cleanRichComposer
+    send richComposerFiles = composerRootAction(richComposerInput, "cleanup-files", richComposer.admission, richComposer.files.cleanupKey, "", wallTime.epochAtZero + performanceNow())
+  task queryRichComposer when richComposer.queries.immediateKey != "" key=richComposer.queries.immediateKey
+    after(1, queryRichComposer)
+  action queryRichComposer
+    send richComposerImmediate = composerRootAction(richComposerInput, "immediate", richComposer.admission, richComposer.queries.immediateKey, "", wallTime.epochAtZero + performanceNow())
+  task queryRichPath when richComposer.queries.path.key != "" key=richComposer.queries.path.key
+    after(200, queryRichPath)
+  action queryRichPath
+    send richComposerPath = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.path.key, "", wallTime.epochAtZero + performanceNow())
+  task queryRichPullRequests when richComposer.queries.pullRequests.key != "" key=richComposer.queries.pullRequests.key
+    after(180, queryRichPullRequests)
+  action queryRichPullRequests
+    send richComposerPullRequests = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.pullRequests.key, "", wallTime.epochAtZero + performanceNow())
+  task queryRichDiscovery when richComposer.queries.discovery.key != "" key=richComposer.queries.discovery.key
+    after(10000, queryRichDiscovery)
+  action queryRichDiscovery
+    send richComposerDiscovery = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.discovery.key, "", wallTime.epochAtZero + performanceNow())
+  task claimRichEffect when richComposer.effectId != "" key=richComposer.effectId
+    after(1, claimRichEffect)
+  action claimRichEffect
+    richComposerAction("claim-effect", richComposer.admission, richComposer.effectId, "")
+  action didRichComposerChange
+    match richComposerChanged
+      case some(result)
+        if result.visit == `${top(nav).id}` and result.admission == richComposer.admission and result.editorId == composerEditor and result.owner == composerOwner
+          if result.effectKind == "submit"
+            threadAction(result.alternate ? "send-alternate" : "send", result.owner, "")
+          else if result.effectKind == "focus" or result.effectKind == "blur"
+            composerFocus(result.effectKind == "focus", result.owner, result.editorId)
+      case none
+        richComposerLatch = richComposerLatch
+  derive threadSubmissionInput = ThreadSubmissionInput(editorAdmission=richComposer.admission, visit=`${top(nav).id}`, url=top(nav).url, active=(top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")), environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, contextImporting=(pending(terminalAttached) or pending(reviewChanged) or pending(documentChanged) or (lastOperation == "attachments" and pending(changed))), now=wallTime.epochAtZero + elapsed, viewportHeight=viewport.height, dark=appearance.scheme == "dark")
+  resource threadSubmission = threadSubmission(threadSubmissionInput, data.revision) as shape ThreadSubmission
+  resource threadLocalLook = threadLocalColors(appearance.scheme, appearance.themeId) as shape ThreadLocalColors
+  mutation threadSubmissionRead as shape ThreadSubmissionResult refreshes data, threadSubmission
+  task readThreadSubmission when threadSubmission.needsRead and not pending(threadSubmissionRead) key=threadSubmission.readKey
+    after(1, readThreadRecovery)
+  action readThreadRecovery
+    if threadSubmission.needsRead and not pending(threadSubmissionRead)
+      send threadSubmissionRead = threadSubmissionAction(threadSubmissionInput, "recovery-read", threadSubmission.readKey, "", threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
+  mutation threadSubmissionChanged as shape ThreadSubmissionResult refreshes data, threadData, queueData, threadSubmission then didThreadSubmission
+  action didThreadSubmission
+    let message = threadSubmissionNoticeMessage(threadSubmissionChanged, `${top(nav).id}`, threadSubmission.expectedOwner)
+    if message != ""
+      send notice = alert("info", "Could not complete action", message)
+  action threadLocalCommand(op: string, id: string, value: string)
+    if not pending(changed) and not pending(threadSubmissionChanged)
+      send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
+  resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
+  resource htmlRenderContext = htmlRenderContext(top(nav).name, `${top(nav).id}`, top(nav).params.threadEnvironment, top(nav).params.threadId, searchParam(top(nav), "htmlRender"), top(nav).params.attachmentId, mediaUi.readVersion, data.revision) as shape HtmlRenderContext
+  mutation htmlRenderChanged as shape HtmlRenderResult queue refreshes threadData, documentData then didHtmlRender
+  action didHtmlRender
+    let result = htmlRenderReply(htmlRenderChanged)
+    if result.received and result.requestRoute == `${top(nav).id}` and result.context == htmlRenderContext.context
+      showMobileNotice("Page", result.message)
+      if result.openKey != "" and result.attachmentId != "" and not htmlRenderContext.full and threadData.rows.filter(row => row.htmlRender.identifier == result.identifier and row.htmlRender.key == result.openKey).length > 0
+        mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
+        nav = push(nav, path("threadMedia", data.environmentId, data.threadId, result.attachmentId) + "?htmlRender=" + encodeURIComponent(result.openKey))
+  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, top(nav).name.startsWith("thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId, top(nav).url) as shape ThreadSnapshot
+  resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
+  mutation queuePrepared as shape Change refreshes queueData
+  task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
+    after(1, loadQueueThumbnails)
+  action loadQueueThumbnails
+    send queuePrepared = queuePrepare(queueData.owner, queueData.visit, queueData.thumbnailRequest, wallTime.epochAtZero + performanceNow())
+  task dismissEmptyQueue when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.environmentId == data.environmentId and queueData.threadId == data.threadId and queueData.dismiss key=top(nav).id
+    after(1, back)
+  mutation routeSelected as shape ThreadSelection refreshes data then didLoadRouteThread
+  action didLoadRouteThread
+    match routeSelected
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
+          send notice = alert("info", "Could not open thread", result.message)
+      case none
+        composerFocusIdentity = composerFocusIdentity
+  mutation selected as shape ThreadSelection refreshes data then didSelectThread
+  mutation draftChanged as shape Change refreshes data
+  task selectRouteThread when not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation) and (top(nav).name.startsWith("thread") or top(nav).name.startsWith("git")) and (data.ready or threadData.queuedCanSelect) and (not threadData.queued or threadData.queuedCanSelect) and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
+    after(1, loadRouteThread)
+  action loadRouteThread
+    if not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation)
+      send routeSelected = selectThread(top(nav).params.threadEnvironment == data.environmentId ? top(nav).params.threadId : `fleet:${top(nav).params.threadEnvironment}:${top(nav).params.threadId}`, `${top(nav).id}`)
+  action didSelectThread
+    match selected
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
+          send notice = alert("info", "Could not open thread", result.message)
+        else if result.requestRoute == `${top(nav).id}` and result.threadId != ""
+          send workspaceNavigation = workspaceThreadSelection(workspaceEntries, workspace.usesSplitView, result.environmentId, result.threadId)
+      case none
+        composerFocusIdentity = ""
+  action editDraft(value: string, owner: string)
+    if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+      send draftChanged = command("draft", owner, value, "0", taskGuardOwner, taskGuardRoute)
+  action composerFocus(value: bool, owner: string, editorId: string)
+    if owner != "" and ((value and owner == composerOwner and editorId == composerEditor) or (not value and composerFocusIdentity == `${editorId}:${owner}`))
+      composerFocusIdentity = value ? `${editorId}:${owner}` : ""
+  action threadAction(op: string, id: string, value: string)
+    if op == "outbox:edit"
+      if not pending(outboxEdited)
+        send outboxEdited = outboxEdit(id, `${top(nav).id}`)
+    else if op == "outbox:retry"
+      if not pending(outboxChanged)
+        send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + performanceNow())
+    else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+      if op == "html-render"
+        send htmlRenderChanged = htmlRenderEvent(htmlRenderContext.context, id, value, `${top(nav).id}`, htmlRenderContext.full)
+      else if op == "fork-response"
+        if not pending(selected) and not pending(routeSelected)
+          haptic("selection")
+          send selected = threadFork(id, value, `${top(nav).id}`)
+      else if op == "queue-open"
+        blur()
+        composerFocusIdentity = ""
+        nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
+      else if (op == "send" or op == "send-alternate") and threadSubmission.ordinary
+        if not pending(changed) and not pending(threadSubmissionChanged)
+          send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
+      else
+        lastOperation = "thread-action"
+        send changed = command(op, id, value, op.startsWith("pending-input:") ? `${top(nav).id}\n${top(nav).url}` : `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
+  derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+  derive threadHeaderOptions = ThreadHeaderOptions(routeKey=`${top(nav).id}`, routeIdentity=`${top(nav).url}:${terminalId}`, focused=(workspaceRouteReady and (top(nav).name == "thread" or top(nav).name == "threadReview" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))), split=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, canGoBack=depth(nav) > 1, returnToChat=top(nav).name == "threadFiles", foreground=threadLook.foreground, review=top(nav).name == "threadReview", reviewRevision=reviewData.revision, dark=appearance.scheme == "dark", inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible)
+  resource threadHeader = threadHeader(threadHeaderOptions, data.revision) as shape ThreadHeaderSnapshot
+  mutation threadHeaderPrepared as shape ThreadHeaderRead refreshes threadHeader, gitData, data
+  mutation threadHeaderChanged as shape ThreadHeaderResult refreshes threadHeader, terminalData, gitData, data then didThreadHeaderChange
+  task prepareThreadHeader when threadHeader.needsPrepare and not pending(threadHeaderPrepared) key=`${threadHeader.owner}:${threadHeader.needsPrepare}`
+    after(1, prepareThreadHeader)
+  action prepareThreadHeader
+    send threadHeaderPrepared = threadHeaderPrepare(threadHeader.owner, wallTime.epochAtZero + performanceNow())
+  action threadHeaderAction(value: string)
+    if not pending(threadHeaderChanged)
+      send threadHeaderChanged = threadHeaderAction(value, threadHeaderOptions, wallTime.epochAtZero + performanceNow())
+  task launchThreadScript when workspaceRouteReady and top(nav).name == "threadTerminal" and threadHeader.pendingLaunch != "" and terminalId == threadHeader.pendingTerminalId and not pending(threadHeaderChanged) key=threadHeader.pendingLaunch
+    after(1, launchThreadScript)
+  action launchThreadScript
+    send threadHeaderChanged = threadHeaderLaunch(terminalId, threadHeader.pendingLaunch, `${top(nav).id}`)
+  action didThreadHeaderChange
+    match threadHeaderChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.environmentId == data.environmentId and (result.threadId == data.threadId or result.navigation == "thread")
+          if result.message != ""
+            send notice = alert("info", "Thread", result.message)
+          else if result.navigation == "threadFiles"
+            openFiles()
+          else if result.navigation == "gitOverview"
+            openGit()
+          else if result.navigation == "review-section" and top(nav).name == "threadReview"
+            reviewSection(result.key)
+          else if result.navigation == "review-inspector" and top(nav).name == "threadReview"
+            toggleInspector()
+          else if result.navigation == "sidebar"
+            toggleSidebar()
+          else if result.navigation == "home"
+            nav = replace(nav, path("home"))
+          else if result.navigation == "return-chat"
+            nav = go(nav, result.location)
+          else if result.navigation == "thread"
+            send workspaceNavigation = workspaceThreadSelection(workspaceEntries, workspace.usesSplitView, result.environmentId, result.threadId)
+          else if result.location != ""
+            terminalId = result.key
+            nav = push(nav, result.location)
+      case none
+        terminalId = terminalId
+  resource workingControl = workingControl(top(nav).params.threadEnvironment, top(nav).params.threadId, wallTime.epochAtZero + max(elapsed, agentsElapsed), data.revision) as shape WorkingControlData
+  task settleWorkingStatus when threadHeaderOptions.focused and workingControl.nextRefreshAt > 0 key=workingControl.nextRefreshAt
+    after(400, tickAgents)
+  mutation answerFilesPrepared as shape InformationRead refreshes threadData, data
+  task prepareAnswerFiles when workspaceRouteReady and (top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) and threadData.environmentId == data.environmentId and threadData.threadId == data.threadId and threadData.answerFilesRequest != "" and not pending(answerFilesPrepared) key=`${threadData.answerFilesOwner}:${threadData.answerFilesRequest}`
+    after(1, loadAnswerFiles)
+  action loadAnswerFiles
+    send answerFilesPrepared = answerFilesPrepare(threadData.answerFilesOwner, threadData.answerFilesRequest, wallTime.epochAtZero + performanceNow())
+  resource previewOwner = previewOwner(workspaceRouteReady and top(nav).name.startsWith("thread"), data.revision) as shape PreviewOwner
+  resource previewPrepared = previewPrepare(previewOwner.owner) as shape InformationRead
+  resource previewLook = previewColors(appearance.scheme, appearance.themeId) as shape MobilePreviewColors
+  resource browserData = browserStatus("browser", previewOwner.owner, top(nav).name == "threadBrowser", previewPrepared, data.revision) as shape MobileBrowserSnapshot
+  resource devicesData = devicesStatus("devices", previewOwner.owner, top(nav).name == "threadDevices", previewPrepared, data.revision) as shape MobileDevicesSnapshot
+  resource browserMenus = browserMenus("browser", browserData) as shape PreviewMenus
+  resource devicesMenus = devicesMenus("devices", devicesData) as shape PreviewMenus
+  mutation previewChanged as shape InformationChange refreshes browserData, devicesData, data then didPreviewChange
+  action browserAction(op: string, value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewAction("browser", previewOwner.owner, op, value, `${top(nav).id}`)
+  action devicesAction(op: string, value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewAction("devices", previewOwner.owner, op, value, `${top(nav).id}`)
+  action browserMenu(value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewMenuAction("browser", value, previewOwner.owner, `${top(nav).id}`)
+  action devicesMenu(value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewMenuAction("devices", value, previewOwner.owner, `${top(nav).id}`)
+  action didPreviewChange
+    match previewChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
+          send notice = alert("info", "Preview", result.message)
+      case none
+        terminalId = terminalId
+  task refreshBrowser when browserData.needsRefresh and previewOwner.owner != "" and not pending(previewChanged) key=previewOwner.owner
+    after(1, refreshBrowserNow)
+  action refreshBrowserNow
+    browserAction("refresh", "")
+  task refreshDevices when devicesData.needsRefresh and previewOwner.owner != "" and not pending(previewChanged) key=previewOwner.owner
+    after(1, refreshDevicesNow)
+  action refreshDevicesNow
+    devicesAction("refresh", "")
+  task closeEmptyPreview when (top(nav).name == "threadBrowser" and browserData.close) or (top(nav).name == "threadDevices" and devicesData.close) key=top(nav).id
+    after(1, back)
+  action openBrowser
+    if workspaceRouteReady
+      nav = push(nav, path("threadBrowser", data.environmentId, data.threadId))
+  action openDevices
+    if workspaceRouteReady
+      nav = push(nav, path("threadDevices", data.environmentId, data.threadId))
+  state terminalId = ""
+  state terminalSelection = terminalCaptureStart("", "")
+  resource terminalData = terminalView(terminalId, appearance.scheme, appearance.themeId, appearance.terminalFontSize, wallTime.epochAtZero + elapsed, (top(nav).name == "threadTerminal" or top(nav).name == "threadTerminalCapture") and workspaceRouteReady, data.revision) as shape MobileTerminalSnapshot
+  resource terminalCapture = terminalCapture(terminalSelection.text, terminalSelection.start, terminalSelection.end) as shape MobileTerminalCapture
+  mutation terminalChanged as shape MobileTerminalResult refreshes terminalData, data then didTerminalChange
+  mutation terminalReceived as shape MobileTerminalEvent then didTerminalEvent
+  mutation terminalAttached as shape TerminalAttachChange refreshes data then didTerminalAttach
+  action terminalAction(op: string, value: string)
+    if workspaceRouteReady
+      send terminalChanged = terminalAction(op, terminalData.terminalId, value)
+  action didTerminalChange
+    match terminalChanged
+      case some(result)
+        if result.environmentId == data.environmentId and result.threadId == data.threadId and top(nav).name == "threadTerminal"
+          if result.message != ""
+            send notice = alert("info", "Terminal", result.message)
+          else if result.closed
+            nav = back(nav)
+          else
+            terminalId = result.terminalId
+      case none
+        terminalId = terminalId
+  action terminalEvent(value: string)
+    send terminalReceived = terminalEvent(value, terminalData.sessionKey)
+  action didTerminalEvent
+    match terminalReceived
+      case some(result)
+        if top(nav).name == "threadTerminal" and result.key == terminalData.sessionKey
+          if result.type == "capture"
+            terminalSelection = terminalCaptureStart(result.text, result.key)
+            nav = push(nav, path("threadTerminalCapture", data.environmentId, data.threadId))
+          else if result.message != ""
+            send notice = alert("info", (result.type == "capture-empty" ? "No terminal output" : "Terminal"), result.message)
+          else if result.type == "menu"
+            if result.action == "font-decrease" or result.action == "font-increase"
+              changePreference("terminalFontSize", `${min(14, max(6, appearance.terminalFontSize + (result.action == "font-decrease" ? -0.5 : 0.5)))}`)
+            else if result.action == "select"
+              terminalId = result.text
+            else if result.action == "new"
+              terminalAction("new", "")
+          else if result.type == "action"
+            terminalAction(result.action, "")
+      case none
+        terminalId = terminalId
+  action selectTerminalLine(index: number)
+    terminalSelection = terminalCaptureSelect(terminalSelection, index)
+  action attachTerminalOutput
+    if not pending(terminalAttached)
+      send terminalAttached = terminalAttach(terminalSelection.key, terminalSelection.text, terminalSelection.start, terminalSelection.end, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
+  action didTerminalAttach
+    match terminalAttached
+      case some(result)
+        if result.accepted
+          if result.message != ""
+            send notice = alert("info", "Draft not saved", result.message)
+          if top(nav).name == "threadTerminalCapture" and `${top(nav).id}` == result.routeVisit and terminalSelection.key == result.key and terminalSelection.text == result.text and terminalSelection.start == result.start and terminalSelection.end == result.end
+            terminalSelection = terminalCaptureAttached(terminalSelection)
+            nav = back(back(nav))
+        else if result.message != ""
+          send notice = alert("info", "Could not attach output", result.message)
+      case none
+        terminalSelection = terminalSelection
+  resource gitLook = gitColors(appearance.scheme, appearance.themeId) as shape GitColors
+  state gitFeedbackPreviousPhase = "idle"
+  resource gitFeedback = gitFeedback(wallTime.epochAtZero + max(agentsElapsed, performanceNow()), data.revision, workspaceRouteReady) as shape MobileGitFeedbackSnapshot
+  mutation gitFeedbackChanged as shape MobileGitFeedbackResult refreshes gitFeedback
+  task gitFeedbackClock when gitFeedback.visible and gitFeedback.phase == "running"
+    every(1000, tickAgents)
+  task gitFeedbackExpiry when gitFeedback.visible and gitFeedback.deadline > 0 key=gitFeedback.id
+    after(5000, tickAgents)
+  task gitFeedbackRetire when not gitFeedback.visible and gitFeedback.id != "" key=gitFeedback.id
+    after(150, tickAgents)
+  task gitFeedbackPhase key=gitFeedback.phase
+    after(1, gitFeedbackPhase)
+  action gitFeedbackPhase
+    if gitFeedbackPreviousPhase == "running" and (gitFeedback.phase == "success" or gitFeedback.phase == "error")
+      haptic(gitFeedback.phase)
+    gitFeedbackPreviousPhase = gitFeedback.phase
+  action pressGitFeedback(owner: string, id: string)
+    send gitFeedbackChanged = gitFeedbackAction(owner, id, "press", wallTime.epochAtZero + performanceNow())
+  resource gitData = gitSnapshot(wallTime.epochAtZero + max(elapsed, performanceNow()), data.revision) as shape MobileGitSnapshot
+  resource gitBranchesData = gitBranchesSnapshot(data.revision) as shape MobileGitBranchesSnapshot
+  state gitForm = GitForm(message="", branch="", worktreeBase="", worktreeBranch="")
+  mutation gitPrepared as shape MobileGitSnapshot refreshes gitData, data
+  mutation gitBranchesPrepared as shape MobileGitBranchesSnapshot refreshes gitBranchesData, data
+  mutation gitChanged as shape MobileGitResult refreshes gitData, data then didGitChange
+  mutation gitBranchChanged as shape MobileGitBranchResult refreshes gitBranchesData, gitData, data then didGitBranchChange
+  task prepareGit when workspaceRouteReady and (top(nav).name.startsWith("git") or (inspectorState.active and inspectorState.mountedGit)) key=`${gitData.owner}:${inspectorState.mountedGit}:${top(nav).name.startsWith("git")}`
+    after(1, prepareGit)
+  task retryGitStatus when workspaceRouteReady and gitData.needsRefresh and not pending(gitPrepared) key=`${gitData.owner}:${gitData.needsRefresh}`
+    after(1, prepareGit)
+  task prepareGitBranches when workspaceRouteReady and top(nav).name == "gitBranches" key=`${top(nav).id}:${gitBranchesData.owner}:${gitBranchesData.readRevision}`
+    after(1, prepareGitBranches)
+  task reconcileGit when workspaceRouteReady and gitData.needsReconcile and not pending(gitChanged) key=`${gitData.owner}:${gitData.needsReconcile}`
+    after(1, reconcileGit)
+  action prepareGit
+    send gitPrepared = gitRead(gitData.owner, wallTime.epochAtZero + performanceNow())
+  action prepareGitBranches
+    send gitBranchesPrepared = gitBranchesRead(gitBranchesData.owner, wallTime.epochAtZero + performanceNow())
+  action reconcileGit
+    gitAction("reconcile", "", "")
+  action refreshGit
+    gitAction("refresh", "", "")
+  action openGit
+    if workspaceRouteReady
+      if workspace.fileInspectorSupported and (top(nav).name == "thread" or top(nav).name == "threadFiles")
+        inspectorAction("git", inspectorContext.focusOwner)
+      else
+        nav = push(nav, path("gitOverview", data.environmentId, data.threadId))
+  action gitAction(op: string, id: string, value: string)
+    if workspaceRouteReady and not pending(gitChanged)
+      send gitChanged = gitAction(gitData.owner, op, id, value, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
+      if op == "confirm" and top(nav).name == "gitConfirm"
+        nav = replace(nav, path("thread", data.environmentId, data.threadId))
+  action didGitChange
+    match gitChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.data.owner == gitData.owner and result.message == ""
+          if result.destination == "review"
+            if top(nav).name == "gitOverview"
+              nav = replace(nav, path("threadReview", data.environmentId, data.threadId))
+            else
+              openReview()
+          else if result.destination == "branches"
+            gitForm = gitFormBranches(gitForm, gitBranchesData.initialBase)
+            nav = push(nav, path("gitBranches", data.environmentId, data.threadId))
+          else if result.destination == "commit"
+            gitForm = GitForm(gitForm, message="")
+            nav = push(nav, path("gitCommit", data.environmentId, data.threadId))
+          else if result.destination == "confirm"
+            nav = push(nav, path("gitConfirm", data.environmentId, data.threadId))
+          else if result.dismiss and top(nav).name.startsWith("git")
+            nav = back(nav)
+      case none
+        gitForm = gitForm
+  action gitBranchAction(op: string, name: string, base: string)
+    if workspaceRouteReady and not pending(gitBranchChanged)
+      send gitBranchChanged = gitBranchAction(gitBranchesData.owner, op, name, base, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
+  action didGitBranchChange
+    match gitBranchChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.data.owner == gitBranchesData.owner
+          if result.message != ""
+            send notice = alert("info", "Branches & worktrees", result.message)
+          else if result.changed
+            nav = back(nav)
+      case none
+        gitForm = gitForm
+  action gitField(key: string, value: string)
+    gitForm = gitFormField(gitForm, key, value)
+  resource reviewLook = reviewColors(appearance.scheme, appearance.themeId) as shape ReviewColors
+  resource reviewData = reviewSnapshot(appearance.scheme, top(nav).name == "threadReview" or top(nav).name == "threadReviewComment", data.revision) as shape ReviewSnapshot
+  mutation reviewPrepared as shape ReviewSnapshot refreshes reviewData
+  mutation reviewPatches as shape ReviewResult refreshes reviewData, data
+  task loadReviewPatchQueue when workspaceRouteReady and top(nav).name == "threadReview" and reviewData.patchRequest != "" and not pending(reviewPatches) key=`${reviewData.owner}:${reviewData.sectionId}:${reviewData.patchRequest}`
+    after(1, loadRequestedReviewPatches)
+  action loadRequestedReviewPatches
+    send reviewPatches = reviewAction(reviewData.owner, "patches", reviewData.sectionId, reviewData.patchRequest, 0, appearance.scheme, `${top(nav).id}`)
+  mutation reviewChanged as shape ReviewResult refreshes reviewData, data then didReviewChange
+  state reviewComment = ""
+  state reviewCommentOwner = ""
+  mutation reviewDismissed as shape ReviewResult refreshes reviewData
+  task dismissReviewComment when reviewCommentOwner != "" and top(nav).name != "threadReviewComment" key=reviewCommentOwner
+    after(1, dismissReviewComment)
+  action dismissReviewComment
+    send reviewDismissed = reviewAction(reviewCommentOwner, "cancel", "", "", 0, appearance.scheme, `${top(nav).id}`)
+    reviewCommentOwner = ""
+  task prepareReview when top(nav).name == "threadReview" and workspaceRouteReady key=`${top(nav).id}:${reviewData.owner}`
+    after(1, prepareReview)
+  action prepareReview
+    send reviewPrepared = reviewPrepare("", appearance.scheme)
+  action openReview
+    nav = push(nav, path("threadReview", data.environmentId, data.threadId))
+  action reviewAction(op: string, path: string, n: number)
+    if workspaceRouteReady
+      send reviewChanged = reviewAction(reviewData.owner, op, path, "", n, appearance.scheme, `${top(nav).id}`)
+  action reviewSection(value: string)
+    reviewAction("section", value, 0)
+  action reviewFile(value: string)
+    reviewAction("file", value, 0)
+  action refreshReview
+    reviewAction("refresh", "", 0)
+  action loadReviewFiles
+    match first(reviewData.files.filter(file => file.pending))
+      case some(file)
+        reviewAction("visible", file.path, 0)
+      case none
+        reviewComment = reviewComment
+  action didReviewChange
+    match reviewChanged
+      case some(result)
+        if workspaceRouteReady and result.data.owner == reviewData.owner and result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "Review changes", result.message)
+          else if result.navigation != "" and top(nav).name == "threadReview"
+            if result.navigation == "top"
+              match first(reviewData.rows)
+                case some(row)
+                  scrollIntoView("review-diff", row.id, block="start")
+                case none
+                  reviewComment = reviewComment
+            else
+              scrollIntoView("review-diff", result.navigation, block="start")
+          else if result.data.commentOpen and top(nav).name == "threadReview"
+            reviewComment = ""
+            reviewCommentOwner = result.data.owner
+            nav = push(nav, path("threadReviewComment", data.environmentId, data.threadId))
+          else if not result.data.commentOpen and top(nav).name == "threadReviewComment"
+            nav = back(nav)
+      case none
+        reviewComment = reviewComment
+  action editReviewComment(value: string)
+    reviewComment = value
+  action submitReviewComment
+    if workspaceRouteReady
+      send reviewChanged = reviewAction(reviewCommentOwner, "save", "", reviewComment, 0, appearance.scheme, `${top(nav).id}`)
+  state fileUi = FileUi(query="", preview="")
+  resource filesData = filesSnapshot((top(nav).name == "threadFile" ? top(nav).params.filePath : ""), data.revision) as shape FileTreeSnapshot
+  resource fileData = fileSnapshot(top(nav).params.filePath, appearance.scheme, 0, data.revision, top(nav).url, taskGuardOwner, workspace.topRouteId) as shape FileSnapshot
+  resource fileMenu = fileMenu(fileData, fileUi.preview == fileData.path, settingsAppearance.codeWordBreak, `${top(nav).id}`, settingsAppearance.ready) as shape AttachmentDocumentMenu
+  mutation filesPrepared as shape FileTreeSnapshot refreshes filesData
+  mutation filesChanged as shape FileTreeResult refreshes filesData then didFilesChange
+  mutation filePrepared as shape FileSnapshot refreshes fileData
+  mutation fileChanged as shape FileActionResult refreshes fileData then didFileAction
+  mutation fileShared as shape FileActionResult refreshes fileData then didFileShare
+  task fileShareNotice when fileData.svgShareMessage != "" key=fileData.svgShareReceipt
+    after(1, reportFileShare)
+  action reportFileShare
+    showMobileNotice("File", fileData.svgShareMessage)
+  task prepareFiles when workspaceRouteReady and (top(nav).name == "threadFiles" or (inspectorState.active and (inspectorState.mountedFiles or (inspectorState.mountedRoute and inspectorState.kind != "changed-files")))) key=`${top(nav).id}:${filesData.owner}:${fileUi.query}:${(top(nav).name == "threadFile" ? top(nav).params.filePath : "")}:${inspectorState.mountedFiles}:${inspectorState.mountedRoute}`
+    after(200, prepareFiles)
+  task prepareFile when (top(nav).name == "threadFile" and workspaceRouteReady) or (top(nav).name == "newTaskFile" and newTaskFlow.fileReady) key=`${top(nav).id}:${fileData.owner}:${top(nav).params.filePath}:${fileData.svgPhase}`
+    after(1, prepareFile)
+  action prepareFiles
+    send filesPrepared = filesPrepare(fileUi.query, (top(nav).name == "threadFile" ? top(nav).params.filePath : ""))
+  action prepareFile
+    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, false, top(nav).url, taskGuardOwner, workspace.topRouteId)
+  action openFiles
+    if workspaceRouteReady and inspectorContext.hasWorkspace
+      if workspace.fileInspectorSupported and (top(nav).name == "thread" or top(nav).name == "threadFiles")
+        inspectorAction("files", inspectorContext.focusOwner)
+      else
+        fileUi = FileUi(fileUi, query="")
+        nav = push(nav, path("threadFiles", data.environmentId, data.threadId))
+  action editFilesQuery(value: string)
+    fileUi = FileUi(fileUi, query=value)
+  action toggleDirectory(path: string)
+    send filesChanged = filesAction(filesData.owner, "toggle", path, (top(nav).name == "threadFile" ? top(nav).params.filePath : ""))
+  action refreshFiles
+    send filesChanged = filesAction(filesData.owner, "refresh", "", (top(nav).name == "threadFile" ? top(nav).params.filePath : ""))
+  action didFilesChange
+    showMobileNotice("Files", filesNoticeMessage(filesChanged))
+  action openFile(path: string)
+    if workspaceRouteReady and not pending(workspaceNavigation)
+      send workspaceNavigation = workspaceFileSelection(workspaceEntries, workspace.fileInspectorSupported, data.environmentId, data.threadId, path)
+  action refreshFile
+    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, true, top(nav).url, taskGuardOwner, workspace.topRouteId)
+  action fileMenuAction(value: string)
+    if value == "word-wrap"
+      send preferenceChanged = preferenceChange("codeWordBreak", settingsAppearance.codeWordBreak ? "false" : "true")
+    else if value == "preview" or value == "source"
+      fileUi = FileUi(fileUi, preview=(value == "preview" ? fileData.path : ""))
+    if value == fileData.svgShareAction
+      if not pending(fileShared) and not fileData.svgSharing
+        send fileShared = fileShare(value, fileData.owner, workspace.topRouteId, top(nav).url)
+    else
+      send fileChanged = fileAction(value, fileData.owner, workspace.topRouteId, top(nav).url)
+  action didFileShare
+    showMobileNotice("File", fileNoticeMessage(fileShared, fileData.owner))
+  action didFileAction
+    showMobileNotice("File", fileNoticeMessage(fileChanged, fileData.owner))
+  derive mediaActive = top(nav).name == "threadMedia" or top(nav).name == "threadDraftMedia" or top(nav).name == "newTaskMedia"
+  derive mediaScope = top(nav).name == "threadMedia" ? (htmlRenderContext.full ? "html-render" : "transcript") : "composer"
+  state mediaContentOwner = ""
+  state mediaUi = mediaUiInitial()
+  state audioRaw = ""
+  resource audioData = audioStatus(audioRaw, documentData.identifier) as shape AttachmentAudioStatus
+  mutation audioChanged as shape Change then didAudioChange
+  action didAudioChange
+    showMobileNotice("Audio", changeNoticeMessage(audioChanged))
+  action audioStatusChanged(value: string)
+    audioRaw = value
+  action audioControl(value: string)
+    send audioChanged = audioAction(documentData.identifier, value)
+  resource mediaViewerData = attachmentNativePreview(mediaUi.nativeSource) as shape MediaPreviewSnapshot
+  derive mediaRouteKey = `${top(nav).id}:${mediaUi.readVersion}`
+  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key, appearance.themeId, mediaUi.nativeOpen, htmlRenderContext.full ? wallTime.epochAtZero + max(elapsed, performanceNow()) : 0) as shape AttachmentDocumentSnapshot
+  resource documentMenu = attachmentMenu(documentData, settingsAppearance.codeWordBreak) as shape AttachmentDocumentMenu
+  mutation documentChanged as shape AttachmentDocumentAction refreshes data then didDocumentAction
+  action documentAction(value: string)
+    send documentChanged = attachmentDocumentAction(value, mediaScope, top(nav).params.attachmentId, mediaRouteKey, documentData, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key)
+  action documentNativeEvent(value: string)
+    send documentChanged = attachmentNativeEvent(value, documentData.identifier)
+  action didDocumentAction
+    let result = documentReplyPlan(mediaUi, documentChanged, mediaActive, documentData.identifier, wallTime.epochAtZero + performanceNow())
+    mediaUi = result.next
+    showMobileNotice("File", result.message)
+    if result.close
+      nav = back(nav)
+    if result.toggleWrap
+      send preferenceChanged = preferenceChange("codeWordBreak", settingsAppearance.codeWordBreak ? "false" : "true")
+  action retryDocument
+    mediaUi = mediaUiRetry(mediaUi, wallTime.epochAtZero + performanceNow())
+  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, newTaskActive ? data.environmentId : top(nav).params.threadEnvironment, newTaskActive ? "" : top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, mediaContentOwner, composerAttachments.contentOwner, htmlRenderContext.context, htmlRenderContext.key) as shape MediaPreviewSnapshot
+  mutation mediaCompleted as shape MediaCompletion then didMediaComplete
+  action mediaComplete(value: string)
+    send mediaCompleted = mediaCompletion(value, mediaData.identifier)
+  action didMediaComplete
+    let result = mediaReplyPlan(mediaUi, mediaCompleted, mediaActive, mediaData.identifier)
+    mediaUi = result.next
+    showMobileNotice("Could not open document", result.message)
+    if result.close
+      nav = back(nav)
+    if result.clearComposerFocus
+      composerFocusIdentity = ""
+  action openDraftMedia(id: string, owner: string)
+    if owner == composerAttachments.contentOwner
+      mediaContentOwner = owner
+      mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
+      nav = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskMedia", id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
+  action openMedia(id: string)
+    mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
+    nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
+  derive attachmentMenuActive = top(nav).name == "thread" or (top(nav).name == "newTaskDraft" and newTaskData.canSelect) or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
+  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`, top(nav).url, attachmentMenuActive) as shape ComposerAttachmentsSnapshot
+  mutation composerPreviewsPrepared as shape InformationRead refreshes composerAttachments, data
+  task prepareComposerPreviews when (top(nav).name == "thread" or top(nav).name == "newTaskDraft" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported)) and composerAttachments.previewRequest != "" and not pending(composerPreviewsPrepared) key=`${composerAttachments.contentOwner}:${composerAttachments.previewRequest}`
+    after(1, loadComposerPreviews)
+  action loadComposerPreviews
+    send composerPreviewsPrepared = composerPreviewsPrepare(composerAttachments.contentOwner, composerAttachments.previewRequest, wallTime.epochAtZero + performanceNow())
+  action removeAttachment(kind: string, id: string, owner: string)
+    lastOperation = "attachments"
+    send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute, owner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
+  action pickAttachments(value: string)
+    lastOperation = "attachments"
+    send changed = attachmentAction("choice", value, taskGuardOwner, taskGuardRoute, composerAttachments.contentOwner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
+  action openModelSettings
+    modelQuery = ""
+    modelFilter = ""
+    if not newTaskActive
+      send modelChanged = composerAction("open", "", "", taskGuardOwner, taskGuardRoute, `${top(nav).id}`)
+    let destination = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskModel") : path("threadModel", data.environmentId, data.threadId))
+    composerReturn = ComposerFocusReturn(editorId=composerEditor, owner=composerOwner, sheetId=`thread-composer-${top(destination).id}`, phase=(composerFocused or layout.keyboardDocked or composerReturn.phase == "restoring" ? "pending" : "expanded"), attempts=0)
+    blur()
+    composerFocusIdentity = ""
+    nav = destination
+  state modelQuery = ""
+  state modelFilter = ""
+  state modelLegacy = false
+  state newTaskQuery = ""
+  state branchQuery = ""
+  state newTaskOperation = ""
+  state newTaskContextRevision = 0
+  resource composerLook = composerColors(appearance.scheme, appearance.themeId) as shape ComposerColors
+  resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
+  derive newTaskActive = top(nav).name.startsWith("newTask")
+  derive newTaskSession = match first(stack(nav).filter(route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or top(nav).name.startsWith("addProject"), data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
+  resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
+  resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
+  derive addProjectAlert = addProjectNextAlert(addProjectData)
+  state addProjectHandled = ""
+  mutation addProjectRead as shape AddProjectSnapshot refreshes addProjectData
+  mutation addProjectEdited as shape AddProjectSnapshot refreshes addProjectData
+  mutation addProjectBrowsed as shape AddProjectSnapshot refreshes addProjectData
+  mutation addProjectChanged as shape AddProjectSnapshot refreshes data, addProjectData
+  mutation addProjectNoticed as shape AddProjectSnapshot refreshes addProjectData
+  task prepareAddProject when addProjectData.needsPrepare key=`${addProjectData.owner}:${addProjectData.activeId}:${addProjectData.revision}`
+    after(1, prepareAddProject)
+  action prepareAddProject
+    send addProjectRead = addProjectPrepare(addProjectData.owner, addProjectData.activeId)
+  task navigateAddProject when addProjectData.navigation.token != "" and addProjectData.navigation.token != addProjectHandled key=addProjectData.navigation.token
+    after(1, navigateAddProject)
+  action navigateAddProject
+    let result = addProjectData.navigation
+    let location = addProjectLocation(result.kind, result.query)
+    if result.routeId == `${top(nav).id}` and addProjectData.owner == newTaskSession and location != ""
+      addProjectHandled = result.token
+      if result.kind == "draft" or result.kind == "source"
+        nav = push(go(nav, path("newTask")), location)
+      else if result.kind == "connections"
+        nav = replace(go(nav, path("newTask")), location)
+      else
+        nav = push(nav, location)
+  task awaitAddedProject when addProjectData.waitOperation != "" key=addProjectData.waitOperation
+    after(15000, addedProjectDeadline)
+  action addedProjectDeadline
+    send addProjectChanged = addProjectAction(addProjectData.owner, addProjectData.waitRoute, "deadline", addProjectData.waitOperation)
+  task showAddProjectNotice when addProjectAlert.id != "" key=addProjectAlert.id
+    after(1, showAddProjectNotice)
+  action showAddProjectNotice
+    send addProjectNoticed = addProjectAction(addProjectData.owner, addProjectData.activeId, "alert", addProjectAlert.id)
+  action editAddProject(owner: string, route: string, field: string, value: string)
+    send addProjectEdited = addProjectEdit(owner, route, field, value)
+  action browseAddProject(owner: string, route: string, directory: string, name: string)
+    send addProjectBrowsed = addProjectBrowse(owner, route, directory, name)
+  action actAddProject(owner: string, route: string, kind: string, value: string)
+    send addProjectChanged = addProjectAction(owner, route, kind, value)
+  action openAddProject
+    nav = push(nav, path("addProject"))
+  derive taskGuardOwner = newTaskActive ? newTaskFlow.owner : ""
+  derive taskGuardRoute = newTaskActive ? `${top(nav).id}` : ""
+  derive modelFilterOwner = [encodeURIComponent(data.environmentId), data.generation.toString(), encodeURIComponent(data.projectId), encodeURIComponent(data.threadId), encodeURIComponent(taskGuardOwner)].join(":")
+  task prepareNewTask when newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${top(nav).url}:${newTaskFlow.shareAttempt}`
+    after(1, prepareNewTask)
+  task redirectNewTask when newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${newTaskFlow.nextLocation}`
+    after(1, redirectNewTask)
+  action prepareNewTask
+    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared)
+      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + performanceNow())
+  action redirectNewTask
+    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)
+      nav = open(nav, newTaskFlow.nextLocation)
+  mutation taskPrepared as shape NewTaskFlowResult refreshes data, newTaskFlow then didTaskPrepare
+  action didTaskPrepare
+    match taskPrepared
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.nextLocation != ""
+          nav = open(nav, result.nextLocation)
+      case none
+        newTaskOperation = ""
+  resource newTaskCachedBranches = newTaskCachedPrepare(branchQuery, newTaskActive and top(nav).name != "newTask", newTaskContextRevision, data.ready, data.environmentId, data.projectId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, data.revision) as shape NewTaskPreparation
+  resource newTaskBranchesReady = newTaskPrepare(branchQuery, newTaskActive and newTaskFlow.ready and top(nav).name != "newTask", newTaskContextRevision, data.ready, data.environmentId, data.projectId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, newTaskCachedBranches.revision) as shape NewTaskPreparation
+  resource newTaskClone = newTaskClone(newTaskFlow.owner, `${top(nav).id}`, top(nav).url, newTaskFlow.ready or newTaskFlow.busy, data.revision) as shape NewTaskCloneSnapshot
+  resource newTaskCloneLook = newTaskCloneColors(appearance.scheme, appearance.themeId) as shape NewTaskCloneColors
+  resource newTaskData = newTaskView(newTaskQuery, data.revision, newTaskBranchesReady.revision, newTaskBranchesReady.loaded, top(nav).name == "newTask", appearance.groupingMode, newTaskClone.blocked, newTaskClone.revision, newTaskCachedBranches.revision, newTaskCachedBranches.loaded) as shape NewTaskSnapshot
+  mutation modelChanged as shape ComposerActionResult refreshes data, modelData then didModelChange
+  mutation taskChanged as shape NewTaskFlowResult refreshes data, newTaskData, newTaskFlow then didTaskChange
+  action modelAction(kind: string, id: string, value: string)
+    if not pending(modelChanged)
+      send modelChanged = composerAction(kind, id, value, taskGuardOwner, taskGuardRoute, `${top(nav).id}`)
+  action didModelChange
+    let result = modelReplyPlan(modelChanged)
+    if result.hasReply and result.requestRoute == `${top(nav).id}`
+      showMobileNotice("Could not update model", result.message)
+      if result.message == "" and (result.closed or top(nav).name == "newTaskModelOption" or top(nav).name == "threadModelOption" or top(nav).name == "newTaskRuntime" or top(nav).name == "threadRuntime")
+        nav = back(nav)
+  action editModelQuery(expected: string, value: string)
+    if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}`
+      modelQuery = value
+  action toggleLegacy(expected: string, value: bool)
+    if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}` and not pending(modelData) and not failed(modelData) and modelData.environmentId == data.environmentId and modelData.threadId == data.threadId and modelData.hasLegacy
+      modelLegacy = value
+  action chooseModelFilter(expected: string, value: string)
+    if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}` and not pending(modelData) and not failed(modelData) and modelData.environmentId == data.environmentId and modelData.threadId == data.threadId and modelData.filters.filter(choice => choice.id == value).length > 0
+      modelFilter = value
+  action openModelOption(id: string)
+    match first(modelData.options.filter(option => option.id == id))
+      case some(option)
+        if option.boolean
+          modelAction("option", id, option.on ? "false" : "true")
+        else
+          nav = push(nav, [top(nav).name.startsWith("newTask") ? path("newTaskModelOption", id) : path("threadModelOption", data.environmentId, data.threadId, id), "?title=", encodeURIComponent(option.label)].join(""))
+      case none
+        modelQuery = modelQuery
+  action openRuntime
+    nav = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskRuntime") : path("threadRuntime", data.environmentId, data.threadId))
+  action taskAction(kind: string, id: string, value: string)
+    if not pending(taskChanged) and not pending(taskPrepared)
+      newTaskOperation = kind
+      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + performanceNow())
+  action didTaskChange
+    let result = taskReplyPlan(taskChanged, newTaskOperation)
+    if not result.hasReply
+      newTaskOperation = ""
+    else if result.requestRoute == `${top(nav).id}`
+      if result.contextDelta != 0
+        newTaskContextRevision = newTaskContextRevision + result.contextDelta
+      showMobileNotice(result.alertTitle, result.message)
+      if result.navigation == "thread"
+        nav = open(nav, path("thread", result.environmentId, result.threadId))
+      else if result.navigation == "close"
+        nav = back(go(nav, path("newTask")))
+      else if result.navigation == "home"
+        nav = replace(go(nav, path("newTask")), path("home"))
+      else if result.navigation == "push"
+        nav = push(nav, result.nextLocation)
+      else if result.navigation == "back"
+        nav = back(nav)
+  action editNewDraft(value: string, owner: string)
+    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value, wallTime.epochAtZero + performanceNow())
+  mutation taskDraftChanged as shape NewTaskFlowResult refreshes data, newTaskData
+  action editNewQuery(value: string)
+    newTaskQuery = value
+  action editBranchQuery(value: string)
+    branchQuery = value
+  action chooseNewProject
+    nav = go(nav, path("newTask"))
+  action chooseNewEnvironment
+    nav = push(nav, path("newTaskEnvironments"))
+  action chooseNewBranch
+    nav = push(nav, path("newTaskBranches"))
+  state archiveVisits = [ArchiveVisit(routeKey="", filters=archiveDefaultFilters())].slice(0, 0)
+  state archiveRefresh = 0
+  state archiveDelete = ArchiveDeleteTarget(environment="", project="", thread="")
+  resource archiveLook = archiveColors(appearance.scheme, appearance.themeId) as shape ArchiveColors
+  resource archiveChrome = archiveChrome(top(nav).name == "archive" ? `${top(nav).id}` : "", viewport.width, layout.safeBottom, layout.liquidGlass, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).query, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).environment, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).sort, archiveData.environments) as shape ArchiveChromeSnapshot
+  resource archiveScope = archiveScope(data.revision, data.environmentId, data.generation, data.ready, data.status, data.environments) as shape ArchiveScope
+  resource archiveRead = archiveRead(top(nav).name == "archive" ? `${top(nav).id}` : "", archiveScope.key, archiveRefresh) as shape ArchiveRead
+  resource archiveData = archiveView(wallTime.epochAtZero + max(elapsed, performanceNow()), archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).query, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).environment, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).sort, top(nav).name == "archive", archiveRead, archiveScope, stack(nav).filter(entry => entry.name == "archive").length > 0) as shape ArchiveData
+  task expireArchive when stack(nav).filter(entry => entry.name == "archive").length == 0
+    after(300000, tick)
+  resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
+  state agentsElapsed = 0
+  task agentsClock when (top(nav).name == "threadAgents" and agents.liveCount > 0) or (threadHeaderOptions.focused and workingControl.statusKind == "working")
+    every(1000, tickAgents)
+  action tickAgents
+    agentsElapsed = performanceNow()
+  resource agents = agentActivity(data.environmentId, data.threadId, wallTime.epochAtZero + max(elapsed, agentsElapsed), data.revision) as shape AgentActivityData
+  mutation archived as shape Change refreshes data, archiveRead then didArchiveChange
+  mutation archiveConfirmation as shape Notice then didConfirmArchive
+  action openAgents
+    nav = push(nav, path("threadAgents", data.environmentId, data.threadId))
+  action openAgent(environmentId: string, threadId: string)
+    nav = replace(nav, path("thread", environmentId, threadId))
+  mutation archiveChromeChanged as shape ArchiveChromeEvent then didArchiveChromeChange
+  action archiveChromeEvent(value: string)
+    send archiveChromeChanged = archiveChromeEvent(value, top(nav).name == "archive" ? `${top(nav).id}` : "", archiveData.environments)
+  action didArchiveChromeChange
+    archiveVisits = archiveEventRecords(archiveVisits, archiveChromeChanged, workspaceEntries)
+  action refreshArchive
+    archiveRefresh = archiveRefresh + 1
+  action archiveAction(kind: string, environmentId: string, projectId: string, threadId: string)
+    if kind == "delete"
+      archiveDelete = ArchiveDeleteTarget(environment=environmentId, project=projectId, thread=threadId)
+      let title = match first(archiveData.items.filter(item => item.environmentId == environmentId and item.threadId == threadId)) { case some(item) => item.title, case none => "This thread" }
+      send archiveConfirmation = alert("delete", "Delete thread?", `“${title}” will be permanently deleted, including its terminal history.`)
+    else
+      send archived = archiveAction(kind, environmentId, projectId, threadId)
+  action didConfirmArchive
+    match archiveConfirmation
+      case some(result)
+        if result.choice == "delete"
+          send archived = archiveAction("delete", archiveDelete.environment, archiveDelete.project, archiveDelete.thread)
+      case none
+        archiveDelete = ArchiveDeleteTarget(archiveDelete, thread="")
+  action didArchiveChange
+    showMobileNotice("Could not update thread", changeNoticeMessage(archived))
+  state settledCount = 10
+  resource shelves = homePreferences() as shape HomePreferences
+  resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
+  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "compact", snapshotRead.serial > 0) as shape HomeView
+  mutation shelfChanged as shape Change refreshes shelves
+  task clock mount
+    every(60000, tick)
+  action tick
+    elapsed = performanceNow()
+  action toggleHomeShelf(section: string)
+    send shelfChanged = toggleShelf(section)
+  action showMore
+    settledCount = settledCount + 25
+  mutation homeChanged as shape HomeActionResult queue refreshes data then didHomeChange
+  mutation homeCopied as shape HomeActionResult queue then didHomeCopy
+  action homeMenuAction(environmentId: string, threadId: string, kind: string, value: string)
+    if kind == "arrange-open"
+      nav = push(nav, path("homeArrange"))
+    else if kind == "copy-thread-id"
+      send homeCopied = homeAction(`${top(nav).id}`, environmentId, threadId, kind, value, wallTime.epochAtZero + performanceNow())
+    else
+      send homeChanged = homeAction(`${top(nav).id}`, environmentId, threadId, kind, value, wallTime.epochAtZero + performanceNow())
+  action homeArrangeDrop(requestRoute: string, version: string, environmentId: string, threadId: string, section: string, targetKey: string, placement: string)
+    if requestRoute == `${top(nav).id}` and top(nav).name == "homeArrange"
+      send homeChanged = homeArrangeAction(requestRoute, version, environmentId, threadId, section, targetKey, placement, wallTime.epochAtZero + performanceNow())
+  action didHomeChange
+    let result = homeReplyPlan(archiveRefresh, homeChanged, `${top(nav).id}`)
+    archiveRefresh = result.archiveRefresh
+    showMobileNotice(result.alertTitle, result.message)
+    if result.nextLocation != ""
+      nav = push(push(nav, path("newTask")), result.nextLocation)
+  action didHomeCopy
+    let result = homeReplyPlan(archiveRefresh, homeCopied, `${top(nav).id}`)
+    showMobileNotice(result.alertTitle, result.message)
+  action chooseThread(id: string)
+    if not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation)
+      send selected = selectThread(id, `${top(nav).id}`)
+  state pairingUi = PairingUi(host="", code="", formError="", expanded="", submitted=false, scannerOpen=false, cameraStatus="undetermined")
+  state lastOperation = ""
+  state pendingRemove = ""
+  mutation camera as shape Camera then didRequestCamera
+  mutation notice as shape Notice
+  mutation removal as shape Notice then didConfirmRemove
+  mutation scanned as shape PairingFields then didScan
+  mutation changed as shape Change refreshes data, threadData, queueData, threadSubmission then didChange
+  task rem mount
+    after(1, rootFont)
+  action rootFont
+    setRootFontSize(14)
+  action editHost(value: string)
+    pairingUi = PairingUi(pairingUi, host=value, formError="")
+  action editCode(value: string)
+    pairingUi = PairingUi(pairingUi, code=value, formError="")
+  action connect
+    lastOperation = "connect"
+    pairingUi = PairingUi(pairingUi, submitted=true)
+    send changed = command(targetEnvironment == "" ? "environment-add" : "environment-add-route", pairingUi.host, pairingUi.code, targetEnvironment, taskGuardOwner, taskGuardRoute)
+  action didChange
+    let result = pairingReplyPlan(pairingUi, changed, lastOperation)
+    pairingUi = result.next
+    showMobileNotice("Could not complete action", result.message)
+    if result.succeeded and top(nav).name == "connect"
+      nav = back(nav)
+  mutation followed as shape AppLink then didFollow
+  state launchRouteId = `${top(nav).id}`
+  state launchLocation = top(nav).url
+  resource initialLink = appLink(launchLocation, launchRouteId, true) as shape AppLink
+  state linkBootResolved = false
+  task resolveColdLink when not linkBootResolved key=launchRouteId
+    after(1, followColdLink)
+  action followColdLink
+    linkBootResolved = true
+    if initialLink.requestRoute == `${top(nav).id}`
+      if initialLink.location != top(nav).url
+        nav = open(nav, initialLink.location)
+  action follow(url: string)
+    send followed = appLink(url, `${top(nav).id}`, false)
+  action didFollow
+    let location = followedLocation(followed, `${top(nav).id}`)
+    if location != ""
+      nav = open(nav, location)
+  action scan
+    if pairingUi.scannerOpen
+      pairingUi = PairingUi(pairingUi, scannerOpen=false)
+    else
+      send camera = cameraPermission()
+  action didRequestCamera
+    let plan = pairingCameraPlan(pairingUi, camera)
+    pairingUi = plan.next
+    if plan.message != ""
+      send notice = alert(plan.kind, "Camera access needed", plan.message)
+  action permissionChanged(value: string)
+    pairingUi = PairingUi(pairingUi, cameraStatus=value)
+  action receiveScan(value: string)
+    if value.trim() == ""
+      send notice = alert("info", "Invalid QR code", "Scanned QR code did not contain a pairing URL.")
+    else
+      send scanned = pairingFields(value)
+  action didScan
+    pairingUi = pairingUiScan(pairingUi, scanned)
+  action didConfirmRemove
+    match removal
+      case some(result)
+        if result.choice == "remove"
+          send changed = command("forget", pendingRemove, "", "0", taskGuardOwner, taskGuardRoute)
+      case none
+        pendingRemove = ""
+  action addEnvironment
+    targetEnvironment = ""
+    pairingUi = PairingUi(pairingUi, formError="", scannerOpen=false)
+    nav = push(nav, path("connect"))
+  action closeNewTask
+    if newTaskFlow.pendingEditor
+      taskAction("pending-close", "", "")
+    else
+      nav = back(go(nav, path("newTask")))
+  action returnHome
+    if top(nav).name == "notfound"
+      nav = replace(nav, path("home"))
+  action back
+    if top(nav).name == "newTaskDraft" and newTaskFlow.pendingEditor
+      closeNewTask()
+    else if top(nav).name == "settingsScheduledNew" or top(nav).name == "settingsScheduledEdit"
+      automationAction("close", "", "", "")
+    else
+      nav = back(nav)
+  action toggle(id: string)
+    if top(nav).name == "environments"
+      nav = push(nav, path("environmentDetail", id))
+    else
+      pairingUi = PairingUi(pairingUi, expanded=pairingUi.expanded == id ? "" : id)
+  action detailAction(kind: string, key: string, value: string)
+    if kind == "route-add"
+      targetEnvironment = value
+      pairingUi = PairingUi(pairingUi, formError="")
+      nav = push(nav, path("connect"))
+    else if kind == "route-remove" or kind == "update-server"
+      confirmKind = kind
+      confirmKey = key
+      confirmValue = value
+      if kind == "route-remove"
+        match first(detail.routes.filter(route => route.id == value))
+          case some(route)
+            send detailConfirmation = alert("remove", `Remove ${route.label}?`, route.address)
+          case none
+            confirmKind = ""
+      else
+        send detailConfirmation = alert("update", `Update ${detail.title}?`, detail.updateConfirmation)
+    else
+      send detailChanged = environmentDetailCommand(kind, key, value)
+  action didConfirmDetail
+    match detailConfirmation
+      case some(result)
+        if result.choice == "remove" or result.choice == "update"
+          send detailChanged = environmentDetailCommand(confirmKind, confirmKey, confirmValue)
+      case none
+        confirmKind = ""
+  action setEnabled(id: string, enabled: bool)
+    send changed = command("environment-enabled", id, enabled ? "on" : "off", "0", taskGuardOwner, taskGuardRoute)
+  action changeRouting(id: string, permission: string)
+    send changed = command("github-routing", id, permission, "0", taskGuardOwner, taskGuardRoute)
+  action reconnect(id: string)
+    send changed = command("environment-reconnect", id, "", "0", taskGuardOwner, taskGuardRoute)
+  action remove(id: string)
+    if not pending(removal)
+      pendingRemove = id
+      let label = match first(data.environments.filter(item => item.id == id)) { case some(item) => item.label, case none => "this environment" }
+      send removal = alert("remove", "Remove from this device?", `Forget ${label} and its cached threads on this device. Switch it off instead to keep it saved.`)
+  action save(id: string, label: string, url: string)
+    lastOperation = "save"
+    send changed = command("save-environment", id, label, url, taskGuardOwner, taskGuardRoute)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%" background-color=look.screen color=look.foreground display="flex" flex-direction="row" font-family="DM Sans" font-size=16 interactive-widget="resizes-content" testId="mobile-root"
+      MobileSidebarPanel(routeId=`${top(nav).id}`, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, reducedMotion=viewport.prefersReducedMotion, workspace=workspace, look=look, sidebarHome=sidebarHome, sidebarChrome=sidebarChrome, homeLook=homeLook, chooseThread=chooseThread, homeMenuAction=homeMenuAction, toggleHomeShelf=toggleHomeShelf, showMoreSidebar=showMoreSidebar, addEnvironment=addEnvironment, sidebarChromeEvent=sidebarChromeEvent)
+      column id="workspace-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
+        for entry in stack(nav) key = entry.id
+          column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="auto" position="absolute" inset=0 width=(entry.name == "threadBrowser" or entry.name == "threadDevices" or entry.name == "settingsLegal" or entry.name.startsWith("threadModel") or entry.name.startsWith("newTaskModel") or entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? viewport.width : workspace.contentSettledWidth) background-color=look.sheet display="flex" flex-direction="column"
+            data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit") data-mobile-form-sheet=(entry.name == "threadModel" or entry.name == "newTaskModel" ? "composer" : entry.name == "newTask" and not workspace.usesSplitView ? "new-task" : entry.name == "settings" and not workspace.usesSplitView ? "settings" : entry.name == "connections" or entry.name == "connect" ? "true" : "") data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "") data-mobile-scanner-open=pairingUi.scannerOpen
+            navigationScroll=(entry.name == "newTask" ? "new-task-projects-scroll" : entry.name == "threadQueue" ? "mobile-queue-scroll" : entry.name == "home" ? (home.items.length > 0 ? "home-list" : "") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? (threadData.rows.length > 0 ? "thread-feed" : "") : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : entry.name.startsWith("settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (archiveData.items.length > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
+            navigationPresentation=(entry.name == "homeArrange" or entry.name == "threadBrowser" or entry.name == "threadDevices" or entry.name == "settingsLegal" ? "fullscreen" : entry.name == "threadModel" or entry.name == "newTaskModel" or ((entry.name == "newTask" or entry.name == "settings") and not workspace.usesSplitView) or entry.name == "threadQueue" or entry.name.startsWith("git") or entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" ? "modal" : "") closedby=(entry.name == "threadBrowser" or entry.name == "threadDevices" ? "none" : "closerequest") navigationDetent=(entry.name == "threadQueue" ? "medium large" : entry.name == "threadModel" or entry.name == "newTaskModel" or (entry.name == "newTask" and not workspace.usesSplitView) ? "large" : "")
+            MobileRouteContent(
+              threadHeaderConfiguration=(threadHeader.ready ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitForm.message, gitNewBranch=gitForm.branch, gitWorktreeBase=gitForm.worktreeBase, gitWorktreeBranch=gitForm.worktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, modelOptionTitle=searchParam(entry, "title"), focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look,
+              data=data, detail=detail, informationRoute=informationRoute, informationListCovered=(entry.name == "settingsOpenSourceLicenses" and top(nav).name == "settingsOpenSourceLicense" and (match stack(nav).at(-2) { case some(previous) => previous.id == entry.id, case none => false })), informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
+              terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, filePreview=(fileUi.preview == fileData.path), fileMenu=fileMenu.configuration, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, htmlRenderContext=htmlRenderContext, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
+              reviewComment=reviewComment, filesQuery=fileUi.query, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, modelFilterOwner=modelFilterOwner, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveRead)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
+              changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent, richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment,
+              openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, fileMenuAction=fileMenuAction, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent,
+              retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, chooseModelFilter=chooseModelFilter,
+              openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents,
+              openAgent=openAgent, archiveChromeEvent=archiveChromeEvent, refreshArchive=refreshArchive, archiveAction=archiveAction, toggleHomeShelf=toggleHomeShelf, showMore=showMore, chooseThread=chooseThread, homeMenuAction=homeMenuAction, homeArrangeDrop=homeArrangeDrop, editHost=editHost, editCode=editCode, connect=connect, scan=scan, permissionChanged=permissionChanged, receiveScan=receiveScan, addEnvironment=addEnvironment, back=back, returnHome=returnHome, closeNewTask=closeNewTask, toggle=toggle, detailAction=detailAction, setEnabled=setEnabled, changeRouting=changeRouting, reconnect=reconnect, remove=remove, save=save
+            )
+      MobileInspectorPanel(workspace=workspace, reviewLook=reviewLook, gitLook=gitLook, inspectorPresentation=inspectorPresentation, inspectorState=inspectorState, layout=layout, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit, inspectorEvent=inspectorEvent)
+      MobileWorkspaceMarkers()
+      MobileKeyboard(data=keyboard, colors=threadLook, card=homeLook.card, dangerBorder=look.colors.dangerBorder, top=layout.safeTop + 56, event=keyboardEvent, dismiss=keyboardDismiss)
+      MobileGitFeedback(feedback=gitFeedback, press=pressGitFeedback, left=workspace.sidebarContentWidth + 10.5, right=workspace.inspectorContentWidth + 10.5, top=layout.safeTop + 56, reduced=viewport.prefersReducedMotion, colors=gitLook)
+      t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" width=0 height=0 aria-hidden=true
+      t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true pointer-events="none"
+      if voiceData.globalVisible
+        column position="absolute" right=0 bottom=(max(layout.safeBottom, 12) + 64)
+          VoiceGlobalPill(data=voiceData, colors=voiceLook, expanded=voicePillExpanded, width=min(320, viewport.width - 24), action=voiceAction, expand=expandVoicePill)

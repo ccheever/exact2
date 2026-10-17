@@ -215,6 +215,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
   that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **Replacing a retained route can leave its new data unprepared.** A one-shot
+  preparation task keyed only by route id and scope does not rearm when
+  `replace` retains both and changes a file path. The resource can show the
+  new title and clear its rows while preparation never runs. Include the
+  changing data identity (`params.filePath`) in the task key; retain the
+  existing owner, permission and cancellation checks. (T3 Code iPad, normal
+  native build: sample→wide had a blank body; path-key correction passes both
+  directions. LLP 1109.006, 2026-10-10.)
 - **An "on return" task also runs at every launch.** Cause: a gated task arms
   when its gate becomes true and at boot when it is already true (LLP 1092 D8),
   and the page is `visible` at launch: `task returned when page.visibilityState
@@ -310,6 +318,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
   control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
   control always swipes down (LLP 1115 D5). (`ModalIOS.swift`, `refusesDismissal`.)
+- **A dismissed sheet stays selected in the app.** Native gesture permission
+  and the logical route update are separate. T3's initial chooser stopped
+  dismissing after its authored Back was removed. Source reading points to
+  native dismissal's root URL fallback meeting the app's warm-root filter;
+  that callback sequence was not captured. Keeping the authored logical Back
+  and hiding only its projected initial item restores the observed grabber
+  dismissal to Home, confirmed by the final PNG and a later full accessibility
+  read. (T3 chooser R2, 2026-10-12; LLP 1109.005, "initial chooser Back and
+  native dismissal".)
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
   grouped list), and values copied from a screenshot: Apple's system colours as hex
@@ -351,6 +368,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   that is no menu as AppKit's popover; each is a window of its own, so a plain
   `screenshot` (the viewport's own drawing) leaves it out and says so
   (`notShown`). (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
+- **A native route adapter sets bar items, but the bar disappears.** Cause:
+  removing the authored header also removes Exact's header-shaped route. Keep
+  a first-child `header` with exactly one heading; decorate its navigation item
+  through the route hatch. Setting UIKit items alone does not declare a visible
+  bar (`NavigationBarIOS.swift`, `HeaderShape`; T3 Review, 2026-10-10).
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
@@ -421,6 +443,20 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   tap anywhere in the row reaches it), the web and macOS a field with its line, corners
   and height (LLP 1116.005 D2), as `apps/shelf`'s add sheet shows. (Shelf recipe,
   2026-10-10; round 7, 2026-10-11.)
+
+- **A native factory's `props["testId"]` is empty.** Common node attributes stay
+  on the Contract node; the factory receives the authored custom props. If the
+  app's native view itself is the accessibility element, include its stable id
+  in a custom prop or existing configuration and set `accessibilityIdentifier`
+  on that view. Reading `testId` from the factory dictionary can overwrite its
+  identifier with nil. (T3 Code fork row, LLP 1109.005, 2026-10-10.)
+
+- **`ExactRoute.element` resolves HTML ids, not test ids.** A field's `testId`
+  can appear as its native accessibility identifier while `route.element` still
+  returns nil. Use an authored `id` for element lookup, or existing route data
+  to identify a screen. Do not gate route work on an accessibility identifier
+  passed to the HTML-id resolver. (T3 Code connection trace, LLP 1109.005,
+  2026-10-11.)
 
 ## Actions
 
@@ -1094,6 +1130,20 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   1101.002 §0 P15). Fix: list it in `exclude` while it is written, which lets
   `cargo build --manifest-path <it>/Cargo.toml` build it alone, and move it
   to `members` once that passes.
+- **`EXACT_APP_DIR` selects the source, but the build names the wrong Cargo adapter.**
+  With no app argument, `resolveApp` derives the name from the directory's
+  basename. A nested directory called `mobile` can therefore select
+  `mobile-ios` instead of its actual `t3-code-ios` package. Pass the app's
+  documented adapter name: `EXACT_APP_DIR="$PWD/examples/t3-code/mobile"
+  bun host/apple/build.mjs --ios t3-code-ios`. The omitted argument failed
+  before app compilation; the explicit argument built successfully.
+- **A journal read shows the new value after its atomic save reported an error.**
+  Rename may have completed before directory sync failed. Readback proves
+  visibility, not a durable outcome. Keep it uncertain until the exact state
+  receives a successful sync or replacement, including when a new owner
+  loads it. The T3 question inventory's replay returned adopted descriptors
+  without that acknowledgement in a real-file fault-boundary witness;
+  the witness modeled an omitted sync and did not test actual power loss.
 - **"I opened it in a terminal" is not "it is running".** `open -na
   Ghostty.app --args -e …` can return success while the window reports "The
   terminal failed to initialize". Before telling a person the app is up,
@@ -1134,6 +1184,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   With `appearance="auto"`, those rows are refused; remove them to keep the
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
+
+- **The T3 native bake needs the browser renderer's own locked dependencies.**
+  A fresh worktree's root `bun install --frozen-lockfile` does not install the
+  nested `examples/t3-code/mobile/browser-mobile-renderer` package. Run the
+  same frozen-lock install there before building T3. Its iOS build script
+  checks `effect/package.json` and refuses before the bake when it is absent.
+  This was observed in the isolated questionnaire UI build; installing the
+  nested lock resolved the prerequisite without an app source correction.
 
 ## Access hatches
 

@@ -1,0 +1,117 @@
+// SourceFileSurface365aa87982, over shared reads and mobile syntax colors.
+// @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
+use ReviewColors, ReviewRow from "./review-shapes.contract"
+
+shape FileUi
+  query: string
+  preview: string
+
+shape FileSnapshot
+  owner: string
+  revision: number
+  path: string
+  title: string
+  subtitle: string
+  loading: bool
+  error: string
+  contents: string
+  copyContents: string
+  rows: ReviewRow[]
+  truncated: bool
+  notice: string
+  markdown: bool
+  initialRowId: string
+  svg: bool
+  svgSource: string
+  svgRetry: string
+  svgFailure: string
+  svgSharing: bool
+  svgCanRead: bool
+  svgShareAction: string
+  svgShareMessage: string
+  svgShareReceipt: string
+  fullPath: string
+  relativePath: string
+  svgPhase: string
+  svgTitle: string
+  svgDetail: string
+  svgTrace: string
+  svgTraceCopy: string
+  svgRetrying: bool
+  svgRetryAllowed: bool
+  svgSymbol: string
+
+shape FileActionResult
+  owner: string
+  message: string
+  kind: string
+  uncertain: bool
+
+component MobileFileView
+  props
+    data: FileSnapshot
+    colors: ReviewColors
+    wrap: bool
+    fontSize: number
+    rowHeight: number
+    numberSize: number
+    preview: bool
+    refresh: action
+    action: action
+  view
+    column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
+      if data.svg
+        if data.svgFailure == "disconnected"
+          column flex=1 align-items="center" justify-content="center" padding-left=32 padding-right=32
+            column max-width=320 align-items="center" gap=12
+              if data.svgRetrying
+                t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
+              else
+                t3-symbol symbol-name=data.svgSymbol symbol-tint=colors.iconMuted width=24 height=24
+              text data.svgTitle font-size=18 font-weight=700 text-align="center" color=colors.foreground
+              text data.svgDetail font-size=14 text-align="center" color=colors.muted
+              if data.svgTrace != ""
+                button appearance="none" `Trace ID: ${data.svgTrace}` press=action(data.svgTraceCopy) aria-label=`Copy trace ID ${data.svgTrace}` aria-description="Copies the trace ID" font-size=12 color=colors.muted
+              if data.svgRetryAllowed
+                button "Retry now" press=action(data.svgRetry) margin-top=4 border-radius=999 background-color=colors.subtle padding-left=16 padding-right=16 padding-top=10 padding-bottom=10
+        else if data.svgFailure == "failed"
+          column flex=1 align-items="center" justify-content="center" padding=21 gap=7
+            text "Preview unavailable" font-size=18 font-weight=700 color=colors.foreground
+            text "This file may be missing, unsupported, or unavailable on this environment." font-size=14 line-height="22.75px" text-align="center" color=colors.muted
+            button "Try again" press=action(data.svgRetry)
+        else if data.svgSource == ""
+          column flex=1 align-items="center" justify-content="center" gap=10.5
+            t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+            text "Preparing preview..." font-size=14 color=colors.muted
+        else
+          t3-document-html media-source=data.svgSource flex=1 min-height=0
+      else
+        if data.truncated
+          column padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border background-color=colors.card
+            text "Partial file" font-size=10 font-weight=500 text-transform="uppercase" color=colors.muted
+            text data.notice font-size=10.5 color=colors.muted
+        if data.error != "" and data.rows.length == 0
+          column flex=1 align-items="center" justify-content="center" padding=21 gap=7
+            text "File unavailable" font-size=18 font-weight=700 color=colors.foreground
+            text data.error font-size=14 line-height="22.75px" text-align="center" color=colors.muted
+        else
+          if data.loading and data.rows.length == 0
+            column flex=1 align-items="center" justify-content="center" gap=10.5
+              t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+              text "Loading file..." font-size=14 color=colors.muted
+          else
+            if preview and data.markdown
+              scroll flex=1 min-height=0 refresh=refresh
+                text data.contents markup="markdown" padding=14 font-size=16 line-height="23px" color=colors.foreground
+            else
+              list id="file-source" flex=1 min-height=0 virtualized=true estimated-item-height=22 padding-top=8 padding-bottom=rowHeight refresh=refresh
+                for row in data.rows key=row.id
+                  row min-height=rowHeight align-items="start" background-color=(row.selected ? colors.selection : colors.codeBackground)
+                    text row.newNumber width=46 box-sizing="border-box" padding-right=10.5 text-align="right" font-family="Menlo" font-size=numberSize line-height=`${rowHeight}px` color=colors.tertiary
+                    view flex=1 min-width=0 overflow-x=(wrap ? "hidden" : "auto")
+                      text padding-left=(wrap ? 0 : 7) font-family="Menlo" font-size=fontSize line-height=`${rowHeight}px` white-space=(wrap ? "pre-wrap" : "pre") color=colors.foreground
+                        if row.tokens.length == 0
+                          text (row.text == "" ? " " : row.text)
+                        else
+                          for token in row.tokens key=token.id
+                            text token.text color=token.color font-weight=token.weight font-style=token.slant
