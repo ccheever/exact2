@@ -1,6 +1,7 @@
 # A data module cannot answer a socket frame in the turn it arrives
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** LLP 1016.000 D7 amended (Charlie, 2026-10-16); a socket's mapper replies on its own socket during open and message, sent with each frame's commit on the web JS target, Apple and Linux
 **Systems:** runner streams, data modules, Contract
 **Severity:** P2
 **Author:** Claude (Opus 5.5)
@@ -47,3 +48,21 @@ Option 1; LLP 1016.000 D7 is amended before it is built.
   and the next `answer()` clears them; on the web JS target a stream message lands
   through `land` (`host/web-js/rt.js`), which has no effects hook. Each needs one, and
   `SocketSend` and the journal's wording, which name a mutation, need its origin.
+
+## Fix
+
+LLP 1016.000 D7 carries the ruling as its amendment of 2026-10-16. Natively,
+the prelude keeps a socket mapper call's operations apart from its stream's
+answer and hands them over (door op 14) as the call returns; `Module::message`
+stages them on the store, and the runner addresses them to the frame's own
+stream ticket as a `SocketSend` from `SocketOrigin::Mapper`, held in that
+frame's commit checkpoint. On the web JS target they ride the frame's answer
+as effects, which `reply` in `host/web-js/rt.js` queues with the commit's
+outgoing work. A frame that staged operations and did not stand journals
+`mapper <resource> failed: …; socket frames were refused`. Tests:
+`runner/tests/it/sockets.rs`, `js/tests/it/socket.rs`,
+`host/web-js/socket.test.mjs` (an echo path that sends each frame only after
+the last Ack), `host/apple/src/executor_socket_tests.rs`. Driven with the
+agent on the web JS target, macOS and the Linux host against such a server:
+it logged `subscribe`, `Ack 1` to `Ack 5`, no Ack for the refused snapshot,
+then the release's close.

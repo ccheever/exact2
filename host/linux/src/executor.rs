@@ -136,7 +136,8 @@ impl Executor {
     pub fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
         self.core.waker()
     }
-    /// Send a mutation's socket batch whose commit stood (LLP 1016.000 D7).
+    /// Send a mutation's or mapper call's socket batch whose commit stood
+    /// (LLP 1016.000 D7).
     pub fn socket(&self, batch: &exact_runner::SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
         self.core.socket(batch)
     }

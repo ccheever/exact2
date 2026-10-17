@@ -192,7 +192,7 @@ export function commit(f, what = "commit") {
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
     Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
     Store.restore(store);
-    Out = []; Commands = []; Landed = []; Refused = e;
+    for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js)
     say(`refused ${what}: ${e.message}`);
     if (!(e instanceof Refusal)) console.error(e);
     Restoring = true; try { settle(); } catch {} finally { Restoring = false; }
@@ -414,7 +414,7 @@ function send(t, land) {
     // source's `exactStream` (ts-data.js). It is in flight until its first message (D5), then open
     // until its end or until its ticket is let go (`Open`, after each commit).
     if (t.stream || t.req?.stream) {
-      t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.messages = t.coalesced = 0; Open.add(t);
+      t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.ctl.resource = !!t.r; t.messages = t.coalesced = 0; Open.add(t); // `resource`: a socket it owns takes its mapper's replies (ts-stream.js)
       (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }));
@@ -445,7 +445,7 @@ function reply(t, name, source, held, f, next, gone) {
       let p;
       try { if (o.error !== undefined) throw new Failed(o.error, o.code, o.reason); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
       catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e), failureReason(e)); }
-      f(p, o);
+      f(p, o); Out.push(...(o.effects ?? [])); // a socket frame's replies from its mapper, sent once this commit stands (LLP 1016.000 D7)
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed || !t.r) || !held()) return; // a mutation's reply is spent whatever refused it
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}: ${Refused?.message ?? Refused}`); // why, on the line a test failure quotes (sb4 farm wave 6, E3: a mutation's refused reply named nowhere)
     gone(Refused.message, Refused.code, Refused.reason); recommit(() => { if (t.r) again(t); }, "a failed request");

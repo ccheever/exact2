@@ -2,7 +2,9 @@
 //! close, overflow and abort is the test's to make, and every frame sent
 //! is recorded.
 use super::super::super::Core;
-use exact_runner::{FailureKind, Message, Outcome, Request, RequestOut, SocketOp, SocketSend};
+use exact_runner::{
+    FailureKind, Message, Outcome, Request, RequestOut, SocketOp, SocketOrigin, SocketSend,
+};
 use ibex2::{
     boundary::HostError,
     stdlib::{
@@ -189,10 +191,12 @@ fn text(m: &Outcome) -> &str {
 }
 
 fn batch(ops: Vec<SocketOp>) -> SocketSend {
-    SocketSend {
-        mutation: "say".into(),
-        ops: ops.into_iter().map(|op| (1, "feed".into(), op)).collect(),
-    }
+    from(SocketOrigin::Mutation("say".into()), ops)
+}
+
+fn from(origin: SocketOrigin, ops: Vec<SocketOp>) -> SocketSend {
+    let ops = ops.into_iter().map(|op| (1, "feed".into(), op)).collect();
+    SocketSend { origin, ops }
 }
 
 fn frame(data: &str) -> Result<Event, HostError> {
@@ -251,6 +255,56 @@ fn a_two_way_socket_opens_sends_in_order_and_ends_with_its_close() {
     assert_eq!(
         core.socket(&late),
         Err("InvalidStateError: the socket is not open".into())
+    );
+}
+
+/// A far side that sends its next frame only once the last is
+/// acknowledged: the mapper's replies, published as each frame's commit
+/// stands, go out on the socket while its reader is open, in order and
+/// ahead of a later mutation's frames.
+#[test]
+fn a_mapper_s_replies_go_out_while_its_socket_reads() {
+    let (core, peer, woke) = setup();
+    core.run_owned(socket(1), None).unwrap();
+    let mapper = |text: String| {
+        from(
+            SocketOrigin::Mapper("feed".into()),
+            vec![SocketOp::Text(text)],
+        )
+    };
+    assert!(
+        matches!(next(&core, &woke), Outcome::Message(Message { ref event, .. }) if event == "open")
+    );
+    assert_eq!(
+        core.socket(&mapper("subscribe".into())),
+        Ok(vec![(1, 1, 0)])
+    );
+    let wire = feed(&peer, 0);
+    for n in 1..=3 {
+        // The far side's condition for its next frame.
+        let owed = match n {
+            1 => "text subscribe".to_string(),
+            n => format!("text Ack {}", n - 1),
+        };
+        assert_eq!(peer.sent.lock().unwrap().last(), Some(&owed));
+        wire.send(frame(&format!("frame {n}"))).unwrap();
+        assert_eq!(text(&next(&core, &woke)), format!("frame {n}"));
+        assert_eq!(
+            core.socket(&mapper(format!("Ack {n}"))),
+            Ok(vec![(1, 1, 0)])
+        );
+    }
+    let said = batch(vec![SocketOp::Text("after".into())]);
+    assert_eq!(core.socket(&said), Ok(vec![(1, 1, 0)]));
+    assert_eq!(
+        *peer.sent.lock().unwrap(),
+        [
+            "text subscribe",
+            "text Ack 1",
+            "text Ack 2",
+            "text Ack 3",
+            "text after"
+        ]
     );
 }
 

@@ -79,7 +79,8 @@ What remains:
 - Web wasm: its module realm passes the mapper a handle that never opens,
   and its host's reader is still the listener. It needs `open`, ordered
   frames, binary, `Closed` and the mutation flag in `module-glue.js`, and
-  the op-14 door there.
+  the op-14 door there, which would also carry the mapper's replies (D7's
+  amendment of 2026-10-16).
 - Rust sources: no handle or send operation.
 - A caller's abort signal makes the native handle stale but does not end
   the stream or map `Aborted`, as the web JS target does.
