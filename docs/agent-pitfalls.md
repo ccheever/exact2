@@ -74,6 +74,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`row align-items="center" gap=8`), which a grouped `list`'s rows already have.
   (Wave 2 of LLP 1115.000, a scratch page on the web, the Mac and iOS, 2026-10-11.)
 
+- **Padding on a checkbox or switch does not add space.** With the default
+  `appearance="auto"`, layout ignores its padding. Use `margin` or a padded
+  wrapper for spacing while keeping the native face. `appearance="none"`
+  preserves authored padding but opts out of that face. Reproduced in the
+  kernel's [form-control tests](../kernel/tests/it/browser_controls.rs) and a
+  flex-row spacing check on current main, 2026-10-17.
+
 - **A label beside a `range` or a `progress value=` wraps onto two lines, and the
   control is wide.** Cause: both are `width: 100%` unless you say otherwise (LLP
   1115.000 D10.2), and in a `row` that is the control's flex basis: the row
