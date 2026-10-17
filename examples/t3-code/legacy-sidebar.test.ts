@@ -157,7 +157,7 @@ describe('legacy menus (LegacySidebar.tsx)', () => {
   });
   test('the project menu targets one project, or a submenu of members for a group', () => {
     const one = legacyProjectMenuItems([{ id: 'p1', physicalKey: 'env:/a', title: 'A', workspaceRoot: '/a', environmentLabel: '', remote: false }]);
-    expect(one.map(item => item.label)).toEqual(['Rename', 'Group into...', 'Copy Path', 'Project settings', 'Remove']);
+    expect(one.map(item => item.label)).toEqual(['Rename', 'Group into…', 'Copy Path', 'Project settings', 'Remove']);
     expect(one.find(item => item.label === 'Remove')).toMatchObject({ id: 'delete:env:/a', destructive: true });
     const two = legacyProjectMenuItems([{ id: 'p1', physicalKey: 'env:/a', title: 'A', workspaceRoot: '/a', environmentLabel: '', remote: false },
       { id: 'fleet:r:p9', physicalKey: 'r:/b', title: 'A', workspaceRoot: '/b', environmentLabel: 'Studio', remote: true }]);

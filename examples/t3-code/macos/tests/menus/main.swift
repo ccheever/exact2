@@ -546,8 +546,8 @@ final class MenuTests: XCTestCase {
                                    characters: "G", charactersIgnoringModifiers: "g", isARepeat: false, keyCode: 5)!
         XCTAssertTrue(bar.performKeyEquivalent(with: key), "a hidden Find still answers the app's chord")
         XCTAssertEqual(ShortcutHost.fired, before + 1)
-        // DesktopApplicationMenu.ts's Help: Check for Updates... alone; the help book is not offered.
-        XCTAssertEqual(shown(help), ["Check for Updates..."])
+        // DesktopApplicationMenu.ts's Help: Check for Updates… alone; the help book is not offered.
+        XCTAssertEqual(shown(help), ["Check for Updates…"])
         XCTAssertTrue(book.isHidden)
         XCTAssertFalse(book.allowsKeyEquivalentWhenHidden, "⇧⌘/ stays AppKit's help search")
     }
@@ -573,7 +573,7 @@ final class MenuTests: XCTestCase {
         menus.presentAlert = { shown.append($0) }
         menus.augment(bar)
         menus.augment(bar)
-        let expected = ["About T3 Code", "Check for Updates...", "—", "Settings…", "—", "Services", "—", "Hide T3 Code", "Hide Others", "Show All", "—", "Quit T3 Code"]
+        let expected = ["About T3 Code", "Check for Updates…", "—", "Settings…", "—", "Services", "—", "Hide T3 Code", "Hide Others", "Show All", "—", "Quit T3 Code"]
         let titles = { app.items.map { $0.isSeparatorItem ? "—" : $0.title } }
         XCTAssertEqual(titles(), expected)
         // The host's next batch puts Settings… back at index 2; the menu is ordered again as it opens.
@@ -584,7 +584,7 @@ final class MenuTests: XCTestCase {
         XCTAssertTrue(app.delegate === menus)
         XCTAssertEqual(bar.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "the reference bar has no Go menu")
         let help = bar.items.last!.submenu!
-        XCTAssertEqual(help.items.map(\.title), ["Check for Updates..."])
+        XCTAssertEqual(help.items.map(\.title), ["Check for Updates…"])
         XCTAssertTrue(NSApp.helpMenu === help)
         let item = help.items[0]
         XCTAssertTrue(menus.validateMenuItem(item), "enabled with no window, as the reference's ensureMain does")

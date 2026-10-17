@@ -10,15 +10,15 @@ import UniformTypeIdentifiers
 /// and Zoom Out (the main window's zoom, Electron's 0.5-level steps). Settings… (⌘,) is the
 /// host's placement of the app's Meta+, command. ⌘Q from the keyboard goes through the
 /// Quit shortcut setting (QuitHold.ts); Quit from the menu stays immediate. Check for
-/// Updates... sits under About and in Help, as the reference's darwin template places it.
+/// Updates… sits under About and in Help, as the reference's darwin template places it.
 ///
 /// These stay native, each for a reason the adopted API
 /// leaves open: an `-exact-menu` button's item is enabled only while its window is key and has
-/// no sheet (ShortcutsMac `validateMenuItem`), where the reference's Check for Updates... is
+/// no sheet (ShortcutsMac `validateMenuItem`), where the reference's Check for Updates… is
 /// always enabled (it reopens the main window); no Contract API zooms the main window, an app
 /// chord is heard only inside a shown modal while one is up (Shortcuts.swift `shortcutModal`),
 /// and the host files app View items ahead of Reload; the host files app-menu items after About's
-/// separator (ShortcutsMac `sync`), where the reference's Check for Updates... sits directly under
+/// separator (ShortcutsMac `sync`), where the reference's Check for Updates… sits directly under
 /// About, and `-exact-menu-remove` names none of the Edit, Help or Go/Develop items hidden.
 final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private weak var window: NSWindow?
@@ -120,7 +120,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
             view.insertItem(.separator(), at: items.count)
         }
         // The host's Help since LLP 1115 D8 ("<app> Help" ⌘? and AppKit's search field): the reference's holds
-        // Check for Updates... alone, so the help-book item hides and leaves ⇧⌘/ to the search field.
+        // Check for Updates… alone, so the help-book item hides and leaves ⇧⌘/ to the search field.
         if let help = bar.items.first(where: { $0.submenu?.title == "Help" })?.submenu {
             for item in help.items where item.action == #selector(NSApplication.showHelp(_:)) && !item.isHidden { item.isHidden = true }
         }
@@ -128,7 +128,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         keys.arrange(bar)
     }
 
-    // MARK: Check for Updates...
+    // MARK: Check for Updates…
 
     /// DesktopUpdates getAutoUpdateDisabledReason: a bundle without an update store (its
     /// receipt's composition "embedded", app.json deploy.store "0") has no update feed.
@@ -148,7 +148,8 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         return alert
     }
     private func makeUpdatesItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        // DesktopApplicationMenu.ts:164 and 261 say "Check for Updates...", which Electron's Mac menus draw with an ellipsis.
+        let item = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         item.target = self
         return item
     }
@@ -185,7 +186,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         }
     }
     func menuNeedsUpdate(_ menu: NSMenu) { Self.orderApplicationMenu(menu, updates: appUpdatesItem) }
-    /// The reference's app menu: About, Check for Updates..., —, Settings..., —, then the
+    /// The reference's app menu: About, Check for Updates…, —, Settings…, —, then the
     /// host's Services / Hide / Quit groups with their own separators, none doubled.
     static func orderApplicationMenu(_ menu: NSMenu, updates: NSMenuItem) {
         let items = menu.items
