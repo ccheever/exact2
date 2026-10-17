@@ -413,4 +413,20 @@ theorem argOk_valTy {p : Program} (hs : ShapesComplete p) {x : String} {t : Ty} 
   · simp only [hx, ↓reduceIte] at h; exact typed_valTy hs _ h hc
   · simp only [hx, Bool.false_eq_true, ↓reduceIte] at h; exact conforms_valTy hs _ h hc
 
+/-- `Value.flat` of a list of lists of `a` answers a list of `a`. -/
+theorem flat_ok {p : Program} {a : Ty} : ∀ {xss : List Value}, ValTys p xss (.list a) →
+    ∃ ys, Value.flat xss = .some ys ∧ ValTys p ys a
+  | [], _ => ⟨[], rfl, trivial⟩
+  | .list ys :: _, h => by
+    obtain ⟨zs, hz, hzs⟩ := flat_ok h.2
+    exact ⟨ys ++ zs, by simp [Value.flat, hz], ValTys.of_mem fun v hv =>
+      (List.mem_append.mp hv).elim (h.1.mem v) (hzs.mem v)⟩
+  | .num _ :: _, h | .bool _ :: _, h | .str _ :: _, h | .unit :: _, h | .none :: _, h
+  | .some _ :: _, h | .record _ _ :: _, h => by simp [ValTys, ValTy] at h
+
+/-- No value is of `?`, so a list of them is empty, and `flat` of it too. -/
+theorem flat_unknown {p : Program} : ∀ {xss : List Value}, ValTys p xss .unknown → Value.flat xss = .some []
+  | [], _ => rfl
+  | x :: _, h => by cases x <;> simp [ValTys, ValTy] at h
+
 end Contract

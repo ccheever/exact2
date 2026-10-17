@@ -1,7 +1,7 @@
 Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 functions: call -> result
-  xs.at(i) -> option<T>  (none past end; -1 is last)
+  xs.at(i) -> option<T>  (-1 is last)
   back(router) -> Router
   calendarDiff(from, to, "years"|"months") -> option<number>  (whole; YYYY-MM-DD)
   ceil(n) -> number
@@ -15,6 +15,7 @@ functions: call -> result
   text.endsWith(suffix) -> bool
   xs.filter(x => bool) -> T[]
   first(xs) -> option<T>
+  xs.flat() -> T[]
   floor(n) -> number
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
   formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
@@ -51,7 +52,7 @@ functions: call -> result
   stack(router) -> Entry[]
   text.startsWith(prefix) -> bool
   sum(xs) -> number
-  t("key", name=value) -> string  (the locale's table)
+  t("key", name=value) -> string  (localized)
   n.toFixed(digits) -> string  (digits a literal)
   text.toLowerCase() -> string
   top(router) -> Entry

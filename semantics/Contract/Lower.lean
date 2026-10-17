@@ -129,7 +129,8 @@ def roster : List String :=
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
    "endsWith", "slice", "replaceAll", "toLowerCase", "concat", "indexOf", "split",
    "elementFromPoint", "parseNumber", "ceil", "round", "calendarDiff",
-   "toFixed", "formatDecimal", "formatDay", "sin", "cos", "sum", "sortBy", "toUpperCase", "range"]
+   "toFixed", "formatDecimal", "formatDay", "sin", "cos", "sum", "sortBy", "toUpperCase", "range",
+   "flat"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
@@ -147,6 +148,11 @@ def rosterTy (f : String) (args : List STy) : STy :=
     | _ => .top
   else if f = "split" then .list .string
   else if f = "range" then .list .number
+  else if f = "flat" then
+    match args with
+    | .list (.list t) :: _ => .list t
+    | .list .bot :: _ => .list .bot
+    | _ => .top
   else if f = "concat" then
     match args with
     | .list a :: .list b :: _ => .list (STy.join a b)

@@ -736,6 +736,7 @@ says. Every roster function has a row and an example, and each example written
 | `text.slice(start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD | `"Tuesday".slice(0, 3)` is `"Tue"` |
 | `xs.slice(start, end?)` | `T[]`; the items, the indices clamped as text's are | `[1, 2, 3, 4].slice(1)` is `[2, 3, 4]` |
 | `xs.concat(T[])` | `T[]`; both lists' items in order (`[...xs, x]` is `xs.concat([x])`) | `[1, 2].concat([3])` is `[1, 2, 3]` |
+| `xs.flat()` | `T[]`; a list of lists' items in order, one level, as the web's `flat()`. It takes no depth (`flat(2)` is refused): two levels are `xs.flat().flat()`, and the web's `flatMap` is `xs.map(x => …).flat()` when the callback returns a list (`xs.map(x => …)` when it returns one value) | `[[1], [2, 3]].flat()` is `[1, 2, 3]` |
 | `text.indexOf(substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` | `"a,b".indexOf(",")` is `1` |
 | `xs.indexOf(item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none | `["a", "b"].indexOf("c")` is `-1` |
 | `text.split(separator)` | `string[]`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `"".split("")` is `[]` | `"a,b,c".split(",")` is `["a", "b", "c"]` |
@@ -798,9 +799,9 @@ the refusals say what to write instead. Neither `indexOf` nor `split` takes
 the web's second argument (a start position, a limit), and `split` takes no
 regular expression.
 
-`concat`, `split`, `sum`, `range`, and `slice`, `includes` and `indexOf` over a list, take
+`concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf` over a list, take
 list steps on the evaluation's budget as `map` and `join` do (LLP 1090): one
-for each item `concat`, `slice`, `split` or `range` makes, taken before the list is
+for each item `concat`, `slice`, `split`, `range` or `flat` makes (and `flat` one for each list it reads), taken before the list is
 built, one for each item `sum` adds, and one for each item `includes` or
 `indexOf` scans up to its match. A
 list they build is bounded as any built value is. `sortBy` takes one step an

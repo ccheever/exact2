@@ -139,14 +139,14 @@ fn every_check_names_its_instructions_pc() {
     }
 }
 
-/// LLP 1088 §9.1: `concat`, `split`, `sum`, `range`, and `slice`, `includes` and `indexOf`
+/// LLP 1088 §9.1: `concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf`
 /// over a list, take their steps on the caller's budget, as `join` does:
 /// each gets the body's
 /// `$s` at its call and its pc, and the body adds the steps it took (`ST`);
 /// a body that calls one is metered, text's included.
 #[test]
 fn the_list_builders_step_on_the_callers_counter_at_their_call() {
-    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape Card[]\n  state s = \"ab\"\n  derive both = cards.concat(cards).length\n  derive kept = cards.slice(1).length\n  derive found = cards.map(c => c.label).includes(s)\n  derive text = s.includes(\"a\")\n  derive at = cards.map(c => c.label).indexOf(s)\n  derive pieces = s.split(\"\").length\n  derive textAt = s.indexOf(\"b\")\n  derive total = sum(cards.map(c => c.label.length))\n  derive counted = range(s.length).length\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}} ${{at}} ${{pieces}} ${{textAt}} ${{total}} ${{counted}}`\n"));
+    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape Card[]\n  state s = \"ab\"\n  derive both = cards.concat(cards).length\n  derive kept = cards.slice(1).length\n  derive found = cards.map(c => c.label).includes(s)\n  derive text = s.includes(\"a\")\n  derive at = cards.map(c => c.label).indexOf(s)\n  derive pieces = s.split(\"\").length\n  derive textAt = s.indexOf(\"b\")\n  derive total = sum(cards.map(c => c.label.length))\n  derive counted = range(s.length).length\n  derive flat = cards.map(c => [c.label]).flat().length\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}} ${{at}} ${{pieces}} ${{textAt}} ${{total}} ${{counted}} ${{flat}}`\n"));
     for (i, d) in plan.derives.iter().enumerate() {
         let body = decl(&js, &format!("d_{i}"));
         assert_eq!(body.matches("let $s=0").count(), 1, "{body}");
@@ -162,6 +162,7 @@ fn the_list_builders_step_on_the_callers_counter_at_their_call() {
                     Stdlib::Split,
                     Stdlib::Sum,
                     Stdlib::Range,
+                    Stdlib::Flat,
                 ]
                 .iter()
                 .any(|&f| x.args[0] == f as u64)

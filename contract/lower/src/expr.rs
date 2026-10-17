@@ -404,7 +404,11 @@ pub(crate) fn compile(
                 (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
                 (Stdlib::Slice, Some(Ty::Enum(_)), _) => Ty::String,
                 (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
-                (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
+                (Stdlib::Flat, Some(Ty::List(item)), _) => match &**item {
+                    Ty::List(_) => (**item).clone(),
+                    _ => Ty::List(Box::new(Ty::Unknown)),
+                },
+                (Stdlib::Concat | Stdlib::Slice | Stdlib::Flat, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
             }
         }

@@ -18,10 +18,11 @@ are checked against scripts/help.mjs.
 Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 ## functions
-at: xs.at(i) -> option<T>  (none past end; -1 is last)
+at: xs.at(i) -> option<T>  (-1 is last)
 calendarDiff: calendarDiff(from, to, "years"|"months") -> option<number>  (whole; YYYY-MM-DD)
 concat: xs.concat(ys) -> T[]
 filter: xs.filter(x => bool) -> T[]
+flat: xs.flat() -> T[]
 first: first(xs) -> option<T>
 formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
 formatDay: formatDay(then, now, offsetMinutes, "day"|"day-time"|"list") -> string  (Today, Monday)
@@ -41,7 +42,7 @@ performanceNow: (ms since launch)
 round: (half up)
 slice: s.slice(start, end?) -> text|list
 sortBy: sortBy(xs, x => key, "desc"?) -> T[]  (stable)
-t: t("key", name=value) -> string  (the locale's table)
+t: t("key", name=value) -> string  (localized)
 toFixed: (digits a literal)
 toString: x.toString() -> string
 

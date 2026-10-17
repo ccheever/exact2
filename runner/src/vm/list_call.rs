@@ -4,9 +4,10 @@
 use super::{step, Extents, Trap};
 use exact_plan::{Opcode, Stdlib, Value};
 
-/// `concat`, `split`, `sum`, `range`, and `slice`, `includes` and `indexOf` over a list
+/// `concat`, `split`, `sum`, `range`, `flat`, and `slice`, `includes` and `indexOf` over a list
 /// (LLP 1088 §9.1), on this evaluation's budget as `join` is: the list steps
 /// first — one per item `concat`, `slice`, `split` and `range` keep or `sum` adds, one
+/// per outer item `flat` reads and one per item it keeps, one
 /// per item `includes` and `indexOf` scan up to the match — then a list they
 /// build measured as `Opcode::List` measures one (LLP 1090 D3). `None` for
 /// `slice`, `includes` and `indexOf` over text. `sortBy`'s items were each
@@ -65,16 +66,26 @@ pub(super) fn list_call(
     }
     let items = match (f, args.first()) {
         (
-            Stdlib::Concat | Stdlib::Slice | Stdlib::Includes | Stdlib::IndexOf | Stdlib::Sum,
+            Stdlib::Concat
+            | Stdlib::Slice
+            | Stdlib::Includes
+            | Stdlib::IndexOf
+            | Stdlib::Sum
+            | Stdlib::Flat,
             Some(Value::List(items)),
         ) => items,
-        (Stdlib::Concat | Stdlib::Sum, _) => return Err(mismatch),
+        (Stdlib::Concat | Stdlib::Sum | Stdlib::Flat, _) => return Err(mismatch),
         _ => return Ok(None),
     };
     let built = match (f, args.get(1), args.get(2)) {
         (Stdlib::Concat, Some(Value::List(more)), _) => {
             step(steps, items.len() + more.len(), pc)?;
             crate::lists::concat(items, more)
+        }
+        (Stdlib::Flat, _, _) => {
+            let inner = crate::lists::flat_len(items).ok_or(mismatch)?;
+            step(steps, items.len().saturating_add(inner), pc)?;
+            crate::lists::flat(items)
         }
         (Stdlib::Slice, Some(Value::Number(a)), Some(Value::Number(b))) => {
             let kept = crate::lists::slice(items, *a, *b);

@@ -115,7 +115,11 @@ port's bits; it is not a proof that the port refines libm. JavaScript's
 `sum` folds binary64 addition left to right from +0; an empty list returns
 +0. As with `includes`, the semantics omits the runner's list-budget limit
 (one list step per item), so a program exceeding that limit remains outside
-the comparison's resource-bound model.
+the comparison's resource-bound model. `flat` joins a list of lists one
+level, and `range(n)` lists 0 to n - 1: a count that is not a whole number
+at least 0 is a refusal, as the runner and the web runtime trap one, and a
+count past 65,536 is unsupported, outside the semantics, so no such list is
+built here.
 
 `sortBy(xs, x => key, direction)` (LLP 1116.016 §5) is `map`'s callback
 over the items, each key once, then `Contract.sortByKeys`: core's

@@ -485,6 +485,11 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]; obtain ⟨n, rfl⟩ := hw.num_inv
     simp only [stdlib]; split <;> (try split) <;> simp [GoodR, Legit, ValTy, range_vals]
   rw [ite_neg hn] at h
+  by_cases hn : name = "flat"
+  · subst hn; rw [ite_pos rfl] at h; split at h <;> simp at h <;> subst h
+    all_goals obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]; obtain ⟨xss, rfl, hxss⟩ := hw.list_inv
+    all_goals first | (obtain ⟨ys, hys, hyt⟩ := flat_ok hxss; simp [stdlib, hys, GoodR, ValTy, hyt]) | simp [stdlib, flat_unknown hxss, GoodR, ValTy, ValTys]
+  rw [ite_neg hn] at h
   by_cases hn : name = "parseNumber"
   · subst hn; rw [ite_pos rfl] at h
     split at h <;> simp at h; subst h

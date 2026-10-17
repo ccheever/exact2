@@ -1565,6 +1565,12 @@
       "params": ["number"],
       "returns": "list<number>",
       "_comment": "@ref LLP 1017.003 §Refused (admitted 2026-10-17): Exact's own, not the web's: the whole numbers 0 to n - 1 in order, `[]` for 0. `n` is a whole number at least 0 (`-0` is 0); any other, NaN and the infinities included, is a `TypeMismatch` trap, as the arguments do not fit (the compiler refuses such a literal). One list step an item, taken before the list is built (as `concat`), so an `n` past the bound traps `IterationLimit`; the list's extent is checked as a `List` is."
+    },
+    {
+      "name": "flat",
+      "params": ["any"],
+      "returns": "any",
+      "_comment": "@ref LLP 1017.003 §Refused (admitted 2026-10-17): JavaScript's `Array.prototype.flat()` at its default depth, 1: a list of lists' items in order, `list<list<T>> -> list<T>` (the type checker's; no depth is taken). One list step an outer item and one an item it emits, taken before the list is built, as `concat` takes them; the result's extent is checked as a `List` is."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

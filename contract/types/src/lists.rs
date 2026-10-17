@@ -4,7 +4,7 @@
 //! (LLP 1088 §9.1), whose types follow their first argument's: a list's
 //! item type, or text for all but `concat`, the web's same-named methods;
 //! and `range` (LLP 1017.003 §Refused, 2026-10-17), whose literal count is
-//! checked where it is written.
+//! checked where it is written, and `flat`, a list of lists' items.
 
 use crate::{checks, err, infer, Ref, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span, UnOp};
@@ -23,7 +23,37 @@ pub(crate) fn is_list_op(f: Stdlib) -> bool {
             | Stdlib::Includes
             | Stdlib::IndexOf
             | Stdlib::Range
+            | Stdlib::Flat
     )
+}
+
+/// `xs.flat()`: JavaScript's at its default depth, 1, the only one taken;
+/// a list of lists' items, `T[][]` to `T[]`.
+fn infer_flat(args: &[Expr], span: Span, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    let [list] = args else {
+        return err(
+            "type-arity",
+            "`.flat()` takes no depth: it flattens one level, as `flat()` and `flat(1)` do; two levels are `xs.flat().flat()`",
+            span,
+        );
+    };
+    match infer(list, scope, shapes)? {
+        Ty::Unknown => Ok(Ty::Unknown),
+        Ty::List(item) => match *item {
+            Ty::List(_) => Ok(*item),
+            Ty::Unknown => Ok(Ty::List(item)),
+            other => err(
+                "type-argument",
+                format!("`.flat()` flattens a list of lists, given `{other}[]`, whose items are not lists"),
+                list.span(),
+            ),
+        },
+        other => err(
+            "type-argument",
+            format!("the value before `.flat` expects a list of lists, given `{other}`"),
+            list.span(),
+        ),
+    }
 }
 
 /// `range(n)`: one number, the count; a literal one is a whole number at
@@ -178,6 +208,9 @@ pub(crate) fn infer_call(
     }
     if f == Stdlib::Range {
         return infer_range(args, span, scope, shapes);
+    }
+    if f == Stdlib::Flat {
+        return infer_flat(args, span, scope, shapes);
     }
     let name = f.name();
     if f == Stdlib::SortBy {

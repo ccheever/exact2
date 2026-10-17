@@ -388,6 +388,7 @@ impl Gen<'_> {
                 if **elem == Ty::Str { 2 } else { 0 },
                 3,
                 if **elem == Ty::Num { 2 } else { 0 },
+                2,
             ]) {
                 0 => {
                     let src_ty = self.held(env, false);
@@ -450,7 +451,7 @@ impl Gen<'_> {
                 // refuses at run time (a literal one, at compile time). The
                 // `min` keeps a count clear of the list bound, which the
                 // runner traps and the semantics does not model.
-                _ => match self.rng.weighted(&[3, 1, 1]) {
+                8 => match self.rng.weighted(&[3, 1, 1]) {
                     0 => format!("range({})", self.rng.range(0, 5)),
                     1 => format!("range(({}).length)", self.sized(env, d)),
                     _ => format!(
@@ -458,6 +459,11 @@ impl Gen<'_> {
                         self.expr(env, &Ty::Num, d, false)
                     ),
                 },
+                // `flat()`: a list of lists' items, one level (LLP 1017.003).
+                _ => {
+                    let xss = self.expr(env, &Ty::list(t.clone()), d, pinned);
+                    format!("({xss}).flat()")
+                }
             },
             Ty::Rec(i) => {
                 let shape = self.shapes[*i].clone();

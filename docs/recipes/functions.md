@@ -5,12 +5,12 @@ what to write for a name Contract lacks. The web's methods are called on their v
 (`s.trim()`, `xs.length`), the rest as functions (`first(xs)`).
 
 - **Text:** `s.trim()` · `s.toLowerCase()` · `s.toUpperCase()` ·
-  `s.includes(t)` · `s.startsWith(t)` · `s.endsWith(t)` · `s.indexOf(t) -> number` ·
+  `s.includes(t)` · `s.startsWith(t)` · `s.endsWith(t)` · `s.indexOf(t)` ·
   `s.slice(start, end?)` · `s.split(sep) -> string[]` · `s.replaceAll(find, with)` ·
   `x.toString()` · `parseNumber(s) -> option<number>` · `encodeURIComponent(s)`.
 - **Lists:** `x.length` and `x.isEmpty()` (text too) · `xs.map((x, i) => y)` ·
   `xs.filter(x => bool)` · `first(xs) -> option<T>` · `xs.at(i) -> option<T>` ·
-  `xs.slice(start, end?)` · `xs.concat(ys)` · `xs.includes(x)` ·
+  `xs.slice(start, end?)` · `xs.concat(ys)` · `xs.flat()` · `xs.includes(x)` ·
   `xs.indexOf(x) -> number` · `xs.join(sep)` · `sum(xs)` · `sortBy(xs, x => key)`, stable ·
   `range(n)`.
 - **Numbers:** `floor(n)` · `ceil(n)` · `round(n)` · `min(a, b)` · `max(a, b)` ·

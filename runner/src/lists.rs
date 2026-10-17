@@ -44,6 +44,26 @@ pub fn index_of(xs: &[Value], x: &Value) -> Option<usize> {
     })
 }
 
+/// How many items `xs.flat()` keeps; `None` when an item is not a list.
+pub fn flat_len(xs: &[Value]) -> Option<usize> {
+    xs.iter().try_fold(0usize, |n, x| match x {
+        Value::List(ys) => Some(n.saturating_add(ys.len())),
+        _ => None,
+    })
+}
+
+/// `xs.flat()`: JavaScript's `Array.prototype.flat()` at depth 1, the lists'
+/// items in order ([`flat_len`] has checked each is a list).
+pub fn flat(xs: &[Value]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for x in xs {
+        if let Value::List(ys) = x {
+            out.extend(ys.iter().cloned());
+        }
+    }
+    out
+}
+
 /// `sum(xs)`: `xs.reduce((a, x) => a + x, 0)`, IEEE addition left to right
 /// from +0; `None` when an item is not a number.
 pub fn sum(xs: &[Value]) -> Option<f64> {

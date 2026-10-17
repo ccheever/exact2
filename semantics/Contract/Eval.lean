@@ -260,10 +260,15 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
       if n.toNat ≤ 65536 then .ok (.list ((List.range n.toNat).map fun i => .num (F64.ofNat i)))
       else .error (.unsupported "`range` past the list bound")
     else .error (.refused "`range` of a count that is not a whole number at least 0")
+  -- LLP 1017.003 §Refused (2026-10-17): `Array.prototype.flat()`, depth 1.
+  | "flat", [.list xss] =>
+    match Value.flat xss with
+    | .some ys => .ok (.list ys)
+    | .none => .error (.type "`flat` of an item that is not a list")
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
   | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ | "indexOf", _
-  | "sin", _ | "cos", _ | "sum", _ | "sortBy", _ | "range", _
+  | "sin", _ | "cos", _ | "sum", _ | "sortBy", _ | "range", _ | "flat", _
   | "split", _ | "ceil", _ | "round", _ | "parseNumber", _ | "calendarDiff", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")

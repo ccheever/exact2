@@ -12,7 +12,7 @@ pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow
 /// The roster functions written as a call on their first argument, the web's
 /// method of the same name and meaning (@ref LLP 1116.015 D2): `s.trim()`,
 /// `xs.map(x => …)`. `length` is the property `xs.length`.
-pub const METHODS: [&str; 18] = [
+pub const METHODS: [&str; 19] = [
     "isEmpty",
     "toString",
     "includes",
@@ -31,6 +31,7 @@ pub const METHODS: [&str; 18] = [
     "filter",
     "join",
     "toFixed",
+    "flat",
 ];
 
 /// Whether `name` is written `x.name(…)`.
@@ -147,7 +148,11 @@ pub fn refusal(name: &str) -> Option<String> {
         "reduce" | "reduceRight" => format!(
             "`{name}` is refused (LLP 1017.003): a total is `sum(xs)`, or `sum(xs.map(x => …))` over a field; compute any other fold in the data source and hand the view the result"
         ),
-        "findLast" | "flatMap" | "flat" | "forEach" => format!(
+        // `flat` joined the roster at depth 1 (2026-10-17); `flatMap` is it
+        // after `map` when the callback returns a list, and `map` alone when
+        // it returns one value, which `flatMap` keeps as it is.
+        "flatMap" => "`flatMap` is refused (LLP 1017.003): when the callback returns a list, write `xs.map(x => …).flat()`, which joins them; when it returns one value, `xs.map(x => …)` is the same list".into(),
+        "findLast" | "forEach" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent

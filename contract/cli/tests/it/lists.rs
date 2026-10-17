@@ -561,6 +561,79 @@ fn range_counts_from_zero_on_the_budget_and_refuses_what_is_no_count() {
     }
 }
 
+/// `xs.flat()` (the euxy port joined lists of lines into a string and split
+/// it again) is `Array.prototype.flat()` at depth 1: a step an outer item and
+/// one an item it keeps, taken before the list is built; no depth is taken.
+#[test]
+fn flat_joins_one_level_on_the_budget_and_takes_no_depth() {
+    let src = r#"shape Lane
+  hits: number[]
+component A
+  resource xss = xss() as shape number[][]
+  state lanes = [Lane(hits=[0, 4]), Lane(hits=[]), Lane(hits=[2])]
+  view
+    column
+      text lanes.map(l => l.hits).flat().join(",") testId="hits"
+      text [["a"], ["b", "c"]].flat().join("") testId="lit"
+      text `${[[[1]], [[2, 3]]].flat().flat().length}` testId="deep"
+      text `${xss.flat().length}` testId="big"
+"#;
+    // `n` lists of one item: `2n` steps.
+    struct Xss(usize);
+    impl DataSource for Xss {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(vec![numbers(&[1.0]); self.0]))
+        }
+    }
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        contract::bake(plan.clone(), Xss(32_768)).unwrap(),
+        Xss(32_768),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .iter()
+            .find_map(|(p, v)| match v {
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    assert_eq!(text("hits"), "0,4,2");
+    assert_eq!(text("lit"), "abc");
+    assert_eq!(text("deep"), "3");
+    assert_eq!(text("big"), "32768");
+    let error = contract::bake(plan, Xss(32_769)).unwrap_err();
+    assert!(format!("{error:?}").contains("IterationLimit"), "{error:?}");
+    for (call, id, says) in [
+        (
+            "[[1]].flat(2)",
+            "type-arity",
+            "two levels are `xs.flat().flat()`",
+        ),
+        (
+            "[1, 2].flat()",
+            "type-argument",
+            "flattens a list of lists, given `number[]`",
+        ),
+        ("flat([[1]])", "syntax-method-form", "write `x.flat()`"),
+    ] {
+        let e = contract::compile(&format!(
+            "component A\n  view\n    text {call}.join(\",\")\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, id, "{call}: {e}");
+        assert!(e.message.contains(says), "{call}: {e}");
+    }
+}
+
 /// A callback's parameters are binders: a prop passed in that mentions the
 /// same name is not captured by them; a `fn` that reaches itself through a
 /// callback is recursive; a call repeated inside a callback is bound inside
@@ -706,7 +779,7 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
     );
     for f in [
         // `push` names `concat` (`diagnostics.rs`).
-        "reduce", "find", "every", "sort", "flatMap",
+        "reduce", "find", "every", "sort",
     ] {
         refused(
             &format!("text ({f}(xs, x => x.n)).toString()"),
@@ -745,8 +818,29 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
             "type-refused-idiom",
             "not xs.map(x => …).includes(false)",
         ),
+        ("flatMap", "type-refused-idiom", "xs.map(x => …).flat()"),
     ] {
         refused(&format!("text ({f}(xs, x => x.n)).toString()"), id, instead);
+    }
+    refused(
+        "text (xs.flatMap(x => x.n)).toString()",
+        "syntax-method-call",
+        "xs.map(x => …).flat()",
+    );
+    // Each repair it names compiles for its callback: a list, or one value.
+    refused(
+        "text [1, 2].flatMap(x => x * 2).join(\",\")",
+        "syntax-method-call",
+        "when it returns one value, `xs.map(x => …)` is the same list",
+    );
+    for repair in [
+        "[1, 2].map(x => [x, x * 2]).flat()",
+        "[1, 2].map(x => x * 2)",
+    ] {
+        contract::compile(&format!(
+            "component A\n  view\n    text {repair}.join(\",\")\n"
+        ))
+        .unwrap_or_else(|e| panic!("{repair}: {e}"));
     }
     refused(
         "text Math.min(1, 2).toString()",

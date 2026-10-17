@@ -351,9 +351,9 @@ test('a mutation answered at once forces the async read it refreshes', async () 
   expect([doc(), doc.p()]).toEqual([1, false]);
 });
 
-// `sin` and `cos` are `Math`'s; `sum` is `reduce((a, x) => a + x, 0)` and `range(n)` is 0 to n - 1, each a list step an
-// item on the caller's budget, as the runner's `list_call` counts it.
-test('sin, cos, sum and range compute as the runner does, and sum and range step on the budget', async () => {
+// `sin` and `cos` are `Math`'s; `sum` is `reduce((a, x) => a + x, 0)`, `range(n)` 0 to n - 1 and `flat()` depth 1, each a
+// list step an item (`flat` an outer item too) on the caller's budget, as the runner's `list_call` counts it.
+test('sin, cos, sum, range and flat compute as the runner does, and the lists step on the budget', async () => {
   const { x_sin, x_cos } = await import(resolve(dir, 'roster.js'));
   const budget = await import(resolve(dir, 'budget.js'));
   expect([x_sin(0), x_cos(0), x_sin(1), x_cos(1)]).toEqual([0, 1, 0.8414709848078965, 0.5403023058681398]);
@@ -367,6 +367,9 @@ test('sin, cos, sum and range compute as the runner does, and sum and range step
   for (const n of [2.5, -1, NaN, Infinity]) expect(() => budget.x_range(n, 0, 7)).toThrow('Trap(TypeMismatch { pc: 7 })');
   expect(() => budget.x_range(2, 65535, 7)).toThrow('IterationLimit');
   expect(() => budget.x_range(1e300, 0, 7)).toThrow('IterationLimit');
+  expect([budget.x_flat([[1, 2], [], [3]], 0, 7), budget.ST]).toEqual([[1, 2, 3], 6]);
+  expect(budget.x_flat([[[1]], [[2]]], 0, 7)).toEqual([[1], [2]]);
+  expect(() => budget.x_flat([[1], [2]], 65533, 7)).toThrow('IterationLimit');
 });
 
 // `sortBy` (LLP 1116.016 §5): the runner's stable merge sort on precomputed keys, taking no step of its own; against a
