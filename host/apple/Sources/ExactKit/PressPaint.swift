@@ -38,6 +38,8 @@ struct PressPaint {
     /// view's style, with the values the engine gave them; nil was absent.
     var rest: [String: BatchValue?] = [:]
     var overlay: NodeStyle = [:]
+    /// The pressed node whose colour this view shows, while it shows one.
+    var inkedBy = WeakNodeView()
 }
 
 /// A view a press recoloured, held weakly: it may be destroyed or taken
@@ -54,6 +56,14 @@ extension NodeView {
 
     /// AppKit's layer is optional, UIKit's not.
     private var paintLayer: CALayer? { layer }
+    /// The node's own opacity, as the engine presents it.
+    private var ownOpacity: Float {
+        #if os(macOS)
+        Float(alphaValue)
+        #else
+        Float(alpha)
+        #endif
+    }
 
     /// Show the pressed paint (`down`) or ease it back; `instantly` drops it.
     func paintPress(_ down: Bool, instantly: Bool = false) {
@@ -84,7 +94,7 @@ extension NodeView {
         guard let layer = paintLayer else { return }
         if down {
             let share = Float(min(1, max(0, style["press_opacity"]?.number ?? 1)))
-            pressPaint.depth = layer.opacity * (1 - share)
+            pressPaint.depth = ownOpacity * (1 - share)
         }
         let depth = pressPaint.depth
         guard depth != 0 else { layer.removeAnimation(forKey: key); return }
@@ -136,14 +146,16 @@ extension NodeView {
     }
 
     /// The views under `view` whose text colour is the pressed node's: none
-    /// written of their own, and the same value (a control's own colour is
-    /// not one it inherits). A view with a colour of its own keeps its
-    /// subtree's too.
+    /// written of their own, and either one this press already colours or
+    /// the same value as the pressed node's (a control's own colour is not
+    /// one it inherits). A view with a colour of its own keeps its subtree's
+    /// too.
     private func inkBelow(_ view: PlatformView, ink: BatchValue, inherited: BatchValue?) {
         for child in view.subviews {
             guard let node = child as? NodeView else { inkBelow(child, ink: ink, inherited: inherited); continue }
-            guard !node.wrote("text_color"), node.style["text_color"] == inherited else { continue }
+            guard !node.wrote("text_color"), node.pressPaint.inkedBy.view === self || node.style["text_color"] == inherited else { continue }
             pressPaint.inked.append(WeakNodeView(view: node))
+            node.pressPaint.inkedBy = WeakNodeView(view: self)
             node.standInForPress(["text_color": ink])
             inkBelow(node, ink: ink, inherited: inherited)
         }
@@ -169,7 +181,41 @@ extension NodeView {
         }
         pressPaint.rest = [:]
         pressPaint.overlay = [:]
+        pressPaint.inkedBy = WeakNodeView()
         restyleForPress(s)
+    }
+
+    /// The views below `view` coloured by `pressing`'s press, back to their own.
+    private func endInk(below view: PlatformView, by pressing: NodeView) {
+        for child in view.subviews {
+            if let node = child as? NodeView, node.pressPaint.inkedBy.view === pressing { node.endPressStandIn() }
+            endInk(below: child, by: pressing)
+        }
+    }
+
+    /// The opacity's share again while held: the node's own opacity, or its
+    /// pressed share (`share`, the row's value; none is no dim), changed. The
+    /// fade goes on from what shows over the rest of its time.
+    func refreshPressOpacity(_ share: BatchValue?? = nil) {
+        guard pressPaint.down, let layer = paintLayer else { return }
+        let key = "pressOpacity"
+        let fraction = Float(min(1, max(0, (share ?? style["press_opacity"])?.number ?? 1)))
+        let depth = ownOpacity * (1 - fraction)
+        guard depth != pressPaint.depth else { return }
+        let now = CACurrentMediaTime()
+        let from = -pressPaint.depth * Float(pressPaint.ease.factor(at: now))
+        pressPaint.depth = depth
+        let left = ExactEnv.agentFreezes ? 0 : max(0, pressPaint.ease.start + PressFeedback.duration - now)
+        guard depth != 0 || left > 0 else { layer.removeAnimation(forKey: key); return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.isAdditive = true
+        fade.fromValue = left > 0 ? from : -depth
+        fade.toValue = -depth
+        fade.duration = left > 0 ? left : .greatestFiniteMagnitude
+        fade.timingFunction = PressFeedback.timing
+        fade.fillMode = .both
+        fade.isRemovedOnCompletion = false
+        layer.add(fade, forKey: key)
     }
 
     /// The keys a node's own press shows, from its style's press rows.
@@ -191,13 +237,20 @@ extension NodeView {
         var overlay = pressPaint.overlay
         if pressPaint.down {
             overlay = Self.pressOverlay(s)
+            refreshPressOpacity(s["press_opacity"])
             if overlay["text_color"] != pressPaint.overlay["text_color"] {
-                for held in pressPaint.inked where held.view !== self { held.view?.endPressStandIn() }
+                // The views it coloured keep taking its colour; new ones
+                // holding its own take it too; the rest go back.
+                let before = pressPaint.inked.compactMap(\.view).filter { $0 !== self }
                 pressPaint.inked = [WeakNodeView(view: self)]
                 if let ink = overlay["text_color"] { inkBelow(self, ink: ink, inherited: s["text_color"]) }
+                let kept = Set(pressPaint.inked.compactMap { $0.view.map(ObjectIdentifier.init) })
+                for view in before where !kept.contains(ObjectIdentifier(view)) { view.endPressStandIn() }
             }
-        } else if Self.writes(s, "text_color") {
+        } else if Self.writes(s, "text_color"), overlay["text_color"] != nil {
+            // Its own colour now, and what is below it takes that one.
             overlay["text_color"] = nil
+            if let pressing = pressPaint.inkedBy.view { endInk(below: self, by: pressing) }
         }
         for key in pressPaint.overlay.keys where overlay[key] == nil { pressPaint.rest[key] = nil }
         for (key, value) in overlay {

@@ -1025,6 +1025,27 @@ extension TableListMacTests {
     }
 }
 
+extension TableListMacTests {
+    /// LLP 1061 D7, LLP 1115.000 D6: a row that writes its own pressed look
+    /// takes its click itself, so it shows that look while held, where a
+    /// row that writes none is the table's to select.
+    func testARowWithItsOwnPressedLookTakesItsClick() throws {
+        let source = Self.plain.replacingOccurrences(of: "row press=open(r) testId=", with: "row press=open(r) -exact-press-background-color=\"#0000ff\" testId=")
+        let f = try TableFixture(count: 0, source: source)
+        fixture = f
+        let row = try f.node("row-2"), title = try f.node("title-2")
+        let cell = try XCTUnwrap(row.superview as? TableRowCell)
+        let onTitle = cell.convert(NSPoint(x: title.bounds.midX, y: title.bounds.midY), from: title)
+        let hit = try XCTUnwrap(cell.hitTest(cell.superview!.convert(onTitle, from: cell)))
+        XCTAssertTrue(hit === row || hit.isDescendant(of: row), "the row takes its click, not the table")
+        row.pressed = true
+        XCTAssertEqual(row.style["background_color"], .array([0, 0, 255, 255].map { .number($0) }))
+        row.pressPaint.at -= 1
+        row.pressed = false
+        XCTAssertNotEqual(row.style["background_color"], .array([0, 0, 255, 255].map { .number($0) }))
+    }
+}
+
 private extension TableFixture {
     /// The rows of a list the runner does not window, wherever each is mounted.
     var mountedRows: Int { presenter.views.values.filter { ($0.props["testId"] ?? "").hasPrefix("row-") && $0.window != nil }.count }

@@ -116,20 +116,19 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), 0)
     }
 
-    /// Author > platform: any pressed paint (an opacity of 1 included) is the
-    /// author's press, so the platform's shows none; it composes with a scale.
-    /// A style that drops the pressed look while held: the release still
-    /// takes back what the press showed, though the platform's press now
-    /// answers for the node.
+    /// A style that drops the pressed look while held: the dim and colours
+    /// go with it, and the release still takes back the scale, though the
+    /// platform's press now answers for the node.
     func testAPaintTheStyleDropsWhileHeldStillGoesAtTheRelease() throws {
         let (p, v) = try fixture(["press_opacity": 0.5, "press_background_color": navy, "press_scale": 0.9])
         v.pressed = true
         v.pressPaint.at -= 1; v.press.start -= 1
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": white, "text_color": white]]]))
         XCTAssertFalse(v.authorsPress)
-        v.pressed = false
         XCTAssertEqual(v.style["background_color"], ink(white), "the engine's")
-        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), 0, "the opacity eases back")
+        XCTAssertEqual((fade(v)?.toValue as? Float) ?? 0, 0, "no dim")
+        v.pressed = false
+        XCTAssertEqual(v.style["background_color"], ink(white))
         XCTAssertEqual(v.press.to, 1, "and the scale")
     }
 
@@ -153,6 +152,44 @@ final class PressPaintTests: XCTestCase {
         XCTAssertEqual(inherits.style["text_color"], ink(white))
     }
 
+    /// The pressed opacity follows the style and the node's own opacity
+    /// while held, and a style that clears it takes the dim away.
+    func testThePressOpacityFollowsWhileHeld() throws {
+        let (p, v) = try fixture(["press_opacity": 0.5])
+        v.pressed = true
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.5, accuracy: 1e-6)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": blue, "text_color": white, "press_opacity": 0.8]]]))
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.2, accuracy: 1e-6)
+        p.apply(wireBatch([["op": "present", "id": 1, "property": "opacity", "x": 0.5]]))
+        XCTAssertEqual(try XCTUnwrap(fade(v)?.toValue as? Float), -0.1, accuracy: 1e-6)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": blue, "text_color": white]]]))
+        XCTAssertEqual((fade(v)?.toValue as? Float) ?? 0, 0, accuracy: 1e-6, "eased away, or gone")
+    }
+
+    /// A press colour changed in the same style as the node's own colour
+    /// still reaches the views it coloured; a view below that comes to write
+    /// its own colour takes what is below it back from the press.
+    func testTheSubtreeFollowsAColourChangedWhileHeld() throws {
+        let (p, v) = try fixture(["press_color": yellow])
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "view", "style": ["text_color": white]],
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Below"], "style": ["text_color": white]],
+            ["op": "children", "id": 5, "ids": [6]],
+            ["op": "children", "id": 1, "ids": [2, 3, 5]],
+        ]))
+        let inherits = try XCTUnwrap(p.views[2]), between = try XCTUnwrap(p.views[5]), below = try XCTUnwrap(p.views[6])
+        v.pressed = true
+        XCTAssertEqual(below.style["text_color"], ink(yellow))
+        let black: [Double] = [0, 0, 0, 255]
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": blue, "text_color": black, "press_color": green]]]))
+        XCTAssertEqual(inherits.style["text_color"], ink(green))
+        XCTAssertEqual(below.style["text_color"], ink(green))
+        p.apply(wireBatch([["op": "style", "id": 5, "style": ["text_color": blue, "written": ["text_color"]]]]))
+        XCTAssertEqual(between.style["text_color"], ink(blue))
+        XCTAssertEqual(below.style["text_color"], ink(white), "its own again, until its engine style says the new one")
+        XCTAssertEqual(inherits.style["text_color"], ink(green))
+    }
+
     #if os(macOS)
     /// The window resigning key with the button held: AppKit delivers the up
     /// to no view of it, so the press ends there and takes its paint back.
@@ -166,6 +203,8 @@ final class PressPaintTests: XCTestCase {
     }
     #endif
 
+    /// Author > platform: any pressed paint (an opacity of 1 included) is the
+    /// author's press, so the platform's shows none; it composes with a scale.
     func testThePaintReplacesThePlatformsPressAndComposesWithTheScale() throws {
         for paint: [String: Any] in [["press_opacity": 1], ["press_color": yellow], ["press_background_color": navy]] {
             let (_, v) = try fixture(paint)

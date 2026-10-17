@@ -191,13 +191,18 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // `-exact-press-scale` and pressed paint, else the shell's dim) until the key comes up or the
   // focus leaves, as the browser holds a `<button>` `:active` under Space; so
   // does a `<button>` whose press is declared.
+  // The press a key holds, which leaving the window or the page ends too.
+  let keyHold = null;
   const keyed = el => {
-    const up = e => {
-      if (e.type === "keyup" && e.key !== " ") return;
-      showPress(el, false);
+    const up = (e, now = false) => {
+      if (e?.type === "keyup" && e.key !== " ") return;
+      showPress(el, false, now);
       removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
+      if (keyHold === up) keyHold = null;
     };
+    keyHold?.(null, true);
     showPress(el, true);
+    keyHold = up;
     addEventListener("keyup", up, true); el.addEventListener("blur", up);
   };
   // @ref LLP 1061 D3 — press feedback by UIKit's rule, not `:active`'s: the
@@ -211,49 +216,75 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // handler of its own, as a UIButton highlights (the shell dims its face).
   const feedback = new WeakMap();
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
-  // and on the same ease as the scale. The shell's rules (index.html) paint
-  // it, important so the page's own declarations do not hide it, from the
-  // node's own properties, read live (one cleared while held stops
-  // showing, and the unsaid dim is then the press), and from what this
-  // piece animates: the press's progress and the node's opacity and colours
-  // as they were at the press, beneath. Its `color` reaches the subtree as
-  // CSS's does.
+  // and on the same ease as the scale. The shell's important rules
+  // (index.html) paint it from the node's own properties, read live, `--exact-
+  // press-paint` of the way (which this piece eases) over the node's look
+  // beneath, which this piece reads again whenever the node's style or class
+  // changes, the scheme flips, or the press turns. Its `color` reaches the
+  // subtree as CSS's does.
   const PAINT = ["--exact-press-opacity", "--exact-press-background-color", "--exact-press-color"];
   const declaresPress = el => !!el.style.getPropertyValue("--exact-press") || PAINT.some(p => el.style.getPropertyValue(p));
-  const paints = new WeakMap();
-  const showPaint = (el, down) => {
-    const old = paints.get(el);
-    if ((old?.down ?? false) === down) return;
-    if (!old && !PAINT.some(p => el.style.getPropertyValue(p))) return;
+  const paints = new Map();
+  const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
+  // Start the ease toward `state.to` from where it shows, over `duration`,
+  // on the node's look read now with the paint off. A transition is above
+  // every declaration in the cascade, so for that read, and for the paint
+  // coming back, the painted properties take none (the node's own list,
+  // then each at 0s, which wins over an earlier entry or `all`: CSS
+  // Transitions 1 §2): the read starts no transition. The list is the
+  // node's own again before anything else runs.
+  const paint = (el, state, duration) => {
     const now = getComputedStyle(el);
-    const shown = old ? Number(now.getPropertyValue("--exact-press-paint")) || 0 : 0;
-    // A transition is above every declaration in the cascade, an important
-    // one included, so the painted properties take none while painted: the
-    // node's own list, then each of them at 0s, which wins over an earlier
-    // entry or `all` (CSS Transitions 1 §2). One running ends at the press.
-    const painted = ["opacity", "background-color", "color"].filter((_, i) => el.style.getPropertyValue(PAINT[i]));
-    const base = old?.base ?? {
-      "--exact-press-base-opacity": now.opacity, "--exact-press-base-background": now.backgroundColor, "--exact-press-base-color": now.color,
-      "--exact-press-transition": [now.transition, ...painted.map(p => `${p} 0s`)].filter(Boolean).join(", "),
-    };
-    old?.animation.cancel();
-    const animation = el.animate([{ ...base, "--exact-press-paint": shown }, { ...base, "--exact-press-paint": down ? 1 : 0 }], {
-      duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both",
-    });
+    const from = Number(now.getPropertyValue("--exact-press-paint")) || 0;
+    el.style.setProperty("--exact-press-transition", [now.transition, "opacity 0s", "background-color 0s", "color 0s"].filter(Boolean).join(", "));
+    el.setAttribute("data-exact-press-read", "");
+    el.removeAttribute("data-exact-painting");
+    const beneath = getComputedStyle(el);
+    const base = { "--exact-press-base-opacity": beneath.opacity, "--exact-press-base-background": beneath.backgroundColor, "--exact-press-base-color": beneath.color };
+    state.animation?.cancel();
+    const animation = state.animation = el.animate([{ ...base, "--exact-press-paint": from }, { ...base, "--exact-press-paint": state.to }], { ...EASE, duration: agentMode ? 0 : duration });
     el.setAttribute("data-exact-painting", "");
-    const state = { down, base, animation };
-    paints.set(el, state);
-    if (!down) animation.onfinish = () => {
-      if (paints.get(el) !== state) return;
-      el.removeAttribute("data-exact-painting");
-      animation.cancel();
-      paints.delete(el);
-    };
+    void getComputedStyle(el).opacity;
+    el.removeAttribute("data-exact-press-read");
+    el.style.removeProperty("--exact-press-transition");
+    state.observer.takeRecords();
+    // A finish already queued when a re-press replaced the ease ends nothing.
+    if (state.to === 0) animation.onfinish = () => { if (state.animation === animation) endPaint(el, state); };
     if (agentMode) animation.finish();
   };
-  const showPress = (el, down) => {
+  const endPaint = (el, state) => {
+    if (paints.get(el) !== state) return;
+    paints.delete(el);
+    state.observer.disconnect();
+    state.animation.cancel();
+    el.removeAttribute("data-exact-painting");
+  };
+  // The look beneath changed: the ease goes on from where it is, over the rest of its time.
+  const repaint = el => {
+    const state = paints.get(el);
+    if (!state) return;
+    const t = state.animation.effect.getComputedTiming();
+    paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
+  };
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el); });
+  // `now`: the press ends at once (the window or the page went), as it does
+  // for a node no longer in the page.
+  const showPaint = (el, down, now = false) => {
+    let state = paints.get(el);
+    if ((state?.to ?? 0) === (down ? 1 : 0)) return;
+    if (!state && !PAINT.some(p => el.style.getPropertyValue(p))) return;
+    if (!state) {
+      state = { observer: new MutationObserver(() => repaint(el)) };
+      state.observer.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
+      paints.set(el, state);
+    }
+    state.to = down ? 1 : 0;
+    paint(el, state, EASE.duration);
+    if (!down && (now || !el.isConnected)) endPaint(el, state);
+  };
+  const showPress = (el, down, now = false) => {
     el.toggleAttribute("data-pressed", down);
-    showPaint(el, down);
+    showPaint(el, down, now);
     // A design token's scale is its property's `var()`: the computed value
     // is the token's (LLP 1121 D7).
     const press = el.style.getPropertyValue("--exact-press");
@@ -271,7 +302,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     animation.onfinish = () => {
       if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
     };
-    if (agentMode) animation.finish();
+    if (agentMode || now) animation.finish();
   };
   // A re-press may catch the release easing out. Neutralize only our effect
   // for this synchronous measurement, then restore it before a frame. The
@@ -286,7 +317,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     return box;
   };
   let press = null;
-  const release = () => { if (press) showPress(press.el, false); press = null; };
+  const release = (now = false) => { if (press) showPress(press.el, false, now); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
@@ -315,11 +346,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
-  // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes; a
-  // gesture that claims the contact (motion-glue's swipe) ends the press as it claims it, as a pan cancels a touch.
-  addEventListener("blur", e => { if (e.target === window) release(); });
-  addEventListener("pagehide", release);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) release(); });
+  // Leaving the page, the window or the tab may take the release with it, as the pointer dispatch below assumes: the
+  // press, a key's too, ends at once. A gesture that claims the contact (motion-glue's swipe) ends the press as it
+  // claims it, as a pan cancels a touch.
+  const leave = () => { release(true); keyHold?.(null, true); };
+  addEventListener("blur", e => { if (e.target === window) leave(); });
+  addEventListener("pagehide", leave);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) leave(); });
   (globalThis.exact ??= {}).pressClaimed = id => { if (id === press?.id) release(); };
   // @ref LLP 1115.000 D4.2 — a route is a page, so the focus follows it, as a careful web app moves it when it
   // navigates. On a push (or a replace) it goes to the new route's header's heading, else to the route itself; on

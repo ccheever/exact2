@@ -549,6 +549,45 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
       await mouse('mouseReleased', painted);
       await settle();
     }
+    // So does a press Space holds.
+    await evaluate(`document.getElementById('both').focus()`);
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' });
+    expect(await evaluate(`document.getElementById('both').hasAttribute('data-pressed')`)).toBe(true);
+    await evaluate(`dispatchEvent(new Event('blur'))`);
+    expect(await evaluate(`document.getElementById('both').hasAttribute('data-pressed')`)).toBe(false);
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+    await evaluate(`document.activeElement.blur()`);
+    await settle();
+
+    // The node's own look changing while held is what the paint lies over,
+    // and what the release eases back to; the node's transition list stays
+    // its own, and a property painted from mid-press shows over a
+    // transition of it.
+    await mouse('mousePressed', painted);
+    await settle();
+    const own = await evaluate(`getComputedStyle(document.getElementById('painted')).transition`);
+    await evaluate(`{ const el = document.getElementById('painted'); el.style.opacity = '0.6'; el.style.transition = 'color 2s linear, transform 1s'; }`);
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    await settle();
+    expect(await evaluate(`getComputedStyle(document.getElementById('painted')).opacity`)).toBe('0.3');
+    expect(await evaluate(`getComputedStyle(document.getElementById('painted')).transition`)).not.toBe(own);
+    await mouse('mouseReleased', painted);
+    await evaluate(`document.getAnimations().forEach(a => { a.pause(); a.currentTime = 60; })`);
+    const easing = parseFloat(await evaluate(`getComputedStyle(document.getElementById('painted')).opacity`));
+    expect(easing).toBeGreaterThan(0.3);
+    expect(easing).toBeLessThan(0.6);
+    await settle();
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    expect(await look('painted')).toBe('0.6 rgb(255, 255, 255) rgb(0, 0, 0)');
+    await evaluate(`{ const el = document.getElementById('painted'); el.style.opacity = '0.8'; el.style.transition = ''; }`);
+    await evaluate(`{ const el = document.getElementById('inked'); el.style.transition = 'background-color 1s linear'; el.style.backgroundColor = 'rgb(0, 255, 0)'; }`);
+    await mouse('mousePressed', inked);
+    await evaluate(`{ const el = document.getElementById('inked'); el.style.setProperty('--exact-press-background-color', 'rgb(0, 0, 255)'); }`);
+    await evaluate('new Promise(ok => setTimeout(ok, 0))');
+    await evaluate(`document.getAnimations().filter(a => !(a instanceof CSSTransition)).forEach(a => a.finish())`);
+    expect(await evaluate(`rgb(getComputedStyle(document.getElementById('inked')).backgroundColor)`)).toBe('rgb(0, 0, 255)');
+    await mouse('mouseReleased', inked);
+    await settle();
   } finally {
     await close();
   }
