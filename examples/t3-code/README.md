@@ -401,9 +401,9 @@ closes, realinput-1017l failure 3, and #688, Shift-Tab wrapping from a key view 
 and a placeholder change keeping a field's focus, failure 2, then #712, a context menu's item chosen
 by typing its name and Return pressing it), a session with real keys on the terminal, the
 real-input and VoiceOver sessions G to K, an agent drive and real-input session on the bundle
-of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2`, `c067957ad` and `966bb0d79`,
-each with the fixtures below. Each item says what is wrong or missing; the open framework issues
-that someone using the app runs into are in the section above.
+of `94cc6831c`, and others on the bundles of `dd7643a86`, `3d6c75ad2`, `c067957ad`, `966bb0d79` and
+`ea15f98f0` with `571d07c17`, each with the fixtures below. Each item says what is wrong or missing; the
+open framework issues that someone using the app runs into are in the section above.
 
 **Known differences:**
 
@@ -547,6 +547,19 @@ buttons; the Snoozed header and Wake; and Tab through the legacy Rename project 
 `aria-modal` row with no role, is served by its field. VO-Space on 'Edit shortcut for Chat: New'
 reads 'Keybinding for Chat: New Press shortcut, edit text', and VO-F3 'Keybinding for Chat: New,
 edit text, is in the VoiceOver cursor' (2 of 2; before, 'scroll area'). The clone needed no change.
+
+**Checked by real input** (2026-10-17, bundle of `ea15f98f0` with `571d07c17`, `second` seeded with
+`--turns`; a lane copy with Lane Second paired in Settings › Connections, quit by holding ⌘Q): relaunched as
+it is, the copy opens with Lane Second's projects and no toast (3 of 3), as does the development bundle
+itself paired the same way (2 of 2, on a build with the pump change alone). On the bundle of `c067957ad`
+each relaunch opened with no projects and "native executor admission limit reached" (2 of 2). While the
+first snapshot answer reported a code text waiting for its Shiki tokens, the root's highlight pump refreshed
+`data` and `shell` every 16 ms. A refresh replaces the answer in flight, so the launch's snapshot answer,
+which waits seconds on its connections, never landed, and the replaced answers' native calls filled the
+executor's admission limit about 4 s after launch (`host/apple/src/executor_core.rs:491`). A fresh bundle id
+avoided it only because its defaults hold no saved environment. The pump now leaves an answer in flight
+alone (`571d07c17`): in saved traces of the first seconds, 92 snapshot queries and 89 replaced snapshot
+requests in 2.8 s before, 11 and none in 4 s after.
 
 **Checked by agent drive and real input** (2026-10-17, bundle of `3d6c75ad2`, `second` seeded with
 `--turns --pull-request`; a lane copy for real input): the settings search jump to a legacy row by
