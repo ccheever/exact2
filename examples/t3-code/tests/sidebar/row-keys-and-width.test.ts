@@ -9,7 +9,7 @@ import type { Files, Native } from '../../src/client/protocol';
 import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
 import { adoptCommandTime, sidebarSession } from '../../src/sidebar/sidebar-state';
 import { parseSweep } from '../../src/sidebar/row-sweep';
-import { isMenuKey, menuAnchor, rowKeyMenu, withMenuAnchor } from '../../src/sidebar/row-context-keys';
+import { contractComponent } from '../support/contract-action-fixture';
 import { environmentRows } from '../../src/connections/environment-list';
 import { connectionsProjection, type ConnectionHost } from '../../src/connections/connections';
 import { environmentKey, type FleetEntry } from '../../src/connections/settings-b-fleet';
@@ -24,7 +24,7 @@ const shell = (id: string, extra: Obj = {}): Obj => ({ id, projectId: 'p1', titl
   activeProviderThreadId: null, pendingRuntimeRequest: null, createdAt: iso(-3_600_000), updatedAt: iso(-3_600_000), archivedAt: null,
   settledOverride: null, settledAt: null, modelSelection: { instanceId: 'codex', model: 'm' }, lineage: { relationshipToParent: null }, ...extra });
 
-function fake(threads: Obj[], picks: string[] = []) {
+function fake(threads: Obj[]) {
   const dispatched: Obj[] = [], calls: Obj[] = [];
   let ids = 0;
   const client = {
@@ -39,7 +39,7 @@ function fake(threads: Obj[], picks: string[] = []) {
       ids: async (count: number) => Array.from({ length: count }, () => `c${ids++}`),
       request: async (method: string, payload: Obj) => { if (method === 'orchestration.dispatchCommand') dispatched.push(payload); return {}; },
       dispatch: async (_storage: Files, payload: Obj) => { dispatched.push(payload); return {}; },
-      call: async (request: Obj) => { calls.push(request); return request.op === 'sidebarMenu' ? { id: picks.shift() ?? null } : {}; },
+      call: async (request: Obj) => { calls.push(request); return {}; },
     }),
   } as unknown as T3Client;
   adoptCommandTime(client, NOW);
@@ -64,44 +64,23 @@ describe('a row-action sweep cancelled with Escape (SidebarPointerSensor keydown
 });
 
 describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference)', () => {
-  test('a draft row\'s ContextMenu and Shift+F10 open its menu at its bottom left; a thread row\'s keys open none here', () => {
-    expect(rowKeyMenu('draft:p1', 'ContextMenu')).toEqual({ op: 'draft-menu', id: 'p1', value: 'key', anchor: 'bottom-left' });
-    // A thread row's ContextMenu is the host's default since exact2 #314 (its context popover at the row's centre, as
-    // Chromium's keyboard contextmenu); Shift+F10 opens nothing on macOS, and F10 alone is no menu key.
-    for (const key of ['ContextMenu', 'F10', 'Shift+F10', '\uf735', '\uf70d', 'Enter', ' ', 'a', 'Escape']) expect(rowKeyMenu('t1', key)).toBeNull();
-    expect(rowKeyMenu('draft:p1', 'Shift+F10')).toEqual({ op: 'draft-menu', id: 'p1', value: 'key', anchor: 'bottom-left' });
-    for (const key of ['F10', 'Enter', ' ', 'a']) expect(rowKeyMenu('draft:p1', key)).toBeNull();
-    expect(rowKeyMenu('draft:', 'ContextMenu')).toBeNull();
-    expect(rowKeyMenu('draft:', 'Shift+F10')).toBeNull();
-    expect(isMenuKey('ContextMenu')).toBe(true);
-    // The host names the key ContextMenu on every input path (exact2 #314); AppKit's NSMenuFunctionKey name is gone.
-    expect(isMenuKey('\uf735')).toBe(false);
-  });
-
-  test('a thread row\'s ContextMenu asks the module for no menu (the host\'s context popover opens it); a right click does', async () => {
-    const { client, calls, dispatched } = fake([shell('t1')], ['settle']);
-    await sidebarCommand(client, native, files, 'row-key', 't1', 'ContextMenu', NOW);
-    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]);
-    expect(dispatched).toEqual([]);
-    await sidebarCommand(client, native, files, 'menu', 't1', 'row', NOW);
-    expect(calls.filter(call => call.op === 'sidebarMenu').map(call => call.anchor)).toEqual([undefined]);
-    expect(menuAnchor(client)).toEqual({});
-  });
-
-  test('a draft row: ContextMenu and Shift+F10 at its key handler anchor at the row; the right click at the pointer', async () => {
-    const { client, calls } = fake([shell('t1')]);
-    await sidebarCommand(client, native, files, 'row-key', 'draft:p1', 'ContextMenu', NOW);
-    await sidebarCommand(client, native, files, 'row-key', 'draft:p1', 'Shift+F10', NOW);
-    await sidebarCommand(client, native, files, 'draft-menu', 'p1', '', NOW);
-    const menus = calls.filter(call => call.op === 'sidebarMenu');
-    expect(menus.map(call => call.anchor)).toEqual(['bottom-left', 'bottom-left', undefined]);
-    expect((menus[0]!.items as Obj[]).map(item => item.label)).toEqual(['Copy', 'Project settings', undefined, 'Discard draft']);
-  });
-
-  test('the anchor never outlives its menu, even when the op throws', async () => {
-    const { client } = fake([]);
-    await expect(withMenuAnchor(client, 'center', async () => { expect(menuAnchor(client)).toEqual({ anchor: 'center' }); throw new Error('x'); })).rejects.toThrow('x');
-    expect(menuAnchor(client)).toEqual({});
+  // SidebarDraftRow handleKeyDown: ContextMenu or Shift+F10 opens the draft's menu at { x: rect.left, y: rect.bottom }. The row's
+  // key handler names the row for the sidebar's one draft popover and shows it from the row: a popover with no
+  // `position-area` sits below its source, left edges aligned, where macOS pops its NSMenu up. A thread row's and a legacy
+  // row's ContextMenu are the host's default (exact2 #314): their context popover at the row's centre, as Chromium's keyboard
+  // contextmenu; Shift+F10 opens nothing on macOS.
+  test('a draft row\'s ContextMenu and Shift+F10 open its menu from the row; other keys open none', () => {
+    const card = contractComponent('sidebar-row.contract', 'DraftCard'), state = card.state(), done: unknown[][] = [];
+    const scope = { d: { id: 'p1' }, menu: (...args: unknown[]) => done.push(['menu', ...args]), preventDefault: () => done.push(['preventDefault']),
+      showPopover: (...args: unknown[]) => done.push(['showPopover', ...args]), run: (...args: unknown[]) => done.push(['run', ...args]) };
+    const key = (shiftKey: boolean, metaKey = false) => ({ shiftKey, metaKey, ctrlKey: false, altKey: false, key: '', code: '', repeat: false });
+    card.call('rowKey', state, scope, ['ContextMenu', key(false)]);
+    card.call('rowKey', state, scope, ['F10', key(true)]);
+    const opened = [['preventDefault'], ['menu', 'p1', 'draft-p1'], ['showPopover', 'draft-menu', { source: 'draft-p1' }]];
+    expect(done).toEqual([...opened, ...opened]);
+    done.length = 0;
+    for (const [name, e] of [['F10', key(false)], ['F10', key(true, true)], ['Enter', key(false)], [' ', key(false)], ['a', key(false)], ['Escape', key(false)]] as const) card.call('rowKey', state, scope, [name, e]);
+    expect(done).toEqual([]);
   });
 });
 

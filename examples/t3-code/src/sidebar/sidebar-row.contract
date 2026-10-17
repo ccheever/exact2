@@ -157,7 +157,7 @@ component ThreadRow
               row width="100%" height="0.875rem" margin-top="0.125rem" align-items="center" justify-content="flex-end"
                 SidebarProviderMark(driver=t.providerDriver, badge=t.providerBadge, accent=t.providerBadgeColor)
           else
-            button cursor="pointer" id=`thread-${t.id}` press=openPress key=run("row-key", t.id) pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="4.875rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.5rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") display="flex" flex-direction="column" align-items="stretch" gap=0
+            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="4.875rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.5rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") display="flex" flex-direction="column" align-items="stretch" gap=0
               row width="100%" height="1.25rem" gap="0.375rem" align-items="center"
                 if t.draft
                   SidebarTip(tip=`${t.hoverKey}#draft`, hoverCard=hoverCard)
@@ -219,7 +219,7 @@ component ThreadRow
               SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
               SidebarRenameField(t=t, local=local, run=run)
           else
-            button cursor="pointer" id=`thread-${t.id}` press=openPress key=run("row-key", t.id) pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" gap="0.625rem"
+            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" gap="0.625rem"
               // Receding favicon (opacity-40 grayscale), restored on hover.
               if (not isOpen or t.section == "settled") and not hovering
                 box opacity=0.4 flex-shrink=0
@@ -492,18 +492,16 @@ component DraftCard
     hoverCard: action
     hoverId: string
   derive hovering = hoverId == `draft:${d.id}` or hoverId.startsWith(`draft:${d.id}#`)
-  // SidebarDraftRow handleKeyDown: ContextMenu or Shift+F10 opens the menu at the row's
-  // bottom left. The row's own key handler hears both, with its modifiers (main's KeyboardEvent, 8a0afbeab),
-  // and prevents both, so the host's ContextMenu default (exact2 #314) opens no second menu at its centre.
+  // SidebarDraftRow handleKeyDown (Sidebar.tsx:843-846): ContextMenu or Shift+F10 opens the menu at the row's
+  // bottom left, { x: rect.left, y: rect.bottom }. The row's own key handler hears both, with its modifiers (main's
+  // KeyboardEvent, 8a0afbeab), prevents both, so the host's ContextMenu default (exact2 #314) opens no second menu at
+  // its centre, and shows the draft menu from the row: a popover with no `position-area` sits below its source, its
+  // left edges aligned (LLP 1021 D2), where macOS pops the NSMenu up.
   action rowKey(k: string, e: KeyboardEvent)
-    if e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10"
+    if (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10") or k == "ContextMenu"
       preventDefault()
-      run("row-key", `draft:${d.id}`, "Shift+F10")
-    else if k == "ContextMenu"
-      preventDefault()
-      run("row-key", `draft:${d.id}`, k)
-    else
-      run("row-key", `draft:${d.id}`, k)
+      menu(d.id, `draft-${d.id}`)
+      showPopover("draft-menu", source=`draft-${d.id}`)
   view
     column id=`row-draft:${d.id}` hover=hoverCard(`draft:${d.id}`) contextmenu=menu(d.id, `draft-${d.id}`) contextPopover="draft-menu" width="100%" position="relative" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
       box id=`row-draft:${d.id}#discard` position="absolute" top=0 left=0 width=0 height=0 aria-hidden=true

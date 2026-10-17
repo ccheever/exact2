@@ -1,17 +1,15 @@
-// The sidebar's native pieces (MIT reference, see LICENSE-T3): the module's
-// row menus as the desktop shell shows them (ElectronMenu.ts showContextMenu:
-// a native menu with separators, submenus, checkmarks and a trash glyph on the
-// destructive row), at the pointer or, from the keyboard, at the focused row
-// (`anchor`: a draft row's ContextMenu and Shift+F10, a legacy row's ContextMenu;
-// a thread row's right click and ContextMenu are the rows' context popover,
-// sidebar-row.contract ThreadMenu, which the host presents as an NSMenu with its
-// submenus since exact2 #223 and opens at the focused row for ContextMenu since
-// exact2 #314), the legacy sidebar's menus, thread-jump hints while ⌘ alone is
-// held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS), and the Pull Requests page's
-// speed mode while ⇧ alone is held and no text is being edited
-// (the route's useShortcutModifierState(true) —
-// its window listeners are this monitor here). A row press's ⌘/⇧ is its own
-// MouseEvent's (sidebar-row.contract `openPress`).
+// The sidebar's native pieces (MIT reference, see LICENSE-T3): the legacy
+// sidebar's New thread choice of project members as the desktop shell shows it
+// (ElectronMenu.ts showContextMenu: a native menu at the pointer), thread-jump hints
+// while ⌘ alone is held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS), and the Pull
+// Requests page's speed mode while ⇧ alone is held and no text is being edited
+// (the route's useShortcutModifierState(true) — its window listeners are this
+// monitor here). A row press's ⌘/⇧ is its own MouseEvent's (sidebar-row.contract
+// `openPress`). Every other row menu is a Contract context popover, which the host
+// presents as an NSMenu (exact2 #223, #314).
+// The members' menu stays here: LegacySidebar's handleCreateThreadClick shows it at
+// the click (event.clientX, clientY) from a left press, where a Contract button's
+// menu is a pull-down below the button and a press's MouseEvent carries no position.
 // The held-key state stays native: Exact hears a key only at a focused node
 // (KeyEvents.swift keyTarget: none for the window itself or a module's web
 // view), and a Contract key event names no editable focus; the reference's
@@ -100,21 +98,15 @@ final class T3Sidebar: NSObject {
             answer([:])
         case "sidebarMenu":
             let template = request["items"] as? [[String: Any]] ?? []
-            // A keyboard menu (`anchor`) opens at the focused row, not the pointer.
-            // The agent's window is never key or main: take the one whose first responder is a view.
+            // The agent's window has no pointer and must not enter menu tracking:
+            // it answers dismissed, as an Escape would.
             let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { ($0.firstResponder as? NSView).map { $0 !== $0.window?.contentView } ?? false }
-            let anchored = (request["anchor"] as? String).flatMap { anchor in
-                window.flatMap { window in window.contentView.flatMap { Self.anchorPoint(anchor, focus: window.firstResponder as? NSView, in: $0) } }
-            }
-            // The agent's window has no pointer to anchor to and must not enter
-            // menu tracking; it answers dismissed, as an Escape would (with where a keyboard menu would open).
             guard !agent, let window, let view = window.contentView else {
-                answer(["id": NSNull(), "shown": false, "anchor": anchored.map { [$0.topLeft.x, $0.topLeft.y] as Any } ?? NSNull()]); return
+                answer(["id": NSNull(), "shown": false]); return
             }
             let menu = Self.menu(template, target: self)
             picked = nil
-            let point = anchored?.point ?? view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            menu.popUp(positioning: nil, at: point, in: view)
+            menu.popUp(positioning: nil, at: view.convert(window.mouseLocationOutsideOfEventStream, from: nil), in: view)
             answer(["id": picked.map { $0 as Any } ?? NSNull(), "shown": true])
         default:
             reply(["ok": false, "generation": generation, "error": ["kind": "Sidebar", "message": "Unknown sidebar operation.", "uncertain": false]])
@@ -122,9 +114,9 @@ final class T3Sidebar: NSObject {
     }
 
     /// Where a keyboard-opened menu's top-left corner goes, for the
-    /// focused row view: its centre (Chromium's keyboard contextmenu on a thread row,
-    /// truncated to whole points) or its bottom-left corner (the draft row's handler).
-    /// `point` is in `view`'s coordinates; `topLeft` in the window content's top-left space.
+    /// focused view: its centre (Chromium's keyboard contextmenu, truncated to whole
+    /// points) or its bottom-left corner. `point` is in `view`'s coordinates; `topLeft`
+    /// in the window content's top-left space. The media menu's (T3MediaActions.swift).
     static func anchorPoint(_ anchor: String, focus: NSView?, in view: NSView) -> (point: NSPoint, topLeft: NSPoint)? {
         guard let focus, focus !== view, focus.isDescendant(of: view), anchor == "center" || anchor == "bottom-left" else { return nil }
         let rect = view.convert(focus.bounds, from: focus)
