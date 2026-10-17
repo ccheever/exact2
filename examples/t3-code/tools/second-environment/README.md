@@ -44,7 +44,8 @@ thread (no run)" and "Background follow-up", and `empty-project` with no thread 
 sidebar's Remove project). Threads are created with `thread.create` and never get a turn.
 
 `seed second --turns` makes the ACP stand-in (`../acp-standin/`) a provider of that server and
-adds threads with a turn on it, each with a context meter (the stand-in reports its usage):
+adds threads with a turn on it, each with a context meter (the stand-in reports its usage); their
+composer's `$` menu offers the stand-in's skill, Frontend Design:
 
 - "Background thread (completed turn)" in `background-only`: one completed turn, visited at its
   completion, so it starts read.

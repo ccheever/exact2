@@ -75,7 +75,7 @@ describe("the agent", () => {
       { method: "session/load", params: { sessionId: "s1", cwd: root, mcpServers: [] } }], notes);
     expect(replies.get(1)!.result.agentCapabilities.loadSession).toBe(true);
     expect(replies.get(3)!.result).toEqual({ stopReason: "end_turn" });
-    expect(notes.map((note) => note.params.update)).toEqual([
+    expect(notes.filter((note) => note.params.sessionId === "s1" && note.params.update.sessionUpdate !== "available_commands_update").map((note) => note.params.update)).toEqual([
       { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Stand-in reply: Say hello" } },
       { sessionUpdate: "usage_update", used: 12480, size: 200000 }]);
     expect(replies.get(4)!.result).toEqual({});
@@ -91,6 +91,8 @@ describe("the agent", () => {
     const notes: { method: string; params: any }[] = [];
     const replies = await talk(executable, [{ method: "session/new", params: { cwd: repo, mcpServers: [] } }], notes);
     const sessionId = replies.get(1)!.result.sessionId;
+    // A new session advertises the one skill, as a `$` command.
+    expect(notes.shift()!.params.update).toEqual({ sessionUpdate: "available_commands_update", availableCommands: [expect.objectContaining({ name: "$frontend-design" })] });
     await talk(executable, [{ method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } }, { method: "session/prompt", params: { sessionId, prompt: first("Edit the notes") } }], notes);
     expect(readFileSync(join(repo, "README.md"), "utf8")).toContain("edited by the ACP stand-in");
     expect(readFileSync(join(repo, "notes/plan.md"), "utf8")).toStartWith("# Plan");
@@ -104,6 +106,7 @@ describe("the agent", () => {
     const write = (message: object) => { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`); child.stdin.flush(); };
     write({ id: 1, method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } });
     expect((await next()).result).toEqual({});
+    expect((await next()).params.update.sessionUpdate).toBe("available_commands_update"); // a loaded session advertises too
     write({ id: 2, method: "session/prompt", params: { sessionId, prompt: first("Ask before editing the notes") } });
     expect((await next()).params.update).toMatchObject({ sessionUpdate: "tool_call", kind: "edit", status: "pending" });
     const asked = await next();

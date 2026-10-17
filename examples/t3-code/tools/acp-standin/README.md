@@ -13,7 +13,9 @@ the session's directory: "Edit the notes" edits `README.md` and writes `notes/pl
 turn ends, so the turn's checkpoint (a Git snapshot the server takes) has a diff; "Ask before
 editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
 server turns into an approval on a thread in the runtime mode "approval-required" (in
-"full-access" it allows it itself), and writes `notes/approved.md` only if allowed. It
+"full-access" it allows it itself), and writes `notes/approved.md` only if allowed. Each new or
+loaded session advertises one skill, `$frontend-design` (`available_commands_update`, which T3
+lists under `$` as a skill), so a stand-in thread's composer can hold a skill chip. It
 advertises `loadSession`, and `session/load` brings a session back with no history (it keeps
 none), so a later turn on the same thread runs after the server restarts too.
 
