@@ -55,12 +55,16 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertEqual(events, ["down", "up"])
     }
 
-    /// A swipe row inside a panning surface (the smoke's precedence fixture):
-    /// only UIKit's arbitration gives a contact there to the swipe or the pan,
-    /// and no recognizer sees a recognized one, so a contact on the row or on
-    /// its button is unsupported and sends nothing, as on the surface beside
-    /// the row it is the pan's.
-    func testAContactWhereASwipeCouldTakeItIsUnsupported() throws {
+    /// A swipe row inside a panning surface (the smoke's precedence fixture),
+    /// offered the touch as UIKit offers it: on the row both the swipe and
+    /// the pan are, so only UIKit's arbitration could give the contact to
+    /// either, and the contact is unsupported, saying why and sending
+    /// nothing. The row's button keeps the touch from the swipe (rule 3) but
+    /// not from the pan, so a contact there is the surface's pan, and its
+    /// lift with no drag presses the button. Beside the row it is the pan's;
+    /// a swipe whose `touch-action` leaves the horizontal to the platform
+    /// never begins, and a button in a swipe row with no pan is a finger.
+    func testAContactIsUnsupportedOnlyWhereTwoDragsAreOfferedIt() throws {
         let session = try booted(), p = session.presenter
         let make = { (id: UInt32, frame: CGRect, parent: UIView, handlers: Set<String>) -> NodeView in
             let n = NodeView(id: id, kind: "view", presenter: p)
@@ -72,14 +76,27 @@ final class AgentClockIOSTests: XCTestCase {
         }
         let surface = make(UInt32.max - 2, CGRect(x: 0, y: 0, width: 400, height: 500), p.viewport, ["pan", "pointerdown"])
         let row = make(UInt32.max - 1, CGRect(x: 0, y: 0, width: 400, height: 100), surface, ["swiperight", "pointerdown"])
+        row.style["touch_action"] = .string("pan-y")
         let button = make(UInt32.max, CGRect(x: 0, y: 0, width: 80, height: 40), row, ["press", "pointerdown"])
         let agent = Agent(session: session)
-        var events: [UInt32] = []
+        var events: [UInt32] = [], pressed: [UInt32] = []
         p.onPointer = { id, _, _ in events.append(id) }
-        XCTAssertNil(agent.recognizedPan("down", ["id": Int(row.id)]), "the row's swipe could take it")
-        XCTAssertNil(agent.recognizedPan("down", ["id": Int(button.id)]), "the row's swipe could take a drag from its button")
+        p.onPress = { pressed.append($0) }
+        let onRow = try XCTUnwrap(agent.recognizedPan("down", ["id": Int(row.id)]))
+        XCTAssertEqual(onRow["delivery"] as? String, "unsupported", "the swipe and the pan are both offered it")
+        XCTAssertTrue((onRow["reason"] as? String)?.contains("UIKit's arbitration") == true, "\(onRow)")
         XCTAssertEqual(events, [], "an unsupported contact sends nothing")
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(button.id)])?["contact"] as? Int, Int(surface.id), "the button keeps it from the swipe, not from the pan")
+        let up = try XCTUnwrap(agent.recognizedPan("up", [:]))
+        XCTAssertEqual(pressed, [button.id], "a pan that never began presses the button it landed on: \(up)")
         XCTAssertEqual(agent.recognizedPan("down", ["id": Int(surface.id), "y": 300.0])?["contact"] as? Int, Int(surface.id), "beside the row it is the pan's")
+        _ = agent.recognizedPan("cancel", [:])
+        row.style["touch_action"] = .string("auto")
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(row.id)])?["contact"] as? Int, Int(surface.id), "a swipe that never begins is no candidate")
+        _ = agent.recognizedPan("cancel", [:])
+        row.style["touch_action"] = .string("pan-y")
+        surface.handlers = ["pointerdown"]
+        XCTAssertEqual(agent.recognizedPan("down", ["id": Int(button.id)])?["delivery"] as? String, "recognized", "no pan: the button's finger, the swipe kept from it")
         _ = agent.recognizedPan("cancel", [:])
     }
 

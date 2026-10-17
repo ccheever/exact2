@@ -58,36 +58,41 @@ extension Agent {
     enum HeldReach {
         /// A `pan` node, whose recognized pan the contact delivers.
         case pan(NodeView)
-        /// A drag only UIKit's arbitration can give the contact or withhold:
-        /// a swipe or another drag recognizer, or a `pan` node with a drag
-        /// binding (rule 4). No recognizer sees a recognized contact, so a
-        /// finger held here could not move what a real one would.
+        /// A swipe or a drag binding UIKit would offer the touch, which no
+        /// recognized contact reaches: only UIKit's arbitration could give it
+        /// the contact or withhold it, so a finger held here could not move
+        /// what a real one would.
         case contested
         /// No drag: a finger, its pointer events and its lift's press.
         case finger
     }
 
-    /// What a contact on `view` would reach: from it up, stopping at rule 3's
-    /// boundary (a field or a text area; a press node between is passed, as a
-    /// pan takes a drag that starts on a button), as `MouseLayoutPan.down`
-    /// walks. Where another drag could take the contact first — a
-    /// descendant's (rule 3) or a drag binding on the pan node (rule 4) — only
-    /// UIKit's arbitration can say (`contested`).
+    /// What a contact on `view` would reach, offered the touch as UIKit offers
+    /// it (`gestureRecognizer(_:shouldReceive:)`, GesturePrecedenceIOS.swift):
+    /// from the view up, a press below a node keeps its swipe and drag
+    /// bindings from the touch (rule 3) though a `pan` passes it, a field or a
+    /// text area keeps every drag above it, and a swipe whose `touch-action`
+    /// leaves the horizontal to the platform never begins. The innermost `pan`
+    /// still offered the touch is its node's unless a swipe or a binding below
+    /// it, or on it, is offered too (`contested`); with no pan, an offered
+    /// swipe or binding is `contested` and nothing is a finger.
     static func heldReach(from view: UIView) -> HeldReach {
         var at: UIView? = view
+        var pressBelow = false, offered = false
         while let current = at {
             if let node = current as? NodeView {
-                if node.handlers.contains("pan") {
-                    guard SwipeInput.allows(node) else { return .finger }
+                if !pressBelow {
                     let bound = node.reorderPan != nil || node.transformRecognizer != nil || node.heightRecognizer != nil
-                    return bound ? .contested : .pan(node)
+                    let swipe = node.swipeRecognizer != nil && !node.disabled && !node.allowsTouchPan(CGPoint(x: 1, y: 0))
+                    if bound || swipe { offered = true }
                 }
-                if node.field != nil || node.textArea != nil { return .finger }
-                if !node.dragRecognizers.isEmpty || node.handlers.contains("swiperight") { return .contested }
+                if node.handlers.contains("pan"), SwipeInput.allows(node) { return offered ? .contested : .pan(node) }
+                if node.field != nil || node.textArea != nil { break }
+                if node.handlers.contains("press") { pressBelow = true }
             }
             at = current.superview
         }
-        return .finger
+        return offered ? .contested : .finger
     }
 
     /// The pointer observer is independent of the pan recognizer, as for a
@@ -282,9 +287,11 @@ extension Agent {
             let reach = Agent.heldReach(from: v)
             guard case .pan(let node) = reach else {
                 // A drag's contact (`pan`) is a pan's or none: a finger held elsewhere moves nothing.
-                // Where a swipe or another drag could take it, a finger is unsupported (LLP 1035.003 D1).
                 if req["pan"] != nil { return nil }
-                if case .contested = reach { return nil }
+                if case .contested = reach {
+                    return ["phase": phase, "delivery": "unsupported",
+                            "reason": "a swipe or drag binding UIKit would offer this touch; only UIKit's arbitration could give it the contact, and no recognizer sees a recognized one (LLP 1035.003 D1)"]
+                }
                 // A finger held still: it lands only where the target is seen, as a tap's does.
                 let p = windowPoint(at), seen = win.hitTest(p, with: nil)
                 if let why = offscreen(v, box: CGRect(origin: at, size: .zero), hit: seen) ?? seen.flatMap({ obscured(v, at: p, hit: $0) }) {
@@ -298,7 +305,13 @@ extension Agent {
                 return ["contact": Int(v.id), "phase": "down", "at": point(at), "delivery": "recognized"]
             }
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
-            let contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v).map(HeldNode.init), path: Agent.fingerPath(from: v), at: at, t: t, held: Agent.heldPrefix(req))
+            // A contact that lands on a press inside the pan node (a button in
+            // a draggable card) presses that node if the pan never begins.
+            let p = windowPoint(at), touched = win.hitTest(p, with: nil) ?? v
+            let pressInside = touched.isDescendant(of: node) && sequence(first: touched, next: { $0.superview }).prefix { $0 !== node }
+                .contains { ($0 as? NodeView)?.handlers.contains("press") == true }
+            var contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v).map(HeldNode.init), path: Agent.fingerPath(from: v), at: at, t: t, held: Agent.heldPrefix(req))
+            if pressInside { contact.reach = fingerReach(touched, at: p) }
             panContact = contact
             panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]
@@ -354,7 +367,15 @@ extension Agent {
                 presenter.panRelease(node.id, vx, vy)
                 return ["phase": "up", "at": point(contact.at), "delivery": "recognized", "velocity": [vx, vy]]
             }
-            // A pan that never began is the node's press (rule 4).
+            // A pan that never began is the press it landed on inside the
+            // node, as a finger's lift, else the node's own (rule 4).
+            if let reach = contact.reach {
+                var reply: [String: Any] = ["phase": "up", "at": point(contact.at), "delivery": "recognized"]
+                if let pressing = reach.action?.live(in: presenter) ?? reach.reached?.live(in: presenter), pressing.window != nil, box(pressing).contains(contact.at) {
+                    reply.merge(lift(reach, at: windowPoint(contact.at), held: contact.held)) { _, b in b }
+                }
+                return reply
+            }
             if node.handlers.contains("press") {
                 presenter.press(node.id)
                 return ["phase": "up", "at": point(contact.at), "delivery": "recognized", "pressed": Int(node.id)]
