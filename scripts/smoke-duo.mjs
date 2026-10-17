@@ -139,6 +139,7 @@ async function suite({ open: openSession, check: record }, reset) {
   /** A session whose state-changing operations take a failure's screenshot first (`shot`). */
   const open = async (options) => {
     const s = await openSession(options);
+    keyboardGone = false; // a new launch has its keyboard again
     for (const op of ['tap', 'type', 'close']) {
       const run = s[op].bind(s);
       s[op] = async (...args) => { await shot(s); return run(...args); };
@@ -215,6 +216,50 @@ async function suite({ open: openSession, check: record }, reset) {
     const k = await keyboard(s, false);
     check(k.reached, `${tag}: the keyboard went down (keyboard-inset-height ${k.l.env['keyboard-inset-height']})`);
     return k.l;
+  };
+  // A fold between the panels with an editor focused: UIKit's keyboard machinery resigns the editor as the scene moves
+  // to the other display and makes it first responder again, but now and then never does, in a plain UIKit app as in
+  // Exact (QUEUE: "A fold that switches panels can end the editing"). The agent's `focus.events` show it: one
+  // resignation of that native editor by UIKit's keyboard machinery and nothing else. Only that is UIKit's drop; the
+  // smoke then taps the editor, the same native editor must take the focus, and the fold's checks run. After such a
+  // drop UIKit shows no software keyboard in that app again until it is launched anew, a plain UIKit app's neither, so
+  // when UIKit reports no keyboard the keyboard checks are unsupported (`keyboardGone`) until one shows or the next
+  // launch. Every other loss fails.
+  let keyboardGone = false;
+  /** Before a fold: the editor `target` (a test id) holding the app's focus slot `slot`, natively, its token and the
+   * last focus event's number. */
+  const editing = async (s, slot, target) => {
+    const { slots, focus } = await s.state();
+    const node = byTestId(await s.tree(), target)?.id;
+    return { slot, target, node, native: focus.native, seq: focus.events.at(-1)?.seq ?? 0,
+      focused: node != null && slots[slot] === true && focus.editor === node && focus.native != null };
+  };
+  /** Whether nothing but UIKit's keyboard machinery resigning the editor of `before`, once, happened to the editors since `before` (state `st`). */
+  const clean = (st, before) => {
+    const since = st.focus.events.filter((e) => e.seq > before.seq);
+    return since.length === 0 || (since.length === 1 && since[0].kind === 'resign' && since[0].by === 'uikit-keyboards' && since[0].node === before.node && since[0].token === before.native);
+  };
+  /** After a fold from `from` to `to`: whether the editor of `before` holds the focus again, waiting up to 2 s for UIKit
+   * to give it back, and on a panel switch whose focus UIKit dropped, after tapping it. */
+  const held = async (s, tag, from, to, before) => {
+    const has = (st) => st.slots[before.slot] === true && st.focus.editor === before.node && st.focus.native === before.native;
+    let st;
+    for (let i = 0; i < 20; i++) { if (i > 0) await sleep(100); st = await s.state(); if (has(st)) return true; }
+    if ((from === 0) === (to === 0)) return false;
+    const since = st.focus.events.filter((e) => e.seq > before.seq);
+    const dropped = since.length === 1 && since[0].kind === 'resign' && since[0].by === 'uikit-keyboards'
+      && since[0].node === before.node && since[0].token === before.native && st.focus.native == null && st.slots[before.slot] === false;
+    if (!check(dropped, `${tag}: the editor lost the focus at the panel switch, and not as UIKit drops it (one resignation of the same native editor by UIKit's keyboard machinery): ${JSON.stringify({ before, since, focus: st.focus, slot: st.slots[before.slot] })}`)) return false;
+    await down(s, tag);
+    console.log(`  ${tag}: UIKit did not give the editor back after the panel switch; tapped it again`);
+    await s.tap(before.target);
+    for (let i = 0; i < 20; i++) { if (i > 0) await sleep(100); st = await s.state(); if (has(st)) break; }
+    if (!has(st) || !check(clean(st, before), `${tag}: nothing but UIKit's resignation happened to the editor while it was given the focus again: ${JSON.stringify(st.focus.events.filter((e) => e.seq > before.seq))}`)) return false;
+    if (softKeyboard && !(await keyboard(s, true)).reached && (await s.state()).keyboard.visible === false) {
+      keyboardGone = true;
+      console.log(`  ${tag}: UIKit shows no keyboard in this app after dropping its focus; the keyboard checks are unsupported until one shows or the next launch`);
+    }
+    return true;
   };
   const eachPose = async (s, name, body, dismiss) => {
     for (const [tag, deg] of POSES) {
@@ -323,9 +368,14 @@ async function suite({ open: openSession, check: record }, reset) {
     else if (m.set) console.log(`duo keyboard: unsupported — the software keyboard is minimized on this simulator; clear it (xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled) or boot a fresh device; the keyboard checks are not run`);
     else { softKeyboard = true; console.log('duo keyboard: no software keyboard rose and the device\'s keyboard preference is not minimized — treated as a host failure; the keyboard checks run'); }
   }
-  /** A keyboard that should have risen: true to check it (and fail), false when the device's keyboard preference turned minimized since the run began. */
-  const rose = (kb, tag) => {
-    if (!softKeyboard) return false;
+  /** Whether a software keyboard is expected now: this simulator shows one, and UIKit has not dropped this app's (its own state saying no keyboard) since the keyboard's inset `kb` was last positive. */
+  const expected = async (s, kb) => {
+    if (keyboardGone && (kb > 0 || (await s.state()).keyboard.visible !== false)) keyboardGone = false;
+    return softKeyboard && !keyboardGone;
+  };
+  /** A keyboard that should have risen: true to check it (and fail), false when the device's keyboard preference turned minimized since the run began, or while UIKit shows no keyboard in this app after dropping its focus (`keyboardGone`). */
+  const rose = async (s, kb, tag) => {
+    if (!(await expected(s, kb))) return false;
     if (kb > 0) return true;
     const m = minimized();
     if (m.set) {
@@ -351,17 +401,20 @@ async function suite({ open: openSession, check: record }, reset) {
         check(st.slots.note === typed && st.slots.focused === true, `${tag}: typing focused the field ${JSON.stringify(st.slots)}`);
         check(l2.viewport.h === l.viewport.h, `${tag}: the layout viewport does not change for a keyboard (${l2.viewport.h} vs ${l.viewport.h})`);
         const note = box(l2, 'note');
-        if (rose(kb, tag)) {
+        if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
         }
         // Fold while editing: focus and text survive the panel switch, the new panel is covered.
         const next = after(deg);
+        const before = await editing(s, 'focused', 'note');
+        check(before.focused, `${tag}: the field holds the focus natively before the fold ${JSON.stringify(before)}`);
         await pose(s, next);
+        const back = await held(s, `${tag}→${next}°`, deg, next, before);
         ({ l: l2 } = await keyboard(s, true));
         const st2 = await s.state(), kb2 = l2.env['keyboard-inset-height'];
-        check(st2.slots.note === typed && st2.slots.focused === true, `${tag}: focus and text survive a fold to ${next}° ${JSON.stringify(st2.slots)}`);
-        if (rose(kb2, `${tag}→${next}°`)) check(kb2 > 0, `${tag}→${next}°: the keyboard is up on the new panel (keyboard-inset-height ${kb2})`);
+        check(st2.slots.note === typed && back && st2.slots.focused === true && st2.focus.editor === before.node && st2.focus.native === before.native && clean(st2, before), `${tag}: focus and text survive a fold to ${next}° ${JSON.stringify(st2.slots)}`);
+        if (await rose(s, kb2, `${tag}→${next}°`)) check(kb2 > 0, `${tag}→${next}°: the keyboard is up on the new panel (keyboard-inset-height ${kb2})`);
         coverChecks(l2, `${tag}→${next}° while editing`, next);
         await pose(s, deg);
         await s.tap('dismiss');
@@ -381,10 +434,13 @@ async function suite({ open: openSession, check: record }, reset) {
         check(fact0 && fact0.width === l.viewport.w && fact0.height === l.viewport.h, `${tag}: the viewport fact ${JSON.stringify(fact0)} is the layout's ${JSON.stringify(l.viewport)}`);
         const bar0 = box(l, 'bar'), bottom0 = l.env['safe-area-inset-bottom'];
         check(bar0 && near(bar0.y + bar0.h, l.viewport.h - bottom0), `${tag}: the bar sits on the bottom inset ${JSON.stringify(bar0)} in ${l.viewport.h} inset ${bottom0}`);
-        await s.type('note', 'hi');
+        const typed = `hi ${tag}`;
+        await s.type('note', typed);
         let { l: l2 } = await keyboard(s, true);
         const kb = l2.env['keyboard-inset-height'], bar = box(l2, 'bar');
-        if (rose(kb, tag)) {
+        const before = await editing(s, 'focused', 'note');
+        check(before.focused && (await s.state()).slots.note === typed, `${tag}: typing focused the note natively ${JSON.stringify(before)}`);
+        if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(near(l2.viewport.h, l.viewport.h - kb) && box(l2, 'root').h === l2.viewport.h, `${tag}: the layout viewport ends at the keyboard ${JSON.stringify(l2.viewport)} (was ${JSON.stringify(l.viewport)}, kb ${kb})`);
           check(l2.env['safe-area-inset-bottom'] === 0, `${tag}: the bottom inset is the keyboard's while it is up`);
@@ -393,9 +449,11 @@ async function suite({ open: openSession, check: record }, reset) {
         // Fold with the keyboard up: the bar still ends where the viewport does on the new panel.
         const next = after(deg);
         await pose(s, next);
+        const back = await held(s, `${tag}→${next}°`, deg, next, before);
         ({ l: l2 } = await keyboard(s, true));
-        const barF = box(l2, 'bar'), kbF = l2.env['keyboard-inset-height'];
-        if (rose(kbF, `${tag}→${next}°`)) check(kbF > 0 && barF && near(barF.y + barF.h, l2.viewport.h) && box(l2, 'root').h === l2.viewport.h, `${tag}→${next}°: the bar ends at the viewport's bottom with the keyboard ${kbF} ${JSON.stringify(barF)} in ${JSON.stringify(l2.viewport)}`);
+        const barF = box(l2, 'bar'), kbF = l2.env['keyboard-inset-height'], stF = await s.state();
+        check(stF.slots.note === typed && back && stF.slots.focused === true && stF.focus.editor === before.node && stF.focus.native === before.native && clean(stF, before), `${tag}→${next}°: the note's text and focus survive the fold ${JSON.stringify(stF.slots)}`);
+        if (await rose(s, kbF, `${tag}→${next}°`)) check(kbF > 0 && barF && near(barF.y + barF.h, l2.viewport.h) && box(l2, 'root').h === l2.viewport.h, `${tag}→${next}°: the bar ends at the viewport's bottom with the keyboard ${kbF} ${JSON.stringify(barF)} in ${JSON.stringify(l2.viewport)}`);
         await pose(s, deg);
         await s.tap('dismiss');
         const l3 = await down(s, tag);
@@ -470,22 +528,25 @@ async function suite({ open: openSession, check: record }, reset) {
         await s.type('note-title-input', title);
         let { l } = await keyboard(s, true);
         const kb = l.env['keyboard-inset-height'];
-        if (rose(kb, tag)) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
+        if (await rose(s, kb, tag)) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
         await s.type('note-textarea', draft);
         await keyboard(s, true);
         // The sheet's height springs to the shortened viewport: read it settled, in the same layout as the viewport
         await settle(s);
         l = await s.layout();
         const sheet = box(l, 'note-sheet');
-        check(sheet && near(sheet.y + sheet.h, l.viewport.h) && (!softKeyboard || l.env['keyboard-inset-height'] > 0), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${l.env['keyboard-inset-height']}`);
+        check(sheet && near(sheet.y + sheet.h, l.viewport.h) && (!(await expected(s, l.env['keyboard-inset-height'])) || l.env['keyboard-inset-height'] > 0), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${l.env['keyboard-inset-height']}`);
         const next = after(deg);
+        const before = await editing(s, 'noteFocused', 'note-textarea');
+        check(before.focused, `${tag}: the textarea holds the focus natively before the fold ${JSON.stringify(before)}`);
         await pose(s, next);
+        const back = await held(s, `${tag}→${next}°`, deg, next, before);
         ({ l } = await keyboard(s, true));
         t = await s.tree();
         const st = await s.state(), kbF = l.env['keyboard-inset-height'];
         check(byTestId(t, 'screen-note') != null && byTestId(t, 'note-sheet') != null, `${tag}→${next}°: the pushed screen and its sheet survived the fold`);
-        check(st.slots.title === title && st.slots.draft === draft && st.slots.noteFocused === true, `${tag}→${next}°: the title, the draft and the focus survived ${JSON.stringify({ title: st.slots.title, draft: st.slots.draft, noteFocused: st.slots.noteFocused })}`);
-        if (rose(kbF, `${tag}→${next}°`)) check(kbF > 0, `${tag}→${next}°: the keyboard is up under the sheet (${kbF})`);
+        check(st.slots.title === title && st.slots.draft === draft && back && st.slots.noteFocused === true && st.focus.editor === before.node && st.focus.native === before.native && clean(st, before), `${tag}→${next}°: the title, the draft and the focus survived ${JSON.stringify({ title: st.slots.title, draft: st.slots.draft, noteFocused: st.slots.noteFocused })}`);
+        if (await rose(s, kbF, `${tag}→${next}°`)) check(kbF > 0, `${tag}→${next}°: the keyboard is up under the sheet (${kbF})`);
         check(near((box(l, 'note-sheet')?.y ?? 0) + (box(l, 'note-sheet')?.h ?? 0), l.viewport.h), `${tag}→${next}°: the sheet still ends at the viewport ${JSON.stringify(box(l, 'note-sheet'))} in ${JSON.stringify(l.viewport)}`);
         // Back across the reverse fold with the pushed screen and its sheet up
         await pose(s, deg);
@@ -551,4 +612,5 @@ async function suite({ open: openSession, check: record }, reset) {
       }
     } catch (e) { check(false, `${where}: ${e.message}`); } finally { await orient('portrait', s); await s.close(); }
   }
+
 }
