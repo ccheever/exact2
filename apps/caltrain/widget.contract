@@ -1,0 +1,23 @@
+// @ref LLP 1126 D2/D3 — props only; the refresh owns schedule work.
+shape WidgetDeparture
+  id: string
+  train: number
+  service: string
+  headsign: string
+  at: number
+
+shape NextTrainsProps
+  station: string
+  departures: WidgetDeparture[]
+
+component NextTrains
+  props
+    station: string
+    departures: WidgetDeparture[]
+  view
+    column gap=8
+      text station font-weight=600 line-clamp=1
+      for departure in departures key=departure.id
+        row gap=8
+          text departure.headsign flex=1 line-clamp=1
+          text formatTime(departure.at, 0, "short") font-variant-numeric="tabular-nums"

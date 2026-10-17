@@ -653,8 +653,17 @@ export function listAssets(dir, rust = false) {
       }
     }
   };
-  for (const tree of ['assets', 'deck', 'shaders', ...(rust ? ['rust'] : [])]) walk(tree);
+  for (const tree of ['assets', 'deck', 'shaders', 'plans', ...(rust ? ['rust'] : [])]) walk(tree);
   return out.sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+/** Named snapshot plans share the asset roster's authenticated bytes. */
+export function entryPlans(assets) {
+  const plans = Object.fromEntries(assets.flatMap(card => {
+    const kind = /^plans\/([A-Za-z][A-Za-z0-9_-]*)\.plan$/.exec(card.name)?.[1];
+    return kind ? [[kind, card]] : [];
+  }));
+  return Object.keys(plans).length ? { plans } : {};
 }
 
 /** The one web envelope producer for static builds and the live dev overlay.
@@ -670,6 +679,7 @@ export function webEnvelope(app, bytes, assets, live = {}) {
     plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
       formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
     assets,
+    ...entryPlans(assets),
     ...live,
   };
 }

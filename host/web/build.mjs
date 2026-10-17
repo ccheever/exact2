@@ -286,6 +286,7 @@ if (!bakeOnly) {
 if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(bakedReceipt.inputs.grantCeiling ?? '')) {
   copyHostFiles('storage');
 }
+copyStaticTreeIfPresent(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.entries/plans'), resolve(stage, 'plans'));
 const copiedAssets = listAssets(stage);
 verifyBakeFiles(bakedReceipt, planBytes, copiedAssets);
 let pairedRust = null;

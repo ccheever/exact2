@@ -2396,6 +2396,7 @@
     {
       "bit": 0,
       "field": "width",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2405,6 +2406,7 @@
     {
       "bit": 1,
       "field": "height",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2414,6 +2416,7 @@
     {
       "bit": 2,
       "field": "min_width",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2423,6 +2426,7 @@
     {
       "bit": 3,
       "field": "min_height",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2432,6 +2436,7 @@
     {
       "bit": 4,
       "field": "max_width",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2441,6 +2446,7 @@
     {
       "bit": 5,
       "field": "max_height",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2450,6 +2456,7 @@
     {
       "bit": 6,
       "field": "padding_top",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2459,6 +2466,7 @@
     {
       "bit": 7,
       "field": "padding_right",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2468,6 +2476,7 @@
     {
       "bit": 8,
       "field": "padding_bottom",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2477,6 +2486,7 @@
     {
       "bit": 9,
       "field": "padding_left",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
@@ -2486,6 +2496,7 @@
     {
       "bit": 10,
       "field": "margin_top",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2495,6 +2506,7 @@
     {
       "bit": 11,
       "field": "margin_right",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2504,6 +2516,7 @@
     {
       "bit": 12,
       "field": "margin_bottom",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2513,6 +2526,7 @@
     {
       "bit": 13,
       "field": "margin_left",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2522,6 +2536,7 @@
     {
       "bit": 14,
       "field": "flex_direction",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:FlexDirection",
       "layout": true
@@ -2529,6 +2544,7 @@
     {
       "bit": 15,
       "field": "flex_wrap",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:FlexWrap",
       "layout": true
@@ -2536,6 +2552,7 @@
     {
       "bit": 16,
       "field": "justify_content",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyContent",
       "layout": true
@@ -2543,6 +2560,7 @@
     {
       "bit": 17,
       "field": "align_items",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:AlignItems",
       "layout": true
@@ -2550,6 +2568,7 @@
     {
       "bit": 18,
       "field": "align_self",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:AlignSelf",
       "layout": true
@@ -2557,6 +2576,7 @@
     {
       "bit": 19,
       "field": "align_content",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:AlignContent",
       "layout": true
@@ -2564,6 +2584,7 @@
     {
       "bit": 20,
       "field": "flex_grow",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2572,6 +2593,7 @@
     {
       "bit": 21,
       "field": "flex_shrink",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "f32",
       "layout": true,
@@ -2580,6 +2602,7 @@
     {
       "bit": 22,
       "field": "flex_basis",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2589,6 +2612,7 @@
     {
       "bit": 23,
       "field": "position_type",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:PositionType",
       "layout": true
@@ -2596,6 +2620,7 @@
     {
       "bit": 24,
       "field": "top",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2605,6 +2630,7 @@
     {
       "bit": 25,
       "field": "right",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2614,6 +2640,7 @@
     {
       "bit": 26,
       "field": "bottom",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2623,6 +2650,7 @@
     {
       "bit": 27,
       "field": "left",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
@@ -2632,6 +2660,7 @@
     {
       "bit": 28,
       "field": "row_gap",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2640,6 +2669,7 @@
     {
       "bit": 29,
       "field": "column_gap",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "f32",
       "layout": true,
@@ -2648,6 +2678,7 @@
     {
       "bit": 30,
       "field": "aspect_ratio",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "aspect-ratio",
       "layout": true,
@@ -2656,6 +2687,7 @@
     {
       "bit": 31,
       "field": "display",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Display",
       "layout": true
@@ -2663,6 +2695,7 @@
     {
       "bit": 32,
       "field": "box_sizing",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BoxSizing",
       "layout": true
@@ -2670,6 +2703,7 @@
     {
       "bit": 33,
       "field": "overflow_x",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2677,6 +2711,7 @@
     {
       "bit": 34,
       "field": "overflow_y",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
@@ -2684,6 +2719,7 @@
     {
       "bit": 35,
       "field": "z_index",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "i32",
       "default": 0,
@@ -2692,6 +2728,7 @@
     {
       "bit": 36,
       "field": "grid_auto_flow",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:GridAutoFlow",
       "layout": true
@@ -2699,6 +2736,7 @@
     {
       "bit": 37,
       "field": "grid_template_columns",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2707,6 +2745,7 @@
     {
       "bit": 38,
       "field": "grid_template_rows",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "tracks",
@@ -2715,6 +2754,7 @@
     {
       "bit": 39,
       "field": "grid_column",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2723,6 +2763,7 @@
     {
       "bit": 40,
       "field": "grid_row",
+      "snapshot": "admit",
       "rare": true,
       "terminal": "admit",
       "codec": "placement",
@@ -2731,6 +2772,7 @@
     {
       "bit": 41,
       "field": "justify_items",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:JustifyItems",
       "layout": true
@@ -2738,6 +2780,7 @@
     {
       "bit": 42,
       "field": "direction",
+      "snapshot": "admit",
       "codec": "enum:Direction",
       "inherited": true,
       "layout": true,
@@ -2746,6 +2789,7 @@
     {
       "bit": 43,
       "field": "border_width_top",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2754,6 +2798,7 @@
     {
       "bit": 44,
       "field": "border_width_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2762,6 +2807,7 @@
     {
       "bit": 45,
       "field": "border_width_bottom",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2770,6 +2816,7 @@
     {
       "bit": 46,
       "field": "border_width_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "f32",
       "layout": true,
@@ -2778,6 +2825,7 @@
     {
       "bit": 47,
       "field": "background_color",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": 0
@@ -2785,12 +2833,14 @@
     {
       "bit": 48,
       "field": "opacity",
+      "snapshot": "admit",
       "codec": "f32",
       "default": 1
     },
     {
       "bit": 49,
       "field": "border_radius_top_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2798,6 +2848,7 @@
     {
       "bit": 50,
       "field": "border_radius_top_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2805,6 +2856,7 @@
     {
       "bit": 51,
       "field": "border_radius_bottom_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2812,6 +2864,7 @@
     {
       "bit": 52,
       "field": "border_radius_bottom_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "dimension",
       "default": 0
@@ -2819,6 +2872,7 @@
     {
       "bit": 53,
       "field": "border_color_top",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2827,6 +2881,7 @@
     {
       "bit": 54,
       "field": "border_color_right",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2835,6 +2890,7 @@
     {
       "bit": 55,
       "field": "border_color_bottom",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2843,6 +2899,7 @@
     {
       "bit": 56,
       "field": "border_color_left",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor",
@@ -2895,12 +2952,14 @@
     {
       "bit": 63,
       "field": "object_fit",
+      "snapshot": "admit",
       "codec": "enum:ObjectFit",
       "cold": true
     },
     {
       "bit": 64,
       "field": "font_size",
+      "snapshot": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -2910,6 +2969,7 @@
     {
       "bit": 65,
       "field": "font_weight",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "u16",
       "inherited": true,
@@ -2920,6 +2980,7 @@
     {
       "bit": 66,
       "field": "font_style",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:FontStyle",
       "inherited": true,
@@ -2929,6 +2990,7 @@
     {
       "bit": 67,
       "field": "font_family",
+      "snapshot": "admit",
       "codec": "u16",
       "inherited": true,
       "text": true,
@@ -2938,6 +3000,7 @@
     {
       "bit": 68,
       "field": "text_align",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextAlign",
       "inherited": true,
@@ -2946,6 +3009,7 @@
     {
       "bit": 69,
       "field": "line_height",
+      "snapshot": "admit",
       "codec": "line-height",
       "inherited": true,
       "text": true,
@@ -2955,6 +3019,7 @@
     {
       "bit": 70,
       "field": "letter_spacing",
+      "snapshot": "admit",
       "codec": "f32",
       "inherited": true,
       "text": true,
@@ -2964,12 +3029,14 @@
     {
       "bit": 71,
       "field": "text_decoration_line",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextDecorationLine"
     },
     {
       "bit": 72,
       "field": "font_variant_numeric",
+      "snapshot": "admit",
       "codec": "u8",
       "keywords": "FontVariantNumeric",
       "inherited": true,
@@ -2980,6 +3047,7 @@
     {
       "bit": 73,
       "field": "line_clamp",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "u32",
       "text": true,
@@ -2989,6 +3057,7 @@
     {
       "bit": 74,
       "field": "text_overflow",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextOverflow",
       "text": true,
@@ -2997,6 +3066,7 @@
     {
       "bit": 75,
       "field": "text_color",
+      "snapshot": "admit",
       "terminal": "quantize",
       "codec": "color",
       "inherited": true,
@@ -3012,6 +3082,7 @@
     {
       "bit": 77,
       "field": "white_space",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:WhiteSpace",
       "inherited": true,
@@ -3058,6 +3129,7 @@
     {
       "bit": 84,
       "field": "clip_path",
+      "snapshot": "admit",
       "rare": true,
       "codec": "clip-path"
     },
@@ -3079,6 +3151,7 @@
     {
       "bit": 87,
       "field": "overflow_wrap",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:OverflowWrap",
       "inherited": true,
@@ -3088,6 +3161,7 @@
     {
       "bit": 88,
       "field": "border_style_top",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3095,6 +3169,7 @@
     {
       "bit": 89,
       "field": "border_style_right",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3102,6 +3177,7 @@
     {
       "bit": 90,
       "field": "border_style_bottom",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3109,6 +3185,7 @@
     {
       "bit": 91,
       "field": "border_style_left",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
@@ -3313,6 +3390,7 @@
     {
       "bit": 120,
       "field": "visibility",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:Visibility",
       "inherited": true,
@@ -3452,6 +3530,7 @@
     {
       "bit": 140,
       "field": "text_transform",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:TextTransform",
       "inherited": true,
@@ -3461,6 +3540,7 @@
     {
       "bit": 141,
       "field": "background_image",
+      "snapshot": "admit",
       "codec": "background-image",
       "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or up to four linear/radial/conic/repeating-linear gradients; linear/radial stops take px or %. Painted over background-color, clipped as the background is.",
       "cold": true
@@ -3706,6 +3786,7 @@
     {
       "bit": 175,
       "field": "order",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "i32",
       "layout": true,
@@ -3722,6 +3803,7 @@
     {
       "bit": 177,
       "field": "text_indent",
+      "snapshot": "admit",
       "terminal": "cell",
       "codec": "f32",
       "inherited": true,
@@ -3733,6 +3815,7 @@
     {
       "bit": 178,
       "field": "hyphens",
+      "snapshot": "admit",
       "codec": "enum:Hyphens",
       "inherited": true,
       "text": true,
@@ -3841,6 +3924,7 @@
     {
       "bit": 192,
       "field": "color_scheme",
+      "snapshot": "admit",
       "terminal": "admit",
       "codec": "enum:ColorScheme",
       "inherited": true,
@@ -3909,6 +3993,7 @@
     {
       "bit": 201,
       "field": "text_box_trim",
+      "snapshot": "admit",
       "codec": "enum:TextBoxTrim",
       "text": true,
       "layout": true
@@ -3916,6 +4001,7 @@
     {
       "bit": 202,
       "field": "text_box_edge",
+      "snapshot": "admit",
       "codec": "enum:TextBoxEdge",
       "inherited": true,
       "text": true,
@@ -3931,6 +4017,7 @@
     {
       "bit": 204,
       "field": "text_wrap_style",
+      "snapshot": "admit",
       "codec": "enum:TextWrapStyle",
       "inherited": true,
       "text": true,

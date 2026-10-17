@@ -75,6 +75,8 @@ pub(crate) fn emit(
     source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
+    let (widget_assets, plans) = crate::widgets::emit(app, out, manifest)?;
+    assets.extend(widget_assets);
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(
             Path::new(&directory),
@@ -99,6 +101,9 @@ pub(crate) fn emit(
     compat.target = target.into();
     compat.embedded =
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
+    if plans.as_object().is_some_and(|p| !p.is_empty()) {
+        compat.embedded["plans"] = plans;
+    }
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
     if platform != "web" {
@@ -153,6 +158,7 @@ pub(crate) fn emit(
         std::fs::create_dir_all(&destination)
             .map_err(|e| format!("{}: {e}", destination.display()))?;
         let stem = format!("{platform}-{target}");
+        crate::widgets::copy(out, &destination.join(format!("{stem}.entries")), &assets)?;
         // Never watched: the builder rewrites these from OUT_DIR after every
         // Cargo run, so a watch here would rerun this bake on every next build.
         std::fs::write(destination.join(format!("{stem}.json")), compat.to_json())

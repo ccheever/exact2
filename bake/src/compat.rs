@@ -412,6 +412,13 @@ fn compatibility_with_trust(
             }
         }
     }
+    let widgets = manifest.widgets()?;
+    if !widgets.is_empty() {
+        inputs["widgets"] = json!(widgets
+            .iter()
+            .map(|w| json!({"kind":w.kind,"families":w.families}))
+            .collect::<Vec<_>>());
+    }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
     // app with one artifact carries no key, so its id and bytes are as before.

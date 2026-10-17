@@ -322,6 +322,34 @@ refused (studio diary R14; notes diary). When nothing takes the path, the
 host says why — no `open-file` field, or the `change` the app refused, and the
 refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
+Widget entries are top-level `app.json` `widgets` rows. For example:
+
+```json
+{"kind":"next-trains","families":["systemSmall","systemMedium","accessoryRectangular"],
+ "component":"NextTrains","props":"NextTrainsProps","refresh":"nextTrains",
+ "preview":{"station":"Mountain View","departures":[]}}
+```
+
+`component` and the `props` shape are declared or imported by `app.contract`;
+every component prop must match a field of that shape. `preview` supplies all
+fields, with their declared types. `refresh` names a data-source function taking
+an epoch-millisecond number and returning a timeline: records with `date` (epoch
+milliseconds) and `props` (the declared shape), in that field order. Work and
+requests belong in refresh; the render receives a typed `snapshot_props` slot.
+The bake writes `plans/<kind>.plan` and `plans/widgets.json` beside `app.plan`.
+The envelope's `plans` map indexes those plans in its authenticated asset roster.
+Kinds and families are binary compatibility inputs; views and preview data are
+bundle contents. A running host refuses a snapshot plan at decode, and a snapshot
+reader requires its exact kind.
+
+The `snapshot` profile admits boxes, text, images, links, flex and grid. Unsupported
+style rows, scrolling, sticky positioning, timers, requests, native modules and
+handlers fail with an edit. Use `time` or interval `progress` for ticking content
+when those elements are available; otherwise pass a departure instant and display
+`formatTime`. Button/toggle intents and the reserved `live_activities` key are
+stage 2. This bake produces entry artifacts; WidgetKit packaging and presentation
+follow in LLP 1126's later work packages.
+
 App icons come from `app.json`'s Web App Manifest `icons` array: Apple uses
 the first square raster of at least 512 px. To select an
 [Icon Composer project](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer),

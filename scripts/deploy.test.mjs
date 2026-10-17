@@ -1002,3 +1002,12 @@ async function rejects(action, matches) {
       && refused.includes('share link'),
     JSON.stringify({ first, create, adopted, again, written, refused }));
 }
+
+{
+  const card = { name: 'plans/trains.plan', sha256: 'a'.repeat(64), bytes: Buffer.from('snapshot') };
+  const app = { id: 'test.widgets', displayName: 'Widgets' };
+  const bundle = { plan: { bytes: Buffer.from('app'), sha256: 'b'.repeat(64), formatVersion: 5, kernelSchema: '0'.repeat(16) }, assets: [card] };
+  const head = streamHead({ app, bundle, stream: { channel: 'prod', compatibilityId: 'c'.repeat(32) }, seq: 1, release: 'widgets' });
+  result('entry plans index the signed asset cards in the same stream',
+    JSON.stringify(head.plans.trains) === JSON.stringify(head.assets[0]) && head.plan.sha256 === bundle.plan.sha256);
+}

@@ -572,8 +572,8 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     // (count > remaining), and never reserved 16M entries first.
     let plan = sample();
     let mut bytes = plan.encode();
-    // strings count sits right after the 44-byte header.
-    bytes[44..48].copy_from_slice(&(1u32 << 24).to_le_bytes());
+    // strings count sits right after the 48-byte header.
+    bytes[48..52].copy_from_slice(&(1u32 << 24).to_le_bytes());
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
 }
 
@@ -834,12 +834,13 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
+/// LLP 1126 adds the snapshot-entry header; every host moves with this format.
 /// The format digest is pinned: a change to `tables/format.json`, a comment
 /// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x6705_a4b3_277b_9d13,
+        FORMAT_DIGEST, 0xa4b31ff839512b6c,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

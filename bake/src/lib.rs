@@ -13,6 +13,7 @@ pub mod compat;
 mod link;
 mod reach;
 mod receipt;
+mod widgets;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat};
 pub use link::{ahead, apple_link};

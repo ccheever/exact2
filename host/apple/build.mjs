@@ -206,7 +206,6 @@ export function placeAppleArtifact(stage, destination) {
     throw error;
   } finally { if (previous && (!moved || placed)) rmSync(previous, { recursive: true, force: true }); }
 }
-
 /** Capture exactly the named Cargo product the completed bake measured. */
 export function captureAppleProduct(build, source, destination) {
   const product = build.products.find(p => p.path === source);
@@ -216,7 +215,6 @@ export function captureAppleProduct(build, source, destination) {
   }
   writeFileSync(destination, bytes);
 }
-
 /** Read the baked compatibility identity from executable bytes, before
  * codesign can add a different identifier. Plists/sidecars are not evidence. */
 export function assertAppleIdentity(app, executable, compatibilityId) {
@@ -249,7 +247,7 @@ export function assertAppleIdentity(app, executable, compatibilityId) {
 /** Copy the app-visible static trees into a private Apple package stage.
  * Every leaf goes through the web host's no-symlink policy; `trees` maps an
  * app-relative source (notably `gpu/shaders`) to its bundle-visible name. */
-export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust']]) {
+export function copyAppleStaticTrees(source, target, trees = [['assets', 'assets'], ['deck', 'deck'], ['shaders', 'shaders'], ['rust', 'rust'], ['plans', 'plans']]) {
   for (const [from, to] of trees) {
     copyStaticTreeIfPresent(resolve(source, from), resolve(target, to));
   }
@@ -889,6 +887,7 @@ async function main(args) {
     }
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck']]);
+    copyAppleStaticTrees(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.entries`), capture, [['plans', 'plans']]);
     copyShaders(app, resolve(capture, 'shaders'));
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
