@@ -1007,8 +1007,9 @@ test('history reads three design commits as token edits; a revert applies, is re
     const imported = await call({ method: 'import', client: 'design-tool:ada', kind: 'shadcn', source: css, name: 'globals.css' });
     expect(imported.status, JSON.stringify(imported)).toBe(200);
     expect(imported.ok.client).toBe('design-tool:ada');
-    expect(imported.ok.ops).toHaveLength(28);
-    expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 46, reported: 1 }, tokens: 23 });
+    // 23 colours, `--radius` a length and its derived `lg` (LLP 1121 stage 6 H).
+    expect(imported.ok.ops).toHaveLength(30);
+    expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 47, reported: 0 }, tokens: 25 });
     expect(imported.ok.review.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
     expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1.replace('#000000', '#121212'));
     // A stylesheet's importer takes one sheet, never silently the first of two.
@@ -1020,7 +1021,7 @@ test('history reads three design commits as token edits; a revert applies, is re
     const sources = readdirSync(figma).map(name => ({ name, text: readFileSync(join(figma, name), 'utf8') }));
     const modes = await call({ method: 'import', client: 'design-tool:ada', kind: 'dtcg', sources });
     expect(modes.status, JSON.stringify(modes).slice(0, 400)).toBe(200);
-    expect(modes.ok.review.counted).toEqual({ source: 104, mapped: 40, reported: 64 });
+    expect(modes.ok.review.counted).toEqual({ source: 104, mapped: 101, reported: 3 });
     // A design file whose name git quotes still has its diff.
     writeFileSync(join(repo, 'ünï.tamber'), 'tamber u\n\ntheme\n  u.ink = #010101\n');
     g('add', 'ünï.tamber'); g('commit', '-q', '-m', 'a named file');
