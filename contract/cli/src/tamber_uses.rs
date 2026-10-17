@@ -320,12 +320,18 @@ pub fn sites(
             break;
         }
     }
-    // The token's kind, as the plan keeps it (a colour when it keeps none).
-    let kind = plan
-        .theme
-        .iter()
-        .find(|t| plan.str(t.name) == token)
-        .map_or(0, |t| t.kind);
+    // The kinds of the token and of the tokens naming it, as the plan keeps
+    // them (a colour where it keeps none): a length inside a shadow is read
+    // by the shadow's row too.
+    let kind_of = |name: &str| {
+        plan.theme
+            .iter()
+            .find(|t| plan.str(t.name) == name)
+            .map_or(0, |t| t.kind)
+    };
+    let kinds: Vec<u8> = std::iter::once(kind_of(token))
+        .chain(aliases.iter().map(|a| kind_of(a)))
+        .collect();
     let mut out = Vec::new();
     for (i, node) in plan.nodes.iter().enumerate() {
         let site = &map["nodes"][i];
@@ -339,10 +345,12 @@ pub fn sites(
             // only a row that takes one (`text-align: center` names none),
             // another kind the rows the kernel admits it in (a shadow its own).
             let Some(row) = exact_kernel::StyleId::from_bit(b.id as u32).filter(|r| {
-                match exact_kernel::style::theme::Kind::of(kind) {
-                    Some(exact_kernel::style::theme::Kind::Color) | None => colours(*r),
-                    Some(k) => exact_kernel::style::theme::admits(k, *r),
-                }
+                kinds
+                    .iter()
+                    .any(|kind| match exact_kernel::style::theme::Kind::of(*kind) {
+                        Some(exact_kernel::style::theme::Kind::Color) | None => colours(*r),
+                        Some(k) => exact_kernel::style::theme::admits(k, *r),
+                    })
             }) else {
                 continue;
             };

@@ -75,15 +75,21 @@ pub(crate) fn split(text: &str) -> Vec<&str> {
     out
 }
 
-/// Whether a value reads as a shadow (a list, two or more lengths, or
-/// `inset`), so an unwritten kind is asked for rather than read as a colour.
-pub(crate) fn looks(text: &str) -> bool {
+/// Whether a value reads as a shadow (a list, two or more lengths, a
+/// length token's or dial's name among them, or `inset`), so an unwritten
+/// kind is asked for rather than read as a colour.
+pub(crate) fn looks(text: &str, length: &mut dyn FnMut(&str) -> bool) -> bool {
     let parts = split(text);
     parts.len() > 1
         || crate::css::parse(parts[0]).is_ok_and(|items| {
             let lengths = items
                 .iter()
-                .filter(|i| matches!(i, Item::Dim(..)) || matches!(i, Item::Number(n) if *n == 0.0))
+                .filter(|i| match i {
+                    Item::Dim(..) => true,
+                    Item::Number(n) => *n == 0.0,
+                    Item::Ident(name) => length(name),
+                    _ => false,
+                })
                 .count();
             lengths >= 2
                 || items
@@ -95,6 +101,15 @@ pub(crate) fn looks(text: &str) -> bool {
 /// Fold a whole value's text as a shadow row: a `box-shadow` (`text`
 /// false) or a `text-shadow`.
 pub(crate) fn fold(value: &str, text: bool, names: &mut dyn Names) -> Result<Shadows, FoldError> {
+    // A whole value naming a shadow token of its kind is an alias of it.
+    if let Ok([Item::Ident(name)]) = crate::css::parse(value).as_deref() {
+        if let Named::Shadow(s) = names.named(name)? {
+            return match s.text == text {
+                true => Ok(s),
+                false => fail("tamber-kind", format!("`{name}` is the other row's shadow")),
+            };
+        }
+    }
     if value.trim().eq_ignore_ascii_case("none") {
         return Ok(Shadows {
             text,

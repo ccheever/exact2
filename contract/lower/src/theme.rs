@@ -1056,7 +1056,11 @@ pub(crate) fn measure_row(
             }
             continue;
         };
-        let takes = if theme::admits(theme::Kind::Color, *row) {
+        let takes = if theme::admits(theme::Kind::BoxShadow, *row) {
+            "a box shadow"
+        } else if theme::admits(theme::Kind::TextShadow, *row) {
+            "a text shadow"
+        } else if theme::admits(theme::Kind::Color, *row) {
             "a colour"
         } else if theme::admits(theme::Kind::Number, *row)
             && !theme::admits(theme::Kind::Length, *row)

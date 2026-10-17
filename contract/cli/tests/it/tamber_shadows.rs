@@ -165,3 +165,26 @@ fn uses_finds_a_shadow_tokens_rows() {
         assert_eq!(sites[0]["row"], row, "{sites:?}");
     }
 }
+
+/// Review round 2: a length token inside a shadow is read where the
+/// shadow is (`uses` of the length lists the shadow's row too).
+#[test]
+fn uses_of_a_length_lists_a_shadow_folded_over_it() {
+    let design = "tamber t\n\ntheme\n  space.card = 4px\n  shadow.card: box-shadow = 0 space.card 12px #000\n";
+    let path = app(
+        "uses-length",
+        &[
+            ("app.tamber", design),
+            ("app.contract", "component App\n  view\n    column padding-top=\"space.card\" box-shadow=\"shadow.card\"\n      text \"a\"\n"),
+        ],
+    );
+    let (plan, map) = contract::compile_path_mapped(&path).unwrap();
+    let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let aliases: std::collections::BTreeSet<String> = ["shadow.card".to_string()].into();
+    let sites = contract::tamber_uses::sites(&plan, &map, "space.card", &aliases, &[]);
+    let rows: Vec<&str> = sites.iter().filter_map(|s| s["row"].as_str()).collect();
+    assert!(
+        rows.contains(&"padding_top") && rows.contains(&"box_shadow"),
+        "{sites:?}"
+    );
+}

@@ -207,7 +207,7 @@ pub(crate) fn length(
         Item::Ident(name) => match names.named(name)? {
             Named::Length(l) => Ok(l),
             Named::Number(_) => fail("tamber-kind", format!("`{name}` is a number, not a length")),
-            Named::Duration(_) | Named::Easing(_) => {
+            Named::Duration(_) | Named::Easing(_) | Named::Shadow(_) => {
                 fail("tamber-kind", format!("`{name}` is a motion token"))
             }
             Named::Color(_) | Named::Role(_) => {
@@ -253,7 +253,7 @@ pub(crate) fn number(items: &[Item], names: &mut dyn Names) -> Result<f64, FoldE
         Item::Ident(name) => match names.named(name)? {
             Named::Number(n) => Ok(n),
             Named::Length(_) => fail("tamber-kind", format!("`{name}` is a length, not a number")),
-            Named::Duration(_) | Named::Easing(_) => {
+            Named::Duration(_) | Named::Easing(_) | Named::Shadow(_) => {
                 fail("tamber-kind", format!("`{name}` is a motion token"))
             }
             Named::Color(_) | Named::Role(_) => {
@@ -473,7 +473,7 @@ fn operand(item: &Item, text: &str, names: &mut dyn Names) -> Result<Quantity, F
                 "tamber-kind",
                 format!("`{name}` in `{text}`: {RELATIVE_IN_CALC}"),
             ),
-            Named::Duration(_) | Named::Easing(_) => {
+            Named::Duration(_) | Named::Easing(_) | Named::Shadow(_) => {
                 fail("tamber-kind", format!("`{name}` is a motion token"))
             }
             Named::Color(_) | Named::Role(_) => {

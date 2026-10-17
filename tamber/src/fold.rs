@@ -67,6 +67,8 @@ pub(crate) enum Named {
     Duration(f64),
     /// An easing token's text.
     Easing(String),
+    /// A shadow token's value, which only a whole shadow value names.
+    Shadow(crate::shadow::Shadows),
     /// A colour role no token overrides.
     Role(String),
     /// Nothing the design declares.
@@ -234,6 +236,12 @@ fn ident(name: &str, names: &mut dyn Names) -> Result<Folded, FoldError> {
         }
         Named::Length(_) => {
             return fail("tamber-kind", format!("`{name}` is a length, not a colour"))
+        }
+        Named::Shadow(_) => {
+            return fail(
+                "tamber-kind",
+                format!("`{name}` is a shadow token, not a colour"),
+            )
         }
         Named::Duration(_) | Named::Easing(_) => {
             return fail(

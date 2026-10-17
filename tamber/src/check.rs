@@ -677,7 +677,10 @@ impl<'a> Checker<'a> {
             if !self.refused[i]
                 && self.kinds[i] == Kind::Color
                 && t.kind.is_none()
-                && crate::shadow::looks(&t.value.value)
+                && crate::shadow::looks(&t.value.value, &mut |name| {
+                    let mut path = vec![false; design.tokens.len()];
+                    self.named_kind(name, i, &mut path) == Kind::Length
+                })
             {
                 self.refused[i] = true;
                 self.at(&t.name, "tamber-kind", format!("`{}` reads as a shadow: write its kind, `{}: box-shadow` or `{}: text-shadow`", t.name.value, t.name.value, t.name.value));
@@ -1245,8 +1248,8 @@ impl Names for Scope<'_, '_> {
                     Value::Color(f) => Named::Color(f),
                     Value::Length(l) => Named::Length(l),
                     Value::Number(n) => Named::Number(n),
-                    // No value names a shadow token: it is a whole row's.
-                    Value::Shadow(_) => Named::Unknown,
+                    // A shadow token: only a whole shadow value names one.
+                    Value::Shadow(s) => Named::Shadow(s),
                     Value::Duration(ms) => Named::Duration(ms),
                     Value::Easing(e) => Named::Easing(e),
                 })

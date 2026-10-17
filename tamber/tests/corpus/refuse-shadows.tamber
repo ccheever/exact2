@@ -18,3 +18,7 @@ theme
   negative.blur: box-shadow = 0 1px -2px #000
   huge: box-shadow = 0 1e40px #000
   unitless: box-shadow = 0 1 2px #000
+  text.from.box: text-shadow = shadow.box
+  shadow.box: box-shadow = 0 1px #000
+  lift.len = 2px
+  card.unwritten = lift.len 8px #000
